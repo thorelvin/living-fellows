@@ -382,6 +382,7 @@ local function clearEngagement(state, actor)
     state.engagementActionCount = 0
     state.engagementAnnounced = false
     state.struggleAnnounced = false
+    state.forwardRetreatTarget, state.forwardRetreatUntil = nil, nil
 end
 
 local function prepareEngagement(state, actor, target, now)
@@ -533,6 +534,22 @@ local function enterRetreat(actor, state, commands, now, survivalCritical, snaps
     state.retreating = true
     emitCombatBark(actor, state, commands,
         countedCombatTopic("combat.retreat", snapshot), now, survivalCritical)
+end
+
+local function noteForwardRetreat(state, target, now, accepted, reason)
+    if accepted and target and target.actor and reason ~= "breakout_shove"
+        and reason ~= "arrived" then
+        state.forwardRetreatTarget = target.actor
+        state.forwardRetreatUntil = now + (U().config("combatForwardRetreatFacingMs") or 650)
+    end
+end
+
+local function spacingFacesTarget(state, target, now)
+    -- Repositioning after a forward escape keeps the forward walk blend for a
+    -- short quiet interval. This changes only facing/gait: selection, vectors,
+    -- collision and attacks are never delayed to complete a movement stride.
+    return state.forwardRetreatTarget ~= target
+        or now >= (state.forwardRetreatUntil or 0)
 end
 
 local function safeForAftermathRegister(state, snapshot, killedTarget, now)
@@ -1696,11 +1713,13 @@ local function threatScore(threat, actor, player, snapshot)
     if threat.breaching then score = score + (utility.config("combatBreachPriority") or 40) end
     if threat.rescue then score = score + (utility.config("combatRescuePriority") or 35) end
     local bearing, facingDot = threatBearing(actor, threat.actor)
+    local bearingScore = 0
     if bearing == "rear" then
-        score = score + (utility.config("combatRearThreatPriority") or 30)
+        bearingScore = utility.config("combatRearThreatPriority") or 30
     elseif bearing == "flank" then
-        score = score + (utility.config("combatFlankThreatPriority") or 18)
+        bearingScore = utility.config("combatFlankThreatPriority") or 18
     end
+    score = score + bearingScore
     if player and utility.sameFloor(player, threat.actor)
         and utility.distanceSq(player, threat.actor) <= 5.75 then score = score + 24 end
     if snapshot and type(snapshot.allies) == "table" then
@@ -1709,7 +1728,7 @@ local function threatScore(threat, actor, player, snapshot)
                 and utility.distanceSq(ally.actor, threat.actor) <= 4 then score = score + 15 break end
         end
     end
-    return score, bearing, facingDot
+    return score, bearing, facingDot, bearingScore
 end
 
 -- Team members share one short health sample per zombie. A damaged target is
@@ -1898,7 +1917,7 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             record.visible = true
             record.obstructed = false
             record.rescue = Combat._rescuing(actor, threat.actor, pinnedAllies)
-            local score, bearing, facingDot = threatScore(record, actor, player, snapshot)
+            local score, bearing, facingDot, bearingScore = threatScore(record, actor, player, snapshot)
             local immediate = tonumber(snapshot.reachableImmediateCount)
                 or tonumber(snapshot.closeImmediateCount) or 0
             if snapshot.encircled ~= true and immediate <= 2
@@ -1976,6 +1995,7 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             record.score = score
             record.bearing = bearing
             record.facingDot = facingDot
+            record.bearingScore = bearingScore
             record.claimedByAlly = claimed
             record.cohortClaim = claim
             scored[#scored + 1] = record
@@ -2043,7 +2063,7 @@ local function addNearbyGrounded(actor, player, snapshot, scored)
                         grounded = true,
                         fallen = true,
                     }
-                    record.score, record.bearing, record.facingDot =
+                    record.score, record.bearing, record.facingDot, record.bearingScore =
                         threatScore(record, actor, player, snapshot)
                     scored[#scored + 1] = record
                 end
@@ -3711,6 +3731,51 @@ end
 
 Combat._doctrineMayFightForTests = doctrineMayFight
 
+local function urgentTargetChange(candidate, previous)
+    if not previous then return true end
+    if candidate.rescue == true and previous.rescue ~= true then return true end
+    if candidate.playerDesignation == "focus" and previous.playerDesignation ~= "focus" then return true end
+    local radius = U().config("combatShoveDistance") or 1.35
+    local distanceSq, previousSq = candidate.distanceSq or math.huge, previous.distanceSq or math.huge
+    -- Several contacts in shove range are not several new emergencies. Only
+    -- a higher danger tier interrupts the current viable engagement.
+    if candidate.attacking == true and previous.attacking ~= true
+        and distanceSq <= (U().config("perceptionAttackCommitRadius") or 1.5)^2
+        and previousSq > radius^2 then return true end
+    if distanceSq <= radius^2 and previousSq > radius^2 then return true end
+    return distanceSq <= (radius * 0.6)^2 and previousSq > (radius * 0.85)^2
+end
+
+local function stableTargetScore(record)
+    -- Rear/flank awareness still ranks new contacts and feeds danger handling.
+    -- Once engaged, our own turn must not make the other contact win merely
+    -- because it just became the new rear. Compare the remaining live facts.
+    return (tonumber(record.score) or 0) - (tonumber(record.bearingScore) or 0)
+end
+
+local function offensiveAction(action)
+    local kind = action and action.kind
+    return kind == "melee" or kind == "stomp" or kind == "shoot" or kind == "shove"
+end
+
+function Combat.facingThreat(actor, snapshot)
+    if type(snapshot) ~= "table" then return nil end
+    local first = (snapshot.immediateAttackers or {})[1] or (snapshot.threats or {})[1]
+    local state = states[actor]
+    local target = state and state.target
+    if target == nil or U().isGoneTarget(target) then return first end
+    for index, record in ipairs(snapshot.threats or {}) do
+        if index > (U().config("perceptionThreatLimit") or 32) then break end
+        if record.actor == target and record.visible ~= false and record.obstructed ~= true
+            and U().sameFloor(actor, target) then
+            if type(first) == "table" and first.actor ~= nil and first.actor ~= target
+                and urgentTargetChange(first, record) then return first end
+            return record
+        end
+    end
+    return first
+end
+
 local function selectDoctrineTarget(actor, scored, player, snapshot, commands, state, now)
     local best
     for _, target in ipairs(scored) do
@@ -3727,12 +3792,13 @@ local function selectDoctrineTarget(actor, scored, player, snapshot, commands, s
             end
         end
     end
-    local emergency = best.attacking == true
-        or (best.distanceSq or math.huge)
-            <= (U().config("combatShoveDistance") or 1.35) ^ 2
+    local emergency = urgentTargetChange(best, previous)
     local margin = U().config("combatTargetScoreMargin") or 18
-    if previous and previous.actor ~= best.actor and now < (state.targetCommitUntil or 0)
-        and not emergency and best.score < previous.score + margin then
+    local committed = now < (state.targetCommitUntil or 0)
+    if not committed then margin = margin * 0.5 end
+    if previous and previous.actor ~= best.actor
+        and not emergency and (committed
+            or stableTargetScore(best) < stableTargetScore(previous) + margin) then
         return previous
     end
     if previous == nil or previous.actor ~= best.actor then
@@ -3742,7 +3808,7 @@ local function selectDoctrineTarget(actor, scored, player, snapshot, commands, s
         else
             local ranged = commands.combatDoctrine == "ranged_support"
             commitMs = ranged and (U().config("combatRangedCommitMs") or 1000)
-                or (U().config("combatMeleeCommitMs") or 650)
+                or (U().config("combatMeleeCommitMs") or 1000)
         end
         state.targetCommitUntil = now + commitMs
     end
@@ -3752,6 +3818,8 @@ end
 -- Score bounded target/action pairs instead of committing to a target before
 -- discovering whether anything useful can be done to it. This prevents a prone
 -- zombie with no safe stomp from suppressing a viable swing at a standing one.
+Combat._selectDoctrineTargetForTests = selectDoctrineTarget
+
 local function selectViablePair(actor, player, snapshot, scored, commands, state,
         now, preference, preferredTarget)
     local performance = SC.Performance
@@ -3774,8 +3842,7 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
             seen[candidate.actor] = true
         end
     end
-    local committedTarget = state.target and now < (state.targetCommitUntil or 0)
-        and state.target or nil
+    local committedTarget = state.target
     if committedTarget and not seen[committedTarget] then
         for _, candidate in ipairs(scored or {}) do
             if candidate.actor == committedTarget
@@ -3876,17 +3943,20 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
 
     -- Target commitment applies only among viable pairs. It may stabilize a
     -- close contest, but it cannot preserve a target whose only action vanished.
-    if state.target and best.target.actor ~= state.target
-        and now < (state.targetCommitUntil or 0) then
+    if state.target and best.target.actor ~= state.target then
         local previous
         for _, pair in ipairs(pairs) do
             if pair.target.actor == state.target then previous = pair break end
         end
-        local emergency = best.target.attacking == true
-            or (best.target.distanceSq or math.huge)
-                <= (U().config("combatShoveDistance") or 1.35) ^ 2
+        local emergency = urgentTargetChange(best.target, previous and previous.target)
+            or previous and offensiveAction(best.action) and not offensiveAction(previous.action)
         local margin = tonumber(U().config("combatTargetPairMargin")) or 8
-        if previous and not emergency and best.score < previous.score + margin then
+        local committed = now < (state.targetCommitUntil or 0)
+        if not committed then margin = margin * 0.5 end
+        local bestStable = best.score - (tonumber(best.target.bearingScore) or 0) * 0.35
+        local previousStable = previous and previous.score
+            - (tonumber(previous.target.bearingScore) or 0) * 0.35 or nil
+        if previous and not emergency and (committed or bestStable < previousStable + margin) then
             best = previous
         end
     end
@@ -3895,7 +3965,7 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
             and (U().config("combatDesignationCommitMs") or 2500)
             or (commands.combatDoctrine == "ranged_support"
                 and (U().config("combatRangedCommitMs") or 1000)
-                or (U().config("combatMeleeCommitMs") or 650))
+                or (U().config("combatMeleeCommitMs") or 1000))
         state.targetCommitUntil = now + commitMs
     end
     recordPairPhases()
@@ -4476,9 +4546,11 @@ local function closingBackpedal(actor, snapshot, target, weapon, state, now)
     local dx, dy, steered = SC.Navigation.combatVector(
         actor, target.actor, "backstep", snapshot)
     if dx == nil or dy == nil then return false end
+    local guarded = spacingFacesTarget(state, target.actor, now)
     local moved = U().move(actor, "walk", {
         action = "backstep", target = target.actor, awayFrom = target.actor,
-        dx = dx, dy = dy, keepFacing = true, weaponReady = true,
+        dx = dx, dy = dy, keepFacing = guarded, weaponReady = guarded,
+        allowMovingTurn = not guarded,
         movementDistanceScale = 0.25, microSteered = steered == true,
     })
     if moved then state.lastClosingBackpedalAt = now end
@@ -4490,8 +4562,10 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     state = state or stateFor(actor)
     local targetActor = target and target.actor
     if action.kind == "retreat" or action.kind == "escape" then
-        return executeRetreat(actor, player, snapshot, target,
+        local accepted, reason = executeRetreat(actor, player, snapshot, target,
             action.kind == "escape", state, commands)
+        noteForwardRetreat(state, target, utility.nowMs(), accepted, reason)
+        return accepted, reason
     end
     if action.kind == "shoot" or action.kind == "melee"
         or action.kind == "shove" or action.kind == "stomp" then
@@ -4651,20 +4725,23 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local rushing = (target.breaching == true or target.rescue == true)
             and math.sqrt(target.distanceSq or utility.distanceSq(actor, targetActor))
                 > (utility.config("combatBreachRunDistance") or 2.5)
+        local guarded = not rushing and spacingFacesTarget(state, targetActor, utility.nowMs())
         accepted, nativeReason = utility.move(actor, rushing and "jog" or "walk", {
             action = "combat_approach",
             dx = moveX,
             dy = moveY,
             target = targetActor,
-            facingTarget = targetActor,
-            keepFacing = not rushing,
-            weaponReady = not rushing,
-            tacticalStrafe = not rushing,
+            facingTarget = guarded and targetActor or nil,
+            keepFacing = guarded,
+            weaponReady = guarded,
+            tacticalStrafe = guarded,
+            allowMovingTurn = not guarded,
             microSteered = steered == true,
             combatMinimumDistance = action.minimumDistance
                 or (weapon and Combat.meleeSpacing(actor, weapon.item, target) or {}).desired,
         })
     elseif action.kind == "backstep" then
+        local guarded = spacingFacesTarget(state, targetActor, utility.nowMs())
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
@@ -4674,10 +4751,12 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         end
         accepted, nativeReason = utility.move(actor, "walk", {
             action = "backstep", target = targetActor, awayFrom = targetActor,
-            dx = moveX, dy = moveY, keepFacing = true,
+            dx = moveX, dy = moveY, keepFacing = guarded, weaponReady = guarded,
+            allowMovingTurn = not guarded,
             microSteered = steered == true,
         })
     elseif action.kind == "kite" then
+        local guarded = spacingFacesTarget(state, targetActor, utility.nowMs())
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
@@ -4687,7 +4766,8 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         end
         accepted, nativeReason = utility.move(actor, "walk", {
             action = "lateral_kite", target = targetActor, awayFrom = targetActor,
-            lateral = true, dx = moveX, dy = moveY, keepFacing = true,
+            lateral = true, dx = moveX, dy = moveY, keepFacing = guarded, weaponReady = guarded,
+            allowMovingTurn = not guarded,
             microSteered = steered == true,
         })
     elseif action.kind == "hold_range" then
@@ -4712,6 +4792,10 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         end
         local prefix = action.kind .. "_rejected"
         return false, nativeReason and (prefix .. ":" .. tostring(nativeReason)) or prefix
+    end
+    if action.kind == "shoot" or action.kind == "melee" or action.kind == "shove"
+        or action.kind == "stomp" then
+        state.forwardRetreatTarget, state.forwardRetreatUntil = nil, nil
     end
     if action.kind == "melee" or action.kind == "shove" then
         local tx, ty = utility.position(targetActor)
@@ -4914,16 +4998,17 @@ function Combat.update(actor, player, runtime)
         return false, "no_credible_target"
     end
     state.noCredibleAt = nil
-    -- Continuously point the actor at the engaged target so the native swing's
-    -- hit arc (getDirectionAngle) lands, like a player's mouse aim. Cleared above
-    -- when there is no credible target.
-    utility.call(actor, "setCompanionAimTarget", target.actor)
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
-    local combatRole, cohortClaimRecord = claimTarget(
-        target.actor, actor, now, state.cohortKey, nil, "approach", distance)
-    state.combatRole = combatRole
-    state.combatRoleTarget = target.actor
-    rootRuntime.combatRole = combatRole
+    -- Establish the initial lane or refresh the incumbent. Doctrine may propose
+    -- another contact, but it must not release the existing lane until a viable
+    -- pair commits that change. Provisional aim changes are likewise deferred.
+    local combatRole, cohortClaimRecord
+    if state.target == nil or state.target == target.actor then
+        combatRole, cohortClaimRecord = claimTarget(
+            target.actor, actor, now, state.cohortKey, nil, "approach", distance)
+        state.combatRole, state.combatRoleTarget = combatRole, target.actor
+        rootRuntime.combatRole = combatRole
+    end
     rootRuntime.combatCohort = state.cohortKey
     local vehicle, vehicleOk = utility.call(actor, "getVehicle")
     local seated = vehicleOk and vehicle ~= nil
@@ -5059,6 +5144,7 @@ function Combat.update(actor, player, runtime)
                 target, weapon, commands, overrun, state, now)
         end
         if countered then
+            state.forwardRetreatTarget, state.forwardRetreatUntil = nil, nil
             enterRetreat(actor, state, commands, now, true, snapshot)
             recordOffensiveAction(actor, state, commands, target.actor, now, false, snapshot)
             state.active = true
@@ -5073,6 +5159,7 @@ function Combat.update(actor, player, runtime)
         state.combatRole = nil
         rootRuntime.combatRole = nil
         local ok, reason = executeRetreat(actor, player, snapshot, target, true, state, commands)
+        noteForwardRetreat(state, target, now, ok, reason)
         if ok and reason == "corner_escape" and #(snapshot.escapeSquares or {}) == 0 then
             local x, y = utility.position(actor)
             state.cornerEscapeProbe = state.cornerEscapeProbe or { x = x, y = y, at = now }

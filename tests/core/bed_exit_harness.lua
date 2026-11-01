@@ -161,15 +161,63 @@ do
     local f = scene()
     f.exit.blocked, f.exit.unsafe = false, true
     local targets = SC.BedGeometry.exitTargets(f.pieces[1], f.actor)
-    check(#targets == 0, "a narrow other-tile exit cannot bypass native spawn safety")
+    check(#targets == 1 and targets[1] == f.exit,
+        "a verified narrow aisle remains usable for an existing sleeper")
     f.tiles["9:10"].blocked = false
     targets = SC.BedGeometry.exitTargets(f.pieces[1], f.actor)
-    check(#targets == 1 and targets[1] == f.tiles["9:10"],
-        "a native-rejected narrow exit cannot hide another usable side of the bed")
+    check(#targets == 2 and targets[1] == f.tiles["9:10"],
+        "both clear sides are retained, nearest first")
     startExit(f)
     f.actor.px, f.actor.py, f.actor.square = 10.5, 12.05, f.exit
     check(SC.NativeActions.leaveSeating(f.actor) and f.count() == 1,
         "an existing actor can recenter its narrow aisle even when native spawning rejects it")
+end
+do
+    local f = scene()
+    startExit(f)
+    local tableTile, aisle = f.exit, f.tiles["11:12"]
+    f.actor.px, f.actor.py, f.actor.square = 10.9, 12.05, tableTile
+    tableTile.blocked, aisle.blocked, aisle.unsafe = false, false, true
+    tableTile.objects = { { getSurfaceOffset = function() return 30 end } }
+    function f.actor:isCompanionMovementClear(x, y, z)
+        return self.clearEscape and x == 11.5 and y == 12.5 and z == 1
+    end
+    check(not SC.NativeActions.leaveSeating(f.actor) and f.count() == 0,
+        "a table-overlapping get-up cannot escape without native clearance")
+    f.actor.clearEscape = true
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 1001
+    check(SC.NativeActions.leaveSeating(f.actor) and f.actor.square == aisle,
+        "get-up already clipped into a low table escapes to verified adjacent floor with the table intact")
+    check(#tableTile.objects == 1, "exit recovery never deletes the low table")
+end
+do
+    local f = scene()
+    f.exit.blocked, f.tiles["9:10"].blocked = false, false
+    local recover, attempted = SC.Actor.recover, 0
+    SC.Actor.recoverBedExit = function(actor, bed, tile)
+        attempted = attempted + 1
+        check(bed == f.pieces[1], "bed-specific recovery retains the original bed")
+        if attempted == 1 then return false end
+        return recover(actor, tile)
+    end
+    check(SC.NativeActions.leaveSeating(f.actor) and attempted == 2,
+        "a destination rejected at application time does not hide the next clear exit")
+end
+for _, obstruction in ipairs({ "walls", "windows", "doors", "fences", "body", "table", "room", "distance" }) do
+    local f = scene()
+    startExit(f)
+    local source, target = f.exit, f.tiles["11:12"]
+    f.actor.px, f.actor.py, f.actor.square = 10.9, 12.05, source
+    source.blocked, target.blocked = false, false
+    source.objects = { { getSurfaceOffset = function() return 30 end } }
+    function f.actor:isCompanionMovementClear() return true end
+    if obstruction == "body" then target.moving = { { isCollidable = function() return true end } }
+    elseif obstruction == "table" then target.objects = { { getSurfaceOffset = function() return 30 end } }
+    elseif obstruction == "room" then target.room = {}
+    elseif obstruction == "distance" then f.actor.px = 10.01
+    else source[obstruction][target] = true end
+    check(not SC.NativeActions.leaveSeating(f.actor) and f.count() == 0,
+        "leaving an existing table overlap still rejects " .. obstruction)
 end
 do
     local f = scene()

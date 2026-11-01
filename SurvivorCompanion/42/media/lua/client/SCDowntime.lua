@@ -3339,6 +3339,10 @@ local function tidyCampActivity(actor)
 end
 
 local function cleaningLiquidAmount(item)
+    if SC.CleaningSupplies then
+        local info = SC.CleaningSupplies.inspect(item)
+        return info and info.usable and info.amount or nil
+    end
     local fluid = select(1, U().call(item, "getFluidContainer"))
     if not fluid then return nil end
     local bleach = Fluid and Fluid.Bleach
@@ -3357,7 +3361,10 @@ local function cleanerRemaining(item)
     return type(amount) == "number" and amount or tonumber(amount)
 end
 
-local function cleaningSupplies(actor)
+local function cleaningSupplies(actor, remainingBudget)
+    if SC.CleaningSupplies then
+        return SC.CleaningSupplies.carried(actor, remainingBudget)
+    end
     local utility = U()
     local tag = ItemTag and ItemTag.CLEAN_STAINS
     local minimum = ZomboidGlobals and ZomboidGlobals.CleanBloodBleachAmount
@@ -3417,8 +3424,7 @@ local function cleanBaseActivity(actor, state, requestedSquare)
         or base.isInside(actor) ~= true then return nil end
     local actorSquare = utility.squareOf(actor)
     if not actorSquare then return nil end
-    local tool, cleaner = cleaningSupplies(actor)
-    if not tool then return nil end
+    local tool, cleaner, suppliesChecked
     local x, y, z = utility.position(actorSquare)
     if x == nil then return nil end
     local best, bestDistance
@@ -3430,6 +3436,11 @@ local function cleanBaseActivity(actor, state, requestedSquare)
                 or utility.sameFloor(actorSquare, square)
                     and base.isInside(actorSquare) == true)
             or select(1, utility.call(square, "haveStains")) ~= true then return end
+        if not suppliesChecked then
+            tool, cleaner = cleaningSupplies(actor)
+            suppliesChecked = true
+        end
+        if not tool then return end
         local distance = utility.distance(actor, square)
         if distance and (bestDistance == nil or distance < bestDistance) then
             bestDistance = distance
@@ -3494,7 +3505,7 @@ local function cleanBaseActivity(actor, state, requestedSquare)
     return best
 end
 
-function Downtime.canCleanAt(actor, square, suppliesStaged)
+function Downtime.canCleanAt(actor, square, suppliesStaged, remainingBudget)
     if not U().isValidActor(actor) or not square then
         return false, "cleaning_target_unavailable" end
     if not SC.BaseLife or SC.BaseLife.isInside(square) ~= true then
@@ -3503,7 +3514,7 @@ function Downtime.canCleanAt(actor, square, suppliesStaged)
         return false, "cleaning_stain_gone" end
     if not campWorkActorPresent(actor) then
         return false, "cleaning_worker_away" end
-    if suppliesStaged ~= true and not cleaningSupplies(actor) then
+    if suppliesStaged ~= true and not cleaningSupplies(actor, remainingBudget) then
         return false, "cleaning_supplies_missing" end
     local actorSquare = U().squareOf(actor)
     if not actorSquare or not (campWorkContext(actorSquare, square)
@@ -3781,7 +3792,8 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
         if activity then filtered[#filtered + 1] = activity end
     end
     if (desiredKind == nil or desiredKind == "clean_base")
-        and not ambientCooling(state, "clean_base", current)
+        and ((desiredKind == "clean_base" and requestedSquare ~= nil)
+            or not ambientCooling(state, "clean_base", current))
         and (desiredKind == "clean_base"
             or utility.isDue(actor, "downtime_clean_probe", 15000, current)) then
         activity = cleanBaseActivity(actor, state, requestedSquare)

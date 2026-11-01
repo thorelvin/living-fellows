@@ -133,6 +133,7 @@ local valueData = {
     -- episode expires.
     combatStalledAttackLeaseMs = 8000,
     combatSpacingReversalGuardMs = 225,
+    combatForwardRetreatFacingMs = 650,
     combatSteeringProbeDistance = 0.45,
     combatTargetActionCandidates = 3,
     combatTargetActionHardCap = 8,
@@ -200,6 +201,8 @@ local valueData = {
     scavengeReachTiles = 1.6,
     scavengeFacingDot = 0.55,
     movementTurnBeforeMoveDot = 0.8,
+    -- Bound a native turn that never advances, so collision recovery can run.
+    movementTurnMaxWaitMs = 1600,
     -- A validated open-ground follow vector may bend while the actor is already
     -- moving. Keep translation through ordinary 45/90-degree corrections and
     -- reserve the stop-and-turn state for changes sharper than about 104°.
@@ -634,7 +637,7 @@ local valueData = {
     combatPushStressCost = 8,
     combatPushOutcomeWindowMs = 30000,
     combatPushInjuryHealthLoss = 5,
-    combatMeleeCommitMs = 650,
+    combatMeleeCommitMs = 1000,
     combatRangedCommitMs = 1000,
     combatMotionHistoryMs = 1500,
     combatMotionSampleMinimumMs = 80,

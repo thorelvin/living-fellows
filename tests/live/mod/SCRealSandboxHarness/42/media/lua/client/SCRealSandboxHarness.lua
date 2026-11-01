@@ -15801,6 +15801,22 @@ Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
 
+Harness.probeCleaningMixtures = function(...)
+    return externalProbe("SCCleaningMixturesProbe", ...)
+end
+
+Harness.probeBedExitTables = function(...)
+    return externalProbe("SCBedExitTablesProbe", ...)
+end
+
+Harness.probeDoorwayStall = function(...)
+    return externalProbe("SCDoorwayStallProbe", ...)
+end
+
+Harness.probeBaseJobLatency = function(...)
+    return externalProbe("SCBaseJobLatencyProbe", ...)
+end
+
 Harness.probeFloorSort = function(...)
     return externalProbe("SCFloorSortProbe", ...)
 end
@@ -16425,6 +16441,14 @@ local function tick()
         else
             setPhase("finish", current)
         end
+    elseif string.find(tostring(Harness.phase), "doorway_stall_", 1, true) == 1 then
+        Harness.probeDoorwayStall(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "bed_exit_tables_", 1, true) == 1 then
+        Harness.probeBedExitTables(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "cleaning_mixtures_", 1, true) == 1 then
+        Harness.probeCleaningMixtures(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "base_job_latency_", 1, true) == 1 then
+        Harness.probeBaseJobLatency(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "base_maintenance_", 1, true) == 1 then
         Harness.probeBaseMaintenance(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "floor_sort_", 1, true) == 1 then
@@ -17392,6 +17416,14 @@ local function onGameStart()
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then
         setPhase("fishing_map_list", Harness.startedAt)
+    elseif Harness.config.doorway_stall_probe == "true" then
+        setPhase("doorway_stall_setup", Harness.startedAt)
+    elseif Harness.config.bed_exit_tables_probe == "true" then
+        setPhase("bed_exit_tables_setup", Harness.startedAt)
+    elseif Harness.config.cleaning_mixtures_probe == "true" then
+        setPhase("cleaning_mixtures_setup", Harness.startedAt)
+    elseif Harness.config.base_job_latency_probe == "true" then
+        setPhase("base_job_latency_setup", Harness.startedAt)
     elseif Harness.config.base_maintenance_probe == "true" then
         setPhase("base_maintenance_setup", Harness.startedAt)
     elseif Harness.config.floor_sort_probe == "true" then

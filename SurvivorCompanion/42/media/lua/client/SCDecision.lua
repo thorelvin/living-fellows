@@ -845,7 +845,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                     and humanThreat == nil
                     and SC.Production and type(SC.Production.settlementFor) == "function"
                     and SC.Production.settlementFor(actor) or nil
-                add("base_work", settlement and 86 or 58, false)
+                local priorityWork = SC.BaseLife and SC.BaseLife.priorityWorkFor
+                    and SC.BaseLife.priorityWorkFor(U().idOf(actor))
+                local cleaningSettlement = SC.BaseWork and SC.BaseWork.cleaningSettlement
+                    and SC.BaseWork.cleaningSettlement(actor)
+                -- Exact borrowed supplies must finish/return before optional
+                -- loadout searches. Real overload, medical needs and danger
+                -- retain their higher scores and normal cancellation paths.
+                add("base_work", (settlement or cleaningSettlement) and 86 or priorityWork and 78 or 58, false)
             end
         end
         if threatCount == 0 and not bleeding and SC.ExpeditionPrototype then
@@ -2208,6 +2215,19 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         if not SC.BaseWork or type(SC.BaseWork.update) ~= "function" then
             return false, "base_work_unavailable"
         end
+        if SC.Logistics and type(SC.Logistics.yieldToWork) == "function" then
+            local ready, reason = SC.Logistics.yieldToWork(actor)
+            if ready ~= true then
+                -- Let an exact transfer finish instead of blocking the new
+                -- farm/production job on the old transaction's owner token.
+                if type(SC.Logistics.update) == "function" then
+                    return callSubsystem("logistics", actor, function()
+                        return SC.Logistics.update(actor, player, rootRuntime)
+                    end)
+                end
+                return true, reason or "logistics_release_pending"
+            end
+        end
         return callSubsystem("base-work", actor, function()
             return SC.BaseWork.update(actor, player, rootRuntime)
         end)
@@ -2333,6 +2353,9 @@ local function guardedSafetyHold(actor, snapshot, selected)
     if U().stop(actor) ~= true then return false, "safety_hold_stop_rejected" end
     local record = type(snapshot) == "table"
         and ((snapshot.immediateAttackers or {})[1] or (snapshot.threats or {})[1]) or nil
+    if SC.Combat and type(SC.Combat.facingThreat) == "function" then
+        record = SC.Combat.facingThreat(actor, snapshot) or record
+    end
     local target = type(record) == "table" and (record.actor or record.target) or record
     if target ~= nil then
         -- Failure to raise/focus a weapon does not invalidate the stationary

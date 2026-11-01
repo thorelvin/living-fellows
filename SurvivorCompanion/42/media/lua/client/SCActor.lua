@@ -429,6 +429,14 @@ local function nativeBridgeProvider()
         return true
     end
 
+    function provider:recoverBedExit(actor, bed, square)
+        if not self:isActor(actor) then return false, "actor is not owned by SCBridge" end
+        if not method(bridge, "recoverBedExit") then return self:recover(actor, square) end
+        local ok, recovered = staticInvoke(bridge, "recoverBedExit", actor, bed, square)
+        if not ok or recovered ~= true then return false, lastBridgeFailure(recovered) end
+        return true
+    end
+
     function provider:requestSpawn(square, identity, bare)
         identity = type(identity) == "table" and identity or {}
         -- `bare` means this companion arrives with saved clothes of its own,
@@ -1610,15 +1618,19 @@ function actorService.stop(actor)
     return false, "provider has no verified stop adapter"
 end
 
-function actorService.recover(actor, square)
+local function recoverActor(actor, square, bed)
     if not actorService.isCompanion(actor) then
         return false, "actor is not an active companion"
     end
     if cachedProvider == nil or type(cachedProvider.recover) ~= "function" then
         return false, "actor provider cannot recover an unloaded companion"
     end
-    local ok, recovered, reason = pcall(cachedProvider.recover,
-        cachedProvider, actor, square)
+    local ok, recovered, reason
+    if bed and type(cachedProvider.recoverBedExit) == "function" then
+        ok, recovered, reason = pcall(cachedProvider.recoverBedExit, cachedProvider, actor, bed, square)
+    else
+        ok, recovered, reason = pcall(cachedProvider.recover, cachedProvider, actor, square)
+    end
     if not ok or recovered ~= true then
         return false, tostring(reason or recovered)
     end
@@ -1636,6 +1648,15 @@ function actorService.recover(actor, square)
         SC.GameplayUtil.invalidateSpatial(square)
     end
     return true
+end
+
+function actorService.recover(actor, square)
+    return recoverActor(actor, square)
+end
+
+function actorService.recoverBedExit(actor, bed, square)
+    if not bed then return false, "bed exit has no furniture reference" end
+    return recoverActor(actor, square, bed)
 end
 
 function actorService.endLife(actor)

@@ -58,6 +58,18 @@ param(
     [switch]$UserOptionsProbe,
     [switch]$MedicalCheckProbe,
     [switch]$BaseMaintenanceProbe,
+    [switch]$CleaningMixturesProbe,
+    [switch]$BedExitTablesProbe,
+    [switch]$DoorwayStallProbe,
+    [switch]$DoorwayStallBaseline,
+    [switch]$DoorwayStallDelayInput,
+    # Normal farmer, front-window and corpse-haul latency in a disposable camp.
+    [switch]$BaseJobLatencyProbe,
+    [ValidateRange(30, 600)][int]$BaseJobLatencySeconds = 300,
+    [switch]$BaseJobLatencyClearWindow,
+    [switch]$BaseJobLatencyNatural,
+    [switch]$BaseJobLatencyMoveObserver,
+    [ValidateRange(0, 300)][int]$BaseJobLatencyObserverMoveSeconds = 120,
     [switch]$FloorSortProbe,
     [switch]$VehicleRefuelProbe,
     [switch]$VehicleUpkeepProbe,
@@ -1632,6 +1644,17 @@ if ($SquadCombatBaseline) {
             [System.Text.UTF8Encoding]::new($false))
     }
 }
+if ($DoorwayStallBaseline) {
+    if (-not $DoorwayStallProbe) { throw 'DoorwayStallBaseline requires DoorwayStallProbe.' }
+    foreach ($relative in @('SurvivorCompanion/42/media/lua/client/SCNavigation.lua',
+        'SurvivorCompanion/42/media/lua/client/SCNativeActions.lua')) {
+        $baselineText = & git -C $ProjectRoot show "c8601157:$relative"
+        if ($LASTEXITCODE -ne 0) { throw "Could not load 0.26.84 navigation control: $relative" }
+        [System.IO.File]::WriteAllText((Join-Path $SandboxMods ($relative -replace '/', '\')),
+            (($baselineText -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
+    }
+    Write-Output 'Using 0.26.84 navigation/action Lua in the disposable doorway control, with the current native bridge.'
+}
 if ($DrivingGateNegativeControl) {
     $cachedDecision = Join-Path $SandboxMods `
         'SurvivorCompanion\42\media\lua\client\SCDecision.lua'
@@ -1742,6 +1765,17 @@ $config = @(
     ('user_options_probe=' + $UserOptionsProbe.IsPresent.ToString().ToLowerInvariant()),
     ('medical_check_probe=' + $MedicalCheckProbe.IsPresent.ToString().ToLowerInvariant()),
     ('base_maintenance_probe=' + $BaseMaintenanceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('cleaning_mixtures_probe=' + $CleaningMixturesProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('bed_exit_tables_probe=' + $BedExitTablesProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('doorway_stall_probe=' + $DoorwayStallProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('doorway_stall_baseline=' + $DoorwayStallBaseline.IsPresent.ToString().ToLowerInvariant()),
+    ('doorway_stall_delay_input=' + $DoorwayStallDelayInput.IsPresent.ToString().ToLowerInvariant()),
+    ('base_job_latency_probe=' + $BaseJobLatencyProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('base_job_latency_seconds=' + $BaseJobLatencySeconds),
+    ('base_job_latency_clear_window=' + $BaseJobLatencyClearWindow.IsPresent.ToString().ToLowerInvariant()),
+    ('base_job_latency_natural=' + $BaseJobLatencyNatural.IsPresent.ToString().ToLowerInvariant()),
+    ('base_job_latency_move_observer=' + $BaseJobLatencyMoveObserver.IsPresent.ToString().ToLowerInvariant()),
+    ('base_job_latency_observer_move_seconds=' + $BaseJobLatencyObserverMoveSeconds),
     ('floor_sort_probe=' + $FloorSortProbe.IsPresent.ToString().ToLowerInvariant()),
     ('vehicle_refuel_probe=' + $VehicleRefuelProbe.IsPresent.ToString().ToLowerInvariant()),
     ('vehicle_upkeep_probe=' + $VehicleUpkeepProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -2016,6 +2050,17 @@ $manifest = [ordered]@{
     sourceBridgeSha256 = $sourceBridgeHash
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
+    cleaningMixturesProbe = $CleaningMixturesProbe.IsPresent
+    bedExitTablesProbe = $BedExitTablesProbe.IsPresent
+    doorwayStallProbe = $DoorwayStallProbe.IsPresent
+    doorwayStallBaseline = $DoorwayStallBaseline.IsPresent
+    doorwayStallDelayInput = $DoorwayStallDelayInput.IsPresent
+    baseJobLatencyProbe = $BaseJobLatencyProbe.IsPresent
+    baseJobLatencyNatural = $BaseJobLatencyNatural.IsPresent
+    baseJobLatencySeconds = $BaseJobLatencySeconds
+    baseJobLatencyClearWindow = $BaseJobLatencyClearWindow.IsPresent
+    baseJobLatencyMoveObserver = $BaseJobLatencyMoveObserver.IsPresent
+    baseJobLatencyObserverMoveSeconds = $BaseJobLatencyObserverMoveSeconds
     barricadeHardening = $BarricadeHardening.IsPresent
     barricadeMatrixOnly = $BarricadeMatrixOnly.IsPresent
     companionFirearmsProbe = $CompanionFirearmsProbe.IsPresent
@@ -2584,6 +2629,14 @@ if ($crashProbeCompleted) {
 $summary = Get-Content -LiteralPath $summaryPath
 $statusLine = $summary | Where-Object { $_ -match '^status=' } | Select-Object -First 1
 $status = $statusLine -replace '^status=', ''
+if ($CleaningMixturesProbe -and $status -eq 'PASS') {
+    $cleaningEvents = Get-Content -LiteralPath $eventsPath -Raw
+    foreach ($case in @('stored_mix', 'sink_bleach', 'tainted_cleaning_liquid', 'undiluted')) {
+        if ($cleaningEvents -notmatch ('(?m)^PASS\|cleaning_' + $case + '_accounting\|')) {
+            throw "Cleaning acceptance did not complete $case. Inspect $eventsPath."
+        }
+    }
+}
 $postSummaryForcedStop = $false
 $postSummaryExitSeconds = if ($DrivingSaveStage -or $TeamDriveRestartStage -or
     $TaxiPassengerProbe -or $TaxiCallStage) { 90 } else { 15 }

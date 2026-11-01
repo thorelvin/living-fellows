@@ -553,7 +553,11 @@ try {
             (Join-Path $Client 'SCVehicleRefuel.lua'),
             (Join-Path $Client 'SCLoggingWork.lua'),
             (Join-Path $Client 'SCExpeditionWood.lua'),
-            (Join-Path $TestRoot 'work_transport_harness.lua')
+            (Join-Path $TestRoot 'work_transport_harness.lua'),
+            (Join-Path $Client 'SCCleaningSupplies.lua'),
+            (Join-Path $Client 'SCNeeds.lua'),
+            (Join-Path $Client 'SCFarmWork.lua'),
+            (Join-Path $TestRoot 'cleaning_mixtures_harness.lua')
         )
         Add-ScJvmStep 'work-transport' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $workTransportFiles 'Gathering/transport ownership integration harness failed.'
 

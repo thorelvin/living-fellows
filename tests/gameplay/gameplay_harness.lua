@@ -5796,6 +5796,28 @@ for _, value in ipairs({ interceptFollower, interceptLeader }) do
     end
 end
 
+do
+    local precise = actor("precise-farm-use", 54, 30, {})
+    precise.worldX, precise.worldY = 54.74, 30.74
+    registry[precise.id] = precise
+    local accepted, reason = SurvivorCompanion.Navigation.request(precise, precise.square, "walk", {
+        action = "move_to_farm_plot", movingFormation = true, arrivalDistance = 0.2,
+        interceptPosition = { x = 54.5, y = 30.5, z = 0 },
+    })
+    check(accepted == true and reason ~= "arrived", "a precise farm use point does not inherit the looser formation radius")
+    precise.worldX, precise.worldY = 54.6, 30.6
+    accepted, reason = SurvivorCompanion.Navigation.request(precise, precise.square, "walk", {
+        action = "move_to_farm_plot", movingFormation = true, arrivalDistance = 0.2,
+        interceptPosition = { x = 54.5, y = 30.5, z = 0 },
+    })
+    check(accepted == true and reason == "arrived", "the same farm use point arrives within its requested radius")
+    SurvivorCompanion.Navigation.reset(precise)
+    registry[precise.id] = nil
+    for index = #precise.square.moving, 1, -1 do
+        if precise.square.moving[index] == precise then table.remove(precise.square.moving, index) end
+    end
+end
+
 local trailLeader = actor("trail-player", 50, 24, {
     className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
 })
@@ -9940,6 +9962,15 @@ do
     base.isInside = function(value)
         return value == cleanerActor or value == cleanSquare
     end
+    local previousCleaningSupplies = SurvivorCompanion.CleaningSupplies
+    SurvivorCompanion.CleaningSupplies = { carried = function()
+        error("a clean tile must not trigger cleaning-supply discovery")
+    end }
+    cleanSquare.stained = false
+    check(cleanBase(cleanerActor, nil, cleanSquare) == nil,
+        "cleaning discovers supplies only after confirming a stain")
+    cleanSquare.stained = true
+    SurvivorCompanion.CleaningSupplies = previousCleaningSupplies
     local proposedClean = cleanBase(cleanerActor)
     check(proposedClean and proposedClean.square == cleanSquare
             and proposedClean.item == mop and proposedClean.material == bleach
@@ -9992,6 +10023,19 @@ do
             .lastFact.activity == "clean_base"
             and SurvivorCompanion.Downtime.peek(cleanerActor).lastFact.surface == "wall",
         "camp cleaning records success after the stock action removes the stain")
+    cleanSquare.stained = true
+    clock = clock + 1600
+    local ambientAgain = SurvivorCompanion.Downtime.update(cleanerActor,
+        player, calm, "clean_base")
+    check(not ambientAgain and SurvivorCompanion.Downtime.peek(cleanerActor).active == nil,
+        "opportunistic cleaning retains its ambient cooldown")
+    clock = clock + 1600
+    local queuedAgain = SurvivorCompanion.Downtime.update(cleanerActor,
+        player, calm, "clean_base", cleanSquare)
+    check(queuedAgain and cleanWorkStates[cleanerActor]
+            and cleanWorkStates[cleanerActor].status == "active",
+        "a queued cleaning tile bypasses the ambient cooldown without resetting its owner")
+    SurvivorCompanion.Downtime.cancel(cleanerActor, "cleaning_repeat_fixture_done")
     SurvivorCompanion.Downtime.reset(cleanerActor)
     clock = clock + 45001
     cleanSquare.stained = true
@@ -11350,6 +11394,44 @@ end)()
 end)()
 
 do
+(function()
+    for x = 364, 368 do for y = 78, 82 do makeSquare(x, y, 0) end end
+    local weapon = item("Base.FacingAxe", "Weapon", {
+        damage = 2.1, range = 1.5, minRange = 0.2, sharpness = 1,
+    })
+    local fighter = actor("sc-facing-pair", 365, 80, { inventory = inventory({ weapon }) })
+    fighter.primary = weapon
+    local east, flank = zombie(366.1, 80, {}), zombie(366.1, 80.1, {})
+    local first = { actor = east, square = east.square, distanceSq = 1.21,
+        visible = true, score = 100, bearingScore = 0 }
+    local second = { actor = flank, square = flank.square, distanceSq = 1.22,
+        visible = true, score = 124, bearingScore = 30 }
+    local snapshot = { threats = { second, first }, immediateCount = 2,
+        closeImmediateCount = 2, closeThreatCount = 2, occupiedThreatSectors = 1,
+        pressure = 0, allies = {}, encircled = false, escapeSquares = {} }
+    local state = { target = east, targetCommitUntil = clock - 1 }
+    local chosen = SurvivorCompanion.Combat._selectViablePairForTests(fighter, player,
+        snapshot, { second, first }, { combatDoctrine = "weapons_free", morale = 75 },
+        state, clock, "best", second)
+    check(chosen and chosen.target.actor == east,
+        "viable-pair selection retains a useful target after commitment expires when only facing changes the ranking")
+    second.attacking = true
+    second.score = 156 -- Same 32-point attack bonus as live threat scoring.
+    chosen = SurvivorCompanion.Combat._selectViablePairForTests(fighter, player,
+        snapshot, { second, first }, { combatDoctrine = "weapons_free", morale = 75 },
+        state, clock + 100, "best", second)
+    check(chosen and chosen.target.actor == flank,
+        "a higher-urgency attacker can immediately interrupt viable-pair retention")
+    for _, value in ipairs({fighter, east, flank}) do
+        if value.square and value.square.moving then
+            for index = #value.square.moving, 1, -1 do
+                if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+            end
+        end
+        if value ~= fighter then value.dead = true end
+    end
+end)()
+
 local roleWeapon = item("Base.Axe", "Weapon", { damage = 2, range = 1.4, sharpness = 1 })
 local roleActors = {
     actor("sc-role-01", 10, 10, { inventory = inventory({ roleWeapon }) }),
@@ -20661,6 +20743,10 @@ end)()
     check(SurvivorCompanion.Logistics.busy(member)
             and SurvivorCompanion.ActionSupervisor.snapshot(member).owner == "logistics",
         "fixture: a packing move holds the member's action owner")
+    local yieldedPacking = SurvivorCompanion.Logistics.yieldToWork(member)
+    check(yieldedPacking == false and SurvivorCompanion.Logistics.busy(member)
+            and member.inventory:contains(beans),
+        "priority work cannot discard an animating inventory transfer")
     local savedCar = SurvivorCompanion.ExpeditionCar
     local boardCalls, ownerAtBoard = 0, nil
     SurvivorCompanion.ExpeditionCar = {
@@ -21429,6 +21515,15 @@ do
     end }
     local queuedClean, cleanJob = BaseLife.enqueueJob({ type = "repair", priority = 9,
         assignedId = fellow.id, target = { x = 2, y = 2, z = 0 } })
+    check(queuedClean and BaseLife.priorityWorkFor(fellow.id) == cleanJob
+            and cleanJob.state == "pending" and cleanJob.reservedBy == nil,
+        "priority work can be read without claiming a job or changing its lease")
+    check(BaseLife.priorityWorkFor("another-resident") ~= cleanJob,
+        "priority work cannot be selected by another actor")
+    BaseLife.blockJob(cleanJob.id, nil, "fixture_wait", 1000)
+    check(BaseLife.priorityWorkFor(fellow.id) ~= cleanJob,
+        "a priority job still observes its retry pause")
+    BaseLife.retryJob(cleanJob.id)
     local claimedClean = queuedClean and BaseLife.claimJob(fellow.id)
     if claimedClean then BaseLife.completeJob(claimedClean.id, fellow.id, "fixture_done") end
     check(claimedClean and done[#done] == "done:completed" and done[#done - 1] == "start:reserved",

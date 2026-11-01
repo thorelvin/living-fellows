@@ -363,7 +363,8 @@ do
     local record={id="first",name="First companion",actor=player}
     SC.Registry={byId=function(id) return id=="first" and record end}
     SC.Commands={describe=function() return {recruited=true,available=true,alive=true} end}
-    SC.BaseLife={active=function() return {id="camp"} end,isInside=function() return true end}
+    local inCamp=true
+    SC.BaseLife={active=function() return {id="camp"} end,isInside=function() return inCamp end}
     SC.GameplayUtil.nameOf=function() return "First companion" end
     SC.Config={get=function() return nil end}
     local starts=0
@@ -396,6 +397,39 @@ do
     check(S.review(station) and station.stationReviewed.carSqlId==5,"driving review captures the exact selected native car")
     pending=S.prepare(station,{request={operation="launch"}}) carId=6
     check(not S.execute(station,pending) and starts==1 and station.stationReviewed==nil,"a different car invalidates review and cannot be accepted by repeating Launch")
+    local function hasStation(options)
+        for _,option in ipairs(options) do if option.serviceValue=="station" then return true end end
+        return false
+    end
+    station.menuPage="home_services"
+    check(hasStation(S.menu(station)),"camp Local services offers the expedition station")
+    station.menuPage="home_services_more"
+    check(hasStation(S.menu(station)),"camp overflow services retains the expedition station")
+    check(S.review(station),"camp station can prepare a fresh review before losing access")
+    pending=S.prepare(station,{request={operation="launch"}})
+    inCamp=false
+    check(not S.execute(station,pending) and starts==1,"losing camp access invalidates a pending launch before any departure")
+    check(S.prepare(station,{request={operation="launch"}})==nil,"outside computers cannot prepare launch confirmations")
+    for _,menu in ipairs({"home_services","home_services_more"}) do
+        station.menuPage=menu
+        check(not hasStation(S.menu(station)),"outside computer hides expedition station from "..menu)
+    end
+    for _,menu in ipairs({"station","radio_decisions","expedition_plan","station_crew","station_places","station_review"}) do
+        station.menuPage=menu
+        check(not hasStation(S.menu(station)) and station.menuPage=="home_services" and station.stationReviewed==nil,
+            "stale outside "..menu.." returns to local services without expedition entries")
+    end
+    S.input(station,"expedition station")
+    check(station.menuPage=="home_services" and station.reply.lines[1]:find("camp computer",1,true),
+        "typed station command explains camp access without opening the planner")
+    S.input(station,"",{serviceAction="page",serviceValue="station"})
+    check(station.menuPage=="home_services","a cached menu click cannot reopen an outside station")
+    local kind=station.stationDraft.kind
+    S.input(station,"",{serviceAction="cycle",serviceValue="kind"})
+    check(station.stationDraft.kind==kind,"stale expedition controls cannot edit the outside draft")
+    inCamp=true
+    station.menuPage="home_services"
+    check(hasStation(S.menu(station)),"camp access restores the station without reopening the computer")
     player.x,player.y=x,y
 end
 do

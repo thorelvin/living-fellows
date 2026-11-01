@@ -38,6 +38,7 @@ local function clearMark(item, id) return SC.BaseFuel.clearMark(item, id, MARKER
 local NATIVE_KINDS = { wash_vehicle = true, wash_vehicle_fill = true,
     inflate_tires = true, vehicle_area_approach = true }
 local function water(item)
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return 0, false end
     local fluid = call(item, "getFluidContainer")
     local amount = number(fluid, "getAmount") or 0
     if amount < 1 then return 0, false end
@@ -54,6 +55,7 @@ local function washWater(item, target)
     return 0
 end
 local function emptyWaterVessel(item)
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return false end
     local fluid = call(item, "getFluidContainer")
     local amount = number(fluid, "getAmount")
     local capacity = number(fluid, "getCapacity")

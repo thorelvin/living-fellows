@@ -511,12 +511,30 @@ public final class SCIsoCompanionControlTest {
         var expiryField = SCNativeCompanion.class.getDeclaredField("bridgeMoveExpiresNanos");
         targetField.setAccessible(true);
         expiryField.setAccessible(true);
+        var firstUntilField = SCNativeCompanion.class.getDeclaredField("bridgeMoveFirstUntilNanos");
+        firstUntilField.setAccessible(true);
         require(targetField.getBoolean(actor), "bounded movement lost its endpoint");
+        require(firstUntilField.getLong(actor) <= expiryField.getLong(actor),
+                "first-update grace extended an explicit endpoint deadline");
+        expiryField.setLong(actor, System.nanoTime() - 1);
+        firstUntilField.setLong(actor, System.nanoTime() - 1);
+        require(!actor.isMoving() && !actor.hasPendingMovement(),
+                "an expired explicit endpoint retained unconsumed movement");
         actor.MoveForward(.045f, 0, 1, 0);
         require(!targetField.getBoolean(actor), "unbounded input reused the previous endpoint");
         expiryField.setLong(actor, System.nanoTime() - 1);
+        require(actor.isMoving() && actor.hasPendingMovement(),
+                "a slow frame expired an accepted input before its first native update");
+        var firstPendingField = SCNativeCompanion.class.getDeclaredField("bridgeMoveFirstPending");
+        firstPendingField.setAccessible(true);
+        firstPendingField.setBoolean(actor, false);
         require(!actor.isMoving() && !actor.hasPendingMovement(),
                 "expired unbounded input retained movement or ownership");
+        require(SCNativeCompanion.manualInputAvailable(350,250,true,1000)
+                        && !SCNativeCompanion.manualInputAvailable(350,250,false,1000)
+                        && !SCNativeCompanion.manualInputAvailable(1001,250,true,1000)
+                        && !SCNativeCompanion.manualInputAvailable(350,0,true,1000),
+                "first-input grace escaped its one-consumption, hard deadline or cancellation bounds");
         actor.setMoving(false);
 
         float stableX = actor.getX(), stableY = actor.getY();
@@ -1754,6 +1772,27 @@ public final class SCIsoCompanionControlTest {
                         && Math.abs(((Number) variableFloat.invoke(actor,
                                 "DeltaY", 0.0f)).floatValue() + 0.55f) < 0.001f,
                 "stock IsoPlayer diagonal backward animation inputs were not retained");
+        {
+            SCNativeCompanion tactical = (SCNativeCompanion) actor;
+            tactical.setCompanionAimTarget(null);
+            tactical.setForwardDirection(1, 0);
+            tactical.MoveForward(.045f, 0, 1, 0);
+            tactical.setForwardDirection(-1, 0); // Generic update overwrote the pulse's look vector.
+            tactical.applyBridgeMovementFacing(false);
+            require(tactical.getForwardDirection().x > .99f,
+                    "tactical facing was lost between Lua pulses without a moving aim object");
+            tactical.setCompanionAimTarget((IsoPlayer) localPlayer);
+            tactical.setForwardDirection(0, 1);
+            tactical.applyBridgeMovementFacing(false);
+            require(tactical.getForwardDirection().y > .99f,
+                    "fixed tactical fallback replaced a live aim target's direction");
+            tactical.setCompanionAimTarget(null);
+            tactical.setMoving(false);
+            tactical.setForwardDirection(-1, 0);
+            tactical.applyBridgeMovementFacing(false);
+            require(tactical.getForwardDirection().x < -.99f,
+                    "expired tactical movement kept forcing an old facing direction");
+        }
         require(((SCNativeCompanion) actor).setCompanionTacticalMovement(false, 0.0f, 0.0f)
                         && !(Boolean) invoke(actor, "isAiming")
                         && !((SCNativeCompanion) actor).isCompanionTacticalMovement(),
@@ -1811,6 +1850,12 @@ public final class SCIsoCompanionControlTest {
         // headshots. The engine's own step has to run for this actor.
         {
             SCNativeCompanion aimer = (SCNativeCompanion) actor;
+            aimer.setCompanionAimTarget((IsoPlayer) localPlayer);
+            require(aimer.getCompanionAimTarget() == localPlayer,
+                    "passive aim diagnostics did not retain the exact target identity");
+            aimer.setCompanionAimTarget(null);
+            require(aimer.getCompanionAimTarget() == null,
+                    "passive aim diagnostics retained a cleared target");
             long before = aimer.getCompanionAimingDelayUpdates();
             var step = SCNativeCompanion.class.getDeclaredMethod("updateCompanionAimingDelay");
             step.setAccessible(true);

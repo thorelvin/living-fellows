@@ -67,6 +67,7 @@ local storage = { id = "storage:tools" }
 local object = { x = 10, y = 10, z = 0 }
 local utility = {
     call = call, nowMs = function() return current end, config = function() return nil end,
+    modData = function(value) return value and value:getModData() end,
     idOf = function(value) return value.id end,
     inventory = function(value) return value.inventory end,
     inventoryContains = contains, transferItemVerified = transfer,

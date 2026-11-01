@@ -6,6 +6,10 @@ local function check(value, message)
     assert(value, "live combat fixture " .. checks .. ": " .. message)
 end
 local squad=SCRealSandboxHarnessProbes.SCSquadCombatLiveProbe
+check(squad.angleDelta(-179, 179) == 2 and squad.angleDelta(179, -179) == -2,
+    "native body angle wrap never becomes a spurious 358-degree jitter")
+check(squad.angleDelta(30, 0) == 30 and squad.angleDelta(0, 30) == -30,
+    "small positive and negative body turns retain their sign in Kahlua")
 local cases=squad.cases({squad_combat_custom_companions="2",squad_combat_custom_zombies="3,4,5",squad_combat_front_only="true"})
 check(#cases==3 and cases[1][1]==2 and cases[1][2]==3 and cases[3][2]==5 and cases[2][3]=="front",
     "custom two-person combat cases preserve all requested zombie counts")

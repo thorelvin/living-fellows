@@ -173,6 +173,7 @@ end
 
 function Logistics.itemCategory(item)
     local utility = U()
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools" end
     local itemType = lower(utility.itemType(item))
     local category, categoryOk = utility.call(item, "getCategory")
     category = categoryOk and lower(category) or ""
@@ -419,8 +420,11 @@ function Logistics.audit(actor)
     local _, carryCapacity = U().carryLoad(actor)
     local carryGearRatio = carryCapacity > 0
         and math.max(0, weight - cargoWeight) / carryCapacity or 0
+    local farmWaterCan = role == "farmer" and ratio <= hard and SC.FarmWork
+        and SC.FarmWork.carriedWaterContainer and SC.FarmWork.carriedWaterContainer(actor) or nil
     return {
         role = role, profile = profile, counts = counts, items = items,
+        farmWaterCan = farmWaterCan,
         gearCounts = gearCounts, cargoWeight = cargoWeight, gearRatio = gearRatio,
         weight = weight, capacity = capacity, ratio = ratio,
         carryCapacity = carryCapacity, carryGearRatio = carryGearRatio,
@@ -1017,6 +1021,7 @@ local function selectPackMove(actor, audit)
                     and select(1, Logistics.bagUpgrade(actor, record.item)) == true
                 if record.item ~= bagRecord.item and record.source ~= bagInventory
                     and record.source == root
+                    and record.item ~= audit.farmWaterCan
                     and not (nestedOk and nested) and not isProtected(actor, record.item)
                     -- Keep weapons in the root inventory. Combat/equip actions
                     -- need immediate ownership of newly gifted fallback weapons;
@@ -1167,7 +1172,7 @@ function Logistics.selectSurplus(actor, audit, skip)
         and select(2, SC.Combat.weaponAvailability(actor)) or nil
     for _, record in ipairs(audit.items) do
         local item = record.item
-        if not isProtected(actor, item) and not (skip and skip(item)) then
+        if item ~= audit.farmWaterCan and not isProtected(actor, item) and not (skip and skip(item)) then
             local category = record.category or Logistics.itemCategory(item)
             local count = (audit.gearCounts or audit.counts)[category] or 0
             local target = tonumber(audit.profile.target[category]) or 0
@@ -1235,6 +1240,7 @@ end
 local function selectFarmingSurplus(actor, audit, skip)
     for _, record in ipairs(audit.items or {}) do
         if (record.category or Logistics.itemCategory(record.item)) == "farming"
+            and record.item ~= audit.farmWaterCan
             and not (skip and skip(record.item))
             and not isProtected(actor, record.item) then
             return {
@@ -2212,6 +2218,28 @@ function Logistics.prepareBuild(actor, targetSquare, snapshot, moveMode)
         SC.Encounter.cancelPlayerSupply(actor)
     end
     return true, false, "build_supplies_ready"
+end
+
+-- Routine shelving may yield before its transfer starts. Never discard an
+-- animating/committing transaction to make a higher-scoring chore look ready.
+function Logistics.yieldToWork(actor)
+    local state = actor and states[actor]
+    local transaction = state and state.transaction
+    if not transaction then return true end
+    if transaction.phase ~= "approach" then return false, "logistics_transfer_in_progress" end
+    local service, token = supervisor(), transaction.supervisorToken
+    if token and service and service.isCurrent and service.isCurrent(token) then
+        local cancelled, reason = service.cancel(actor, "priority_base_work")
+        if cancelled ~= true then return false, reason end
+    elseif token then
+        return false, "logistics_owner_changed"
+    else
+        cleanupTransaction(actor, state, "priority_base_work")
+        if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, "priority_base_work") end
+    end
+    if state.transaction ~= nil then return false, "logistics_release_pending" end
+    states[actor] = nil
+    return true
 end
 
 -- True while a pack, wear, deposit or drop holds this actor's action owner.

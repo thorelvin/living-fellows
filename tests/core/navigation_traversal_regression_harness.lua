@@ -210,13 +210,14 @@ do
     local explicit = N.barricadeWorkSquare(worker, window, windowSide, "opposite")
     check(chosen == otherSide and explicit == otherSide,
         "barricade prefers a clear side and respects an explicitly selected side")
-    check(passable == windowSide,
-        "furniture that does not block the tile does not stop a worker boarding from it")
+    check(passable == nil,
+        "barricade work refuses furniture that its pathfinder cannot enter")
     local otherTable = { __class = "IsoObject" }
     function otherTable:getSurfaceOffset() return 16 end
     otherSide.objects[#otherSide.objects + 1] = otherTable
-    check(N.barricadeWorkSquare(worker, window, windowSide) ~= nil,
-        "passable furniture on both sides of a window still leaves a way to board it")
+    local blockedSide, blockedSideReason = N.barricadeWorkSquare(worker, window, windowSide)
+    check(blockedSide == nil and blockedSideReason == "work_side_blocked",
+        "furniture on both sides pauses boarding instead of an impossible route search")
     otherSide.objects[#otherSide.objects] = nil
     function windowSide:canStand() return false end
     local unstandable, unstandableReason = N.barricadeWorkSquare(worker, window, windowSide, "same")
@@ -855,6 +856,23 @@ do
     check(N._routeSearchSliceBudget(job) == 3,
         "missing persisted base duty cannot initialize commands to claim quiet planning time")
     worker.data.SC_Order = "base_duty"
+    do
+        local oldJob = SC.BaseLife.job
+        local owned = { id = "job:quiet", state = "active", reservedBy = U.idOf(worker), leaseUntil = current + 1000 }
+        SC.BaseLife.job = function(id) return id == owned.id and owned or nil end
+        worker.data.SC_Order, worker.data.SC_WorkBaseJobId = "work", owned.id
+        check(N._routeSearchSliceBudget(job) == 5,
+            "a verified owned camp work order keeps the quiet-base planning slice")
+        owned.reservedBy = "another-worker"
+        check(N._routeSearchSliceBudget(job) == 3, "another worker's job cannot claim the quiet slice")
+        owned.reservedBy, owned.leaseUntil = U.idOf(worker), current
+        check(N._routeSearchSliceBudget(job) == 3, "an expired camp job keeps the ordinary planning slice")
+        owned.leaseUntil, alarm = current + 1000, {}
+        check(N._routeSearchSliceBudget(job) == 3, "a camp alarm still withdraws an owned work order's quiet slice")
+        alarm, worker.data.SC_WorkBaseJobId = nil, nil
+        check(N._routeSearchSliceBudget(job) == 3, "a manual work order without a camp job keeps the ordinary slice")
+        SC.BaseLife.job, worker.data.SC_Order = oldJob, "base_duty"
+    end
     do
         local oldRegistryActor = SC.Actor._isRegistryActor
         SC.Actor._isRegistryActor = function(value) return value == worker end

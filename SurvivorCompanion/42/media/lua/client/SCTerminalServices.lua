@@ -19,6 +19,18 @@ local function show(window,lines)
     window:setFocusMode("chat")
     window:startReply({lines=type(lines)=="table" and lines or {tostring(lines)},thinkMs=0})
 end
+local stationPages={station=true,radio_decisions=true,expedition_plan=true,
+    station_crew=true,station_places=true,station_review=true}
+local stationActions={crew=true,cycle=true,map_pick=true,places=true,places_more=true,place=true,review=true}
+local function campComputer(window)
+    local life=SC.BaseLife
+    return life and life.active()~=nil and life.isInside(window.object)==true or false
+end
+local function stationUnavailable(window)
+    window.stationReviewed=nil
+    page(window,"home_services")
+    show(window,"Use Local services on a camp computer to access the expedition station.")
+end
 local function candidates(window,kind)
     local rows={}
     for _,item in ipairs(U().items(window.player)) do
@@ -49,9 +61,14 @@ local function crew(window)
 end
 function S.menu(window)
     local p=window.menuPage
+    if stationPages[p] and not campComputer(window) then
+        window.stationReviewed=nil
+        page(window,"home_services") p=window.menuPage
+    end
     if p=="home_services" then
-        local result={option("Building services","page","services"),option("Computer upgrades","page","hardware"),
-            option("Expedition station","page","station"),option("Back to EMMA","page",nil)}
+        local result={option("Building services","page","services"),option("Computer upgrades","page","hardware")}
+        if campComputer(window) then result[#result+1]=option("Expedition station","page","station") end
+        result[#result+1]=option("Back to EMMA","page",nil)
         local hardware=SC.TerminalHardware.state(window.object,false)
         if SC.GridControl and SC.GridControl.visible() and SC.TerminalGridUI then
             table.insert(result,1,{label="LARCH/GRID power control",gridAction="open"})
@@ -65,8 +82,10 @@ function S.menu(window)
         end
         return result
     elseif p=="home_services_more" then
-        return {option("Computer upgrades","page","hardware"),option("Expedition station","page","station"),
-            option("Back to services","page","home_services")}
+        local result={option("Computer upgrades","page","hardware")}
+        if campComputer(window) then result[#result+1]=option("Expedition station","page","station") end
+        result[#result+1]=option("Back to services","page","home_services")
+        return result
     elseif p=="services" then
         return {option("Connect local controls (Electrical 2)","propose",{operation="connect"}),
             option("Authorize building security","security"),option("Equipment","page","equipment"),
@@ -160,7 +179,7 @@ function S.menu(window)
         return {option("Plan expedition","page","expedition_plan"),option("Request progress report","propose",{operation="radio",command="progress_report",payload="status"}),
             option("Recall expedition","propose",{operation="radio",command="return_now",payload="now"}),option("Route decisions","page","radio_decisions"),
             option("Radio channel / status","radio_status"),option("Book Marcus taxi","propose",{operation="taxi",verb="book"}),
-            option("Taxi status","taxi_status"),option("Cancel taxi booking","propose",{operation="taxi",verb="cancel"}),option("Back to EMMA","page",nil)}
+            option("Taxi status","taxi_status"),option("Cancel taxi booking","propose",{operation="taxi",verb="cancel"}),option("Back to services","page","home_services")}
     elseif p=="radio_decisions" then
         return {option("Hold position","propose",{operation="radio",command="expedition_decision",payload="hold_position"}),
             option("Try another route","propose",{operation="radio",command="expedition_decision",payload="push_on"}),
@@ -207,8 +226,7 @@ local function tripOptions(draft)
             or (draft.kind=="search" or draft.kind=="fish") and {category=draft.kind=="fish" and "fish" or draft.category,quantity=draft.quantity} or nil}
 end
 function S.review(window)
-    local camp=SC.BaseLife and SC.BaseLife.active()
-    if not camp or not SC.BaseLife.isInside(window.object) then return false,"Plan and launch expeditions from a camp computer." end
+    if not campComputer(window) then return false,"Plan and launch expeditions from a camp computer." end
     local endpoint,radioReason=SC.RadioEndpoints.station(window.player,window.object)
     if not endpoint then return false,radioReason end
     local records,reason=rowsForDraft(window)
@@ -249,6 +267,9 @@ end
 function S.prepare(window,proposal)
     local request=proposal.request
     if type(request)~="table" then return nil,"Request unavailable." end
+    if request.operation=="launch" and not campComputer(window) then
+        return nil,"Plan and launch expeditions from a camp computer."
+    end
     local saved={}
     for _,key in ipairs({"operation","kind","item","id","verb","on","command","payload","group"}) do saved[key]=request[key] end
     if saved.operation=="circuit" then
@@ -472,6 +493,12 @@ end
 function S.input(window,raw,chosen)
     if window.system.locked then return false end
     local text=string.lower(raw):match("^%s*(.-)%s*$")
+    local action,value=chosen and chosen.serviceAction,chosen and chosen.serviceValue
+    if (stationPages[window.menuPage] or stationActions[action]
+        or action=="page" and stationPages[value] or text=="expedition station")
+        and not campComputer(window) then
+        stationUnavailable(window) return true
+    end
     if window.menuPage=="building_security" then
         if text=="back" or text=="menu" or chosen and chosen.serviceAction=="page" then page(window,"services")
         elseif chosen and chosen.serviceAction=="menu_next" then window.serviceMenuPage=(window.serviceMenuPage or 0)+1
@@ -479,7 +506,6 @@ function S.input(window,raw,chosen)
         else security(window,chosen and chosen.serviceValue or raw) end
         return true
     end
-    local action,value=chosen and chosen.serviceAction,chosen and chosen.serviceValue
     if not action then
         local names={ ["building services"]="services",["building controls"]="services",["hardware"]="hardware",["expedition station"]="station" }
         if names[text] then page(window,names[text]) show(window,names[text]=="hardware" and SC.TerminalHardware.describe(window.object) or "Local services ready. Choose a numbered menu item.") window:setFocusMode("menu") return true end
@@ -574,6 +600,7 @@ function S.input(window,raw,chosen)
             return SC.ExpeditionTargets.context(records and records[1] and records[1].actor,draft.travelMode)
         end
         local opened,why=SC.ExpeditionMap.begin(window,draft,context,function(target)
+            if not campComputer(window) then stationUnavailable(window) return end
             draft.mapTarget=SC.ExpeditionTargets.copy(target)
             draft.placeId=target.id
             window.stationReviewed=nil
@@ -581,6 +608,10 @@ function S.input(window,raw,chosen)
             page(window,okay and "station_review" or "expedition_plan")
             show(window,okay and lines or SC.ExpeditionMap.reason(lines))
         end,function() window:setFocusMode("menu") end,function()
+            if not campComputer(window) then
+                if not window.closed then stationUnavailable(window) end
+                return false
+            end
             local terminal=SC.Terminal
             local good=not window.closed and window.stationDraft==draft and terminal
                 and terminal.window==window and terminal.present(window.object)

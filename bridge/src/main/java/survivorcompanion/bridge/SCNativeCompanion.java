@@ -192,6 +192,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile float bridgeMoveTargetZ;
     private volatile float bridgeMoveArrivalTolerance;
     private static final long MANUAL_INPUT_LIFETIME_NANOS = 250_000_000L;
+    private static final long FIRST_MANUAL_INPUT_GRACE_NANOS = 1_000_000_000L;
+    private boolean bridgeMoveFirstPending;
+    private long bridgeMoveFirstUntilNanos, bridgeLateFirstInputs;
     /**
      * Speed a companion keeps while pushing through a hedge or tall bush.
      *
@@ -203,6 +206,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile boolean bridgeTacticalMovement;
     private volatile float bridgeStrafeX;
     private volatile float bridgeStrafeY;
+    private boolean bridgeTacticalFacingSet;
+    private float bridgeTacticalFacingX, bridgeTacticalFacingY;
     private volatile int bridgeNextSpeechDisplayMillis;
     private volatile String bridgeSpeechLine;
     private SCCompanionSpeechRows bridgeSpeechRows;
@@ -1091,7 +1096,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     public String getCompanionCollisionDiagnostic() {
         return "move{" + bridgeLastMovementProbe.describe() + "};collision{"
                 + bridgeLastCollisionProbe.describe() + "};invalid=" + bridgeInvalidMovementCount
-                + ":" + bridgeInvalidMovementEvidence;
+                + ":" + bridgeInvalidMovementEvidence + ";lateFirst=" + bridgeLateFirstInputs;
     }
 
     private static final class MovementProbe {
@@ -1173,6 +1178,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             // Nested in update(): run the body only; update() owns isolation and
             // will catch/tolerate any exception from this chain.
             applyCompanionAim();
+            applyBridgeMovementFacing();
             super.postupdate();
             applyBridgeMovementFacing();
             bridgePostUpdateCount++;
@@ -1181,6 +1187,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 // Re-point at the aim target immediately before the engine advances
                 // the swing animation and fires its AttackCollisionCheck.
                 applyCompanionAim();
+                applyBridgeMovementFacing();
                 super.postupdate();
                 applyBridgeMovementFacing();
                 bridgePostUpdateCount++;
@@ -1933,6 +1940,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 bridgeMoveRequested = false;
                 bridgeMoveHasTarget = false;
                 bridgeMoveExpiresNanos = 0L;
+                bridgeMoveFirstPending = false;
                 bridgePathActive = false;
                 bridgePathStartedThisRun = false;
                 bridgePathRouteReady = false;
@@ -1987,6 +1995,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         bridgeMoveRequested = false;
         bridgeMoveHasTarget = false;
         bridgeMoveExpiresNanos = 0L;
+        bridgeMoveFirstPending = false;
         bridgeMoving = false;
         setVariable("bPathfind", true);
         super.setMoving(false);
@@ -2052,9 +2061,21 @@ public final class SCNativeCompanion extends IsoPlayer {
         bridgeMoveY = y;
         bridgeMoveSoundDelta = soundDelta;
         bridgeMoveHasTarget = false;
-        bridgeMoveExpiresNanos = System.nanoTime() + MANUAL_INPUT_LIFETIME_NANOS;
+        long requestedAt = System.nanoTime();
+        bridgeMoveExpiresNanos = requestedAt + MANUAL_INPUT_LIFETIME_NANOS;
+        bridgeMoveFirstUntilNanos = requestedAt + FIRST_MANUAL_INPUT_GRACE_NANOS;
+        bridgeMoveFirstPending = true;
         bridgeMoveRequested = true;
         bridgeMoving = true;
+        if (bridgeTacticalMovement) {
+            zombie.iso.Vector2 facing = getForwardDirection();
+            if (facing != null && Float.isFinite(facing.x) && Float.isFinite(facing.y)
+                    && facing.x * facing.x + facing.y * facing.y > 0.0001f) {
+                bridgeTacticalFacingX = facing.x;
+                bridgeTacticalFacingY = facing.y;
+                bridgeTacticalFacingSet = true;
+            }
+        }
         super.setMoving(true);
     }
 
@@ -2127,6 +2148,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         bridgeMoveTargetZ = z;
         bridgeMoveArrivalTolerance = Math.min(0.25f, arrivalTolerance);
         bridgeMoveExpiresNanos = System.nanoTime() + Math.min(1000, ttlMs) * 1_000_000L;
+        // An explicit endpoint deadline is authoritative. The first-update
+        // grace repairs the default input lifetime, never a caller's shorter
+        // deliberate lease (for example a close-range combat alignment).
+        bridgeMoveFirstUntilNanos = Math.min(bridgeMoveFirstUntilNanos, bridgeMoveExpiresNanos);
         bridgeMoveHasTarget = true;
         return true;
     }
@@ -2168,6 +2193,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (enabled) {
             applyCompanionTacticalMovement();
         } else {
+            bridgeTacticalFacingSet = false;
             setIsAiming(false);
             setVariable("DeltaX", 0.0f);
             setVariable("DeltaY", 0.0f);
@@ -2354,7 +2380,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      * the ignore-doors flag, so it is not sufficient for a companion step.
      */
     public boolean isCompanionMovementClear(float toX, float toY, float toZ) {
-        if (getVehicle() != null) return false;
+        if (getVehicle() != null || !Float.isFinite(toX) || !Float.isFinite(toY) || !Float.isFinite(toZ)) return false;
         int level = (int)Math.floor(toZ);
         if ((int)Math.floor(getZ()) != level) return false;
         PolygonalMap2 map = PolygonalMap2.instance;
@@ -2568,6 +2594,11 @@ public final class SCNativeCompanion extends IsoPlayer {
     public void setCompanionAimTarget(zombie.iso.IsoMovingObject target) {
         bridgeAimTarget = target;
         prepareCompanionBallisticTarget();
+    }
+
+    /** Passive diagnostics: distinguish the actual aim binding from Lua's intent. */
+    public zombie.iso.IsoMovingObject getCompanionAimTarget() {
+        return bridgeAimTarget;
     }
 
     /** A native shot needs the target's real skeleton even outside the local
@@ -2858,7 +2889,9 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void applyBridgeMovement() {
         if (getVehicle() != null || !bridgeMoveRequested || !bridgeMoving) return;
-        if (System.nanoTime() >= bridgeMoveExpiresNanos || isDead() || nativeOwnsBody()
+        long now = System.nanoTime();
+        if (!manualInputAvailable(now, bridgeMoveExpiresNanos, bridgeMoveFirstPending, bridgeMoveFirstUntilNanos)
+                || isDead() || nativeOwnsBody()
                 || isBlockMovement() || isAttackStarted() || isPerformingAttackAnimation()) {
             setMoving(false);
             return;
@@ -2866,6 +2899,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         float multiplier = GameTime.getInstance().getMultiplier();
         if (!Float.isFinite(multiplier) || multiplier <= 0.0f) return;
         float distance = bridgeMoveDistance;
+        boolean lateFirstInput = bridgeMoveFirstPending && now >= bridgeMoveExpiresNanos;
         // Native paths get their pace from the walk animation's root motion.
         // Direct bridge steps need the matching reduction to avoid foot sliding.
         distance *= lateKnoxDirectStepFactor(bridgeLateKnoxGait);
@@ -2875,6 +2909,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (Float.isFinite(terrain) && terrain > 0.0f && terrain < 1.0f) {
             distance *= terrain;
         }
+        // A slow main-thread frame must not consume the entire input lifetime
+        // before this actor ever sees its command. Permit one checked step,
+        // with a hard distance cap, rather than running stale input afterward.
+        if (lateFirstInput) distance = Math.min(distance, 0.1f / multiplier);
         if (bridgeMoveHasTarget) {
             if (Math.floor(getZ()) != Math.floor(bridgeMoveTargetZ)) {
                 setMoving(false);
@@ -2903,6 +2941,12 @@ public final class SCNativeCompanion extends IsoPlayer {
         // MoveForward/action variables may rotate a non-local player during the
         // same update. Leave the render-facing direction authoritative too.
         applyBridgeMovementFacing();
+        if (lateFirstInput) bridgeLateFirstInputs++;
+        bridgeMoveFirstPending = false;
+    }
+
+    static boolean manualInputAvailable(long now, long expires, boolean firstPending, long firstUntil) {
+        return expires != 0L && (now < expires || firstPending && now < firstUntil);
     }
 
     static float lateKnoxDirectStepFactor(float gait) {
@@ -3011,6 +3055,14 @@ public final class SCNativeCompanion extends IsoPlayer {
     void applyBridgeMovementFacing(boolean draggingCorpse) {
         if (nativeOwnsBody()) return;
         boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        // Tactical moves with a coordinate/unarmed look target still need a
+        // continuous facing owner between Lua pulses. Never replace a live aim
+        // target or the angle of an attack/reaction animation.
+        if (bridgeTacticalMovement && bridgeTacticalFacingSet && bridgeAimTarget == null
+                && isBridgeLocomotionActive() && !attackOwnsFacing) {
+            setForwardDirection(bridgeTacticalFacingX, bridgeTacticalFacingY);
+            return;
+        }
         // The stock BwdDrag grapple keeps the corpse in front of the actor's
         // facing while the actor walks backward. Lua sets that bearing when it
         // starts a step, but this later bridge update must preserve it too.
@@ -3215,7 +3267,8 @@ public final class SCNativeCompanion extends IsoPlayer {
         // a pending route cannot. During stopping, retain the path OWNER but
         // stop walk animation so its residual motion can drain to Succeeded.
         return ((bridgeMoving || bridgeMoveRequested)
-                    && (!bridgeMoveRequested || System.nanoTime() < bridgeMoveExpiresNanos))
+                    && (!bridgeMoveRequested || manualInputAvailable(System.nanoTime(), bridgeMoveExpiresNanos,
+                            bridgeMoveFirstPending, bridgeMoveFirstUntilNanos)))
                 || (bridgePathActive && !bridgePathStopping
                     && (bridgePathRouteReady || bridgePathStartedThisRun));
     }
@@ -3331,6 +3384,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         bridgeMoveRequested = false;
         bridgeMoveHasTarget = false;
         bridgeMoveExpiresNanos = 0L;
+        bridgeMoveFirstPending = false;
         bridgeMoving = false;
         bridgePathActive = false;
         bridgePathRouteReady = false;
@@ -3707,7 +3761,8 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     /** Package-private real-JAR test seam for the deferred physics request. */
     public boolean hasPendingMovement() {
-        return (bridgeMoveRequested && System.nanoTime() < bridgeMoveExpiresNanos) || bridgePathActive;
+        return (bridgeMoveRequested && manualInputAvailable(System.nanoTime(), bridgeMoveExpiresNanos,
+                bridgeMoveFirstPending, bridgeMoveFirstUntilNanos)) || bridgePathActive;
     }
 
     public boolean isBridgeHealthy() {

@@ -27,6 +27,9 @@ require "TimedActions/ISDrinkFluidAction"
 require "TimedActions/ISTakeWaterAction"
 require "TimedActions/ISAddFuel"
 require "TimedActions/ISCleanBlood"
+require "SCCleaningSupplies"
+require "Fluids/ISFluidContainer"
+require "Fluids/ISFluidTransferAction"
 require "TimedActions/ISWearClothing"
 require "Vehicles/TimedActions/ISPathFindAction"
 require "Vehicles/TimedActions/ISAddGasolineToVehicle"
@@ -81,6 +84,7 @@ local BedExit = { pending = setmetatable({}, { __mode = "k" }),
 local leavingFurniture = setmetatable({}, { __mode = "k" })
 local activeGroundActions = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
+local forwardTurns = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
 local pendingCombat = setmetatable({}, { __mode = "k" })
 local pacingSequence = 0
@@ -682,12 +686,17 @@ function BedExit.clearFootprint(actor, state)
         end
         table.sort(choices, function(a, b) return utility.distance(actor, a) < utility.distance(actor, b) end)
     end
-    local target = choices[1]
-    if target then
+    for _, target in ipairs(choices) do
         -- One verified clear tile on the same floor and in the same room.
         -- Geometry may cross the other half of this exact mattress, never
         -- unrelated furniture. The original actor and inventory stay intact.
-        if SC.Actor.recover(actor, target) == true then
+        local recovered
+        if geometric and type(SC.Actor.recoverBedExit) == "function" then
+            recovered = SC.Actor.recoverBedExit(actor, bed, target)
+        else
+            recovered = SC.Actor.recover(actor, target)
+        end
+        if recovered == true then
             BedExit.probes[actor] = nil
             if utility.sameSquare(actor, target) == true then
                 if geometric then
@@ -1033,7 +1042,10 @@ end
 local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent,
         remaining)
     if tactical or type(intent) == "table" and (intent.allowMovingTurn == true
-        or intent.urgent == true or intent.survivalCritical == true) then return nil end
+        or intent.urgent == true or intent.survivalCritical == true) then
+        forwardTurns[actor] = nil
+        return nil
+    end
     -- A final fractional step must never wait for a turn. Within a fraction of
     -- a tile the direction vector is dominated by numerical noise, so the
     -- facing test below fails on almost every tick and the actor turns instead
@@ -1044,7 +1056,7 @@ local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, inten
     -- Facing is still applied by the caller immediately after this returns; all
     -- that is skipped is waiting for the turn animation to finish.
     local skipDistance = tonumber(SC.Config.get("movementTurnSkipDistance")) or 0.25
-    if finite(remaining) and remaining <= skipDistance then return nil end
+    if finite(remaining) and remaining <= skipDistance then forwardTurns[actor] = nil return nil end
     -- A follower keeps walking through a turn already underway; only a change
     -- sharper than the continuous threshold below stops it. Stopping for every
     -- native turn made followers run, stop and run again.
@@ -1053,12 +1065,6 @@ local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, inten
     local continuous = type(intent) == "table"
         and (intent.continuousFollow == true or intent.continuousApproach == true)
     local turningOk, turning = invoke(actor, "isTurning")
-    if turningOk and turning == true and not continuous then
-        invoke(actor, "setMoving", false)
-        invoke(actor, "setRunning", false)
-        invoke(actor, "setSprinting", false)
-        return true, "turning_for_movement"
-    end
 
     local forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
     local forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
@@ -1073,18 +1079,44 @@ local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, inten
     local threshold = tonumber(SC.Config.get(thresholdKey))
         or (thresholdKey == "movementContinuousTurnBeforeMoveDot" and -0.25 or 0.8)
     threshold = math.max(-1, math.min(1, threshold))
-    if facingDot >= threshold then return nil end
+    local modelOk, model = invoke(actor, "hasAnimationPlayer")
+    local angleOk, angle = invoke(actor, "getAnimAngle")
+    local bodyKnown = modelOk and model == true and angleOk and finite(angle)
+    local bodyDot = bodyKnown and math.cos(math.rad(angle)) * nx
+        + math.sin(math.rad(angle)) * ny or facingDot
+    if continuous and facingDot >= threshold or not continuous and bodyDot >= threshold
+        and (bodyKnown or not turningOk or turning ~= true) then
+        forwardTurns[actor] = nil
+        return nil
+    end
+
+    local current = nowMs()
+    local pending = forwardTurns[actor]
+    if pending and pending.x * nx + pending.y * ny < 0.985 then pending = nil end
+    if pending and (pending.failed or current - pending.at >= (tonumber(SC.Config.get("movementTurnMaxWaitMs")) or 1600)) then
+        pending.failed = true
+        forwardTurns[actor] = pending
+        return false, "movement_turn_timeout"
+    end
 
     -- setMoving(false) cancels a retained vector from the previous segment.
     -- Without it that vector keeps translating the actor during the new turn.
     invoke(actor, "setMoving", false)
     invoke(actor, "setRunning", false)
     invoke(actor, "setSprinting", false)
-    local requested, accepted = invoke(actor, "faceLocationF",
-        actorX + nx * 2, actorY + ny * 2)
-    if not requested or accepted ~= true then
-        return false, "movement_turn_rejected"
+    if not pending then
+        -- Reissuing the stock turn on every decision restarts its animation.
+        -- Retain one request and its deadline while the real body catches up.
+        if facingDot < threshold or not turningOk or turning ~= true then
+            local requested, accepted = invoke(actor, "faceLocationF", actorX + nx * 2, actorY + ny * 2)
+            if not requested or accepted ~= true then return false, "movement_turn_rejected" end
+        end
+        forwardTurns[actor] = { x = nx, y = ny, at = current }
     end
+    -- faceLocationF may retain only the coarse native direction. Supply the
+    -- exact logical target too; rendered alignment, rather than that input
+    -- vector alone, decides when this turn is ready for translation.
+    invoke(actor, "setForwardDirection", nx, ny)
     return true, "turning_for_movement"
 end
 actions._prepareForwardTurnForTests = prepareForwardTurn
@@ -1210,6 +1242,13 @@ local function directMove(actor, mode, dx, dy, intent)
     local ready, readyReason = setWeaponReady(actor, intent.weaponReady == true, facingTarget)
     if not ready then return false, readyReason end
     if tactical then
+        -- Tactical locomotion owns its look direction even without a weapon.
+        -- Lowering a weapon must not leave the per-frame native actor without
+        -- the moving target that this same step asks it to keep facing.
+        if facingTarget and method(facingTarget, "getCurrentSquare") ~= nil then
+            local retained, failure = invoke(actor, "setCompanionAimTarget", facingTarget)
+            if not retained then return false, failure end
+        end
         -- Convert the world-space translation into the stock player's local
         -- strafe blend axes. Negative Y selects backward walking; X selects a
         -- lateral or diagonal step while the upper body faces the threat.
@@ -2706,6 +2745,58 @@ end
 -- Stock Build 42 cleaning chooses its own wall/floor scrub pose and commits
 -- the bleach/cleaning-liquid cost and stain removal. Keep its native queue
 -- ownership and restore the companion's previous hand items afterward.
+function actions.startCleaningFluidTransfer(actor, source, bucket, amount, jobId, fromWorld)
+    amount = tonumber(amount)
+    if not actor or not source or not bucket or not amount or amount ~= amount
+        or amount <= 0 or amount > 2.001 or not SC.BaseWork
+        or SC.BaseWork.canMixCleaning(actor, jobId, source, bucket, fromWorld) ~= true then
+        return false, "cleaning_transfer_invalid"
+    end
+    local items = fromWorld and { bucket } or { source, bucket }
+    local record, reason = prepareWorkInventory(actor, items, bucket, nil)
+    if not record then return false, reason end
+    local action, created
+    if fromWorld then
+        created, action = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+            actor, bucket, source, select(2, invoke(source, "isTaintedWater")) == true)
+        if created and action then
+            action.waterUnit = math.min(tonumber(action.waterUnit) or 0, amount)
+            action.endUsedAmount = (tonumber(action.startUsedAmount) or 0) + action.waterUnit
+            action.maxTime = action:getDuration()
+            if action.waterUnit + 0.0001 < amount then
+                restoreWorkInventory(actor, record)
+                return false, "cleaning_carry_capacity_low"
+            end
+        end
+    elseif type(ISFluidContainer) == "table" and type(ISFluidTransferAction) == "table" then
+        local _, donor = invoke(source, "getFluidContainer")
+        local _, receiver = invoke(bucket, "getFluidContainer")
+        if donor and receiver then
+            local a, b = ISFluidContainer:new(donor), ISFluidContainer:new(receiver)
+            created, action = pcall(ISFluidTransferAction.new, ISFluidTransferAction,
+                actor, a, donor, b, receiver, amount)
+        end
+    end
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "cleaning_transfer_action_unavailable"
+    end
+    -- ISFluidUtil's UI validator falls back to getPlayer(). This instance is
+    -- owned by the exact LF actor and never changes that global validator.
+    action.isValid = function(self)
+        if self.character ~= actor or not SC.BaseWork or SC.BaseWork.canMixCleaning(
+            actor, jobId, source, bucket, fromWorld) ~= true then return false end
+        if fromWorld then
+            return self.item == bucket and self.waterObject == source
+                and select(2, invoke(source, "hasFluid")) == true
+        end
+        if self.source:getOwner() ~= source or self.target:getOwner() ~= bucket then return false end
+        return FluidContainer.CanTransfer(self.source:getFluidContainer(), self.target:getFluidContainer()) == true
+    end
+    record.baseJobId = jobId
+    return queueTrackedWork(actor, action, record, fromWorld and "cleaning_fill" or "cleaning_mix")
+end
+
 function actions.startCleanBlood(actor, square, tool, cleaner)
     if actor == nil or square == nil or tool == nil or cleaner == nil then
         return false, "cleaning target and supplies are required"

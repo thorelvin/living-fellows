@@ -3,6 +3,7 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if type(require) == "function" then pcall(require, "SCCleaningSupplies") end
 
 SC.Needs = SC.Needs or {}
 local Needs = SC.Needs
@@ -747,6 +748,7 @@ local function fluidConstant(name)
 end
 
 local function isSafeWaterItem(item)
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return false end
     local fluid, fluidOk = U().call(item, "getFluidContainer")
     if not fluidOk or not fluid then return false end
     local empty, emptyOk = U().call(fluid, "isEmpty")

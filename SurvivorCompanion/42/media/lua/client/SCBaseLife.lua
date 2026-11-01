@@ -186,6 +186,13 @@ function BaseLife.upkeepSupplyRetryMs(job, reason)
 end
 local function transientJobDelay(job, reason)
     if type(job) ~= "table" then return nil end
+    if job.type == "clean" and (reason == "cleaning_tool_missing"
+        or reason == "cleaning_cleaner_missing" or reason == "cleaning_water_or_bucket_missing"
+        or reason == "cleaning_water_source_changed" or reason == "cleaning_water_unreachable"
+        or reason == "cleaning_supply_changed" or reason == "cleaning_carry_capacity_low"
+        or reason == "cleaning_transfer_no_progress") then return 180000 end
+    if reason == "work_side_blocked" then return 180000 end
+    if reason == "work_side_busy" then return 15000 end
     local upkeepDelay = BaseLife.upkeepSupplyRetryMs(job, reason)
     if upkeepDelay then return upkeepDelay end
     if reason == "destination_full" or reason == "haul_destinations_full"
@@ -3999,7 +4006,7 @@ function BaseLife.enqueueJob(spec)
     return true, job
 end
 
-function BaseLife.canRequestCleaning(square)
+function BaseLife.canRequestCleaning(square, remainingBudget)
     local base = activeBase()
     if not base then return false, "base_missing" end
     local target = position(square)
@@ -4026,12 +4033,13 @@ function BaseLife.canRequestCleaning(square)
             and not BaseLife.RESTRICTIONS[ensure().restrictions[id]] then
             local eligible, why
             if SC.Downtime and type(SC.Downtime.canCleanAt) == "function" then
-                eligible, why = SC.Downtime.canCleanAt(actor, loaded)
+                eligible, why = SC.Downtime.canCleanAt(actor, loaded, nil, remainingBudget)
             end
             if not eligible and why == "cleaning_supplies_missing"
-                and SC.BaseWork and SC.BaseWork.cleaningSuppliesAvailable
-                and SC.BaseWork.cleaningSuppliesAvailable(actor) then
-                eligible, why = SC.Downtime.canCleanAt(actor, loaded, true)
+                and SC.BaseWork and SC.BaseWork.cleaningSuppliesAvailable then
+                local supplies, supplyReason = SC.BaseWork.cleaningSuppliesAvailable(actor, nil, remainingBudget)
+                if supplies then eligible, why = SC.Downtime.canCleanAt(actor, loaded, true)
+                elseif supplyReason then why = supplyReason end
             end
             if eligible then return true, target end
             if why and reason == "cleaning_worker_missing" then reason = why end
@@ -4040,8 +4048,8 @@ function BaseLife.canRequestCleaning(square)
     return false, reason
 end
 
-function BaseLife.requestCleaning(square)
-    local eligible, target = BaseLife.canRequestCleaning(square)
+function BaseLife.requestCleaning(square, remainingBudget)
+    local eligible, target = BaseLife.canRequestCleaning(square, remainingBudget)
     if not eligible then return false, target end
     return BaseLife.enqueueJob({ type = "clean", priority = 4,
         target = target })
@@ -4390,7 +4398,8 @@ local function jobScore(actorId, job, settlementId)
             job.target.x, job.target.y, job.target.z) or nil
         local hasLoans = type(job.target) == "table"
             and type(job.target.cleanLoans) == "table"
-            and (job.target.cleanLoans.tool or job.target.cleanLoans.liquid)
+            and (job.target.cleanLoans.tool or job.target.cleanLoans.liquid
+                or job.target.cleanLoans.concentrate or job.target.cleanLoans.water)
         local alreadyClean = target
             and select(1, U().call(target, "haveStains")) == false
         local eligible = record and record.actor and SC.Downtime
@@ -4424,6 +4433,32 @@ local function jobScore(actorId, job, settlementId)
         score = score - math.min(20, U().distance(record.actor, job.target) * 0.2)
     end
     return score
+end
+
+-- Read-only arbitration hint. Assigned urgent work must not wait behind
+-- repeated optional shelving/packing trips. The ordinary claim still performs
+-- all ownership, expiry, order and policy checks before anything is changed.
+function BaseLife.priorityWorkFor(actorId)
+    local base, current = activeBase(), now()
+    local resident = ensure().residents[actorId]
+    if not base or not resident or resident.duty ~= true
+        or BaseLife.RESTRICTIONS[ensure().restrictions[actorId]] then return nil end
+    local best, bestScore
+    for _, job in ipairs(base.jobs) do
+        local assigned = job.assignedId == actorId or job.reservedBy == actorId
+        local wanted = job.priority >= 4 or job.type == "production"
+        local due = job.state == "pending" or ((job.state == "reserved" or job.state == "active")
+                and job.reservedBy == actorId and job.leaseUntil > current)
+            or (job.state == "blocked" and job.retryAt <= current
+                and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job)))
+        if assigned and wanted and due then
+            local score = jobScore(actorId, job)
+            if score > -math.huge and (not bestScore or score > bestScore) then
+                best, bestScore = job, score
+            end
+        end
+    end
+    return best
 end
 
 function BaseLife.claimJob(actorId)

@@ -2949,6 +2949,8 @@ do
         and foreign:contains(axe) and SC.ExpeditionWood.toolsPending(wood),
         "stale nested membership cannot authorize moving an external axe")
 end
+SC_TEST_WORK_TRANSPORT = { setup = setup, item = makeItem, inventory = makeInventory,
+    actor = makeActor, square = addSquare, storage = makeStorage }
 print("WORK_TRANSPORT_PASS checks=" .. tostring(checks)
     .. " scanned=" .. tostring(gatherMetrics.examinedObjects)
     .. " recovery=" .. tostring(transportMetrics.recoveryAttempts))

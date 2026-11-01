@@ -54,6 +54,7 @@ local function waterRequired(spec)
     return spec.base == "Base.Pot" and (spec.water or 0.9) or 0
 end
 local function usablePotFluid(item, required)
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return false end
     local fluid = select(1, call(item, "getFluidContainer"))
     if not fluid or select(1, call(fluid, "isTainted")) == true
         or select(1, call(item, "isTaintedWater")) == true then

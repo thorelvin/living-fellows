@@ -146,6 +146,7 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_VIEWPOINT_API = SCBridge.isViewpoint3DActive ~= nil and SCBridge.isViewpoint3DActive() == false\n"
                 + "SC_TEST_STOCK_COMPARATOR_API = SCSplitScreenProbe.debugReleaseStockObserver ~= nil and SCSplitScreenProbe.debugPlayerSqlId ~= nil and not SCSplitScreenProbe.debugReleaseStockObserver(nil)\n"
                 + "SC_TEST_BED_POSE_API = SCBridge.shiftOnBedPoseTowardPillow ~= nil\n"
+                + "SC_TEST_BED_EXIT_API = SCBridge.recoverBedExit ~= nil and not SCBridge.recoverBedExit(nil, nil, nil)\n"
                 + "SC_TEST_BED_POSE_REJECTS_NIL = not SCBridge.shiftOnBedPoseTowardPillow(nil, 0, 0, 0)\n"
                 + "SC_TEST_BED_RENDER_LIFT_API = SCBridge.setOnBedRenderLift ~= nil\n"
                 + "SC_TEST_BED_RENDER_LIFT_REJECTS_NIL = not SCBridge.setOnBedRenderLift(nil, 180)\n"
@@ -238,6 +239,8 @@ public final class SCNativeBridgeExposureTest {
                 "production Kahlua bridge omitted the additive deferred-view capability");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEWPOINT_API")),
                 "optional Viewpoint state was not safely exposed to Lua");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_BED_EXIT_API")),
+                "bed-specific recovery was not exposed with owned-actor guards");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_STOCK_COMPARATOR_API"))
                         && SCSplitScreenProbe.debugPlayerSqlId(null) == Integer.MIN_VALUE,
                 "production Kahlua bridge omitted or opened the guarded stock comparator");

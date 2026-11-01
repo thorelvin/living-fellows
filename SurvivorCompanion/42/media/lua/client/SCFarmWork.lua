@@ -29,6 +29,7 @@ local knownPlots = {}
 local knownBase = nil
 local supplyScans = {}
 local seedScans = {}
+local carriedWaterAuditCursor = 0
 local metrics = {
     scans = 0, jobsQueued = 0, harvested = 0, watered = 0, sown = 0,
     replanted = 0, composted = 0, cured = 0, recovered = 0, blockers = 0,
@@ -209,6 +210,7 @@ end
 
 local function waterUses(item)
     if not item then return 0 end
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return 0 end
     local fluid, fluidOk = invoke(item, "getFluidContainer")
     if fluidOk and fluid then
         local primary = select(1, invoke(fluid, "getPrimaryFluid"))
@@ -223,6 +225,7 @@ local function waterUses(item)
 end
 
 local function fillableWaterContainer(item)
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return false end
     local fluid, ok = invoke(item, "getFluidContainer")
     if not ok or not fluid then return false end
     local amount = select(1, invoke(fluid, "getAmount"))
@@ -256,6 +259,12 @@ local function unmark(item, receiptId)
 end
 
 function FarmWork.isItemProtected(item, actorOrId, operation)
+    for actor, state in pairs(states) do
+        if state.carriedWaterSupply and state.carriedWaterSupply.item == item then
+            if not U().isDead(actor) and U().inventoryContains(U().inventory(actor), item) then return true end
+            state.carriedWaterSupply = nil
+        end
+    end
     local receiptId = marker(item)
     if receiptId == nil then return false end
     if operation == "farm_return" or operation == "farm_deposit" then return false end
@@ -640,7 +649,25 @@ local function waterContainerPredicate(item)
     return waterUses(item) > 0 or fillableWaterContainer(item)
 end
 
-local function inspectPlot(base, zone, square, x, y, z)
+-- A carried watering can is equipment, not a loan from camp storage. Keep
+-- its exact identity and owner; never manufacture a storage return receipt.
+function FarmWork.carriedWaterContainer(actor, requireWater)
+    if not actor or U().isDead(actor) then return nil end
+    local state = states[actor]
+    local held = state and state.carriedWaterSupply and state.carriedWaterSupply.item
+    if held and marker(held) == nil and U().inventoryContains(U().inventory(actor), held)
+        and waterContainerPredicate(held) and (requireWater ~= true or waterUses(held) > 0) then return held end
+    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 160)) do
+        local kind = string.lower(U().itemType(item))
+        if (string.find(kind, "wateredcan", 1, true)
+                or string.find(kind, "wateringcan", 1, true))
+            and waterContainerPredicate(item) and (requireWater ~= true or waterUses(item) > 0)
+            and not protected(item, actor) then return item end
+    end
+    return nil
+end
+
+local function inspectPlot(base, zone, square, x, y, z, carriedWater)
     local plant = plantOn(square)
     local key = pointKey(x, y, z)
     if not plant then knownPlots[key] = nil return nil end
@@ -661,8 +688,8 @@ local function inspectPlot(base, zone, square, x, y, z)
     local water = tonumber(plant.waterLvl) or 0
     local needed = tonumber(plant.waterNeeded) or 0
     local emergency = needed > 0 and water < math.floor(needed / 1.30)
-    if emergency and hasSupply(waterContainerPredicate,
-        { "farming", "water" }, "water") then
+    if emergency and (carriedWater or hasSupply(waterContainerPredicate,
+        { "farming", "water" }, "water")) then
         return { operation = "water", priority = 5, emergency = true,
             uses = math.max(1, math.ceil((math.min(100, needed
                 + config("farmWaterBuffer", 20)) - water) / 10)) }
@@ -675,8 +702,8 @@ local function inspectPlot(base, zone, square, x, y, z)
                 cureItem = cure.item, diseaseField = cure.field, uses = 1, minFarming = 3 }
         end
         if needed > 0 and water < needed
-            and hasSupply(waterContainerPredicate,
-                { "farming", "water" }, "water") then
+            and (carriedWater or hasSupply(waterContainerPredicate,
+                { "farming", "water" }, "water")) then
             return { operation = "water", priority = 3, emergency = false,
                 uses = math.max(1, math.ceil((math.min(100, needed
                     + config("farmWaterBuffer", 20)) - water) / 10)) }
@@ -862,6 +889,24 @@ function FarmWork.audit(base)
     local farmZones = zones()
     if #farmZones == 0 then return false, "farm_zone_missing" end
     local budget = math.max(1, math.floor(config("farmScanSquaresPerSlice", 16)))
+    local carriedWaterId, farmers = nil, {}
+    local ids = SC.BaseLife.dutyResidentIds and SC.BaseLife.dutyResidentIds() or {}
+    for index, id in ipairs(ids) do
+        if index > 32 then break end
+        local resident = SC.BaseLife.resident(id)
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id)
+        local actor = record and record.actor
+        if resident and resident.role == "farmer" and resident.duty == true
+            and actor and not U().isDead(actor) and SC.BaseLife.isInside(actor) == true then
+            farmers[#farmers + 1] = { id = id, actor = actor }
+        end
+    end
+    -- One bounded inventory inspection per audit, even in a large camp.
+    if #farmers > 0 then
+        carriedWaterAuditCursor = carriedWaterAuditCursor % #farmers + 1
+        local farmer = farmers[carriedWaterAuditCursor]
+        if FarmWork.carriedWaterContainer(farmer.actor, true) then carriedWaterId = farmer.id end
+    end
     local best
     for _ = 1, budget do
         -- metrics.scans is already advanced once per square. Adding the loop
@@ -870,7 +915,7 @@ function FarmWork.audit(base)
         local square, x, y, z = nextScannedSquare(zone)
         metrics.scans = metrics.scans + 1
         if square then
-            local candidate = inspectPlot(base, zone, square, x, y, z)
+            local candidate = inspectPlot(base, zone, square, x, y, z, carriedWaterId ~= nil)
             if candidate and (not best or candidate.priority > best.priority) then
                 candidate.zoneId, candidate.x, candidate.y, candidate.z = zone.id, x, y, z
                 best = candidate
@@ -879,6 +924,7 @@ function FarmWork.audit(base)
     end
     if not best then return false, "farm_scan_no_work" end
     local spec = { type = "farm", priority = best.priority, target = best }
+    if best.operation == "water" and carriedWaterId then spec.assignedId = carriedWaterId end
     local queued, job = SC.BaseLife.enqueueJob(spec)
     if queued == true then metrics.jobsQueued = metrics.jobsQueued + 1 end
     return queued, job
@@ -1022,6 +1068,13 @@ local function allocateReceipt(actor, job, kind, item, storage, category)
 end
 
 local function borrowSupply(actor, baseState, job, state, predicate, categories, scanKey)
+    if scanKey == "water" and not state.fetch then
+        local carried = FarmWork.carriedWaterContainer(actor)
+        if carried then
+            state.carriedWaterSupply = { item = carried, container = U().inventory(actor) }
+            return true, "farm_carried_water_ready"
+        end
+    end
     local pending = state.fetch
     if pending and (not U().inventoryContains(pending.container, pending.item)
         or not predicate(pending.item)) then state.fetch, pending = nil, nil end
@@ -1076,6 +1129,7 @@ local function borrowSupply(actor, baseState, job, state, predicate, categories,
 end
 
 local function consumeOrReturn(actor, baseState, state)
+    state.carriedWaterSupply = nil
     local borrowed = state.borrowed
     if not borrowed then return true, "farm_supply_settled" end
     local inventory = U().inventory(actor)
@@ -1497,7 +1551,8 @@ local function startAction(actor, job, state, square, plant, operation)
         end
         return false, reason
     end
-    local target, item = job.target, state.borrowed and state.borrowed.item or nil
+    local supply = state.borrowed or state.carriedWaterSupply
+    local target, item = job.target, supply and supply.item or nil
     local before
     if operation == "water" then before = tonumber(plant.waterLvl) or 0
     elseif operation == "cure" then before = tonumber(plant[target.diseaseField]) or 0
@@ -1814,7 +1869,12 @@ function FarmWork.update(actor, baseState, job, runtime)
         state.stage, state.afterReturn = "returning", "complete"
         return true, "farm_postcondition_reconciled"
     end
-    if operation == "water" and state.borrowed and waterUses(state.borrowed.item) < 1 then
+    local supply = state.borrowed or state.carriedWaterSupply
+    if state.carriedWaterSupply and not U().inventoryContains(
+        U().inventory(actor), state.carriedWaterSupply.item) then
+        state.carriedWaterSupply, supply = nil, state.borrowed
+    end
+    if operation == "water" and supply and waterUses(supply.item) < 1 then
         local source, reason = state.waterSource, nil
         if not waterSourceUsable(source) then
             state.waterSource = nil
@@ -1833,7 +1893,7 @@ function FarmWork.update(actor, baseState, job, runtime)
         return startAction(actor, job, state, sourceSquare, plant, "fill_water")
     end
     local predicate, categories, supplyKey = operationSupply(target, operation)
-    if predicate and not state.borrowed then
+    if predicate and not state.borrowed and not state.carriedWaterSupply then
         return borrowSupply(actor, baseState, job, state, predicate, categories, supplyKey)
     end
     if operation == "harvest"
@@ -1857,6 +1917,7 @@ local function restoreBorrowed(actor, state, reason)
         local cancelled, cancelReason = SC.NativeActions.cancelWork(actor, reason)
         if cancelled ~= true then return false, cancelReason end
     end
+    state.carriedWaterSupply = nil
     if not state.borrowed then return true end
     local borrowed = state.borrowed
     local receipt = SC.BaseLife and SC.BaseLife.farmReceipt

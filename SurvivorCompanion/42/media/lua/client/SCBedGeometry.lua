@@ -416,11 +416,11 @@ function Geometry.exitTargets(bed, actor)
         local clear, reason = utility.isClearActorSpawnSquare(tile)
         -- isFree can count the actor itself. Recentring its own clear tile is
         -- allowed only after proving no other body or furniture occupies it.
-        -- Only recentering this physical tile has a native exception to spawn
-        -- safety. Reject narrow other-tile choices here so they cannot hide a
-        -- valid exit later in the list that the native provider would accept.
-        return clear == true or tile == physical
-            and (reason == "unsafe_to_spawn" or reason == "occupied")
+        -- This is an existing actor leaving furniture, not a new spawn. A
+        -- narrow aisle need not have eight connected spawn tiles. The bed
+        -- recovery adapter independently checks the corridor and destination.
+        return clear == true or (reason == "unsafe_to_spawn" or reason == "occupied")
+            and utility.squareStaticBlocker(tile) == nil
             and utility.squareOccupyingObject(tile) == nil
     end
     local function openEdge(from, to)
@@ -440,12 +440,22 @@ function Geometry.exitTargets(bed, actor)
         -- the other body or wait forever for that body to move: one checked
         -- cardinal step may leave the crowded source for empty floor.
         local targets = {}
-        if floorReady(physical, true) and utility.squareStaticBlocker(physical) == nil
-            and utility.squareOccupyingObject(physical) == nil then
+        if floorReady(physical, true) then
             local x, y = utility.position(physical)
+            local sourceClear = utility.squareStaticBlocker(physical) == nil
+                and utility.squareOccupyingObject(physical) == nil
             for _, offset in ipairs({ {-1,0}, {1,0}, {0,-1}, {0,1} }) do
                 local target = utility.gridSquare(x + offset[1], y + offset[2], az)
-                if target and clearFloor(target) and openEdge(physical, target) then
+                -- Native get-up can already have placed the capsule inside a
+                -- low table beside the bed. Permit leaving that overlap only
+                -- when the native sweep/stand test verifies empty floor. Never
+                -- use this exception to enter or cross another furniture tile.
+                local tx, ty = utility.position(target)
+                local leavingOverlap = not sourceClear and tx ~= nil and ty ~= nil
+                    and (tx + 0.5 - ax)^2 + (ty + 0.5 - ay)^2 <= 1.25^2
+                    and select(1, utility.call(actor, "isCompanionMovementClear", tx + 0.5, ty + 0.5, az)) == true
+                if target and clearFloor(target) and openEdge(physical, target)
+                    and (sourceClear or leavingOverlap) then
                     targets[#targets + 1] = target
                 end
             end

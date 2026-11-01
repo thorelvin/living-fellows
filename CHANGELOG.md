@@ -2,6 +2,33 @@
 
 # Changelog
 
+## 0.26.86 - Cleaning mixtures and companion movement hardening
+
+- Companions reuse stored cleaning mixtures before preparing a bucket of
+  5% bleach or Cleaning Liquid with water. Borrowed supplies return to their
+  storage, interrupted transfers reconcile actual quantities, and undiluted
+  cleaner remains a fallback. Soap bars are excluded; car washing still uses
+  water only. Cleaner mixtures cannot enter drinking or other water jobs.
+- Strengthens bed exits beside low tables, trying verified alternate floor
+  positions while preserving the companion, inventory and furniture.
+- Farmers retain and use their own watering can. Assigned camp work takes
+  priority over optional shelving, precise interaction distances are respected,
+  and obstructed barricade work positions pause with a readable retry reason.
+- EMMA's expedition station is available only through Local services on a camp
+  computer. Stale menus and map callbacks recheck the computer's location.
+- Retains native aim during tactical movement, bounds forward-turn waits and
+  fixes unconsumed movement inputs expiring during a slow frame. A late first
+  step is collision checked and capped; explicit endpoint deadlines still hold.
+- Combat-facing jitter remains partly unresolved. Final three 2-vs-3 trials
+  had five of six companions survive and seven of nine zombies killed, with
+  rapid target/movement handoffs still present. Automated passes do not certify
+  this as clean live combat acceptance.
+- Ships the rebuilt bridge; protocol remains `42.21-isocompanion-26` for
+  Project Zomboid 42.21.0. Keep its matching Lua and native payload together.
+- See the [validation record](docs/validation-release-0.26.86.md) for completed
+  cleaning, bed-exit and doorway checks, mixed combat results and remaining
+  natural indoor routing limits.
+
 ## 0.26.85 - Reliable bed exits and closer Follow
 
 - Companions clear the whole mattress before resuming work or Follow. Bedside

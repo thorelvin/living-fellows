@@ -2367,6 +2367,22 @@ public final class SCBridge {
         if (!validSpawnSquare(square) && !validSameTileRecoverySquare(actor, square)) {
             return failBoolean("recovery square is unsafe or unloaded");
         }
+        return relocateExistingActor(actor, square);
+    }
+
+    /** Finish native get-up on nearby standing floor, without spawn rules. */
+    public static boolean recoverBedExit(SCNativeCompanion actor, IsoObject bed, IsoGridSquare square) {
+        lastFailure = "";
+        if (actor == null || !isOwned(actor) || actor.isDead()) {
+            return failBoolean("bed exit requires a living owned companion");
+        }
+        if (!validBedExitSquare(actor, bed, square)) {
+            return failBoolean("bed exit has no clear local corridor");
+        }
+        return relocateExistingActor(actor, square);
+    }
+
+    private static boolean relocateExistingActor(SCNativeCompanion actor, IsoGridSquare square) {
         SCNativeCompanion.LocalPlayerState localState = SCNativeCompanion.LocalPlayerState.capture();
         if (localState == null || !localState.matches()) {
             return failBoolean("local-player state is unavailable for companion recovery");
@@ -2932,6 +2948,113 @@ public final class SCBridge {
 
     private static boolean validSpawnSquare(IsoGridSquare square) {
         return validStandingSquare(square) && square.isFree(true) && square.isSafeToSpawn();
+    }
+
+    private static boolean bedFloor(SCNativeCompanion actor, IsoGridSquare square, IsoRoom room,
+            boolean source) {
+        if (square == null || square.getCell() == null || square.getChunk() == null
+                || square.getRoom() != room || square.getZ() != Math.floor(actor.getZ())
+                || !square.TreatAsSolidFloor() || square.HasStairs() || square.haveFire()
+                || square.getVehicleContainer() != null || square.getMovingObjects() == null
+                || square.getMovingObjects().size() > 32) return false;
+        if (!source) for (int i = 0; i < square.getMovingObjects().size(); i++) {
+            if (square.getMovingObjects().get(i) != actor
+                    && square.getMovingObjects().get(i).isCollidable()) return false;
+        }
+        return true;
+    }
+
+    private static boolean furnitureClear(IsoGridSquare square, Set<IsoObject> ignored) {
+        PZArrayList<IsoObject> objects = square.getObjects();
+        if (objects == null || objects.size() > 64) return false;
+        for (int i = 0; i < objects.size(); i++) {
+            IsoObject object = objects.get(i);
+            if (object != null && !ignored.contains(object)
+                    && (object.isMovedThumpable() || object.getSurfaceOffset() > 0
+                    || object.getContainer() != null || object.getProperties() != null
+                    && object.getProperties().getSurface() > 0)) return false;
+        }
+        return true;
+    }
+
+    private static boolean bedEdgeOpen(IsoGridSquare from, IsoGridSquare to) {
+        return !from.isBlockedTo(to) && !from.isWindowTo(to)
+                && !from.isDoorTo(to) && !from.isHoppableTo(to);
+    }
+
+    // Mirror the bounded Lua corridor at application time. Only this placed
+    // mattress can be crossed; identical neighbouring beds are not its pieces.
+    private static boolean validBedExitSquare(SCNativeCompanion actor, IsoObject bed, IsoGridSquare target) {
+        if (actor == null || bed == null || bed.getSquare() == null || bed.getSquare().getChunk() == null
+                || bed.getObjectIndex() < 0
+                || bed.getProperties() == null || bed.getProperties().get("BedType") == null
+                || !actor.isExistInTheWorld() || actor.isOnBed() || actor.isAsleep()
+                || actor.getVehicle() != null || !"none".equals(actor.getCompanionMovementOwner())
+                || !validStandingSquare(target)) return false;
+        IsoGridSquare origin = bed.getSquare();
+        IsoRoom room = origin.getRoom();
+        if (origin.getZ() != Math.floor(actor.getZ()) || origin.getCell() != target.getCell()) return false;
+        if (!bedFloor(actor, target, room, false) || !furnitureClear(target, Collections.emptySet())) return false;
+        float dx = target.getX() + 0.5f - actor.getX(), dy = target.getY() + 0.5f - actor.getY();
+        if (dx * dx + dy * dy > 3.25f * 3.25f) return false;
+        IsoSprite sprite = bed.getSprite();
+        IsoSpriteGrid grid = sprite == null ? null : sprite.getSpriteGrid();
+        int gx = grid == null ? 0 : grid.getSpriteGridPosX(sprite);
+        int gy = grid == null ? 0 : grid.getSpriteGridPosY(sprite);
+        if (gx < 0 || gy < 0) return false;
+        Set<IsoObject> pieces = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<IsoGridSquare> mattress = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (grid == null) { pieces.add(bed); mattress.add(origin); }
+        else for (int x = 0; x < Math.min(grid.getWidth(), 4); x++) {
+            for (int y = 0; y < Math.min(grid.getHeight(), 4); y++) {
+                IsoGridSquare tile = origin.getCell().getGridSquare(origin.getX() - gx + x,
+                        origin.getY() - gy + y, origin.getZ());
+                if (tile == null || tile.getObjects() == null || tile.getObjects().size() > 64) continue;
+                for (int i = 0; i < tile.getObjects().size(); i++) {
+                    IsoObject piece = tile.getObjects().get(i);
+                    IsoSprite ps = piece == null ? null : piece.getSprite();
+                    if (ps != null && ps.getSpriteGrid() == grid
+                            && grid.getSpriteGridPosX(ps) == x && grid.getSpriteGridPosY(ps) == y) {
+                        pieces.add(piece); mattress.add(tile);
+                    }
+                }
+            }
+        }
+        boolean touching = false;
+        float radius = Math.max(0.15f, Math.min(0.45f, actor.getWidth())) + 0.03f;
+        for (IsoGridSquare tile : mattress) {
+            if (actor.getX() > tile.getX() - radius && actor.getX() < tile.getX() + 1 + radius
+                    && actor.getY() > tile.getY() - radius && actor.getY() < tile.getY() + 1 + radius) touching = true;
+        }
+        if (!touching || mattress.contains(target)) return false;
+        IsoGridSquare source = origin.getCell().getGridSquare((int) Math.floor(actor.getX()),
+                (int) Math.floor(actor.getY()), (int) Math.floor(actor.getZ()));
+        if (!bedFloor(actor, source, room, true)) return false;
+        if (!mattress.contains(source)) {
+            if (source == target) return true;
+            if (Math.abs(source.getX() - target.getX()) + Math.abs(source.getY() - target.getY()) != 1
+                    || !bedEdgeOpen(source, target)) return false;
+            if (!source.isSolid() && !source.isSolidTrans() && furnitureClear(source, Collections.emptySet())) return true;
+            // Get-up may already have clipped into the bedside table. This
+            // can only leave that overlap for adjacent, natively clear floor.
+            return dx * dx + dy * dy <= 1.25f * 1.25f
+                    && actor.isCompanionMovementClear(target.getX() + 0.5f, target.getY() + 0.5f, target.getZ());
+        }
+        ArrayList<IsoGridSquare> queue = new ArrayList<>();
+        Set<IsoGridSquare> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        queue.add(source); seen.add(source);
+        for (int cursor = 0; cursor < queue.size() && cursor < 16; cursor++) {
+            IsoGridSquare tile = queue.get(cursor);
+            if (!bedFloor(actor, tile, room, tile == source) || !furnitureClear(tile, pieces)) continue;
+            for (int[] offset : new int[][] { {-1,0}, {1,0}, {0,-1}, {0,1} }) {
+                IsoGridSquare next = origin.getCell().getGridSquare(tile.getX() + offset[0],
+                        tile.getY() + offset[1], tile.getZ());
+                if (next == null || !bedEdgeOpen(tile, next)) continue;
+                if (next == target) return true;
+                if (mattress.contains(next) && seen.add(next)) queue.add(next);
+            }
+        }
+        return false;
     }
 
     private static boolean validStandingSquare(IsoGridSquare square) {

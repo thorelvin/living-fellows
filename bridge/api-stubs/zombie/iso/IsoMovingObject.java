@@ -2,6 +2,8 @@
 package zombie.iso;
 
 public class IsoMovingObject extends IsoObject {
+    public float getWidth() { return 0.3f; }
+    public boolean isCollidable() { return true; }
     public IsoGridSquare getMovingSquare() { return null; }
     public boolean isExistInTheWorld() { return false; }
     public float getX() { return 0; }

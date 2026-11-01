@@ -315,6 +315,9 @@ local function quarantine(receipt, reason, owner, preserveDetachedProof)
 end
 
 function Transport.isCargoProtected(item, actorOrId, operation)
+    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return true end
+    if SC.FarmWork and SC.FarmWork.isItemProtected
+        and SC.FarmWork.isItemProtected(item, actorOrId, operation) then return true end
     local data = itemData(item)
     if not data then return false end
     if data.LF_LogYardSplit ~= nil then return true end
@@ -372,6 +375,13 @@ function Transport.marker(item)
 end
 
 function Transport.foreignProtected(item, actor)
+    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then
+        return true, "chore_item_owned"
+    end
+    if SC.FarmWork and SC.FarmWork.isItemProtected
+        and SC.FarmWork.isItemProtected(item, actor, "work_gather") then
+        return true, "farm_item_owned"
+    end
     local data = itemData(item)
     if not data then return true, "item_mod_data_unavailable" end
     if data.LF_LogYardSplit ~= nil then return true, "log_yard_split_pending" end

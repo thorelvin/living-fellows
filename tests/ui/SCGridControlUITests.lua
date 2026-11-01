@@ -73,9 +73,11 @@ check(found,"grid control remains available through local services")
 local oldRadioUI=SC.TerminalRadioUI
 SC.TerminalRadioUI={active=function() return false end,update=function() end}
 local services=w:menuOptions()
-check(#services==5 and services[4].label=="More services","fitted radio and grid keep local services within five shortcuts")
+check(#services==5 and services[4].label=="Computer upgrades",
+    "outside fitted radio and grid fit within five shortcuts without an expedition entry")
 w.menuPage="home_services_more"
-check(#w:menuOptions()==3 and w:menuOptions()[2].label=="Expedition station","overflow retains upgrades and expedition station")
+check(#w:menuOptions()==2 and w:menuOptions()[1].label=="Computer upgrades",
+    "outside overflow offers upgrades and back without an expedition station")
 SC.TerminalRadioUI=oldRadioUI
 w:close()
 player.x,player.y=11000.5,10000.5
@@ -85,6 +87,18 @@ SC.Terminal.computerState(player,home).locked=false
 check(SC.Terminal.open(player,home),"open a normal camp computer")
 w=SC.Terminal.window w:flush()
 check(w.gridSite==nil,"ordinary computers retain their normal home menu")
+local oldActive=SC.BaseLife.active
+SC.BaseLife.active=function() return {id="camp"} end
+SC.TerminalRadioUI={active=function() return false end,update=function() end}
+w.menuPage="home_services"
+services=w:menuOptions()
+check(#services==5 and services[4].label=="More services",
+    "camp fitted radio and grid keep local services within five shortcuts")
+w.menuPage="home_services_more"
+check(#w:menuOptions()==3 and w:menuOptions()[2].label=="Expedition station",
+    "camp overflow retains upgrades and expedition station")
+SC.BaseLife.active,SC.TerminalRadioUI=oldActive,oldRadioUI
+w.menuPage=nil
 UI.open(w) w.gridPage="sites" UI.update(w,T.now+2000)
 check(#UI.options(w)<=5,"substation list paginates within five shortcuts")
 UI.input(w,"",{gridAction="site",gridValue="muldraugh"})

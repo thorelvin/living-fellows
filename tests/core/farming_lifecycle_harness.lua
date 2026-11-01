@@ -859,4 +859,73 @@ check(FarmWork._settleLostCarrierForTests(awayReceipt, lostAt + 600000) == false
         and awayReceipt.phase == "recovery",
     "a carrier that is only out of reach keeps its receipt")
 
+-- A farmer's carried can must not make a round trip through a shelf before
+-- watering, and using it must not turn a personal tool into a camp loan.
+fresh()
+actor = F.actor("carried-farmer", 0, 1)
+plant = F.plant({ waterLvl = 20, waterNeeded = 60, harvestable = false })
+F.square(1, 1, plant)
+local carriedCan = can(9901, 8)
+actor.inventory:AddItem(carriedCan)
+local originalResidents, originalDuty = SC.BaseLife.resident, SC.BaseLife.dutyResidentIds
+SC.BaseLife.resident = function(id)
+    return id == actor.id and { role = "farmer", duty = true } or nil
+end
+SC.BaseLife.dutyResidentIds = function() return { actor.id } end
+local carriedQueued, carriedJob = FarmWork.audit(F.base)
+check(carriedQueued == true and carriedJob.target.operation == "water"
+        and carriedJob.assignedId == actor.id,
+    "a carried full can admits dry plots and assigns its farmer")
+handled, reason = FarmWork.update(actor, {}, carriedJob, {})
+check(handled == true and reason == "farm_carried_water_ready" and #F.receipts == 0,
+    "a carried can is reused without a fictitious camp loan")
+check(FarmWork.isItemProtected(carriedCan, actor.id, "surplus_sort") == true,
+    "an actively used carried can is reserved against shelving")
+handled, reason = FarmWork.update(actor, {}, carriedJob, {})
+check(handled == true and reason == "farm_water_started"
+        and F.nativeStarts[#F.nativeStarts].intent.item == carriedCan,
+    "the exact carried can is passed to the native water action")
+plant.waterLvl = 70
+F.native[actor].active = false
+FarmWork.update(actor, {}, carriedJob, {})
+FarmWork.update(actor, {}, carriedJob, {})
+check(F.completedJobs == 1 and carriedCan.container == actor.inventory
+        and #F.receipts == 0 and F.restoreCalls == 0
+        and FarmWork.isItemProtected(carriedCan, actor.id, "surplus_sort") == false,
+    "completion keeps the original tool and releases only its transient reservation")
+SC.BaseLife.resident, SC.BaseLife.dutyResidentIds = originalResidents, originalDuty
+
+fresh()
+actor = F.actor("carried-cancel", 0, 1)
+plant = F.plant({ waterLvl = 20, waterNeeded = 60, harvestable = false })
+F.square(1, 1, plant)
+carriedCan = can(9902, 8)
+actor.inventory:AddItem(carriedCan)
+carriedJob = F.job("water", 1, 1, { actorId = actor.id, uses = 2 })
+FarmWork.update(actor, {}, carriedJob, {})
+FarmWork.update(actor, {}, carriedJob, {})
+check(FarmWork.cancelActor(actor, "player_order") == true
+        and carriedCan.container == actor.inventory and #F.receipts == 0
+        and FarmWork.isItemProtected(carriedCan, actor.id, "surplus_sort") == false,
+    "cancelling native watering leaves a carried can with its original owner")
+carriedCan.modData[FarmWork.ITEM_MARKER] = "farm-receipt:someone-else"
+check(FarmWork.carriedWaterContainer(actor) == nil,
+    "a carried can owned by another farm receipt is never adopted")
+
+fresh()
+actor = F.actor("carried-missing", 0, 1)
+plant = F.plant({ waterLvl = 20, waterNeeded = 60, harvestable = false })
+F.square(1, 1, plant)
+carriedCan = can(9903, 8)
+actor.inventory:AddItem(carriedCan)
+carriedJob = F.job("water", 1, 1, { actorId = actor.id, uses = 2 })
+FarmWork.update(actor, {}, carriedJob, {})
+actor.inventory:Remove(carriedCan)
+check(FarmWork.isItemProtected(carriedCan, actor.id, "surplus_sort") == false,
+    "losing the exact carried item releases its transient protection")
+handled, reason = FarmWork.update(actor, {}, carriedJob, {})
+check(handled == false and reason == "farm_supply_missing" and #F.receipts == 0
+        and #actor.inventory.items == 0,
+    "a missing carried tool is never recreated or converted into a storage loan")
+
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

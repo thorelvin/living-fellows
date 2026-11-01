@@ -1118,7 +1118,7 @@ function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, inten
     if side ~= "opposite" and same then candidates[#candidates + 1] = same end
     if side ~= "same" and opposite then candidates[#candidates + 1] = opposite end
     if #candidates == 0 then return nil, "work_side_unloaded" end
-    local best, bestDistance, busy, passable, passableDistance
+    local best, bestDistance, busy
     for _, square in ipairs(candidates) do
         local clear, reason = Navigation.standingSquareClear(actor, square)
         local admitted = type(intent) ~= "table" or intent.workCampOnly ~= true
@@ -1129,22 +1129,12 @@ function Navigation.barricadeWorkSquare(actor, object, objectSquare, side, inten
             if distance ~= nil and (bestDistance == nil or distance < bestDistance) then
                 best, bestDistance = square, distance
             end
-        elseif admitted and reason == "furniture" then
-            -- Furniture that does not block the tile, on one side of a window or
-            -- both, is no reason to give up. Vanilla only asks that a body can
-            -- stand there. A clear side still wins.
-            if utility.movingBlocker(square, actor) then
-                busy = true
-            elseif select(1, utility.call(square, "canStand")) ~= false then
-                local distance = utility.distance(actor, square)
-                if distance ~= nil and (passableDistance == nil or distance < passableDistance) then
-                    passable, passableDistance = square, distance
-                end
-            end
         end
     end
     if best ~= nil then return best end
-    if passable ~= nil then return passable end
+    -- Use the same furniture admission as topology/pathfinding. canStand()
+    -- alone accepts benches and counters that the retained route cannot enter,
+    -- leaving a worker searching until the entire job times out.
     return nil, busy and "work_side_busy" or "work_side_blocked"
 end
 
@@ -2907,7 +2897,15 @@ function Navigation._routeSearchSliceBudget(job)
     -- Commands.peek lazily initializes command state and personal items. Slice
     -- admission must be a read, including for a newly created survivor.
     local data, known = utility.call(actor, "getModData")
-    if not known or type(data) ~= "table" or data.SC_Order ~= "base_duty" then
+    local campOrder = known and type(data) == "table" and data.SC_Order == "base_duty"
+    if known and type(data) == "table" and data.SC_Order == "work"
+        and type(data.SC_WorkBaseJobId) == "string" and type(base.job) == "function" then
+        local owned = base.job(data.SC_WorkBaseJobId)
+        campOrder = owned ~= nil and owned.reservedBy == utility.idOf(actor)
+            and (owned.state == "active" or owned.state == "reserved")
+            and (tonumber(owned.leaseUntil) or 0) > utility.nowMs()
+    end
+    if not campOrder then
         return budget(normal, "not_base_duty")
     end
     local active, camp = pcall(base.active)
@@ -7072,8 +7070,8 @@ function Navigation.request(actor, target, movementMode, intent)
     end
     local reachedGoal = utility.arrived(actor, intercept or goalSquare, {
         targetKind = intercept and "world" or "square",
-        distance = intercept and 0.35
-            or tonumber(requestIntent.arrivalDistance)
+        distance = tonumber(requestIntent.arrivalDistance)
+            or (intercept and 0.35)
             or utility.config("navigationArrivalDistance") or 0.6,
     })
     -- A centre-based radius can overlap an adjacent tile. Exact work positions

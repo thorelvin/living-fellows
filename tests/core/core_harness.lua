@@ -2426,6 +2426,37 @@ check(shallow == nil and reverse == true and reverseReason == "turning_for_movem
 end
 
 actor.px, actor.py = 0.5, 0.5
+do
+    local savedClock = SC_TEST_CLOCK
+    local turner = setmetatable({ px = 0.5, py = 0.5, forwardX = -1, forwardY = 0,
+        turning = false, modelAngle = 180, faceCalls = 0 }, { __index = actor })
+    function turner:hasAnimationPlayer() return true end
+    function turner:getAnimAngle() return self.modelAngle end
+    function turner:faceLocationF()
+        self.faceCalls, self.turning = self.faceCalls + 1, true
+        return true -- Native coarse turn, without changing the precise vector.
+    end
+    local wait = SC.NativeActions._prepareForwardTurnForTests(turner,0.5,0.5,1,0,false,{},2)
+    check(wait == true and turner.forwardX == 1 and turner.faceCalls == 1,
+        "a coarse native turn receives the precise logical movement heading")
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 400
+    check(SC.NativeActions._prepareForwardTurnForTests(turner,0.5,0.5,1,0,false,{},2) == true
+            and turner.faceCalls == 1,
+        "waiting for the rendered body does not restart its turn each pulse")
+    turner.modelAngle = 0
+    check(SC.NativeActions._prepareForwardTurnForTests(turner,0.5,0.5,1,0,false,{},2) == nil,
+        "a rendered body aligned with its route is not held by a stale isTurning flag")
+    turner.modelAngle = 180
+    SC.NativeActions._prepareForwardTurnForTests(turner,0.5,0.5,1,0,false,{},2)
+    SC_TEST_CLOCK = SC_TEST_CLOCK + SC.Config.get("movementTurnMaxWaitMs") + 1
+    local timed, why = SC.NativeActions._prepareForwardTurnForTests(turner,0.5,0.5,1,0,false,{},2)
+    check(timed == false and why == "movement_turn_timeout",
+        "a frozen native turn stops reporting accepted progress after its deadline")
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 1
+    check(SC.NativeActions._prepareForwardTurnForTests(turner,0.5,0.5,1,0,false,{},2) == false,
+        "the same failed turn cannot rearm and suppress stuck recovery indefinitely")
+    SC_TEST_CLOCK = savedClock
+end
 local moved, moveReason = SC.Actor.setMovement(actor, "jog", { action = "move", dx = 1, dy = 0 })
 actor.healthyJogDistanceForTest = actor.px - 0.5
 check(moved and moveReason == "moving" and actor.running == true and actor.px > 0.5,
@@ -2555,8 +2586,18 @@ local moonwalkOk, moonwalkReason = SC.Actor.setMovement(actor, "walk", {
     action = "move", dx = 0, dy = 1, facingTarget = target,
 })
 check(moonwalkOk and moonwalkReason == "moving" and actor.tacticalMovement == true
-        and actor.forwardX > 0.9,
+        and actor.forwardX > 0.9 and actor.companionAimTarget == target,
     "traveling off the facing axis uses the directional strafe blend even without a tactical flag (moonwalk fix)")
+do
+    local primary = actor.primaryHand
+    actor.primaryHand, actor.px, actor.py = nil, 0.5, 0.5
+    local unarmed = SC.Actor.setMovement(actor, "walk", {
+        action = "lateral_kite", target = target, keepFacing = true,
+    })
+    check(unarmed and actor.tacticalMovement == true and actor.companionAimTarget == target,
+        "an unarmed tactical step retains its native facing target between decisions")
+    actor.primaryHand = primary
+end
 actor.companionAimTarget = target
 actor.targetOnGround = target
 actor.aimAtFloor = true

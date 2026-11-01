@@ -73,7 +73,7 @@ end
 -- body, unmarked, so the player loots an ordinary can, pump or cargo item;
 -- the job releases its receipt once the worker has left the registry.
 local CHORE_MARKERS = { Fuel.MARKER, Fuel.UPKEEP_MARKER, "LF_CarUnloadJob",
-    "LF_CleanToolJobId", "LF_CleanLiquidJobId" }
+    "LF_CleanToolJobId", "LF_CleanLiquidJobId", "LF_CleanConcentrateJobId", "LF_CleanWaterJobId" }
 function Fuel.prepareActorRetirement(actor)
     local inventory = actor and U().inventory(actor) or nil
     if not inventory then return true end

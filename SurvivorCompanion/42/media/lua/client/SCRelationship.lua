@@ -611,6 +611,7 @@ local doingLabels = {
     clem_approach_duel_ground = "walking to the duel ground",
     chop_tree = "chopping a tree",
     clean_base = "cleaning the camp",
+    move_to_cleaning_water = "fetching water for cleaning",
     climb_window = "climbing through a window",
     collision_recovery = "finding a clear step",
     combat_approach = "closing on a threat",

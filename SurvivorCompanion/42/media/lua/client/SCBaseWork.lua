@@ -6,6 +6,7 @@ if type(require) == "function" then
     pcall(require, "SCFloorSort")
     pcall(require, "SCGatherWork")
     pcall(require, "SCFarmWork")
+    pcall(require, "SCCleaningSupplies")
     pcall(require, "SCChefWork")
     pcall(require, "SCNativeList")
     pcall(require, "BuildingObjects/TimedActions/ISBuildAction")
@@ -25,6 +26,7 @@ local BaseWork = SC.BaseWork
 local states = setmetatable({}, { __mode = "k" })
 local storageItemCursors = setmetatable({}, { __mode = "k" })
 local cleaningSourceCache = setmetatable({}, { __mode = "k" })
+local cleaningLoanCache = setmetatable({}, { __mode = "k" })
 local maintenanceCursor = 1
 local auditPhase = 0
 local cleaningScan
@@ -616,15 +618,20 @@ local function transferToStorage(actor, state, storage, container, item, require
         or reason or "base_supply_return_failed"
 end
 
--- Cleaning borrows two exact objects. Keep the receipt on the saved job and
+-- Cleaning reserves exact tools and fluid vessels. Keep receipts on the saved job and
 -- a job marker on each item: inventory and container objects are recreated
--- across reloads, while the job ID survives. Carried personal supplies never
--- get a receipt and therefore never get returned to camp storage.
+-- across reloads, while the job ID survives. Personal receipts carry no source
+-- storage and therefore never return the owner's equipment to a camp shelf.
 local CLEAN_MARKERS = {
     tool = "LF_CleanToolJobId", liquid = "LF_CleanLiquidJobId",
+    concentrate = "LF_CleanConcentrateJobId", water = "LF_CleanWaterJobId",
 }
 
 local function cleaningLiquidAmount(item)
+    if SC.CleaningSupplies then
+        local info = SC.CleaningSupplies.inspect(item)
+        return info and info.usable and info.amount or nil
+    end
     local fluid = select(1, U().call(item, "getFluidContainer"))
     local bleach = Fluid and Fluid.Bleach
     local cleaning = Fluid and Fluid.CleaningLiquid
@@ -636,11 +643,23 @@ local function cleaningLiquidAmount(item)
     return tonumber(amount)
 end
 
-local function cleaningItemUsable(item, kind)
+local function cleaningItemUsable(item, kind, job)
     if kind == "tool" then
         return ItemTag and ItemTag.CLEAN_STAINS
             and select(1, U().call(item, "hasTag", ItemTag.CLEAN_STAINS)) == true
             and select(1, U().call(item, "isBroken")) ~= true or false
+    end
+    if SC.CleaningSupplies then
+        local info = SC.CleaningSupplies.inspect(item)
+        local prep = job and job.target and job.target.cleanPreparation
+        if not info then return false end
+        if kind == "concentrate" then return info.pureCleaner and info.amount > 0.0001 end
+        if kind == "water" then return info.waterOnly end
+        if prep and prep.mode == "prepare" and prep.stage ~= "ready" then
+            return info.known and (info.empty or info.waterOnly
+                or info.mixture and info.cleanerName == prep.cleanerName)
+        end
+        return info.usable == true
     end
     local minimum = ZomboidGlobals and ZomboidGlobals.CleanBloodBleachAmount
     local amount = cleaningLiquidAmount(item)
@@ -666,7 +685,20 @@ local function cleaningLoanItem(actor, job, kind)
     local receipt = cleaningReceipt(job, kind)
     if not receipt then return nil, nil, nil end
     local inventory = actor and U().inventory(actor) or nil
-    local owned, container, found
+    local storage = SC.BaseLife.storage(receipt.sourceStorageId)
+    local container = storage and SC.BaseLife.resolveContainer(storage) or nil
+    local cached = cleaningLoanCache[job] and cleaningLoanCache[job][kind]
+    if cached and cleaningMarked(cached, job, kind) then
+        -- Native action validity is polled every frame. An exact retained
+        -- identity needs membership checks, not another whole shelf survey.
+        if inventory and U().inventoryContains(inventory, cached) then
+            return cached, true, nil, storage, container
+        end
+        if container and U().inventoryContains(container, cached) then
+            return cached, false, nil, storage, container
+        end
+    end
+    local owned, found
     for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory, 512, 24) or {}) do
         local data = U().modData(item)
         if type(data) == "table" and data[CLEAN_MARKERS[kind]] == job.id then
@@ -674,8 +706,6 @@ local function cleaningLoanItem(actor, job, kind)
             found, owned = item, true
         end
     end
-    local storage = SC.BaseLife.storage(receipt.sourceStorageId)
-    container = storage and SC.BaseLife.resolveContainer(storage) or nil
     if container then
         for _, item in ipairs(U().inventoryItems(container, 1024)) do
             local data = U().modData(item)
@@ -702,6 +732,10 @@ local function cleaningLoanItem(actor, job, kind)
                 return nil, nil, "cleaning_loan_id_changed" end
             receipt.itemId = id
         end
+    end
+    if found then
+        cleaningLoanCache[job] = cleaningLoanCache[job] or {}
+        cleaningLoanCache[job][kind] = found
     end
     return found, owned, nil, storage, container
 end
@@ -768,8 +802,15 @@ local function findCleaningSource(actor, kind)
     return nil
 end
 
-function BaseWork.cleaningSuppliesAvailable(actor, job)
+function BaseWork.cleaningSuppliesAvailable(actor, job, remainingBudget)
     if not actor then return false end
+    if SC.CleaningSupplies then
+        if job and job.target and (job.target.cleanLoans or job.target.cleanPreparation) then return true end
+        local plan, reason = SC.CleaningSupplies.plan(actor, job, remainingBudget)
+        -- A bounded survey is pending, not proof of missing supplies. The
+        -- accepted cleaning job continues that same survey before acting.
+        return plan ~= nil or reason == "cleaning_supplies_scanning", reason
+    end
     for _, kind in ipairs({ "tool", "liquid" }) do
         local borrowed = job and cleaningReceipt(job, kind)
         local loanItem = borrowed and cleaningLoanItem(actor, job, kind) or nil
@@ -777,6 +818,16 @@ function BaseWork.cleaningSuppliesAvailable(actor, job)
             and not findCleaningSource(actor, kind) then return false end
     end
     return true
+end
+
+function BaseWork.cleaningSettlement(actor)
+    local state = actor and states[actor]
+    local job = state and state.jobId and SC.BaseLife.job(state.jobId)
+    if not job or job.type ~= "clean" or job.reservedBy ~= actorId(actor)
+        or (job.state ~= "active" and job.state ~= "reserved") then return false end
+    local loans = job.target and job.target.cleanLoans
+    return type(loans) == "table" and (loans.tool ~= nil or loans.liquid ~= nil
+        or loans.concentrate ~= nil or loans.water ~= nil)
 end
 
 local function clearCleaningLoan(job, kind, item)
@@ -790,15 +841,30 @@ local function clearCleaningLoan(job, kind, item)
         end
     end
     job.target.cleanLoans[kind] = nil
-    if not job.target.cleanLoans.tool and not job.target.cleanLoans.liquid then
+    if cleaningLoanCache[job] then cleaningLoanCache[job][kind] = nil end
+    if not job.target.cleanLoans.tool and not job.target.cleanLoans.liquid
+        and not job.target.cleanLoans.concentrate and not job.target.cleanLoans.water then
         job.target.cleanLoans = nil
+        job.target.cleanPreparation = nil
+        if SC.CleaningSupplies and job.assignedId then
+            local worker = U().resolveActor(job.assignedId)
+            if worker then SC.CleaningSupplies.reset(worker) end
+        end
         job.assignedId = nil
     end
     return true
 end
 
-local function returnCleaningLoans(actor, state, job, direct)
-    for _, kind in ipairs({ "tool", "liquid" }) do
+local function returnCleaningLoans(actor, state, job, direct, onlyKinds)
+    if SC.NativeActions and SC.NativeActions.workJobId
+        and SC.NativeActions.workJobId(actor) == job.id then
+        local kind = SC.NativeActions.workKind(actor)
+        if type(kind) == "string" and string.find(kind, "cleaning_", 1, true) == 1 then
+            local stopped, why = SC.NativeActions.cancelWork(actor, "cleaning_return")
+            if stopped ~= true then return false, why end
+        end
+    end
+    for _, kind in ipairs(onlyKinds or { "water", "concentrate", "tool", "liquid" }) do
         local receipt = cleaningReceipt(job, kind)
         if receipt then
             local item, carried, itemReason, storage, container =
@@ -857,7 +923,7 @@ local function stageCleaningItem(actor, state, job, kind)
         local item, carried, reason, storage, container =
             cleaningLoanItem(actor, job, kind)
         if reason then return false, reason, true end
-        if item and carried and cleaningItemUsable(item, kind) then
+        if item and carried and cleaningItemUsable(item, kind, job) then
             return true, "cleaning_supply_carried" end
         if item and carried then
             local returned, why = returnCleaningLoans(actor, state, job)
@@ -893,6 +959,213 @@ local function stageCleaningItem(actor, state, job, kind)
     job.assignedId = U().idOf(actor)
     data[marker] = job.id
     return true, "cleaning_supply_selected"
+end
+
+-- A preparation reserves the exact objects before the first withdrawal.
+-- Personal objects receive recovery markers too, but never a storage return.
+local function selectCleaningPlan(actor, job, plan)
+    local selected = { tool = plan.tool, liquid = plan.liquid,
+        concentrate = plan.concentrate, water = plan.water and plan.water.item and plan.water or nil }
+    for _, row in pairs(selected) do
+        if not SC.CleaningSupplies.available(row, actor, job)
+            or select(1, U().call(row.item, "getID")) == nil then
+            return false, "cleaning_supply_changed"
+        end
+    end
+    job.target.cleanPreparation = { mode = plan.mode, volume = plan.volume,
+        cleanerName = plan.cleanerName, stage = plan.mode == "prepare" and "gathering" or "ready" }
+    job.target.cleanLoans, job.assignedId = {}, actorId(actor)
+    cleaningLoanCache[job] = {}
+    for kind, row in pairs(selected) do
+        local data = U().modData(row.item)
+        if type(data) ~= "table" then return false, "cleaning_marker_uncertain" end
+        job.target.cleanLoans[kind] = { sourceStorageId = row.storageId,
+            itemId = select(1, U().call(row.item, "getID")), personal = row.personal == true }
+        data[CLEAN_MARKERS[kind]] = job.id
+        cleaningLoanCache[job][kind] = row.item
+        if row.personal and not U().inventoryContains(U().inventory(actor), row.item) then
+            if U().transferItemVerified(row.container, U().inventory(actor), row.item) ~= true then
+                return false, "cleaning_loan_nested_unreachable"
+            end
+        end
+    end
+    if plan.water and plan.water.object then
+        local object, square = plan.water.object, U().squareOf(plan.water.object)
+        if not square then return false, "cleaning_water_source_changed" end
+        job.target.cleanPreparation.waterSource = { x = square:getX(), y = square:getY(), z = square:getZ(),
+            index = select(1, U().call(object, "getObjectIndex")),
+            sprite = select(1, U().call(object, "getSpriteName")) }
+    end
+    return true
+end
+
+function BaseWork.cleaningPreparationItem(actor, job, kind)
+    local item, carried, reason = cleaningLoanItem(actor, job, kind)
+    if reason then return nil, reason end
+    if not carried then return nil, "cleaning_loan_missing" end
+    return item
+end
+
+local function cleaningWaterSource(prep)
+    local point = prep.waterSource
+    local square = point and U().gridSquare(point.x, point.y, point.z)
+    local found
+    if square then U().squareObjects(square, function(object)
+        if select(1, U().call(object, "getObjectIndex")) == point.index
+            and select(1, U().call(object, "getSpriteName")) == point.sprite
+            and SC.CleaningSupplies.sourceUsable(object) then found = object return false end
+        return true
+    end, 48) end
+    return found
+end
+
+function BaseWork.canMixCleaning(actor, jobId, source, bucket, fromWorld)
+    local job = SC.BaseLife.job(jobId)
+    local prep = job and job.target.cleanPreparation
+    local registered = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId(actor))
+    if not prep or U().isDead(actor) or not registered or registered.actor ~= actor
+        or job.reservedBy ~= actorId(actor)
+        or (job.state ~= "active" and job.state ~= "reserved")
+        or not SC.BaseLife.withinWorkReach(actor)
+        or BaseWork.cleaningPreparationItem(actor, job, "liquid") ~= bucket then return false end
+    local bucketInfo = SC.CleaningSupplies.inspect(bucket)
+    if not bucketInfo or not bucketInfo.known
+        or bucketInfo.cleaner and bucketInfo.cleanerName ~= prep.cleanerName
+        or bucketInfo.waterAmount > prep.volume * 0.95 + 0.0001
+        or bucketInfo.cleanerAmount > prep.volume * 0.05 + 0.0001 then return false end
+    if fromWorld then
+        return prep.stage == "water" and cleaningWaterSource(prep) == source
+            and SC.CleaningSupplies.canReceive(bucket,
+                select(1, U().call(source, "isTaintedWater")) == true and "TaintedWater" or "Water")
+            and U().directInteractionAccess(actor, source) == true
+    end
+    local kind = prep.stage == "water" and "water" or prep.stage == "concentrate" and "concentrate"
+    if not kind or BaseWork.cleaningPreparationItem(actor, job, kind) ~= source then return false end
+    local info, donor = SC.CleaningSupplies.inspect(bucket), SC.CleaningSupplies.inspect(source)
+    if not info or not info.known or not donor then return false end
+    if not SC.CleaningSupplies.canReceive(bucket, kind == "water"
+        and (donor.TaintedWater > 0 and "TaintedWater" or "Water") or prep.cleanerName) then return false end
+    return kind == "water" and donor.waterOnly
+        or kind == "concentrate" and donor.pureCleaner and donor.cleanerName == prep.cleanerName
+end
+
+local function prepareCleaningMixture(actor, state, job)
+    local C, prep = SC.CleaningSupplies, job.target.cleanPreparation
+    if not C then return true end
+    if not prep then
+        if job.target.cleanLoans then return true end -- Older saves finish their existing loans.
+        local plan, why = C.plan(actor, job)
+        if not plan then return nil, why, why ~= "cleaning_supplies_scanning" end
+        local selected, selectionReason = selectCleaningPlan(actor, job, plan)
+        if not selected then return nil, selectionReason, true end
+        prep = job.target.cleanPreparation
+    end
+    if prep.mode == "undiluted" and not job.target.cleanFallbackReported then
+        job.target.cleanFallbackReported = true
+        if not prep.fallbackReported then
+            U().say(actor, "I couldn't prepare a cleaning bucket. I'll use the cleaner straight.")
+        end
+    end
+    if prep.stage == "ready" then
+        if prep.mode == "mixed" and not prep.noticePresented then
+            prep.noticePresented = true
+            return nil, "cleaning_using_mixture"
+        end
+        return true
+    end
+    if prep.stage == "gathering" then
+        for _, kind in ipairs({ "tool", "liquid", "concentrate", "water" }) do
+            if cleaningReceipt(job, kind) then
+                local staged, why, terminal = stageCleaningItem(actor, state, job, kind)
+                if not staged or why ~= "cleaning_supply_carried" then
+                    return nil, why or "cleaning_preparing_mixture", terminal == true
+                end
+            end
+        end
+        prep.stage = "water"
+    end
+    if prep.stage == "return_donors" then
+        local returned, why = returnCleaningLoans(actor, state, job, false, { "water", "concentrate" })
+        if returned ~= true then return nil, why, returned == false end
+        prep.stage = "ready"
+        return true
+    end
+    local bucket, why = BaseWork.cleaningPreparationItem(actor, job, "liquid")
+    if not bucket then return nil, why, true end
+    local info = C.inspect(bucket)
+    if not info or not info.known or info.cleaner and info.cleanerName ~= prep.cleanerName
+        or info.waterAmount > prep.volume * 0.95 + 0.0001
+        or info.cleanerAmount > prep.volume * 0.05 + 0.0001 then
+        return nil, "cleaning_mixture_changed", true
+    end
+    if prep.nativePending then
+        if SC.NativeActions.isWorkActive(actor) then return nil, "cleaning_preparing_mixture" end
+        local finished, finishReason = SC.NativeActions.finishWork(actor)
+        if finished ~= true then return nil, finishReason, true end
+        -- Native transfers can be partially committed when interrupted. The
+        -- current components, not a replay flag, determine the remaining dose.
+        local change = info.amount - (prep.beforeAmount or info.amount)
+        if change < -0.0001 or change > (prep.requested or 0) + 0.001 then
+            return nil, "cleaning_mixture_transfer_unverified", true
+        end
+        if prep.donorBefore ~= nil then
+            local donor = BaseWork.cleaningPreparationItem(actor, job,
+                prep.stage == "water" and "water" or "concentrate")
+            local donorInfo = C.inspect(donor)
+            if not donorInfo or math.abs(prep.donorBefore - donorInfo.amount - change) > 0.001 then
+                return nil, "cleaning_mixture_transfer_unverified", true
+            end
+        end
+        prep.noProgress = change <= 0.0001 and (prep.noProgress or 0) + 1 or 0
+        if prep.noProgress >= 3 then return nil, "cleaning_transfer_no_progress", true end
+        prep.nativePending, prep.beforeAmount, prep.requested, prep.donorBefore = nil, nil, nil, nil
+    end
+    local needed = prep.stage == "water" and prep.volume * 0.95 - info.waterAmount
+        or prep.volume * 0.05 - info.cleanerAmount
+    if needed <= 0.0001 then
+        prep.stage = prep.stage == "water" and "concentrate" or "return_donors"
+        return nil, "cleaning_preparing_mixture"
+    end
+    local source
+    if prep.stage == "water" and prep.waterSource then
+        source = cleaningWaterSource(prep)
+        if not source then return nil, "cleaning_water_source_changed", true end
+        local at, targets, accessReason = U().directInteractionAccess(actor, source)
+        if at ~= true then
+            if not targets or #targets == 0 then return nil, accessReason or "cleaning_water_unreachable", true end
+            local x, y, z = U().position(actor)
+            local travel = state.cleanWaterTravel
+            if not travel or travel.source ~= source or travel.z ~= z
+                or x and ((travel.x-x)^2 + (travel.y-y)^2) >= 0.0625 then
+                travel = { source = source, x = x, y = y, z = z, progressAt = now() }
+                state.cleanWaterTravel = travel
+            end
+            if now() - travel.progressAt >= 30000 then
+                state.cleanWaterTravel = nil
+                return nil, "cleaning_water_unreachable", true
+            end
+            local accepted, navigationReason = SC.Navigation.requestAny(actor, targets, "walk", workRoute({
+                action = "move_to_cleaning_water", targetSquare = U().squareOf(source), object = source,
+                arrivalDistance = 0.35, requireSameSquare = true }, true))
+            return nil, accepted == true and (navigationReason or "cleaning_preparing_mixture")
+                or "cleaning_water_unreachable", accepted ~= true
+        end
+        state.cleanWaterTravel = nil
+    else
+        source, why = BaseWork.cleaningPreparationItem(actor, job,
+            prep.stage == "water" and "water" or "concentrate")
+        if not source then return nil, why, true end
+    end
+    local donorInfo
+    -- Only inventory donors have a finite source debit to reconcile. Fixed
+    -- sources can be plumbed and keep their native available-water reading.
+    if not (prep.stage == "water" and prep.waterSource) then donorInfo = C.inspect(source) else donorInfo = nil end
+    local accepted, actionReason = SC.NativeActions.startCleaningFluidTransfer(
+        actor, source, bucket, needed, job.id, prep.stage == "water" and prep.waterSource ~= nil)
+    if accepted ~= true then return nil, actionReason, true end
+    prep.nativePending, prep.beforeAmount, prep.requested = true, info.amount, needed
+    prep.donorBefore = donorInfo and donorInfo.amount or nil
+    return nil, "cleaning_preparing_mixture"
 end
 
 local function prepareBuild(actor, state, job, info)
@@ -1299,6 +1572,7 @@ end
 -- Returns the category and whether it is certain. Only the final crafting
 -- fallback is a guess.
 local function classifyItem(item)
+    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools", true end
     local itemType = string.lower(U().itemType(item))
     local category = select(1, invoke(item, "getCategory"))
     category = string.lower(tostring(category or ""))
@@ -1750,11 +2024,25 @@ end
 
 local function updateCleaning(actor, state, job, player, runtime)
     local function abort(reason)
+        local prep = job.target.cleanPreparation
+        if not state.cleanFailureReason and prep and prep.stage == "water"
+            and prep.waterSource and not prep.nativePending
+            and (reason == "cleaning_water_unreachable" or reason == "cleaning_water_source_changed") then
+            local rejected = job.target.cleanRejectedWater or {}
+            if #rejected < 8 then
+                rejected[#rejected + 1] = prep.waterSource
+                job.target.cleanRejectedWater, state.cleanReplan = rejected, true
+            end
+        end
         state.cleanFailureReason = reason or "cleaning_unavailable"
         local returned, why = returnCleaningLoans(actor, state, job)
         if returned == true then
             local failure = state.cleanFailureReason
             state.cleanFailureReason = nil
+            if state.cleanReplan then
+                state.cleanReplan = nil
+                return true, "cleaning_finding_supplies"
+            end
             return false, failure, true
         end
         if returned == nil then return true, why or "cleaning_return_pending" end
@@ -1767,7 +2055,19 @@ local function updateCleaning(actor, state, job, player, runtime)
     local nativeActive = SC.NativeActions
         and type(SC.NativeActions.isWorkActive) == "function"
         and SC.NativeActions.isWorkActive(actor) == true
+    local quiet = SC.Downtime and SC.Downtime.peek and SC.Downtime.peek(actor) or nil
     if not stained and not nativeActive then
+        if quiet and quiet.active and quiet.active.kind == "clean_base" then
+            -- Native completion removes the stain before Downtime has settled
+            -- its action owner and restored the worker's hands. Finish that
+            -- transaction before returning tools or admitting the next tile.
+            local finished, why = SC.Downtime.update(actor, player, runtime, "clean_base", target)
+            local remaining = SC.Downtime.peek(actor)
+            if remaining and remaining.active and remaining.active.kind == "clean_base" then
+                return true, why or "cleaning_finishing"
+            end
+            if finished ~= true then return abort(why or "cleaning_finish_unverified") end
+        end
         local returned, returnReason = returnCleaningLoans(actor, state, job)
         if returned ~= true then
             return returned == nil, returnReason or "cleaning_return_pending",
@@ -1783,8 +2083,12 @@ local function updateCleaning(actor, state, job, player, runtime)
     if not SC.Downtime or type(SC.Downtime.update) ~= "function" then
         return abort("cleaning_unavailable")
     end
-    local quiet = SC.Downtime.peek and SC.Downtime.peek(actor) or nil
     if not (quiet and quiet.active and quiet.active.kind == "clean_base") then
+        local prepared, prepReason, terminal = prepareCleaningMixture(actor, state, job)
+        if not prepared then
+            if terminal then return abort(prepReason) end
+            return true, prepReason or "cleaning_preparing_mixture"
+        end
         for _, kind in ipairs({ "tool", "liquid" }) do
             local staged, stageReason, terminal =
                 stageCleaningItem(actor, state, job, kind)
@@ -2361,7 +2665,7 @@ function BaseWork.update(actor, player, runtime)
         end
         state.jobId, state.phase, state.action, state.transfer = job.id, "idle", nil, nil
         state.visualAt, state.requirementsReady, state.cleanStartedAt = nil, nil, nil
-        state.cleanFailureReason, state.floorCandidate = nil, nil
+        state.cleanFailureReason, state.cleanReplan, state.cleanWaterTravel, state.floorCandidate = nil, nil, nil, nil
         -- state.cargo deliberately survives: a worker still holding base
         -- stock must deliver or return it, whatever job comes next.
     end
@@ -2516,7 +2820,7 @@ function BaseWork.update(actor, player, runtime)
         end
         state.jobId, state.phase, state.action, state.transfer = nil, "idle", nil, nil
         state.floorCandidate = nil
-        state.cleanFailureReason = nil
+        state.cleanFailureReason, state.cleanReplan = nil, nil
         -- A blocked job forgets its selection, never the cargo it still owns.
     elseif handled then
         if (reason == "car_item_stored" or reason == "floor_item_stored"
@@ -2693,7 +2997,7 @@ local function auditCleaning(base, remainingBudget, scan)
                 zones[cursor.index].y1
         end
         if square and select(1, U().call(square, "haveStains")) == true then
-            local queued, job = SC.BaseLife.requestCleaning(square)
+            local queued, job = SC.BaseLife.requestCleaning(square, remainingBudget)
             if queued then return true, job end
             if job == "cleaning_supplies_missing"
                 or job == "cleaning_worker_missing" then
@@ -3086,8 +3390,9 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
         or job.type == "cook" then
         return false, "expired_job_subsystem_owned"
     end
-    if job.type == "clean" and cleaningReceipt(job, "tool")
-        or job.type == "clean" and cleaningReceipt(job, "liquid") then
+    if job.type == "clean" and type(job.target.cleanLoans) == "table"
+        and (job.target.cleanLoans.tool or job.target.cleanLoans.liquid
+            or job.target.cleanLoans.concentrate or job.target.cleanLoans.water) then
         if not BaseWork.workerUnregistered(ownerId) then
             return false, "expired_cleaning_loan_pending" end
         job.target.cleanLoans, job.assignedId = nil, nil
@@ -3166,10 +3471,12 @@ function BaseWork.reset(actor)
     end
     maintenanceCursor, auditPhase, nextRoutineJobAt = 1, 0, 0
     cleaningScan = nil
+    if SC.CleaningSupplies then SC.CleaningSupplies.reset(actor) end
     if actor then cleaningSourceCache[actor] = nil
     else
         storageItemCursors = setmetatable({}, { __mode = "k" })
         cleaningSourceCache = setmetatable({}, { __mode = "k" })
+        cleaningLoanCache = setmetatable({}, { __mode = "k" })
     end
     return true
 end

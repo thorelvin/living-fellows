@@ -345,7 +345,150 @@ local function writeResults(H)
     return true
 end
 
+function Probe.angleDelta(angle, previous)
+    local delta = angle - previous
+    -- Kahlua's % uses signed remainder, unlike Lua's positive modulo.
+    return delta - math.floor((delta + 180) / 360) * 360
+end
+
+local function observeFacing(H, actor, state, current)
+    local window = H.squadCombatFacing[actor]
+    if window and current - window.at < 100 then return end
+    if not window then
+        window = { samples = 0, switches = 0, reversals = 0, turns = 0, logs = 0, at = current,
+            bodySamples = 0, bodyProven = 0, bodyTurns = 0, bodyJitter = 0, bodyMovingTurns = 0,
+            combatMs = 0, angularTravel = 0, history = {}, acquisitions = 0, clears = 0, deadSwitches = 0,
+            aimSwitches = 0, aimReversals = 0, aimBindings = 0, aimClears = 0,
+            modeSwitches = 0, modeReversals = 0, stableHeadingJitter = 0 }
+        H.squadCombatFacing[actor] = window
+    end
+    local target = state and state.target
+    local aimTarget = call(actor, "getCompanionAimTarget")
+    if window.samples > 0 and aimTarget ~= window.aimTarget then
+        if not aimTarget then window.aimClears = window.aimClears + 1
+        elseif not window.aimTarget then window.aimBindings = window.aimBindings + 1
+        elseif alive(aimTarget) and alive(window.aimTarget) then
+            window.aimSwitches = window.aimSwitches + 1
+            if aimTarget == window.previousAim and current - (window.aimChangedAt or 0) <= 800 then
+                window.aimReversals = window.aimReversals + 1
+            end
+            window.previousAim, window.aimChangedAt = window.aimTarget, current
+        end
+    end
+    if window.samples > 0 and target ~= window.target then
+        if not target then window.clears = window.clears + 1
+        elseif not window.target then window.acquisitions = window.acquisitions + 1
+        elseif not alive(window.target) then window.deadSwitches = window.deadSwitches + 1 end
+    end
+    local fx, fy = number(call(actor, "getForwardDirectionX"), nil), number(call(actor, "getForwardDirectionY"), nil)
+    if target and window.target and target ~= window.target and alive(target) and alive(window.target) then
+        window.switches = window.switches + 1
+        if window.previous == target and current - (window.changedAt or 0) <= 800 then window.reversals = window.reversals + 1 end
+        window.previous, window.changedAt = window.target, current
+    end
+    local dot = fx and fy and window.fx and fx * window.fx + fy * window.fy or 1
+    local angle = number(call(actor, "getAnimAngle"), nil)
+    local logical = number(call(actor, "getDirectionAngle"), nil)
+    local x, y = number(call(actor, "getX"), 0), number(call(actor, "getY"), 0)
+    local moving = window.x and (x - window.x)^2 + (y - window.y)^2 >= 0.02^2
+    local active = state and state.active == true and target and alive(target)
+    local owner = call(actor, "getCompanionMovementOwner")
+    local mode = owner == "tactical" and "aimed"
+        or (owner == "manual" or owner == "path") and "forward" or nil
+    if active and moving and mode and mode ~= window.mode then
+        if window.mode then
+            window.modeSwitches = window.modeSwitches + 1
+            if mode == window.previousMode and current - (window.modeChangedAt or 0) <= 650 then
+                window.modeReversals = window.modeReversals + 1
+            end
+            window.previousMode, window.modeChangedAt = window.mode, current
+        end
+        window.mode = mode
+    end
+    if active then window.combatMs = window.combatMs + math.max(0, current - window.at) end
+    if angle and call(actor, "hasAnimationPlayer") == true then
+        window.bodySamples = window.bodySamples + 1
+        if logical and math.cos(math.rad(angle - logical)) < 0.9999 then window.bodyProven = window.bodyProven + 1 end
+        local previous = window.angle
+        local delta = previous and Probe.angleDelta(angle, previous) or 0
+        if active then window.angularTravel = window.angularTravel + math.abs(delta) end
+        if active and math.abs(delta) >= 30 then
+            window.bodyTurns = window.bodyTurns + 1
+            if moving then window.bodyMovingTurns = window.bodyMovingTurns + 1 end
+        end
+        -- A 30-degree reversal over a few samples is visible even when each
+        -- interpolated 100ms step is small. Observe real animation angle only.
+        if active then
+            local high, low = nil, nil
+            local stableHeading = logical ~= nil
+            for _, entry in ipairs(window.history) do
+                local offset = Probe.angleDelta(entry.angle, angle)
+                if current - entry.at <= 450 then
+                    high, low = math.max(high or offset, offset), math.min(low or offset, offset)
+                    if entry.logical == nil or logical == nil
+                        or math.abs(Probe.angleDelta(entry.logical, logical)) > 15
+                        or entry.owner ~= owner or entry.aimTarget ~= aimTarget then
+                        stableHeading = false
+                    end
+                end
+            end
+            if (high and high >= 30 and delta > 3) or (low and low <= -30 and delta < -3) then
+                if current - (window.lastJitterAt or 0) >= 400 then
+                    window.bodyJitter = window.bodyJitter + 1
+                    if stableHeading then window.stableHeadingJitter = window.stableHeadingJitter + 1 end
+                    window.lastJitterAt = current
+                    if window.logs < 24 then
+                        window.logs = window.logs + 1
+                        print("SC_COMBAT_FACING_JITTER|case=" .. caseName(H.squadCombatCase)
+                            .. " actor=" .. tostring(actor) .. " angle=" .. angle .. " delta=" .. delta
+                            .. " moving=" .. tostring(moving) .. " action=" .. tostring(state.lastAction)
+                            .. " target_changed=" .. tostring(target ~= window.target)
+                            .. " aim_changed=" .. tostring(aimTarget ~= window.aimTarget)
+                            .. " stable_heading=" .. tostring(stableHeading)
+                            .. " logical=" .. tostring(logical)
+                            .. " owner=" .. tostring(call(actor, "getCompanionMovementOwner")))
+                    end
+                end
+            end
+        end
+        local history = {}
+        for _, entry in ipairs(window.history) do if current - entry.at <= 450 then history[#history + 1] = entry end end
+        history[#history + 1] = { angle = angle, at = current,
+            logical = logical, owner = owner, aimTarget = aimTarget }
+        window.history, window.angle = history, angle
+    end
+    if dot < 0.26 and current - window.at <= 600 and call(actor, "isMoving") == true then
+        window.turns = window.turns + 1
+        if window.logs < 12 then
+            window.logs = window.logs + 1
+            print("SC_COMBAT_FACING_TURN|case=" .. caseName(H.squadCombatCase) .. " actor=" .. tostring(actor)
+                .. " dot=" .. dot .. " action=" .. tostring(state and state.lastAction)
+                .. " target_changed=" .. tostring(target ~= window.target)
+                .. " owner=" .. tostring(call(actor, "getCompanionMovementOwner")))
+        end
+    end
+    window.samples, window.target, window.fx, window.fy, window.at = window.samples + 1, target, fx, fy, current
+    window.x, window.y = x, y
+    window.aimTarget = aimTarget
+end
+
 local function finishTrial(H, current, check, result, setPhase)
+    for actor, observation in pairs(H.squadCombatFacing or {}) do
+        print("SC_COMBAT_FACING_SUMMARY|case=" .. caseName(H.squadCombatCase) .. " actor=" .. tostring(actor)
+            .. " samples=" .. observation.samples .. " live_target_switches=" .. observation.switches
+            .. " reversals_under_800ms=" .. observation.reversals .. " moving_turns_over_75deg=" .. observation.turns
+            .. " body_samples=" .. observation.bodySamples .. " body_proven=" .. observation.bodyProven
+            .. " body_30deg_samples=" .. observation.bodyTurns .. " moving_body_30deg_samples=" .. observation.bodyMovingTurns
+            .. " body_30deg_reversals_under_450ms=" .. observation.bodyJitter
+            .. " body_reversals_with_stable_heading=" .. observation.stableHeadingJitter
+            .. " target_acquisitions=" .. observation.acquisitions .. " target_clears=" .. observation.clears
+            .. " dead_target_switches=" .. observation.deadSwitches
+            .. " aim_target_switches=" .. observation.aimSwitches .. " aim_reversals_under_800ms=" .. observation.aimReversals
+            .. " aim_bindings=" .. observation.aimBindings .. " aim_clears=" .. observation.aimClears
+            .. " locomotion_mode_switches=" .. observation.modeSwitches
+            .. " locomotion_mode_returns_under_650ms=" .. observation.modeReversals
+            .. " combat_ms=" .. observation.combatMs .. " angular_travel_deg=" .. math.floor(observation.angularTravel))
+    end
     local SC = SurvivorCompanion
     local survivors, kills, engaged, damage = 0, 0, 0, 0
     local lowestCompanionHealth = 100
@@ -793,6 +936,7 @@ function Probe.step(H, current, check, result, setPhase)
         H.squadCombatClosingWait, H.squadCombatPostSwingBackstep = 0, 0
         H.squadCombatClosingBackpedal = 0
         H.squadCombatLastEvidence = setmetatable({}, { __mode = "k" })
+        H.squadCombatFacing = setmetatable({}, { __mode = "k" })
         H.squadCombatRetargetAt = current
         H.squadCombatRetargetAttempts = 0
         H.squadCombatTargetSamples, H.squadCombatTargetValidSamples = 0, 0
@@ -1152,6 +1296,7 @@ function Probe.step(H, current, check, result, setPhase)
         for _, actor in ipairs(H.squadCombatActors) do
             if alive(actor) then survivors = survivors + 1 end
             local state = SC.Combat.peek(actor)
+            observeFacing(H, actor, state, current)
             local evidence = state and state.lastCombatEvidence or nil
             if evidence and H.squadCombatLastEvidence[actor] ~= evidence then
                 H.squadCombatLastEvidence[actor] = evidence

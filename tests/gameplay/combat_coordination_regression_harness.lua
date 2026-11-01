@@ -1016,4 +1016,102 @@ SC.Combat.primaryWeaponUsable = originalUsable
 SC.Navigation.openSegment = originalOpen
 squad.reset()
 
+do
+    local actor = character("facing-stability", 320, 80)
+    local east = character("facing-east", 321.2, 80, "IsoZombie")
+    local west = character("facing-west", 318.8, 80, "IsoZombie")
+    function actor:getForwardDirectionX() return self.fx or 1 end
+    function actor:getForwardDirectionY() return 0 end
+    local see = U.canSee
+    U.canSee = function() return true end
+    local snapshot = { threats = {
+        { actor = east, visible = true, distanceSq = 1.44 },
+        { actor = west, visible = true, distanceSq = 1.44 },
+    }, allies = {}, reachableImmediateCount = 2, encircled = false }
+    local state = { target = east, targetCommitUntil = 30650 }
+    for now = 30000, 32400, 100 do
+        local scored = SC.Combat.scoreTargets(actor, nil, snapshot, state.target)
+        check(#scored == 2, "the two surrounding contacts remain live candidates")
+        local chosen = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
+            snapshot, { combatDoctrine = "weapons_free" }, state, now)
+        check(chosen and chosen.actor == east,
+            "turning toward one of two equal contacts must not promote the other rear contact every pulse")
+        state.target, actor.fx = chosen.actor, chosen.actor == east and 1 or -1
+    end
+    snapshot.threats[2].attacking = true
+    state.targetCommitUntil = 33000
+    local scored = SC.Combat.scoreTargets(actor, nil, snapshot, state.target)
+    local chosen = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
+        snapshot, { combatDoctrine = "weapons_free" }, state, 32500)
+    check(chosen and chosen.actor == east,
+        "an equal-range attacker cannot bypass the short commitment on every scan")
+    state.targetCommitUntil = 32499
+    chosen = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
+        snapshot, { combatDoctrine = "weapons_free" }, state, 32500)
+    check(chosen and chosen.actor == west, "a newly attacking rear contact can still interrupt the incumbent")
+    snapshot.threats[1].attacking = true
+    scored = SC.Combat.scoreTargets(actor, nil, snapshot, state.target)
+    chosen = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
+        snapshot, { combatDoctrine = "weapons_free" }, state, 32600)
+    check(chosen and chosen.actor == east,
+        "two equally urgent attackers do not continually interrupt each other")
+    snapshot.threats[1].attacking = false
+    local close = { actor = west, visible = true, distanceSq = 0.36, score = 100 }
+    local incumbent = { actor = east, visible = true, distanceSq = 1.44, score = 90 }
+    chosen = SC.Combat._selectDoctrineTargetForTests(actor, { close, incumbent }, nil,
+        snapshot, { combatDoctrine = "weapons_free" },
+        { target = east, targetCommitUntil = 34000 }, 32600)
+    check(chosen and chosen.actor == west, "a body-contact threat still breaks the short commitment immediately")
+    local combatState = SC.Combat.peek(actor)
+    combatState.target = east
+    snapshot.threats[2].attacking = false
+    snapshot.immediateAttackers = { snapshot.threats[2], snapshot.threats[1] }
+    check(SC.Combat.facingThreat(actor, snapshot).actor == east,
+        "a failed movement safety hold faces the same viable engagement, not the first scan entry")
+    snapshot.threats[2].attacking = true
+    check(SC.Combat.facingThreat(actor, snapshot).actor == east,
+        "a safety hold does not oscillate between two equally close threats")
+    snapshot.threats[2].distanceSq = 0.36
+    check(SC.Combat.facingThreat(actor, snapshot).actor == west,
+        "a safety hold still faces a higher-tier body-contact threat")
+    snapshot.threats[2].attacking = false
+    snapshot.threats = { snapshot.threats[2] }
+    check(SC.Combat.facingThreat(actor, snapshot).actor == west,
+        "a target missing from fresh sight is not kept as the safety-hold facing")
+    U.canSee = see
+end
+
+do
+    local actor = character("forward-gait-handoff", 350, 80)
+    local target = character("forward-gait-enemy", 352, 80, "IsoZombie")
+    local priorNow, priorMove = U.nowMs, U.move
+    local now, intent = 40000, nil
+    U.nowMs = function() return now end
+    U.move = function(_, _, value) intent = value return true end
+    local state = { forwardRetreatTarget = target, forwardRetreatUntil = 40650 }
+    for _, kind in ipairs({ "approach", "kite", "backstep" }) do
+        local ok = SC.Combat._executeForTests(actor, nil, { threats = {}, allies = {} },
+            { actor = target }, { item = weaponItem, equipped = true },
+            { kind = kind, moveX = -0.4, moveY = 0.3 }, {}, state)
+        check(ok and intent.dx == -0.4 and intent.dy == 0.3,
+            "the forward-gait handoff keeps the selected spacing action and exact vector")
+        check(intent.weaponReady == false and intent.keepFacing == false and intent.facingTarget == nil,
+            "repositioning cannot immediately steal facing back from a forward escape")
+        check(intent.allowMovingTurn == true,
+            "a forward-gait handoff keeps moving through a turn instead of waiting beside its pursuer")
+    end
+    now = 40651
+    SC.Combat._executeForTests(actor, nil, { threats = {}, allies = {} }, { actor = target },
+        { item = weaponItem, equipped = true }, { kind = "backstep", moveX = -1, moveY = 0 }, {}, state)
+    check(intent.keepFacing == true and intent.weaponReady == true,
+        "a quiet interval restores ordinary aimed backpedaling")
+    now = 40100
+    local strikeState = { forwardRetreatTarget = target, forwardRetreatUntil = 40650 }
+    local acted = SC.Combat._executeForTests(actor, nil, { threats = {}, allies = {} },
+        { actor = target }, { item = weaponItem, equipped = true }, { kind = "melee" }, {}, strikeState)
+    check(acted and intent.action == "attack_melee" and strikeState.forwardRetreatUntil == nil,
+        "an available attack preempts the facing interval immediately and clears it")
+    U.nowMs, U.move = priorNow, priorMove
+end
+
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

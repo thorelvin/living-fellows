@@ -7,7 +7,8 @@ local actor={getX=function()return 100 end,getY=function()return 100 end,isDead=
 local record={id="crew",actor=actor}
 SC.Registry={byId=function(id)return id=="crew" and record or nil end}
 SC.Commands={describe=function()return {recruited=true,available=true,alive=true}end}
-SC.BaseLife={active=function()return{id="camp"}end,isInside=function()return true end}
+local inCamp=true
+SC.BaseLife={active=function()return{id="camp"}end,isInside=function()return inCamp end}
 SC.RadioEndpoints={station=function()return{}end}
 local target={version=1,kind="search",id="120:100:130:110",label="Store",anchor={x=125,y=105,z=0}}
 local realValidate=T.validate
@@ -50,5 +51,12 @@ check(window.stationDraft.mapTarget==nil and window.stationDraft.placeId==nil,
     "automatic woodland selection explicitly leaves manual mode")
 window.closed=true
 check(not pending.valid(),"closed terminal cannot receive a stale map selection")
+window.closed=false
+inCamp=false
+check(not pending.valid() and window.menuPage=="home_services" and window.stationReviewed==nil,
+    "losing camp access invalidates the map picker and clears its review")
+pending.accept(target)
+check(window.menuPage=="home_services" and window.stationDraft.mapTarget==nil,
+    "a stale outside map callback cannot restore an expedition page or target")
 T.validate=realValidate
 SC_TEST_REPORT=(SC_TEST_REPORT or "").."; EMMA map picker: "..checks.." checks passed"
