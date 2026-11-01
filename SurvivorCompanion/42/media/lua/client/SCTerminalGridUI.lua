@@ -9,6 +9,7 @@ local function option(label,action,value) return {label=label,gridAction=action,
 function UI.active(w) return w and not w.closed and w.system and not w.system.locked and w.gridPage~=nil end
 function UI.notice(w,text) w.gridNotice=tostring(text or "") end
 function UI.open(w)
+    w.scanPage=nil
     w.menuPage,w.radioPage,w.gridPage,w.gridOffset,w.menuSelection=nil,nil,"status",0,1
     w.gridSampleAt=nil w:setFocusMode("menu")
     UI.update(w,0)

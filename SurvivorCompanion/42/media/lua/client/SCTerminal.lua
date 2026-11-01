@@ -624,6 +624,7 @@ end
 function SCTerminalWindow:menuOptions()
     if not self.system then return {} end
     if self.system.locked then return { { label = "Log off", systemCommand = "close" } } end
+    if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then return SC.TerminalScanUI.options(self) end
     if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then return SC.TerminalGridUI.options(self) end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return SC.TerminalRadioUI.options(self) end
     if SC.TerminalServices then
@@ -702,6 +703,7 @@ function SCTerminalWindow:menuOptions()
 end
 
 function SCTerminalWindow:sidebarWidth()
+    if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then return 0 end
     if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then return 0 end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return 0 end
     if SC.TerminalServices and self.menuPage and self.focusMode=="menu" and self.width<1400 then return 0 end
@@ -851,7 +853,10 @@ end
 function SCTerminalWindow:navigate(direction)
     if self.focusMode ~= "menu" then return self:recall(-direction) end
     local count = #self:menuOptions()
-    if count > 0 then self.menuSelection = ((self.menuSelection or 1) - 1 + direction) % count + 1 end
+    if count > 0 then
+        local index = (self.menuSelection or 1) - 1 + direction
+        self.menuSelection = index - math.floor(index / count) * count + 1
+    end
 end
 
 function SCTerminalWindow:onClose()
@@ -864,6 +869,10 @@ end
 
 function SCTerminalWindow:otherKey(key)
     if type(Keyboard) ~= "table" then return end
+    if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
+        if key==Keyboard.KEY_PRIOR then SC.TerminalScanUI.scroll(self,-1) return end
+        if key==Keyboard.KEY_NEXT then SC.TerminalScanUI.scroll(self,1) return end
+    end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then
         if SC.TerminalRadioUI.key(self,key) then return end
         if key==Keyboard.KEY_PRIOR and SC.TerminalRadioUI.scroll(self,-4) then return end
@@ -875,6 +884,8 @@ function SCTerminalWindow:otherKey(key)
     end
     if key == Keyboard.KEY_ESCAPE then
         self:playClickSound()
+        if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then SC.TerminalScanUI.back(self) return end
+        if self.menuPage=="device" and self.scanReturn and SC.TerminalScanUI then SC.TerminalScanUI.returnDevice(self) return end
         if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then SC.TerminalGridUI.back(self) return end
         if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.back(self) return end
         if self.menuPage then
@@ -910,6 +921,7 @@ function SCTerminalWindow:scrollBy(rows)
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
+    if SC.TerminalScanUI and SC.TerminalScanUI.scroll(self,-(tonumber(delta) or 0)) then return true end
     if SC.TerminalGridUI and SC.TerminalGridUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.scroll(self,-(tonumber(delta) or 0)*3) then return true end
     self:scrollBy(-(tonumber(delta) or 0) * 3)
@@ -917,6 +929,11 @@ function SCTerminalWindow:onMouseWheel(delta)
 end
 
 function SCTerminalWindow:onMouseDown(x, y)
+    if self.state~="closing" and SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
+        SC.TerminalScanUI.click(self,x,y)
+        if self.entry then pcall(function() self.entry:focus() end) end
+        return true
+    end
     if self.state~="closing" and SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
         SC.TerminalGridUI.click(self,x,y)
         if self.entry then pcall(function() self.entry:focus() end) end
@@ -981,6 +998,10 @@ function SCTerminalWindow:enqueue(lines, kind, speed)
 end
 
 function SCTerminalWindow:startReply(reply)
+    if self.scanPage and self.requestTicket then
+        self.scanPrompt = { ticket = self.requestTicket, text = table.concat(reply.lines or {}, "\n") }
+        self.scanSampleAt = nil
+    end
     self.pendingCommand = reply.command
     self.replyAutoScroll = true
     self.replyAnchor = self.pendingPrompt and { source = self.pendingPrompt, part = 1 } or nil
@@ -1250,6 +1271,9 @@ function SCTerminalWindow:systemInput(raw)
                 Terminal.open(self.player, self.object)
                 return true
             end
+            if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
+                SC.TerminalScanUI.notice(self,message) self.state="idle" return true
+            end
             if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
                 SC.TerminalGridUI.notice(self,message) self.state="idle" self.gridSampleAt=nil return true
             end
@@ -1261,6 +1285,7 @@ function SCTerminalWindow:systemInput(raw)
         end
         SC.TerminalActions.cancel(ticket)
         self:print("Request cancelled.", "system")
+        if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then SC.TerminalScanUI.notice(self,"Request cancelled.") end
         if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then SC.TerminalGridUI.notice(self,"Request cancelled.") end
         if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then SC.TerminalRadioUI.notice(self,"Request cancelled.") end
         if lower == "no" or lower == "n" then return true end
@@ -1273,6 +1298,7 @@ function SCTerminalWindow:systemInput(raw)
         self:close()
         return true
     end
+    if not self.system.locked and SC.TerminalScanUI and SC.TerminalScanUI.input(self,trimmed,option) then return true end
     if not self.system.locked and SC.TerminalGridUI and SC.TerminalGridUI.input(self,trimmed,option) then return true end
     if not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
     if SC.TerminalServices and SC.TerminalServices.input(self, trimmed, option) then return true end
@@ -1513,6 +1539,7 @@ function SCTerminalWindow:update()
     if self.closed then return end
     if self.closeAt and now >= self.closeAt then return self:close() end
     self:advance(now)
+    if SC.TerminalScanUI then SC.TerminalScanUI.update(self,now) end
     if SC.TerminalRadioUI then SC.TerminalRadioUI.update(self,now) end
     if SC.TerminalGridUI then SC.TerminalGridUI.update(self,now) end
 end
@@ -1767,6 +1794,8 @@ function SCTerminalWindow:drawHints(range)
         local puzzle=self.serviceSecurity.puzzle
         hint=status=="lockout" and "Building recovery locked. Retry after one game hour."
             or "Security "..tostring(puzzle and puzzle.tries or 0).."/"..tostring(puzzle and puzzle.maximum or 0).." | Tab: words/chat | PgUp/PgDn"
+    elseif SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
+        hint="1-"..#self:menuOptions()..": select   PgUp/Dn: page   Tab: chat   Esc: back"
     elseif SC.TerminalGridUI and SC.TerminalGridUI.active(self) then
         hint=self.requestTicket and "Y/N: confirm   Esc: cancel" or "1-"..#self:menuOptions()..": select   Tab: chat   Esc: back"
     elseif SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then hint=self.radioPage=="reading"
@@ -1782,6 +1811,7 @@ function SCTerminalWindow:drawHints(range)
         elseif self.system.locked then hint = "Match positions | PgUp/PgDn " .. position
         else hint = "Enter: send  Tab: menu  PgUp/PgDn " .. position end
     end
+    if self.scanHint and not (SC.TerminalScanUI and SC.TerminalScanUI.active(self)) then hint=self.scanHint.." | "..hint end
     local line = Terminal.wrap(hint, math.max(8, math.floor((self.layout.right - self.layout.left) / self.charWidth)))[1]
     self:drawText(line, self.layout.left, self.layout.hintY,
         colors.system[2], colors.system[3], colors.system[4], 0.85, self.font)
@@ -1810,6 +1840,7 @@ function SCTerminalWindow:prerender()
     if self.state == "booting" then caption = "LARCHFIELD / SYSTEM BIOS" end
     if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then caption="LARCH/WAVE // EMMA" end
     if self.state~="booting" and SC.TerminalGridUI and SC.TerminalGridUI.active(self) then caption="LARCH/GRID // EMMA" end
+    if self.state~="booting" and SC.TerminalScanUI and SC.TerminalScanUI.active(self) then caption="LARCH/SCAN // EMMA" end
     self:drawText(caption, self.layout.left, self.layout.titleY,
         title[2], title[3], title[4], title[1], self.font)
     if self.state ~= "booting" then self:drawHeaderLogo() end
@@ -1823,6 +1854,7 @@ function SCTerminalWindow:prerender()
         if self.state == "booting" then label = "PERSONAL SYSTEM / 486" end
         if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then label="RADIO DESK / SIGNAL ACTIVITY" end
         if self.state~="booting" and SC.TerminalGridUI and SC.TerminalGridUI.active(self) then label="GRID CONTROL / SUBSTATIONS" end
+        if self.state~="booting" and SC.TerminalScanUI and SC.TerminalScanUI.active(self) then label="BUILDING DISCOVERY" end
         self:drawText(label, self.layout.left, self.layout.titleHeight,
             title[2], title[3], title[4], 0.95, self.font)
     end
@@ -1846,6 +1878,9 @@ function SCTerminalWindow:prerender()
     if self.system and self.system.locked and self.state ~= "closing" then
         self:drawSecurity()
         return
+    end
+    if SC.TerminalScanUI and SC.TerminalScanUI.active(self) and self.state~="closing" then
+        SC.TerminalScanUI.draw(self,nowMs()) self:drawHints() return
     end
     if SC.TerminalGridUI and SC.TerminalGridUI.active(self) and self.state~="closing" then
         SC.TerminalGridUI.draw(self,nowMs()) self:drawHints() return

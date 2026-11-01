@@ -19,6 +19,29 @@ local Lines = SC.TerminalLines
 
 Lines.TITLE = "EMMA 0.9.3 BETA // Kentucky Office of Civil Defense"
 
+Lines.BUILDING_SCAN = {
+    complete={
+        "Sweep complete: {controls} controls, {finds} read-only finds, {floors} floors. The building has supplied its references.",
+        "{controls} controls and {finds} read-only finds across {floors} floors. A remarkably cooperative collection of inanimate objects.",
+        "Survey finished. {controls} controls, {finds} read-only finds, {floors} floors. Permissions remain someone else's problem.",
+    },
+    partial={
+        "Partial survey: {outOfRange} tiles were out of range. I found {controls} controls and {finds} read-only items. I do not invent the missing floors.",
+        "{controls} controls, {finds} read-only finds. {outOfRange} tiles did not answer from here. Move closer before calling the building empty.",
+        "Survey reached the edge of available records: {outOfRange} tiles out of range. {controls} controls and {finds} read-only finds are recorded.",
+    },
+    limited={
+        "The record limit was reached. I kept up to 256 controls and 256 read-only finds. {outOfRange} tiles were out of range. This is not an inventory of everything.",
+        "Survey limit reached. {controls} controls and {finds} read-only finds recorded; {outOfRange} tiles out of range. More equipment than filing space. Very county government.",
+        "I kept the first 256 entries in each list. {controls} controls, {finds} read-only finds, {outOfRange} tiles out of range. My memory is finite. Your building apparently is not.",
+    },
+    empty={
+        "Nothing answered. Either it is all dead or this place never had much.",
+        "No equipment found in the covered floors. An admirably simple electrical system.",
+        "Survey finished without a device record. I have documented the absence of cooperation.",
+    },
+}
+
 Lines.BOOT = {
     "EMMA 0.9.3 BETA    (C) 1993 Kentucky Office of Civil Defense",
     "Emergency Management Assistant. Not for public release.",

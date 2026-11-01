@@ -93,7 +93,7 @@ SCBridge={
     setControlDoorLocked=function(object,value) nativeCalls=nativeCalls+1 object.locked=value return true end,
     setControlDoorOpen=function(object,value) nativeCalls=nativeCalls+1 object.open=value return true end,
 }
-B.discover(pc,true)
+check(B.scanState(pc)==nil,"connecting does not automatically survey equipment")
 local scan={panel=panel,bounds={x=100,y=100,x2=104,y2=104,z=0,z2=0},x=100,y=100,z=0}
 B.scanStep(scan,25)
 local rows=B.list(pc)

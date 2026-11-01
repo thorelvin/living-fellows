@@ -78,6 +78,45 @@ module Base
         }
     }
 
+    sound LFTerminalScanPing
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalScanPing.wav,
+            is3D = false,
+            volume = 0.45,
+        }
+    }
+
+    sound LFTerminalScanBlip
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalScanBlip.wav,
+            is3D = false,
+            volume = 0.45,
+        }
+    }
+
+    sound LFTerminalScanDone
+    {
+        category = UI,
+        loop = false,
+        maxInstancesPerEmitter = 1,
+        clip
+        {
+            file = media/sound/LFTerminalScanDone.wav,
+            is3D = false,
+            volume = 0.55,
+        }
+    }
+
     sound LFUrinate
     {
         category = Player,

@@ -240,6 +240,8 @@ param(
     [switch]$SleepProbe,
     [switch]$FirestationRestProbe,
     [switch]$GridControlProbe,
+    [switch]$BuildingScanProbe,
+    [switch]$BuildingScanSeedOnly,
     [switch]$GridControlStage,
     [switch]$GridControlResume,
     [switch]$FirestationRestGroup,
@@ -1319,6 +1321,7 @@ if (($GridControlStage -or $GridControlResume) -and -not $GridControlProbe) {
 if ($GridControlStage -and $GridControlResume) { throw 'Choose grid stage or resume, not both.' }
 if ($GridControlResume -and [string]::IsNullOrWhiteSpace($SeedSave)) { throw 'Grid resume requires the retained -SeedSave.' }
 if ($GridControlProbe -and -not $EngineSound) { throw 'Grid control acceptance requires -EngineSound for the real AmbientStreamManager.' }
+if ($BuildingScanSeedOnly -and -not $BuildingScanProbe) { throw 'BuildingScanSeedOnly requires BuildingScanProbe.' }
 if ($BarricadeMatrixOnly -and -not $BarricadeHardening) {
     throw '-BarricadeMatrixOnly requires -BarricadeHardening.'
 }
@@ -2008,6 +2011,8 @@ $config = @(
     ('sleep_probe=' + $SleepProbe.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_probe=' + $FirestationRestProbe.IsPresent.ToString().ToLowerInvariant()),
     ('grid_control_probe=' + $GridControlProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('building_scan_probe=' + $BuildingScanProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('building_scan_seed_only=' + $BuildingScanSeedOnly.IsPresent.ToString().ToLowerInvariant()),
     ('grid_control_stage=' + $GridControlStage.IsPresent.ToString().ToLowerInvariant()),
     ('grid_control_resume=' + $GridControlResume.IsPresent.ToString().ToLowerInvariant()),
     ('firestation_rest_group=' + $FirestationRestGroup.IsPresent.ToString().ToLowerInvariant()),
@@ -2051,6 +2056,8 @@ $manifest = [ordered]@{
     installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
     cleaningMixturesProbe = $CleaningMixturesProbe.IsPresent
+    buildingScanProbe = $BuildingScanProbe.IsPresent
+    buildingScanSeedOnly = $BuildingScanSeedOnly.IsPresent
     bedExitTablesProbe = $BedExitTablesProbe.IsPresent
     doorwayStallProbe = $DoorwayStallProbe.IsPresent
     doorwayStallBaseline = $DoorwayStallBaseline.IsPresent

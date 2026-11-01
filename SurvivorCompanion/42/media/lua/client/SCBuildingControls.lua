@@ -6,13 +6,13 @@ local SC = SurvivorCompanion
 SC.BuildingControls = SC.BuildingControls or {}
 local B = SC.BuildingControls
 local function U() return SC.ControlUtil end
-local scans, live, tickets = {}, {}, setmetatable({}, {__mode="k"})
+local live, tickets = {}, setmetatable({}, {__mode="k"})
 local lastPulse, serial = 0, 0
 local siteCache=setmetatable({}, {__mode="k"})
 local houseCache=setmetatable({}, {__mode="k"})
 local deviceLists=setmetatable({}, {__mode="k"})
 B.computers=setmetatable({}, {__mode="k"})
-B.SCAN_BUDGET, B.MAX_DEVICES, B.HISTORY = 256, 64, 256
+B.SCAN_BUDGET, B.MAX_DEVICES, B.MAX_FINDS, B.HISTORY = 32, 256, 256, 256
 local fallback = {schema=1, panels={}}
 local function store()
     local value = ModData and ModData.getOrCreate and ModData.getOrCreate("LF_BuildingControls") or fallback
@@ -113,8 +113,6 @@ function B.register(object)
     local panel=B.panel(object,false)
     if panel and B.connected(object,panel) then
         B.computers[object]=panel
-        local scan=scans[panel.id]
-        if not scan or scan.done and U().now()-(scan.at or 0)>=30000 then B.discover(object,true) end
     end
 end
 function B.connect(player,object)
@@ -130,7 +128,7 @@ function B.connect(player,object)
     end
     local panel,reason=B.panel(object,true)
     if not panel then return false,reason end
-    if B.connected(object,panel) then B.discover(object,true) return true,"Already connected. Equipment rescan queued." end
+    if B.connected(object,panel) then return true,"Already connected. Choose Discover building to survey its equipment." end
     local okay
     okay,reason=U().consume(player,{["Base.ElectricWire"]=1,["Base.ElectronicsScrap"]=2})
     if not okay then return false,reason end
@@ -141,8 +139,7 @@ function B.connect(player,object)
     end
     B.computers[object]=panel
     B.log(panel,"Computer connected to local services.")
-    B.discover(object,true)
-    return true,"Connected. "..(panel.security.locked and "Building security requires authorization." or "Building services are ready.")
+    return true,"Connected. Choose Discover building to find equipment. "..(panel.security.locked and "Building security requires authorization before commands." or "Building services are ready.")
 end
 local function customLock(object)
     local md=U().data(object)
@@ -169,64 +166,59 @@ local function classify(object)
         if not customLock(object) then return object,"cabinet" end
     end
 end
-local function observe(panel,object)
-    local target,kind=classify(object)
-    if not target then return end
+function B.roomName(object)
+    local room=U().call(U().call(U().square(object),"getRoom"),"getName")
+    local rooms={livingroom="Living room",bathroom="Bathroom",bedroom="Bedroom",kitchen="Kitchen",office="Office",garage="Garage",
+        bank="Bank",bankoffice="Bank office",police="Police",policeoffice="Police office",policestorage="Police storage",warehouse="Warehouse"}
+    return room and (rooms[room] or tostring(room):gsub("_"," "):gsub("^%l",string.upper)) or "Exterior"
+end
+function B.sameBuilding(panel,object,kind)
+    local target=object
     local owner=defOf(target)
     if not owner and (kind=="door" or kind=="shutter") then owner=U().call(U().call(target,"getOppositeSquare"),"getBuildingDef") end
     if owner and panel.id:sub(1,9)=="building:" then
         local ownerId="building:"..tostring(U().call(owner,"getX"))..":"..tostring(U().call(owner,"getY"))..":"
             ..tostring(U().call(owner,"getX2"))..":"..tostring(U().call(owner,"getY2"))
-        if ownerId~=panel.id then return end
+        if ownerId~=panel.id then return false end
     end
+    return true,owner~=nil
+end
+function B.refreshSite(object)
+    houseCache[object],siteCache[object]=nil,nil
+end
+function B.observeDevice(panel,object,scan)
+    local target,kind=classify(object)
+    if not target then return nil,false end
+    if not B.sameBuilding(panel,target,kind) then return nil,true end
     local x,y,z=U().position(target)
     local md=U().data(target)
-    if not md or not x then return end
+    if not md or not x then return nil,true end
     local id=md.LF_ControlId
+    local row=id and panel.devices[id]
+    if not row then
+        local count=scan and scan.deviceCount
+        if count==nil then count=0 for _ in pairs(panel.devices) do count=count+1 end end
+        if count>=B.MAX_DEVICES then if scan then scan.cappedControls=true end return nil,true end
+    end
     if not id then
         serial=serial+1
         id="device:"..tostring(U().now())..":"..x..":"..y..":"..z..":"..serial
         md.LF_ControlId=id
     end
-    local row=panel.devices[id]
     if not row then
-        local count=0 for _ in pairs(panel.devices) do count=count+1 end
-        if count>=B.MAX_DEVICES then return end
-        local room=U().call(U().call(U().square(target),"getRoom"),"getName")
-        local rooms={livingroom="Living room",bathroom="Bathroom",bedroom="Bedroom",kitchen="Kitchen",office="Office",garage="Garage",
-            bank="Bank",bankoffice="Bank office",police="Police",policeoffice="Police office",policestorage="Police storage",warehouse="Warehouse"}
-        local location=room and (rooms[room] or tostring(room):gsub("_"," "):gsub("^%l",string.upper)) or "Exterior"
+        local location=B.roomName(target)
         row={id=id,kind=kind,x=x,y=y,z=z,label=(kind=="shutter" and "Loading shutter" or kind=="door" and "Door"
-            or kind=="light" and "Lighting" or kind=="cabinet" and "Secure cabinet" or "Generator").." - "..location.." ("..x..", "..y..", floor "..z..")"}
+            or kind=="light" and "Lighting" or kind=="cabinet" and "Secure cabinet" or "Generator").." - "..location.." ("..x..", "..y..", floor "..z..")",room=location}
         panel.devices[id]=row
+        if scan then scan.deviceCount=scan.deviceCount+1 end
         deviceLists[panel]=nil
     end
+    if not row.room then row.room=B.roomName(target) end
     live[id]=target
-end
-function B.discover(object,restart)
-    if restart then houseCache[object]=nil siteCache[object]=nil end
-    local panel,reason,bounds=B.panel(object,false)
-    if not panel then return false,reason end
-    if not B.connected(object,panel) then return false,"Connect this computer at its current location first." end
-    if restart or not scans[panel.id] then
-        local expanded={x=bounds.x-6,y=bounds.y-6,x2=bounds.x2+6,y2=bounds.y2+6,z=bounds.z,z2=bounds.z2}
-        scans[panel.id]={panel=panel,bounds=expanded,x=expanded.x,y=expanded.y,z=expanded.z,done=false,at=U().now()}
-    end
-    return true
+    return row,true
 end
 function B.scanStep(scan,budget,remaining)
-    local bounds=scan.bounds
-    for _=1,budget or B.SCAN_BUDGET do
-        if scan.done or remaining and remaining()<=0 then return end
-        local square=SC.GameplayUtil.gridSquare(scan.x,scan.y,scan.z)
-        if square then
-            for _,object in ipairs(U().list(U().call(square,"getObjects"),64)) do observe(scan.panel,object) end
-        end
-        scan.x=scan.x+1
-        if scan.x>bounds.x2 then scan.x=bounds.x scan.y=scan.y+1 end
-        if scan.y>bounds.y2 then scan.y=bounds.y scan.z=scan.z+1 end
-        if scan.z>bounds.z2 then scan.done=true return end
-    end
+    return SC.BuildingScan.step(scan,budget,remaining)
 end
 function B.resolve(row)
     local object=live[row.id]
@@ -262,7 +254,7 @@ function B.list(object)
         table.sort(rows,function(a,b) return a.label<b.label end)
         deviceLists[panel]=rows
     end
-    return rows,scans[panel.id] and not scans[panel.id].done and "Discovering loaded equipment..." or nil
+    return rows
 end
 function B.security(object,word,skill)
     local panel,reason=B.panel(object,false)
@@ -389,7 +381,9 @@ function B.rename(object,id,name)
     local row=panel.devices[id]
     name=tostring(name or ""):gsub("[%c]",""):sub(1,64)
     if not row or name=="" then return false,"Choose a device and a readable name." end
-    row.label=name deviceLists[panel]=nil return true,"Device renamed."
+    row.label,row.named=name,true deviceLists[panel]=nil
+    if SC.BuildingScan then SC.BuildingScan.invalidate(panel) end
+    return true,"Device renamed."
 end
 function B.disconnect(object,panel)
     panel=panel or B.panel(object,false)
@@ -422,6 +416,7 @@ function B.authorizeKey(object,player)
     return false,"No matching building key is in your inventory."
 end
 function B.suspend(object)
+    if SC.BuildingScan then SC.BuildingScan.pause(object,"Computer unavailable.") end
     local panel=B.computers[object]
     if not panel and U().present(object) then panel=B.panel(object,false) end
     if panel and SC.BuildingSecurity then SC.BuildingSecurity.stop(panel) end
@@ -435,16 +430,15 @@ function B.pulse(remaining)
     if not panel or not B.connected(window.object,panel) then return false end
     local now=U().now()
     B.register(window.object)
-    local scan=scans[panel.id]
-    if scan and not scan.done then B.scanStep(scan,16,remaining) end
     if now-lastPulse>=1000 or now<lastPulse then
         lastPulse=now
         if SC.BuildingSecurity then SC.BuildingSecurity.pulse(window.object) end
     end
-    return scan~=nil and not scan.done
+    return false
 end
 function B.reset()
-    scans,live,tickets,lastPulse={}, {},setmetatable({}, {__mode="k"}),0
+    live,tickets,lastPulse={},setmetatable({}, {__mode="k"}),0
+    if SC.BuildingScan then SC.BuildingScan.reset() end
     B.computers=setmetatable({}, {__mode="k"})
     siteCache=setmetatable({}, {__mode="k"})
     houseCache=setmetatable({}, {__mode="k"}) deviceLists=setmetatable({}, {__mode="k"})

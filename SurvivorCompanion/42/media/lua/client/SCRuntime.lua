@@ -1272,9 +1272,13 @@ local function registerTasks()
                 generatorPulseAt=current
                 if SC.GeneratorServices then SC.GeneratorServices.pulse() end
             end
-            local pending=SC.BuildingControls and SC.BuildingControls.pulse(budget)
-            return true,nil,pending==true
+            if SC.BuildingControls then SC.BuildingControls.pulse(budget) end
+            return true
         end, "background" },
+        { "building-scan", 100, 21, function(_,remaining)
+            if SC.BuildingScan then SC.BuildingScan.pulse(backgroundBudget(remaining)) end
+            return true
+        end, "background", false, true },
         { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
             baseMaintenanceTask, "background" },
@@ -1301,8 +1305,7 @@ local function registerTasks()
                 fixedInterval = definition[7] == true,
                 maxDelayMs = definition[8],
                 continuations = definition[1] == "factions"
-                    or definition[1] == "base-maintenance"
-                    or definition[1] == "computer-services",
+                    or definition[1] == "base-maintenance",
             })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)

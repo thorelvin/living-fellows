@@ -11,6 +11,7 @@ local function B() return SC.BuildingControls end
 local function option(label,action,value) return {label=label,serviceAction=action,serviceValue=value} end
 local function page(window,name)
     window.menuPage,window.menuSelection,window.servicePage=name,1,0
+    window.scanPage=nil
     window.serviceMenuPage=0
     if name~="building_security" then window.serviceSecurity=nil end
     window:setFocusMode("menu")
@@ -87,8 +88,10 @@ function S.menu(window)
         result[#result+1]=option("Back to services","page","home_services")
         return result
     elseif p=="services" then
+        local scan=B() and B().scanState and B().scanState(window.object)
+        local discover=scan and scan.status=="paused" and ("Resume discovery ("..math.floor(scan.percent).."%)") or "Discover building"
         return {option("Connect local controls (Electrical 2)","propose",{operation="connect"}),
-            option("Authorize building security","security"),option("Equipment","page","equipment"),
+            option("Authorize building security","security"),option(discover,"discover"),option("Equipment","page","equipment"),
             option("Alarms and speakers","page","security_panel"),option("Security history","history"),
             option("Automatic routines","page","routines"),option("Power circuits","page","circuits"),
             option("Lighting groups","page","light_groups"),option("Back to EMMA","page",nil)}
@@ -110,14 +113,11 @@ function S.menu(window)
         result[#result+1]=option("Back","page","services")
         return result
     elseif p=="equipment" then
-        local rows=B().list(window.object)
-        local result=paged(window,rows,function(row) return option(row.label..": "..B().status(row),"device",row.id) end,"services")
-        table.insert(result,1,option("Rescan loaded equipment","rescan"))
-        return result
+        return {option("Discover building","discover"),option("Back","page","services")}
     elseif p=="device" then
         local panel=B().panel(window.object,false)
         local row=panel and panel.devices[window.serviceDevice]
-        if not row then return {option("Back","page","equipment")} end
+        if not row then return {option("Back",window.scanReturn and "scan_return" or "page","equipment")} end
         local result={}
         local actions=row.kind=="light" and {"on","off"} or row.kind=="generator" and {"start","stop","repair","refuel"}
             or row.kind=="cabinet" and {"unlock","lock"} or {"open","close","unlock","lock"}
@@ -135,7 +135,7 @@ function S.menu(window)
             result[#result+1]=option("Fit door contact","propose",{operation="fit",kind="contact",id=row.id})
             result[#result+1]=option("Use as return garage","propose",{operation="garage",id=row.id})
         end
-        result[#result+1]=option("Back","page","equipment")
+        result[#result+1]=option("Back",window.scanReturn and "scan_return" or "page","equipment")
         return result
     elseif p=="light_groups" then
         local groups,seen={"All lights"},{["All lights"]=true}
@@ -494,6 +494,11 @@ function S.input(window,raw,chosen)
     if window.system.locked then return false end
     local text=string.lower(raw):match("^%s*(.-)%s*$")
     local action,value=chosen and chosen.serviceAction,chosen and chosen.serviceValue
+    if text=="discover building" or text=="scan building" or text=="scan the building" or text=="find devices"
+        or action=="discover" then
+        if SC.TerminalScanUI then SC.TerminalScanUI.open(window,true) else show(window,"Building discovery is unavailable.") end
+        return true
+    end
     if (stationPages[window.menuPage] or stationActions[action]
         or action=="page" and stationPages[value] or text=="expedition station")
         and not campComputer(window) then
@@ -544,7 +549,7 @@ function S.input(window,raw,chosen)
         return false
     end
     if action=="page" then page(window,value)
-        if value=="equipment" then B().discover(window.object,true) local _,reason=B().list(window.object) show(window,reason or "Choose equipment. On its page, type name followed by a readable label to rename it.")
+        if value=="equipment" and SC.TerminalScanUI then SC.TerminalScanUI.open(window,false)
         elseif value=="circuits" then show(window,SC.BuildingCircuits.status()) end
         window:setFocusMode("menu")
     elseif action=="menu_next" or action=="menu_previous" then window.serviceMenuPage=math.max(0,(window.serviceMenuPage or 0)+(action=="menu_next" and 1 or -1))
@@ -561,7 +566,7 @@ function S.input(window,raw,chosen)
         else lines[#lines+1]="Authorize building access first." end
         show(window,lines)
     elseif action=="hardware_status" then show(window,SC.TerminalHardware.describe(window.object))
-    elseif action=="rescan" then local okay,reason=B().discover(window.object,true) show(window,okay and "Equipment rescan queued. Discovery reads loaded tiles in bounded slices." or reason)
+    elseif action=="scan_return" then if SC.TerminalScanUI then SC.TerminalScanUI.returnDevice(window) end
     elseif action=="routine_status" then
         local panel=B().panel(window.object,false) local lines={}
         for kind,routine in pairs(panel and panel.routines or {}) do

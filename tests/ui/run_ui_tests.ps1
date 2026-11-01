@@ -122,7 +122,7 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
         $buildingFiles = @($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
-        foreach ($module in @('SCControlUtil','SCBuildingControls','SCTerminalHardware','SCTerminalRadio','SCRadioEndpoints',
+        foreach ($module in @('SCControlUtil','SCBuildingControls','SCBuildingScan','SCTerminalHardware','SCTerminalRadio','SCRadioEndpoints',
             'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCExpeditionTargets','SCTerminalServices')) {
             $buildingFiles += Join-Path $Client ($module + '.lua')
         }
@@ -130,6 +130,21 @@ try {
         $buildingFiles += Join-Path $TestRoot 'SCTerminalMapTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @buildingFiles
         if ($LASTEXITCODE -ne 0) { throw 'Building services and station ownership tests failed.' }
+        $scanFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
+        foreach ($module in @('SCControlUtil','SCBuildingControls','SCBuildingScan')) {
+            $scanFiles+=Join-Path $Client ($module+'.lua')
+        }
+        $scanFiles+=Join-Path $TestRoot 'SCBuildingScanTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @scanFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Explicit building discovery engine tests failed.' }
+        $scanUiFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
+        foreach ($module in @('SCControlUtil','SCTerminalServices','SCTerminalScanUI')) {
+            $scanUiFiles+=Join-Path $Client ($module+'.lua')
+        }
+        $scanUiFiles+=Join-Path $TestRoot 'SCTerminalScanTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @scanUiFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Building discovery terminal layout tests failed.' }
+        & (Join-Path $TestRoot 'Test-BuildingScanNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -ScanFiles $scanFiles -ScanUiFiles $scanUiFiles -BuildRoot $BuildRoot
         $inventoryFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCControlUtil.lua'),

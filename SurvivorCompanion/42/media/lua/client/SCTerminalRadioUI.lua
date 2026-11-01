@@ -15,6 +15,7 @@ function UI.open(w)
     local rt,reason=R().ready(w)
     if not rt then w:print(reason,"system") return false end
     if not UI.active(w) then w.radioReturn=w.menuPage end
+    w.scanPage,w.scanReturn=nil,nil
     w.menuPage,w.radioPage,w.radioOffset,w.menuSelection="radio_desk","home",0,1
     w.radioNotice="LARCH/WAVE ready. Presets, scanning, audio and your reception notebook."
     if R().hasMission() then

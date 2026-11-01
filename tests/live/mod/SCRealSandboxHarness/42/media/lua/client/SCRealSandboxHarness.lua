@@ -15809,6 +15809,10 @@ Harness.probeBedExitTables = function(...)
     return externalProbe("SCBedExitTablesProbe", ...)
 end
 
+Harness.probeBuildingScan = function(...)
+    return externalProbe("SCBuildingScanProbe", ...)
+end
+
 Harness.probeDoorwayStall = function(...)
     return externalProbe("SCDoorwayStallProbe", ...)
 end
@@ -16441,6 +16445,8 @@ local function tick()
         else
             setPhase("finish", current)
         end
+    elseif string.find(tostring(Harness.phase), "building_scan_", 1, true) == 1 then
+        Harness.probeBuildingScan(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "doorway_stall_", 1, true) == 1 then
         Harness.probeDoorwayStall(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "bed_exit_tables_", 1, true) == 1 then
@@ -17416,6 +17422,8 @@ local function onGameStart()
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then
         setPhase("fishing_map_list", Harness.startedAt)
+    elseif Harness.config.building_scan_probe == "true" then
+        setPhase("building_scan_setup", Harness.startedAt)
     elseif Harness.config.doorway_stall_probe == "true" then
         setPhase("doorway_stall_setup", Harness.startedAt)
     elseif Harness.config.bed_exit_tables_probe == "true" then

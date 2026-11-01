@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.26.87 - EMMA building discovery
+
+- Choose **Discover building** in Local services to survey the connected
+  building across its floors. The radar, floor progress and equipment list
+  share a responsive screen with keyboard and mouse controls.
+- Discovery runs only on request while the computer is open, at 64–128 tiles
+  per real second depending on Electrical skill. Closing pauses it for Resume;
+  Abort ends the pass and keeps the equipment already found.
+- Fridges, televisions, radios, computers and building alarms appear as
+  read-only finds. Controls and read-only finds each have a separate 256-row
+  limit. Unloaded areas and limits are reported explicitly.
+- Device commands retain building authorization and confirmation. Discovery
+  adds quiet original UI sounds, an EMMA report and one Electrical XP award
+  per building panel. Saved devices remain compatible with older saves.
+- Built for Project Zomboid 42.21.0 with unchanged bridge protocol
+  `42.21-isocompanion-27`; ship the matching Lua and bundled native bridge.
+
 ## 0.26.86 - Cleaning mixtures and companion movement hardening
 
 - Companions reuse stored cleaning mixtures before preparing a bucket of

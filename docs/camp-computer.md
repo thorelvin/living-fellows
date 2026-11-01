@@ -514,10 +514,29 @@ their shapes stay recognisable on all four backgrounds.
 Choose **Local services** from EMMA's numbered menu. A powered desktop can be
 connected to its building with Electrical 2, a screwdriver, one electric wire
 and two electronics scrap. An outdoor desktop can connect to a loaded building
-within six tiles. Equipment discovery reads loaded squares in bounded slices;
-use **Equipment** again while a large building is still being surveyed.
-House details and discovered devices are cached. Discovery runs only while the
-computer window is open; commands still recheck the selected physical device.
+within six tiles. Choose **Discover building** to survey its loaded floors.
+Discovery runs at 64 tiles per real second with Electrical 0, rising to 128
+with Electrical 10. Large buildings take longer. The radar shows equipment on
+the selected floor; floor bars and the growing list show the actual survey.
+Use numbers or click a row, PgUp/PgDn or the wheel to page, and **Floor** to
+change the radar level. At large font sizes the list takes priority over the
+radar. Tab switches to chat and Esc goes back.
+
+**Equipment** opens saved records without starting a survey. You can open a
+device during discovery and return with Back; discovery continues on the
+computer's other pages. Closing pauses it. Choose **Resume discovery** after
+reopening. **Abort scan** ends the pass and retains found records; the next
+pass starts fresh. Saving retains discovered equipment, but a game reload
+starts a fresh pass rather than restoring a partial cursor.
+
+Fridges, televisions, radios, computers and the building alarm are read-only
+finds, shown separately from controllable equipment. There is room for 256
+controls and another 256 read-only finds. Out-of-range tiles and record limits
+are reported explicitly; discovery never loads distant parts of the map.
+Completing a pass awards a small amount of Electrical XP once per building
+panel. House details and discovered devices are cached. Discovery runs only
+while the computer window is open; commands still recheck the selected physical
+device.
 
 Building security has its own password, shared by that building's computers.
 Unlocking the computer or moving an unlocked one into a bank does not authorize

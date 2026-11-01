@@ -73,3 +73,17 @@ Selected outputs in the expanded manifest supersede baseline entries for the
 same destination file, including the transparent Knox Bank replacement.
 Native captures and the distinction between checks and remaining live
 scenarios are in `docs/validation-camp-computer-system.md`.
+
+## Building discovery audio
+
+Three original synthesized UI cues are generated deterministically by
+`tools/generate_terminal_scan_sounds.py`, using only Python's standard library.
+They use no imported recordings or game audio: mono, 16-bit PCM, 22,050 Hz.
+The ping, discovery blip and completion phrase play through the UI sound path,
+without world noise or zombie attraction.
+
+| Asset under `SurvivorCompanion/42/media/sound/` | SHA-256 |
+| --- | --- |
+| `LFTerminalScanPing.wav` | d1ae4b66c8f9c6ef3320ea43258d0e365e59ae21c670c1818430ad49d73bfd0c |
+| `LFTerminalScanBlip.wav` | 88356dbe59f4401592c19e2942e43a361c902dc303edbf469062c76585e97704 |
+| `LFTerminalScanDone.wav` | 9e850ab717fe2490f98258fe8f1502d734559cc02d64cd51a483d9c7f8a1da52 |
