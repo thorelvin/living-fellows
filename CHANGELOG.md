@@ -2,6 +2,28 @@
 
 # Changelog
 
+## 0.26.90 - Computer recovery
+
+- Add archive-based password recovery, a movement-warning lamp, slow cracking
+  and physical hardware-reset alternatives. The original word puzzle remains.
+- Give each computer a previous-owner welcome and verified supplies, with
+  desk interlocks, manual release and crowbar recovery.
+- Add 20 previous owners, failed-login records and companion hints.
+- Add clickable UNDELETE file recovery, a physical reusable Larchfield manual
+  and live code wheel, and a numbered EMMA argument with checked claims and memory.
+- Preserve each tool's progress across reloads; give each a visible Electrical
+  advantage and a specific spoken companion hint. Include a printable code wheel.
+- Keep native bridge protocol `42.21-isocompanion-27`; the matched Lua and
+  rebuilt native bridge belong together.
+- Some recovery screens now ask you to step away from the keyboard. Their
+  progress and real-world prerequisites remain checked across visits and reloads.
+- Better recovery tools provide better supplies. The original owner's promised
+  items remain present, with the additional reward physically placed once.
+- Finish the Recovery Log to earn a named computer licence. It is a title,
+  without a stat bonus; hardware reset and cracking do not count as puzzle wins.
+- Paint password boards in fixed-width cells, keeping punctuation, hovered
+  words and matching brackets aligned with their mouse targets.
+
 ## 0.26.88 - Expedition returns and companion-view cleanup
 
 - Fix a native lighting crash when a companion view opens again after returning

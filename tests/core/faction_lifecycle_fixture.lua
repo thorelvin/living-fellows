@@ -36,6 +36,8 @@ Events = {
     OnWeaponSwingHitPoint = event("OnWeaponSwingHitPoint"),
     OnCharacterDeath = event("OnCharacterDeath"),
     OnZombieDead = event("OnZombieDead"),
+    OnPlayerGetDamage = event("OnPlayerGetDamage"),
+    OnDeviceText = event("OnDeviceText"), OnFillWorldObjectContextMenu = event("OnFillWorldObjectContextMenu"),
 }
 
 SC_TEST_PLAYER = {

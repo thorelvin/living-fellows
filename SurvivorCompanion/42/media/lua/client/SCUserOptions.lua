@@ -16,6 +16,7 @@ local MOD_ID = "SurvivorCompanion"
 local CHATTER = { "normal", "less", "rare" }
 local COUGH_SNEEZES = { "normal", "rare", "off" }
 local SPEECH_COLORS = { "speaker", "white" }
+local LAMP = { "flash", "steady", "off" }
 local values = {
     chatter = "normal",
     coughSneezes = "normal",
@@ -24,6 +25,7 @@ local values = {
     banditsCompatibility = true,
     alifeCompatibility = true,
     speechColors = "speaker",
+    terminalLamp = "flash",
 }
 
 local api = PZAPI.ModOptions
@@ -68,6 +70,8 @@ local speechColorsOption = combo("speechColors", "UI_SC_ModOptions_SpeechColors"
     "UI_SC_ModOptions_SpeechColors_Tooltip", SPEECH_COLORS, {
         "UI_SC_ModOptions_SpeakerColors", "UI_SC_ModOptions_WhiteText",
     })
+local lampOption=combo("terminalLamp","UI_SC_ModOptions_TerminalLamp","UI_SC_ModOptions_TerminalLamp_Tooltip",LAMP,{
+    "UI_SC_ModOptions_LampFlash","UI_SC_ModOptions_LampSteady","UI_SC_ModOptions_LampOff"})
 
 local function selectedChoice(option, choices)
     local index = tonumber(option.selected)
@@ -105,6 +109,7 @@ function UserOptions.apply()
     values.banditsCompatibility = banditsOption:getValue() == true
     values.alifeCompatibility = alifeOption:getValue() == true
     values.speechColors = selectedChoice(speechColorsOption, SPEECH_COLORS)
+    values.terminalLamp = selectedChoice(lampOption,LAMP)
     if SC.State and SC.State.active and SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
     if SC.State and SC.State.active and SC.ALifeAdapter then SC.ALifeAdapter.initialize() end
     UserOptions.syncNative()

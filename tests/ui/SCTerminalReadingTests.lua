@@ -29,7 +29,7 @@ local function open()
 end
 local function paint(window)
     local painted,hint,securityRows={},nil,{}
-    local drawRow,drawText=window.drawRow,window.drawText
+    local drawRow,drawText,drawPasswordRun=window.drawRow,window.drawText,window.drawPasswordRun
     window.drawRow=function(self,value,y,kind)
         check(y>=self:viewTop() and y+self.rowHeight<=self:viewBottom()+2,
             "every painted content row remains above the hints and input")
@@ -47,8 +47,9 @@ local function paint(window)
         end
         return drawText(self,value,x,y,...)
     end
+    window.drawPasswordRun=function(self,text,...) painted[#painted+1]=text return drawPasswordRun(self,text,...) end
     window:prerender()
-    window.drawRow,window.drawText=drawRow,drawText
+    window.drawRow,window.drawText,window.drawPasswordRun=drawRow,drawText,drawPasswordRun
     return painted,hint
 end
 local function contains(rows,fragment) return table.concat(rows,"\n"):find(fragment,1,true)~=nil end
@@ -88,7 +89,11 @@ for _,word in ipairs(p.words) do
     if p.tries==0 then break end
 end
 shown=paint(w)
-check(contains(shown,"Retry: 60 game min") and #w.securityHits==0,
+local passwordHits=0
+for _,box in ipairs(w.securityHits) do
+    if box.value:match("^[A-Z]+$") or box.value:match("^[%[%({<]") then passwordHits=passwordHits+1 end
+end
+check(contains(shown,"Retry: 60 game min") and passwordHits==0,
     "lockout pins its game-time countdown and exposes no actionable candidates")
 T.hours=T.hours+System.LOCK_HOURS T.now=T.now+Terminal.WATCH_MS+1
 w:watch(T.now)

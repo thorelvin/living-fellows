@@ -1,0 +1,197 @@
+Living Fellows 0.26.89: locked computers, Phase 3
+Date: 2026-11-02
+Branch: living_fellows/0.26.89
+Worktree: C:/ZOMBOID/work/grid
+
+Scope
+-----
+Implements radio, phone and rival. Eight locks are now built; the story game
+and its title remain Phase 4 work. Optional save schema remains one. No Java
+source or native protocol change. The existing version-matched bridge remains
+42.21-isocompanion-27.
+
+This checkpoint is for the user's trial. Normal local installation, commit,
+push, Workshop submission and public Field Guide publication are not performed.
+The repository computer chapter and changelog retain only a teasing line for
+rare locks. The supplied handoff reserves launch/publication for the user's
+instruction after the Phase 3 trial.
+
+Telephone callback
+------------------
+A same-building search runs only with the screen open: at most 128 squares
+per update and 4,096 total, own floor before either adjacent floor. It stores
+real telephone coordinates/sprite and room, never a persistent native reference.
+Missing phones fall back to the original word puzzle and remain unseen in the
+Director. No unbounded building survey is introduced.
+
+Place call explicitly starts the internal line. The original ring is two
+seconds on/four off, at most ten cycles; each cycle emits native world noise
+at radius 18/volume 60. An active call survives closing the CRT, stops on loss
+of power/removal or a changed internal line, and pauses with the game. No call
+is saved or restarted on reload. A muted/no-audio client can still answer.
+
+The context option belongs to the exact nearby reachable telephone. It uses
+the existing native queued installation/action adapter for a short handset
+action, revalidating actor, object, program identity, line, access and power.
+A subtitle panel repeats the seeded six-digit code. One in five machines also
+reads a real last-entry excerpt. Heard state persists; a wrong typed code then
+exposes the repetition. The ten-game-minute redial delay is five at Electrical 3.
+
+County Key Escrow
+-----------------
+Native radio channel 96.4 MHz, fixed source 12000,9000 with range 100,000.
+No transmission originates at the player. One 03:00 crossing per night is
+recorded; fast-forward never produces a backlog. At most three queued serials
+are broadcast, with six real seconds between lines and the key repeated.
+Unheard serials rotate fairly, leave the queue after fourteen unheard nights,
+and register again when their computer is reopened. The pending list caps at 16.
+
+Only a matching native reception event through a powered, audible receiver
+records a heard key. Sending, unrelated events and repeated callbacks do not.
+Eight-digit seeded serials distinguish queue entries; six-digit keys are typed
+at the computer. Wrong input exposes a key only if it was heard. The third
+heard-call history triggers the real player's forename once per world. The
+original five-note UI signature plays on verified receipt. EMMA has the supplied
+automated-station answer.
+
+World hearing receipts cap at 4,096, covering every computer in the supplied
+base-map census. Hearing while the matching screen is open also commits the
+receipt to that computer; returning to a heard computer copies the receipt into
+its own saved record. No time-based key expiry is introduced. Normalization,
+queue collision checks and all lists remain bounded.
+
+USER2
+------
+Eligibility uses actual undiscovered, non-destroyed recruitable Strange Folk
+groups with real known coordinates. Recruited groups are excluded. The saved
+group ID is resolved again, not replaced with invented people. If no one is
+eligible the Director skips this lock. Destroyed/missing groups cannot leave
+an existing race permanently locked.
+
+The native-shaped word puzzle remains intact. USER2 considers the player's
+and its own actual likeness results; its guesses do not consume player tries.
+The first wait is fifteen real seconds, later waits fifteen to twenty-five.
+It cannot choose the answer before its fifth guess. Remaining delay and up to
+sixteen guesses persist, advance only on the open race page, and pause with
+the game. Player lockout does not stop USER2. The latest guess/likeness stays
+in the fixed feedback area and its word is underlined; full history scrolls.
+
+Either winner opens the computer and reveals the same real group on the map.
+A USER2 win pays half the tier-three XP and one lower reward tier. An arrival
+bark referring to the race is optional polish and is not claimed implemented.
+Each character remains owned by its existing faction/encounter system.
+
+Shared integration
+-------------------
+The Director now weights word/remember/wheel/emma/search/radio/phone/rival
+20/27/15/12/10/5/5/3, normalized over these eight. Existing kind boosts, third
+machine medium-only selection, finite tour, unavailable prerequisites and
+post-tour rare-repeat protection are covered by tests. A provisional phone
+search does not mark phone seen until an actual telephone is found.
+
+Rare direct recovery pays 60 base Electrical XP, once per machine. Existing
+clutch/early-crack modifiers and lower-tier alternatives remain. Better tools
+now physically add the promised higher-tier supplies beside curated owner
+items; USER2 and forced drawers reduce the appropriate tier. Item creation
+retains the existing committed receipt and exact native container checks.
+
+The callback scheduler only maintains explicit active ringing and pending radio
+work. With neither, it returns immediately. It never starts a building scan;
+USER2 never advances while closed. Context/radio listeners belong to the
+bootstrap transaction and are removed/reset through existing lifecycle paths.
+
+Automated acceptance
+---------------------
+Final full gate: PASS, 29/29 stages, 135.5 seconds (138 overall), throttle 8.
+Log: C:/ZOMBOID/outputs/locked-computers-phase3-02689/project-gate.log
+Output root: C:/ZOMBOID/outputs/locked-computers-phase3-02689/
+The final run includes the larger receipt retention, nine negative controls,
+muted audio and responsive rare-lock controls. No implementation changed after
+this gate. git diff --check also passes.
+
+Coverage: normalized rates over 100,000 seeds; unavailable prerequisites;
+phone limits/cadence/power/pause/ownership; typed-code proofs at both input and
+completion boundaries; receipt provenance, duplication, queue rotation, limits,
+expiry and named call; real-group eligibility and both race results; first/fifth
+guess timing, pause/reload, destroyed groups, independent player attempts;
+compact/normal/large layouts; once-only XP and reward tiers. Existing Phase 1/2
+and full combat, perception, ownership, persistence and adapter gates run too.
+
+Nine negative controls must fail their intended assertions: unheard phone
+completion, phone search cap, receipt event, night crossing, receipt retention,
+real-group availability, fifth-guess limit, pause and USER2 reward. Production
+source hashes are unchanged by mutation tests. An initially inert control
+removed only an input check; the independent completion proof correctly still
+blocked it. The final control targets that boundary explicitly.
+
+Native acceptance: Project Zomboid 42.21.0, LF alone
+--------------------------------------------------
+SC-Harness-20261102-104650-44bceba9: real phone at 8075,11729,0 in the same
+police building, original ring event with a positive native handle, and a plain
+RadioBlack receiving from the fixed source. The seed has zero eligible groups
+at this observation; the user was told before rival implementation.
+
+SC-Harness-20261102-112801-51617fec: completed all three routes, including the
+actual phone context and queued handset action, closed-screen ring, native
+radio key receipt and third-call name, player-win discovery, real-time USER2
+win after at least five guesses, and closed-screen timing preservation.
+
+SC-Harness-20261102-114359-be7c7b89: 26 distinct PASS assertions, no failures,
+one SKIP for the natural seed's unavailable group. Uses the polished layouts,
+larger art viewports, true native handset captions and an authored
+fan_corey_biggs group created through Factions.createOddballGroup. Its original
+member, inventory, position and encounter remain intact. Group discovery is
+explicitly set false for this test fixture; no perception, transfer, native
+radio, damage or actor API is replaced. An earlier context check ran in the
+same frame as fixture teleport and saw the previous native square; the harness
+now waits for spatial synchronization before invoking the ordinary menu.
+
+SC-Harness-20261102-115433-8b5bcf73: PASS, 26 distinct named assertions,
+no failures, one SKIP for the natural seed's unavailable group. Final source,
+updated hearing retention and polished layouts; all three native routes pass.
+Log: C:/ZOMBOID/outputs/locked-computers-phase3-02689/live-verified.log
+
+SC-Harness-20261102-115758-3d79e7ec: PASS, 14 distinct named assertions,
+no failures or skips. Restores actual saved phone coordinates/hearing state,
+radio serial/hearing receipt, and the rival's first guess and remaining delay.
+All three resume and finish through ordinary input. No phone call restarts.
+Log: C:/ZOMBOID/outputs/locked-computers-phase3-02689/live-reload.log
+
+Reload uses snapshots of three partial programs saved on the native computer, applied
+as its active OS one at a time. It does not claim three simultaneous computers.
+Only disposable clones are changed; the original save is read-only input.
+
+Limits of the recorded evidence
+-------------------------------
+The seed's natural multi-day rival density has not been measured. Eligibility
+and missing-group behaviour are automated; real authored-group native acceptance
+uses an explicit fixture. Controlled zombie attraction from phone ringing,
+human listening for sound quality, external UI-mod pairings and native gameplay
+on every display resolution are not claimed. The original ring has a positive
+native playback handle; that proves initiation, not human-perceived volume.
+Higher-tier selection is automated; native common physical stash transfer was
+verified in Phase 1. These Phase 3 route fixtures disable physical rewards, so
+they do not claim a new native inspection of every higher-tier loot bundle.
+The new native artwork captures use sand; all themes share the tested phosphor
+path, with four-colour native acceptance already recorded in Phase 2.
+
+Artwork and debug trial
+-----------------------
+Three original images were made using built-in image_gen. Prompts, source and
+packaged hashes and display viewports: docs/terminal-lock-art.json. The thirteen
+combined artworks occupy 29 PNGs, 5,968,965 bytes total, largest 297,491 bytes.
+Black-margin viewports change draw geometry only; complete original RGB pixels
+remain packaged. Original audio synthesis and SHA-256 values: ASSET-MANIFEST.md.
+
+In an engine debug game set SCConfig.debugLockKind="phone", "radio" or "rival"
+before opening the next newly settled locked computer. Single-use; release
+default nil. It never rerolls existing locks, creates a person or invents a
+telephone. A real telephone is still required for phone; no eligible person
+falls back safely for rival. The five earlier debug kinds remain supported.
+Phase 4's story lock remains unavailable.
+
+Final native captures
+---------------------
+C:/ZOMBOID/outputs/locked-computers-phase3-02689/
+  native-phone.png, native-phone-answer.png, native-radio.png,
+  native-rival.png, native-rival-result.png

@@ -29,6 +29,8 @@ Events = {
     LoadGridsquare = event(), OnObjectAdded = event(),
     OnWeaponHitCharacter = event(), OnZombieDead = event(),
     OnZombieUpdate = event(),
+    OnPlayerGetDamage = event(),
+    OnDeviceText = event(), OnFillWorldObjectContextMenu = event(),
 }
 
 SC.Config = { refreshSandbox = function() return true end }

@@ -253,6 +253,16 @@ param(
     [switch]$FirestationRestProbe,
     [switch]$GridControlProbe,
     [switch]$BuildingScanProbe,
+    [switch]$LockProbe,
+    [switch]$LockAcceptanceProbe,
+    [switch]$LockAcceptanceReload,
+    [switch]$LockPhase2Probe,
+    [switch]$LockPhase2Reload,
+    [switch]$LockPhase3Probe,
+    [switch]$LockPhase4Probe,
+    [switch]$LockPhase4Reload,
+    [switch]$LockPhase3BindingsOnly,
+    [switch]$LockPhase3Reload,
     [switch]$BuildingScanSeedOnly,
     [switch]$GridControlStage,
     [switch]$GridControlResume,
@@ -2069,6 +2079,16 @@ $config = @(
     ('firestation_rest_probe=' + $FirestationRestProbe.IsPresent.ToString().ToLowerInvariant()),
     ('grid_control_probe=' + $GridControlProbe.IsPresent.ToString().ToLowerInvariant()),
     ('building_scan_probe=' + $BuildingScanProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_probe=' + $LockProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_acceptance_probe=' + $LockAcceptanceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_acceptance_reload=' + $LockAcceptanceReload.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase2_probe=' + $LockPhase2Probe.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase2_reload=' + $LockPhase2Reload.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase4_probe=' + $LockPhase4Probe.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase4_reload=' + $LockPhase4Reload.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase3_probe=' + $LockPhase3Probe.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase3_bindings_only=' + $LockPhase3BindingsOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('lock_phase3_reload=' + $LockPhase3Reload.IsPresent.ToString().ToLowerInvariant()),
     ('building_scan_seed_only=' + $BuildingScanSeedOnly.IsPresent.ToString().ToLowerInvariant()),
     ('grid_control_stage=' + $GridControlStage.IsPresent.ToString().ToLowerInvariant()),
     ('grid_control_resume=' + $GridControlResume.IsPresent.ToString().ToLowerInvariant()),
@@ -2119,6 +2139,16 @@ $manifest = [ordered]@{
     compatibilityMods = $compatibilityMods
     cleaningMixturesProbe = $CleaningMixturesProbe.IsPresent
     buildingScanProbe = $BuildingScanProbe.IsPresent
+    lockProbe = $LockProbe.IsPresent
+    lockAcceptanceProbe = $LockAcceptanceProbe.IsPresent
+    lockAcceptanceReload = $LockAcceptanceReload.IsPresent
+    lockPhase2Probe = $LockPhase2Probe.IsPresent
+    lockPhase2Reload = $LockPhase2Reload.IsPresent
+    lockPhase4Probe = $LockPhase4Probe.IsPresent
+    lockPhase4Reload = $LockPhase4Reload.IsPresent
+    lockPhase3Probe = $LockPhase3Probe.IsPresent
+    lockPhase3BindingsOnly = $LockPhase3BindingsOnly.IsPresent
+    lockPhase3Reload = $LockPhase3Reload.IsPresent
     buildingScanSeedOnly = $BuildingScanSeedOnly.IsPresent
     bedExitTablesProbe = $BedExitTablesProbe.IsPresent
     doorwayStallProbe = $DoorwayStallProbe.IsPresent

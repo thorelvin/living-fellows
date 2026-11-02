@@ -1,0 +1,13 @@
+module LivingFellows
+{
+    item LarchfieldManual
+    {
+        DisplayName = Larchfield Owner's Manual,
+        DisplayCategory = Literature,
+        ItemType = base:normal,
+        Weight = 0.3,
+        Icon = Book,
+        StaticModel = Book,
+        WorldStaticModel = BookClosedGround,
+    }
+}

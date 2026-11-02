@@ -1484,6 +1484,7 @@ local valueData = {
     dangerSignalHoldMs = 900,
 
     debugSpawnEnabled = false,
+    debugLockKind = nil, -- debug engine only; consumes the next new locked PC
     debugSpawnIntervalMs = 60000,
     -- Private playtest encounters are deliberately close and may use a visible
     -- square when open terrain offers no unseen candidate. Production spawn

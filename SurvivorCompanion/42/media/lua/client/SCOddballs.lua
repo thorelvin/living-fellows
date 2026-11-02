@@ -3079,6 +3079,15 @@ end
 function Oddballs.definition(id)
     return byId[id]
 end
+-- Read-only availability for the terminal's finite Recovery Log target. A
+-- not-yet-created encounter still exists in the county's remaining cast.
+function Oddballs.hasUnseededRecruitable()
+    if state.disabled then return true end
+    for _,definition in ipairs(definitions) do
+        if definition.recruitment==true and not state.seeded[definition.id] and not state.retired[definition.id] then return true end
+    end
+    return false
+end
 
 function Oddballs.state(group)
     if type(group) ~= "table" or type(group.oddball) ~= "table" then return nil end

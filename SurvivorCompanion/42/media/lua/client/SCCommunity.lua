@@ -390,6 +390,24 @@ end
 -- A corpse carries its SurvivorDesc name. Match it against the bounded death
 -- history so base production can give a fallen companion a named burial.
 -- Only an exact, unique name match counts; an ambiguous name is never guessed.
+function Community.recentDeaths(limit)
+    local result={}
+    local deaths=document and type(document.deaths)=="table" and document.deaths or {}
+    for id,row in pairs(deaths) do
+        if type(id)=="string" and type(row)=="table" then
+            result[#result+1]={subjectId=id,subjectName=row.subjectName,
+                subjectDisplayName=row.subjectDisplayName or row.subjectName,
+                subjectGender=row.subjectGender,startedAt=row.startedAt}
+        end
+    end
+    table.sort(result,function(a,b)
+        local at,bt=tonumber(a.startedAt) or 0,tonumber(b.startedAt) or 0
+        return at==bt and a.subjectId<b.subjectId or at>bt
+    end)
+    for i=#result,math.max(0,math.min(64,math.floor(finite(limit,16))))+1,-1 do result[i]=nil end
+    return result
+end
+
 function Community.deathMatching(name)
     if type(name) ~= "string" or name == "" then return nil end
     local deaths = document and type(document.deaths) == "table" and document.deaths or {}

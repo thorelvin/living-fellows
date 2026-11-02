@@ -102,11 +102,36 @@ try {
             # Auto-discovery can revisit a module already required by bootstrap.
             (Join-Path $Client 'SCTerminalBrands.lua'),
             (Join-Path $Client 'SCTerminalSystem.lua'),
+            (Join-Path $Client 'SCControlUtil.lua'),
+            (Join-Path $Client 'SCTerminalLockState.lua'),
+            (Join-Path $Client 'SCTerminalLockWords.lua'),
+            (Join-Path $Client 'SCTerminalLockSearch.lua'),
+            (Join-Path $Client 'SCTerminalLockWheelData.lua'),
+            (Join-Path $Client 'SCTerminalLockWheel.lua'),
+            (Join-Path $Client 'SCTerminalLockWheelUI.lua'),
+            (Join-Path $Client 'SCTerminalLockEmmaData.lua'),
+            (Join-Path $Client 'SCTerminalLockEmma.lua'),
+            (Join-Path $Client 'SCTerminalLockPhone.lua'),
+            (Join-Path $Client 'SCTerminalLockRadio.lua'),
+            (Join-Path $Client 'SCTerminalLockRival.lua'),
+            (Join-Path $Client 'SCTerminalLockStoryData.lua'),
+            (Join-Path $Client 'SCTerminalLockStory.lua'),
+            (Join-Path $Client 'SCTerminalLockCrack.lua'),
+            (Join-Path $Client 'SCTerminalLockCase.lua'),
+            (Join-Path $Client 'SCTerminalLockCrew.lua'),
+            (Join-Path $Client 'SCTerminalLockStashes.lua'),
+            (Join-Path $Client 'SCTerminalDrawers.lua'),
+            (Join-Path $Client 'SCTerminalPayoff.lua'),
+            (Join-Path $Client 'SCTerminalLockArt.lua'),
+            (Join-Path $Client 'SCTerminalLockUI.lua'),
+            (Join-Path $Client 'SCTerminalLocks.lua'),
             (Join-Path $Client 'SCTerminalWorld.lua'),
+            (Join-Path $Client 'SCTerminalLamp.lua'),
             (Join-Path $Client 'SCTerminalActions.lua'),
             (Join-Path $Client 'SCTerminal.lua'),
             (Join-Path $TestRoot 'SCTerminalTests.lua'),
             (Join-Path $TestRoot 'SCTerminalSystemTests.lua'),
+            (Join-Path $TestRoot 'SCTerminalLampTests.lua'),
             (Join-Path $TestRoot 'SCTerminalPresentationTests.lua'),
             (Join-Path $TestRoot 'SCTerminalAudioTests.lua'),
             (Join-Path $TestRoot 'SCTerminalActionTests.lua'),
@@ -118,9 +143,37 @@ try {
             (Join-Path $TestRoot 'SCTerminalWrappingTests.lua'),
             (Join-Path $TestRoot 'SCTerminalSecurityLayoutTests.lua'),
             (Join-Path $TestRoot 'SCTerminalConversationTests.lua')
+            (Join-Path $TestRoot 'SCTerminalLocksTests.lua')
+            (Join-Path $TestRoot 'SCTerminalDrawerTests.lua')
+            (Join-Path $TestRoot 'SCTerminalLockPhase2Tests.lua')
+            (Join-Path $TestRoot 'SCTerminalLockPhase3Tests.lua')
+            (Join-Path $TestRoot 'SCTerminalLockPhase4Tests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
+        $phase2Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
+        $phase2Files+=Join-Path $TestRoot 'SCTerminalLockPhase2Tests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase2Files
+        if($LASTEXITCODE -ne 0){throw 'Standalone phase-two regression harness failed.'}
+        & (Join-Path $TestRoot 'Test-TerminalPhase2NegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $phase2Files -BuildRoot $BuildRoot
+        $emmaSimulationFiles=@($phase2Files|Where-Object{$_ -notmatch 'Tests\.lua$'})
+        $emmaSimulationFiles+=Join-Path $TestRoot 'SCTerminalEmmaSimulation.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @emmaSimulationFiles
+        if($LASTEXITCODE -ne 0){throw 'EMMA argument policy simulation failed.'}
+        $phase3Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
+        $phase3Files+=Join-Path $TestRoot 'SCTerminalLockPhase3Tests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase3Files
+        if($LASTEXITCODE -ne 0){throw 'Standalone phase-three regression harness failed.'}
+        & (Join-Path $TestRoot 'Test-TerminalPhase3NegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $phase3Files -BuildRoot $BuildRoot
+        $phase4Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
+        $phase4Files+=Join-Path $TestRoot 'SCTerminalLockPhase4Tests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase4Files
+        if($LASTEXITCODE -ne 0){throw 'Standalone phase-four regression harness failed.'}
+        & (Join-Path $TestRoot 'Test-TerminalPhase4NegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $phase4Files -BuildRoot $BuildRoot
+        $storyFiles=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
+        $storyFiles+=Join-Path $TestRoot 'SCTerminalStorySimulation.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @storyFiles
+        if($LASTEXITCODE -ne 0){throw 'Story difficulty simulation failed.'}
         $buildingFiles = @($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
         foreach ($module in @('SCControlUtil','SCBuildingControls','SCBuildingScan','SCTerminalHardware','SCTerminalRadio','SCRadioEndpoints',
             'SCGeneratorServices','SCBuildingSecurity','SCBuildingCircuits','SCExpeditionTargets','SCTerminalServices')) {

@@ -835,6 +835,138 @@ local placesOwners = {
 }
 for _,profile in ipairs(placesOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
 
+-- SPDX-License-Identifier: MIT
+-- Twenty more previous owners: 12 office and 8 general, for the no-repeat rule.
+-- Paste this block into SCTerminalLore.lua after the placesOwners loop (line 836 at dd1cb096),
+-- before Lore.REFERENCE. It is a fragment: it uses that file's local owner() and Lore.
+
+-- Additive identities: existing computers retain their saved archive IDs.
+local officeGeneralOwners = {
+    owner("payroll_marsha", "office", "Marsha Tackett", nil, {
+        {2,"Pay run","Ran the July payroll early because of the holiday. Two people were overpaid and neither has mentioned it. I admire them more than I can say on an official form."},
+        {6,"Advance requests","Eleven people asked for an advance today. They all said car trouble. Nobody's car looks troubled. I approved them and wrote car trouble eleven times."},
+        {8,"Hours worked","I keep entering a full day for people who stopped coming. The system will not accept a reason. Neither will I, so the hours stay as they are."},
+        {9,"Final run","Everyone has been paid through the end of the month. I cannot say how they would collect it. The bandages from the first-aid box are in my second drawer. I took what I needed."},
+    }),
+    owner("records_gene", "office", "Gene Whitlock", nil, {
+        {1,"Retention schedule","Everything must be kept for seven years except the things that must be kept forever. I have worked here for nineteen and still cannot say which is which."},
+        {5,"Box 4417","A lawyer asked for a 1974 lease. Found it in four minutes. Nobody will ever know how good I am at this, and I have made my peace with that."},
+        {7,"Shredding","Two men from upstairs wanted certain files shredded today. They had no paperwork, and they were sweating. I said I would need that in writing. They did not come back."},
+        {9,"Closing the room","I have locked the cage and labelled the key. There is a flashlight with good batteries in my bottom drawer. The records will be fine. They have always outlasted us."},
+    }),
+    owner("data_priya", "office", "Priya Raman", nil, {
+        {2,"Keying errors","The new clerk typed Kentucky with a Q four hundred times. I have corrected them all. I have decided to keep her, as she is the only one who looks up."},
+        {6,"Batch totals","The county wants its forms keyed by Friday. The forms have started to ask different questions. Nobody has explained why a dog license needs a temperature column."},
+        {8,"Terminals","Six of us came in. We keyed what there was because it was easier than the radio. At four o'clock the county line went dead, and we kept keying."},
+        {9,"Shift note","There are tins of beans and an opener in the low drawer by my desk. I bought them for the snow in January. It is strange what turns out to have been a good idea."},
+    }),
+    owner("sales_doug", "office", "Doug Ballard", nil, {
+        {1,"Sales call","Sold a copier to the Baptist church. They wanted one that would not jam on Sundays. I told them nothing I sell has ever been tested on a Sunday."},
+        {5,"Service contract","A customer says his copier is printing pages he did not send. It is printing the page before. I have told him this is a feature and that it costs extra."},
+        {7,"Territory","I drove the whole route today. Nine out of twelve were closed. The other three wanted to know what I had seen on the road, and not one wanted a copier."},
+        {9,"For the next rep","Duct tape and a spare screwdriver are in my top drawer. They have fixed more copiers than the manual. I am going to try my brother's place. The leads are in the blue folder."},
+    }),
+    owner("reception_lorraine", "office", "Lorraine Combs", nil, {
+        {2,"Messages","Mr Bray has asked me to say he is in a meeting. He is in the parking lot eating a sandwich. I have told eleven people he is in a meeting. It is a very long sandwich."},
+        {6,"Switchboard","Every line lit up at once this morning. Nobody wanted us. They had just dialed every number they could find, to see if someone would pick up. So I did."},
+        {8,"Visitors","A woman sat in the lobby for three hours. She said she had no appointment. I brought her coffee and did not ask. Some days that is the whole job."},
+        {9,"Front desk","The phones quit at ten. I am still at my desk, because somebody ought to be. My headache pills are in the top drawer. Take them. You will need them."},
+    }),
+    owner("mailroom_terrence", "office", "Terrence Hobbs", nil, {
+        {1,"Postage meter","The postage meter has been reset by someone who believes stamps should cost four dollars. I have a list of suspects. All of them are vice presidents."},
+        {5,"Undeliverable","Three bags of mail came back today stamped RETURN TO SENDER. We are the sender. I have put them in the cage and told nobody. It felt safer."},
+        {8,"Last truck","The truck did not come. I sorted anyway. There are two hundred letters here for people I know by name. I have put them in order, so someone can find them."},
+        {9,"Locked up","The mail room hammer is in the drawer under the scales. I used it to nail the back window shut. The mail will go through, they told me when I started. They did not say where."},
+    }),
+    owner("temps_wanda", "office", "Wanda Sizemore", nil, {
+        {2,"Placements","Placed Gary again. He has been a temp for eleven years and has worked everywhere in this county. Nobody remembers him, and everyone asks for him back."},
+        {6,"No-shows","Nine temps did not report today. Clients are calling to complain. I explained that I can send them another person, but I cannot promise they will arrive."},
+        {8,"Gary","Gary took the Rosewood job on Tuesday. He has not called in. In eleven years he has never once failed to call in. I have kept his card on top."},
+        {9,"Closing the book","There is a bottle of whiskey in my filing cabinet under W. It was for the auditors. I have marked everyone as available. Someone ought to say that they still are."},
+    }),
+    owner("drafting_neil", "office", "Neil Yates", nil, {
+        {1,"Revision C","The client wants the atrium moved. The atrium is holding up the building. I have drawn them a smaller, cheaper atrium and labelled it a feature."},
+        {5,"Site visit","Walked the Louisville job. Half the crew stayed home, and the foreman keeps looking north. Concrete does not care. It sets on Thursday whoever is there."},
+        {7,"Fire exits","Someone from the county asked how fast we could get everyone out of the tower. I told him. Then he asked how fast we could keep them in. I asked him to leave."},
+        {9,"Plan room","I left the floor plans out on the big table, with the stairwells marked in red. Use them. The site box is in the plan drawer, nails mostly. Everything I have drawn was meant to hold."},
+    }),
+    owner("personnel_carol", "office", "Carol Thacker", nil, {
+        {2,"Sick leave","Reminded all staff that sick leave requires a doctor's note. Mr Fenn has brought a note from a doctor who has since called in sick himself. I have filed both."},
+        {6,"Attendance","Thirty-one absent. I am supposed to call them. I called them. A child answered at one house and asked when I was coming to get her. I hung up, and I called back."},
+        {8,"Exit interviews","People have started leaving their keys on my desk without saying anything. I have a form for this. I have not used it. I have labelled each key with a name."},
+        {9,"Jim's file","The antibiotics Jim's doctor gave him are in my left-hand drawer. He never came back for them. I do not think they would have helped. Somebody else might as well have them."},
+    }),
+    owner("network_marcus", "office", "Marcus Riggs", nil, {
+        {1,"Help desk","Dennis from IT keeps putting his kobold game on the accounts machines. I have asked him to stop. He says it counts as a security measure, and I cannot prove that it does not."},
+        {5,"Server closet","The server closet hit ninety degrees. I propped the door with a fire extinguisher. Facilities says that is against code. I asked them where the code is when the disks cook."},
+        {7,"Network down","The link to Louisville dropped at noon. It has never done that. I have checked every cable on this floor twice, mostly so that I have something to do with my hands."},
+        {9,"Hand-off","The box of dead boards is in my cabinet, if someone handy can use the parts. I shut the servers down clean. Nobody will ever know that, and it still mattered to me."},
+    }),
+    owner("travel_hope", "office", "Hope Stamper", nil, {
+        {2,"Bookings","Sold a week in Myrtle Beach to a couple who have not had a vacation since 1981. They asked if they should pack for rain. I said it never rains on the brochure."},
+        {6,"Changes","Everyone wants to leave early. Nobody wants a beach now. They want anywhere past the county line. I have stopped offering window seats."},
+        {8,"Refunds","The couple came back for their refund. I gave them the cash and the brochure. She asked if it really never rains there. I said no. It never does."},
+        {9,"Closing","I kept the little radio in my drawer for the ball games. There are no ball games this summer. Someone should have it. The brochures are free. Take one. It helps to look at them."},
+    }),
+    owner("facilities_russell", "office", "Russell Goins", nil, {
+        {1,"Elevator two","Elevator two stops at nine whether anyone asks it to or not. I have checked it four times. I have started calling it Harold, which is not in the manual."},
+        {5,"Air handling","Somebody on twelve says the air smells wrong. Somebody on twelve always says that. I went up and checked it anyway, and it did smell wrong. I changed the filter."},
+        {8,"Stairwells","I have wedged the fire doors on every floor so that they cannot lock behind anyone. That breaks about six regulations. Whoever wants to write me up can find me."},
+        {9,"Keys","My tool box is in the bottom of the cabinet behind the door. I shut off the gas at the main. Harold is still stopping at nine. I went to look, and I will not go again."},
+    }),
+
+    owner("general_arlene", "general", "Arlene Beck", nil, {
+        {2,"Family tree","Found another Beck in the 1850 census, and he was also a disappointment. I am up to nine generations. Not one of them ever wrote anything down on purpose."},
+        {5,"Letters","I wrote to the cousins in Ohio to ask about the family Bible. It has been a long time since I asked anyone anything that mattered more than this. I should have written sooner."},
+        {8,"Recording","I am adding everyone I know to the chart with today's date beside them. It is not how it is done. But somebody will want to know who was still here."},
+        {9,"Last entry","I nursed for thirty years. The suture needles are still in my sewing drawer. I have put my own name on the chart and left the second date empty, which is the proper way."},
+    }),
+    owner("general_tommy", "general", "Tommy Napier", nil, {
+        {1,"High score","I got 41900 on the tank game. Only my sister saw. Dad says computers are for his work, but he has never once turned this one on after five o'clock."},
+        {5,"Grounded","Grounded for using the phone line. I was only calling a bulletin board in Elizabethtown. A guy there says they closed the highway. He says it like he is kidding."},
+        {8,"Typing this","Dad went to get Uncle Ray and told me to stay put. I am staying put. I made sandwiches. I wrote down the time he left, so I can tell him how long he took."},
+        {9,"If you are Dad","The batteries for my handheld are in my desk drawer. Mom can have them for the flashlight. I am still here. I turned the lights off like you said. Come to the back window."},
+    }),
+    owner("general_vera", "general", "Vera Crume", nil, {
+        {2,"Church accounts","The building fund is short eleven dollars. Pastor says to have faith. I said I have faith and also a ledger, and one of them is still eleven dollars short."},
+        {6,"Neighbors","Kept the books for four families today, because they wanted to know what they had. Nobody has ever asked me that with their coat already on."},
+        {8,"The hall","They moved the church candles to the hall for tonight. Everyone is bringing food. I have written down who brought what, because that is what I do. It is all I know to do."},
+        {9,"Balanced","The matches are in my sideboard drawer. I have closed every account and balanced them to the penny. We were still eleven dollars short. I put it in myself."},
+    }),
+    owner("general_dwight", "general", "Dwight Logsdon", nil, {
+        {1,"Weather log","High of 91, wind light and southwest. Forty-one years of these, and I have never once been asked for them. I consider this the mark of a complete record."},
+        {6,"Band conditions","Heard Louisville clear at noon, and then nothing on any band by two. That is not weather. I wrote it down anyway, under weather, because I do not keep another column."},
+        {8,"Birds","No barometer change, and the birds have all gone quiet. Someone on forty meters keeps reading out names. I stayed on for an hour. I did not know any of them."},
+        {9,"Last reading","The spare receiver is in the drawer under the bench. High of 88. Wind light. Somebody should keep this going, and I would take it kindly if you wrote down the date."},
+    }),
+    owner("general_nadine", "general", "Nadine Sparks", nil, {
+        {2,"Chapter nine","Lady Ashcombe has fainted again. That is four times in one chapter. My editor says readers like it. I have never once met a woman who fainted."},
+        {5,"Editor","My editor has stopped answering. She has never stopped answering, because I owe her three books. I have sent the chapter anyway. Lady Ashcombe does not faint in it."},
+        {8,"New ending","I have rewritten the ending. The duke does not come. She gets up off the floor by herself and bars the door, and it is the best thing I have written in twenty years."},
+        {9,"Last page","The cigarettes I quit in April are still in the drawer. I am going to the neighbors, and I am leaving this on. Someone should read the ending. It is in the file called DUKE."},
+    }),
+    owner("general_cecil", "general", "Cecil Hardin", nil, {
+        {1,"Lawn","The Pruitt boy cut my grass crooked again. I paid him anyway. His father did the same thing in 1961. There has been no progress in this family, and I find that restful."},
+        {5,"The VA","Called the VA about my knee. A recording told me all lines are busy. I have been told that by better men than a recording, and I know what it means now."},
+        {7,"Seen before","I have watched people stand in the road with that look. It was a long way from Kentucky, and I was twenty. Nobody else here knows it yet. I will not be the one to say it."},
+        {9,"Last of it","I sold the gun last winter. There is a box of twelve-gauge in the bottom drawer, because I never did get around to that. Take it. I have gone to sit with Ruthie. She does not like being alone."},
+    }),
+    owner("general_bonnie", "general", "Bonnie Goff", nil, {
+        {2,"Recipes","I finally typed up Mama's recipes. She never wrote down an amount in her life. Under flour I have put 'enough'. I have put it eleven times, and it is accurate."},
+        {6,"Summer camp","The camp called and said to come get the kids. It was only day two. They would not say why, and the lady kept saying she was so sorry about the inconvenience."},
+        {8,"Full house","All three kids are home, and my sister's two as well. Nobody is allowed out past the porch. I have told them it is a game. The oldest knows, and he is helping me."},
+        {9,"Leaving","The kids' first-aid tin is in the kitchen drawer. We cannot carry it, and we have another. I left the recipes up on the screen. Whoever you are, you will want to eat something."},
+    }),
+    owner("general_lamar", "general", "Lamar Spicer", nil, {
+        {1,"Invoice","Fixed Mr Tull's mower for the third time. There is nothing wrong with it. He is lonely, and it is the only thing he owns that brings a person over. I charge him for parts."},
+        {5,"Rush job","Everybody wants their generator looked at this week. Nobody has told me why. I have fixed eleven since Monday, and not one man has stayed to talk about the weather."},
+        {7,"Mr Tull","Went by to see Mr Tull. His mower was out in the yard with the engine still running. I shut it off and knocked. I knocked for a while."},
+        {9,"Bench notes","Wire and a good screwdriver are in the bench drawer. Whoever needs a generator running, the trick is the choke. I have left the book open. I am going back to check on his mower."},
+    }),
+}
+for _,profile in ipairs(officeGeneralOwners) do Lore.ARCHIVES[#Lore.ARCHIVES+1]=profile end
+
+
 Lore.REFERENCE = {
     {id="emma_origin",date="1993-07-01",title="EMMA: programme brief",text="EMERGENCY MANAGEMENT ASSISTANT, county deployment beta 0.9. EMMA organises local records and produces short replies from approved procedures and the information stored on each machine. The demonstration describes this as conversational assistance. The procurement form describes it as one licence per workstation. Both descriptions have been approved."},
     {id="emma_limits",date="1993-07-02",title="What this machine can know",text="A local record is evidence of what somebody entered, not evidence that the world still agrees. EMMA must identify missing records, old observations and estimates. Do not allow a confident sentence to conceal an unknown. The computer has been instructed to say this politely. Operators are asked to extend the same courtesy to each other."},

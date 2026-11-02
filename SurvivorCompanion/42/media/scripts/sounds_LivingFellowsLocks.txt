@@ -1,0 +1,57 @@
+module Base
+{
+    sound LFPhoneRing
+    {
+        category = World,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFPhoneRing.wav, is3D = true, distanceMax = 30, volume = 0.8, }
+    }
+    sound LFPhoneAnswer
+    {
+        category = World,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFPhoneAnswer.wav, is3D = true, distanceMax = 8, volume = 0.6, }
+    }
+    sound LFNumbersTune
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFNumbersTune.wav, is3D = false, volume = 0.55, }
+    }
+    sound LFTerminalLampTick
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFTerminalLampTick.wav, is3D = false, volume = 0.35, }
+    }
+    sound LFReelClunk
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFReelClunk.wav, is3D = false, volume = 0.55, }
+    }
+    sound LFTerminalGranted
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFTerminalGranted.wav, is3D = false, volume = 0.65, }
+    }
+    sound LFDrawerClunk
+    {
+        category = World,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFDrawerClunk.wav, is3D = true, distanceMax = 12, volume = 0.65, }
+    }
+    sound LFDiceRoll
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFDiceRoll.wav, is3D = false, volume = 0.6, }
+    }
+    sound LFDrawerForce
+    {
+        category = World,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFDrawerForce.wav, is3D = true, distanceMax = 35, volume = 0.9, }
+    }
+}

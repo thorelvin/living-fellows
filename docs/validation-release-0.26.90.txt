@@ -1,0 +1,40 @@
+Living Fellows 0.26.90 release verification
+Date: 2026-11-02
+Branch: living_fellows/0.26.90
+
+Includes all four computer-recovery phases and the fixed-width password board.
+The 0.26.89 development validation records are retained as historical evidence;
+their native runs precede this release metadata bump. Runtime behaviour is
+unchanged by the 0.26.90 version update.
+
+Version consistency
+-------------------
+VERSION.txt, both mod.info files, SC.Identity.release, repository release badge,
+shipped README, changelog and native manifest all identify 0.26.90.
+The native bridge was rebuilt into the shipped payload with Java 17.
+Packaged Implementation-Version: 0.26.90
+Bridge protocol: 42.21-isocompanion-27 (unchanged)
+Compiled game: 42.21.0
+World save key/schema: SC_WorldV1 / 3 (unchanged)
+Payload bridge SHA-256:
+0162cab12ee1447f846ea6d45b7796a17fa06ddc314927711dea1ce6dcedd4e3
+
+Verification
+------------
+python tests/source/test_release_sync.py: PASS.
+Packaged JAR manifest independently checked: PASS.
+scripts/Test-Project.ps1 -Jobs 8: 29/29 stages PASS, 160.8 seconds
+(163 seconds overall), including source, pinned real-JAR, core, gameplay,
+navigation, ownership, UI, native combat/isolation, both optional adapters,
+Workshop package and standalone package verification.
+git diff --check: PASS.
+
+Release gate log:
+C:/ZOMBOID/outputs/release-02690-project-gate.log
+Bridge build log:
+C:/ZOMBOID/outputs/release-02690-bridge.log
+Prior native completion, actual mid-roll save/reload, screenshots and detailed
+feature checks: docs/validation-locked-computers-phase4-0.26.89.txt.
+
+This task prepares the requested Git commit and branch push. It does not
+install into the user's game or submit a Workshop/Field Guide publication.

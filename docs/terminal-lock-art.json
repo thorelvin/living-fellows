@@ -1,0 +1,1107 @@
+[
+  {
+    "id": "AccessGranted",
+    "width": 2172,
+    "height": 724,
+    "source_file": "exec-c08de41e-2908-4b31-bfc8-711fd258ca16.png",
+    "source_sha256": "bb575cfa1c52f6190584182e4e7a09a4eacae87586d0fa27f00b078e1cbe07c5",
+    "decoded_rgb_sha256": "62bae56482a15967536cb273240660406ccffb4fde04edc68a5b8126e7ce6cfe",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: logo-brand. Asset type: an ORIGINAL bitmap UI stamp for a 1993 computer terminal in a game, not a mockup. Create a wide 3:1 horizontal graphic on an absolutely uniform pure black (#000000) background. The ONLY wording is exactly \"ACCESS GRANTED\", on one line, in strong highly readable geometric bitmap-inspired uppercase white letters. Surround it with a clean thin rectangular white approval-stamp border and a few sober geometric 1993 workstation details. Flat pure WHITE on pure BLACK only; opaque, no colours, no gradients, no texture, no distressed or worn effects, no halftones, no shadows, no monitor or photographed objects, no company trademarks, no extra text or numerals. Original understated Larchfield business computer aesthetic, not copied from Fallout or any other game. Generous even black margins. It will be tinted green, golden sand, aquamarine or purple by a game shader; black must remain perfectly neutral and uniform. Crisp simple shapes that remain readable when displayed at 480 pixels wide. This is a finished standalone game texture, with a small file size preferred.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/AccessGranted-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1087,
+        "height": 724,
+        "clip": [
+          0,
+          0,
+          1086,
+          724
+        ],
+        "bytes": 165527,
+        "sha256": "460f972d654fb4887788df744b6097c9b1477ebcd5cdac7018a7b58e8782db66"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/AccessGranted-02.png",
+        "x": 1085,
+        "y": 0,
+        "width": 1087,
+        "height": 724,
+        "clip": [
+          1086,
+          0,
+          1086,
+          724
+        ],
+        "bytes": 166219,
+        "sha256": "553646c1e0f1498e102920f8cd4dc5d8196edb87efd983d540d7714d5f5b0ed7"
+      }
+    ]
+  },
+  {
+    "id": "Case486",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-a215edb3-4cac-4549-9163-9342a15afab1.png",
+    "source_sha256": "f799a859bb30e766f85445e720f873264d071ccf9ac0fd1e1e2d6a5481c6bf21",
+    "decoded_rgb_sha256": "b71ef620bda5dd40cd50f0b796fcec0b720b44201ca994a99d35fc945d000de8",
+    "tool": "Built-in image_gen",
+    "prompt": "Edit this original game UI service-board bitmap into a more compact, extremely clean 1993 486 schematic. Preserve the layout and exact labels: LARCHFIELD / SERVICE BOARD at upper left, 486 in a large left CPU, CLR CMOS above a three-pin jumper around 81% width / 32% height, CMOS BATTERY below the coin cell around 81% width / 69% height. Preserve the four RAM slots at lower left, the thin board outline and four mounting holes. Reduce ALL unnecessary fine detail: RAM sockets should each have only eight simple rectangular contacts, use only about twelve circuit traces total, and six simplified chips with only four pins on each side. No photographic detail. Flat perfectly opaque pure WHITE shapes on absolutely flat pure BLACK. No shades, gradients, grain, antialias texture or glow; crisp sparse geometry like a two-colour bitmap technical diagram, not ASCII. Keep all labels strongly readable at 500 pixels wide. Aim for a compact PNG suitable for a game, about 300 KB or less. No other text, no added symbols, no photographed monitor.",
+    "reference_source": "exec-2aca81a9-257c-4306-96b9-3e8b5abf900d.png",
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          0,
+          0,
+          768,
+          512
+        ],
+        "bytes": 176698,
+        "sha256": "abe6936b6d28603f82690ca7847ea83d6cdc1274ccd4d6ad87c4b00782cf05c1"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-02.png",
+        "x": 0,
+        "y": 511,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          0,
+          512,
+          768,
+          512
+        ],
+        "bytes": 171073,
+        "sha256": "432b8b8d18d10c8c1313108110d8655dae1da2620408c2590849644ec7c78d17"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-03.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          768,
+          0,
+          768,
+          512
+        ],
+        "bytes": 142340,
+        "sha256": "7386c6a6826cdf09701e9c69b94e8297da701613122ed53a89eef5810549cf60"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-04.png",
+        "x": 767,
+        "y": 511,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          768,
+          512,
+          768,
+          512
+        ],
+        "bytes": 166859,
+        "sha256": "59302530f571fda7a20a055b4b78b55593c650b6e79787b925f4e3a35af02de3"
+      }
+    ]
+  },
+  {
+    "id": "CrackTitle",
+    "width": 2172,
+    "height": 724,
+    "source_file": "exec-6a7f0154-3812-463d-a930-5f768c37d1d4.png",
+    "source_sha256": "a4385a881319ad9ca9c2e9447a5f0a06e3084bacafb50b079bb702ddb56e8ba5",
+    "decoded_rgb_sha256": "6a5b41f851705c90952c0b2089dbc2925cb0f0469f65e4f2cfd3f45bfc314837",
+    "tool": "Built-in image_gen",
+    "prompt": "Original finished game UI title bitmap for a 1993 Larchfield desktop computer utility, not a mockup. Very wide 4:1 horizontal composition. Exactly 'CRACK.EXE' in one line of large crisp WHITE uppercase monospaced bitmap lettering, with a small simple four-reel numeric counter symbol at the left and two thin white rules. Restrained period corporate DOS utility style, original art, no copied videogame design, no trademarks, no extra wording or numerals. Absolutely flat pure BLACK background, flat WHITE letters/shapes only, perfect uniform surfaces, no shading, no colour, no texture, no noise, no gradients, no glow or scanlines baked in. Broad even black margins; simple sparse vector-like geometry rendered as a bitmap. It will be tinted by the engine to four phosphor colours. Keep it readable at 320 pixels wide, and keep the generated PNG as compact as possible, about 300 KB or less. Do not depict a computer monitor or a real-world photograph.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CrackTitle-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1087,
+        "height": 724,
+        "clip": [
+          0,
+          0,
+          1086,
+          724
+        ],
+        "bytes": 162713,
+        "sha256": "f359336a4a91a82e816bd03ebe5620e22f223fc0a816ad23c08075aba22a0131"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CrackTitle-02.png",
+        "x": 1085,
+        "y": 0,
+        "width": 1087,
+        "height": 724,
+        "clip": [
+          1086,
+          0,
+          1086,
+          724
+        ],
+        "bytes": 158291,
+        "sha256": "22357ed735b4f4b0c81f40664af87231024b23f812872260559c8466ece0f450"
+      }
+    ]
+  },
+  {
+    "id": "Padlock",
+    "width": 1254,
+    "height": 1254,
+    "source_file": "exec-31ce7dad-39c7-4748-8490-a012ea760ea5.png",
+    "source_sha256": "4e6a9e3d626ab9643492c26ebf672872819b743ac249b113fa20249eaef3713c",
+    "decoded_rgb_sha256": "b648d2e9d1bf60b5c61cd535048a1e399c1b2a8f48aa819b19fe1c4c627c30cf",
+    "tool": "Built-in image_gen",
+    "prompt": "Generate a small original 1993 computer UI padlock glyph as a standalone bitmap, square composition, absolutely flat pure BLACK background. One simple solid WHITE closed padlock: a thick squared arch, rectangular lock body and a very small black keyhole. Crisp bitmap-inspired geometric shapes, entirely flat uniform surfaces. No letters, numbers, gradients, texture, noise, shading, glow, monitor, photograph or company marks. Generous uniform black margin. This must remain readable as a 20-pixel-wide icon beside a live text label. Very simple sparse two-colour design, suitable for a compact PNG game texture, about 100 KB preferred. White on black so an engine shader can tint the icon to any screen colour.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Padlock-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1254,
+        "height": 1254,
+        "clip": [
+          0,
+          0,
+          1254,
+          1254
+        ],
+        "bytes": 253108,
+        "sha256": "5a54d619b757f9c5a45361542b9d2d5a0f979b17c572f0bddeb6628db9dcb6ca"
+      }
+    ]
+  },
+  {
+    "id": "UndeleteTitle",
+    "width": 2172,
+    "height": 724,
+    "source_file": "exec-27224870-5590-49ad-84ed-a00cdce07a6d.png",
+    "source_sha256": "3d52acd9f8cd88760383962d07ef02ad5f1e54f95f7ced883897bd9111c23954",
+    "decoded_rgb_sha256": "9edff05f558b6c5f78a1295d3a017be04752a10484a4ca7c6b16bd79e447845e",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: logo-brand. Wide 3:1 horizontal software title. The only text is exactly UNDELETE.EXE in one very readable uppercase geometric bitmap-inspired line. Small original disk-sector and restore-arrow motif beside the lettering, fine 1993 application border. Original finished game texture for a fictional 1993 Larchfield PC terminal. Flat WHITE line work on uniform pure BLACK (#000000), opaque background. No gradients, no colour, no grey shading, no texture, no glow, no photographed monitor, no other trademarks or game references. Clean sparse geometric line art and generous margins, readable when reduced to 400 pixels wide. It will be phosphor-tinted by a shader. Prefer a simple crisp low-complexity asset with a small file size.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/UndeleteTitle-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1087,
+        "height": 724,
+        "clip": [
+          0,
+          0,
+          1086,
+          724
+        ],
+        "bytes": 225309,
+        "sha256": "5a49a62d09df4d3807abd527e8a50ceb461d8a14c5eb1de068e79db89e19109a"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/UndeleteTitle-02.png",
+        "x": 1085,
+        "y": 0,
+        "width": 1087,
+        "height": 724,
+        "clip": [
+          1086,
+          0,
+          1086,
+          724
+        ],
+        "bytes": 204738,
+        "sha256": "323f176dfa3660e9f27bbee2086c3491b4002cad670b18c87fa0ccceb35eef29"
+      }
+    ]
+  },
+  {
+    "id": "ManualCover",
+    "width": 1024,
+    "height": 1536,
+    "source_file": "exec-c609016e-1f25-42c0-9b98-f26c656e07a4.png",
+    "source_sha256": "e741b7f363168160c7781f6938131a13630193823442c1285f9fa94ea0e9667d",
+    "decoded_rgb_sha256": "eadd94113270b342aed51dbf0d69febe6f730dadd255a223e56f9e8ba5390d7f",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: illustration-story. Portrait 2:3 cover illustration of a 1993 personal computer owner's manual, perfectly flat front view, an understated original Larchfield corporate handbook. Exact text: LARCHFIELD at top, OWNER'S MANUAL below, 1993 at bottom. A simple original desktop computer and floppy disk diagram in the middle. White technical line illustration on black; no extra text. Original finished game texture for a fictional 1993 Larchfield PC terminal. Flat WHITE line work on uniform pure BLACK (#000000), opaque background. No gradients, no colour, no grey shading, no texture, no glow, no photographed monitor, no other trademarks or game references. Clean sparse geometric line art and generous margins, readable when reduced to 400 pixels wide. It will be phosphor-tinted by a shader. Prefer a simple crisp low-complexity asset with a small file size.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualCover-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1024,
+        "height": 769,
+        "clip": [
+          0,
+          0,
+          1024,
+          768
+        ],
+        "bytes": 249571,
+        "sha256": "55a9442bd0332afc8defb4729c3a896e62a9d0c1a8b165bd245b38d08c2855f9"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualCover-02.png",
+        "x": 0,
+        "y": 767,
+        "width": 513,
+        "height": 769,
+        "clip": [
+          0,
+          768,
+          512,
+          768
+        ],
+        "bytes": 179583,
+        "sha256": "4119fa0a9cab7f16ac1621818510bf2267ee2d7a805caf9d48ecaed2baf6affe"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualCover-03.png",
+        "x": 511,
+        "y": 767,
+        "width": 513,
+        "height": 769,
+        "clip": [
+          512,
+          768,
+          512,
+          768
+        ],
+        "bytes": 169779,
+        "sha256": "988193a4e5b3b6e24e3e129dcf3561be348d89c9feba9633f95b632085741215"
+      }
+    ]
+  },
+  {
+    "id": "ManualPower",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-02a72bde-7876-4b5e-b0dc-96983b99f4be.png",
+    "source_sha256": "90940d311261efccb2971e138c18923cd8ac5898a840dfc6c8e35ba516fce833",
+    "decoded_rgb_sha256": "0ebedc525ef2e732c0b0d0d563fdc33264bb39ba31d474f3f243d8e550653645",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: infographic-diagram. Landscape 3:2 small 1993 computer handbook illustration, a desktop PC connected to a wall socket by one thick traceable cord, a tiny warning triangle beside the plug. Clear sparse schematic illustration, humorous dry corporate safety handbook feeling. No text or letters at all. Original finished game texture for a fictional 1993 Larchfield PC terminal. Flat WHITE line work on uniform pure BLACK (#000000), opaque background. No gradients, no colour, no grey shading, no texture, no glow, no photographed monitor, no other trademarks or game references. Clean sparse geometric line art and generous margins, readable when reduced to 400 pixels wide. It will be phosphor-tinted by a shader. Prefer a simple crisp low-complexity asset with a small file size.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualPower-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          0,
+          0,
+          768,
+          512
+        ],
+        "bytes": 127707,
+        "sha256": "d673763ebcce6110d2421b88eb6c8df30fb0ba24f1bd3e55b0a56711dc137f04"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualPower-02.png",
+        "x": 0,
+        "y": 511,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          0,
+          512,
+          768,
+          512
+        ],
+        "bytes": 247370,
+        "sha256": "c156b82fdd25b4a18628b6b2a0ccfa379e1001b91888a167a776abaf3b3c3308"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualPower-03.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          768,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 219210,
+        "sha256": "294bb12d0091ad1f9b4c9cb5f789d97a82143bedea1328189c947e3940b6778c"
+      }
+    ]
+  },
+  {
+    "id": "ManualFiles",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-f2be652e-71c3-4616-aebd-25566332b3dd.png",
+    "source_sha256": "625cdd2fb69b02fd395820599bb95d2ecde8c0220756cef287392ddb69f28ece",
+    "decoded_rgb_sha256": "b8a91623069603babb122769d431ec80114c3ba695a66fbe75a5b5858920c98c",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: illustration-story. Landscape 3:2 small 1993 computer handbook illustration, three folder outlines emerging from a floppy disk into an open filing drawer, a small single restore arrow. Sparse comprehensible technical line illustration in a dry corporate handbook. No text or letters. Original finished game texture for a fictional 1993 Larchfield PC terminal. Flat WHITE line work on uniform pure BLACK (#000000), opaque background. No gradients, no colour, no grey shading, no texture, no glow, no photographed monitor, no other trademarks or game references. Clean sparse geometric line art and generous margins, readable when reduced to 400 pixels wide. It will be phosphor-tinted by a shader. Prefer a simple crisp low-complexity asset with a small file size.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualFiles-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          0,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 204361,
+        "sha256": "8c9a4235adb033041310944ffcd87df16714cfa611b21068fd657ea7197d25b1"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualFiles-02.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          768,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 293443,
+        "sha256": "a1e24c6578aad7514151bdc83d9d47d861f7c49b54bc43546b54ad95f01a40c0"
+      }
+    ]
+  },
+  {
+    "id": "ManualWarranty",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-4cd0ca67-eafb-46be-8be3-169eed8fdc6a.png",
+    "source_sha256": "40154196b8046d350bac27ec79b9e5f03d2d12495e03531e1251677cfcf007d5",
+    "decoded_rgb_sha256": "2d7b48241f387cdb4ed42ef28e7c1859f9a871a49b4cb55411d950f8a4e1a3b2",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: illustration-story. Landscape 3:2 small 1993 computer handbook illustration, desktop PC with a tiny coffee cup beside it and a large stern raised caution hand outlined on the side, original dry corporate handbook humour. Sparse clear white technical line art. No text, no letters. Original finished game texture for a fictional 1993 Larchfield PC terminal. Flat WHITE line work on uniform pure BLACK (#000000), opaque background. No gradients, no colour, no grey shading, no texture, no glow, no photographed monitor, no other trademarks or game references. Clean sparse geometric line art and generous margins, readable when reduced to 400 pixels wide. It will be phosphor-tinted by a shader. Prefer a simple crisp low-complexity asset with a small file size.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          0,
+          0,
+          768,
+          512
+        ],
+        "bytes": 137677,
+        "sha256": "5016295afb9f117371c4bcf9020c3def3e7234ac09c62daa988373d6f3c3a7a0"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-02.png",
+        "x": 0,
+        "y": 511,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          0,
+          512,
+          768,
+          512
+        ],
+        "bytes": 226725,
+        "sha256": "3c26a17615413204077fffa8833d88731f78f9b2121b1e76941e5578bef64e4a"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-03.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          768,
+          0,
+          768,
+          512
+        ],
+        "bytes": 130613,
+        "sha256": "44793dad2c840d9ba9963170388e32473b69f88888ef1648f9e13878c2d7b161"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-04.png",
+        "x": 767,
+        "y": 511,
+        "width": 769,
+        "height": 513,
+        "clip": [
+          768,
+          512,
+          768,
+          512
+        ],
+        "bytes": 194865,
+        "sha256": "6b0044f7c044ffc756e2c7d66e67e0d3ef1bedd0fbfe781f4592f8e39cfa06e9"
+      }
+    ]
+  },
+  {
+    "id": "WheelCentre",
+    "width": 1254,
+    "height": 1254,
+    "source_file": "exec-ed3fe88e-9c3c-4a3b-b2a4-0249c9941726.png",
+    "source_sha256": "c64bbaa06e06a2b6a342fc43e612bb6894290f4b3a043339474a62fdd80647cb",
+    "decoded_rgb_sha256": "ccda5bea5adc7eb861a4572c4282aa8ea18f85b8e9af8e126a9049707416f4f9",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: logo-brand. Square small original 1993 mechanical code-wheel centre medallion. A simple clean double-outline circular hub containing a bold geometric uppercase L, plus a small separate downward-pointing triangular index pointer above the hub at twelve o'clock. Leave broad black empty space around the circular hub. No rings of letters or digits, no other text. Original finished game texture for a fictional 1993 Larchfield PC terminal. Flat WHITE line work on uniform pure BLACK (#000000), opaque background. No gradients, no colour, no grey shading, no texture, no glow, no photographed monitor, no other trademarks or game references. Clean sparse geometric line art and generous margins, readable when reduced to 400 pixels wide. It will be phosphor-tinted by a shader. Prefer a simple crisp low-complexity asset with a small file size.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/WheelCentre-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1254,
+        "height": 1254,
+        "clip": [
+          0,
+          0,
+          1254,
+          1254
+        ],
+        "bytes": 280742,
+        "sha256": "c23fd7543731ee17c29ca3a5efbff3954c70af3e8dd0ed497b4acf3bbee6fa29"
+      }
+    ]
+  },
+  {
+    "id": "DialBackTitle",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-9b3801ae-aae2-4539-b69f-b935a321977b.png",
+    "source_sha256": "a8243f6cee54cc7c52c30cddaaefd31dbae5342cfe48ea1ec2c82a0332254523",
+    "decoded_rgb_sha256": "32a7c0b32e428cf82d0a5381859067736cfddeb973bd77bb092eb51662789865",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original flat monochrome bitmap illustration for a 1993 county computer terminal. Pure solid black background, only opaque clean white foreground, no color, no gradients, no glow, no texture, no shadows. Landscape composition 1536 by 1024, generous black margin around all edges. Bold compact industrial line art of a 1990s rotary desk telephone with its coiled cord, beside two large highly readable lines of exact text: 'LARCH/' and 'DIAL-BACK'. Exact spelling D I A L - B A C K. White ink screen-print look; sophisticated restrained 1993 software splash-screen illustration. No frame, no additional writing, no real companies, no Fallout designs.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/DialBackTitle-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          0,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 297491,
+        "sha256": "3e2a0f712a6a189f9707e04ca1a8390c543cf6acf14a60be875b4b115bdeb529"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/DialBackTitle-02.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          768,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 221649,
+        "sha256": "8f0a1063105c6d9c48b8afbe84478fe75db2ccc9d0466090e79c0c478a3c578d"
+      }
+    ],
+    "view": [
+      31,
+      256,
+      1473,
+      537
+    ]
+  },
+  {
+    "id": "CountyKeyEscrow",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-a099ec94-4912-43cd-9570-70a6fd1ad86c.png",
+    "source_sha256": "dcf586b19104face76ee831f5b0bac0da7be6be67c32135d8ede8135b9e75a74",
+    "decoded_rgb_sha256": "b5b3251b91002536ef1f4873a34b198f5f563052c0cad3987733e8459fdd9333",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original flat monochrome bitmap illustration for a 1993 Kentucky county recovery radio service. Pure solid black background, only opaque white foreground; no gray shading, no color, no gradients, no glow, no texture, no shadows. Landscape 1536 by 1024, generous black margins. Compact radio transmission tower with carefully drawn aerials and three concentric signal arcs; balanced bold industrial line art. Beside it highly legible stacked title in three lines, exactly 'COUNTY' 'KEY' 'ESCROW'. Exact text only, no numbers or extra labels. Designed for a small software splash tile inside a CRT terminal, not a physical product. No real company marks, no existing game art.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CountyKeyEscrow-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          0,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 295987,
+        "sha256": "40f95fa1de7849f8c2763eb1d74d72146ea5d4dee9299e67a322e4ab5b01d6c1"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CountyKeyEscrow-02.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          768,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 244213,
+        "sha256": "acc256549b27e6ad44640f7dfe640645ef51c3b21ce28ef76490aadeeb47d01a"
+      }
+    ],
+    "view": [
+      155,
+      130,
+      1302,
+      765
+    ]
+  },
+  {
+    "id": "User2Sign",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "exec-c35c7719-31b2-4684-90f9-411212f95171.png",
+    "source_sha256": "f90c81d8465d2470b4c5e7972396b9d12191e10bf06da8b780fee126fd049e14",
+    "decoded_rgb_sha256": "ddb50e0f3480f5f747351f5f4af68acfd0dfbd085348be605d22b55b1abff3be",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original monochrome bitmap badge for a 1993 multi-user computer terminal. Pure solid black background, only white ink, no colors, gradients, glow, shading, texture or shadows. Landscape 1536 by 1024 with very generous margins. A small industrial rectangular access badge containing big perfect text 'USER2' and a simple small second terminal cursor symbol to the left. Crisp compact bold mechanical lettering and thin double-rule border with a modest cable connector on one side. Readable when shown at thumbnail size. Exact text U S E R 2; nothing else. Original restrained 1993 software design, no real brands or copied game art.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/User2Sign-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 1536,
+        "height": 1024,
+        "clip": [
+          0,
+          0,
+          1536,
+          1024
+        ],
+        "bytes": 255104,
+        "sha256": "10d4b06027a78c3449ba9e6ac7e2e59e114d9c198bb6789806d54a5fff2296f3"
+      }
+    ],
+    "view": [
+      444,
+      429,
+      718,
+      168
+    ]
+  },
+  {
+    "id": "StoryTitle",
+    "width": 1254,
+    "height": 1254,
+    "source_file": "exec-ed73f93a-589f-43ad-8386-f89a70dee191.png",
+    "source_sha256": "42f9b556096768122829a9d3243c0cce66e067690177f073277d3638a5b0ae4c",
+    "decoded_rgb_sha256": "af64be531a6b16eac23474f54e8427b2d7eeebd4b21f7e871d1d94fb1e1746e3",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original raster game UI asset for a fictional 1993 DOS shareware dungeon game in Project Zomboid. Square 1024px canvas. Hard flat pure WHITE pixel linework on pure BLACK background; strictly two colours, no gradients, no grain, no antialias haze, no glow, no texture, no border. Large chunky 16-bit era pixel shapes, sparse detail with generous black negative space. A witty modest homebrew shareware drawing, legible when shrunk to 200px. No existing game art. Single centered subject, no lettering except specified. Title illustration: a little kobold peeking over a chunky dungeon gate with a floppy disk key. Large perfectly spelled block pixel lettering KOBOLDS OF KENTUCKY above it, two lines. No other text.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          0,
+          627,
+          627
+        ],
+        "bytes": 166859,
+        "sha256": "daf7461e7464a27a17712387388c0f50c83df6c6e6d68b7ef3bc6d9833c37e4e"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-02.png",
+        "x": 0,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          627,
+          627,
+          627
+        ],
+        "bytes": 172367,
+        "sha256": "1c8b6c8f5446b9820546bcc122ad6f41b293852184c224151dc41a91f0d802e3"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-03.png",
+        "x": 626,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          0,
+          627,
+          627
+        ],
+        "bytes": 181833,
+        "sha256": "7d4e77edd45789bac19350edb32dd55ee9f664b476e59744118caf87d12447a5"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-04.png",
+        "x": 626,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          627,
+          627,
+          627
+        ],
+        "bytes": 162759,
+        "sha256": "4d6a11f04596cd49185b9f04fd56404c6f3e5e460c00588d8f923dd6be0adb46"
+      }
+    ],
+    "view": [
+      95,
+      31,
+      1071,
+      1202
+    ]
+  },
+  {
+    "id": "StoryClasses",
+    "width": 1254,
+    "height": 1254,
+    "source_file": "exec-b9316a4b-0475-4c96-8be0-1de6aa77e27c.png",
+    "source_sha256": "94a34ea4f71f1fc2924991bd02edf40fef7be07581d09d37440442e6a929d215",
+    "decoded_rgb_sha256": "5dff398daa2100e45c95b63fd972bdaab9f1921f00a0d9c3e72fbd67a6fa6882",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original raster game UI asset for a fictional 1993 DOS shareware dungeon game in Project Zomboid. Square 1024px canvas. Hard flat pure WHITE pixel linework on pure BLACK background; strictly two colours, no gradients, no grain, no antialias haze, no glow, no texture, no border. Large chunky 16-bit era pixel shapes, sparse detail with generous black negative space. A witty modest homebrew shareware drawing, legible when shrunk to 200px. No existing game art. Single centered subject, no lettering except specified. One sprite atlas for EIGHT character portraits arranged in EXACTLY FOUR EQUAL COLUMNS and TWO EQUAL ROWS covering the square canvas; every cell is equal size. No text, captions, border or gridlines. Every portrait entirely inside its own cell with generous 20% black safety padding on every side; never cross cell boundaries. Row1 left to right: sword-and-helmet FIGHTER; hooded ROGUE with a coin; pointed-hat WIZARD with tiny wand light; CLERIC with holy symbol. Row2 left to right: 1993 TAX AUDITOR with glasses/tie/scroll; MALL SECURITY GUARD with cap/whistle/keyring; SUBSTITUTE TEACHER with cardigan/chalk/clipboard; friendly round raccoon restaurant MASCOT suit with striped tail. Distinct large simple portrait silhouettes. All eight equally prominent.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          0,
+          627,
+          627
+        ],
+        "bytes": 225676,
+        "sha256": "9e70b0bdbda93b317e456e3a0b612215ed5410c45f1f6930b4b178d45c0c48a8"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-02.png",
+        "x": 0,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          627,
+          627,
+          627
+        ],
+        "bytes": 248290,
+        "sha256": "4584664470a5f8d00c753a95a14b79810b3cea7b5c71fdc0493391974be163e7"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-03.png",
+        "x": 626,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          0,
+          627,
+          627
+        ],
+        "bytes": 235314,
+        "sha256": "34767b142bb7d3d161c539bdae15742db5ff5cedc2d987a826598395b18f7f8e"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-04.png",
+        "x": 626,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          627,
+          627,
+          627
+        ],
+        "bytes": 271761,
+        "sha256": "4ebb23aaa9795e1957ff7bb308ae54e8b468a8e587f5754510b96170ea596aa9"
+      }
+    ],
+    "view": [
+      4,
+      141,
+      1246,
+      1007
+    ],
+    "views": {
+      "class_fighter": [
+        4,
+        144,
+        303,
+        418
+      ],
+      "class_rogue": [
+        321,
+        198,
+        295,
+        358
+      ],
+      "class_wizard": [
+        631,
+        147,
+        294,
+        409
+      ],
+      "class_cleric": [
+        940,
+        141,
+        301,
+        415
+      ],
+      "class_tax_auditor": [
+        4,
+        738,
+        291,
+        406
+      ],
+      "class_mall_cop": [
+        314,
+        719,
+        294,
+        424
+      ],
+      "class_substitute_teacher": [
+        627,
+        722,
+        313,
+        426
+      ],
+      "class_spiffo_mascot": [
+        940,
+        719,
+        310,
+        429
+      ]
+    }
+  },
+  {
+    "id": "StoryScenes",
+    "width": 1254,
+    "height": 1254,
+    "source_file": "exec-47a9f925-f8b9-41a5-9550-1eca230eb5a6.png",
+    "source_sha256": "e7be560ab9f704ab8466a6a1c0159e3ab14b011121059d2299b18bdaf31d4390",
+    "decoded_rgb_sha256": "6d47894dc0924bfeb97eb2f476be3f1b0b2ccfb98e5ef2ade6740c7dd66d9c78",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original raster game UI asset for a fictional 1993 DOS shareware dungeon game in Project Zomboid. Square 1024px canvas. Hard flat pure WHITE pixel linework on pure BLACK background; strictly two colours, no gradients, no grain, no antialias haze, no glow, no texture, no border. Large chunky 16-bit era pixel shapes, sparse detail with generous black negative space. A witty modest homebrew shareware drawing, legible when shrunk to 200px. No existing game art. Single centered subject, no lettering except specified. One sprite atlas containing TWELVE small illustrations arranged in EXACTLY FOUR EQUAL COLUMNS and THREE EQUAL ROWS covering the square canvas. No text, labels, borders or gridlines. Every icon fits wholly in its own cell with 20% black safety margin all sides, never cross cells. Row1 left to right: talking stone dungeon GATE; obvious square PIT TRAP with warning triangle; THREE LEVERS puzzle; weary DUNGEON MASTER behind a desk. Row2: small KOBOLD in work vest; big OGRE with tie/briefcase; THREE RATS delegation; undead GHOUL behind a counter. Row3: KOBOLD KING with tiny crown; comically SMALL DRAGON; skeleton LICH computer operator; an original chunky twenty-sided D20 DIE. Big simple white pixel silhouettes, each legible at 150 pixels.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          0,
+          627,
+          627
+        ],
+        "bytes": 241000,
+        "sha256": "b7781fc6161f64ff79660e8fd7c805c7f4a1fe4a96af13cbfa8c9330351f99e3"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-02.png",
+        "x": 0,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          627,
+          627,
+          627
+        ],
+        "bytes": 243410,
+        "sha256": "2fc355fe228e326195256951abf78d56e18e3c7990a225d03c835820188e27bf"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-03.png",
+        "x": 626,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          0,
+          627,
+          627
+        ],
+        "bytes": 243481,
+        "sha256": "0d3cbf3ded0444abdcf8636f97a3d087cb733f59122651837a8c36ce3bd67ec3"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-04.png",
+        "x": 626,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          627,
+          627,
+          627
+        ],
+        "bytes": 264651,
+        "sha256": "1ed36a1ced0c98380ab00bddc61af3429cdbe5329ca307bda706947a6c35df07"
+      }
+    ],
+    "view": [
+      15,
+      70,
+      1227,
+      1093
+    ],
+    "views": {
+      "slot_gate": [
+        15,
+        86,
+        289,
+        265
+      ],
+      "slot_trap": [
+        321,
+        70,
+        291,
+        282
+      ],
+      "slot_puzzle": [
+        636,
+        136,
+        304,
+        211
+      ],
+      "slot_boss": [
+        940,
+        88,
+        302,
+        286
+      ],
+      "monster_kobold": [
+        30,
+        483,
+        252,
+        282
+      ],
+      "monster_ogre": [
+        314,
+        455,
+        313,
+        316
+      ],
+      "monster_rats": [
+        627,
+        493,
+        313,
+        260
+      ],
+      "monster_ghoul": [
+        944,
+        466,
+        298,
+        294
+      ],
+      "monster_king": [
+        27,
+        866,
+        264,
+        297
+      ],
+      "monster_dragon": [
+        324,
+        917,
+        303,
+        242
+      ],
+      "monster_lich": [
+        627,
+        866,
+        299,
+        293
+      ],
+      "StoryDice": [
+        962,
+        878,
+        254,
+        283
+      ]
+    }
+  },
+  {
+    "id": "StoryEndings",
+    "width": 1254,
+    "height": 1254,
+    "source_file": "exec-2d46942d-8148-450f-aa68-132957dd556c.png",
+    "source_sha256": "aa2004fe576bfacb76318db9d73df4e6cf34bbd31c6bfe276d96634bd130c948",
+    "decoded_rgb_sha256": "7f207317c6e977675cfdbf9d916cd051c97de4f6c4e48f9172a618fa509a2260",
+    "tool": "Built-in image_gen",
+    "prompt": "Create one original raster game UI asset for a fictional 1993 DOS shareware dungeon game in Project Zomboid. Square 1024px canvas. Hard flat pure WHITE pixel linework on pure BLACK background; strictly two colours, no gradients, no grain, no antialias haze, no glow, no texture, no border. Large chunky 16-bit era pixel shapes, sparse detail with generous black negative space. A witty modest homebrew shareware drawing, legible when shrunk to 200px. No existing game art. Single centered subject, no lettering except specified. One sprite atlas containing FOUR illustrations arranged in EXACTLY TWO EQUAL COLUMNS and TWO EQUAL ROWS covering the square canvas. No panel borders or gridlines. Each illustration fits entirely in its own quadrant with at least 15% pure black padding. Top left: a solemn OWNER SKELETON seated at an office desk, blank nameplate, slip of paper in hand. Top right: a quiet human GHOST in a simple long coat with a tiny torch, no humour. Bottom left: large perfectly spelled pixel stamp GAME OVER with a broken sword. Bottom right: an ornate 1993 computer certificate seal with a floppy disk and perfectly spelled LICENSED. No other lettering anywhere. Flat big simple white pixel shapes only.",
+    "reference_source": null,
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          0,
+          627,
+          627
+        ],
+        "bytes": 193445,
+        "sha256": "53fbdf999ccf5f719f95ecc6182c994905cf51dd7b41c0af94246b52923538e5"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-02.png",
+        "x": 0,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          0,
+          627,
+          627,
+          627
+        ],
+        "bytes": 167860,
+        "sha256": "d75bc0ae2f10f259d2d830a6ae98f321d3a705ef00d110b6269bcfd0b3a4745b"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-03.png",
+        "x": 626,
+        "y": 0,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          0,
+          627,
+          627
+        ],
+        "bytes": 161458,
+        "sha256": "e4e951ab8d258f41ec6066b0a4b6e8b3c9a5d6f2ee0cefb146b53ebef4d5688c"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-04.png",
+        "x": 626,
+        "y": 626,
+        "width": 628,
+        "height": 628,
+        "clip": [
+          627,
+          627,
+          627,
+          627
+        ],
+        "bytes": 231810,
+        "sha256": "7fb4ae3adf0b2bbe82a808a4be71ef6a65d139b6eaf84e3d80f04f6863cc22aa"
+      }
+    ],
+    "view": [
+      58,
+      38,
+      1141,
+      1186
+    ],
+    "views": {
+      "StoryOwner": [
+        58,
+        80,
+        527,
+        502
+      ],
+      "StoryGhost": [
+        784,
+        38,
+        325,
+        558
+      ],
+      "StoryGameOver": [
+        62,
+        726,
+        496,
+        457
+      ],
+      "RecoveryLicense": [
+        677,
+        655,
+        522,
+        569
+      ]
+    }
+  }
+]

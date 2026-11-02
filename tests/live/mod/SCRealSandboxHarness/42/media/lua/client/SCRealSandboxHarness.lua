@@ -15813,6 +15813,10 @@ Harness.probeBuildingScan = function(...)
     return externalProbe("SCBuildingScanProbe", ...)
 end
 
+Harness.probeLocks = function(...)
+    return externalProbe("SCLockProbe", ...)
+end
+
 Harness.probeDoorwayStall = function(...)
     return externalProbe("SCDoorwayStallProbe", ...)
 end
@@ -16458,6 +16462,8 @@ local function tick()
         else
             setPhase("finish", current)
         end
+    elseif string.find(tostring(Harness.phase), "lock_probe_", 1, true) == 1 then
+        Harness.probeLocks(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "building_scan_", 1, true) == 1 then
         Harness.probeBuildingScan(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "doorway_stall_", 1, true) == 1 then
@@ -17443,6 +17449,8 @@ local function onGameStart()
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then
         setPhase("fishing_map_list", Harness.startedAt)
+    elseif Harness.config.lock_probe == "true" or Harness.config.lock_acceptance_probe=="true" or Harness.config.lock_phase2_probe=="true" or Harness.config.lock_phase3_probe=="true" or Harness.config.lock_phase4_probe=="true" then
+        setPhase("lock_probe_setup", Harness.startedAt)
     elseif Harness.config.building_scan_probe == "true" then
         setPhase("building_scan_setup", Harness.startedAt)
     elseif Harness.config.doorway_stall_probe == "true" then

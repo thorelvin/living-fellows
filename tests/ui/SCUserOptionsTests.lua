@@ -4,7 +4,8 @@ local user = SurvivorCompanion.UserOptions
 local api = PZAPI.ModOptions
 local group = api:getOptions("SurvivorCompanion")
 
-assert(group ~= nil and #group.data == 7, "seven built-in options registered")
+assert(group ~= nil and #group.data == 8, "eight built-in options registered")
+assert(user.get("terminalLamp")=="flash","movement lamp defaults to Flash")
 assert(user.get("banditsCompatibility") == true, "Bandits compatibility defaults on")
 assert(user.get("alifeCompatibility") == true, "A-Life compatibility defaults on")
 assert(user.get("chatter") == "normal", "chatter default before load")

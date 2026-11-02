@@ -97,8 +97,11 @@ check(correct~=nil,"the actual password has a visible native hit target")
 count=#manager.plays
 window:onMouseDown(correct.x+1,correct.y+1)
 check(not window.system.locked and #manager.plays==count+2
-    and manager.plays[count+1]==Terminal.CLICK_SOUND and manager.plays[count+2]==Terminal.LOGIN_SOUND,
-    "clicking the correct password gives one click followed by one login cue")
+    and manager.plays[count+1]==Terminal.CLICK_SOUND and manager.plays[count+2]=="LFTerminalGranted",
+    "clicking the correct password starts one access-granted cue")
+T.now=T.now+1001 window:advance(T.now)
+check(#manager.plays==count+3 and manager.plays[count+3]==Terminal.LOGIN_SOUND,
+    "the welcome sequence follows with exactly one login cue")
 count=#manager.plays
 window:flush() window:prerender() window:close()
 Terminal.open(player,locked) window=Terminal.window window:flush()
@@ -111,8 +114,11 @@ Terminal.computerState(player,typed).locked=true
 Terminal.open(player,typed) window=Terminal.window window:flush()
 count=#manager.plays
 window:setFocusMode("chat") window.entry:setText(window.system.puzzle.answer) window:submit()
-check(not window.system.locked and #manager.plays==count+1 and manager.plays[#manager.plays]==Terminal.LOGIN_SOUND,
-    "typing a correct password gives the same single successful-login cue")
+check(not window.system.locked and #manager.plays==count+1 and manager.plays[#manager.plays]=="LFTerminalGranted",
+    "typing a correct password starts the same access-granted cue")
+window:flush()
+check(#manager.plays==count+2 and manager.plays[#manager.plays]==Terminal.LOGIN_SOUND,
+    "skipping the welcome sequence preserves its one login cue")
 window:close()
 
 getSoundManager = function() return {playUISound=function() return 0 end} end

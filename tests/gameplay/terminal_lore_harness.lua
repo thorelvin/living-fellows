@@ -18,9 +18,9 @@ for _,profile in ipairs(Files.all()) do
     end
 end
 local kindCount=0 for _ in pairs(kinds) do kindCount=kindCount+1 end
-check(#Files.all()==142 and kindCount>=24,"expanded contextual archive coverage incomplete")
+check(#Files.all()==162 and kindCount>=24,"expanded contextual archive coverage incomplete")
 local entryCount=0 for _ in pairs(entries) do entryCount=entryCount+1 end
-check(entryCount==568,"each of the 142 owners has four distinct files")
+check(entryCount==648,"each of the 162 owners has four distinct files")
 check(Files.choose("media",3,"LouisvillePostLogo").id=="news_len",
     "newspaper inherited a television or radio operator archive")
 -- Published IDs remain accepted independently of any changed selection pools.

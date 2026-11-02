@@ -31,7 +31,7 @@ for _, profile in ipairs(Files.all()) do
         previous, count = entry.date, count + 1
     end
 end
-check(count == 568 and #Files.all()==142, "142 previous owners provide 568 original entries")
+check(count == 648 and #Files.all()==162, "162 previous owners provide 648 original entries")
 for name, kind in pairs({ policestorage = "police", medicaloffice = "clinic",
     hospitalroom = "clinic", insuranceoffice = "office", bedroom = "home", unknown = "general" }) do
     check(Files.classify(name) == kind, "room classification: " .. name)
@@ -125,7 +125,7 @@ do
     factory.locked = true
     check(System.factoryReset(factory) == nil, "locked access cannot be bypassed with a factory reset")
     check(System.factoryReset({schema=999}) == nil, "invalid access records cannot be replaced with fresh unlocked records")
-    check(not owners._factory and #Files.all() == 142, "blank factory profile is excluded from discovered story pools")
+    check(not owners._factory and #Files.all() == 162, "blank factory profile is excluded from discovered story pools")
 end
 SC_TEST_REPORT = (SC_TEST_REPORT and (SC_TEST_REPORT .. "; ") or "")
     .. "LARCH/OS security and archive harness: " .. checks .. " checks passed"

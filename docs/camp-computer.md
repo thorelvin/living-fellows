@@ -115,7 +115,7 @@ The implementation stages are:
    explicit Y/N confirmation and fresh validation when accepted. Expand wounds,
    skills, job suitability, shortages, alarms, radio reports, debriefs and
    pending-delivery answers. Never execute arbitrary text as code or commands.
-3. **Lore and downtime:** 568 original entries across 142 owners, plus 150
+3. **Lore and downtime:** 648 original entries across 162 owners, plus 150
    archived county and EMMA files. Companions can take a short break reading
    local files at an accessible camp computer.
 
@@ -407,15 +407,51 @@ previous owner's **Personal files**, browse **County files and EMMA**, or
 number while the menu is focused. Ordinary text still goes to EMMA. Escape returns from the file menu;
 from the main menu it closes the terminal.
 
-About 40% of newly discovered computers outside camp require a password.
+About 40% of newly discovered computers outside camp require account recovery.
 Computers you have already used with EMMA retain access. A locked computer
 stays locked when carried home; moving it does not change its owner or files.
 
-Choose a six-letter word from the recovery screen. Feedback counts letters
-in the correct positions. Hidden bracket groups can remove an incorrect
-candidate or restore attempts. Both clicking and typing work. Higher
-Electrical skill provides fewer candidates and more attempts. A successful
-hack gives five base Electrical XP once for that computer.
+The screen names its recovery tool:
+
+- **Words:** choose a six-letter candidate; feedback counts letters in the right
+  positions. Bracket groups can remove a wrong word or restore attempts.
+  **Every wrong word remembers** also recalls a sentence from the owner's files.
+  Each character occupies a fixed-width cell. Hovering emphasizes the whole
+  word or matching bracket group without shifting the neighbouring characters.
+- **UNDELETE.EXE:** click an index word or type a search. Restore the four owner
+  files, following each recovered index. Other owners' sectors are marked and
+  do not count towards this computer's recovery.
+- **Code wheel:** open the physical handbook beside the PC. Its last page has
+  the wheel: turn the symbol to the requested outer letter and read the numbered
+  window. Use arrows, the mouse wheel or the turn buttons. Keeping a handbook
+  in your inventory reduces the next new wheel lock to one challenge. The
+  [printable wheel](larchfield-code-wheel.svg) uses the same fixed mapping.
+- **Talk to EMMA:** press 1-4 or click an argument. She checks factual claims,
+  and remembers a caught lie when you return. Arguments do not repeat within
+  an attempt; a failed discussion can be retried after one game hour.
+
+A few computers ask you to step away from the screen. Read their instructions;
+the county's recovery systems have kept working longer than their operators.
+
+Ask `what locks have I beaten?` for your Recovery Log. Solving each recovery
+tool earns a named computer licence, displayed when a camp computer boots.
+Cracking and hardware resets restore access but do not count as puzzle wins.
+The licence is a title, with no stat bonus.
+
+Higher Electrical training supplies a visible edge. An available companion
+with higher Electrical can give one spoken hint without taking over the job.
+The movement lamp is faster for a closing threat; Flash, Steady and Off are
+available in mod options. Taking a hit closes the terminal.
+
+Successful word recovery awards 15 base Electrical XP; the other everyday tools
+award 30, and rare recovery awards up to 60, once per computer. Other ways in offers slow cracking or a physical
+hardware reset with a screwdriver and Scrap Electronics. These pay a lower
+tier; a slipped reset erases the old files and gives no XP.
+
+If a desk is interlocked, recover the account and select **Unlock drawer**.
+Supplies appear in that real storage when it is released. A crowbar can force
+the drawer while the computer remains locked. Old-owner supply notes refer
+only to items whose actual placement was verified.
 
 Attempts, the latest feedback and any lockout timer stay above the scrolling
 word board. It opens at the first candidates; **Page Up**, **Page Down** and
@@ -426,7 +462,7 @@ words return with fresh attempts. Old feedback, removed candidates and used
 bracket groups remain recorded. Closing, losing power or reloading does not
 reroll the puzzle.
 
-The file collection contains 568 original entries by 142 owners. Computers
+The file collection contains 648 original entries by 162 owners. Computers
 receive a fixed owner appropriate to their room, building or verified firm.
 These are dated July 1993 stories, separate from EMMA's current camp records.
 The **County files and EMMA** menu adds 150 archived files about the assistant,

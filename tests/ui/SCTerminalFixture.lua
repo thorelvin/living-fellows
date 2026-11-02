@@ -165,9 +165,11 @@ end
 
 SurvivorCompanion = SurvivorCompanion or {}
 SurvivorCompanion.GameplayUtil = {
+    nowMs=function() return T.now end,
     call = function(object, method, ...)
         if object == nil then return nil, false end
-        local member = object[method]
+        local found,member=pcall(function() return object[method] end)
+        if not found then return nil,false end
         if type(member) ~= "function" then return nil, false end
         local ok, value = pcall(member, object, ...)
         return value, ok

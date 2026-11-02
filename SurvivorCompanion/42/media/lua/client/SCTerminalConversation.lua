@@ -163,12 +163,16 @@ guide("memory", "Conversation and notes",
      "Use remember followed by a note to save it on this computer. A brief logoff keeps the thread; ten idle real minutes or a world reload clears temporary conversation."},
     {"Brief thanks or acknowledgements do not erase the subject. Names and items are looked up again when you follow up; an old answer is not a fresh measurement.",
      "Forget that conversation clears the recent thread. Forget everything clears your saved notes. Factory reset is a separate confirmed operation."})
+guide("escrow_station", "County radio service",
+    {"is that station automated","who runs the numbers station","why did the radio know my name","who is county key escrow"},
+    {"That station is automated. I checked twice."},
+    {"County recovery infrastructure was designed to continue without its operators. That specification has proved unusually durable."})
 guide("password", "Password recovery",
     {"how do i hack a computer","how does password recovery work","how do i unlock this computer","what do the brackets do","why am i locked out"},
-    {"Choose a candidate word. The feedback counts letters in the correct positions. Hidden bracket groups can remove a wrong candidate or restore attempts.",
-     "Electrical skill helps. Running out of attempts locks recovery for one game hour; the same puzzle returns afterward with fresh attempts."},
+    {"Word recovery counts letters in the correct positions. Bracket groups can remove a wrong word or restore attempts. Remembers also recalls the old owner's files.",
+     "Other machines use UNDELETE file searches, the reusable Larchfield manual and code wheel, or a numbered argument with EMMA. Follow the tool named on that screen."},
     {"Moving or reopening a machine does not reroll the puzzle. A computer's password and its building's security password are separate protections.",
-     "A successful recovery gives a small one-time Electrical XP award. Reading a help file does not count as a successful recovery, unfortunately."})
+     "Electrical training helps, and an available better-trained companion can offer one hint. Other ways in offers slow cracking or a physical reset. Successful recovery gives Electrical XP once; reading this help does not, unfortunately."})
 guide("files", "Reading old files",
     {"how do i read old files","who owned this computer","where are the personal files","what are outbreak fragments","are these files true"},
     {"Open Personal files for the machine's assigned former owner, or County files and EMMA for reference material and archived accounts.",

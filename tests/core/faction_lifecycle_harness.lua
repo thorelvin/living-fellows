@@ -22,6 +22,9 @@ local function noOwnedHooks()
         and (Events.OnWeaponSwingHitPoint == nil or Events.OnWeaponSwingHitPoint.count() == 0)
         and (Events.OnCharacterDeath == nil or Events.OnCharacterDeath.count() == 0)
         and (Events.OnZombieDead == nil or Events.OnZombieDead.count() == 0)
+        and Events.OnPlayerGetDamage.count() == 0 and not SC.TerminalLamp.isInstalled()
+        and Events.OnDeviceText.count() == 0 and Events.OnFillWorldObjectContextMenu.count() == 0
+        and not SC.TerminalLockPhone.isInstalled() and not SC.TerminalLockRadio.isInstalled()
         and not SC.Factions.hooksInstalled()
         and not SC.FactionContracts.hooksInstalled()
         and SC.CompanionMap.installed == false

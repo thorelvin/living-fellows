@@ -758,6 +758,9 @@ try {
             (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $TestRoot 'bootstrap_lifecycle_fixture.lua'),
+            (Join-Path $Client 'SCTerminalLockPhone.lua'),
+            (Join-Path $Client 'SCTerminalLockRadio.lua'),
+            (Join-Path $Client 'SCTerminalLamp.lua'),
             (Join-Path $Client 'SCBootstrap.lua'),
             (Join-Path $TestRoot 'bootstrap_lifecycle_harness.lua')
         )
@@ -771,9 +774,12 @@ try {
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $TestRoot 'faction_lifecycle_fixture.lua'),
+            (Join-Path $Client 'SCTerminalLockPhone.lua'),
+            (Join-Path $Client 'SCTerminalLockRadio.lua'),
             (Join-Path $Client 'SCFactions.lua'),
             (Join-Path $Client 'SCFactionContracts.lua'),
             (Join-Path $Client 'SCRuntime.lua'),
+            (Join-Path $Client 'SCTerminalLamp.lua'),
             (Join-Path $Client 'SCBootstrap.lua'),
             (Join-Path $TestRoot 'faction_lifecycle_harness.lua')
         )

@@ -14,6 +14,14 @@ check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         .. tostring(SC.State.disabledReason))
 check(Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1,
     "mounted radio load/place hooks are owned by the bootstrap transaction")
+check(SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==1
+        and SC.TerminalLamp.install() and Events.OnPlayerGetDamage.count()==1,
+    "terminal damage feedback is owned once through its production installer")
+check(SC.TerminalLockPhone.isInstalled() and SC.TerminalLockRadio.isInstalled()
+        and Events.OnDeviceText.count()==1 and Events.OnFillWorldObjectContextMenu.count()==1
+        and SC.TerminalLockPhone.install() and SC.TerminalLockRadio.install()
+        and Events.OnDeviceText.count()==1 and Events.OnFillWorldObjectContextMenu.count()==1,
+    "callback and escrow listeners are installed once through bootstrap")
 do
     local previous=SC.TerminalHardware
     local loaded,placed
@@ -62,6 +70,11 @@ check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
     "bootstrap removal releases every lifecycle and contract hook")
 check(Events.LoadGridsquare.count()==0 and Events.OnObjectAdded.count()==0,
     "radio load/place callbacks are removed with the bootstrap")
+check(not SC.TerminalLockPhone.isInstalled() and not SC.TerminalLockRadio.isInstalled()
+        and Events.OnDeviceText.count()==0 and Events.OnFillWorldObjectContextMenu.count()==0,
+    "teardown releases callback and escrow listeners")
+check(not SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==0,
+    "terminal damage feedback is removed with the bootstrap")
 
 local optionLoad = SC.UserOptions.load
 SC.UserOptions.load = nil
@@ -114,6 +127,7 @@ local function allOwned()
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
         and Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1
+        and SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==1
         and SC.Factions.installed and SC.FactionContracts.installed
         and SC.OddballRoomGuard.installed
         and SC.OddballDistressRadio.installed
@@ -131,6 +145,16 @@ check(not removed and string.find(tostring(removeReason), "runtime reset failed"
     "failed runtime reset retains every bootstrap-owned callback and contract")
 SC.Runtime.failReset = false
 check(SC.Bootstrap.remove(), "bootstrap removal retries after runtime reset failure")
+
+check(SC.Bootstrap.install(), "terminal damage callback removal fixture installs")
+Events.OnPlayerGetDamage.failRemove=true
+removed,removeReason=SC.Bootstrap.remove()
+check(not removed and allOwned()
+        and string.find(tostring(removeReason),"terminal damage feedback",1,true),
+    "a failed terminal damage callback removal retains its ownership and rolls back")
+Events.OnPlayerGetDamage.failRemove=false
+check(SC.Bootstrap.remove() and Events.OnPlayerGetDamage.count()==0,
+    "terminal damage callback removal can be retried without orphaned events")
 
 for _, entry in ipairs({
     { name = "OnMainMenuEnter", event = Events.OnMainMenuEnter },

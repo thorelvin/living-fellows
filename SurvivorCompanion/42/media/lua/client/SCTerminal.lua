@@ -249,6 +249,15 @@ function Terminal.installMoveHook()
         end
         local function finish(item, ...)
             if controlPanel and not Terminal.present(object) then SC.BuildingControls.disconnect(object, controlPanel) end
+            if item and SC.TerminalDrawers and not Terminal.present(object) then SC.TerminalDrawers.release(object) end
+            if item and not Terminal.present(object) then
+                local data=call(item,"getModData")
+                local moved=data and data.movableData and data.movableData[System().MEMORY_KEY]
+                if type(moved)=="table" and type(moved.lock)=="table" then
+                    moved.lock.drawer=nil moved.lock.stash=moved.lock.stash or {committed=true,items={}}
+                    moved.lock.stash.committed=true
+                end
+            end
             if item and Terminal.isComputer(object) and SC.TerminalHardware then
                 local weight = SC.TerminalHardware.weight(object)
                 local baseWeight = tonumber(call(item, "getActualWeight") or nil)
@@ -307,6 +316,30 @@ function Terminal.awardHackXP(player, object, state)
     end
     local _, okay = U().call(xp, "AddXP", perk, System().XP)
     if not okay then diagnostic("computer recovery XP failed", nil) end
+    return okay
+end
+
+function Terminal.ownsState(object,state)
+    local data=portableData(object,false)
+    return data and data[System().MEMORY_KEY]==state or false
+end
+function Terminal.peekState(object)
+    local data=portableData(object,false)
+    local state=data and data[System().MEMORY_KEY]
+    return type(state)=="table" and state.schema==1 and type(state.identity)=="string"
+        and #state.identity>0 and #state.identity<=96 and state or nil
+end
+
+function Terminal.awardUnlockXP(player,object,state,amount,how)
+    if not Terminal.ownsState(object,state) or state.locked or state.xpAwarded
+        or not Terminal.present(object) or not Terminal.near(player,object) or call(player,"isDead")==true then return false end
+    if how=="word" and (not state.puzzle or state.puzzle.guessed[state.puzzle.answer]~=6 or not Terminal.powered(object)) then return false end
+    state.xpAwarded=true
+    if amount<=0 then return true end
+    local xp=call(player,"getXp") local perk=Perks and Perks.Electricity
+    if not xp or not perk then diagnostic("computer unlock XP unavailable",nil) return false end
+    local _,okay=U().call(xp,"AddXP",perk,amount)
+    if not okay then diagnostic("computer unlock XP failed",nil) end
     return okay
 end
 
@@ -545,6 +578,7 @@ function SCTerminalWindow:new(player, object)
     window.textZoom, window.inputFont = zoom, inputFont
     window.layout = layout
     window.skinFrame, window.skinGlass = skinTexture("frame"), skinTexture("glass")
+    if SC.TerminalLockUI then SC.TerminalLockUI.preload("AccessGranted") end
     window.rowHeight = layout.row
     window.charWidth = charWidth(window.font) * zoom
     window.rows = {}
@@ -642,6 +676,9 @@ function SCTerminalWindow:menuOptions()
     local profile = SC.TerminalFiles.get(self.system.archive)
     if self.menuPage == "files" then
         local result = {}
+        if self.system.lock and self.system.lock.stash and self.system.lock.stash.note then
+            result[#result+1]={label="A note about supplies",systemCommand="stash_note"}
+        end
         for index, entry in ipairs(profile.entries) do
             result[#result + 1] = { label = entry.title, file = index }
         end
@@ -696,6 +733,8 @@ function SCTerminalWindow:menuOptions()
     if self.campReportAvailable then
         table.insert(options, 1, { label = "Camp report", systemCommand = "report" })
     end
+    local drawer=self.system.lock and self.system.lock.drawer
+    if drawer and not drawer.open and not drawer.forced then table.insert(options,1,{label="Unlock drawer",systemCommand="drawer"}) end
     if SC.TerminalServices then
         options[#options+1] = {label="Local services",serviceAction="page",serviceValue="home_services"}
     end
@@ -839,6 +878,10 @@ end
 function SCTerminalWindow:entryChanged()
     if self.changingEntry or self.state == "booting" or self.state == "closing" then return end
     local raw = self.entry:getText()
+    if self.system and self.system.locked and SC.TerminalLockUI and SC.TerminalLockUI.instantChoice(self,raw) then
+        self:submit()
+        return
+    end
     if self.focusMode == "menu" and raw ~= "" then
         if raw:match("^[1-9]$") then
             self.menuSelection = tonumber(raw)
@@ -869,6 +912,11 @@ end
 
 function SCTerminalWindow:otherKey(key)
     if type(Keyboard) ~= "table" then return end
+    if self.system and self.system.locked and self.lockPage=="manual" and SC.TerminalLockWheel then
+        if key==Keyboard.KEY_LEFT or key==Keyboard.KEY_RIGHT then
+            if SC.TerminalLockWheel.turn(self,key==Keyboard.KEY_LEFT and -1 or 1) then self:playClickSound() return end
+        end
+    end
     if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
         if key==Keyboard.KEY_PRIOR then SC.TerminalScanUI.scroll(self,-1) return end
         if key==Keyboard.KEY_NEXT then SC.TerminalScanUI.scroll(self,1) return end
@@ -901,8 +949,15 @@ end
 
 function SCTerminalWindow:scrollBy(rows)
     if self.system and self.system.locked then
-        local visible = math.max(1, self:visibleRows() - #self:securityHeaderRows())
-        local maximum = math.max(0, #self:securityRows() - visible)
+        local footer=SC.TerminalLockUI and self.system.lock and math.ceil(#SC.TerminalLockUI.footer(self)/2) or 0
+        local panel=SC.TerminalLockUI and SC.TerminalLockUI.panel(self)
+        local reserve=panel and (SC.TerminalLockUI.primary(self) and footer or self.lockPage=="manual" and footer+1 or 0)
+            or #self:securityHeaderRows()+footer
+        if self.lockPage=="manual" and self.lockManualPage==5 and self:columns()>=65 and self:visibleRows()>=8 then reserve=#SC.TerminalLockUI.footer(self)+1 end
+        if self.lockPage=="manual" and self.lockManualPage==5 and self:columns()<65 then reserve=reserve+2 end
+        local visible=math.max(1,self:visibleRows()-reserve)
+        local count=panel and SC.TerminalLockUI.rowCount(self) or #self:securityRows()
+        local maximum=math.max(0,count-visible)
         self.securityScroll = math.max(0, math.min(maximum, (self.securityScroll or 0) - rows))
         self.securityHits = {}
         return
@@ -921,6 +976,8 @@ function SCTerminalWindow:scrollBy(rows)
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
+    if self.system and self.system.locked and tonumber(delta) and tonumber(delta)~=0 and SC.TerminalLockWheel
+        and SC.TerminalLockWheel.turn(self,tonumber(delta)>0 and 1 or -1) then self:playClickSound() return true end
     -- A positive delta is the wheel turning down. These pages count their offset from
     -- the top; scrollBy below counts from the bottom of the transcript.
     if SC.TerminalScanUI and SC.TerminalScanUI.scroll(self,tonumber(delta) or 0) then return true end
@@ -956,10 +1013,12 @@ function SCTerminalWindow:onMouseDown(x, y)
             end
         end
         for _, box in ipairs(self.securityHits or {}) do
-            if x >= box.x and x < box.x + box.width and y >= box.y and y < box.y + self.rowHeight then
+            if x >= box.x and x < box.x + box.width and y >= box.y and y < box.y + (box.height or self.rowHeight) then
                 self:playClickSound()
                 self:setEntryText(box.value)
+                self.lockPointerSubmit=true
                 self:submit()
+                self.lockPointerSubmit=nil
                 return true
             end
         end
@@ -1036,6 +1095,8 @@ function SCTerminalWindow:startEmma()
     self:enqueue(bootLines, "system", Terminal.BOOT_CHARS_PER_SECOND)
     if #greeting > 0 then greeting[#greeting + 1] = "" end
     self:enqueue(greeting, "emma", Terminal.CHARS_PER_SECOND)
+    if SC.TerminalLockEmma then SC.TerminalLockEmma.onVisit(self) end
+    if self.lockEmmaWinLine then self:print(self.lockEmmaWinLine,"emma") self.lockEmmaWinLine=nil end
     self.state = "typing"
     self:setFocusMode("menu")
 end
@@ -1051,6 +1112,9 @@ function SCTerminalWindow:boot()
     local failure
     self.system, failure = Terminal.computerState(self.player, self.object)
     if not self.system then error(failure) end
+    self.healthBaseline=SC.TerminalLamp and SC.TerminalLamp.health(self.player)
+    if SC.TerminalLocks then SC.TerminalLocks.settle(self.system,self.player,self.object) end
+    if self.system.locked and SC.TerminalLocks then SC.TerminalLocks.open(self) end
     local gridSite=SC.GridControl and SC.GridControl.visible() and SC.GridControl.yardFor(self.object)
     self.gridSite=gridSite and gridSite.id or nil
     self.colors = Presentation().colors(self.system.theme)
@@ -1068,9 +1132,16 @@ function SCTerminalWindow:boot()
     self.closeButton.textColor = { r = title[2], g = title[3], b = title[4], a = 1 }
     self.gameHours = worldHours()
     if self.system.locked then
-        System().ensurePuzzle(self.system, Terminal.electricalSkill(self.player))
-        System().status(self.system, self.gameHours)
-        pcall(function() self.entry:setPlaceholderText("Select or type a displayed word or bracket group.") end)
+        local kind=SC.TerminalLocks and SC.TerminalLocks.kind(self.system) or "word"
+        if kind=="word" or kind=="remember" or kind=="rival" then
+            System().ensurePuzzle(self.system, Terminal.electricalSkill(self.player))
+            System().status(self.system, self.gameHours)
+        end
+        local prompt=kind=="emma" and "Choose an argument: 1-4." or kind=="search" and "Search a word or click an index."
+            or kind=="story" and "Choose an adventure option: 1-3."
+            or kind=="wheel" and "Open the manual or type a window letter."
+            or (kind=="phone" or kind=="radio") and "Type the six-digit recovery code." or "Select or type a displayed word or bracket group."
+        pcall(function() self.entry:setPlaceholderText(prompt) end)
     end
     self.postStarted, self.state = nowMs(), "booting"
     self:setFocusMode("chat")
@@ -1106,8 +1177,11 @@ function SCTerminalWindow:finishBoot()
     if self.startupReady then return end
     self.startupReady = true
     self.state = "idle"
+    if self.system.locked and SC.TerminalLockCrew then SC.TerminalLockCrew.react(self,"first",25) end
     if not self.system.locked then
-        self:enqueue({ System().COMPANY, System().TITLE .. " - local services ready.", "" },
+        if self.system.lock and not self.system.lock.welcomed and SC.TerminalPayoff then SC.TerminalPayoff.begin(self,"resume") return end
+        local ledger=self.campReportAvailable and SC.TerminalLocks and SC.TerminalLocks.ledger()
+        self:enqueue({ System().COMPANY, System().TITLE .. " - local services ready.",ledger and ledger.licensee and ("LICENSED TO "..ledger.licensee) or "" },
             "system", Terminal.BOOT_CHARS_PER_SECOND)
         self:startEmma()
     end
@@ -1127,7 +1201,13 @@ function SCTerminalWindow:securityHeaderRows()
     end
     local result, columns = {}, self:columns()
     local maximum = math.max(1, math.min(3, self:visibleRows() - 1))
-    for _, value in ipairs({ message, self.securityMessage or "Match letters in the same position." }) do
+    local explanation=self.lockMemory or self.securityMessage or "Match letters in the same position."
+    if self.lockMemory and self.securityMessage then explanation=self.securityMessage.." "..self.lockMemory end
+    local rows={message,explanation}
+    if not self.securityMessage and not self.lockMemory and self.system.puzzle.skill>=3 then
+        rows[#rows+1]="Electrical training: fewer candidates and extra attempts."
+    end
+    for _, value in ipairs(rows) do
         for _, line in ipairs(Terminal.wrap(value, columns)) do
             if #result >= maximum then
                 local last = result[#result]
@@ -1137,7 +1217,53 @@ function SCTerminalWindow:securityHeaderRows()
             result[#result + 1] = { text = line, kind = #result == 0 and "alert" or "system" }
         end
     end
+    local drawer=self.system.lock and self.system.lock.drawer
+    if self:visibleRows()>=14 and drawer and not drawer.open and not drawer.forced then
+        result[#result+1]={text="   DRAWER INTERLOCK: ENGAGED",kind="system",icon="Padlock"}
+    end
     return result
+end
+
+-- Native Code faces have proportional punctuation and texture overhangs. A
+-- password is a character grid, not a string of separately measured fragments.
+-- Cache the ASCII advances once per font/zoom; never measure inside painting.
+function SCTerminalWindow:securityGrid()
+    local zoom=self.textZoom or 1
+    local grid=self.passwordGrid
+    local available=self:transcriptWidth()
+    if grid and grid.font==self.font and grid.requestedZoom==zoom and grid.available==available then return grid end
+    grid={font=self.font,zoom=zoom,requestedZoom=zoom,available=available,width=0,glyphs={}}
+    local manager=getTextManager()
+    for byte=32,126 do
+        local glyph=string.char(byte)
+        local okay,width=pcall(function() return manager:MeasureStringX(self.font,glyph) end)
+        width=okay and type(width)=="number" and width>0 and width*zoom or self.charWidth
+        grid.glyphs[glyph]=width grid.width=math.max(grid.width,width)
+    end
+    grid.width=math.ceil(grid.width+math.max(2,zoom*2))
+    if grid.width*14>available then
+        local ratio=math.max(1,math.floor(available/14))/grid.width
+        grid.width=grid.width*ratio grid.zoom=zoom*ratio
+        for glyph,width in pairs(grid.glyphs) do grid.glyphs[glyph]=width*ratio end
+    end
+    self.passwordGrid=grid return grid
+end
+
+function SCTerminalWindow:drawPasswordRun(text,x,y,ink,alpha,bold)
+    local grid=self:securityGrid()
+    for index=1,#text do
+        local glyph=text:sub(index,index)
+        if glyph~=" " then
+            local left=x+(index-1)*grid.width
+            local at=left+math.floor((grid.width-(grid.glyphs[glyph] or self.charWidth))/2)
+            -- Include the extra hover stroke within this cell, even if the font
+            -- texture extends beyond its advertised advance.
+            self:setStencilRect(left,y,grid.width,self.rowHeight)
+            self:drawTextZoomed(glyph,at,y,grid.zoom,ink[2],ink[3],ink[4],alpha,self.font)
+            if bold then pcall(self.drawTextZoomed,self,glyph,at+1,y,grid.zoom,ink[2],ink[3],ink[4],1,self.font) end
+            self:clearStencilRect()
+        end
+    end
 end
 
 function SCTerminalWindow:securityRowRuns(row)
@@ -1149,8 +1275,9 @@ function SCTerminalWindow:securityRowRuns(row)
     local manager = getTextManager()
     local function add(text, span)
         if text == "" then return end
-        local okay, pixels = pcall(function() return manager:MeasureStringX(self.font, text) end)
-        local width = okay and type(pixels) == "number" and pixels >= 0 and pixels * zoom
+        local okay, pixels = true, 0
+        if not row.grid then okay,pixels=pcall(function() return manager:MeasureStringX(self.font,text) end) end
+        local width = row.grid and #text*self:securityGrid().width or okay and type(pixels) == "number" and pixels >= 0 and pixels * zoom
             or #text * self.charWidth
         runs[#runs + 1] = { text = text, x = x, width = width, span = span }
         x = x + width
@@ -1167,11 +1294,11 @@ end
 
 function SCTerminalWindow:securityRows()
     local result, p = {}, self.system.puzzle
-    local columns = self:columns()
+    local columns = math.max(14,math.floor(self:transcriptWidth()/self:securityGrid().width))
     if not self.securityBoard or self.securityColumns ~= columns then
         -- The native code font can have unequal glyph advances. Fit the board
         -- once per layout, then reuse the measured runs for ink and hit boxes.
-        for count = math.max(12, math.min(64, columns)), 12, -1 do
+        for count = math.max(14, math.min(64, columns)), 14, -1 do
             local board, fits = System().board(self.system, count), true
             for _, row in ipairs(board) do
                 local _, width = self:securityRowRuns(row)
@@ -1198,6 +1325,11 @@ function SCTerminalWindow:securityRows()
             for _, line in ipairs(Terminal.wrap(word .. "  " .. p.guessed[word] .. "/6 positions match.", columns)) do
                 result[#result + 1] = { text = line, kind = "input" }
             end
+        end
+    end
+    if self.system.lock and self.system.lock.kind=="rival" and SC.TerminalLockRival then
+        for _,text in ipairs(SC.TerminalLockRival.lines(self.system)) do
+            for _,line in ipairs(Terminal.wrap(text,columns)) do result[#result+1]={text=line,kind="system"} end
         end
     end
     return result
@@ -1294,6 +1426,8 @@ function SCTerminalWindow:systemInput(raw)
     end
     local number = self.focusMode == "menu" and trimmed:match("^%d+$") and tonumber(trimmed) or nil
     local option = number and self:menuOptions()[number] or nil
+    if self.payoff then self.payoff.skip=true SC.TerminalPayoff.update(self,nowMs()) return true end
+    if self.system.locked and SC.TerminalLocks and SC.TerminalLocks.input(self,trimmed,option) then return true end
     if option then self:playClickSound() end
     if self.system.locked and lower == "exit" or lower == "log off" or lower == "logoff"
         or option and option.systemCommand == "close" then
@@ -1303,10 +1437,17 @@ function SCTerminalWindow:systemInput(raw)
     if not self.system.locked and SC.TerminalScanUI and SC.TerminalScanUI.input(self,trimmed,option) then return true end
     if not self.system.locked and SC.TerminalGridUI and SC.TerminalGridUI.input(self,trimmed,option) then return true end
     if not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
+    -- This computer's physical drawer precedes the building-device parser,
+    -- whose generic "unlock <name>" command would otherwise swallow it.
+    if not self.system.locked and (lower=="unlock drawer" or option and option.systemCommand=="drawer") and SC.TerminalDrawers then
+        local _,message=SC.TerminalDrawers.open(self.player,self.object,self.system,false)
+        self:print(message,"system") return true
+    end
     if SC.TerminalServices and SC.TerminalServices.input(self, trimmed, option) then return true end
     if self.system.locked then
         self.gameHours = worldHours()
         local code, likeness = System().act(self.system, trimmed, self.gameHours)
+        if SC.TerminalLocks then SC.TerminalLocks.afterGuess(self,trimmed,code) end
         self.securityBoard, self.securityHits = nil, {}
         local messages = {
             invalid = "Choose a word or bracket group shown on this screen.",
@@ -1323,6 +1464,7 @@ function SCTerminalWindow:systemInput(raw)
         if code == "wrong" or code == "repeat" then
             self.securityMessage = string.upper(trimmed) .. ": " .. likeness .. "/6 positions match."
         elseif code == "success" then
+            if SC.TerminalLocks and self.system.lock then SC.TerminalLocks.finishUnlock(self,"word") return true end
             self.securityHits = {}
             Terminal.awardHackXP(self.player, self.object, self.system)
             Terminal.playFeedbackSound(Terminal.LOGIN_SOUND)
@@ -1331,6 +1473,13 @@ function SCTerminalWindow:systemInput(raw)
             self:startEmma()
         end
         return true
+    end
+    if not self.system.locked and (lower=="what locks have i beaten?" or lower=="recovery log") and SC.TerminalLocks then
+        self:print(SC.TerminalLocks.recovery(self.player),"system") return true
+    end
+    if option and option.systemCommand=="stash_note" then
+        local note=self.system.lock and self.system.lock.stash and self.system.lock.stash.note
+        if note then self:print(note,"system") end return true
     end
     if number and not option then self:print("There is no menu item " .. number .. ".", "alert") return true end
     if lower == "files" or lower == "dir" or option and option.systemCommand == "files" then
@@ -1385,6 +1534,7 @@ end
 
 function SCTerminalWindow:flush()
     if self.state == "booting" then self:stopBootSound() self:finishBoot() end
+    if self.payoff then self.payoff.skip=true SC.TerminalPayoff.update(self,nowMs()) end
     if self.typing then
         self:pushRow(self.typing.text, self.typing.kind, self.typing)
         self.typing = nil
@@ -1490,10 +1640,15 @@ function SCTerminalWindow:watch(now)
     self:refreshLayout()
     self.gameHours = worldHours()
     if self.state == "closing" then return end
+    if SC.TerminalLamp and SC.TerminalLamp.watch(self,now) then return end
+    if SC.TerminalLockCrack and self.system.lock and self.system.lock.crack then
+        SC.TerminalLockCrack.catchUp(self.system,self.gameHours,Terminal.powered(self.object))
+    end
     if not self:hasCurrentAccess() or not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
         or call(self.player, "isDead") == true then
         return self:close()
     end
+    if self.lockPhoneSearch and SC.TerminalLockPhone then SC.TerminalLockPhone.search(self) end
     local campBefore = self.campReportAvailable
     self:refreshCampAccess()
     if campBefore ~= self.campReportAvailable then self.menuSelection = 1 end
@@ -1511,6 +1666,10 @@ end
 function SCTerminalWindow:advance(now)
     local elapsed = math.max(0, math.min(250, now - (self.lastFrame or now)))
     self.lastFrame = now
+    if self.system and self.system.locked and SC.TerminalLockRival then SC.TerminalLockRival.update(self,now) end
+    if self.system and self.system.locked and SC.TerminalLockStory then SC.TerminalLockStory.update(self,now) end
+    if self.payoff then SC.TerminalPayoff.update(self,now) return end
+    if self.lockPage=="crack" and self.system.locked then SC.TerminalLockCrack.update(self,now) end
     if self.state == "booting" then
         if now - self.postStarted >= Presentation().BOOT_MS then self:finishBoot() end
         return
@@ -1626,13 +1785,23 @@ function SCTerminalWindow:readingFrame(now)
 end
 
 function SCTerminalWindow:drawSecurity()
+    if SC.TerminalLockUI and SC.TerminalLockUI.draw(self,nowMs()) then return end
     local headers, rows = self:securityHeaderRows(), self:securityRows()
-    local visible = math.max(1, self:visibleRows() - #headers)
+    local options=SC.TerminalLockUI and self.system.lock and SC.TerminalLockUI.footer(self) or {}
+    local footerRows=math.ceil(#options/2)
+    local visible = math.max(1, self:visibleRows() - #headers-footerRows)
     self.securityScroll = math.max(0, math.min(math.max(0, #rows - visible), self.securityScroll or 0))
     local first = self.securityScroll + 1
     local last = math.min(#rows, first + visible - 1)
     local y, colors = self:viewTop(), self.colors or Presentation().colors("green")
-    for _, row in ipairs(headers) do self:drawRow(row.text, y, row.kind) y = y + self.rowHeight end
+    for _, row in ipairs(headers) do
+        self:drawRow(row.text,y,row.kind)
+        if row.icon and SC.TerminalLockUI then
+            SC.TerminalLockUI.art(self,row.icon,{x=self.layout.left,y=y,
+                width=self.charWidth*2,height=self.rowHeight})
+        end
+        y=y+self.rowHeight
+    end
     self.securityHits = {}
     local mouseOver = call(self, "isMouseOver") == true
     local mouseX, mouseY = call(self, "getMouseX"), call(self, "getMouseY")
@@ -1642,12 +1811,21 @@ function SCTerminalWindow:drawSecurity()
             local span = run.span
             local selectable = span and not span.disabled and self.securityStatus ~= "lockout"
             local x = self.layout.left + run.x
+            local rival=self.system.lock and self.system.lock.rival
+            local latest=rival and rival.guesses[#rival.guesses]
+            if span and latest and latest.word==span.value then
+                local c=colors.title self:drawRect(x,y+self.rowHeight-2,run.width,1,.8,c[2],c[3],c[4])
+            end
             local ink = selectable and (span.tried and colors.input or colors.emma)
                 or colors[row.kind] or colors.system
-            self:drawText(run.text, x, y, ink[2], ink[3], ink[4], selectable and 1 or ink[1], self.font)
             local hovered = selectable and mouseOver and type(mouseX) == "number" and type(mouseY) == "number"
                 and mouseX >= x and mouseX < x + run.width and mouseY >= y and mouseY < y + self.rowHeight
-            if hovered then
+            if row.grid then
+                self:drawPasswordRun(run.text,x,y,ink,selectable and 1 or ink[1],hovered)
+            else
+                self:drawText(run.text,x,y,ink[2],ink[3],ink[4],selectable and 1 or ink[1],self.font)
+            end
+            if hovered and not row.grid then
                 -- A crisp extra stroke makes this same code face bold without
                 -- changing its measured width or touching the next glyph run.
                 self:setStencilRect(x, y, run.width, self.rowHeight)
@@ -1662,11 +1840,22 @@ function SCTerminalWindow:drawSecurity()
         end
         y = y + self.rowHeight
     end
+    for index,option in ipairs(options) do
+        local column=(index-1)%2 local row=math.floor((index-1)/2)
+        local x=self.layout.left+column*self:transcriptWidth()/2
+        local y=self:viewTop()+(self:visibleRows()-footerRows+row)*self.rowHeight
+        self:setStencilRect(x,y,self:transcriptWidth()/2,self.rowHeight)
+        self:drawText("["..index.."] "..option.label,x,y,colors.title[2],colors.title[3],colors.title[4],1,self.font)
+        self:clearStencilRect()
+        self.securityHits[#self.securityHits+1]={x=x,y=y,width=self:transcriptWidth()/2,value=option.value}
+    end
     self:drawHints({ first = first, last = last, total = #rows, visible = visible })
 end
 
 function SCTerminalWindow:drawHeaderLogo()
     self.lastNativeLogoDraw=false
+    if self.system and self.system.locked and self.system.lock and self.system.lock.kind=="rival" and SC.TerminalLockUI
+        and SC.TerminalLockUI.art(self,"User2Sign",Presentation().headerLogoBox(self.layout,self.brand,self.charWidth)) then return end
     if not self.logoTexture or self.layout.brandHeight == 0 then return end
     local width, height = self.logoTexture:getWidth(), self.logoTexture:getHeight()
     if width <= 0 or height <= 0 then return end
@@ -1782,6 +1971,8 @@ function SCTerminalWindow:drawBios(elapsed)
     end
     local caption = self:columns() >= 36 and "BIOS 1.07 / 1993 - INITIALIZING" or "BIOS 1.07 / 1993"
     self:drawRow(caption, math.max(top, bottom - self.rowHeight * 2), "system")
+    local ledger=self.campReportAvailable and SC.TerminalLocks and SC.TerminalLocks.ledger()
+    if ledger and ledger.licensee then self:drawRow("LICENSED TO "..ledger.licensee,math.max(top,bottom-self.rowHeight*3),"system") end
     local width = math.max(1, layout.right - layout.left)
     local y, height = bottom - self.rowHeight * 0.65, math.max(2, layout.unit * 4)
     self:drawRectBorder(layout.left, y, width, height, 0.45, ink[2], ink[3], ink[4])
@@ -1803,20 +1994,34 @@ function SCTerminalWindow:drawHints(range)
     elseif SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then hint=self.radioPage=="reading"
         and "PgUp/PgDn: read   1: back   Tab: command   Esc: back" or "1-"..#self:menuOptions()..": select   Tab: command   Esc: back"
     elseif self.state == "booting" then hint = "Enter: skip boot   Esc: log off"
-    elseif self.system.locked then hint = "Choose a word or bracket group.  Esc: log off"
+    elseif self.system.locked then
+        local kind=SC.TerminalLocks and SC.TerminalLocks.kind(self.system)
+        hint=self.lockPage and "Choose a number.  PgUp/PgDn: read  Esc: log off" or kind=="emma" and "1-4: choose argument  PgUp/PgDn: read  Esc: log off"
+            or kind=="search" and "Click a word or type a search.  Enter: search  Esc: log off"
+            or kind=="wheel" and "1: manual  Enter: submit letter  Esc: log off"
+            or kind=="story" and "1-3: choose   PgUp/PgDn: read   Esc: log off"
+            or kind=="phone" and "1 + Enter: place call  Enter: send code  Esc: log off"
+            or kind=="radio" and "Enter: send heard key  Esc: log off" or "Choose a word or bracket group.  Esc: log off"
+        if self.lockPage=="manual" and self.lockManualPage==5 then hint="Arrows/wheel: turn  Click window: answer  3: back" end
     elseif self.focusMode == "menu" then hint = "1-" .. #self:menuOptions() .. ": select   Tab: chat   Esc: back"
     else hint = "Enter: send   Tab: menu   Up/Down: history" end
     if range and range.total > range.visible then
         local position = range.first .. "-" .. range.last .. "/" .. range.total
         local columns = math.floor((self.layout.right - self.layout.left) / self.charWidth)
         if columns < 42 then hint = "PgUp/Dn " .. position
-        elseif self.system.locked then hint = "Match positions | PgUp/PgDn " .. position
+        elseif self.system.locked then
+            local kind=SC.TerminalLocks and SC.TerminalLocks.kind(self.system)
+            hint=(kind=="story" and "1-3: adventure | " or kind=="emma" and "1-4: argue | " or kind=="search" and "Click words | " or kind=="wheel" and "1: manual | "
+                or kind=="phone" and "1 + Enter: dial | Type code | " or kind=="radio" and "Type heard code | " or "Match positions | ").."PgUp/PgDn "..position
         else hint = "Enter: send  Tab: menu  PgUp/PgDn " .. position end
     end
     if self.scanHint and not (SC.TerminalScanUI and SC.TerminalScanUI.active(self)) then hint=self.scanHint.." | "..hint end
-    local line = Terminal.wrap(hint, math.max(8, math.floor((self.layout.right - self.layout.left) / self.charWidth)))[1]
+    if self.lampExplainUntil and nowMs()<self.lampExplainUntil then hint="That lamp is movement. Faster is closer." end
+    local lamp=SC.TerminalLamp and SC.TerminalLamp.active(self) and SC.TerminalLamp.mode()~="off"
+    local line = Terminal.wrap(hint, math.max(8, math.floor((self.layout.right - self.layout.left) / self.charWidth)-(lamp and 3 or 0)))[1]
     self:drawText(line, self.layout.left, self.layout.hintY,
         colors.system[2], colors.system[3], colors.system[4], 0.85, self.font)
+    if SC.TerminalLamp then SC.TerminalLamp.draw(self,nowMs()) end
 end
 
 function SCTerminalWindow:prerender()
@@ -1850,6 +2055,23 @@ function SCTerminalWindow:prerender()
         local label = headerLogo.x - self.layout.left - pad >= self.charWidth * 23 and "EMMA  /  LOCAL TERMINAL" or "EMMA"
         if self.system and self.system.locked then
             label = headerLogo.x - self.layout.left - pad >= self.charWidth * 23 and "LOCAL PASSWORD RECOVERY" or "RECOVERY"
+            if SC.TerminalLocks and SC.TerminalLocks.kind(self.system)=="remember" then label="EVERY WRONG WORD REMEMBERS" end
+            if SC.TerminalLocks then
+                local kind=SC.TerminalLocks.kind(self.system)
+                if kind=="search" then label="UNDELETE.EXE / SECTOR RECOVERY"
+                elseif kind=="wheel" then label="LARCHFIELD / ACCOUNT RECOVERY"
+                elseif kind=="emma" then label="EMMA / MAKE YOUR CASE"
+                elseif kind=="phone" then label="LARCH/DIAL-BACK / INTERNAL LINE"
+                elseif kind=="radio" then label="COUNTY KEY ESCROW"
+                elseif kind=="story" then label="KOBOLDS OF KENTUCKY / SHAREWARE"
+                elseif kind=="rival" then label="USER2 ATTEMPTING ACCESS" end
+            end
+            if self.lockPage=="case" then label="486 / HARDWARE RECOVERY"
+            elseif self.lockPage=="crack" then label="CRACK.EXE / LOCAL RECOVERY"
+            elseif self.lockPage=="logins" then label="RECOVERY / FAILED LOGINS" end
+            local available=math.floor((headerLogo.x-self.layout.left-pad)/self.charWidth)
+            if #label>available then label=self.lockPage=="case" and "486 / RECOVERY" or self.lockPage=="crack" and "CRACK.EXE"
+                or self.lockPage=="logins" and "FAILED LOGINS" or "ARCHIVE RECOVERY" end
         elseif self.menuPage == "files" and self.system and self.system.archive == "_factory" then
             label = headerLogo.x - self.layout.left - pad >= self.charWidth * 23 and "PERSONAL FILES / EMPTY" or "FILES / EMPTY"
         end
@@ -1877,6 +2099,7 @@ function SCTerminalWindow:prerender()
         end
         return
     end
+    if self.payoff and SC.TerminalLockUI then SC.TerminalLockUI.draw(self,nowMs()) return end
     if self.system and self.system.locked and self.state ~= "closing" then
         self:drawSecurity()
         return
@@ -2049,9 +2272,13 @@ end
 -- single-player game sits at a terminal.
 function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects, player)
     if context == nil or player == nil or playerIndex ~= 0 then return false end
+    if SC.TerminalDrawers then SC.TerminalDrawers.context(context,player,worldObjects) end
     local computer = Terminal.findComputer(worldObjects)
     if not computer or not Terminal.near(player, computer) then return false end
     if SC.GridControl then SC.GridControl.sample(computer) end
+    local stored=Terminal.peekState(computer)
+    if stored and SC.TerminalLockCrack then SC.TerminalLockCrack.catchUp(stored,worldHours(),Terminal.powered(computer)) end
+    if SC.TerminalLockCase then SC.TerminalLockCase.context(context,player,computer) end
     if SC.TerminalServices then SC.TerminalServices.context(context, player, computer) end
     if not Terminal.powered(computer) then
         if SC.GridControl and SC.GridControl.visible() and SC.GridControl.siteFor(computer) then

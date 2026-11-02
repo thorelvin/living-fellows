@@ -53,6 +53,97 @@ local function humanize(value)
     return tostring(value or "")
 end
 
+-- Called only by an open lock page. History belongs to that window, never a
+-- saved computer or a background service. Unknown/truncated lists are explicit.
+function World.nearestThreat(player, memory, now)
+    memory = type(memory) == "table" and memory or {}
+    now = tonumber(now) or U().nowMs()
+    local px, py, pz = U().position(player)
+    if not px then return { unknown = true } end
+    local playerFloor=math.floor(pz or 0)
+    memory.history = memory.history or setmetatable({}, { __mode = "k" })
+    memory.count = memory.count or 0
+    if now >= (memory.pruneAt or 0) then
+        local count = 0
+        for actor, sample in pairs(memory.history) do
+            if now < sample.seen or now - sample.seen > 2000 then memory.history[actor] = nil
+            else count = count + 1 end
+        end
+        memory.count, memory.pruneAt = count, now + 2000
+    end
+    local nearest, closingDistance, nearestActor, examined = nil, nil, nil, 0
+    local seen = {}
+    local function consider(actor, human, x, y, z, native, squared)
+        if not actor or seen[actor] or actor == player then return end
+        if not squared and not x then x, y, z = U().position(actor) end
+        local floor=math.floor(z or 0)
+        if (not squared and not x) or math.abs(floor-playerFloor)>1 then return end
+        squared = squared or (x-px)^2 + (y-py)^2
+        -- An adjacent floor costs six tiles. Reject that outer annulus before
+        -- reading native combat flags or consulting either human adapter.
+        local penalty=floor~=playerFloor and 6 or 0
+        local radius=25-penalty
+        if squared>=radius*radius then return end
+        seen[actor] = true
+        if native then
+            if actor:isDead() or actor:isFakeDead() or actor:isUseless() or actor:isReanimatedForGrappleOnly() then return end
+        elseif call(actor,"isDead") == true or call(actor,"isFakeDead") == true
+            or call(actor,"isUseless") == true then return end
+        local distance = math.sqrt(squared)+penalty
+        if human == nil then human = U().isExternalHuman(actor) end
+        if human then
+            local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(U().idOf(actor))
+            if record and record.recruited == true then return end
+            if not SC.Factions or type(SC.Factions.isHostileBetween) ~= "function"
+                or SC.Factions.isHostileBetween(actor, player, player) ~= true then return end
+        end
+        examined = examined + 1
+        local sample = memory.history[actor]
+        local target
+        if native then target = actor:getTarget() else target = call(actor,"getTarget") end
+        local closing = target == player
+            or sample and now >= sample.at and now - sample.at <= 1500
+                and sample.distance - distance >= 0.5
+        if not sample and memory.count < 256 then
+            sample = {}; memory.history[actor] = sample; memory.count = memory.count + 1
+        end
+        if sample then
+            if not sample.at or now < sample.at or now - sample.at >= 1500 then
+                sample.at, sample.distance = now, distance
+            end
+            sample.seen = now
+        end
+        if not nearest or distance < nearest then nearest, nearestActor = distance, actor end
+        if closing and (not closingDistance or distance < closingDistance) then closingDistance = distance end
+    end
+    local list = type(getCell) == "function" and call(getCell(), "getZombieList")
+    local size = list and tonumber(call(list, "size"))
+    -- The native list guarantees IsoZombie. Protect the batch once rather
+    -- than resolving and protecting every stable native getter separately.
+    -- Classification is still delegated to both optional human adapters.
+    local scanned = pcall(function()
+        for index = 0, math.min(size or 0, World.ZOMBIE_SCAN_LIMIT) - 1 do
+            local actor = list:get(index)
+            if actor then
+                if type(actor) == "userdata" then
+                    -- One native planar-distance call replaces three position
+                    -- getters and Lua arithmetic for every distant actor.
+                    local squared=actor:DistToSquared(px,py)
+                    if squared<625 then consider(actor,nil,nil,nil,actor:getZ(),true,squared) end
+                else
+                    local human = U().isExternalHuman(actor)
+                    if human or U().isZombie(actor) then consider(actor,human) end
+                end
+            end
+        end
+    end)
+    local living = SC.Registry and type(SC.Registry.living) == "function" and SC.Registry.living() or {}
+    for index = 1, math.min(#living, 256) do consider(living[index], true) end
+    return { distance = nearest, closingDistance = closingDistance, actor = nearestActor,
+        count = examined, unknown = size == nil or not scanned,
+        partial = (size or 0) > World.ZOMBIE_SCAN_LIMIT or #living > 256 }
+end
+
 -- Compass words from a map delta. Map x grows east and y grows south.
 function World.direction(dx, dy)
     local ax, ay = math.abs(dx), math.abs(dy)

@@ -200,6 +200,29 @@ require "SCTerminalBusinessData"
 require "SCTerminalBrands"
 require "SCTerminalArtBounds"
 require "SCTerminalSystem"
+require "SCTerminalLockState"
+require "SCTerminalLockWords"
+require "SCTerminalLockSearch"
+require "SCTerminalLockWheelData"
+require "SCTerminalLockWheel"
+require "SCTerminalLockWheelUI"
+require "SCTerminalLockEmmaData"
+require "SCTerminalLockEmma"
+require "SCTerminalLockPhone"
+require "SCTerminalLockRadio"
+require "SCTerminalLockRival"
+require "SCTerminalLockStoryData"
+require "SCTerminalLockStory"
+require "SCTerminalLockCrack"
+require "SCTerminalLockCase"
+require "SCTerminalLockCrew"
+require "SCTerminalLockStashes"
+require "SCTerminalDrawers"
+require "SCTerminalPayoff"
+require "SCTerminalLockArt"
+require "SCTerminalLockUI"
+require "SCTerminalLocks"
+require "SCTerminalLamp"
 require "SCTerminalWorld"
 require "SCTerminalActions"
 require "SCTerminal"
@@ -332,6 +355,12 @@ local contractDefinitions = {
     { name = "rescue distress radio", owner = function() return SC.OddballDistressRadio end,
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "grid radio report", owner = function() return SC.GridRadio end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "terminal damage feedback", owner = function() return SC.TerminalLamp end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "terminal callback", owner = function() return SC.TerminalLockPhone end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "terminal escrow radio", owner = function() return SC.TerminalLockRadio end,
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "faction contracts", owner = function() return SC.FactionContracts end,
         install = "installHooks", remove = "removeHooks", state = "hooksInstalled" },
@@ -486,6 +515,9 @@ local function onSave()
 end
 
 local function onInitGlobalModData(isNewGame)
+    if SC.TerminalLockPhone then SC.TerminalLockPhone.reset() end
+    if SC.TerminalLockRadio then SC.TerminalLockRadio.reset() end
+    if SC.TerminalLocks then SC.TerminalLocks.reset() end
     if SC.GridControl then SC.GridControl.reset() end
     if SC.GridRadio then SC.GridRadio.reset() end
     local ok, reason = SC.Persistence.bindWorldStore(isNewGame == true)
@@ -496,6 +528,9 @@ local function onInitGlobalModData(isNewGame)
 end
 
 local function onMainMenuEnter()
+    if SC.TerminalLockPhone then SC.TerminalLockPhone.reset() end
+    if SC.TerminalLockRadio then SC.TerminalLockRadio.reset() end
+    if SC.TerminalLocks then SC.TerminalLocks.reset() end
     SC.Runtime.onMainMenuEnter()
     if SC.GridControl then SC.GridControl.reset() end
     if SC.GridRadio then SC.GridRadio.reset() end

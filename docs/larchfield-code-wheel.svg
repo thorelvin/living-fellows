@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 794 1123">
+<title>Larchfield account recovery wheel</title>
+<desc>Cut out both discs, place the smaller on top and pin their centres. Align the named symbol to the outer letter, then read the inner letter at the numbered window.</desc>
+<metadata id="wheel-mapping">{&quot;inner&quot;: &quot;QWERTYUIOPASDFGHJKLZXCVBNM&quot;, &quot;markers&quot;: [{&quot;name&quot;: &quot;DIAMOND&quot;, &quot;position&quot;: 0}, {&quot;name&quot;: &quot;CIRCLE&quot;, &quot;position&quot;: 6}, {&quot;name&quot;: &quot;TRIANGLE&quot;, &quot;position&quot;: 13}, {&quot;name&quot;: &quot;SQUARE&quot;, &quot;position&quot;: 19}], &quot;outer&quot;: &quot;ABCDEFGHIJKLMNOPQRSTUVWXYZ&quot;, &quot;windows&quot;: [0, 8, 17]}</metadata>
+<rect width="794" height="1123" fill="white"/>
+<g fill="black" stroke="none" font-family="monospace" text-anchor="middle">
+<text x="397.000" y="32.000" font-size="23">LARCHFIELD / ACCOUNT RECOVERY</text>
+<text x="397.000" y="55.000" font-size="14">1993 COUNTY EDITION - KEEP WITH YOUR MANUAL</text>
+<circle cx="397" cy="300" r="220" fill="none" stroke="black" stroke-width="1.5" stroke-dasharray="5 4"/>
+<circle cx="397" cy="300" r="177" fill="none" stroke="black" stroke-width="1.5"/>
+<text x="397.000" y="108.000" font-size="21">A</text>
+<text x="444.385" y="113.754" font-size="21">B</text>
+<text x="489.015" y="130.680" font-size="21">C</text>
+<text x="528.298" y="157.795" font-size="21">D</text>
+<text x="559.951" y="193.523" font-size="21">E</text>
+<text x="582.133" y="235.788" font-size="21">F</text>
+<text x="593.556" y="282.134" font-size="21">G</text>
+<text x="593.556" y="329.866" font-size="21">H</text>
+<text x="582.133" y="376.212" font-size="21">I</text>
+<text x="559.951" y="418.477" font-size="21">J</text>
+<text x="528.298" y="454.205" font-size="21">K</text>
+<text x="489.015" y="481.320" font-size="21">L</text>
+<text x="444.385" y="498.246" font-size="21">M</text>
+<text x="397.000" y="504.000" font-size="21">N</text>
+<text x="349.615" y="498.246" font-size="21">O</text>
+<text x="304.985" y="481.320" font-size="21">P</text>
+<text x="265.702" y="454.205" font-size="21">Q</text>
+<text x="234.049" y="418.477" font-size="21">R</text>
+<text x="211.867" y="376.212" font-size="21">S</text>
+<text x="200.444" y="329.866" font-size="21">T</text>
+<text x="200.444" y="282.134" font-size="21">U</text>
+<text x="211.867" y="235.788" font-size="21">V</text>
+<text x="234.049" y="193.523" font-size="21">W</text>
+<text x="265.702" y="157.795" font-size="21">X</text>
+<text x="304.985" y="130.680" font-size="21">Y</text>
+<text x="349.615" y="113.754" font-size="21">Z</text>
+<text x="397.000" y="122.000" font-size="13">1</text>
+<text x="567.173" y="368.538" font-size="13">2</text>
+<text x="247.217" y="407.388" font-size="13">3</text>
+<circle cx="397" cy="300" r="2" fill="none" stroke="black" stroke-width="1.5"/>
+<text x="397.000" y="535.000" font-size="13">OUTER DISC</text>
+<circle cx="397" cy="790" r="175" fill="none" stroke="black" stroke-width="1.5" stroke-dasharray="5 4"/>
+<circle cx="397" cy="790" r="154" fill="none" stroke="black" stroke-width="1.5"/>
+<text x="397.000" y="656.000" font-size="20">Q</text>
+<text x="430.504" y="660.068" font-size="20">W</text>
+<text x="462.061" y="672.036" font-size="20">E</text>
+<text x="489.837" y="691.208" font-size="20">R</text>
+<text x="512.218" y="716.471" font-size="20">T</text>
+<text x="527.902" y="746.355" font-size="20">Y</text>
+<text x="535.979" y="779.125" font-size="20">U</text>
+<text x="535.979" y="812.875" font-size="20">I</text>
+<text x="527.902" y="845.645" font-size="20">O</text>
+<text x="512.218" y="875.529" font-size="20">P</text>
+<text x="489.837" y="900.792" font-size="20">A</text>
+<text x="462.061" y="919.964" font-size="20">S</text>
+<text x="430.504" y="931.932" font-size="20">D</text>
+<text x="397.000" y="936.000" font-size="20">F</text>
+<text x="363.496" y="931.932" font-size="20">G</text>
+<text x="331.939" y="919.964" font-size="20">H</text>
+<text x="304.163" y="900.792" font-size="20">J</text>
+<text x="281.782" y="875.529" font-size="20">K</text>
+<text x="266.098" y="845.645" font-size="20">L</text>
+<text x="258.021" y="812.875" font-size="20">Z</text>
+<text x="258.021" y="779.125" font-size="20">X</text>
+<text x="266.098" y="746.355" font-size="20">C</text>
+<text x="281.782" y="716.471" font-size="20">V</text>
+<text x="304.163" y="691.208" font-size="20">B</text>
+<text x="331.939" y="672.036" font-size="20">N</text>
+<text x="363.496" y="660.068" font-size="20">M</text>
+<g fill="none" stroke="black" stroke-width="1.5"><polygon points="397.0,619.0 403.0,625.0 397.0,631.0 391.0,625.0"/></g>
+<g fill="none" stroke="black" stroke-width="1.5"><circle cx="560.7969642261789" cy="770.1114477578717" r="5"/></g>
+<g fill="none" stroke="black" stroke-width="1.5"><polygon points="396.99999999999994,949.0 402.99999999999994,960.0 390.99999999999994,960.0"/></g>
+<g fill="none" stroke="black" stroke-width="1.5"><rect x="228.20303577382109" y="804.8885522421284" width="10" height="10"/></g>
+<circle cx="397" cy="790" r="2" fill="none" stroke="black" stroke-width="1.5"/>
+<text x="397.000" y="802.000" font-size="36">L</text>
+<text x="397.000" y="982.000" font-size="13">INNER DISC</text>
+<text x="397.000" y="1022.000" font-size="13">Cut both dashed edges. Place INNER above OUTER; pin the centres.</text>
+<text x="397.000" y="1044.000" font-size="13">Turn the inner disc until the named symbol points to the outer letter.</text>
+<text x="397.000" y="1066.000" font-size="13">Read the inner letter beside the requested numbered window.</text>
+<text x="397.000" y="1088.000" font-size="13">Example: DIAMOND to K, window 2 reads N. All machines use this mapping.</text>
+</g>
+</svg>

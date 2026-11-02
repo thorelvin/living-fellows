@@ -1,0 +1,149 @@
+Living Fellows 0.26.89: locked computers, Phase 1
+Date: 2026-11-02
+Branch: living_fellows/0.26.89
+Worktree: C:/ZOMBOID/work/grid
+
+Scope and stop point
+--------------------
+Phase 1 of the supplied locked-computers handoff is implemented. This is a
+local implementation for the user's next trial. Phases 2-4 are not implemented.
+No Workshop upload, Field Guide publication, push or normal game installation
+has been performed for this feature. The handoff stops after each phase.
+
+The native payload was rebuilt with version 0.26.89. No Java source or bridge
+protocol change was required; the protocol remains 42.21-isocompanion-27.
+Payload JAR SHA-256:
+d900c2bbf9323550a40266fdf03704b32741754cc49df3a5fdee6202407bb651
+The previous companion fixes were checkpointed separately as aea280f1.
+
+Implemented behaviour
+---------------------
+- Optional schema-one lock state, bounded world ledger, first-open settling,
+  legacy word-puzzle retention and conservative malformed-state fallback.
+- Word/Remembers Director weights 40/60; first Remembers, then word. Owners
+  do not repeat until their available category is exhausted. Twenty supplied
+  owners were added: 162 profiles and 648 entries in total.
+- Remembers uses six-letter words and real sentences from the owner's files.
+- Open-window movement lamp, adjacent-floor attenuation, closing detection,
+  3 Hz ceiling, Flash/Steady/Off setting, and health/contact exit checks.
+- Confirmed alternatives, persistent CRACK.EXE progress and physical CMOS
+  recovery, including battery delay, fixed seeded risk, minor burn and wipe.
+- One-time XP and access stamp, owner welcome, verified physical rewards,
+  desk interlock, manual drawer release, native crowbar recovery, failed-login
+  history, recovery progress and nearby companion speech/hints.
+- Original phosphor-tinted art and synthesized cues. Art sources, prompts,
+  hashes and lossless texture partitions are recorded in terminal-lock-art.json.
+
+Final automated gate
+--------------------
+Final Test-Project run: PASS, all 29 stages, 128.2 seconds (131 seconds overall),
+with throttle 8. This includes source/installer transactions, core/lifecycle,
+UI, combat/perception, gameplay, ownership/persistence, optional-adapter
+regressions and package verification. No gameplay implementation changed after
+this run.
+Log: C:/ZOMBOID/outputs/locked-computers-02689/project-gate-complete.log
+
+Focused tests include every archive at Electrical levels 0-10, word validity,
+Director persistence, owner exhaustion, legacy/malformed data, independent risk
+distribution, crack timing and backward clocks, exact drawer ownership,
+ambiguous native insertion, once-only XP, inherited inventory callbacks,
+duration captured before native queueing, and bootstrap teardown rollback.
+Asset tests verify hashes, partition coverage and individual PNG budgets.
+The release configuration explicitly tests debugLockKind=nil.
+
+Completed native acceptance: Project Zomboid 42.21.0, LF alone
+-------------------------------------------------------------
+All native runs use disposable cloned saves and an isolated source bridge.
+The source save is read-only input. Program and population fixtures are
+explicitly seeded; no native access, item transfer, injury or action function
+is replaced by a test implementation.
+
+1. SC-Harness-20261102-024521-e1b658b2: 40 PASS, 0 FAIL, 2 SKIP.
+   Native word/Remembers, genuine archive recall, one-time XP and welcome,
+   actual drawer selection/drop guards, delayed reward creation, exact native
+   storage placement, native crowbar action, no repeated reward, confirmed
+   bypass, early typed crack, clickable motherboard jumper, clean reset,
+   fixed seeded wipe/burn, and recovery without grid, generator or UPS power.
+   The preloaded access stamp was checked during its short native draw window.
+   A real higher-skilled recruited actor gave a registered hint, retained Stay
+   and acquired no supervised action. Native hostile, neutral and recruited
+   actors were distinguished through the existing Factions policy.
+
+   The office-tower fixture used real solid-floor placements and 200 spawned
+   zombies, with 339 zombies loaded in total. Over 100 direct sensor samples,
+   p95 was 0.990800023 ms using SCBridge.nowMsPrecise(). The window's production
+   watch interval is 500 ms. This is a measurement on this machine, not a
+   guarantee for arbitrary populations, hardware or external NPC mods.
+
+2. SC-Harness-20261102-022731-2dfe8cbf: 10 PASS, 0 FAIL, 2 SKIP.
+   Reloaded a completed native run. The unlocked schema-one program and XP
+   receipt persisted, and every recorded reward ID/type remained in its actual
+   native desk, including nested-container inspection.
+
+3. SC-Harness-20261102-023229-14a76a43: 12 PASS, 0 FAIL, 2 SKIP.
+   Reloaded an earlier saved locked computer. Its plain desk remained locked
+   through the world ledger and it received neither XP nor reward items on
+   load. Physical battery recovery completed with files intact. Native elapsed
+   time was 7.950439453 game minutes, including base work and the extra five.
+
+Run directories and events:
+C:/ZOMBOID/work/grid/build/live-sandbox-runs/<run-id>/
+Results: cache/Lua/SurvivorCompanionHarness/events.log
+Console: cache/console.txt
+Screens: cache/Screenshots/
+
+Earlier binding checks
+----------------------
+SC-Harness-20261102-001715-8aa3ccdb verified native furniture access, physical
+world-item pickup, filled water bottles, and ordinary health damage versus a
+new zombie scratch. Ten game minutes of hunger/heavy-load damage left the
+terminal open; a real new scratch closed it without relying on a hit event.
+
+SC-Harness-20261102-000957-c3e18b0b measured 15 base Electrical XP as 3.75 actual
+unboosted points and 24.899902344 points with boost 3. It also confirmed fixed-
+source radio reception. TelephoneRinging was absent from GameSounds: this is
+an unresolved binding for the later phone phase, not an assumed working cue.
+
+Issues found and corrected during acceptance
+-------------------------------------------
+- Typed drawer release originally reached the generic building-unlock parser.
+- Clearing an inventory callback exposed an inherited native drop handler.
+- Director and hardware risk originally shared a correlated PRNG position.
+- Ambiguous item insertion and XP exceptions needed committed receipts first.
+- A short payoff could precede asynchronous texture readiness.
+- Repair duration was initially changed after native queue creation captured it.
+- The warning scan read combat state before rejecting attenuated distant floors.
+
+One overlapping pair of test runners conflicted in their shared installer
+sandbox. Those results were discarded and the complete gate was rerun alone.
+Early tower fixtures let the operator bleed out before quiet speech/repair
+checks; population testing and quiet scenarios were separated. Millisecond-
+quantized timing was replaced with the existing high-resolution bridge clock.
+
+Limits and deferred verification
+--------------------------------
+Inventory Tetris is not enabled in these native runs. Its absent/custom button
+path is covered by automated fallback tests, not a completed native mod pairing.
+External NPC mods, future lock prerequisites and the few-day rival census were
+not included. Phase 0 is not represented as wholly complete for future phases.
+The phone/radio/rival, wheel/search/EMMA and story locks remain unimplemented.
+New cues exercised native playback paths; human listening was not recorded as
+an audibility acceptance pass. A crowbar emits native world noise, but this
+record does not claim a controlled zombie-attraction experiment.
+
+Art: nine packaged PNGs, 1,562,828 bytes total; largest file 253,108 bytes.
+Each PNG is below 300 KiB. A complete multi-piece artwork can exceed 300 KiB.
+Partitions preserve the entire generated RGB image with sampling gutters.
+
+Debug trial switch
+-------------------
+In a debug-enabled game, set SCConfig.debugLockKind="word" or "remember"
+before opening the next newly settled locked computer. The override is consumed
+once, accepts only implemented kinds, and does not unlock an unpowered PC or
+remove physical prerequisites. The release default remains nil. Existing saved
+settled locks are not rerolled by this switch.
+
+Native screenshot copies:
+C:/ZOMBOID/outputs/locked-computers-02689/native-case.png
+C:/ZOMBOID/outputs/locked-computers-02689/native-remember.png
+C:/ZOMBOID/outputs/locked-computers-02689/native-access-granted.png

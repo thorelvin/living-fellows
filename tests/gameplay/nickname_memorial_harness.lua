@@ -25,6 +25,11 @@ assert(result.subjectName == "Sarah Shaw"
     and result.subjectDisplayName == 'Sarah "Doc" Shaw',
     "death result keeps raw identity and decorated display separate")
 
+local recent=Community.recentDeaths(64)
+assert(#recent==1 and recent[1].subjectId==fallen.id and recent[1].subjectDisplayName=='Sarah "Doc" Shaw', "recent deaths expose actual recruited identities")
+recent[1].subjectName="DO NOT WRITE THROUGH"
+assert(select(2,Community.deathMatching("Sarah Shaw")).subjectName=="Sarah Shaw", "death snapshots cannot mutate community persistence")
+assert(#Community.recentDeaths(0)==0, "death limit is honoured")
 local id, death = Community.deathMatching("Sarah Shaw")
 assert(id == fallen.id and death.subjectName == "Sarah Shaw"
     and death.subjectDisplayName == 'Sarah "Doc" Shaw',
@@ -68,4 +73,4 @@ assert(legacy.subjectName == "Sarah Shaw" and legacy.subjectDisplayName == "Sara
     and legacyDeath.subjectDisplayName == "Sarah Shaw",
     "legacy grief and grave labels fall back to the raw full name")
 
-print("NICKNAME_MEMORIAL_KAHLUA_PASS checks=11")
+print("NICKNAME_MEMORIAL_KAHLUA_PASS checks=14")

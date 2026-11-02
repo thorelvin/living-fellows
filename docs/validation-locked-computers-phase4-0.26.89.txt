@@ -1,0 +1,146 @@
+Living Fellows 0.26.89: locked computers, Phase 4
+Date: 2026-11-02
+Branch: living_fellows/0.26.89
+Worktree: C:/ZOMBOID/work/grid
+
+Implementation
+--------------
+All nine recovery kinds are now implemented. Kobolds of Kentucky uses the
+supplied story data unchanged. Normalized-LF SHA-256:
+eb40c7c07514081bf1ef97c011b99a6bb850960490c1930001270999a536fe39
+
+Eight weighted classes, five scenes from twenty, two separated dice scenes,
+class dialogue, critical rolls, a bounded Hall of Fame and immediate retries.
+Electrical 3 adds two to the actual checks. Three deaths expose the existing
+alternatives. No extra game-hour penalty is added for a death.
+
+The optional schema-one lock.story stores each run's class, scene IDs, roll
+schedule, HP, party identities, outcome and pending throw. A live d20 is saved
+before its one-second animation. A resolved throw cannot replay. Closing the
+screen pauses it. No story work is scheduled outside the open terminal.
+
+At most two actual loaded living recruited companions within twelve tiles
+join the fiction; otherwise Gary joins. Party classes are explicitly fictional.
+Only the named casualty or surviving party member is eligible for the related
+reaction, through the existing Dialogue and Banter availability/budget gates.
+No health, inventory, order, path or AI ownership is changed by the game.
+
+Community.recentDeaths is a read-only snapshot of the real recruited death
+history. A quiet ghost can appear on one run in three, once per fallen person
+per machine, with a bounded 64-identity receipt set. Its recommendation must be
+a good option, with the best class odds among good options on a roll scene.
+A ghost run never names a living companion as a fictional casualty.
+
+The owner and room come from actual archive and room data. Scratching text
+uses only the existing real sensor's verified distance, at most six tiles.
+No additional threat scan is introduced.
+
+Direct wins complete the Recovery Log; case/crack routes do not. The saved
+licence uses the real player's forename, displays a certificate, and appears
+on camp-computer boot. It gives no stat bonus. The rare-lock weighting still
+favours an unbeaten kind, including one previously bypassed. USER2 leaves the
+required target only when there is no recruitable group or unseeded recruitable
+Strange Folk left; merely discovering a person does not remove the requirement.
+
+UI and artwork
+--------------
+The dense password board now paints individual ASCII glyphs on a constant
+pixel grid. Cached native font advances choose a cell wide enough for every
+glyph and its extra hover stroke. Each glyph is clipped to its own cell.
+Word and matching-bracket hit regions use those exact same cells. Punctuation
+cannot invade a candidate's next cell. No font measurement repeats per frame.
+Tiny layouts scale the board to retain complete words and memory addresses.
+
+Adventure choices are pinned below the scrollable scene. Compact layouts
+retain full option text in the reading pane and bounded numbered controls;
+the smallest layouts retain ordinary scrolling. Pictures disappear when the
+layout is too small. The certificate sits beside its text, without overlap.
+
+Original built-in image_gen artwork: title, eight class portraits, four slot
+illustrations, seven monsters, owner skeleton, ghost, game-over stamp and
+licence, plus a dice icon. Three shared sheets and the title supply these
+independent display views without duplicating texture payloads. The existing
+phosphor shader supplies every CRT colour, including purple. Sources are
+losslessly packaged; the display rectangles do not alter the bitmap pixels.
+
+Prompts, source hashes, decoded RGB hashes, display windows and every packaged
+file hash: docs/terminal-lock-art.json
+Runtime rectangles: SurvivorCompanion/42/media/lua/client/SCTerminalLockArt.lua
+Textures: SurvivorCompanion/42/media/textures/Terminal/Locks/
+Credits and hashes: ASSET-MANIFEST.md
+Combined Phase 1-4 art: 17 source images, 45 PNG files, 9,380,939 bytes.
+Largest texture file: 297,491 bytes. Limits: 10 MiB total, 300 KiB per file.
+LFDiceRoll is an original locally synthesized 0.65-second UI cue.
+
+Automated verification
+----------------------
+Full project gate: 29/29 stages, 158.8 seconds (162 seconds overall), Jobs 8.
+Following the final certificate polish: full UI suite passed again, including
+1,554 Phase 4 checks, 295 fixed-grid checks and all earlier lock regressions.
+Four deliberate mutants are caught: premature story win, weak natural-one
+damage, retained pending result and a ghost pointing to a bad option.
+
+Tests cover supplied prose/placeholder limits, every class and scene's ghost
+choice, separated rolls, natural 1/20, saved throws, bounded deaths/fame,
+named reactions and unavailable speakers, malformed records, power/ownership
+revalidation, licence availability and compact/normal hit geometry.
+The focused community/nickname memorial suite and final source/asset/audio
+checks also pass. Neither the story data nor original Bandits/A-Life code is
+modified. Existing ordinary combat and ownership regressions pass in the gate.
+
+Difficulty: 10,000 runs per class per policy, 240,000 runs total, using the
+actual supplied HP/bonuses/options and production outcome function, Electrical
+0. Weighted by the supplied class frequencies, first-run wins are:
+  random: 32.11%; 40% sensible choices: 54.99%; 70% sensible: 72.68%.
+Two independent attempts imply about 79.74% for casual and 92.53% for careful
+players. These are simulations, not live player statistics. Three-HP classes
+are intentionally more forgiving; no supplied difficulty text was retuned.
+Per-class results are recorded in ui-regressions.log.
+
+Native verification
+-------------------
+Project Zomboid 42.21.0, single player, LF alone, real native bridge and UI,
+engine sound enabled, disposable cloned saves. Original user save untouched.
+No RNG, damage, inventory or native gameplay API is replaced. The resolver
+is observed synchronously while delegating its exact original implementation.
+
+Completed live: equal-cell painting at two native code-font scales; a genuine
+wrong-word click spends one attempt; original title and class/scene art; two
+real recruited party actors; full adventure; actual archived-owner finale;
+normal unlock, Electrical XP and tier-three payoff; named licence certificate;
+unchanged real health, inventory counts, orders and action ownership across
+story inputs and result callbacks. Ordinary AI remains active between inputs.
+
+The certificate test explicitly seeds the prior eight puzzle-completion
+prerequisites, then earns the ninth through the actual story UI. It is not
+evidence of a single native playthrough solving all nine types in one world.
+
+Actual persistence run: SC-Harness-20261102-143234-17ed4f6c leaves the primary
+PC data mid-roll, closes its window and saves the world. Native reload:
+SC-Harness-20261102-143605-4cc10d69 reads that primary saved PC state, retains
+the committed die and class, applies the exact outcome once and completes
+normally. No earlier puzzle snapshot is substituted to make the reload pass.
+Later certificate-only layout polish does not change the saved-roll logic.
+
+Automated-only cases, not claimed as completed live scenarios: a fallen
+companion ghost, every critical/class combination, every malformed save,
+all compact resolutions and exhaustion of the entire recruitable county cast.
+Final polished native run: SC-Harness-20261102-144258-15be0eb0, 20 PASS / 0 FAIL.
+Actual mid-roll reload: 12 PASS / 0 FAIL.
+Final captures: password-grid.png, password-small.png, title.png, party.png,
+scene.png, dice-result.png, victory.png and licensed.png in the evidence folder.
+
+Evidence directory:
+C:/ZOMBOID/outputs/locked-computers-phase4-02689/
+
+Use for testing
+---------------
+In engine debug, set SCConfig.debugLockKind = "story" before
+first opening a previously unused locked computer. The override is single-use;
+normal ownership, proximity and power checks still apply. The shipped default
+is nil. Ordinary computers still use the Director and existing sandbox options.
+
+No Java source or bridge protocol change: 42.21-isocompanion-27. Version remains
+0.26.89. Phase 4 and earlier lock phases remain local and uncommitted. No local
+installation, push, Workshop submission or public Field Guide publication is
+performed by this implementation task.

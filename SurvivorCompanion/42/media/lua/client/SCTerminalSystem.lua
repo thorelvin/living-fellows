@@ -44,6 +44,8 @@ local function settings(skill)
     skill = integer(skill, 0, 10) or 0
     return math.max(6, 16 - math.floor(skill / 2) * 2), 4 + math.floor(skill / 3)
 end
+System.settings, System.random = settings, rng
+function System.words() local copy={} for i,v in ipairs(WORDS) do copy[i]=v end return copy end
 local function tokens(seed)
     local pick, result = rng(seed), {}
     for index, pair in ipairs(PAIRS) do
@@ -59,10 +61,13 @@ end
 
 function System.create(seed, kind, insideCamp, legacy, identity, brand)
     seed = integer(seed, 1, 2147483646) or 1
+    local options=SandboxVars and SandboxVars.LivingFellows or {}
+    local percent=integer(options.LockedComputerPercent,0,100) or System.LOCK_PERCENT
+    local locked=not insideCamp and not legacy and seed % 100 < percent
     return { schema = 1, seed = seed, identity = identity or ("pc:" .. seed),
         archive = SC.TerminalFiles.choose(kind, seed, brand).id,
         theme = SC.TerminalPresentation.themeFor(seed),
-        locked = not insideCamp and not legacy and seed % 100 < System.LOCK_PERCENT,
+        locked = locked, lock=locked and {kind="pending",machineKind=kind} or nil,
         xpAwarded = false }
 end
 
@@ -89,6 +94,7 @@ function System.normalize(saved)
     local clean = { schema = 1, seed = seed, identity = saved.identity, archive = saved.archive,
         theme = saved.theme or SC.TerminalPresentation.themeFor(seed),
         locked = saved.locked, xpAwarded = saved.xpAwarded == true }
+    if SC.TerminalLockState then clean.lock=SC.TerminalLockState.normalize(saved.lock,saved.locked) end
     if saved.brand ~= nil then
         if type(saved.brand) ~= "string" or #saved.brand > 80 or not saved.brand:match("^[%w_ %-]+$") then return nil end
         clean.brand = saved.brand
@@ -137,6 +143,9 @@ function System.factoryReset(state)
     -- Keep the physical machine, access recovery and one-time XP ledger.
     -- A blank archive prevents discovery from assigning another old owner.
     clean.archive, clean.brand = "_factory", "_camp"
+    if clean.lock then
+        clean.lock.emma=nil clean.lock.search=nil clean.lock.crewClue=nil
+    end
     clean.paletteVersion = SC.TerminalPresentation.PALETTE_VERSION
     return clean
 end
@@ -220,7 +229,7 @@ function System.board(state, columns)
         entries[#entries + 1] = { value = token, disabled = p.used[index] == true }
     end
     for first = 1, #entries, across do
-        local row = { text = string.format("%04X ", 1024 + (#rows * columns)), spans = {} }
+        local row = { text = string.format("%04X ", 1024 + (#rows * columns)), spans = {}, grid = true }
         for offset = 0, across - 1 do
             local entry = entries[first + offset]
             if entry then

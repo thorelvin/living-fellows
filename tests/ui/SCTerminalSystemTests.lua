@@ -19,7 +19,7 @@ local xp = 0
 function player:getPerkLevel() return 0 end
 function player:getXp()
     return { AddXP = function(_, perk, amount)
-        check(perk == Perks.Electricity and amount == 5, "recovery uses native Electrical XP")
+        check(perk == Perks.Electricity and amount == 15, "recovery uses native Electrical XP")
         xp = xp + amount
     end }
 end
@@ -119,10 +119,10 @@ check(window.system.locked and window.system.archive == archive and window.syste
     "moving into camp neither bypasses the lock nor replaces the old owner's files")
 enter(window, answer)
 settle(window)
-check(not window.system.locked and window.session ~= nil and xp == 5,
+check(not window.system.locked and window.session ~= nil and xp == 15,
     "successful recovery starts EMMA and awards XP once")
 check(window:menuOptions()[1].systemCommand == "report", "a computer brought home offers Camp report first")
-check(not Terminal.awardHackXP(player, placed, window.system) and xp == 5, "an award cannot repeat")
+check(not Terminal.awardHackXP(player, placed, window.system) and xp == 15, "an award cannot repeat")
 enter(window, "remember spare key in the jar")
 settle(window)
 enter(window, "call me Sam")
@@ -158,7 +158,7 @@ Terminal.resetSessions()
 Terminal.open(player, outside)
 window = Terminal.window
 settle(window)
-check(not window.system.locked and window.system.xpAwarded and xp == 5
+check(not window.system.locked and window.system.xpAwarded and xp == 15
     and window.session.operator == "Sam" and #window.session.notes == 1,
     "unlocks, XP receipt, name and notes survive movement and a new session")
 reads = peopleReads + storageReads
@@ -207,7 +207,7 @@ window = Terminal.window
 local darkAnswer = window.system.puzzle.answer
 dark.square.generatorPower = false
 enter(window, darkAnswer)
-check(window.system.locked and xp == 5 and window.state == "closing",
+check(window.system.locked and xp == 15 and window.state == "closing",
     "power loss prevents recovery and XP even before the next watch pulse")
 window:close()
 

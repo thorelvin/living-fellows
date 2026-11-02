@@ -1,0 +1,178 @@
+Living Fellows 0.26.89: locked computers, Phase 2
+Date: 2026-11-02
+Branch: living_fellows/0.26.89
+Worktree: C:/ZOMBOID/work/grid
+
+Scope
+-----
+Phase 2 adds wheel, emma and search to the Phase 1 framework. It stops for the
+user's next trial. Phase 3/4, public Field Guide publication, normal local game
+installation, commits and pushes are not part of this checkpoint.
+Version remains 0.26.89. No Java source or bridge protocol changed.
+
+Implemented
+-----------
+UNDELETE.EXE restores all four actual owner files. Its corpus contains owners
+of the same kind. Owner hits precede other owners; other-owner hits never count.
+Index words have a guaranteed path through every one of the 162 owner profiles.
+Queries run on input, use plain substring matching, reject short/stop words and
+are limited to 32 characters. Indexes and result words are clickable. Three empty
+queries give explicit guidance; eight expose the existing alternatives.
+
+The Larchfield Owner's Manual is a real 0.3-weight ordinary item using vanilla
+book models. It is placed once on a usable desk surface or free adjacent floor,
+with the receipt marked before insertion. Missing/ambiguous insertion is never
+replayed. Three challenges are required, or one when a handbook was already
+carried at first settlement. Later possession does not rewrite an existing
+three-challenge save. Nearby handbooks can be read from the CRT.
+
+Five handbook pages include original illustrations. The last page draws two
+live rings of upright letters, four alignment symbols and three clickable
+windows. Arrows, mouse wheel and turn buttons operate the same rotation.
+Compact windows retain numbered text controls. The fixed mapping is shared by
+every computer and by the printable docs/larchfield-code-wheel.svg. The SVG is
+one A4 page containing both cut-out discs, generated from the Lua constants.
+
+Talk to EMMA uses four numbered arguments per round, five rounds at most,
+4 conviction to win and two patience losses to fail. Claims read the actual
+game clock, living recruited actors, Electrical skill, held screwdriver and
+nearby threat facts. Changed truthful numeric records are updated for review;
+the code does not silently rewrite a selected statement. No world scan runs
+from the conversation renderer.
+
+The supplied 30 arguments and all associated replies were copied unchanged.
+Canonical SHA-256: f9e576bcf56f5713db22e47d50875b0d117fd210f47ad95f5485775d67171c9e
+The user confirmed no repeated arguments within each attempt. An hour permits
+a fresh attempt; a previously caught lie remains remembered. Saved offers do
+not reroll on opening. Later visits quote the recorded false/true figures once
+per session, at most three times. Factory reset clears this argument memory
+while retaining the one-time XP receipt.
+
+The Director includes only five built locks. Normal weights are 20/27/15/12/10,
+normalized over those five, with the specified category boosts. The first tour
+still begins Remembers, word, then a medium lock. New direct routes award
+30 base Electrical XP; case/crack use the lower tier. Existing early/clutch
+modifiers and mark-before-native-call protection remain shared.
+
+Each new tool has an Electrical edge and a specific spoken companion hint.
+Hints persist, respect the existing speech policy and never assign NPC work.
+State remains an optional schema-one extension. Malformed argument choices
+fall back conservatively; no missing handbook or cargo is manufactured.
+
+Automated verification
+----------------------
+Final full gate: 29/29 stages PASS, 134.5 seconds, 137 seconds overall, throttle 8.
+Log: C:/ZOMBOID/outputs/locked-computers-phase2-02689/project-gate-final-polish.log
+Includes core/lifecycle, UI, combat, perception, gameplay, ownership/persistence,
+optional-adapter regressions, source checks, packaging and installer transactions.
+
+Coverage includes all 162 index-only recovery paths; substring uniqueness;
+owner-first results; malformed searches; fixed marker/letter/window mappings;
+physical ownership and once-only handbook insertion; carried versus nearby
+books; cooldowns; tier-two and bypass XP; saved choices and malformed data;
+real claim checks; memory across visits, failed attempts and factory reset;
+instant number selection; clickable wrapped options; compact/normal/large
+layouts; and no world reads from EMMA rendering.
+
+Ten deliberately broken versions fail their intended assertions: negative
+wheel wrapping, carried-book shortcut, manual receipt order, owner priority,
+search completion proof, bypass tier, claim verification, memory cap, renderer
+world scans and instant numeric selection. Production files are hash-checked
+and never rewritten by these controls.
+
+Kahlua policy simulation, 10,000 seeds per policy at Electrical 3:
+random 64.82%; false-claim-first 31.11%; informed 100%.
+The false-claim policy chooses a provably false claim when offered, otherwise
+randomly. These are measured policies, not a promise about player win rates.
+The handoff's roughly 20% habitual-liar reference is not reproduced by this
+particular policy; the supplied writing, scoring and 50% numeric inflation
+rule were retained. Native factual checks are tested separately.
+
+Native acceptance: Project Zomboid 42.21.0, Living Fellows alone
+--------------------------------------------------------------
+SC-Harness-20261102-090720-38691cdf: PASS, 28 distinct named assertions,
+33 observations, no failures. This used the enlarged live wheel and verified
+its cover/hub textures, arrow/mouse controls and clickable answer windows;
+three-challenge completion; exact native handbook identity and pickup; carried
+reuse; clickable archive recovery; malformed query handling; numeric argument
+selection without Enter; a real caught lie; successful persuasion; and later
+memory. A real higher-skilled companion spoke the next archive index and
+retained Stay with no supervised action. Repeated index/window observations
+are not counted as separate named scenarios.
+
+SC-Harness-20261102-092159-5d194335: PASS, 19 named assertions, no failures.
+The same physical handbook ID survived reload. Saved partial wheel, search
+and argument fixtures were serialized on the native computer, restored as its
+active OS one at a time, verified and completed through ordinary input. The
+one-challenge shortcut did not alter an already-started three-challenge route.
+Current argument IDs and the caught lie remained unchanged. These are explicit
+program fixtures, not a claim that three simultaneous OS instances were used.
+
+SC-Harness-20261102-095434-d506b911: PASS, 30 distinct named assertions,
+35 observations, no failures. Final production code exercised all three routes,
+the physical handbook and live green/sand/aqua/purple wheel draws. The hint
+fixture explicitly removed 15 native zombies within 40 tiles in this disposable
+scene. Native perception refreshed to zero threats; the ordinary speaker quiet
+period then expired and Ruth spoke the correct index without a task or order
+change. The two additional named assertions cover the theme capture and the
+explicit calm-scene fixture, not two additional gameplay routes.
+The preceding SC-Harness-20261102-094650-1334276b run also passed all 30 named
+assertions before the final instruction-copy shortening (16 zombies removed).
+
+Earlier four-theme and diagnostic runs
+SC-Harness-20261102-093511-2b175f1a and
+SC-Harness-20261102-094348-60f19b91 each failed the expected-hint assertion.
+Diagnostics showed three native threats, pressure 1.05 and a danger-group bark;
+the latter run later saw four threats. The normal calm-speaker policy correctly
+refused a puzzle hint. Only the test's population arrangement changed; no
+production threat or dialogue gate was weakened. Those failed records remain
+available. The final full gate includes the explicit fixture and shorter wheel
+instructions; the previous long instruction clipped one glyph in native QA.
+
+Runs are disposable cloned worlds using an isolated source bridge; the source
+save is read-only input. No native access, item-transfer or dialogue API is
+replaced. The first live run caught the removed InventoryItemFactory global;
+physical creation now uses the installed instanceItem interface. An unrelated
+percent sign in the sandbox label also caused a translator formatting warning
+and was replaced with ordinary wording.
+
+Run data:
+C:/ZOMBOID/work/grid/build/live-sandbox-runs/<run-id>/
+Results: cache/Lua/SurvivorCompanionHarness/events.log
+Console: cache/console.txt
+Screens: cache/Screenshots/
+
+Artwork and limits
+------------------
+Six new original bitmaps were generated with the built-in image_gen tool.
+The ten combined Phase 1/2 artworks occupy 24 losslessly partitioned PNGs,
+4,654,521 bytes total; largest file 293,443 bytes. All are below 300 KiB per
+file and the combined payload is below 10 MiB. Text works without the artwork.
+Prompts, source hashes, packaged hashes and dimensions:
+docs/terminal-lock-art.json
+Payload: SurvivorCompanion/42/media/textures/Terminal/Locks/
+The live rings/glyphs are code. Printable mapping equality is a source test;
+an output-only rasterization was inspected for page fit. No generated bitmap
+was modified to create the printable.
+
+No new background service or sound asset was added. Existing UI cues are
+reused. Native playback paths are exercised, not certified by human listening.
+These live scenarios use the Rosewood police-office computer and the local
+machine's display settings. External NPC mods and future rare-lock mechanics
+are not claimed as completed Phase 2 acceptance. Public guide publication
+waits for Phase 3 and an explicit user request.
+
+Debug trial switch
+-------------------
+In an engine debug game set SCConfig.debugLockKind="wheel", "emma" or "search"
+before the next newly settled locked computer. The setting is consumed once.
+"word" and "remember" remain supported. It never rerolls existing settled
+machines or bypasses physical power/access rules. Public default remains nil.
+
+User-facing artifacts
+---------------------
+Printable: C:/ZOMBOID/work/grid/docs/larchfield-code-wheel.svg
+Native screenshots: C:/ZOMBOID/outputs/locked-computers-phase2-02689/
+  native-wheel.png, native-manual.png, native-search.png, native-emma.png
+  native-emma-memory.png, native-wheel-green.png, native-wheel-sand.png,
+  native-wheel-aqua.png, native-wheel-purple.png

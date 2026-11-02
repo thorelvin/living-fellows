@@ -1279,6 +1279,11 @@ local function registerTasks()
             if SC.BuildingScan then SC.BuildingScan.pulse(backgroundBudget(remaining)) end
             return true
         end, "background", false, true },
+        { "terminal-callback", 100, 21, function(current)
+            if SC.TerminalLockPhone then SC.TerminalLockPhone.pulse(current) end
+            if SC.TerminalLockRadio then SC.TerminalLockRadio.pulse(current) end
+            return true
+        end, "background", false, true },
         { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
             baseMaintenanceTask, "background" },
@@ -1484,6 +1489,7 @@ end
 -- button is clickable, and drag-and-drop behaves like any other container.
 local selectedBeforeContainerRefresh = setmetatable({}, { __mode = "k" })
 local function refreshInventoryContainers(page, phase)
+    if SC.TerminalDrawers then SC.TerminalDrawers.refresh(page,phase) end
     if type(page) ~= "table" or page.onCharacter == true then return end
     if tonumber(page.player) ~= nil and tonumber(page.player) ~= 0 then return end
     local bridge = SC.UIBridge
@@ -1587,6 +1593,8 @@ local function installContainerHook()
     -- argument to emit our narrow "container opened" signal.
     selectContainerWrapper = function(self, ...)
         local button = ...
+        if self and self.onCharacter~=true and SC.TerminalDrawers and button
+            and SC.TerminalDrawers.locked(button.inventory) then return end
         local result = packReturns(originalSelectContainer(self, ...))
         if self ~= nil and self.onCharacter ~= true and button ~= nil
             and self.inventoryPane ~= nil and self.inventoryPane.inventory == button.inventory then
@@ -1596,6 +1604,8 @@ local function installContainerHook()
     end
     setNewContainerWrapper = function(self, ...)
         local inventory = ...
+        if self and self.onCharacter~=true and SC.TerminalDrawers
+            and SC.TerminalDrawers.locked(inventory) then return end
         local result = packReturns(originalSetNewContainer(self, ...))
         if self ~= nil and self.onCharacter ~= true and inventory ~= nil
             and self.inventoryPane ~= nil and self.inventoryPane.inventory == inventory then

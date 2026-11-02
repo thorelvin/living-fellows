@@ -47,5 +47,11 @@
     "Sandbox_LivingFellows_NicknamesEnabled": "Companion nicknames",
     "Sandbox_LivingFellows_NicknamesEnabled_tooltip": "Allow companions to bring, earn, and use nicknames. Existing saved nicknames remain when this is turned off.",
     "Sandbox_LivingFellows_FamousNamesakes": "Rare famous namesakes",
-    "Sandbox_LivingFellows_FamousNamesakes_tooltip": "A very small number of new survivors may share an exact name with a fictional zombie story character. Off by default."
+    "Sandbox_LivingFellows_FamousNamesakes_tooltip": "A very small number of new survivors may share an exact name with a fictional zombie story character. Off by default.",
+    "Sandbox_LivingFellows_LockedComputerPercent": "Chance of a locked computer",
+    "Sandbox_LivingFellows_LockedComputerPercent_tooltip": "Share of newly discovered computers outside camp that need access recovery. Existing machines stay as they are.",
+    "Sandbox_LivingFellows_ClassicLocksOnly": "Classic computer locks only",
+    "Sandbox_LivingFellows_ClassicLocksOnly_tooltip": "Use the original word puzzle on newly opened locked computers. Keep recovery alternatives, the movement lamp and rewards.",
+    "Sandbox_LivingFellows_LockRealItems": "Computer drawer rewards",
+    "Sandbox_LivingFellows_LockRealItems_tooltip": "New computer recoveries can release a desk drawer or reveal real supplies in the building."
 }

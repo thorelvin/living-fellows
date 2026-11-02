@@ -291,6 +291,15 @@ do
     access=true
     check(SCComputerInstallAction.complete(action) and effects==1,"reachable equipment completes one physical installation")
     check(not SCComputerInstallAction.complete(action) and effects==1,"physical installation effects cannot replay")
+    local add=ISTimedActionQueue.add
+    local captured
+    ISTimedActionQueue.add=function(task) captured=task.maxTime end
+    local queued,_,task=S.install(player,pc,function() return true end,1050)
+    check(queued and task.maxTime==1050 and captured==1050,
+        "native action duration is configured before queue creation captures it")
+    S.install(player,pc,function() return true end)
+    check(captured==180,"ordinary equipment installations retain their default duration")
+    ISTimedActionQueue.add=add
     square.canReachTo=previous
 end
 do
