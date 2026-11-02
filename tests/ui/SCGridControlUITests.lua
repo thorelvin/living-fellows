@@ -3,7 +3,13 @@ local SC,T=SurvivorCompanion,TERMINAL_TEST
 local G,UI=SC.GridControl,SC.TerminalGridUI
 local check,before=T.check,T.checks
 local bucket,shut={},26
-ModData={getOrCreate=function() return bucket end,get=function() return bucket end}
+-- Match native ModData's separate keys: discovering a new computer must not
+-- initialize the grid's persistence bucket with an unrelated lock ledger.
+local otherBuckets={}
+ModData={getOrCreate=function(key)
+    if key==G.KEY then return bucket end
+    otherBuckets[key]=otherBuckets[key] or {} return otherBuckets[key]
+end,get=function(key) return key==G.KEY and bucket or otherBuckets[key] end}
 function getSandboxOptions() return {getElecShutModifier=function() return shut end,
     set=function(_,_,value) shut=value end,toLua=function() end} end
 function getWorld() return {getWorldAgeDays=function() return 40 end} end

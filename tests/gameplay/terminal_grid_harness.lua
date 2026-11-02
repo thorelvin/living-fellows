@@ -29,7 +29,7 @@ reply=Brain.respond(session(),"controller crack",world)
 check(table.concat(reply.lines," "):find("42.5%",1,true)~=nil,"query reports actual persisted progress")
 snapshot.crack=nil snapshot.on=true snapshot.remainingHours=12.3
 reply=Brain.respond(session(),"grid control",world)
-check(table.concat(reply.lines," "):find("13 game hours",1,true)~=nil,"running grid reports the heat deadline")
+check(table.concat(reply.lines," "):find("13 hours",1,true)~=nil,"running grid reports the heat deadline")
 snapshot.on=false snapshot.locked=true snapshot.coolingHours=40
 reply=Brain.respond(session(),"grid heat",world)
 check(table.concat(reply.lines," "):find("cool completely",1,true)~=nil,"tripped breaker explains the restart lock")

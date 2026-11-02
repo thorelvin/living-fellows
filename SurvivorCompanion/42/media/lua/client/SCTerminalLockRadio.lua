@@ -40,7 +40,7 @@ end
 function R.register(state)
     local ledger=SC.TerminalLocks.ledger() local night=clock() if not ledger or not night then return false end
     local lock=state.lock
-    if ledger.lastNight==nil then ledger.lastNight=night end
+    if ledger.lastNight==nil or #ledger.pending==0 and not broadcast then ledger.lastNight=night end
     if lock.serial and (lock.heard or ledger.heard[lock.serial] and ledger.heard[lock.serial].identity==state.identity) then lock.heard=true return true end
     for _,row in ipairs(ledger.pending) do if row.identity==state.identity then lock.serial=row.serial return true end end
     if #ledger.pending>=16 then return false end
@@ -151,7 +151,7 @@ function R.lines(w)
         local _,_,tod=clock()
         if R.heard(w.system) then rows[#rows+1]="ELECTRICAL: RECOVERY KEY RECEIVED."
         elseif onAir then rows[#rows+1]="ELECTRICAL: CARRIER ACTIVE. LISTEN NOW."
-        elseif tod then rows[#rows+1]=string.format("ELECTRICAL: NEXT CALL IN %.1f GAME HOURS.",(3-tod+24)%24) end
+        elseif tod then rows[#rows+1]=string.format("ELECTRICAL: NEXT CALL IN %.1f HOURS.",(3-tod+24)%24) end
     end
     if lock.codeWrong and R.heard(w.system) then table.insert(rows,4,"RECEIVED KEY: "..R.code(w.system.seed,lock.serial)) end
     if w.securityMessage then rows[#rows+1]=w.securityMessage end

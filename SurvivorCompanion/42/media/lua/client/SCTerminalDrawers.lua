@@ -67,7 +67,7 @@ function D.claim(player,object,state)
     if not book or not lock or lock.drawer or lock.drawerChecked or lock.slip or lock.realItems==false
         or lock.stash and lock.stash.committed then return end
     lock.drawerChecked=true
-    if SC.TerminalPayoff and SC.TerminalPayoff.wantsNote(state) then return end
+    if lock.kind~="persona" and SC.TerminalPayoff and SC.TerminalPayoff.wantsNote(state) then return end
     local count=0 for _ in pairs(book.drawers) do count=count+1 end
     if count>=32 then return end
     local where=D.find(object) if not where then return end
@@ -134,8 +134,9 @@ function D.refresh(page,phase)
     local blocked={}
     for id,claim in pairs(book.drawers) do
         limit=limit+1 if limit>32 then break end
-        local _,state,why=D.computer(claim) local container,missing=D.container(claim.drawer)
+        local object,state,why=D.computer(claim) local container,missing=D.container(claim.drawer)
         if why=="missing" or missing=="missing" then
+            if object then D.release(object) end
             local _,desk=D.container(claim.drawer)
             local data=type(desk)~="string" and desk and furniture(desk,false)
             if data and data.LF_LarchDrawerOwner==id then data.LF_LarchDrawerOwner=nil end
@@ -177,12 +178,12 @@ local function sound(object,name)
     local emitter=type(getWorld)=="function" and U().call(getWorld(),"getFreeEmitter",x+.5,y+.5,z)
     if emitter then U().call(emitter,"playSound",name) end
 end
-function D.open(player,object,state,forced)
+function D.open(player,object,state,forced,granted)
     if not D.enabled() then D.release(object) return false,"Computer drawer rewards are disabled." end
     local where=state and type(state.lock)=="table" and state.lock.drawer
     if not where or where.open or where.forced or not SC.Terminal.ownsState(object,state)
         or not U().near(player,object,3) or U().call(player,"isDead")==true then return false,"The drawer is no longer available." end
-    if not forced and state.locked then return false,"Unlock the computer first." end
+    if not forced and state.locked and not (granted==true and state.lock.kind=="persona") then return false,"Unlock the computer first." end
     local container,desk=D.container(where)
     if not container then return false,"The original drawer is not available." end
     local x,y,z=U().position(object)
@@ -192,6 +193,7 @@ function D.open(player,object,state,forced)
     if forced and not U().hasTool(player,"Base.Crowbar") then return false,"Bring a crowbar." end
     if forced then
         where.forced=true
+        if state.lock.kind=="persona" and state.lock.persona then state.lock.persona.flags.forced=true end
         local data=furniture(desk,true) if data then data.LF_LarchDrawerBroken=true end
     else where.open=true end
     -- Commit before native fill/AddItem. Neither an exception nor reloading
@@ -219,12 +221,11 @@ function D.context(context,player,objects)
         local _,computer,state=D.claimFor(container)
         if computer and U().near(player,computer,3) and U().hasTool(player,"Base.Crowbar") then
             context:addOption("Force the drawer",player,function(actor)
-                local okay,_,task=SC.TerminalServices.install(actor,computer,function()
+                SC.TerminalServices.install(actor,computer,function()
                     local current=SC.Terminal.peekState(computer)
                     if not current or current.identity~=state.identity then return false,"The original computer is gone." end
                     return D.open(actor,computer,current,true)
-                end)
-                if okay and task then task.maxTime=300 end
+                end,300)
             end)
             return true
         end

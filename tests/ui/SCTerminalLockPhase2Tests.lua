@@ -132,6 +132,16 @@ local beforeBypass=xp
 submit(w,"other ways in") submit(w,"yes") submit(w,"run crack.exe")
 submit(w,SC.TerminalLockCrack.password(w.system))
 check(not w.system.locked and xp-beforeBypass==30,"early medium crack uses one lower tier, then the early-answer multiplier")
+for _,hidden in ipairs({1,2,3,4,0}) do
+    w,pc=open("search",430+hidden)
+    submit(w,"other ways in") submit(w,"yes") submit(w,"run crack.exe")
+    local C=SC.TerminalLockCrack local c=w.system.lock.crack local password=C.password(w.system)
+    c.doneHours=c.requiredHours*(#password-hidden)/#password
+    c.lastHours=T.hours
+    check(#password-C.sealed(w.system)==hidden,"fixture leaves exactly "..hidden.." hidden password letters")
+    submit(w,password)
+    check(not w.system.locked,"correct crack password unlocks with "..hidden.." hidden letters")
+end
 
 local beforeWheel=xp
 w,pc=open("wheel",405)

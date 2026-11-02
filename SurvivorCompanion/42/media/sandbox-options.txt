@@ -16,6 +16,14 @@ option LivingFellows.ClassicLocksOnly
     page = LivingFellows,
     translation = LivingFellows_ClassicLocksOnly,
 }
+option LivingFellows.RareComputers
+{
+    type = enum,
+    numValues = 3,
+    default = 2,
+    page = LivingFellows,
+    translation = LivingFellows_RareComputers,
+}
 option LivingFellows.LockRealItems
 {
     type = boolean,

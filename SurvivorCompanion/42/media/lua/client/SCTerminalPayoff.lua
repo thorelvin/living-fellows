@@ -14,6 +14,7 @@ function P.rewardTier(state,forced)
     return math.max(1,tier-(forced and 1 or 0))
 end
 function P.items(state,forced)
+    if state.lock.kind=="persona" and not forced then return SC.TerminalPersona.rewardItems(state.lock.persona) end
     local tier=P.rewardTier(state,forced) local profile=SC.TerminalFiles.get(state.archive)
     local kind=state.lock.machineKind or profile and profile.kind
     local selected=rewards[tier][state.seed%#rewards[tier]+1]
@@ -63,7 +64,9 @@ function P.place(player,object,state,container,forced)
     if not lock or lock.realItems==false or not SC.TerminalDrawers.enabled() or lock.slip or lock.stash and lock.stash.committed then return false end
     local parent=U().call(container,"getParent") local where=parent and U().position(parent)
     if not where or not SC.Terminal.ownsState(object,state) then return false end
-    local row=SC.TerminalLockStashes[state.archive]
+    -- Persona rewards have their own contents. An unrelated previous owner's
+    -- water/child-item recipe must not alter those exact native items.
+    local row=(lock.kind~="persona" or forced) and SC.TerminalLockStashes[state.archive] or nil
     local choices=P.items(state,forced)
     local x,y,z=U().position(parent)
     local kind=U().call(container,"getType")
@@ -102,7 +105,7 @@ function P.place(player,object,state,container,forced)
             end
         end
     end
-    if #names==0 or forced then return #names>0 end
+    if #names==0 or forced or lock.kind=="persona" then return #names>0 end
     local suffix=" ("..string.upper(tostring(kind))..", "..string.upper(roomName)..")"
     local note=complete and row and row.quote or "NOTE TO SELF: SPARE "..table.concat(names,", ").."."
     stash.note=note:sub(1,math.max(1,200-#suffix))..suffix
@@ -144,6 +147,11 @@ local function dayNumber(y,m,d)
     return era*146097+yy*365+math.floor(yy/4)-math.floor(yy/100)
         +math.floor((153*(m+(m>2 and -3 or 9))+2)/5)+d-1
 end
+function P.daysSinceOutbreak()
+    local clock=type(getGameTime)=="function" and getGameTime()
+    local y,m,d=U().call(clock,"getYear"),U().call(clock,"getMonth"),U().call(clock,"getDay")
+    if y and m and d then return math.max(0,dayNumber(y,m+1,d+1)-dayNumber(1993,7,9)) end
+end
 function P.firstName(owner)
     local titles={dr=true,mr=true,mrs=true,ms=true,miss=true,prof=true,professor=true,rev=true,
         reverend=true,officer=true,sgt=true,sergeant=true,capt=true,captain=true,chief=true,doctor=true}
@@ -163,9 +171,7 @@ function P.welcome(state)
         sentence=sentence:match("^%s*(.-)%s*$") if #sentence>=24 then document=sentence break end
     end
     local cut=math.floor(#document*.6) document=document:sub(1,cut):match("^(.*)%s+%S*$") or document:sub(1,cut)
-    local clock=type(getGameTime)=="function" and getGameTime()
-    local y,m,d=U().call(clock,"getYear"),U().call(clock,"getMonth"),U().call(clock,"getDay")
-    local days=y and m and d and math.max(0,dayNumber(y,m+1,d+1)-dayNumber(1993,7,9)) or 0
+    local days=P.daysSinceOutbreak() or 0
     return {name="WELCOME BACK, "..string.upper(owner:match("^%S+") or "OPERATOR")..".",days=days,
         mail=math.floor(state.seed%37+days/3),document='"'..document.."_"}
 end

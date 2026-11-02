@@ -127,7 +127,7 @@ local function report(w,result)
     local pool=pools[key] or {"Survey finished: {controls}, {finds}, {floors}."}
     local line=pool[mod(result.generation-1,#pool)+1]
     local fields={controls=count(result.controls,"control"),finds=count(result.finds,"read-only find"),
-        floors=count(#result.floors,"floor"),outOfRange=count(result.outOfRange,"tile")}
+        floors=count(#result.floors,"floor"),outOfRange=count(result.outOfRange,"spot")}
     line=line:gsub("{(%w+)}",function(name) return tostring(fields[name] or "?") end)
     w:print(line,"emma") UI.notice(w,line,true)
     SC.Terminal.playFeedbackSound("LFTerminalScanDone")

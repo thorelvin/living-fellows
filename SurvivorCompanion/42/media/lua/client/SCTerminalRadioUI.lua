@@ -93,7 +93,7 @@ local function act(w,action,value)
         local detail=report and (report.kind=="scout" and "scouting" or tostring(report.collected or "unknown").." collected")
         if report and report.stored~=nil then detail=detail.."; "..tostring(report.stored).." stored" end
         return result(w,true,report and ("Last confirmed report: "..tostring(report.phase or "working").."; "..detail
-            ..". Heard at "..tostring(report.at or "unknown").." game hours.") or "No report has been acknowledged at this PC. Request a fresh report from the expedition.")
+            ..". Heard at "..tostring(report.at or "unknown").." hours.") or "No report has been acknowledged at this PC. Request a fresh report from the expedition.")
     end
     local rt,reason=R().ready(w)
     if not rt then return result(w,false,reason) end
@@ -313,7 +313,7 @@ function UI.draw(w,now)
     local y=plotY+plotH+3
     if w.radioPage=="reading" and w.radioReading then
         local saved=w.radioReading
-        y=lines((saved.recorded and "Recording / " or "Received / ")..string.format("%.1f game hours",saved.at),y,buttonTop,title)
+        y=lines((saved.recorded and "Recording / " or "Received / ")..string.format("%.1f hours",saved.at),y,buttonTop,title)
         local observation=saved.recorded and "EMMA: Recorded media; not a live contact." or saved.text:lower():find("weather",1,true)
             and "EMMA: Weather is mentioned in this reception." or "EMMA: Text received here; identity and completeness may be uncertain."
         local content=SC.Terminal.wrap(saved.text.."\n"..observation,w:columns()) local visible=math.max(1,math.floor((buttonTop-y)/row))
@@ -322,7 +322,7 @@ function UI.draw(w,now)
     else
         local message=w.radioNotice or snap.notice or "Signal activity; this display is not an audio frequency measurement."
         if snap.scan then message=snap.notice.." "..snap.scan.index.."/"..snap.scan.count end
-        if w.radioPage=="notebook" then message=#snap.memory.log==0 and "Nothing recorded here yet. Entries contain received text and game time." or "Choose a reception to read. Recordings are marked separately."
+        if w.radioPage=="notebook" then message=#snap.memory.log==0 and "Nothing recorded here yet. Entries contain received text and transmission times." or "Choose a reception to read. Recordings are marked separately."
         elseif w.radioPage=="heard" then message="Only frequencies actually received by this PC are listed."
         elseif w.radioPage=="presets" then message="Presets belong to the mounted handset. Type: save this channel as Weather" end
         lines(message,y,buttonTop)

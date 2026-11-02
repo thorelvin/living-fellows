@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 local SC, T = SurvivorCompanion, TERMINAL_TEST
 local Lamp, World, check = SC.TerminalLamp, SC.TerminalWorld, T.check
+local checksBefore=T.checks
 local oldU, oldRegistry, oldFactions, oldCell = SC.GameplayUtil, SC.Registry, SC.Factions, getCell
 local function actor(x,y,z,kind)
     local a={x=x,y=y,z=z,kind=kind or "zombie"}
@@ -69,9 +70,12 @@ check(state.distance==nil,"complete clear discards stale distance for clutch rew
 local before={health=100,bites=0,scratches=0,knocked=false}
 check(not Lamp.hit(before,{health=98,bites=0,scratches=0},"HUNGRY"),"hunger damage leaves terminal open")
 check(not Lamp.hit(before,{health=98,bites=0,scratches=0},"HEAVYLOAD"),"overburden damage leaves terminal open")
+check(not Lamp.hit(before,{health=98,bites=0,scratches=0},"BLEEDING"),"existing bleeding leaves terminal open even with material health loss")
+check(Lamp.hit(before,{health=98,bites=1,scratches=0},"BLEEDING"),"a new bite still closes during existing bleeding")
+check(Lamp.hit(before,{health=98,bites=0,scratches=0,knocked=true},"BLEEDING"),"knockdown still closes during existing bleeding")
 check(Lamp.hit(before,{health=100,bites=1,scratches=0}),"new bite closes without waiting for aggregate health")
 check(Lamp.hit(before,{health=100,bites=0,scratches=0},"WEAPONHIT"),"real weapon hit closes without a health delta")
 check(not Lamp.hit(before,{health=99.8,bites=0,scratches=0}),"sub-threshold incidental damage is ignored")
 check(Lamp.hit(before,{health=99,bites=0,scratches=0}),"unclassified material damage closes")
 SC.GameplayUtil,SC.Registry,SC.Factions,getCell=oldU,oldRegistry,oldFactions,oldCell
-SC_TEST_REPORT=(SC_TEST_REPORT or "").."; Lamp: 21 bounded sensor/display checks passed"
+SC_TEST_REPORT=(SC_TEST_REPORT or "").."; Lamp: "..(T.checks-checksBefore).." bounded sensor/display checks passed"

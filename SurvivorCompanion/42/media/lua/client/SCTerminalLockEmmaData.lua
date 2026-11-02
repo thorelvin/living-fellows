@@ -91,7 +91,7 @@ SC.TerminalLockEmmaData = {
           rejected="Then you are out of practice, and it shows." },
         { id="something_outside", kind="pity", claim="zombie",
           text="There is something out there, close. Please. Hurry.",
-          accepted="There is. {D} tiles, and I do not like its manners. Type quickly. I would rather you did not stop.",
+          accepted="There is. {D} meters, and I do not like its manners. Type quickly. I would rather you did not stop.",
           rejected="There is, and it is not my problem yet. Try another reason.",
           caught="There is nothing near you. You are inventing monsters. We have enough." },
         { id="lost_someone", kind="pity",

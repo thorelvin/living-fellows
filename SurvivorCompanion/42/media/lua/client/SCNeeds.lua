@@ -31,11 +31,13 @@ end
 function Needs.routineAllowed(actor,player,commands,current)
     commands=type(commands)=="table" and commands or needsCommands(actor)
     if commands.expeditionMoving then return false end
+    -- A stopped mission uses its own crew's supplies, not the remote player's
+    -- position or pause clock. Moving missions still defer routine needs above.
+    if commands.expeditionMember then return true end
     if not commands.recruited or (commands.order~="follow" and commands.order~="regroup") then return true end
     if not player then return false end
     local moving=select(1,U().call(player,"isMoving"))==true
     local inVehicle=select(1,U().call(player,"getVehicle"))~=nil
-        or select(1,U().call(actor,"getVehicle"))~=nil
     local x,y,z=U().position(player)
     if x==nil or y==nil or moving or inVehicle then stoppedLeaders[player]=nil;return false end
     current=tonumber(current) or U().nowMs()
@@ -44,16 +46,27 @@ function Needs.routineAllowed(actor,player,commands,current)
         or (x-record.x)^2+(y-record.y)^2>0.01 then
         record={x=x,y=y,z=z or 0,since=current};stoppedLeaders[player]=record
     end
+    -- A seated follower cannot eat here, but it must not reset the shared
+    -- leader clock for every other companion on foot.
+    if select(1,U().call(actor,"getVehicle"))~=nil then return false end
+    local radius=math.max(3,(tonumber(commands.followDistance) or 3)+2)
+    local own=states[actor]
+    if own and own.routineWork then
+        -- Finish an admitted errand anywhere in the source radius, including
+        -- an adjacent interaction square; movement by the leader still cancels.
+        radius=math.max(radius,(tonumber(U().config("needsFollowSourceRadius")) or 6)+2)
+    end
     return current-record.since>=(tonumber(U().config("needsFollowPauseMs")) or 15000)
         and U().sameFloor(actor,player)
-        and U().distance(actor,player)<=math.max(3,(tonumber(commands.followDistance) or 3)+2)
+        and U().distance(actor,player)<=radius
 end
 
 local function routineContext(actor,player,options)
     local commands=needsCommands(actor,options)
     local allowed=Needs.routineAllowed(actor,player,commands,U().nowMs())
     if options and options.expeditionTravel then allowed=false end
-    local following=commands.recruited and (commands.order=="follow" or commands.order=="regroup")
+    local following=not commands.expeditionMember and not (options and options.expeditionMember)
+        and commands.recruited and (commands.order=="follow" or commands.order=="regroup")
     local scope=following and player and {origin=player,
         radius=tonumber(U().config("needsFollowSourceRadius")) or 6} or nil
     return allowed,scope,commands
@@ -1485,7 +1498,7 @@ local function fetchFromCamp(actor, key, predicate, snapshot, searchOptions)
     return status == "taken" or status == "in_progress", reason or status,status
 end
 
-local function feed(actor,player,state,assessment,snapshot,scope,options)
+local function feed(actor,player,state,assessment,snapshot,scope,options,commands)
     local emergency=hungerEmergency(assessment)
     local eligible=consumableFor(actor,function(item)
         local tier=Needs.foodTier(item)
@@ -1503,7 +1516,7 @@ local function feed(actor,player,state,assessment,snapshot,scope,options)
         if carried then return consume() end
         return false,"camp_storage_unavailable"
     end
-    if options.expeditionMember and not emergency then
+    if (options.expeditionMember or commands and commands.expeditionMember) and not emergency then
         if carried then return consume() end
         return false,"trip_food_unavailable"
     end
@@ -1541,7 +1554,7 @@ function Needs.update(actor, player, runtime, options)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = stateFor(actor, runtime)
     options=type(options)=="table" and options or {}
-    local routine,scope=routineContext(actor,player,options)
+    local routine,scope,commands=routineContext(actor,player,options)
     local hour = worldHour()
     local peeDueAt = peeSchedule(actor, hour)
     local root = U().actorState(actor, runtime)
@@ -1568,6 +1581,10 @@ function Needs.update(actor, player, runtime, options)
         return false, "needs_unsafe"
     end
     local travelling = options.expeditionTravel == true or options.expeditionMember == true
+        or commands.expeditionMember == true
+    local waterScope,foodScope=scope,scope
+    if thirstEmergency(assessment) then waterScope=nil end
+    if hungerEmergency(assessment) then foodScope=nil end
     local function track(accepted,why)
         if accepted then state.routineWork=not (state.selectedNeed=="thirst"
             and thirstEmergency(assessment) or state.selectedNeed=="hunger" and hungerEmergency(assessment)) end
@@ -1592,7 +1609,7 @@ function Needs.update(actor, player, runtime, options)
         -- At camp a nearby tap or well saves carried drinking water. A bottle
         -- remains the immediate choice when the source is farther away.
         local source = state.waterSource
-        if source and (not validWaterSource(source) or not insideScope(source,scope)) then
+        if source and (not validWaterSource(source) or not insideScope(source,waterScope)) then
             source, state.waterSource, state.waterOriginSquare = nil, nil, nil
             state.waterCandidateList=nil
         end
@@ -1600,7 +1617,7 @@ function Needs.update(actor, player, runtime, options)
         if not source and current >= (state.nextWaterSearchAt or 0)
             and (not travelling or assessment.emergency) then
             local sourceReason
-            source, sourceReason = findWaterSource(actor, state,scope)
+            source, sourceReason = findWaterSource(actor, state,waterScope)
             state.waterSource = source
             state.waterOriginSquare = source and U().squareOf(actor) or nil
             state.nextWaterSearchAt = current
@@ -1626,11 +1643,11 @@ function Needs.update(actor, player, runtime, options)
             state.nextWaterSearchAt = 0
             if water then return track(drinkItem(actor, water, assessment.thirst)) end
             local fetched, fetchReason = fetchFromCamp(actor,
-                "needs_water", safeWater, snapshot,scope and {origin=scope.origin,radius=scope.radius} or nil)
+                "needs_water", safeWater, snapshot,waterScope and {origin=waterScope.origin,radius=waterScope.radius} or nil)
             if fetched then return track(true, fetchReason) end
         elseif not travelling or assessment.emergency then
             local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot,
-                scope and {origin=scope.origin,radius=scope.radius} or nil)
+                waterScope and {origin=waterScope.origin,radius=waterScope.radius} or nil)
             if fetched then return track(true, fetchReason) end
             thirstReason = "clean_water_unavailable"
         end
@@ -1639,7 +1656,7 @@ function Needs.update(actor, player, runtime, options)
     local foodReason
     if assessment.hungry and (routine or hungerEmergency(assessment)) then
         state.selectedNeed="hunger"
-        local handled,why=feed(actor,player,state,assessment,snapshot,scope,options)
+        local handled,why=feed(actor,player,state,assessment,snapshot,foodScope,options,commands)
         state.foodPending=handled==true or nil
         if handled then return track(handled,why) end
         foodReason=why

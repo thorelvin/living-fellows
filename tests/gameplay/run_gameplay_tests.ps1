@@ -242,6 +242,7 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsPriorityFiles
             if ($LASTEXITCODE -ne 0) { throw 'Needs food preference and travel pause regression failed.' }
+            & (Join-Path $TestRoot 'Test-NeedsPriorityNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $needsPriorityFiles -BuildRoot $BuildRoot
             $supplyPolicyFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
@@ -390,6 +391,10 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal harness failed.' }
+        $personaFiles = @('SCTerminalPersona.lua', 'SCTerminalPersonaSpiffy.lua', 'SCTerminalPersonaEllis.lua', 'SCTerminalPersonaDuty.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
+        $personaFiles += Join-Path $TestRoot 'persona_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @personaFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Supplied persona conversation harness failed.' }
     }
     finally {
         Pop-Location

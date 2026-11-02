@@ -1,0 +1,121 @@
+Living Fellows 0.26.91 - rare computers, Phase 1
+2026-11-02
+
+Scope
+-----
+Worktree: C:/ZOMBOID/work/rare-computers-02691
+Branch: living_fellows/0.26.91
+Base: origin/living_fellows/0.26.90, 9fd74baa38a1ed63aa3c549553ac65aee71dbe5b
+Phase A and Phase 0 remain included. This checkpoint implements one playable
+SPIFFY computer through a single-use debug override. Natural discovery and
+live creation of the other personalities remain for Phase 2. No install,
+commit, push, Workshop upload or field-guide publication was performed.
+
+The supplied engine, three dialogue files and conversation harness were
+copied without changes. The content audit and mutation controls now use
+repository paths and run in the project gate. test_persona_integration.py
+pins the engine and dialogue, ignoring only platform newline differences.
+The original C:/ZOMBOID audit and harness-only controls had both exited 0
+before implementation began, as required by section 0 of the handoff.
+
+Implemented
+-----------
+- Headerless CRT: silent first contact, a blinking prompt, native focused
+  input off-screen, persona-coloured live input and typed replies. No BIOS,
+  logo, caption, menu, close button, threat lamp or thinking spinner.
+- Enter submits or skips; Up/Down history, page/wheel scrolling and Escape
+  remain available. Digits do not auto-submit. Tab leaves chat alone.
+- Live clock, calendar days, moodles, crew, deaths, threat, location and
+  zombie facts; failed reads are omitted. Population/crew/history reads run
+  on submission. The open window owns the existing 500ms threat watch.
+  No persona background service or new event hook was added.
+- Conversation progress, home position and effect receipts survive
+  normalization. Unknown/broken persona extensions fall back to an ordinary
+  word lock while preserving the computer. Non-finite saved seeds are
+  repaired in the adapter, without changing the supplied engine.
+- Physical drawer claim/release, exact native item receipts, supplied
+  rewards and ordinary forced-entry contents. Previous-owner recipes cannot
+  add water or nested items to persona rewards. A failed drawer release
+  replaces the promised success with the supplied failure reply.
+- Original deterministic LFSpiffyJingle.wav, 3.32 seconds, no samples.
+  Native 3D playback and nominal 40-metre world sound, at most once/hour.
+- Relief: stress -0.25 and unhappiness -20, once/game day. Cheer: boredom
+  -25 once/game day. Weight: stress +0.05, capped at two/machine. These use
+  the stat ranges verified in Phase 0; not every starting value crosses
+  exactly one moodle tier. Receipts are committed before native effects.
+- Power-cut reply and retained interruption flag. Shutdown waits for typing,
+  releases a still-shut drawer, clears the lock, and uses factory reset to
+  reopen ordinary EMMA. Power loss cancels a pending shutdown.
+
+Automated checks
+----------------
+Content audit: 379 rules, 692 base lines, 417 dark lines; 0 errors, 0 notes.
+Original conversation harness passes in the installed game's Kahlua VM.
+All 25 intentional engine mutations are caught; the unmodified control passes.
+UI tests cover actual window methods, four resolutions from 1024x768 to
+2560x1440, input buffering, failed drawer replies, native enum names,
+effect amounts/cooldowns, reopening, corrupt saves and reward isolation.
+
+First full project gate: 30/30 passed, 232 seconds.
+Final post-hardening gate: 30/30 passed, 235 seconds. Includes source,
+installer rollback, combat, navigation, persistence, gameplay, UI, existing
+field work, all mutation controls and both packaging formats.
+
+Native acceptance
+-----------------
+Run: SC-Harness-20261102-193459-19bd2a72
+Result: 55 PASS, 0 FAIL; no Lua exceptions.
+Game: 42.21.0, Living Fellows only, isolated source bridge, native audio on.
+Seed: C:/Users/thore/Zomboid/Saves/Rising/LF-Skills5-Test-2026-10-29
+The original seed and installed mod were untouched. Fixtures existed only
+in the disposable clone. Unrelated large debug probes were excluded.
+
+Verified in the real game:
+- Real loaded desktop and desk, opened through the native Loot timed action.
+- Blank first screen, hidden native input/close button, typed digits, Tab,
+  Enter and Escape through the native widget callbacks.
+- First unattended reply after about 45 seconds; no repeated idle prompt.
+- Full manager conversation with real typewriter timing and player name.
+- All four reward identities in the physical desk; no duplicates on reopen.
+- Reopening through System.normalize retains conversation and drawer state.
+- Real FMOD voice playing for the jingle; same-hour noise receipt retained.
+- Computer power switch interrupts safely despite the home's generator;
+  reopening retains the interruption. Grid cut alone is not a power cut
+  while a generator or UPS still supplies this computer.
+- Native factory-reset path releases a closed interlock and reopens EMMA.
+
+These are real game captures, not mockups. The test injected characters and
+Enter/Escape/Tab into native widget handlers; it did not inject OS keyboard
+events. A human trial is still the next checkpoint. Native reopening tests
+normalization, not a full quit/restart of an active conversation. The closed
+drawer reset case is a deliberately prepared native fixture. Other persona
+stories/effects have headless/UI coverage; their live acceptance is Phase 2.
+The jingle's FMOD voice was verified, not subjectively auditioned. Phase 0
+checked the matching world-sound radius with zombies; 40 metres is nominal.
+
+Artifacts
+---------
+C:/ZOMBOID/outputs/rare-computers-phase1/events.log
+C:/ZOMBOID/outputs/rare-computers-phase1/console.txt
+C:/ZOMBOID/outputs/rare-computers-phase1/blank-prompt.png
+C:/ZOMBOID/outputs/rare-computers-phase1/typed-prompt.png
+C:/ZOMBOID/outputs/rare-computers-phase1/spiffy-conversation.png
+C:/ZOMBOID/outputs/rare-computers-phase1-native-clean.log
+C:/ZOMBOID/outputs/rare-computers-phase1-gate-final.log
+Complete native clone and additional screenshots are retained under:
+build/live-sandbox-runs/SC-Harness-20261102-193459-19bd2a72
+
+Debug trial and next checkpoint
+-------------------------------
+In an engine-debug session, before the next never-opened computer boots:
+SurvivorCompanion.Config.debugPersona = "spiffy"
+The old SCConfig table spelling is also accepted when that table exists.
+The override consumes only a fresh record, is single-use, and remains nil
+in the shipped defaults. It cannot alter previously opened computers.
+Phase 2 will add the natural Director, sandbox option, all three machines,
+deep-post guarantee and the remaining lifecycle/live scenarios.
+
+The bridge protocol remains 42.21-isocompanion-27; no native source/class
+change was made. Phase A changed only its manifest release label. Payload
+bridge SHA256:
+601c0f1ef68c084432d12676b6c09e8efe5ce11c6bc11e157ecf2ff100f41f30

@@ -260,7 +260,7 @@ function G.connectBlocker(object,passive)
     local reason=available(object,passive)
     if reason then return reason end
     local site=G.siteFor(object)
-    if not site then return "Place this computer within 40 tiles of a substation." end
+    if not site then return "Place this computer within 40 meters of a substation." end
     local state,p,s=hardware(object),portable(object),store()
     if state and state.gridSite then return "This computer is permanently connected to its substation." end
     if s.sites[site.id] then return "This substation is already answering." end
@@ -284,7 +284,7 @@ function G.startConnect(object)
     local task={site=site.id,doneHours=0,controller=identity(object),lastHours=clock(),powered=true,
         radioId=hardware(object).radio.id,x=x,y=y,z=z}
     p[G.CONNECT_KEY]=task store().connections[site.id]=task known[task.controller]=object
-    return true,"Connecting to "..site.label..". Keep the generator running for 30 game minutes."
+    return true,"Connecting to "..site.label..". Keep the generator running for 30 minutes."
 end
 function G.yardSupply(object,state)
     if not state or not byId[state.gridSite] or not supported() then return false end
@@ -404,7 +404,7 @@ function G.energize(object,player)
     local value=math.min(math.floor(days)+3,math.floor(days)+math.ceil(remaining/24)+1)
     if not write(s,value) then return false,s.standDown end
     s.on,s.heat,s.windowHours,s.warned,s.heatHours=true,heat,window,{},clock()
-    notice("Grid power restored. "..math.floor(remaining).." game hours until the heat limit.")
+    notice("Grid power restored. "..math.floor(remaining).." hours until the heat limit.")
     return true,"The grid is on. Watch the heat gauge; switching off early shortens cooling."
 end
 function G.cut(reason)
@@ -632,7 +632,7 @@ function G.prepare(window,proposal)
         if busy then return nil,"Another computer is already cracking this substation." end
     end
     local target={object=window.object,identity=identity(window.object),operation=op,site=proposal.site}
-    local prompt=op=="connect" and "Permanently connect THIS computer and its mounted radio to the substation? They stay here for good. Keep a generator running for 30 game minutes. [Y/N]"
+    local prompt=op=="connect" and "Permanently connect THIS computer and its mounted radio to the substation? They stay here for good. Keep a generator running for 30 minutes. [Y/N]"
         or op=="crack" and resuming and ("Resume the "..site.label.." crack from this computer? Its checkpoint carries over at "..string.format("%.1f",resuming.doneHours/resuming.requiredHours*100).."%. [Y/N]")
         or op=="crack" and ("Start cracking "..site.label.." from this base computer? Time only counts if it still has power when you next use it. Each substation needs its own crack. [Y/N]")
         or op=="cut" and "Switch the restored grid off now and begin cooling? [Y/N]"

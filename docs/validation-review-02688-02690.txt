@@ -1,0 +1,110 @@
+Review fixes: Living Fellows 0.26.88-0.26.90
+Date: 2026-11-02
+Branch: living_fellows/0.26.91
+Base: 9fd74baa38a1ed63aa3c549553ac65aee71dbe5b
+Input: C:/ZOMBOID/review-0.26.88-0.26.90.md
+
+Scope
+All fourteen findings were checked against this worktree and fixed. Existing
+uncommitted rare-computer work remains intact. The separate work/grid tree was
+not changed. No install, commit, push, Workshop upload or live client run.
+
+Findings
+1. Phone sound: explicitly tick the owned emitter on every unpaused active
+   pulse, including silent intervals. The source gate detects owned emitters
+   without a tick; the mock emitter verifies that pulses actually call it.
+2. Phone answer: offer and accept the action for the entire active call, rather
+   than only the two-second ring. Revalidate the exact captured call at both
+   click and completion; a later call to the same handset cannot satisfy it.
+3. Cracking: choose early versus completed unlock by elapsed cracking progress,
+   rather than the number of hidden letters. Real unlock tests cover one, two,
+   three and four hidden letters and a completed crack.
+4. Needs scope: clear the leader-centred scope independently for emergency
+   thirst and hunger. Stopped expedition members skip the remote-player pause
+   and distance tests, and use carried supplies for routine needs even when
+   membership comes from real commands rather than options. Moving trips defer
+   routine needs as before. Test remote Follow orders with carried water and
+   food, plus emergencies using an actor-local sink and marked food.
+5. Shared pause: a seated follower defers its own routine needs without resetting
+   the leader's clock for companions on foot. Leader movement/boarding still
+   resets it. Test a standing follower beside a seated follower for 40 seconds.
+6. Phone prerequisites: after bounded discovery finds no phone, reselect with
+   phone unavailable using the same opening slot, not an automatic word lock.
+   Preserve the computer, owner, drawer claim and opening counter. Prepare/open
+   the selected method through the shared existing paths; record the actual
+   method as seen. Keep the 128-square slice and 4096-square hard limit.
+7. Radio schedule: when registering the first request after an idle period,
+   anchor lastNight to the current night. Do not reset an existing queue or
+   broadcast. Test quiet nights, registration at 14:00, 02:59 and the next 03:00.
+8. Missing drawer: clear the computer's drawer reference as well as its ledger
+   claim when loaded furniture is definitely absent. Commit the abandoned reward
+   so it cannot be recreated. Unloaded locations retain their exact claims.
+9. Crowbar: pass duration 300 before native queueing starts, rather than assigning
+   it to an already queued action. The regression captures the install argument.
+10. USER2 digits: route typed footer numbers through the displayed options, as
+    for word and remember locks. Test opening Failed logins with its shown digit.
+11. Prompt: share lock-specific placeholder text between boot and phone fallback.
+    Test a replacement method with a different prompt from the abandoned phone.
+12. Boarding withdrawal: suppress distant combat only with a verified stopped
+    car on the same floor, within 12 meters, and a current seat assignment.
+    Otherwise retain ordinary combat choices. Test full and entry-busy cars,
+    moving/distant cars, another floor, missing/erroring APIs and hostile humans.
+    Existing contact, emergency, doctrine and physical boarding tests still pass.
+13. Errand boundary: preserve the formation-distance admission rule, but let an
+    admitted errand finish within the six-meter source radius plus a two-meter
+    interaction margin. Test follow distances 1, 2, 3, 5 and 8, boundary movement,
+    actual needs action dispatch and cancellation when the leader moves again.
+14. Answer feedback: report success only after a code was really heard. An ended
+    or replaced call returns failure with readable redial advice instead.
+
+Other review points
+- Keep the user-approved 75% routine-hunger threshold. Document that vanilla's
+  Starving moodle starts at 70%; emergency hunger stays 82% and thirst 75%.
+- Existing BLEEDING damage does not close the terminal; new bites, scratches,
+  weapon hits and knockdown still do. New tests cover bleeding and new trauma.
+- Remove the redundant carriedSuppliesAvailable decision condition. Moving-trip
+  routine consumption is still deferred by the existing admission rule.
+- The listed retry, case, phone and radio wording now uses minutes/hours; the
+  earlier wording pass had already fixed those strings. Text-adventure HP stays.
+- Fill the historical 0.26.88 changelog gaps for meals, travel pauses, boarding
+  withdrawal and native gunshot sound. Add current player-facing fix notes.
+- No native bridge code or protocol change for these review fixes. The earlier
+  rare-computer branch already has matched 0.26.91 metadata in its bridge JAR.
+
+Automated results (current code)
+- Terminal UI suite in the game's Kahlua engine: PASS, including locks, drawer
+  ownership, radio receipts, all recovery phases and persona lifecycle/content.
+- decision_arbitration_harness.lua: PASS, 198 checks.
+- needs_priority_harness.lua: PASS, 126 checks.
+- needs_trip_harness.lua: PASS.
+- 37 mutation controls: PASS; every modified copy failed the intended assertion.
+  This includes explicit reversions of the new fixes. Production files were
+  read back unchanged; mutations were made only in the output directory.
+- Terminal source/asset tests: PASS, 14 tests, including the owned-emitter control.
+- Gameplay static contracts: PASS, 922 assertions across 58 sources/47 commands.
+- UI contracts: PASS, 93 tests.
+- Persona audit and integration: PASS; original engine/dialogue retained.
+- All 280 payload Lua files: PASS, normal and debug compilation, including the
+  compiler's debug-limit negative fixture.
+- Changed PowerShell scripts parse; git diff --check passes.
+
+Resource limits and evidence
+Used one headless JVM at a time, BelowNormal priority, 256 MB Java heap cap,
+ActiveProcessorCount=2 and SerialGC; compilation uses the real JDK 17 compiler,
+not the previously stuck Oracle PATH shim. Each process has a finite timeout.
+Full project gate and live acceptance were deliberately not repeated while the
+user was using the PC. In particular, phone audio has not been heard in a live
+sound-enabled game, and the new bleeding handling has not been checked live.
+Fixture tests exercise production Lua against simulated objects, not native
+pathfinding or a rendered world. Do not label these as live acceptance.
+
+Logs and reproducible focused drivers:
+C:/ZOMBOID/outputs/review-8890/
+C:/ZOMBOID/outputs/review-8890-focused.py
+C:/ZOMBOID/outputs/review-8890-negative.py
+C:/ZOMBOID/outputs/review-8890-compile.py
+
+The normal project runners retain the extended Lua regression cases. Terminal
+phase-two/three negative controls are wired into the UI runner; the six needs
+negative controls are wired into the gameplay runner. The emitter source check
+is part of the existing source gate.

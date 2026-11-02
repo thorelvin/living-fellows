@@ -1,0 +1,152 @@
+Rare computers — Phase 0 readiness checks
+2026-11-02; working branch living_fellows/0.26.91
+Project Zomboid 42.21.0, Living Fellows alone, isolated cloned save.
+
+Result
+Final native run SC-Harness-20261102-184851-5cc6c819: 34 PASS, 0 FAIL.
+All nine Phase 0 questions now have measured answers or a stated design limit.
+This phase adds a test-only probe and runner option; it does not enable personas
+or change the production payload beyond the preceding Phase A work.
+
+1. Transparent text entry and caret
+A real ISTextEntryBox remains focused and accepts native character input with
+transparent text, placeholder, border and background. Alpha alone does NOT hide
+its native caret, and can leave a shadow of the native text. The screenshot
+alpha-only.png shows the extra caret below the custom prompt.
+
+Use the existing focused text box as an off-screen child and draw the prompt
+inside the glass. The final run verified focus and text after multiple UI ticks,
+native Enter submission and native Escape dispatch with that child off-screen.
+custom-prompt.png shows only the custom text/cursor, without the native caret.
+
+Implementation details discovered in the real widget:
+- UITextBox2.getInternalText() reads the current input immediately. getText()
+  can lag until the next UI tick. Do not mistake the deferred public string for
+  lost input in an on-change handler or same-frame assertion.
+- The native box normally has no UINineGrid frame. Calling setFrameAlpha() on
+  a missing frame throws; test getFrame() first or just keep hasFrame false.
+- The diagnostic's putCharacter(char) binding accepts numeric character codes,
+  not Lua strings. Production keyboard input uses the normal native input path.
+- These checks exercised native widget handlers inside the running game, not
+  OS-level physical keyboard injection. The playable Phase 1 still needs its
+  normal human keyboard trial, history, scrolling and Tab behaviour.
+
+2. Hidden X and Escape
+Hiding the actual close button leaves Escape working. Native
+UITextBox2.onOtherKey(KEY_ESCAPE) reached the real SCTerminalWindow handler,
+closed the window, removed it from UIManager and returned keyboard ownership.
+
+3. Stat scales and proposed benefits
+CharacterStat getters and real Stats get/set/add/remove were tested on the
+actual player, with values restored after the calibration.
+
+  Stat          Native range   Measured example: moodle level 2 -> 1
+  STRESS        0..1           0.60 - 0.25 = 0.35
+  UNHAPPINESS   0..100         50 - 20 = 30
+  BOREDOM       0..100         60 - 25 = 35
+
+Recommended initial effects:
+  relief: remove 0.25 stress and 20 unhappiness, at most once per game day.
+  cheer: remove 25 boredom, at most once per game day.
+These are approximately one moodle tier at representative mid-range values,
+not a guarantee of exactly one tier from every starting value. Preserve native
+clamping and apply only to the player using this terminal.
+
+4. Moodle names
+The eight mixed-case names in the handoff are NOT present in the installed
+42.21 runtime. Use this explicit map while retaining the engine's lowercase
+fact keys:
+  tired -> TIRED       panic -> PANIC       hungry -> HUNGRY
+  pain -> PAIN         drunk -> DRUNK       unhappy -> UNHAPPY
+  wet -> WET           bored -> BORED
+SC.GameplayUtil.moodleLevel(player, uppercaseName) returned the native readings.
+Passing a mixed-case name silently falls back; it would hide real conditions.
+
+5. Underground power
+The real computer on floor -13 had grid=true, generator=false, powered=true
+before shutoff. Setting the native ElecShutModifier to 0 and synchronising the
+actual sandbox options gave grid=false, generator=false, powered=false.
+A real connected, fuelled generator on floor -13 then gave generator=true and
+powered=true. No power-access function was replaced.
+
+Important test detail: setHydroPowerOn(false) alone does not test shutoff.
+IsoGridSquare.hasGridPower() uses SandboxOptions.doesPowerGridExist(), which
+compares world age with ElecShutModifier. The first exploratory run demonstrated
+that distinction; the final run used the real option and verified the outage.
+
+An indoor generator also carries vanilla building toxicity. The native generator
+update calls IsoBuilding.setToxic(isActivated()) for a non-exterior building
+square. Power success on -13 is not evidence of safe long-term indoor operation.
+The existing PC backup battery is a possible alternative, but installation and
+use of that battery on a locked deep persona were not tested in this phase.
+
+6. Underground drawers
+The bounded 96x96 scan found 16 real floor -13 desktop computers and five with
+free drawers recognised by production SC.TerminalDrawers.find(). The successful
+machine locations were:
+  5555,12484,-13 -> desk
+  5561,12484,-13 -> desk
+  5565,12484,-13 -> desk
+  5571,12484,-13 -> desk
+  5552,12486,-13 -> filingcabinet
+These are native map furniture and containers, not spawned replacement desks.
+The test scanned at most 128 squares per harness tick and retained found objects.
+
+7. Party sound radius
+A single real addSound(nil,6100,5400,0,40,40) was emitted with the observer
+invisible, and real zombies initially about 10, 25, 39 and 45 meters away.
+The nearest zombie acquired the exact sound position and walked toward it.
+The other three did not acquire it during the ten-second observation.
+
+Keep 40 as the initial nominal world-sound radius: it creates a real attraction
+cost without implying that every infected inside that distance must respond.
+Native hearing and scheduling vary. This is not a statistical hearing-range
+benchmark. Audible falloff and loudness of LFSpiffyJingle remain a Phase 1 check,
+because that sound asset does not exist yet. Retain the one-game-hour cooldown.
+
+8. Dark-reveal cost
+Recommend adding 0.05 stress per weight effect. The two once-only reveal beats
+therefore add at most 0.10 of the full stress range per machine, before ordinary
+recovery. This can cross a threshold when already tense without making curiosity
+itself a large penalty. The native add operation and range were verified.
+
+9. Sitting while using the computer
+Yes. A native chair with SeatingManager data, a clear approach, and the vanilla
+Rest context-menu sequence produced PlayerSitOnFurnitureState. The normal
+Terminal.use Loot timed action then opened the real computer while the player
+remained seated: before=true, after=true, opened=true.
+
+The fixture uses furniture_seating_indoor_01_0, whose native seating count is 1
+and facing is S. A pathToSitOnFurniture action alone only reaches the position;
+the Rest completion callback queues the seating/rest action. Placing a chair
+under the player also obstructs the fixture, so the final setup moved the player
+to a clear approach before starting it. No seated flag was forced for acceptance.
+The clone's carrying capacity was temporarily increased to remove its heavily
+overburdened inventory as a movement confound; all original items were retained.
+
+Validation and evidence
+- Final native probe: 34 PASS / 0 FAIL.
+- Live-harness static contracts: 150 assertions passed.
+- Harness wiring: 183 harnesses / 86 scripts passed.
+- Payload Lua compilation: 274 files, normal and debug modes passed.
+- Phase A's full 29-stage gate remains the production-payload verification;
+  it was not repeated for these test-only additions.
+Artifacts: C:/ZOMBOID/outputs/rare-computers-phase-zero/
+  native-run.log, console.txt, events.log, payload-compile.log
+  alpha-only.png, custom-prompt.png, floor-minus13.png
+The first two exploratory runs are retained under build/live-sandbox-runs;
+they exposed native argument/frame bindings and fixture timing/approach issues.
+
+Reproduce with scripts/Invoke-LiveSandboxTests.ps1, using -PersonaReadinessProbe
+with -LivingFellowsOnly -NoSteam -IsolatedSourceBridge, the Rising test-save seed
+and -TimeoutSeconds 600. No live-game installation is required for that isolated
+source-payload run. Invoke the standalone Lua compiler with JAVA_HOME pointing
+to C:/Program Files/Java/jdk-17, as in the project gate.
+
+Checkpoint
+The handoff says to stop after each phase. Phase 1 is next: SPIFFY through
+debugPersona, using the off-screen input child and uppercase moodle bindings.
+debugPersona is not yet implemented, so there is no player-facing persona
+machine to reach in Phase 0. The test-only -PersonaReadinessProbe is the entry
+point for the checks and prototype above.
+No commit, push, tag, local game installation or upload was performed.

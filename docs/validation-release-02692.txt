@@ -1,0 +1,52 @@
+Living Fellows 0.26.92: release verification
+Date: 2026-11-02
+Branch: living_fellows/0.26.92
+Base: 9fd74baa (0.26.90)
+
+Scope
+- Current computer dialogue/discovery/lifecycle work, clearer measurements,
+  and all fourteen fixes from review-0.26.88-0.26.90.md.
+- Version synchronized across VERSION.txt, README badge, shipped README,
+  both mod.info files, SC.Identity.release and the bridge manifest.
+- Rebuilt matching Java 17 bridge. All 84 compiled classes are byte-identical
+  to the base; only release metadata changed. Protocol: 42.21-isocompanion-27.
+- Bridge SHA-256:
+  efd34168c860dbc98d3de4caa6afa3ffcf0c375e96fd9b6f0c0efb3531bfc536
+- Added the original synthesized jingle's provenance and hash to ASSET-MANIFEST.
+
+Verification
+- Release synchronization and reproducible bridge build: PASS.
+- First serial project-gate run: 28 stages PASS, no test failure; the local
+  30-minute watchdog then stopped its owned process tree during persona controls.
+- Resume uses the original Test-Project.ps1 stage definitions and runs only
+  persona-controls and standalone. Persona controls: PASS, all 25 mutations.
+- Standalone package validation: PASS, including installer, uninstaller, normal
+  and debug compilation of all 280 Lua files, and dependency-free packaging.
+- Combined result: all 30 original project-gate stages PASS across the first
+  run and the two-stage resume. The first full command did not reach its final
+  success marker because of the watchdog; the resume exited 0.
+- Standalone ZIP SHA-256:
+  ea5e4afeb815b9ad2f0fd8e1ac6ad827abbb89ac9638bed691c8fbbb8e7c7c73
+- Both runs use BelowNormal priority, two inherited logical CPUs, Jobs=1,
+  a 512 MB Java heap cap, two JVM processors and SerialGC. No game client run.
+- Previous focused review validation: 37 mutation controls, 126 needs checks,
+  198 arbitration checks, terminal regressions and 280 normal/debug Lua compiles
+  PASS. See validation-review-02688-02690.txt for evidence and fixture limits.
+
+Live acceptance
+Phase 1 captures and native checks are recorded in the existing phase report.
+Phase 2 discovery/movement/cold-reload live acceptance remains incomplete;
+Phase 3 polish is not claimed complete. New phone audio has not been auditioned
+in a live sound-enabled game. Automated checks do not replace those scenarios.
+The earlier phase reports retain their original 0.26.91 working-branch labels.
+
+Evidence
+C:/ZOMBOID/outputs/release-02692/build.log
+C:/ZOMBOID/outputs/release-02692/gate.log
+C:/ZOMBOID/outputs/release-02692/resume.log
+C:/ZOMBOID/outputs/release-02692/resume-stages.txt
+C:/ZOMBOID/outputs/release-02692-checks.py
+C:/ZOMBOID/outputs/release-02692-resume.ps1
+
+Publication scope: commit/push to the requested branch. No tag, Workshop upload,
+field-guide publication or local game installation is part of this request.

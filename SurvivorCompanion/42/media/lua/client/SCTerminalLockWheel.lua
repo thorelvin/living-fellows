@@ -104,8 +104,8 @@ function Wheel.input(w,raw)
     local answer=lower:match("^answer ([a-z])$") or lower:match("^([a-z])$")
     if not answer then w.securityMessage="Open the manual or submit the letter from the requested window." return true end
     local now=U().hours()
-    if not now then w.securityMessage="Game clock unavailable." return true end
-    if wheel.retryUntil and now<wheel.retryUntil then w.securityMessage="Recovery paused. Retry in "..math.ceil((wheel.retryUntil-now)*60).." game minutes." return true end
+    if not now then w.securityMessage="Clock unavailable." return true end
+    if wheel.retryUntil and now<wheel.retryUntil then w.securityMessage="Recovery paused. Retry in "..math.ceil((wheel.retryUntil-now)*60).." minutes." return true end
     if wheel.retryUntil then wheel.retryUntil=nil wheel.wrong=0 end
     if answer:upper()==Wheel.answer(w.system) then
         wheel.correct=wheel.correct+1 w.securityMessage="Window verified." w.securityScroll=0
@@ -115,7 +115,7 @@ function Wheel.input(w,raw)
         SC.TerminalLocks.record(w,answer:upper(),"wrong")
         if wheel.wrong>=3 then
             wheel.retryUntil=now+1/6 w.system.lock.bypass=true
-            w.securityMessage="Three mismatches. Recovery pauses for 10 game minutes. Other ways in are available."
+            w.securityMessage="Three mismatches. Recovery pauses for 10 minutes. Other ways in are available."
             SC.TerminalLockCrew.react(w,"failure",50)
         end
     end

@@ -1,0 +1,46 @@
+Living Fellows 0.26.91 - Phase 2 work in progress, 2026-11-02
+
+Implemented: separate first-boot personality Director, Off/Rare/Common option,
+three debug IDs plus coordinate-checked deep override, bounded world ledger,
+old-save/legacy protection, atomic physical drawer claim, permanent factory
+reset cleanup. The supplied engine and dialogue remain unchanged.
+
+Passed: focused terminal UI, 56 discovery checks, 21 lifecycle checks,
+full UI suite including its existing negative controls, content audit,
+source contracts and normal/debug payload compilation (280 files).
+The full project gate and complete native Phase 2 acceptance are still pending.
+
+Native runs are NOT acceptance evidence yet:
+- SC-Harness-20261102-201424-8a546712: forced-entry check failed in the
+  immediate-after-teleport fixture; test subsequently accessed absent stash.
+  Added a settling phase and safe failure reporting. Requires verification.
+- SC-Harness-20261102-201905-9b702b2d: stopped at user's resource complaint,
+  before completion. No pass claim. Original save/installed mod untouched.
+
+Resource investigation requested by user:
+- Isolated game PID 38532: 5806 MB working set, 7.8% total CPU on 24 threads.
+- Stale Oracle javac shim PID 2552, started 18:31:46: about one CPU core.
+  It belonged to the old Phase 0 ReflectLuaCompiler invocation, not another
+  application. Both processes were verified by command line and stopped.
+- Free RAM rose from 9.9 to 15.6 GB. Disk was 4% busy, with no queued I/O.
+  GPU load before stopping was not captured; do not attribute lag conclusively.
+- Verified no java/javaw/javac processes remained.
+- Fixed Test-LuaCompile.ps1 to use Resolve-TestJavac.ps1 rather than the
+  spinning Oracle PATH shim. Checked resolution without launching Java.
+- Prepared explicit -LowImpact for the isolated runner: clone-only 1280x720,
+  30 game FPS, 15 UI FPS and BelowNormal process priority. Syntax/static
+  checks pass; this mode has not been exercised in a live client yet.
+  No more live runs while the user is working without arranging a suitable time.
+
+Next native validation, when appropriate:
+Use -PersonaDiscoveryProbe -PersonaDiscoveryStage -LowImpact -EngineSound
+with the original LF-Skills5-Test seed, in the isolated runner. It should
+verify real forced entry, therapist relief/rewards, native furniture transfer
+to a legal camp tabletop, and a natural August Duty Officer on floor -13,
+powered by an exact real mounted battery after grid shutoff. Retain the
+resulting cloned save, then run -PersonaDiscoveryProbe -PersonaDiscoveryResume
+-LowImpact -EngineSound against that save to verify cold persistence and
+dialogue deletion. Do not claim these scenarios passed until they actually do.
+
+Process report: C:/ZOMBOID/outputs/rare-computers-phase2-process-diagnostic.json
+All work remains on living_fellows/0.26.91, uncommitted and uninstalled.

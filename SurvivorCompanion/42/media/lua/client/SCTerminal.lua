@@ -208,7 +208,7 @@ function Terminal.computerState(player, object)
         local brand=SC.TerminalBrands and SC.TerminalBrands.identify(object)
         state = System().create(seed, World().computerKind(object,brand),
             okay and type(camp) == "table" and camp.inside == true,
-            legacy.visits ~= nil and legacy.visits > 0,
+            (legacy.visits or 0)>0 or legacy.operator~=nil or #legacy.notes>0,
             "pc:" .. tostring(nowMs()) .. ":" .. seed .. ":" .. computerSerial,brand)
         state.brand=brand
     end
@@ -617,6 +617,7 @@ function SCTerminalWindow:refreshLayout()
         self.entry:setHeight(layout.entryHeight)
         self.entry:setFont(inputFont)
     end
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then SC.TerminalPersonaUI.layout(self) end
     if self.closeButton then
         self.closeButton.font = font
         self.closeButton:setX(layout.right - layout.row)
@@ -811,9 +812,13 @@ function SCTerminalWindow:menuVisible()
 end
 
 function SCTerminalWindow:viewTop()
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then return self.layout.titleY end
     return self.layout.top
 end
-function SCTerminalWindow:viewBottom() return self.layout.bottom end
+function SCTerminalWindow:viewBottom()
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then return self.layout.entryY+self.layout.entryHeight end
+    return self.layout.bottom
+end
 
 function SCTerminalWindow:visibleRows()
     return math.max(1, math.floor((self:viewBottom() - self:viewTop()) / self.rowHeight))
@@ -912,6 +917,7 @@ end
 
 function SCTerminalWindow:otherKey(key)
     if type(Keyboard) ~= "table" then return end
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) and key==Keyboard.KEY_TAB then return end
     if self.system and self.system.locked and self.lockPage=="manual" and SC.TerminalLockWheel then
         if key==Keyboard.KEY_LEFT or key==Keyboard.KEY_RIGHT then
             if SC.TerminalLockWheel.turn(self,key==Keyboard.KEY_LEFT and -1 or 1) then self:playClickSound() return end
@@ -1113,7 +1119,7 @@ function SCTerminalWindow:boot()
     self.system, failure = Terminal.computerState(self.player, self.object)
     if not self.system then error(failure) end
     self.healthBaseline=SC.TerminalLamp and SC.TerminalLamp.health(self.player)
-    if SC.TerminalLocks then SC.TerminalLocks.settle(self.system,self.player,self.object) end
+    if SC.TerminalLocks then SC.TerminalLocks.settle(self.system,self.player,self.object,self.campReportAvailable) end
     if self.system.locked and SC.TerminalLocks then SC.TerminalLocks.open(self) end
     local gridSite=SC.GridControl and SC.GridControl.visible() and SC.GridControl.yardFor(self.object)
     self.gridSite=gridSite and gridSite.id or nil
@@ -1131,16 +1137,14 @@ function SCTerminalWindow:boot()
     self.closeButton.borderColor = self.entry.borderColor
     self.closeButton.textColor = { r = title[2], g = title[3], b = title[4], a = 1 }
     self.gameHours = worldHours()
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then SC.TerminalPersonaUI.boot(self) return end
     if self.system.locked then
         local kind=SC.TerminalLocks and SC.TerminalLocks.kind(self.system) or "word"
         if kind=="word" or kind=="remember" or kind=="rival" then
             System().ensurePuzzle(self.system, Terminal.electricalSkill(self.player))
             System().status(self.system, self.gameHours)
         end
-        local prompt=kind=="emma" and "Choose an argument: 1-4." or kind=="search" and "Search a word or click an index."
-            or kind=="story" and "Choose an adventure option: 1-3."
-            or kind=="wheel" and "Open the manual or type a window letter."
-            or (kind=="phone" or kind=="radio") and "Type the six-digit recovery code." or "Select or type a displayed word or bracket group."
+        local prompt=SC.TerminalLocks.prompt(self.system)
         pcall(function() self.entry:setPlaceholderText(prompt) end)
     end
     self.postStarted, self.state = nowMs(), "booting"
@@ -1177,7 +1181,7 @@ function SCTerminalWindow:finishBoot()
     if self.startupReady then return end
     self.startupReady = true
     self.state = "idle"
-    if self.system.locked and SC.TerminalLockCrew then SC.TerminalLockCrew.react(self,"first",25) end
+    if self.system.locked and not (SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self)) and SC.TerminalLockCrew then SC.TerminalLockCrew.react(self,"first",25) end
     if not self.system.locked then
         if self.system.lock and not self.system.lock.welcomed and SC.TerminalPayoff then SC.TerminalPayoff.begin(self,"resume") return end
         local ledger=self.campReportAvailable and SC.TerminalLocks and SC.TerminalLocks.ledger()
@@ -1195,7 +1199,7 @@ function SCTerminalWindow:securityHeaderRows()
     local message
     if status == "lockout" then
         local minutes = self.gameHours and math.max(0, math.ceil((p.lockoutUntil - self.gameHours) * 60))
-        message = minutes and ("Retry: " .. minutes .. " game min") or "Game clock unavailable."
+        message = minutes and ("Retry: " .. minutes .. " min") or "Clock unavailable."
     else
         message = "Attempts: " .. p.tries .. "/" .. p.maximum
     end
@@ -1388,6 +1392,7 @@ function SCTerminalWindow:displayLocalFile(entry, reference)
 end
 
 function SCTerminalWindow:systemInput(raw)
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then return SC.TerminalPersonaUI.input(self,raw) end
     local trimmed = raw:match("^%s*(.-)%s*$")
     local lower = string.lower(trimmed)
     if self.requestTicket then
@@ -1457,8 +1462,8 @@ function SCTerminalWindow:systemInput(raw)
             no_candidates = "No unused incorrect candidates remain.",
             removed_word = "That candidate has already been removed.",
             clock_unavailable = "Recovery clock unavailable. Try again shortly.",
-            lockout = "Recovery is locked for one game hour after the last failed attempt.",
-            failed = "No attempts remain. Recovery is locked for one game hour.",
+            lockout = "Recovery is locked for one hour after the last failed attempt.",
+            failed = "No attempts remain. Recovery is locked for one hour.",
         }
         self.securityMessage = messages[code]
         if code == "wrong" or code == "repeat" then
@@ -1556,10 +1561,12 @@ function SCTerminalWindow:finishCommand()
         self:readingRange(self:readingFrame(nowMs()))
     end
     self.replyAutoScroll, self.replyAnchor = nil, nil
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then SC.TerminalPersonaUI.finished(self) end
 end
 
 function SCTerminalWindow:submit()
     local raw = self.entry and self.entry:getText() or ""
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then raw=SC.TerminalPersonaUI.entryText(self) end
     self:setEntryText("")
     if self.state == "closing" then return end
     if not self:hasCurrentAccess() or not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
@@ -1576,8 +1583,9 @@ function SCTerminalWindow:submit()
     -- Enter while EMMA is still talking skips to the end of her reply.
     if self.state ~= "idle" then
         self:flush()
-        if string.find(raw, "^%s*$") then return end
+        if string.find(raw, "^%s*$") or self.closed then return end
     end
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) and string.find(raw,"^%s*$") then return end
     if not string.find(raw, "^%s*$") then
         table.insert(self.history, 1, raw)
         while #self.history > Terminal.HISTORY do table.remove(self.history) end
@@ -1655,11 +1663,16 @@ function SCTerminalWindow:watch(now)
     if not Terminal.powered(self.object) then
         self:cancelRequest()
         self:stopBootSound()
+        if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then
+            SC.TerminalPersonaUI.powerCut(self,now) return
+        end
         if self.state == "booting" then self.queue, self.typing = {}, nil else self:flush() end
         self.readingAnchor, self.scroll = nil, 0
         self:print(Lines().T.power_failure, "alert")
         self.state = "closing"
         self.closeAt = now + 1500
+    elseif SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then
+        SC.TerminalPersonaUI.watch(self,now)
     end
 end
 
@@ -1769,6 +1782,12 @@ function SCTerminalWindow:readingFrame(now)
         local cursor = math.floor(animationTime / 400) % 2 == 0 and "_" or " "
         for part, line in ipairs(self:wrapTranscript(string.sub(self.typing.text, 1, shown) .. cursor)) do
             extra[#extra + 1] = { text = line, kind = self.typing.kind, source = self.typing, part = part }
+        end
+    elseif SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then
+        if self.state=="idle" then
+            for _,line in ipairs(self:wrapTranscript(SC.TerminalPersonaUI.prompt(self,now))) do
+                extra[#extra+1]={text=line,kind="emma"}
+            end
         end
     elseif self.state == "thinking" then
         local steps = self.thinkSteps or {}
@@ -1985,7 +2004,7 @@ function SCTerminalWindow:drawHints(range)
     if self.serviceSecurity and self.menuPage=="building_security" then
         local status=System().status(self.serviceSecurity,self.gameHours)
         local puzzle=self.serviceSecurity.puzzle
-        hint=status=="lockout" and "Building recovery locked. Retry after one game hour."
+        hint=status=="lockout" and "Building recovery locked. Retry after one hour."
             or "Security "..tostring(puzzle and puzzle.tries or 0).."/"..tostring(puzzle and puzzle.maximum or 0).." | Tab: words/chat | PgUp/PgDn"
     elseif SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
         hint=self.requestTicket and "Y/N: confirm   Esc: cancel" or "1-"..#self:menuOptions()..": select   PgUp/Dn: page   Tab: chat   Esc: back"
@@ -2036,6 +2055,7 @@ function SCTerminalWindow:prerender()
     else
         self:drawRect(glass.x, glass.y, glass.width, glass.height, 1, background[2], background[3], background[4])
     end
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then SC.TerminalPersonaUI.draw(self,nowMs()) return end
     local pad = self.layout.pad
     local headerLogo = Presentation().headerLogoBox(self.layout, self.brand, self.charWidth)
     local captionRight = self.layout.brandHeight > 0 and headerLogo.x - pad

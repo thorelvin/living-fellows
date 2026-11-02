@@ -21,7 +21,7 @@ function C.sealed(state)
 end
 function C.open(w)
     local now=SC.ControlUtil.hours()
-    if not now then w.securityMessage="Game clock unavailable." return end
+    if not now then w.securityMessage="Clock unavailable." return end
     if not w.system.lock.crack then
         local skill=SC.Terminal.electricalSkill(w.player)
         w.system.lock.crack={doneHours=0,lastHours=now,powered=SC.Terminal.powered(w.object),requiredHours=skill<4 and 12 or skill<8 and 9 or 6}
@@ -46,7 +46,7 @@ function C.lines(w,now)
     local helper=SC.TerminalLockCrew.helper(w)
     local rows={"CRACK.EXE / LOCAL PASSWORD RECOVERY","USER: "..(SC.TerminalFiles.get(w.system.archive).owner or "Operator"),
         password:sub(1,sealed)..string.rep("_",#password-sealed),
-        string.format("%.1f game hours remaining. Progress is preserved.",math.max(0,c.requiredHours-c.doneHours)),
+        string.format("%.1f hours remaining. Progress is preserved.",math.max(0,c.requiredHours-c.doneHours)),
         w.securityMessage or "Type the complete password to try it early.","[1] Back to password"..(helper and "    [2] Ask "..SC.TerminalLockCrew.name(helper) or "")}
     local skill=SC.ControlUtil.skill(w.player)
     if skill>=4 then table.insert(rows,4,"ELECTRICAL "..skill..": YOU OPTIMISE THE WORDLIST.") end
@@ -62,11 +62,10 @@ function C.input(w,raw)
     w.crackAnswerVerified=nil
     if string.upper(raw)==password then
         w.crackAnswerVerified=true
-        local unlocked=#password-C.sealed(w.system)
-        SC.TerminalLocks.finishUnlock(w,unlocked>=3 and "crack_early" or "crack")
+        SC.TerminalLocks.finishUnlock(w,c.doneHours<c.requiredHours and "crack_early" or "crack")
     else
         c.requiredHours=math.min(100000,c.requiredHours+1)
-        w.securityMessage="Incorrect. Recovery needs one more game hour."
+        w.securityMessage="Incorrect. Recovery needs one more hour."
         SC.TerminalLocks.record(w,raw,"crack_wrong")
     end
     return true

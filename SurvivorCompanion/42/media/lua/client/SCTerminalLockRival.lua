@@ -51,7 +51,7 @@ function R.complete(w,winner)
         local x,y=U().position(w.object) local dx,dy=p.x-x,p.y-y
         local distance=math.floor(math.sqrt(dx*dx+dy*dy)/10)*10
         r.message=(winner=="player" and "USER2: ok. you're real. I'm " or "USER2: too slow. door's open anyway. I'm ")..name..". "
-            ..SC.TerminalWorld.direction(dx,dy)..", about "..distance.." tiles."
+            ..SC.TerminalWorld.direction(dx,dy)..", about "..distance.." meters."
         group.oddball.terminalRace=winner
     else r.message="USER2: connection lost. The recovery line is open." end
 end

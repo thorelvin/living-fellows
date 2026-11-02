@@ -109,7 +109,7 @@ function C.hint(w)
     if word then w.system.puzzle.removed[word]=true w.securityBoard=nil
     elseif w.lockPage=="crack" then lock.crack.requiredHours=math.max(1,lock.crack.requiredHours-1) end
     w.securityMessage=C.name(actor).." helped. "..(kind and (kind=="story" and "Avoid choice " or kind=="wheel" and "Window: " or kind=="search" and "Index: " or "Try ")..value
-        or w.lockPage=="case" and "Hardware reset risk is lower." or w.lockPage=="crack" and "One game hour removed." or "One wrong word removed.")
+        or w.lockPage=="case" and "Hardware reset risk is lower." or w.lockPage=="crack" and "One hour removed." or "One wrong word removed.")
     return true
 end
 return C

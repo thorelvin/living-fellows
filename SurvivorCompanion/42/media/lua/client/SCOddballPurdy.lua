@@ -551,11 +551,11 @@ function Purdy.menuOptions(group, player)
             .. (dx < -20 and "west" or dx > 20 and "east" or "")
         detail = "A roadside ditch about "
             .. tostring(math.floor(math.sqrt(dx * dx + dy * dy)))
-            .. " tiles " .. direction .. " of the farm"
+            .. " meters " .. direction .. " of the farm"
     elseif state.tuckerStatus == "attempted" then
         detail = "The roadside clue is still being verified"
     else
-        detail = "Search loaded roadside ditches 100-200 tiles from the farm"
+        detail = "Search roadside ditches 100-200 meters from the farm"
     end
     if state.tuckerReturned then return {} end
     return {

@@ -1484,6 +1484,7 @@ local valueData = {
     dangerSignalHoldMs = 900,
 
     debugSpawnEnabled = false,
+    debugPersona = nil, -- debug engine only; spiffy / ellis / duty / deep on the next eligible fresh PC
     debugLockKind = nil, -- debug engine only; consumes the next new locked PC
     debugSpawnIntervalMs = 60000,
     -- Private playtest encounters are deliberately close and may use a visible

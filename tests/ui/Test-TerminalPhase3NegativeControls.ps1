@@ -2,6 +2,14 @@
 param([string]$GameJava,[string]$Classpath,[string[]]$Files,[string]$BuildRoot)
 $ErrorActionPreference='Stop'
 $mutants=@(
+    @{Name='phone-emitter-tick';File='SCTerminalLockPhone.lua';From='U().call(c.emitter,"tick")';To='-- omitted owned emitter tick';Expected='owned phone emitter ticks on every active pulse'},
+    @{Name='phone-between-rings-menu';File='SCTerminalLockPhone.lua';From='local c=P.answerable() if not c then return end';To='local c=P.ringing() if not c then return end';Expected='answer option is visible during the silent interval'},
+    @{Name='phone-between-rings-click';File='SCTerminalLockPhone.lua';From='if P.answerable()~=c then return end';To='if P.ringing()~=c then return end';Expected='a menu opened during ringing still queues after its burst'},
+    @{Name='phone-answer-message';File='SCTerminalLockPhone.lua';From='return false,"The internal call has ended. Return to the computer to redial."';To='return false,"Internal call answered."';Expected='expired answer action never claims success'},
+    @{Name='phone-no-line-rechoice';File='SCTerminalLockPhone.lua';From='SC.TerminalLocks.rechoosePhone(w)';To='w.system.lock.kind="word"';Expected='missing phone reselects another eligible unseen method'},
+    @{Name='phone-rechoice-prompt';File='SCTerminalLocks.lua';From='if w.entry then pcall(function() w.entry:setPlaceholderText(L.prompt(state)) end) end';To='-- omitted replacement prompt';Expected='input prompt follows the selected method'},
+    @{Name='radio-quiet-nights';File='SCTerminalLockRadio.lua';From='ledger.lastNight==nil or #ledger.pending==0 and not broadcast';To='ledger.lastNight==nil';Expected='registration after quiet nights cannot start a daytime broadcast'},
+    @{Name='rival-footer-digits';File='SCTerminalLocks.lua';From='(kind=="word" or kind=="remember" or kind=="rival")';To='(kind=="word" or kind=="remember")';Expected='typed rival footer digit opens the displayed history'},
     @{Name='phone-unheard';File='SCTerminalLocks.lua';From='not s.lock.heard or not w.lockCodeVerified';To='false or not w.lockCodeVerified';Expected='unheard phone code cannot unlock'},
     @{Name='phone-scan-cap';File='SCTerminalLockPhone.lua';From='f.scanned>=4096';To='f.scanned>=8192';Expected='phone discovery stops at the hard 4096-square bound'},
     @{Name='radio-receipt';File='SCTerminalLockRadio.lua';From='tostring(code)~="LF_LOCK_ESCROW"';To='false';Expected='unrelated radio events cannot create a receipt'},

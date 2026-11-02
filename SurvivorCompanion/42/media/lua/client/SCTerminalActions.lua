@@ -40,7 +40,7 @@ local function context(window, expectedBase, localServices)
         return nil, "This computer session is no longer available."
     end
     if type(getSpecificPlayer) ~= "function" or getSpecificPlayer(0) ~= window.player then
-        return nil, "Only the main player's computer session can submit requests."
+        return nil, "Only the primary operator's computer session can submit requests."
     end
     local data = call(window.object, "getModData")
     if not data or not data.movableData

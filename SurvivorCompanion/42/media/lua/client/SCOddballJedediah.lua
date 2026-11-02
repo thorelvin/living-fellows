@@ -161,7 +161,7 @@ function Jedediah.menuOptions(group, player)
         { id = "scout_trail", label = "Report the trail clear",
             enabled = trail ~= nil and value.truth == nil,
             detail = trail and ("Road near " .. trail.x .. ", " .. trail.y
-                .. "; clear the dead within 30 tiles") or "No road named" },
+                .. "; clear the dead within 30 meters") or "No road named" },
         { id = "show_newspaper", label = "Show Jedediah a newspaper",
             enabled = itemFor(player, "Base.Newspaper") ~= nil
                 and value.truth == nil },

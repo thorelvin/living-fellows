@@ -53,7 +53,7 @@ function C.lines(w)
     local skill=SC.ControlUtil.skill(w.player)
     local rows={"486 / HARDWARE RECOVERY","Screwdriver + 1 Scrap Electronics.",
         "[1] CLR CMOS jumper: "..C.risk(w.system,skill,false).."% slip risk",
-        C.soldered(w.system) and "[2] Battery soldered: unavailable" or "[2] CMOS battery: "..C.risk(w.system,skill,true).."% risk (+5 game min)",
+        C.soldered(w.system) and "[2] Battery soldered: unavailable" or "[2] CMOS battery: "..C.risk(w.system,skill,true).."% risk (+5 min)",
         "[3] Back to password"}
     local helper=SC.TerminalLockCrew.helper(w)
     if helper then rows[#rows+1]="[4] Ask "..SC.TerminalLockCrew.name(helper) end
@@ -83,6 +83,6 @@ function C.context(context,player,object)
     local submenu=ISContextMenu:getNew(context) context:addSubMenu(option,submenu)
     local skill=SC.ControlUtil.skill(player)
     submenu:addOption("Move CLR CMOS jumper ("..C.risk(state,skill,false).."% slip risk)",player,function(actor) C.queue(actor,object,false) end)
-    if not C.soldered(state) then submenu:addOption("Remove CMOS battery ("..C.risk(state,skill,true).."% risk; +5 game min)",player,function(actor) C.queue(actor,object,true) end) end
+    if not C.soldered(state) then submenu:addOption("Remove CMOS battery ("..C.risk(state,skill,true).."% risk; +5 min)",player,function(actor) C.queue(actor,object,true) end) end
 end
 return C

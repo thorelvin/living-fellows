@@ -15817,6 +15817,18 @@ Harness.probeLocks = function(...)
     return externalProbe("SCLockProbe", ...)
 end
 
+Harness.probePersonaDiscovery = function(...)
+    return externalProbe("SCPersonaDiscoveryProbe", ...)
+end
+
+Harness.probePersonaPlay = function(...)
+    return externalProbe("SCPersonaPlayProbe", ...)
+end
+
+Harness.probePersonaReadiness = function(...)
+    return externalProbe("SCPersonaReadinessProbe", ...)
+end
+
 Harness.probeDoorwayStall = function(...)
     return externalProbe("SCDoorwayStallProbe", ...)
 end
@@ -16462,6 +16474,12 @@ local function tick()
         else
             setPhase("finish", current)
         end
+    elseif string.find(tostring(Harness.phase), "persona_discovery_", 1, true) == 1 then
+        Harness.probePersonaDiscovery(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "persona_play_", 1, true) == 1 then
+        Harness.probePersonaPlay(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "persona_zero_", 1, true) == 1 then
+        Harness.probePersonaReadiness(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "lock_probe_", 1, true) == 1 then
         Harness.probeLocks(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "building_scan_", 1, true) == 1 then
@@ -17449,6 +17467,12 @@ local function onGameStart()
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then
         setPhase("fishing_map_list", Harness.startedAt)
+    elseif Harness.config.persona_discovery_probe == "true" then
+        setPhase("persona_discovery_setup", Harness.startedAt)
+    elseif Harness.config.persona_play_probe == "true" then
+        setPhase("persona_play_setup", Harness.startedAt)
+    elseif Harness.config.persona_readiness_probe == "true" then
+        setPhase("persona_zero_setup", Harness.startedAt)
     elseif Harness.config.lock_probe == "true" or Harness.config.lock_acceptance_probe=="true" or Harness.config.lock_phase2_probe=="true" or Harness.config.lock_phase3_probe=="true" or Harness.config.lock_phase4_probe=="true" then
         setPhase("lock_probe_setup", Harness.startedAt)
     elseif Harness.config.building_scan_probe == "true" then

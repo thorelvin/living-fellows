@@ -195,7 +195,7 @@ function S.menu(window)
             option("Travel: "..(draft.travelMode=="drive" and "Drive" or "Walk"),"cycle","travelMode"),
             option("Crew and leader","page","station_crew"),option("Requested: "..tostring(draft.quantity),"cycle","quantity"),
             option("Supplies: "..draft.category,"cycle","category"),
-            option("Return after "..draft.hours.." game hours","cycle","hours"),option("Review mission","review"),option("Back","page","station")}
+            option("Return after "..draft.hours.." hours","cycle","hours"),option("Review mission","review"),option("Back","page","station")}
     elseif p=="station_crew" then
         return paged(window,crew(window),function(record)
             local chosen=false for _,id in ipairs(window.stationDraft.crew) do if id==record.id then chosen=true end end
@@ -258,7 +258,7 @@ function S.review(window)
     window.stationReviewed.mapFingerprint=SC.ExpeditionTargets and SC.ExpeditionTargets.fingerprint(draft.mapTarget) or "none"
     window.stationReviewed.carSqlId=preview.carSqlId
     local lines={"Mission: "..draft.kind.."; "..(draft.travelMode=="drive" and "driving" or "walking").."; target "..tostring(draft.quantity)..".",
-        "Crew: "..#records..". Leader: "..tostring(records[1].name or SC.GameplayUtil.nameOf(records[1].actor)),"Return limit: "..draft.hours.." game hours. Close-defence combat policy; restock and resume camp duty."}
+        "Crew: "..#records..". Leader: "..tostring(records[1].name or SC.GameplayUtil.nameOf(records[1].actor)),"Return limit: "..draft.hours.." hours. Close-defence combat policy; restock and resume camp duty."}
     if draft.mapTarget then lines[#lines+1]="Destination: "..draft.mapTarget.label..". Travel counts toward the turn-home time; equipment preparation pauses departure." end
     if draft.kind=="wood" then lines[#lines+1]="Raw logs only. One trip; full load is limited to 256 verified log receipts. Storage delivery remains required." end
     if preview.carSqlId then lines[#lines+1]="Car: "..tostring(preview.carName)..". Fuel "..tostring(preview.fuel).."; planned reserve "..tostring(preview.fuelRequired).."." end
@@ -421,7 +421,7 @@ function S.execute(window,request)
                 if SC.TerminalRadio then SC.TerminalRadio.acknowledged(window.object,trip.radioSession,report) end
                 local counts=report.kind=="scout" and "Scouting" or tostring(report.collected).." collected of "..tostring(report.requested).." requested"
                 if report.carried then counts=counts.."; "..report.carried.." carried; "..tostring(report.stored or 0).." stored" end
-                return true,"Radio report: "..counts.."; "..tostring(report.phase or "working")..". Last heard at "..tostring(report.at or U().hours()).." game hours."
+                return true,"Radio report: "..counts.."; "..tostring(report.phase or "working")..". Last heard at "..tostring(report.at or U().hours()).." hours."
             end
         end
         return okay,reason
@@ -575,7 +575,7 @@ function S.input(window,raw,chosen)
         table.sort(lines) show(window,#lines>0 and lines or {"No automatic routines are enabled."})
     elseif action=="radio_status" then
         local endpoint,reason=SC.RadioEndpoints.station(window.player,window.object)
-        if endpoint then show(window,"Channel "..U().call(endpoint.data,"getChannel").."; native range "..U().call(endpoint.data,"getTransmitRange").." tiles. Type channel followed by a frequency to retune. Remote replies require acknowledgement.") else show(window,reason) end
+        if endpoint then show(window,"Channel "..U().call(endpoint.data,"getChannel").."; native range "..U().call(endpoint.data,"getTransmitRange").." meters. Type channel followed by a frequency to retune. Remote replies require acknowledgement.") else show(window,reason) end
     elseif action=="taxi_status" then
         local endpoint,reason=SC.RadioEndpoints.station(window.player,window.object)
         if not endpoint then show(window,reason) else local okay,status=SC.TaxiBooking.status(window.player,endpoint) show(window,U().error(status)) end

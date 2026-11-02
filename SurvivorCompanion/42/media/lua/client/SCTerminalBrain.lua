@@ -1267,20 +1267,20 @@ function H.grid_control(session,reply,turn,world)
     if grid.connecting then return add(reply,"Controller connection "..math.floor(grid.connecting.percent).."%. Keep the local generator running.") end
     if grid.crack then
         add(reply,grid.crack.label.." is "..string.format("%.1f",grid.crack.percent).."% cracked. "
-            ..math.ceil(grid.crack.requiredHours-grid.crack.doneHours).." game hours remain.")
+            ..math.ceil(grid.crack.requiredHours-grid.crack.doneHours).." hours remain.")
         return add(reply,grid.crack.paused and ("Paused: "..grid.crack.paused)
             or "Elapsed time only counts if this computer still has power when you check. Finished progress is never lost.")
     end
-    if grid.on then return add(reply,math.ceil(grid.remainingHours or 0).." game hours to the heat limit. Switch off early to shorten cooling.") end
-    if grid.locked then return add(reply,"The breaker tripped. Allow "..math.ceil(grid.coolingHours or 0).." game hours to cool completely.") end
+    if grid.on then return add(reply,math.ceil(grid.remainingHours or 0).." hours to the heat limit. Switch off early to shorten cooling.") end
+    if grid.locked then return add(reply,"The breaker tripped. Allow "..math.ceil(grid.coolingHours or 0).." hours to cool completely.") end
     if (grid.linked or 0)>(grid.online or 0) then
         return add(reply,"A controller is answering. Start its crack from Local services, Grid control, on a powered base computer with a mounted radio.")
     end
     if (grid.online or 0)>0 then add(reply,"Ready to energize from Grid control. Each further online site shortens the full cooling cycle by one day, down to three.") end
     if (grid.daysLeft or 0)>0 then add(reply,"The original grid has about "..math.ceil(grid.daysLeft).." days left.") end
     if grid.nearest then
-        add(reply,"Next substation: "..grid.nearest.label..", about "..tostring(grid.distance or "unknown").." tiles away.")
-        add(reply,"Bring a spare computer, a mounted two-way radio and a generator within 40 tiles. That computer and its hardware stay there.")
+        add(reply,"Next substation: "..grid.nearest.label..", about "..tostring(grid.distance or "unknown").." meters away.")
+        add(reply,"Bring a spare computer, a mounted two-way radio and a generator within 40 meters. That computer and its hardware stay there.")
     end
     add(reply,"Open Local services, then LARCH/GRID power control. Dead is not the same as gone.")
 end

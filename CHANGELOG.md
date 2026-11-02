@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.26.92 - Computer and companion fixes
+
+- Use meters for companion distances, travel estimates and directions, with
+  every existing range preserved.
+- Keep EMMA's explanations in character. Old files read as local records,
+  and computer recovery screens use plain hours and minutes.
+- Show internal telephone searches as a percentage of the bounded search.
+- Fix silent internal phones and allow answering between rings. Buildings
+  without a phone offer another recovery method with the correct input prompt.
+- Accept correct passwords near the end of a crack, keep radio recovery at
+  03:00 after quiet nights, and fix numbered USER2 options and missing drawers.
+- Let companions use nearby food and water in emergencies. Stopped expedition
+  crews use their own supplies; seated followers no longer delay everyone else.
+- Let admitted supply errands finish within their search area. Keep normal
+  defence available when the player's car is full, moving or too far to board.
+- Keep computers open during existing bleeding, while new hits still interrupt.
+- Keep native bridge protocol `42.21-isocompanion-27` and existing save formats.
+
 ## 0.26.90 - Computer recovery
 
 - Add archive-based password recovery, a movement-warning lamp, slow cracking
@@ -26,6 +44,12 @@
 
 ## 0.26.88 - Expedition returns and companion-view cleanup
 
+- Prefer safe fresh food, then durable meals; reserve insects, worms and
+  condiments for emergencies. Routine meals start at 75% hunger. Followers wait
+  for a 15-second stop before routine eating, drinking or nearby water refills.
+- Withdraw from distant combat and run to board when the player enters a car,
+  retaining immediate defence and emergency care.
+- Restore companion gunshot audio through the weapon's native firing sound.
 - Fix a native lighting crash when a companion view opens again after returning
   to solo play. Lighting-state allocation and retirement now wait for the lighting
   worker, without resetting the main player's world or lighting caches.

@@ -516,7 +516,15 @@ local function withdrawingToPlayerVehicle(actor, player, commands, snapshot, ass
             or distanceSq and math.sqrt(math.max(0,distanceSq)) or math.huge
         if distance <= 2.5 then return false end
     end
-    return true
+    -- Withdrawing replaces combat only when boarding can actually begin.
+    -- Full, moving or distant cars must leave normal threat handling available.
+    local V=SC.Vehicle
+    if not V or type(V.isStationary)~="function" or type(V.assignmentFor)~="function"
+        or not U().sameFloor(actor,vehicle) or U().distance(actor,vehicle)>12 then return false end
+    local okay,stationary=pcall(V.isStationary,vehicle)
+    if not okay or stationary~=true then return false end
+    local assigned,seat=pcall(V.assignmentFor,actor,vehicle,player)
+    return assigned and type(seat)=="table" and seat.seat~=nil
 end
 
 local function evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
@@ -641,10 +649,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     if type(needs) == "table" and (needs.active or needs.hungry or needs.thirsty
         or needs.peeDue)
         and threatCount == 0
-        and (routineNeeds or needs.active or needs.emergency or needs.peeDue)
-        and (not commands.expeditionMoving or needs.active or needs.emergency or needs.peeDue
-            or SC.Needs and type(SC.Needs.carriedSuppliesAvailable) == "function"
-                and SC.Needs.carriedSuppliesAvailable(actor, needs)) then
+        and (routineNeeds or needs.active or needs.emergency or needs.peeDue) then
         add("needs", needsDecisionScore(needs), needs.emergency)
     end
     if commands.recruited and commands.temporaryStay ~= true

@@ -280,7 +280,7 @@ function Clem.menuOptions(group, player)
         return {
             { id = "accept_duel", label = "Accept Clem's noon duel",
                 enabled = nearby and isNoon(),
-                detail = "Meet him outside, eight tiles apart. First hit ends it." },
+                detail = "Meet him outside, eight meters apart. First hit ends it." },
             { id = "decline_duel", label = "Decline the duel", enabled = nearby },
         }
     elseif state.stage == "duel_setup" then

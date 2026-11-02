@@ -2,6 +2,7 @@
 param([string]$GameJava,[string]$Classpath,[string[]]$Files,[string]$BuildRoot)
 $ErrorActionPreference='Stop'
 $mutants=@(
+    @{Name='crack-nearly-complete';File='SCTerminalLockCrack.lua';From='c.doneHours<c.requiredHours and "crack_early" or "crack"';To='(#password-C.sealed(w.system))>=3 and "crack_early" or "crack"';Expected='correct crack password unlocks with 1 hidden letters'},
     @{Name='wheel-wrap';File='SCTerminalLockWheel.lua';From='return value-math.floor(value/26)*26';To='return value%26';Expected='each window returns exactly one printable letter'},
     @{Name='carried-manual';File='SCTerminalLockWheel.lua';From='required=Wheel.carried(player) and 1 or 3';To='required=3';Expected='carried handbook gives one challenge'},
     @{Name='manual-receipt';File='SCTerminalLockWheel.lua';From='state.lock.manualSpawned=true';To='state.lock.manualSpawned=false';Expected='manual is physically placed on the real desk surface once'},

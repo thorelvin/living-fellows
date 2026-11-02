@@ -3,10 +3,15 @@ Branch: living_fellows/0.26.88
 Game: Project Zomboid 42.21.0
 
 Behaviour
-- Routine meals start at 75% hunger. Existing per-need emergency limits stay intact.
+- Routine meals start at 75% hunger, as explicitly chosen by the user. Vanilla's
+  Starving moodle begins at 70%; this scheduling threshold is intentionally
+  retained rather than silently reverted. Existing per-need emergency limits
+  stay intact (hunger 82%, thirst 75%).
 - Followers must be on the leader's floor, close to formation, and observe a
   15-second stop before routine eating, drinking or refilling. Entering a car,
-  movement or accumulating position changes reset the stop. Routine needs yield
+  movement or accumulating position changes by the leader reset the stop. A
+  seated follower cannot reset that shared clock for companions on foot.
+  Routine needs yield
   when travel resumes, using the existing exact-action/item cancellation paths.
 - Autonomous expedition travel also defers routine consumption and home errands.
   A stopped expedition crew uses carried supplies. Survival overrides remain.
@@ -21,6 +26,10 @@ Behaviour
 - Camp searches respect marked storage, reserves, personal items and withdrawals.
   Permitted floor transit allows workers to consider other camp floors. Travelling
   followers use sources within six tiles of the leader on the same floor.
+  Once admitted, the errand can finish within that radius plus two tiles for
+  interaction; it still yields when the leader moves. Per-need emergencies use
+  actor-local supplies without the leader's six-tile scope. Expedition members
+  are not measured against the remote player's position or pause clock.
 - Item discovery retains independent bounded cursors per need/tier. Reserved
   containers and unfinished slices are pending, not proof of missing food.
   Unreachable sources receive a short retry delay so another source can be tried.

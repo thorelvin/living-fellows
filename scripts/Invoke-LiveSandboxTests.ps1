@@ -25,6 +25,9 @@ param(
     [switch]$ObserveInboundReturnFault,
     [switch]$HiddenWindow,
     [switch]$EngineSound,
+    # Clone-only graphics limits and lower CPU scheduling priority. Keep this
+    # explicit so performance/combat acceptance never silently changes its baseline.
+    [switch]$LowImpact,
     # Launch through the user's Steam client when a direct executable launch
     # cannot initialize SteamAPI. The direct path remains the default.
     [switch]$SteamLaunch,
@@ -254,6 +257,11 @@ param(
     [switch]$GridControlProbe,
     [switch]$BuildingScanProbe,
     [switch]$LockProbe,
+    [switch]$PersonaReadinessProbe,
+    [switch]$PersonaPlayProbe,
+    [switch]$PersonaDiscoveryProbe,
+    [switch]$PersonaDiscoveryStage,
+    [switch]$PersonaDiscoveryResume,
     [switch]$LockAcceptanceProbe,
     [switch]$LockAcceptanceReload,
     [switch]$LockPhase2Probe,
@@ -1343,6 +1351,11 @@ if (($GridControlStage -or $GridControlResume) -and -not $GridControlProbe) {
 if ($GridControlStage -and $GridControlResume) { throw 'Choose grid stage or resume, not both.' }
 if ($GridControlResume -and [string]::IsNullOrWhiteSpace($SeedSave)) { throw 'Grid resume requires the retained -SeedSave.' }
 if ($GridControlProbe -and -not $EngineSound) { throw 'Grid control acceptance requires -EngineSound for the real AmbientStreamManager.' }
+if (($PersonaPlayProbe -or $PersonaDiscoveryProbe) -and -not $EngineSound) { throw 'Persona acceptance requires -EngineSound for native playback.' }
+if ($LowImpact -and $SteamLaunch) { throw 'LowImpact requires the direct launcher so only the owned game process has its priority changed.' }
+if (($PersonaDiscoveryStage -or $PersonaDiscoveryResume) -and -not $PersonaDiscoveryProbe) { throw 'Persona stage/resume requires -PersonaDiscoveryProbe.' }
+if ($PersonaDiscoveryStage -and $PersonaDiscoveryResume) { throw 'Choose persona stage or resume, not both.' }
+if ($PersonaDiscoveryResume -and [string]::IsNullOrWhiteSpace($SeedSave)) { throw 'Persona resume requires the retained cloned -SeedSave.' }
 if ($BuildingScanSeedOnly -and -not $BuildingScanProbe) { throw 'BuildingScanSeedOnly requires BuildingScanProbe.' }
 if ($BarricadeMatrixOnly -and -not $BarricadeHardening) {
     throw '-BarricadeMatrixOnly requires -BarricadeHardening.'
@@ -1507,6 +1520,16 @@ if ($EngineSound) {
     }
     Set-Content -LiteralPath $copiedOptions -Value $optionsLines -Encoding utf8
 }
+if ($LowImpact) {
+    $copiedOptions = Join-Path $CacheRoot 'options.ini'
+    $optionsLines = if (Test-Path -LiteralPath $copiedOptions) { @(Get-Content -LiteralPath $copiedOptions) } else { @() }
+    $limits = [ordered]@{width=1280;height=720;frameRate=30;uiRenderFPS=15;uncappedFPS='false';fullScreen='false';borderless='false'}
+    foreach ($key in $limits.Keys) {
+        $optionsLines = @($optionsLines | Where-Object { $_ -notmatch ('^' + [regex]::Escape($key) + '=') })
+        $optionsLines += ($key + '=' + $limits[$key])
+    }
+    Set-Content -LiteralPath $copiedOptions -Value $optionsLines -Encoding utf8
+}
 $bindings = Join-Path $UserCache 'InputBindings'
 if (Test-Path -LiteralPath $bindings -PathType Container) {
     Copy-Item -LiteralPath $bindings -Destination (Join-Path $CacheRoot 'InputBindings') -Recurse
@@ -1617,7 +1640,7 @@ if ($IsolatedSourceBridge) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
-if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe -or $SplitScreenOnly) {
+if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe) {
     # Keep view diagnostics focused. Unrelated large probes can exceed
     # Kahlua's debug-local limit when native stock-player diagnostics are enabled.
     $wallHarnessClient = [IO.Path]::GetFullPath((Join-Path $SandboxMods `
@@ -1627,7 +1650,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -2080,6 +2103,11 @@ $config = @(
     ('grid_control_probe=' + $GridControlProbe.IsPresent.ToString().ToLowerInvariant()),
     ('building_scan_probe=' + $BuildingScanProbe.IsPresent.ToString().ToLowerInvariant()),
     ('lock_probe=' + $LockProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('persona_readiness_probe=' + $PersonaReadinessProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('persona_play_probe=' + $PersonaPlayProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('persona_discovery_probe=' + $PersonaDiscoveryProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('persona_discovery_stage=' + $PersonaDiscoveryStage.IsPresent.ToString().ToLowerInvariant()),
+    ('persona_discovery_resume=' + $PersonaDiscoveryResume.IsPresent.ToString().ToLowerInvariant()),
     ('lock_acceptance_probe=' + $LockAcceptanceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('lock_acceptance_reload=' + $LockAcceptanceReload.IsPresent.ToString().ToLowerInvariant()),
     ('lock_phase2_probe=' + $LockPhase2Probe.IsPresent.ToString().ToLowerInvariant()),
@@ -2140,6 +2168,12 @@ $manifest = [ordered]@{
     cleaningMixturesProbe = $CleaningMixturesProbe.IsPresent
     buildingScanProbe = $BuildingScanProbe.IsPresent
     lockProbe = $LockProbe.IsPresent
+    personaReadinessProbe = $PersonaReadinessProbe.IsPresent
+    personaPlayProbe = $PersonaPlayProbe.IsPresent
+    personaDiscoveryProbe = $PersonaDiscoveryProbe.IsPresent
+    personaDiscoveryStage = $PersonaDiscoveryStage.IsPresent
+    personaDiscoveryResume = $PersonaDiscoveryResume.IsPresent
+    lowImpact = $LowImpact.IsPresent
     lockAcceptanceProbe = $LockAcceptanceProbe.IsPresent
     lockAcceptanceReload = $LockAcceptanceReload.IsPresent
     lockPhase2Probe = $LockPhase2Probe.IsPresent
@@ -2276,7 +2310,7 @@ if ($PrepareOnly) {
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($EngineSound) { $argumentLine = $argumentLine.Replace(' -nosound','') }
-if ($ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or
+if ($ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
     ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
@@ -2398,6 +2432,15 @@ if ($SteamLaunch) {
     try {
         if ($ConvoyProbe) { $env:SC_LIVE_CONVOY_HARNESS = '1' }
         $process = Start-Process @startOptions
+        if ($LowImpact) {
+            try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal }
+            catch {
+                # This process was just created by this runner. Do not leave a
+                # full-priority client behind if the requested limit failed.
+                if (-not $process.HasExited) { $process.Kill() }
+                throw 'Could not apply low-impact priority; the owned test client was stopped.'
+            }
+        }
     } finally {
         $env:SC_LIVE_CONVOY_HARNESS = $priorConvoyHarness
     }

@@ -118,7 +118,7 @@ SC.GameplayUtil={
     end,
     clamp=function(v,lo,hi) return math.max(lo,math.min(hi,v)) end,
     move=function(a,_,intent)
-        if intent.action=="eat_food" or intent.action=="drink_item" then action={actor=a,intent=intent};active=true end
+        if intent.action=="eat_food" or intent.action=="drink_item" or intent.action=="drink_source" then action={actor=a,intent=intent};active=true end
         return true,intent.action
     end,
 }
@@ -255,4 +255,59 @@ check(action and action.intent.item==normal,"unapproved floor transit cannot pul
 local explicitRuntime={}
 N.assess(a,explicitRuntime);check(explicitRuntime.needs~=nil,"an explicit decision runtime owns its needs state")
 N.reset(a);check(explicitRuntime.needs==nil,"reset clears the actual decision runtime as well as the fallback runtime")
+-- Real Follow orders must not turn an emergency into a route to a remote leader.
+local function sink(x,y)
+    local o={square=square(x,y,0)}
+    function o:hasFluid() return true end
+    function o:getFluidAmount() return 10 end
+    function o:isTaintedWater() return false end
+    o.square.objects={o};return o
+end
+reset();commands[a]={recruited=true,order="follow"};player.moving=true
+a.square=square(30,10,0);a.values.HUNGER=.2;a.values.THIRST=.9
+local nearby=sink(31,10)
+tick(3)
+check(action and action.intent.object==nearby,"emergency follower drinks from its own nearby sink with the leader far away")
+reset();commands[a]={recruited=true,order="follow"};player.moving=true
+a.square=square(30,10,0);a.values.HUNGER=.9
+local localFood=food("fresh");storage(31,10,0,{localFood});tick(4)
+check(action and action.intent.item==localFood,"starving follower fetches fresh food near itself instead of the distant leader")
+reset();commands[a]={recruited=true,order="follow"};a.square=square(30,10,0);a.values.HUNGER=.2;a.values.THIRST=.6
+sink(31,10);N.routineAllowed(a,player,commands[a],now);now=now+20000;tick(3)
+check(not action,"routine follower still closes formation instead of taking a distant-source detour")
+reset();commands[a]={recruited=true,order="follow",expeditionMember=true}
+player.square=square(500,500,0);a.values.HUNGER=.2;a.values.THIRST=.6;a.inventory=inventory({water()})
+check(update() and action and action.intent.action=="drink_item","stopped expedition drinks carried water with real Follow orders and a remote player")
+reset();commands[a]={recruited=true,order="follow",expeditionMember=true}
+player.square=square(500,500,0);a.inventory=inventory({normal})
+storage(11,10,0,{fresh})
+check(update() and action and action.intent.item==normal and fresh.container~=a.inventory,
+    "stopped expedition uses carried food instead of starting a home resupply without options")
+reset();commands[a]={recruited=true,order="follow",expeditionMember=true}
+player.square=square(500,500,0);a.values.HUNGER=.2;a.values.THIRST=.9;nearby=sink(11,10)
+tick(3);check(action and action.intent.object==nearby,"expedition emergency uses its own sink, never the remote player's scope")
+reset();commands[a]={recruited=true,order="follow"}
+local seated=actor(11,10,0);seated.vehicle={}
+N.routineAllowed(a,player,commands[a],now)
+for seconds=1,40 do
+    now=now+1000
+    check(not N.routineAllowed(seated,player,commands[a],now),"seated follower defers routine needs")
+end
+check(N.routineAllowed(a,player,commands[a],now),"seated follower never resets the standing follower's shared stop clock")
+for _,formation in ipairs({1,2,3,5,8}) do
+    reset();commands[a]={recruited=true,order="follow",followDistance=formation}
+    a.values.HUNGER=.2;a.values.THIRST=.6
+    nearby=sink(16,10);nearby.approach=true
+    N.routineAllowed(a,player,commands[a],now);now=now+15000
+    update();now=now+3100 -- allow the bounded outer-ring sample to reach its next phase
+    check(update() and not action and N.peek(a).routineWork,"source at the six-tile boundary admits a real water errand")
+    for _,offset in ipairs({5.5,6,7.4}) do
+        a.square=square(10+offset,10,0)
+        check(N.routineAllowed(a,player,commands[a],now),"admitted errand keeps its interaction margin at follow distance "..formation)
+    end
+    nearby.approach=false
+    check(update() and action and action.intent.object==nearby,"boundary errand reaches its exact water source without returning to formation")
+    local prior=cancels;player.moving=true;update()
+    check(cancels==prior+1 and not active,"leader movement still cancels the admitted boundary errand")
+end
 SC_TEST_REPORT="NEEDS_PRIORITY_PASS checks="..checks

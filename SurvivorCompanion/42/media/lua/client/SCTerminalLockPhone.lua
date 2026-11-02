@@ -40,10 +40,9 @@ function P.beginSearch(w)
     w.lockPhoneSearch={def=def,x=x1,y=y1,width=x2-x1+1,height=y2-y1+1,floors={z,z-1,z+1},cursor=0,scanned=0}
 end
 function P.noLine(w)
-    w.lockPhoneSearch=nil w.system.lock.kind="word" w.system.lock.phone=nil
-    SC.TerminalSystem.ensurePuzzle(w.system,SC.Terminal.electricalSkill(w.player))
-    SC.TerminalLocks.markSeen(w.system)
-    w.securityMessage="No internal telephone line found. Use password recovery."
+    w.lockPhoneSearch=nil
+    SC.TerminalLocks.rechoosePhone(w)
+    w.securityMessage="No internal telephone line found. Another recovery method is available."
 end
 function P.search(w)
     local f=w.lockPhoneSearch if not f then return end
@@ -81,11 +80,12 @@ function P.stop()
     active=nil
 end
 function P.ringing() return active and active.ringing==true and active or nil end
+function P.answerable() return active and active.cycle>=0 and active or nil end
 function P.dial(w)
     if active then w.securityMessage="The internal line is already in use." return false end
     local lock=w.system.lock local phone=P.resolve(lock.phone) local hours=U().hours()
     if not phone or not hours or not P.sameLine(w.object,phone) then w.securityMessage="Internal line unavailable. Check the telephone or use another recovery method." return false end
-    if lock.redialUntil and hours<lock.redialUntil then w.securityMessage="Redial available in "..math.ceil((lock.redialUntil-hours)*60).." game min." return false end
+    if lock.redialUntil and hours<lock.redialUntil then w.securityMessage="Redial available in "..math.ceil((lock.redialUntil-hours)*60).." min." return false end
     if not SC.Terminal.ownsState(w.object,w.system) or not SC.Terminal.powered(w.object)
         or not SC.Terminal.near(w.player,w.object) or U().call(w.player,"isDead")==true then return false end
     lock.redialUntil=hours+(U().skill(w.player)>=3 and 5 or 10)/60
@@ -134,15 +134,18 @@ function P.answer(player,phone)
     return true
 end
 function P.context(index,context,objects,test)
-    local c=P.ringing() if not c then return end
+    local c=P.answerable() if not c then return end
     local player=type(getSpecificPlayer)=="function" and getSpecificPlayer(index)
     if not player or not U().near(player,c.phone,1.5) then return end
     for _,object in ipairs(type(objects)=="table" and objects or {}) do
         if object==c.phone or U().square(object)==U().square(c.phone) then
             if test then return true end
             context:addOption("Answer the telephone",player,function(actor)
-                if not P.ringing() or P.ringing().phone~=c.phone then return end
-                SC.TerminalServices.install(actor,c.phone,function() return P.answer(actor,c.phone),"Internal call answered." end,30)
+                if P.answerable()~=c then return end
+                SC.TerminalServices.install(actor,c.phone,function()
+                    if P.answerable()==c and P.answer(actor,c.phone) then return true,"Internal call answered." end
+                    return false,"The internal call has ended. Return to the computer to redial."
+                end,30)
             end)
             return true
         end
@@ -173,11 +176,22 @@ function P.pulse(now)
         local w=SC.Terminal.window if w and w.system.identity==c.identity and SC.TerminalLockCrew then SC.TerminalLockCrew.react(w,"phone",100) end
     elseif not ringing and c.ringing then U().call(c.emitter,"stopAll") end
     c.ringing=ringing
+    -- Taking ownership removes this emitter from the world's tick list.
+    -- FMOD starts queued events in tick(), including each new ring burst.
+    U().call(c.emitter,"tick")
 end
 function P.lines(w)
     local lock=w.system.lock local at=lock.phone
     local rows={"LARCH/DIAL-BACK / INTERNAL RECOVERY"}
-    if w.lockPhoneSearch then rows[#rows+1]="CHECKING LINE... "..w.lockPhoneSearch.scanned.."/4096 tiles" return rows end
+    if w.lockPhoneSearch then
+        local search=w.lockPhoneSearch
+        local total=math.max(1,math.min(4096,
+            (tonumber(search.width) or 64)*(tonumber(search.height) or 64)*3))
+        local percent=math.floor(math.max(0,math.min(100,
+            (tonumber(search.scanned) or 0)*100/total)))
+        rows[#rows+1]="CHECKING LINE... "..percent.."%"
+        return rows
+    end
     rows[#rows+1]="Outside service is dead. Internal line only."
     rows[#rows+1]=at and "EXT "..(100+w.system.seed%899).." / "..at.room.." / floor "..at.z or "Internal telephone unavailable."
     rows[#rows+1]="[1] Place call"

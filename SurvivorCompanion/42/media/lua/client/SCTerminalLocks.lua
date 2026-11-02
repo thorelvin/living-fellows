@@ -41,12 +41,13 @@ function L.ledger()
     raw.lastRare=rare[raw.lastRare] and raw.lastRare or nil
     raw.licensee=V.text(raw.licensee,64)
     if SC.TerminalLockRadio then SC.TerminalLockRadio.normalize(raw) end
+    if SC.TerminalPersonaDiscovery then SC.TerminalPersonaDiscovery.normalizeLedger(raw) end
     ledgerSource,ledgerCache=raw,raw
     return raw
 end
 function L.kind(state)
     local kind=state and state.lock and state.lock.kind
-    return L.WEIGHTS[kind] and kind or "word"
+    return (kind=="persona" or L.WEIGHTS[kind]) and kind or "word"
 end
 function L.choose(seed,ledger,machineKind,available)
     available=available or {phone=true,rival=true}
@@ -74,7 +75,7 @@ function L.choose(seed,ledger,machineKind,available)
 end
 function L.markSeen(state)
     local ledger=L.ledger() local lock=state.lock
-    if ledger and not lock.legacy and not lock.classic and not lock.seenRecorded then
+    if ledger and L.WEIGHTS[lock.kind] and not lock.legacy and not lock.classic and not lock.seenRecorded then
         ledger.seen[lock.kind]=true lock.seenRecorded=true
         if rare[lock.kind] then ledger.lastRare=lock.kind end
     end
@@ -93,10 +94,58 @@ local function owner(state,ledger)
     if #pool>0 then state.archive=pool[(state.seed%#pool)+1].id end
     ledger.usedArchives[state.archive]=true
 end
-function L.settle(state,player,object)
+local function prepare(state,player,object)
+    local lock=state.lock local kind=L.kind(state)
+    if kind=="remember" then SC.TerminalLockWords.ensure(state,SC.Terminal.electricalSkill(player))
+    elseif kind=="wheel" then SC.TerminalLockWheel.ensure(state,player,object)
+    elseif kind=="emma" then SC.TerminalLockEmma.ensure(state)
+    elseif kind=="story" then SC.TerminalLockStory.ensure(state)
+    elseif kind=="search" and SC.TerminalLockSearch.ensure(state) then
+        -- Archive indexes are fixed; no sector search runs while drawing.
+    elseif kind=="phone" or kind=="radio" then
+        -- Phone is provisional until the bounded in-window search succeeds.
+    elseif kind=="rival" and SC.TerminalLockRival.ensure(state,player) then
+    else lock.kind="word" SC.TerminalSystem.ensurePuzzle(state,SC.Terminal.electricalSkill(player)) end
+    if lock.kind~="phone" or lock.phone then L.markSeen(state) end
+end
+function L.prompt(state)
+    local kind=L.kind(state)
+    return kind=="emma" and "Choose an argument: 1-4." or kind=="search" and "Search a word or click an index."
+        or kind=="story" and "Choose an adventure option: 1-3."
+        or kind=="wheel" and "Open the manual or type a window letter."
+        or (kind=="phone" or kind=="radio") and "Type the six-digit recovery code."
+        or "Select or type a displayed word or bracket group."
+end
+function L.rechoosePhone(w)
+    local state=w.system local lock=state.lock
+    if lock.kind~="phone" or lock.phone then return false end
+    local ledger=L.ledger()
+    if ledger and not lock.legacy and not lock.classic then
+        -- Reuse this opening's selection slot; a failed line search is not
+        -- another computer and must not advance discovery or claim loot again.
+        local selection={opened=math.max(0,ledger.opened-1),seen=ledger.seen,
+            beaten=ledger.beaten,lastRare=ledger.lastRare}
+        local profile=SC.TerminalFiles.get(state.archive)
+        lock.kind=L.choose(state.seed,selection,lock.machineKind or profile and profile.kind,
+            {phone=false,rival=SC.TerminalLockRival and #SC.TerminalLockRival.candidates()>0})
+    else lock.kind="word" end
+    prepare(state,w.player,w.object)
+    w.lockPage=nil w.lockConfirm=nil w.securityScroll=0 w.securityHits={}
+    L.open(w)
+    if w.entry then pcall(function() w.entry:setPlaceholderText(L.prompt(state)) end) end
+    return true
+end
+function L.settle(state,player,object,insideCamp)
+    if SC.TerminalPersonaDiscovery and SC.TerminalPersonaDiscovery.settle(state,player,object,insideCamp) then return end
     if not state.locked then return end
     state.lock=SC.TerminalLockState.normalize(state.lock,true)
     local lock=state.lock
+    if lock.kind=="persona" then
+        SC.TerminalPersonaDiscovery.remember(lock.persona.id)
+        state.theme=SC.TerminalPersonaData[lock.persona.id].theme
+        SC.TerminalDrawers.claim(player,object,state)
+        return
+    end
     SC.TerminalLockCrack.catchUp(state,SC.ControlUtil.hours(),SC.Terminal.powered(object))
     if lock.legacy and not lock.settled then
         local options=SandboxVars and SandboxVars.LivingFellows or {}
@@ -120,18 +169,7 @@ function L.settle(state,player,object)
         else lock.kind="word" lock.legacy=true end
         lock.realItems=settings.LockRealItems~=false lock.settled=true
     end
-    local kind=L.kind(state)
-    if kind=="remember" then SC.TerminalLockWords.ensure(state,SC.Terminal.electricalSkill(player))
-    elseif kind=="wheel" then SC.TerminalLockWheel.ensure(state,player,object)
-    elseif kind=="emma" then SC.TerminalLockEmma.ensure(state)
-    elseif kind=="story" then SC.TerminalLockStory.ensure(state)
-    elseif kind=="search" and SC.TerminalLockSearch.ensure(state) then
-        -- Archive indexes are fixed; no sector search runs while drawing.
-    elseif kind=="phone" or kind=="radio" then
-        -- Phone is provisional until the bounded in-window search succeeds.
-    elseif kind=="rival" and SC.TerminalLockRival.ensure(state,player) then
-    else lock.kind="word" SC.TerminalSystem.ensurePuzzle(state,SC.Terminal.electricalSkill(player)) end
-    if lock.kind~="phone" or lock.phone then L.markSeen(state) end
+    prepare(state,player,object)
     if SC.TerminalDrawers then SC.TerminalDrawers.claim(player,object,state) end
 end
 function L.open(w)
@@ -169,7 +207,7 @@ function L.input(w,raw,option)
         end
     end
     if lower:match("^%d+$") and not w.lockPointerSubmit and type(w.playClickSound)=="function" then w:playClickSound() end
-    if not w.lockPage and not w.lockConfirm and (L.kind(w.system)=="word" or L.kind(w.system)=="remember")
+    if not w.lockPage and not w.lockConfirm and (kind=="word" or kind=="remember" or kind=="rival")
         and lower:match("^%d+$") and SC.TerminalLockUI then
         local choice=SC.TerminalLockUI.footer(w)[tonumber(lower)]
         if choice then lower=choice.value raw=choice.value else w.securityMessage="Choose a displayed option." return true end

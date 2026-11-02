@@ -179,6 +179,10 @@ $stages = @(
         -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
                      '-SkipNativeBridge') `
         -Failure 'Workshop packaging failed.'),
+    (New-ScPowerShellStep -Name 'persona-controls' `
+        -Script (Join-Path $ProjectRoot 'scripts\Test-PersonaControls.ps1') `
+        -Arguments @('-GameRoot', $GameRoot) `
+        -Failure 'Persona negative controls failed.'),
     (New-ScPowerShellStep -Name 'standalone' `
         -Script (Join-Path $ProjectRoot 'scripts\Build-Standalone.ps1') `
         -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
@@ -196,4 +200,4 @@ Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
     "oddball-clem-purdy=true oddball-phase2=true oddball-encounters=true gameplay=true " +
     "navigation-stability=true storage-route-yield=true floor-cargo-logistics=true " +
     "perception-topology=true strike-barrier=true ui=true live-harness-static=true bandits-adapter=true alife-adapter=true " +
-    "workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)
+    "persona-controls=true workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)

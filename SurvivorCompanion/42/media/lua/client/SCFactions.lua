@@ -547,7 +547,7 @@ function Factions.describeLocation(position)
         result.nearestStreet = street
         result.direction = compassDirection(x - street.x, y - street.y)
         result.distance = math.max(0, math.floor((tonumber(street.distance) or 0) + 0.5))
-        result.address = "House " .. tostring(result.distance) .. " tiles "
+        result.address = "House " .. tostring(result.distance) .. " meters "
             .. result.direction .. " of " .. street.name
     else
         result.address = "House near " .. result.coordinates

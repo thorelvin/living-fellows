@@ -65,11 +65,24 @@ local function open(kind,seed)
 end
 local function input(w,text) w:setFocusMode("chat") w:setEntryText(text) w:submit() end
 local w,pc=open("phone",731)
+do
+    local saved=w.lockPhoneSearch
+    w.lockPhoneSearch={scanned=1024,width=64,height=64}
+    check(P.lines(w)[2]=="CHECKING LINE... 25%","large telephone search shows progress against its bounded work")
+    w.lockPhoneSearch={scanned=6,width=2,height=2}
+    check(P.lines(w)[2]=="CHECKING LINE... 50%","small building progress uses its actual three-floor search size")
+    w.lockPhoneSearch.scanned=9999
+    check(P.lines(w)[2]=="CHECKING LINE... 100%","telephone search percentage never exceeds completion")
+    w.lockPhoneSearch.scanned=-1
+    check(P.lines(w)[2]=="CHECKING LINE... 0%","telephone search percentage never becomes negative")
+    w.lockPhoneSearch=saved
+end
 P.search(w) check(w.system.lock.phone and not w.lockPhoneSearch and ledger.seen.phone,"bounded phone search commits a genuine same-building location")
 local normalized=S.normalize(w.system)
 check(normalized.lock.phone.room=="reception" and normalized.lock.kind=="phone","telephone coordinates survive normalization")
-local calls,stops,noises=0,0,0
-local emitter={playSound=function() calls=calls+1 return calls end,stopAll=function() stops=stops+1 end}
+local calls,stops,noises,ticks=0,0,0,0
+local emitter={playSound=function() calls=calls+1 return calls end,stopAll=function() stops=stops+1 end,
+    tick=function() ticks=ticks+1 end}
 getWorld=function() return {getFreeEmitter=function() return emitter end,takeOwnershipOfEmitter=function() end,returnOwnershipOfEmitter=function() end} end
 addSound=function(_,_,_,_,radius,volume) check(radius==18 and volume==60,"ring has a bounded native attraction radius") noises=noises+1 end
 input(w,P.code(w.system)) check(w.system.locked,"unheard phone code cannot unlock")
@@ -79,6 +92,7 @@ input(w,"1") T.now=T.now+100 P.pulse(T.now)
 check(P.ringing() and calls==1 and noises==1,"explicit Place call starts one native ring and noise")
 w:close() for _=1,10 do T.now=T.now+100 P.pulse(T.now) end
 check(P.ringing(),"ring survives leaving the CRT")
+check(ticks==11,"owned phone emitter ticks on every active pulse, including the first ring")
 check(P.answer(player,phone),"exact nearby phone can be answered")
 check(not P.ringing() and pc.data.movableData.LF_LarchOS.lock.heard,"answer cancels ring and records a heard code")
 check(SC.Terminal.open(player,pc),"return to callback computer") w=SC.Terminal.window w:flush()
@@ -95,11 +109,46 @@ local nativeSound=emitter.playSound emitter.playSound=function() return 0 end
 input(w,"1") T.now=T.now+100 P.pulse(T.now)
 check(P.ringing() and P.answer(player,phone),"muted audio does not prevent answering the telephone")
 emitter.playSound=nativeSound
+do
+    w,pc=open("phone",732) P.search(w) input(w,"1")
+    local services=SC.TerminalServices local callback,click,receiver
+    SC.TerminalServices={install=function(_,_,fn,duration)
+        check(duration==30,"phone answer retains its native action duration") callback=fn return true
+    end}
+    local context={addOption=function(_,label,who,fn)
+        check(label=="Answer the telephone","phone context describes answering") receiver,click=who,fn
+    end}
+    T.now=T.now+100 P.pulse(T.now)
+    P.context(0,context,{phone},false)
+    for _=1,29 do T.now=T.now+100 P.pulse(T.now) end
+    check(not P.ringing() and P.answerable(),"call remains answerable at three seconds between bursts")
+    click(receiver) check(callback~=nil,"a menu opened during ringing still queues after its burst")
+    callback=nil;click=nil
+    P.context(0,context,{phone},false)
+    check(click~=nil,"answer option is visible during the silent interval")
+    click(receiver)
+    local answered,message=callback()
+    check(answered and message=="Internal call answered." and w.system.lock.heard,"silent-interval action really receives the code")
+    w,pc=open("phone",738) P.search(w) input(w,"1") T.now=T.now+100 P.pulse(T.now)
+    P.context(0,context,{phone},false) click(receiver)
+    P.stop()
+    local okay,failed=callback()
+    check(not okay and failed~="Internal call answered." and not w.system.lock.heard,"expired answer action never claims success")
+    -- A later call to the same physical handset cannot satisfy an old action.
+    w.system.lock.redialUntil=nil;input(w,"1") T.now=T.now+100 P.pulse(T.now)
+    check(not callback() and not w.system.lock.heard,"stale action cannot answer a replacement call")
+    P.stop();SC.TerminalServices=services
+end
 local definition=square.getBuildingDef square.getBuildingDef=function() return {} end
 check(not P.dial(w),"a moved computer cannot call a different building's internal line") square.getBuildingDef=definition
+ledger.opened=5;ledger.seen={word=true,remember=true,radio=true};ledger.beaten={}
 w,pc=open("phone",735) phone.index=-1 stand.objects={}
+local oldOpened=ledger.opened local owner=w.system.archive local identity=w.system.identity
 for _=1,100 do if not w.lockPhoneSearch then break end P.search(w) end
-check(w.system.lock.kind=="word" and w.system.puzzle and not w.lockPhoneSearch,"missing phone safely falls back after bounded search")
+check(w.system.lock.kind~="word" and w.system.lock.kind~="phone" and not w.lockPhoneSearch,"missing phone reselects another eligible unseen method")
+check(ledger.opened==oldOpened and not ledger.seen.phone and ledger.seen[w.system.lock.kind],"reselection reuses its slot and records only the actual method")
+check(w.system.archive==owner and w.system.identity==identity,"reselection preserves the machine and original owner")
+check(w.entry.placeholder==L.prompt(w.system),"input prompt follows the selected method, never the abandoned phone")
 phone.index=2 stand.objects={phone}
 do
     local bx,by,bx2,by2=building.getX,building.getY,building.getX2,building.getY2
@@ -113,7 +162,7 @@ do
         if not w.lockPhoneSearch then break end
         local prior=reads P.search(w) check(reads-prior<=128,"phone discovery never reads more than 128 squares per update")
     end
-    check(reads==4096 and not w.lockPhoneSearch and w.system.lock.kind=="word","phone discovery stops at the hard 4096-square bound")
+    check(reads==4096 and not w.lockPhoneSearch and w.system.lock.kind~="phone","phone discovery stops at the hard 4096-square bound")
     getCell=original stand.objects={phone}
     building.getX,building.getY,building.getX2,building.getY2=bx,by,bx2,by2
 end
@@ -162,6 +211,14 @@ paid=xp input(w,"999999") check(table.concat(R.lines(w)," "):find(R.code(state.s
 input(w,R.code(state.seed,serial)) check(not state.locked and xp-paid==60,"heard typed radio key completes normal tier-three payoff")
 check(S.normalize(state).lock.serial==serial,"radio identity and heard receipt survive reload")
 local oldSent=#sent for _=1,20 do T.now=T.now+1000 R.pulse(T.now) end check(#sent==oldSent,"empty queue has no radio work")
+T.hours=24*8+14 tod=14 T.now=T.now+1000 R.pulse(T.now)
+w,pc=open("radio",739)
+T.now=T.now+1000 R.pulse(T.now)
+check(#sent==oldSent,"registration after quiet nights cannot start a daytime broadcast")
+T.hours=24*9+2.99 tod=2.99 T.now=T.now+1000 R.pulse(T.now)
+check(#sent==oldSent,"new recovery request still waits through 02:59")
+T.hours=24*9+3.01 tod=3.01 T.now=T.now+1000 R.pulse(T.now)
+check(#sent==oldSent+1,"next real 03:00 starts the queued recovery broadcast")
 R.reset() ledger={} L.reset() sent={} T.hours=74.9 tod=2.9
 local pendingStates={}
 for i=1,5 do
@@ -184,6 +241,15 @@ check(#ledger.pending==16,"escrow queue never exceeds sixteen machines")
 R.reset()
 
 -- Timed rival uses observations without spending the player's attempts.
+do
+    w,pc=open("rival",799)
+    local footer=SC.TerminalLockUI.footer(w)
+    local digit
+    for i,option in ipairs(footer) do if option.value=="failed logins" then digit=i end end
+    check(digit~=nil,"rival footer exposes the login history")
+    input(w,tostring(digit))
+    check(w.lockPage=="logins","typed rival footer digit opens the displayed history")
+end
 for seed=1,30 do
     group.discovered=false group.lifecycle="active"
     w,pc=open("rival",800+seed)

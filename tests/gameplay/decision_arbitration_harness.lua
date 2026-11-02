@@ -656,7 +656,8 @@ check(settled and settleReason=="transfer_committed" and transferUpdates==1
 -- Boarding is an implicit withdrawal order, including from a previously
 -- selected indoor target; doctrine and target hysteresis must not trap it.
 modules()
-local car, playerInCar = {}, true
+local car, playerInCar = {x=2,y=0,z=0}, true
+SC.Vehicle={assignmentFor=function() return {seat=1} end,isStationary=function() return true end}
 function actor:getVehicle() return nil end
 function player:getVehicle() return playerInCar and car or nil end
 local remote = quiet()
@@ -672,6 +673,22 @@ end
 local chosen=boardingChoice()
 check(chosen and chosen.key=="follow:board_vehicle" and chosen.safetyTier==D.SafetyTier.TACTICAL,
     "player boarding outranks aggressive distant/indoor combat and its hysteresis")
+for _,failure in ipairs({"full","entry_busy","moving","far","floor","unknown","error"}) do
+    SC.Vehicle.assignmentFor=function()
+        if failure=="full" then return nil,"vehicle_capacity_wait" end
+        if failure=="entry_busy" then return nil,"vehicle_entry_seat_wait" end
+        if failure=="error" then error("vehicle adapter unavailable") end
+        return {seat=1}
+    end
+    SC.Vehicle.isStationary=failure~="unknown" and function() return failure~="moving" end or nil
+    car.x=failure=="far" and 30 or 2;car.z=failure=="floor" and 1 or 0
+    check(boardingChoice().kind=="combat","unavailable boarding retains zombie defence: "..failure)
+    remote.humanThreat={actor=person("distant-bandit",20),visible=true,external="bandits2"}
+    check(boardingChoice().kind=="combat","unavailable boarding retains human defence: "..failure)
+    remote.humanThreat=nil
+end
+car.x,car.z=2,0
+SC.Vehicle={assignmentFor=function() return {seat=1} end,isStationary=function() return true end}
 for _,mode in ipairs({"contact","surrounded","bleeding","critical","needs","optout","stay","convoy","expedition"}) do
     local snapshot,commands,assessment,needs=quiet(),order("follow"),healthy(),{}
     snapshot.threatCount=1;commands.combatDoctrine="weapons_free"

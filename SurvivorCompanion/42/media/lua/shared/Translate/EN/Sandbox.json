@@ -41,7 +41,7 @@
     "Sandbox_LivingFellows_DiaristChance": "Diary keeper chance",
     "Sandbox_LivingFellows_DiaristChance_tooltip": "Chance, decided once per recruited companion and saved, that the companion keeps a diary. Changing it never re-decides companions that already had their chance.",
     "Sandbox_LivingFellows_ExpeditionDestinationScope": "Expedition destination choices",
-    "Sandbox_LivingFellows_ExpeditionDestinationScope_tooltip": "All nearby includes buildings inferred from map data, even if you have not visited them. Known only lists locations visited or revealed by reading maps. Manual targets beyond 200 tiles always require this map knowledge. Destinations still need a reachable route before departure.",
+    "Sandbox_LivingFellows_ExpeditionDestinationScope_tooltip": "All nearby includes buildings inferred from map data, even if you have not visited them. Known only lists locations visited or revealed by reading maps. Manual targets beyond 200 meters always require this map knowledge. Destinations still need a reachable route before departure.",
     "Sandbox_LivingFellows_ExpeditionDestinationScope_option1": "All nearby (default)",
     "Sandbox_LivingFellows_ExpeditionDestinationScope_option2": "Known places only",
     "Sandbox_LivingFellows_NicknamesEnabled": "Companion nicknames",
@@ -52,6 +52,11 @@
     "Sandbox_LivingFellows_LockedComputerPercent_tooltip": "Share of newly discovered computers outside camp that need access recovery. Existing machines stay as they are.",
     "Sandbox_LivingFellows_ClassicLocksOnly": "Classic computer locks only",
     "Sandbox_LivingFellows_ClassicLocksOnly_tooltip": "Use the original word puzzle on newly opened locked computers. Keep recovery alternatives, the movement lamp and rewards.",
+    "Sandbox_LivingFellows_RareComputers": "Unusual computers",
+    "Sandbox_LivingFellows_RareComputers_option1": "Off",
+    "Sandbox_LivingFellows_RareComputers_option2": "Rare",
+    "Sandbox_LivingFellows_RareComputers_option3": "Common",
+    "Sandbox_LivingFellows_RareComputers_tooltip": "A very few newly opened computers outside camp may behave differently from August onward. Requires computer drawer rewards. Changing this setting preserves computers you have already found.",
     "Sandbox_LivingFellows_LockRealItems": "Computer drawer rewards",
     "Sandbox_LivingFellows_LockRealItems_tooltip": "New computer recoveries can release a desk drawer or reveal real supplies in the building."
 }

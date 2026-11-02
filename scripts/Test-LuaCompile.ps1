@@ -18,12 +18,7 @@ $GameRoot = (Resolve-Path -LiteralPath $GameRoot -ErrorAction Stop).Path
 
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
-$Javac = if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME) -and
-    (Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin\javac.exe') -PathType Leaf)) {
-    Join-Path $env:JAVA_HOME 'bin\javac.exe'
-} else {
-    (Get-Command javac.exe -ErrorAction Stop).Source
-}
+$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
 $Compiler = Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java'
 $LuaRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua'
 $LuaFiles = @(Get-ChildItem -LiteralPath $LuaRoot -Recurse -File -Filter '*.lua' |

@@ -78,10 +78,10 @@ function Emma.loss(w,now)
 end
 function Emma.input(w,raw)
     local now=U().hours()
-    if not now then w.securityMessage="Game clock unavailable." return true end
+    if not now then w.securityMessage="Clock unavailable." return true end
     local e=Emma.ensure(w.system)
     if e.retryUntil then
-        if now<e.retryUntil then w.securityMessage="Discussion closed. Retry in "..math.ceil((e.retryUntil-now)*60).." game minutes." return true end
+        if now<e.retryUntil then w.securityMessage="Discussion closed. Retry in "..math.ceil((e.retryUntil-now)*60).." minutes." return true end
         local mentions,lie=e.mentions,e.lie
         w.system.lock.emma={round=0,conviction=0,patience=2,attempt=math.min(1000000,e.attempt+1),used={},history={},mentions=mentions,lie=lie}
         e=w.system.lock.emma
@@ -137,7 +137,7 @@ function Emma.lines(w)
     if e.retryUntil then
         local now=U().hours()
         if not now or now<e.retryUntil then
-            rows[#rows+1]="Discussion closed for one game hour. Other ways in remain available." return rows
+            rows[#rows+1]="Discussion closed for one hour. Other ways in remain available." return rows
         end
         rows[#rows+1]="[1] Start another discussion"
         return rows

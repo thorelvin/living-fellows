@@ -2,7 +2,7 @@
 -- Additive schema-one lock data. A damaged extension cannot erase a computer.
 SurvivorCompanion=SurvivorCompanion or {}
 local S={} SurvivorCompanion.TerminalLockState=S
-local kinds={pending=true,word=true,remember=true,wheel=true,emma=true,search=true,radio=true,phone=true,rival=true,story=true}
+local kinds={persona=true,pending=true,word=true,remember=true,wheel=true,emma=true,search=true,radio=true,phone=true,rival=true,story=true}
 local argumentKinds={truth=true,authority=true,pity=true,threat=true,humour=true}
 local claimKinds={days=true,people=true,screwdriver=true,zombie=true,electrical=true}
 local function argumentId(id)
@@ -44,6 +44,25 @@ function S.normalize(value,locked)
         serial=S.text(value.serial,8),redialUntil=S.number(value.redialUntil,0,100000000),rivalGroup=S.text(value.rivalGroup,96),rewardTier=value.rewardTier and math.floor(S.number(value.rewardTier,1,3) or 1) or nil,
         manualSpawned=value.manualSpawned==true,manualItemId=S.text(value.manualItemId,40),
         caseFinished=value.caseFinished==true,attempts={},reactions={}}
+    if value.kind=="persona" then
+        local okay,persona=pcall(function()
+            return SurvivorCompanion.TerminalPersona and SurvivorCompanion.TerminalPersona.normalize(value.persona)
+        end)
+        if not okay or not persona then return broken(value) end
+        clean.persona=persona
+        -- Keep malformed native saved numbers out of conversation selection,
+        -- without modifying the supplied engine or losing the other fields.
+        clean.persona.seed=math.floor(S.number(clean.persona.seed,1,2147483646) or 1)
+        local h=value.home
+        if type(h)=="table" then
+            local x,y,z=S.number(h.x,0,100000),S.number(h.y,0,100000),S.number(h.z,-32,32)
+            if x and y and z then clean.home={x=math.floor(x),y=math.floor(y),z=math.floor(z)} end
+        end
+        clean.effects={}
+        local e=type(value.effects)=="table" and value.effects or {}
+        for _,key in ipairs({"noiseAt","reliefDay","cheerDay"}) do clean.effects[key]=S.number(e[key],0,100000000) end
+        clean.effects.weight=math.floor(S.number(e.weight,0,2) or 0)
+    end
     if clean.serial and not clean.serial:match("^%d%d%d%d%d%d%d%d$") then return broken(value) end
     if value.story~=nil then
         clean.story=SurvivorCompanion.TerminalLockStory.normalize(value.story)

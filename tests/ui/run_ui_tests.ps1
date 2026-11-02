@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 
 [CmdletBinding()]
-param([string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid')
+param([string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
+    [switch]$TerminalOnly)
 
 $ErrorActionPreference = 'Stop'
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -103,6 +104,12 @@ try {
             (Join-Path $Client 'SCTerminalBrands.lua'),
             (Join-Path $Client 'SCTerminalSystem.lua'),
             (Join-Path $Client 'SCControlUtil.lua'),
+            (Join-Path $Client 'SCTerminalPersona.lua'),
+            (Join-Path $Client 'SCTerminalPersonaSpiffy.lua'),
+            (Join-Path $Client 'SCTerminalPersonaEllis.lua'),
+            (Join-Path $Client 'SCTerminalPersonaDuty.lua'),
+            (Join-Path $Client 'SCTerminalPersonaDiscovery.lua'),
+            (Join-Path $Client 'SCTerminalPersonaUI.lua'),
             (Join-Path $Client 'SCTerminalLockState.lua'),
             (Join-Path $Client 'SCTerminalLockWords.lua'),
             (Join-Path $Client 'SCTerminalLockSearch.lua'),
@@ -148,9 +155,13 @@ try {
             (Join-Path $TestRoot 'SCTerminalLockPhase2Tests.lua')
             (Join-Path $TestRoot 'SCTerminalLockPhase3Tests.lua')
             (Join-Path $TestRoot 'SCTerminalLockPhase4Tests.lua')
+            (Join-Path $TestRoot 'SCTerminalPersonaTests.lua')
+            (Join-Path $TestRoot 'SCTerminalPersonaDiscoveryTests.lua')
+            (Join-Path $TestRoot 'SCTerminalPersonaLifecycleTests.lua')
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
+        if ($TerminalOnly) { Write-Output 'TERMINAL_UI_PASS'; return }
         $phase2Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
         $phase2Files+=Join-Path $TestRoot 'SCTerminalLockPhase2Tests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase2Files

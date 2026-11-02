@@ -50,7 +50,7 @@ function Lamp.hit(before, after, damageKind)
     -- Hunger, sickness and carrying too much can reduce health at the keyboard.
     -- A named non-contact cause must not masquerade as an incoming hit.
     local nonContact={HUNGRY=true,STARVATION=true,THIRST=true,HEAVYLOAD=true,INFECTION=true,
-        SICK=true,SICKNESS=true,POISON=true,FOODPOISON=true}
+        SICK=true,SICKNESS=true,POISON=true,FOODPOISON=true,BLEEDING=true}
     if damageKind and nonContact[damageKind] then return false end
     return before.health and after.health and before.health-after.health >= 0.5 or false
 end
@@ -58,6 +58,7 @@ function Lamp.mode()
     return SC.UserOptions and SC.UserOptions.get("terminalLamp") or "flash"
 end
 function Lamp.active(w)
+    if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(w) then return false end
     return w.system and (w.system.locked or w.menuPage=="building_security") and w.state~="closing"
 end
 function Lamp.watch(w,now)

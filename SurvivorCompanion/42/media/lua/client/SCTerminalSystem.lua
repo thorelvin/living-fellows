@@ -64,7 +64,7 @@ function System.create(seed, kind, insideCamp, legacy, identity, brand)
     local options=SandboxVars and SandboxVars.LivingFellows or {}
     local percent=integer(options.LockedComputerPercent,0,100) or System.LOCK_PERCENT
     local locked=not insideCamp and not legacy and seed % 100 < percent
-    return { schema = 1, seed = seed, identity = identity or ("pc:" .. seed),
+    return { schema = 1, fresh = not legacy and true or nil, seed = seed, identity = identity or ("pc:" .. seed),
         archive = SC.TerminalFiles.choose(kind, seed, brand).id,
         theme = SC.TerminalPresentation.themeFor(seed),
         locked = locked, lock=locked and {kind="pending",machineKind=kind} or nil,
@@ -93,7 +93,7 @@ function System.normalize(saved)
     if saved.theme ~= nil and not SC.TerminalPresentation.THEMES[saved.theme] then return nil end
     local clean = { schema = 1, seed = seed, identity = saved.identity, archive = saved.archive,
         theme = saved.theme or SC.TerminalPresentation.themeFor(seed),
-        locked = saved.locked, xpAwarded = saved.xpAwarded == true }
+        locked = saved.locked, fresh = saved.fresh == true or nil, xpAwarded = saved.xpAwarded == true }
     if SC.TerminalLockState then clean.lock=SC.TerminalLockState.normalize(saved.lock,saved.locked) end
     if saved.brand ~= nil then
         if type(saved.brand) ~= "string" or #saved.brand > 80 or not saved.brand:match("^[%w_ %-]+$") then return nil end
@@ -142,7 +142,8 @@ function System.factoryReset(state)
     if not clean or clean.locked then return nil end
     -- Keep the physical machine, access recovery and one-time XP ledger.
     -- A blank archive prevents discovery from assigning another old owner.
-    clean.archive, clean.brand = "_factory", "_camp"
+    clean.archive, clean.brand, clean.fresh = "_factory", "_camp", nil
+    if clean.lock and clean.lock.kind=="persona" then clean.lock=nil end
     if clean.lock then
         clean.lock.emma=nil clean.lock.search=nil clean.lock.crewClue=nil
     end

@@ -93,7 +93,7 @@ local passwordHits=0
 for _,box in ipairs(w.securityHits) do
     if box.value:match("^[A-Z]+$") or box.value:match("^[%[%({<]") then passwordHits=passwordHits+1 end
 end
-check(contains(shown,"Retry: 60 game min") and passwordHits==0,
+check(contains(shown,"Retry: 60 min") and passwordHits==0,
     "lockout pins its game-time countdown and exposes no actionable candidates")
 T.hours=T.hours+System.LOCK_HOURS T.now=T.now+Terminal.WATCH_MS+1
 w:watch(T.now)

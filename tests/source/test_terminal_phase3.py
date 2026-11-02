@@ -1,5 +1,6 @@
 """Phase 3 payload, event ownership and original audio acceptance."""
 import hashlib
+import re
 from pathlib import Path
 import unittest
 import wave
@@ -9,6 +10,18 @@ CLIENT = ROOT / "SurvivorCompanion/42/media/lua/client"
 
 
 class Phase3(unittest.TestCase):
+    def test_owned_emitters_are_ticked(self):
+        def unticked(sources):
+            return [name for name, code in sources.items()
+                    if re.search(r'["\']takeOwnershipOfEmitter["\']', code)
+                    and not re.search(r'["\']tick["\']', code)]
+        sources = {p.name: p.read_text(encoding="utf-8-sig") for p in CLIENT.glob("*.lua")}
+        self.assertEqual(unticked(sources), [])
+        # Control: allocation and a nonzero playSound handle cannot start FMOD.
+        name = "SCTerminalLockPhone.lua"
+        broken = {name: sources[name].replace('U().call(c.emitter,"tick")', '')}
+        self.assertEqual(unticked(broken), [name])
+
     def test_original_audio_payloads(self):
         manifest = (ROOT / "ASSET-MANIFEST.md").read_text(encoding="utf-8-sig")
         script = (ROOT / "SurvivorCompanion/42/media/scripts/sounds_LivingFellowsLocks.txt").read_text()

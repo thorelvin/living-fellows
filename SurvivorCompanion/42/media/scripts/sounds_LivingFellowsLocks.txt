@@ -1,5 +1,11 @@
 module Base
 {
+    sound LFSpiffyJingle
+    {
+        category = World,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFSpiffyJingle.wav, is3D = true, distanceMax = 40, volume = 0.65, }
+    }
     sound LFPhoneRing
     {
         category = World,

@@ -71,7 +71,7 @@ local function act(w,action,value)
         if not selected then return false end
         if selected.online then UI.notice(w,selected.label.." is online. It reduces cooling time.")
         elseif selected.crack and not selected.crack.lost then UI.notice(w,selected.label..": "..string.format("%.1f",selected.crack.doneHours/selected.crack.requiredHours*100).."% cracked. Use the cracking computer or contact EMMA to refresh its status.")
-        elseif not selected.linked then UI.notice(w,"Bring a spare computer with a mounted radio and a generator within 40 tiles of "..selected.label..". The computer and radio stay there.")
+        elseif not selected.linked then UI.notice(w,"Bring a spare computer with a mounted radio and a generator within 40 meters of "..selected.label..". The computer and radio stay there.")
         else propose(w,"crack",value) end
     else propose(w,action) end
     return true

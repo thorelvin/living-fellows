@@ -123,5 +123,27 @@ check(D.open(player,eighth,missingId,false) and missingId.lock.stash.committed
 check(not P.place(player,eighth,missingId,container,false) and adds==beforeMissing+1,
     "an unverifiable native item never triggers a replacement")
 container.AddItem=normalAdd
+D.release(eighth)
+local ninth=T.computer(square) square.objects[#square.objects+1]=ninth
+local removed=program(ninth,"removed-desk")
+check(removed.lock.drawer and book.drawers[removed.identity],"removed desk fixture owns a real claim")
+local services=SC.TerminalServices local duration
+SC.TerminalServices={install=function(_,_,_,maxTime) duration=maxTime;return true end}
+local tool=SC.ControlUtil.hasTool SC.ControlUtil.hasTool=function() return true end
+local force
+D.context({addOption=function(_,_,who,fn) force=function() fn(who) end end},player,{desk})
+check(force~=nil,"physical drawer offers crowbar forcing") force()
+check(duration==300,"crowbar duration is passed before native queueing starts")
+SC.TerminalServices=services SC.ControlUtil.hasTool=tool
+local loaded=getCell;getCell=function() return {getGridSquare=function() return nil end} end
+D.refresh(page,"buttonsAdded")
+check(book.drawers[removed.identity] and removed.lock.drawer,"unloaded desk and computer retain their exact claim")
+getCell=loaded
+for index,object in ipairs(square.objects) do if object==desk then table.remove(square.objects,index) break end end
+D.refresh(page,"buttonsAdded")
+check(not book.drawers[removed.identity] and not removed.lock.drawer,"definitely removed desk clears both ledger and computer menu claim")
+check(removed.lock.stash.committed,"missing desk cannot mint replacement drawer rewards")
+L.settle(removed,player,ninth)
+check(not removed.lock.drawer,"reopening cannot replace the lost drawer")
 ModData,SandboxVars,getCell,ItemPicker=oldMod,oldSandbox,oldCell,oldPicker L.reset()
 SC_TEST_REPORT=SC_TEST_REPORT.."; Drawer ownership and ambiguous native transfer: "..(T.checks-before).." checks passed"

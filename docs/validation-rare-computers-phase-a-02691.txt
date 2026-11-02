@@ -1,0 +1,67 @@
+Rare computers handoff — Phase A
+2026-11-02
+
+Base: origin/living_fellows/0.26.90, 9fd74baa38a1ed63aa3c549553ac65aee71dbe5b
+Branch: living_fellows/0.26.91
+Worktree: C:/ZOMBOID/work/rare-computers-02691
+
+Preflight
+The entire 499-line C:/ZOMBOID/codex-handoff-rare-computers.md was read.
+Before modifying any project files, both required commands ran from C:/ZOMBOID:
+  python codex-handoff-persona-audit.py                      exit 0
+  python codex-handoff-persona-controls.py --harness-only    exit 0
+They passed again after the wording changes. The provided persona engine, three
+data files and harness were not modified or integrated in this phase.
+The Git remote confirmed the exact requested base and that 0.26.91 was free.
+The existing uncommitted Follow fixes remain separate in work/grid.
+
+Completed scope
+- Player-facing distances use meters, one square per meter, with no conversion
+  of coordinates, thresholds or travel limits. Spatial instructions use ground,
+  spots or markers where they refer to a location rather than a distance.
+- Computer responses and recovery timers use plain hours and minutes. Game-time
+  distinctions remain in Sandbox options and support diagnostics where useful.
+- EMMA describes its local machine, camp records and archived accounts without
+  referring to mod fiction, hosted services, XP, the save or a world reload.
+  Real menu paths, support-report terminology and fiction within the computer's
+  own entertainment remain intact.
+- Internal telephone discovery displays a bounded percentage using the actual
+  three-floor search size, capped by the existing 4,096-square work limit.
+  Search bounds, ownership checks and discovery behaviour are unchanged.
+- VERSION.txt, both mod.info files, SC.Identity.release, the README badge,
+  shipped README, CHANGELOG and native manifest identify 0.26.91.
+
+Verification
+- UI suite passed, including four percentage boundary/size checks and 93 Python
+  UI/source tests. The final gate reruns the production Lua UI harnesses.
+- The final full project gate passed 29/29 stages in 198 seconds, including
+  gameplay, dialogue, UI, persistence, navigation, combat, native controls,
+  adapters, installer transactions and Workshop/standalone packaging.
+- Translation key sets, numeric values and substitution placeholders are
+  unchanged. All 23 changed client Lua files apart from the telephone display
+  have identical executable tokens after stripping string literals/comments.
+- The old supplied-dialogue hash contract now reverses only the approved
+  '{D} meters' substitution before checking its original checksum. It still
+  protects every other word, rule and ordering decision.
+- The rebuilt bridge differs from the baseline only in META-INF/MANIFEST.MF.
+  Every class entry is byte-identical. Protocol remains 42.21-isocompanion-27;
+  compiled game remains 42.21.0. Save formats are unchanged.
+  Payload SHA-256:
+  601c0f1ef68c084432d12676b6c09e8efe5ce11c6bc11e157ecf2ff100f41f30
+- No new live-game acceptance scenario was run for this wording-only phase.
+
+Evidence
+C:/ZOMBOID/outputs/rare-computers-phase-a-gate-final.log
+C:/ZOMBOID/outputs/rare-computers-phase-a-ui.log
+C:/ZOMBOID/outputs/rare-computers-phase-a-bridge.log
+The final gate log contains the corrected, passing dialogue/gameplay results.
+
+Required stop
+Section 6 directs: 'Phase A ... Stop: the user reads the changelog.'
+This phase stops at that point; Phase 0's live integration checks are next.
+debugPersona is introduced in Phase 1 and cannot select a machine in Phase A.
+To inspect Phase A once installed, use an ordinary powered desktop computer;
+there are no rare persona machines in this build yet.
+
+Changes and local packages are ready for review. No commit, push, tag, game
+installation, Workshop upload or Field Guide publication was performed.

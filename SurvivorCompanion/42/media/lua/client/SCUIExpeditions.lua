@@ -1229,7 +1229,7 @@ function Planner.build(detail, panel)
     for _, place in ipairs(draft.places) do
         local suffix = place.street and (" - " .. place.street) or ""
         places[#places + 1] = { value = place.id,
-            label = place.label .. suffix .. " (" .. tostring(place.distance or "?") .. " tiles)" }
+            label = place.label .. suffix .. " (" .. tostring(place.distance or "?") .. " meters)" }
     end
     y = addSelector(detail, panel, y, draft.kind == "fish"
         and "UI_SC_Expedition_FishingDestination"
