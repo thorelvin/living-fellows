@@ -21,9 +21,17 @@ local p=persona("spiffy")
 D.noteConversation(w)
 check(not L.ledger().persona.talked.spiffy,"blank cursor does not count as a conversation")
 p.met,p.spoken=true,1
+p.name,p.used.name_none="Ada",1
 SC.TerminalPersonaUI.finished(w)
 check(L.ledger().persona.talked.spiffy,
     "finished native reply records conversation without forcing an unavailable speaker")
+check(not L.ledger().persona.campReady.spiffy,"a guest who gave a name never hears the valued-guest follow-up")
+p.name,p.used.name_none=nil,nil
+D.noteConversation(w)
+check(not L.ledger().persona.campReady.spiffy,"SPIFFY must actually file the player as VALUED GUEST")
+p.used.name_none=1
+D.noteConversation(w)
+check(L.ledger().persona.campReady.spiffy,"an unnamed VALUED GUEST earns the follow-up")
 check(D.campLine(w)==nil,"locked persona cannot deliver ordinary EMMA follow-ups")
 w.system.locked=false camp.inside=false
 check(D.campLine(w)==nil and not book.persona.campMentions.spiffy,"outside camp preserves pending follow-up")
@@ -48,6 +56,10 @@ for _,id in ipairs({"ellis","duty"}) do
     if id=="ellis" then w.system.lock.effects={reliefDay=4} else p.flags.relieved=true end
     D.noteConversation(w)
     local line,receipt=D.campLine(w)
+    if id=="ellis" then
+        check(type(line)=="string" and line:find("calmer",1,true) and not line:find("rested",1,true),
+            "Ellis's follow-up names the stress relief she actually gave")
+    end
     check(type(line)=="string" and D.completeCampLine(w,receipt) and D.campLine(w)==nil,"one outcome follow-up for "..id)
 end
 L.reset()

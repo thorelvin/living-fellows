@@ -41,6 +41,8 @@ desktop.ini
 
 # Playtest output stays out of the repository. Summarize it in docs/ instead.
 /artifacts/**/*.png
-/artifacts/**/events.txt
+/artifacts/**/*events.txt
+/artifacts/**/*summary.txt
+/artifacts/**/provenance.txt
 /artifacts/**/project-gate.txt
 /artifacts/**/sleep-telemetry.txt

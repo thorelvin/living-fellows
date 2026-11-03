@@ -27,13 +27,15 @@ function D.noteConversation(w)
     if ledger then
         local book=ledger.persona book.talked[p.id]=true
         -- The supplied follow-ups describe real outcomes, not just discovery.
-        if p.id=="spiffy" or p.id=="ellis" and w.system.lock.effects and w.system.lock.effects.reliefDay~=nil
+        -- SPIFFY's line only fits a player it filed as VALUED GUEST.
+        local guest=p.id=="spiffy" and not p.name and (tonumber(p.used and p.used.name_none) or 0)>0
+        if guest or p.id=="ellis" and w.system.lock.effects and w.system.lock.effects.reliefDay~=nil
             or p.id=="duty" and p.flags.relieved then book.campReady[p.id]=true end
     end
 end
 local campLines={
     spiffy='You have started saying "valued guest". I would like to know where you picked that up.',
-    ellis='You seem better rested. I did not do that. I would like to know who did.',
+    ellis='You seem calmer. I did not do that. I would like to know who did.',
     duty='Something at the county level just signed off after a very long shift. It listed you as commanding officer. I have questions.',
 }
 function D.campLine(w)

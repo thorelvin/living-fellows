@@ -90,6 +90,7 @@ try {
         'tests\source\test_terminal_phase4.py'
         'tests\source\test_persona_audit.py'
         'tests\source\test_persona_integration.py'
+        'tests\source\test_no_playtest_output.py'
     )) {
         & $Python (Join-Path $ProjectRoot $test)
         if ($LASTEXITCODE -ne 0) { throw "Source test failed: $test" }
