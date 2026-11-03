@@ -1,0 +1,20 @@
+Native Project Zomboid screenshots, 1280x720, 2026-11-03.
+Captured by getCore():TakeFullScreenshot in SCPersonaDiscoveryProbe.lua.
+Files are copied unchanged from each isolated client's cachedir/Screenshots.
+No image generation, edits, composites or mockups are involved.
+
+Stage: SC-Harness-20261103-094826-bd83595e
+ellis-home.png SHA-256
+3ff30d5d5ebab95073b00cff326afecd8551040d695d2858468d3d8ff0ada3bb
+duty-deep.png SHA-256
+61fa102c6a1b300083b0dafe4e36985d4f49a44f41ec06e602c3a8a1b42998f2
+
+Final cold reload: SC-Harness-20261103-100850-ee457a1e
+duty-reloaded.png SHA-256
+5aba19cf972d2be3770e0af6c44e9683feff8a769f60f4ace8416cf3ddf9dca5
+factory-after-reset.png SHA-256
+9433f965ed5bb692b60b664309ee021badd8b3a34a0a37451e12f9520b82a711
+
+The initial cold reload SC-Harness-20261103-095730-0c5a3651 was captured
+before the first UI paint. Its raw screenshot remains with that clone; it is
+excluded here. These resume files come from the final render-verified run.

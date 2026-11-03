@@ -1036,6 +1036,10 @@ end
 
 function SCTerminalWindow:pushRow(value, kind, source)
     local row = source or { text = value, kind = kind or "emma" }
+    if row.personaFollowup and SC.TerminalPersonaDiscovery then
+        SC.TerminalPersonaDiscovery.completeCampLine(self,row.personaFollowup)
+        row.personaFollowup=nil
+    end
     self.rows[#self.rows + 1] = row
     while #self.rows > Terminal.SCROLLBACK_ROWS do table.remove(self.rows, 1) end
     self.renderRows = nil
@@ -1047,7 +1051,9 @@ end
 
 function SCTerminalWindow:print(value, kind)
     local first
-    for _, row in ipairs(Terminal.wrap(value, self:columns())) do
+    local persona=SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self)
+    local lines=persona and {tostring(value or "")} or self:wrapTranscript(value)
+    for _, row in ipairs(lines) do
         local added = self:pushRow(row, kind)
         first = first or added
     end
@@ -1057,7 +1063,11 @@ end
 -- Queue text for the typewriter.
 function SCTerminalWindow:enqueue(lines, kind, speed)
     for _, line in ipairs(lines) do
-        for _, row in ipairs(Terminal.wrap(line, self:columns())) do
+        -- Persona transcripts use the full glass and wrap to measured pixels
+        -- at render time. Early column wrapping leaves short orphaned lines.
+        local persona=SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self)
+        local rows=persona and {tostring(line or "")} or self:wrapTranscript(line)
+        for _, row in ipairs(rows) do
             self.queue[#self.queue + 1] = { text = row, kind = kind or "emma",
                 speed = speed or Terminal.CHARS_PER_SECOND }
         end
@@ -1101,6 +1111,14 @@ function SCTerminalWindow:startEmma()
     self:enqueue(bootLines, "system", Terminal.BOOT_CHARS_PER_SECOND)
     if #greeting > 0 then greeting[#greeting + 1] = "" end
     self:enqueue(greeting, "emma", Terminal.CHARS_PER_SECOND)
+    if SC.TerminalPersonaDiscovery then
+        local followup,id=SC.TerminalPersonaDiscovery.campLine(self)
+        if followup then
+            self:enqueue({followup,""},"emma",Terminal.CHARS_PER_SECOND)
+            -- Complete only after the full line was typed or explicitly skipped.
+            self.queue[#self.queue].personaFollowup=id
+        end
+    end
     if SC.TerminalLockEmma then SC.TerminalLockEmma.onVisit(self) end
     if self.lockEmmaWinLine then self:print(self.lockEmmaWinLine,"emma") self.lockEmmaWinLine=nil end
     self.state = "typing"

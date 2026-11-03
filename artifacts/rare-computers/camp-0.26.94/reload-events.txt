@@ -1,0 +1,12 @@
+SC_REAL_SANDBOX_EVENTS_V1
+run_id=SC-Harness-20261103-115122-160a95d3
+PASS|gameplay_clock_running|game_speed=1
+PASS|companion_bootstrap_loaded|table 0x741832950{ install=closure 0x1937212812, remove=closure 0x510819926, isInstalled=closure 0x1829644424, cleanupPending=closure 0x2053709079 }
+PASS|single_player_client|server=false client=false
+PASS|native_bridge_ready|native IsoCompanion provider ready
+PASS|local_player_slot_zero|getPlayer equals getSpecificPlayer(0)
+PASS|local_observer_initially_alive|observer must be alive in the cloned save; no resurrection or damage immunity
+PASS|observer_alive_initial|restored=true health=100 alive=true clean_body=true infection=false/0 fake=false mortality=-1 infection_time=-1 wounds=0/0/0
+PASS|camp_resume_checkpoint|saved follow-up and physical PC
+PASS|camp_same_pc_reloaded|same native physical computer identity
+PASS|camp_followup_once_after_reload|saved receipt prevents replay in actual new process

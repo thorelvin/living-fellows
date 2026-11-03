@@ -92,7 +92,7 @@ function S.normalize(value,locked)
             clean.rival.guesses[#clean.rival.guesses+1]={word=g.word,likeness=g.likeness}
         end
     end
-    for _,moment in ipairs({"first","failure","unlock","clutch","phone","radio"}) do
+    for _,moment in ipairs({"first","failure","unlock","clutch","phone","radio","persona_spiffy","persona_ellis","persona_duty"}) do
         if type(value.reactions)=="table" and value.reactions[moment]==true then clean.reactions[moment]=true end
     end
     if type(value.crewClue)=="table" and (value.crewClue.kind=="story" or value.crewClue.kind=="wheel" or value.crewClue.kind=="search" or value.crewClue.kind=="emma" or value.crewClue.kind=="phone" or value.crewClue.kind=="radio")

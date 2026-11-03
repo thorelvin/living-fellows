@@ -196,6 +196,14 @@ function H.powered(object)
     local battery=cached(object,"ups")
     return battery~=nil and (U().charge(battery) or 0)>0 and (tonumber(U().call(battery,"getCondition")) or 0)>0
 end
+function H.backupPower(object)
+    local state=H.state(object,false)
+    if not state or state.on==false then return nil end
+    local battery=cached(object,"ups")
+    local charge=battery and U().charge(battery)
+    if not finite(charge) or charge<=0 or (tonumber(U().call(battery,"getCondition")) or 0)<=0 then return nil end
+    return {source="battery",charge=math.floor(math.min(1,charge)*100)}
+end
 function H.receiver(object)
     local state=H.state(object,false)
     local item=cached(object,"radio")

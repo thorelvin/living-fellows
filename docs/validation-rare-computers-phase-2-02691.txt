@@ -1,3 +1,7 @@
+Follow-up, 2026-11-03: the planned native stage/reload acceptance now passes
+on 0.26.93. See validation-rare-computers-phase-2-02693.txt and the retained
+screenshots/events. The November 2 work-in-progress record below is historical.
+
 Living Fellows 0.26.91 - Phase 2 work in progress, 2026-11-02
 
 Implemented: separate first-boot personality Director, Off/Rare/Common option,

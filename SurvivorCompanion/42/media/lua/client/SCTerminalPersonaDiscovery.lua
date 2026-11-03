@@ -11,11 +11,57 @@ function D.normalizeLedger(raw)
     local old=type(raw.persona)=="table" and raw.persona or {}
     local boots=math.floor(V.number(old.boots,0,10000000) or 0)
     local last=V.number(old.lastAt,0,10000000)
-    local clean={boots=boots,lastAt=last and math.min(boots,math.floor(last)) or nil,met={}}
+    local clean={boots=boots,lastAt=last and math.min(boots,math.floor(last)) or nil,met={},talked={},campReady={},campMentions={}}
     for _,id in ipairs(SC.TerminalPersona.ORDER) do
         if type(old.met)=="table" and old.met[id]==true then clean.met[id]=true end
+        if clean.met[id] and type(old.talked)=="table" and old.talked[id]==true then clean.talked[id]=true end
+        if clean.talked[id] and type(old.campReady)=="table" and old.campReady[id]==true then clean.campReady[id]=true end
+        if clean.campReady[id] and type(old.campMentions)=="table" and old.campMentions[id]==true then clean.campMentions[id]=true end
     end
     raw.persona=clean
+end
+function D.noteConversation(w)
+    local p=w.system and w.system.lock and w.system.lock.persona
+    if not p or not p.met or (tonumber(p.spoken) or 0)<1 or not SC.TerminalPersonaData[p.id] then return end
+    local ledger=SC.TerminalLocks.ledger()
+    if ledger then
+        local book=ledger.persona book.talked[p.id]=true
+        -- The supplied follow-ups describe real outcomes, not just discovery.
+        if p.id=="spiffy" or p.id=="ellis" and w.system.lock.effects and w.system.lock.effects.reliefDay~=nil
+            or p.id=="duty" and p.flags.relieved then book.campReady[p.id]=true end
+    end
+end
+local campLines={
+    spiffy='You have started saying "valued guest". I would like to know where you picked that up.',
+    ellis='You seem better rested. I did not do that. I would like to know who did.',
+    duty='Something at the county level just signed off after a very long shift. It listed you as commanding officer. I have questions.',
+}
+function D.campLine(w)
+    if not w.system or w.system.locked then return nil end
+    local camp=w.world and read(w.world.camp)
+    if type(camp)~="table" or camp.inside~=true then return nil end
+    local ledger=SC.TerminalLocks.ledger() local book=ledger and ledger.persona
+    if not book then return nil end
+    for _,id in ipairs(SC.TerminalPersona.ORDER) do
+        if book.campReady[id] and not book.campMentions[id] then
+            return campLines[id],id
+        end
+    end
+end
+function D.completeCampLine(w,id)
+    if not campLines[id] or not w.system or w.system.locked then return false end
+    local camp=w.world and read(w.world.camp)
+    if type(camp)~="table" or camp.inside~=true then return false end
+    local ledger=SC.TerminalLocks.ledger() local book=ledger and ledger.persona
+    if not book or not book.campReady[id] or book.campMentions[id] then return false end
+    book.campMentions[id]=true
+    return true
+end
+function D.recoveryLine()
+    local ledger=SC.TerminalLocks.ledger() local book=ledger and ledger.persona
+    for _,id in ipairs(SC.TerminalPersona.ORDER) do
+        if book and book.talked[id] then return "Some machines have questions of their own." end
+    end
 end
 function D.remember(id)
     local ledger=SC.TerminalLocks.ledger()
@@ -57,8 +103,13 @@ function D.settle(state,player,object,insideCamp)
     local ledger=SC.TerminalLocks.ledger()
     if not ledger then return false end
     local book=ledger.persona
-    local draft={boots=book.boots,lastAt=book.lastAt,met={}}
-    for _,id in ipairs(P.ORDER) do draft.met[id]=book.met[id] end
+    local draft={boots=book.boots,lastAt=book.lastAt,met={},talked={},campReady={},campMentions={}}
+    for _,id in ipairs(P.ORDER) do
+        draft.met[id]=book.met[id]
+        draft.talked[id]=book.talked[id]
+        draft.campReady[id]=book.campReady[id]
+        draft.campMentions[id]=book.campMentions[id]
+    end
     local days=read(SC.TerminalPayoff.daysSinceOutbreak) or 0
     local level=D.level()
     local enabled=SC.TerminalDrawers.enabled()

@@ -875,6 +875,13 @@ local function powerText(power)
     if type(power) ~= "table" then return "unknown" end
     if power.source == "grid" then return "grid" end
     if power.source == "substation" then return "substation supply" end
+    if power.source == "battery" then
+        local charge=tonumber(power.charge)
+        if charge and charge==charge then return "battery backup, charge "..math.floor(math.max(0,math.min(100,charge))).."%" end
+        return "battery backup"
+    end
+    if power.source == "off" then return "switched off" end
+    if power.source == "none" then return "no power" end
     if power.source == "generator" then
         if tonumber(power.fuel) then return "generator, fuel " .. math.floor(power.fuel) .. "%" end
         return "generator"

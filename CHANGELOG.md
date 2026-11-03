@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.26.94 - Computer conversations and polish
+
+- Let unusual computer conversations leave a small impression: occasional
+  companion remarks and a later word from EMMA at camp. Show nearby remarks
+  in the terminal transcript, and retain missed opportunities while crew are busy.
+- Keep the Recovery Log's completion target unchanged, with a quiet hint
+  after these encounters. Most computers wait for a password. A very few just wait.
+- Show battery backup and its remaining charge in EMMA's power report.
+- Wrap full-screen conversations once, using the actual text width.
+- Retain native bridge protocol `42.21-isocompanion-27` and existing save compatibility.
+
 ## 0.26.93 - Camp performance and companion supplies
 
 - Spread camp supply searches across short, shared work slices. Check food and

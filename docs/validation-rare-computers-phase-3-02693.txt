@@ -1,0 +1,106 @@
+Follow-up: validation-camp-acceptance-02694.txt records the later native camp
+and reload pass, the accepted-speech transcript fix, current candidate 0.26.94,
+and the limits of the original-roster and performance observations.
+
+Living Fellows: rare-computer Phase 3 polish
+2026-11-03; unreleased working changes on living_fellows/0.26.93.
+Base: 58c7aeb98608229960ae0be2d46d15ed6312f355.
+
+Implemented
+- Three small companion reaction pools, triggered after a persona reply has
+  finished. They use the existing recruited-speaker availability and shared
+  Banter/Dialogue budget. Sleeping/busy/unavailable companions are not forced
+  to speak; nobody is moved, assigned a job or interrupted. The chance is 35%
+  for each machine. Chance failures and delivered remarks are retained through
+  normalization. Busy/unavailable speakers leave an eligible remark pending
+  for a later completed reply. The CRT also shows the actual accepted speech
+  because the full-screen monitor covers overhead bubbles.
+- A later camp EMMA visit can acknowledge an encountered personality, one at
+  a time and once per world. Blank first-open screens do not qualify. The
+  supplied outcome lines wait for actual therapist relief / officer handover.
+  Outside-camp, locked and unknown-camp contexts cannot consume a follow-up.
+- Queueing is not delivery: the receipt commits only after the complete line
+  has typed or the player explicitly skips it. Closing during boot/typing
+  leaves it pending. Optional receipts are bounded to the three known IDs,
+  survive saves and later first-boot Director decisions, and normalize safely
+  from old saves. No engine or dialogue-data files were edited.
+- Recovery Log gains a quiet hint after conversation, with no added lock kind,
+  discovery checklist, secret names or change to the completion/license target.
+- A read-only mounted-battery query supplies actual charge to the world
+  provider and EMMA's power text. Off/depleted/broken backups do not advertise
+  power. Existing grid/substation/generator behavior remains; the substation
+  label retains its original priority over the square it powers.
+- Persona dialogue stays as logical lines until measured display wrapping.
+  Ordinary EMMA queues now also use measured glyph widths. This avoids double
+  wrapping a last word onto its own line and keeps text inside the menu gutter.
+- Changelog and computer docs use the handoff's spoiler-light hint. The Field
+  Guide draft has the same one-line hint and its front release note is updated
+  for the shipped .93 companion fixes. No rare-computer identities or location
+  details are added to player-facing documentation.
+
+Automated checks
+- Focused terminal UI: PASS, including 36 Phase 3 assertions and 52 pixel-wrap
+  assertions. Covers milestone gating, unknown/outside/locked camp, interrupted
+  queue receipts, completion acknowledgement, all three once-only messages,
+  save normalization, later Director activity, unchanged recovery target,
+  registered crew topics/budget/availability, backup source and source priority.
+- Full UI gate: PASS, including existing negative controls and native-shaped
+  building/hardware tests. Four added mounted-battery assertions cover live
+  charge, switched-off/broken batteries and repeated read-only queries.
+- Full gameplay gate: PASS, including existing combat, needs, ownership and
+  terminal regression suites. Both full gates run after the final measured
+  wrapping change. A final focused terminal run additionally checks preserving
+  the original substation-source priority.
+- Eight temporary-copy mutations are detected: missing conversation receipt,
+  missing camp gate, eager receipt consumption, lost Director receipts, lost
+  crew deduplication, missing backup source, early persona wrap and estimated
+  ordinary queue widths. Production hashes are unchanged by those controls.
+- All 280 Lua payload files compile normally and with debug locals; compiler
+  limit negative control passes. Handoff persona content audit reports zero
+  errors/notes; all four supplied persona engine/data files are unchanged.
+- Harness wiring, release synchronization, live-harness static contracts
+  (150 assertions), git diff --check and the guide draft checks pass.
+
+Native verification
+Final run: SC-Harness-20261103-105243-d87f89d3; PASS, 26 checks, no failures/skips.
+It clones the retained Phase 2 stage save, starts a new real 42.21.0 client,
+rebinds the same physical deep PC, battery and four drawer item IDs, verifies
+saved dialogue/uniqueness and no reward reissue, continues the conversation,
+then performs the confirmed factory reset. Ordinary EMMA boots, visibly names
+the real backup/charge, and retains the pending officer follow-up outside camp.
+The rendered final capture shows battery backup, charge 95%, with clean text
+wrapping beside the menu. The initial Phase 3 native run
+SC-Harness-20261103-103909-6b59766a also passed 26 checks; its regular-EMMA
+capture exposed the remaining pre-wrap issue, fixed and recaptured in the final run.
+
+One client runs at a time: 1280x720, game 30 FPS, UI 15 FPS, BelowNormal, four
+CPUs, installed 3 GB heap limit. Headless checks run separately and serially
+with a 256 MB heap and two JVM processors. The source stage and original user
+save are not written back; installed game/Lua/native payloads stay unchanged.
+
+Limits
+Actual companion speech and delivery of a follow-up at camp were checked in
+the production-Lua UI fixtures, not observed in these native clones (their
+companions are deliberately removed for isolation). The native pass verifies
+the real pending receipt and its outside-camp protection. Sound was enabled;
+subjective audio quality and a world-wide rarity tour are not claimed.
+Raw native logs retain engine asset/metadata/WMI warnings and shutdown ZipLogs
+ReadOnlyFileSystemException messages, as in Phase 2. No failed LF gameplay
+assertion or LF gameplay exception was found. No protocol or save-schema bump.
+
+Evidence
+artifacts/rare-computers/phase3-0.26.93/emma-backup-power.png
+artifacts/rare-computers/phase3-0.26.93/duty-reloaded.png
+artifacts/rare-computers/phase3-0.26.93/native-summary.txt
+artifacts/rare-computers/phase3-0.26.93/native-events.txt
+build/live-sandbox-runs/SC-Harness-20261103-105243-d87f89d3/cache/console.txt
+C:/ZOMBOID/outputs/review-8890/persona-phase3-ui.log
+C:/ZOMBOID/outputs/review-8890/persona-phase3-gameplay.log
+C:/ZOMBOID/outputs/persona-phase3-controls/
+C:/ZOMBOID/outputs/persona-phase3-final-checks.py
+C:/ZOMBOID/outputs/persona-phase3-02693-live.py
+
+Field Guide draft: C:/ZOMBOID/work/field-guide-02647/index.html (gh-pages worktree).
+The guide is prepared locally, not published. No commit, push, local install
+or Workshop upload was performed in this pass. Debug trials remain described
+in validation-rare-computers-phase-2-02693.txt; public debugPersona stays nil.

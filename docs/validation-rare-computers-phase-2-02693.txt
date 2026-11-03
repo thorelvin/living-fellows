@@ -1,0 +1,105 @@
+Living Fellows 0.26.93: rare computers Phase 2 native acceptance
+2026-11-03; base 58c7aeb98608229960ae0be2d46d15ed6312f355.
+
+Result: PASS for the planned native staging and cold-reload scenarios.
+Stage: 65 checks, zero failures/skips; final reload: 24 checks, zero failures/skips.
+These are real Project Zomboid 42.21.0 client runs, not headless-only assertions.
+The earlier Phase 2 live checks left pending on November 2 are now exercised.
+
+Scope and isolation
+The source is the existing LF-Skills5-Test-2026-10-29 save in Rising mode.
+Every run uses a separate copied cachedir/save and a private 0.26.93 payload.
+The matching bridge SHA-256 is
+d27130980786e64e82c66f3e4c28e2c520a99b043cccf8efca83a0967710ddfd.
+The installed launcher, installed Lua/native payload and original save are not
+updated. Original players.db/map_ver.bin still have their October 31 timestamps.
+Game profiles are LF-only, single-player, -nosteam, engine sound enabled.
+Fixtures change the cloned world's calendar and use the real debug override
+for SPIFFY/Ellis; the deep Duty Officer is selected without that override.
+
+Resource limits and input
+One client at a time; 1280x720 window, 30 game FPS, 15 UI FPS, BelowNormal
+priority, four inherited CPUs and ActiveProcessorCount=4. The installed 3 GB
+heap cap is retained. An observed first-client working set was 5.56 GB including
+native memory, not a 3 GB total-process claim. All clients and controllers exit.
+Windows input uses the computer-use skill against the observed game window;
+the runner's built-in Windows input/auto-start agent is disabled.
+
+Native stage: SC-Harness-20261103-094826-bd83595e
+- Real crowbar forced entry succeeds after allowing native teleport settling.
+  Software remains locked. The ordinary drawer receipt is present exactly once;
+  forced entry cannot grant the SPIFFY conversation/uniform bonus.
+- Dr. Ellis runs on the native aqua screen and completes the conversation.
+  Exact anti-depressant, sleeping-tablet and beta-blocker IDs are in the desk.
+  Native stress/unhappiness decrease; same-day relief cannot repeat.
+- Native furniture pickup creates one owned moveable item. Legal tabletop
+  placement preserves the computer identity, persona/name and memory; the
+  old drawer detaches and the exact furniture item is relinquished only after
+  placement succeeds. Live moved/camp facts reach the supplied move-home line.
+- The actual native calendar is August 1, 1993 (23 days since the outbreak).
+  A real existing floor -13 desktop and free desk are found in loaded map data.
+  Grid shutoff makes it unpowered. Installing an exact real owned car battery
+  powers it. With debugPersona nil, the deep guarantee selects the Duty Officer.
+- Actual floor/calendar facts reach his dialogue. Handover releases four exact
+  military item IDs and retains the officer as adjutant. A native world/PC/UPS
+  checkpoint is saved for another client process.
+
+Final cold reload: SC-Harness-20261103-100850-ee457a1e
+- Loads a fresh copy of the retained stage save in a new process.
+- Exact PC identity, spoken/name/flags, mounted battery ID/power and world
+  uniqueness ledger survive. All four original reward IDs remain, once each.
+- Reopening does not reissue rewards. After rendering, the saved adjutant
+  answers a new sitrep and advances the existing conversation.
+- Confirmed dialogue factory reset produces unlocked ordinary _factory EMMA,
+  keeps the mounted UPS and preserves the world 'met' record. Ordinary EMMA
+  finishes booting and is visible in the final native screenshot.
+
+Evidence correction during this pass
+The initial cold reload, SC-Harness-20261103-095730-0c5a3651, passed 21 state
+checks, but its screenshot was requested in the same tick as opening the UI
+and captured the previous world/debug-console frame. That image is not used
+as GUI acceptance evidence. The test harness now waits for rendering, checks
+visibility, asks a fresh question and waits again before capture. It also
+waits for factory EMMA to finish booting. Only the reload scenario was repeated.
+The final 24-check run supersedes the first reload for visual evidence.
+No production Lua, bridge code, engine text or dialogue data changed here.
+
+Logs and remaining limits
+No LF gameplay exception or failed assertion was found in these runs. The
+console is not error-free: it contains engine font/recipe/map-metadata warnings,
+missing groundcover tiles while streaming, restricted WMI queries, and engine
+ZipLogs ReadOnlyFileSystemException stacks during shutdown after the checks.
+Both native runs still exit and write passing summaries; their raw logs remain
+available. Do not describe the run as free of engine warnings/errors.
+Engine audio was enabled; subjective sound quality was not independently
+auditioned. A natural full-world rarity tour was not simulated. Existing
+automated Director/lifecycle coverage is separate from the scenarios above.
+Phase 3 reactions, follow-up lines and documentation/presentation polish remain.
+One visual polish item: ordinary EMMA reports 'Power: unknown' on the working
+UPS-powered deep machine; the functional battery/power assertions pass.
+
+Harness verification after the capture correction
+- Live harness static contracts: PASS, 150 assertions.
+- Changed probe compiles with debug locals enabled and runs in the native game.
+- git diff --check: PASS.
+
+Retained evidence (actual native screenshots, no generated/composited mockups)
+artifacts/rare-computers/phase2-0.26.93/ellis-home.png
+artifacts/rare-computers/phase2-0.26.93/duty-deep.png
+artifacts/rare-computers/phase2-0.26.93/duty-reloaded.png
+artifacts/rare-computers/phase2-0.26.93/factory-after-reset.png
+artifacts/rare-computers/phase2-0.26.93/stage-events.txt
+artifacts/rare-computers/phase2-0.26.93/stage-summary.txt
+artifacts/rare-computers/phase2-0.26.93/resume-events.txt
+artifacts/rare-computers/phase2-0.26.93/resume-summary.txt
+Full clones/consoles: build/live-sandbox-runs/<run IDs above>/cache/
+Reproduction driver: C:/ZOMBOID/outputs/persona-phase2-02693-live.py
+Controller logs: C:/ZOMBOID/outputs/persona-phase2-02693-*.log
+
+Manual debug trial
+In an engine-debug session, before opening a never-booted computer:
+SurvivorCompanion.Config.debugPersona = "spiffy"
+Use "ellis" or "duty" to try the other profiles. The override is single-use
+and cannot alter already-opened computers. Its public default remains nil.
+The "deep" override is still limited to an eligible real deep location.
+No install, commit, push or Workshop publication is performed in this pass.

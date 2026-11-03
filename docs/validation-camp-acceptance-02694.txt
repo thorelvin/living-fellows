@@ -1,0 +1,120 @@
+Living Fellows 0.26.94 candidate: camp and rare-computer acceptance
+2026-11-03. Branch living_fellows/0.26.94, based on 58c7aeb9 (.93).
+
+Native results
+- Controlled camp: SC-Harness-20261103-114322-7ecca147.
+  PASS: 41 checks, 0 failures, 1 deliberate baseline skip.
+- Second-process reload: SC-Harness-20261103-115122-160a95d3.
+  PASS: 10 checks, 0 failures, 0 skips.
+- Baseline: SC-Harness-20261103-113323-a9d9c0b9.
+  Existing four-person roster, LF menus closed, 90 real seconds.
+  Screenshot review shows the game debug console remained visible despite
+  the harness hide attempt. These are diagnostic render timings, not an
+  unobstructed normal-play performance sample.
+  2,375 render samples: median 33 ms, p95 78 ms, maximum 142 ms.
+  This is a completed baseline only; that run later hit a harness spawn error.
+  It is NOT a complete passing run or an FPS comparison against .92.
+
+What the passing controlled run actually did
+- Kept the ordinary decision scheduler and camp services running throughout.
+- After the existing-roster baseline had been recorded, used a fresh clone
+  and replaced the old crew with four freshly spawned native companions.
+  This isolates old cargo, inventory load and unfinished jobs. Existing
+  camp rooms, beds, marked storage and native world geometry were retained.
+- Seeded one companion at 72% hunger, with real bananas. Native hunger fell
+  to 24% and remained below 30% at the final check (24.86%).
+- Seeded another at 70% endurance. Verified recovery while standing, and
+  final endurance of 100%, without changing the real player's endurance.
+- Seeded fatigue at 94% and endurance at 30%. Normal AI found and approached
+  a real bed, entered native bed/sleep state and recovered. The bed itself
+  is outside the observer screenshot; pose orientation is not visually
+  proven by sleep.png. Sleep-start endurance 32.26%,
+  then 32.77% at the recovery assertion; final fatigue 81.12%.
+- Dropped 20 new, real Base.Money items into a marked intake square. Tracked
+  those same item objects through pickup: 20 carried simultaneously, then
+  all 20 in the same permitted Valuables storage for at least 15 seconds.
+  No withdrawal/return loop occurred in that final stability interval.
+- A real recruited companion emitted terminal.lock.persona_spiffy through
+  normal Dialogue/Banter admission. Its accepted line appeared on the CRT.
+- Ordinary EMMA on a real in-camp PC delivered the queued follow-up, and
+  committed the receipt only after the line finished. A saved checkpoint
+  and a new game process proved the same PC identity and no repeated line.
+  Persona discovery was forced for this focused case; natural discovery,
+  furniture movement, the deep location, physical rewards and UPS/reload
+  are recorded separately in validation-rare-computers-phase-2-02693.txt.
+
+Defect fixed during acceptance
+The full-screen CRT covers native overhead speech. Echo the exact accepted
+nearby companion line in the transcript, once. Do not print a line if native
+speech was refused. Busy or unavailable crew no longer consume an otherwise
+eligible persona remark; chance failures and delivered remarks remain
+once-only. No extra timer, scan, speech interruption or background service.
+
+Practical limits and observations
+- Sorting first paused with floor_pickup_animation_replaced and later
+  path_blocked:budget_exhausted. It automatically retried and ultimately
+  passed the exact-item batch and stable-storage checks. This verifies
+  recovery and batching, not uniformly fast completion of every route.
+- The original saved crew had heavy inventory and pending storage routes.
+  An earlier controlled attempt using that old roster did not finish the
+  meal, sleep or intake cases in five minutes. Those carry/route interactions
+  remain follow-up work; the fresh-crew pass does not erase that observation.
+- No tester firehouse save was available. The local 90-second baseline does
+  not establish that the tester's stutter is fixed. Frame cap, CPU affinity,
+  clone entry and the game's own work affect these samples.
+- Engine audio was enabled, but no independent audio audition is claimed.
+- Vanilla font/recipe/map warnings and the pre-existing ZipLogs read-only
+  shutdown exception remain in native consoles. Final passing runs have no
+  unhandled LF gameplay assertion. Earlier harness-only failures are below.
+
+Harness corrections and retained failures
+111640-b7ed3e68: roster checked before saved NPCs finished loading.
+112018-4d9c682b: diagnostic INFO was wrongly treated as FAIL by result();
+  old-roster behavioural failures remain real observations. Ordinary-PC
+  follow-up fixture was accidentally created locked. Corrected both.
+113323-a9d9c0b9: movement-free is insufficient for native actor construction;
+  the second fixture collided with the first. Stopped only this owned clone
+  after the debugger halt. Now use safe spawn checks and spaced positions,
+  and report spawn failure without assert(). Baseline above completed first.
+All original saves and the installed normal-play mod were left untouched.
+Only one isolated client ran at a time: 1280x720, 30 FPS, UI 15 FPS,
+BelowNormal priority, four logical CPUs, private source bridge, LF only.
+
+Evidence
+artifacts/rare-computers/camp-0.26.94/controlled-events.txt
+artifacts/rare-computers/camp-0.26.94/controlled-summary.txt
+artifacts/rare-computers/camp-0.26.94/reload-events.txt
+artifacts/rare-computers/camp-0.26.94/reload-summary.txt
+artifacts/rare-computers/camp-0.26.94/provenance.txt
+Native unedited PNGs: baseline, sleep, companion-reaction, followup,
+followup-reload. Raw consoles remain under build/live-sandbox-runs.
+
+Release preparation
+Version labels and changelog prepared as 0.26.94. Native protocol remains
+42.21-isocompanion-27; save schema unchanged. No native source change.
+Field Guide draft is in C:/ZOMBOID/work/field-guide-02647/index.html,
+including an unedited native battery-power screenshot and spoiler-light
+computer notes. This preparation does not commit, push, install or publish.
+The browser controller stopped Field Guide visual inspection because URL
+policy enforcement is unsupported in the current Windows browser. No browser
+retry or publication followed. The native computer PNGs were inspected from
+disk; the guide figure reuses its existing responsive plate CSS.
+Final automated/package results are appended below.
+
+Final automated checks (serial, BelowNormal, 256 MB JVMs, two CPUs)
+- Full UI: PASS; Persona polish 41 checks, pixel wrapping 52 checks.
+- Full gameplay: PASS, including existing needs, sorting, sleep and terminal suites.
+- Source gate: PASS; release sync, protocol/save compatibility, native source
+  JAR equality, source contracts, maintained PowerShell parse, persona audits,
+  harness wiring and 41/41 installer cases (serial, 485.8 seconds).
+- Workshop release archive and standalone Windows package: PASS.
+- Field Guide static check: PASS, exact native PNG, existing responsive CSS.
+  Full browser visual review remains unavailable as described above.
+LivingFellowsCompanion-0.26.94-RELEASE.zip SHA256 2e3bb672dc597a37a35e8c4f444d6abb9b8d001423a67b49f893d6bbc79c456d
+LivingFellowsCompanion-0.26.94-STANDALONE-WINDOWS.zip SHA256 5b13012b5a76caca5c35b3dbf6fbbd2716dd694d3a22ee8f8f7bce45a33c2a0e
+- Ten temporary-copy regression controls: PASS; all faults detected and
+  production source hashes unchanged. Includes hidden echo and lost busy
+  opportunity controls.
+- All 280 shipped Lua files compiled normally and with debug checks: PASS.
+- Final runner: CAMP_RELEASE_FINAL_PASS. No game client remained open.
+- git diff --check: PASS. No commit, push, installation or guide publication.

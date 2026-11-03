@@ -1,0 +1,67 @@
+SC_REAL_SANDBOX_EVENTS_V1
+run_id=SC-Harness-20261103-094826-bd83595e
+PASS|gameplay_clock_running|game_speed=1
+PASS|companion_bootstrap_loaded|table 0x1298847528{ install=closure 0x437421526, remove=closure 0x1738467255, isInstalled=closure 0x215973918, cleanupPending=closure 0x387433786 }
+PASS|single_player_client|server=false client=false
+PASS|native_bridge_ready|native IsoCompanion provider ready
+PASS|local_player_slot_zero|getPlayer equals getSpecificPlayer(0)
+PASS|local_observer_initially_alive|observer must be alive in the cloned save; no resurrection or damage immunity
+PASS|observer_alive_initial|restored=true health=100 alive=true clean_body=true infection=false/0 fake=false mortality=-1 infection_time=-1 wounds=0/0/0
+PASS|persona_home_pc|real desktop with real free desk
+PASS|persona_spiffy_debug|first of three debug personalities
+PASS|persona_crowbar_owned|native crowbar owned by observer
+PASS|persona_crowbar_result|real forced-entry path: Drawer interlock broken. The computer is still locked.
+PASS|persona_crowbar_ordinary|ordinary tier, no conversation bonus
+PASS|persona_crowbar_no_suit_774178032|crowbar cannot add manager uniform
+PASS|persona_forced_container|original native desk available
+PASS|persona_forced_Base.Matches|exact native receipt present once: 774178032
+PASS|persona_ellis_debug|therapist on native aqua CRT
+PASS|persona_ellis_reply_1|native reply completes
+PASS|persona_ellis_reply_2|native reply completes
+PASS|persona_ellis_reply_3|native reply completes
+PASS|persona_ellis_reply_4|native reply completes
+PASS|persona_ellis_reply_5|native reply completes
+PASS|persona_ellis_reply_6|native reply completes
+PASS|persona_ellis_reply_7|native reply completes
+PASS|persona_ellis_reply_8|native reply completes
+PASS|persona_ellis_reply_9|native reply completes
+PASS|persona_ellis_reply_10|native reply completes
+PASS|persona_ellis_reply_11|native reply completes
+PASS|persona_ellis_reply_12|native reply completes
+PASS|persona_therapy_grant|therapy releases drawer and applies real relief
+PASS|persona_therapy_items|three prescribed real items
+PASS|persona_therapy_container|original native desk available
+PASS|persona_therapy_Base.PillsAntiDep|exact native receipt present once: 92594443
+PASS|persona_therapy_Base.PillsSleepingTablets|exact native receipt present once: 1256468170
+PASS|persona_therapy_Base.PillsBeta|exact native receipt present once: 1027075865
+PASS|persona_therapy_stats|native stress and unhappiness reduced
+PASS|persona_therapy_cooldown|same-day relief does not repeat
+PASS|persona_native_pickup|native furniture item owns the moved assembly
+PASS|persona_move_memory|pickup preserves personality and severs drawer
+PASS|persona_native_destination|different legal vanilla tabletop found
+PASS|persona_native_placement|native placed object retains exact computer identity
+PASS|persona_single_furniture_owner|exact furniture item removed only after confirmed native placement
+PASS|persona_move_live_facts|live facts see new coordinates and detached original drawer
+PASS|persona_move_camp|computer moved within real marked camp
+PASS|persona_move_return_line|supplied home-move line reached
+PASS|persona_august_date|actual native calendar is August 1
+PASS|persona_deep_real_pc|real floor -13 desktop with native free desk
+PASS|persona_deep_unpowered|grid shutoff leaves deep computer unpowered
+PASS|persona_deep_physical_ups|native owned battery installation: Battery backup installed.
+PASS|persona_deep_ups_power|battery powers real deep PC without an indoor generator
+PASS|persona_deep_natural_duty|natural deep guarantee; no debug override and actual August calendar
+PASS|persona_deep_facts|actual position/calendar reach supplied deep lines
+PASS|persona_duty_reply_1|native reply completes
+PASS|persona_duty_reply_2|native reply completes
+PASS|persona_duty_reply_3|native reply completes
+PASS|persona_duty_reply_4|native reply completes
+PASS|persona_duty_reply_5|native reply completes
+PASS|persona_duty_reply_6|native reply completes
+PASS|persona_duty_handover|real handover opens drawer and keeps officer as adjutant
+PASS|persona_duty_items|four real military reward identities
+PASS|persona_duty_container|original native desk available
+PASS|persona_duty_Base.MilitaryMedal|exact native receipt present once: 1712324079
+PASS|persona_duty_Base.Hat_PeakedCapArmy|exact native receipt present once: 1176473143
+PASS|persona_duty_Base.FirstAidKit_Military|exact native receipt present once: 1463341444
+PASS|persona_duty_Base.WalkieTalkie5|exact native receipt present once: 653132105
+PASS|persona_reload_checkpoint|actual world/PC/item identities retained for a second client process

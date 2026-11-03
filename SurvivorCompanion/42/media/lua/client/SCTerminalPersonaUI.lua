@@ -139,6 +139,9 @@ function UI.input(w,raw)
 end
 function UI.finished(w)
     w.personaFinishedAt=now()
+    if SC.TerminalPersonaDiscovery then SC.TerminalPersonaDiscovery.noteConversation(w) end
+    local p=w.system.lock and w.system.lock.persona
+    if p and p.met and SC.TerminalLockCrew then SC.TerminalLockCrew.react(w,"persona_"..p.id,35) end
     local ending=w.personaEnding w.personaEnding=nil
     if ending=="close" then w.closeAt=now()+900 end
     if ending~="shutdown" then return end

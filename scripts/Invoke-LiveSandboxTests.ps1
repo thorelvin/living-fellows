@@ -260,6 +260,8 @@ param(
     [switch]$PersonaReadinessProbe,
     [switch]$PersonaPlayProbe,
     [switch]$PersonaDiscoveryProbe,
+    [switch]$CampReleaseProbe,
+    [switch]$CampReleaseControlled,
     [switch]$PersonaDiscoveryStage,
     [switch]$PersonaDiscoveryResume,
     [switch]$LockAcceptanceProbe,
@@ -1354,6 +1356,8 @@ if ($GridControlProbe -and -not $EngineSound) { throw 'Grid control acceptance r
 if (($PersonaPlayProbe -or $PersonaDiscoveryProbe) -and -not $EngineSound) { throw 'Persona acceptance requires -EngineSound for native playback.' }
 if ($LowImpact -and $SteamLaunch) { throw 'LowImpact requires the direct launcher so only the owned game process has its priority changed.' }
 if (($PersonaDiscoveryStage -or $PersonaDiscoveryResume) -and -not $PersonaDiscoveryProbe) { throw 'Persona stage/resume requires -PersonaDiscoveryProbe.' }
+if ($CampReleaseProbe -and -not $PersonaDiscoveryProbe) { throw 'Camp acceptance requires -PersonaDiscoveryProbe.' }
+if ($CampReleaseControlled -and (-not $CampReleaseProbe -or $PersonaDiscoveryResume)) { throw 'Controlled camp checks require the camp stage probe, not resume.' }
 if ($PersonaDiscoveryStage -and $PersonaDiscoveryResume) { throw 'Choose persona stage or resume, not both.' }
 if ($PersonaDiscoveryResume -and [string]::IsNullOrWhiteSpace($SeedSave)) { throw 'Persona resume requires the retained cloned -SeedSave.' }
 if ($BuildingScanSeedOnly -and -not $BuildingScanProbe) { throw 'BuildingScanSeedOnly requires BuildingScanProbe.' }
@@ -1650,7 +1654,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -2105,6 +2109,8 @@ $config = @(
     ('lock_probe=' + $LockProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_readiness_probe=' + $PersonaReadinessProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_play_probe=' + $PersonaPlayProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('camp_release_controlled=' + $CampReleaseControlled.IsPresent.ToString().ToLowerInvariant()),
+    ('camp_release_probe=' + $CampReleaseProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_discovery_probe=' + $PersonaDiscoveryProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_discovery_stage=' + $PersonaDiscoveryStage.IsPresent.ToString().ToLowerInvariant()),
     ('persona_discovery_resume=' + $PersonaDiscoveryResume.IsPresent.ToString().ToLowerInvariant()),
@@ -2170,6 +2176,8 @@ $manifest = [ordered]@{
     lockProbe = $LockProbe.IsPresent
     personaReadinessProbe = $PersonaReadinessProbe.IsPresent
     personaPlayProbe = $PersonaPlayProbe.IsPresent
+    campReleaseControlled = $CampReleaseControlled.IsPresent
+    campReleaseProbe = $CampReleaseProbe.IsPresent
     personaDiscoveryProbe = $PersonaDiscoveryProbe.IsPresent
     personaDiscoveryStage = $PersonaDiscoveryStage.IsPresent
     personaDiscoveryResume = $PersonaDiscoveryResume.IsPresent

@@ -313,10 +313,15 @@ function World.new(player, object)
 
     function provider.power()
         local hardware=SC.TerminalHardware and SC.TerminalHardware.state(object,false)
+        if hardware and hardware.on==false then return {source="off"} end
         if SC.GridControl and SC.GridControl.yardSupply(object,hardware) then return {source="substation"} end
         local state = World.powerState(square)
         if state.grid then return { source = "grid" } end
-        if not state.generator then return { source = "none" } end
+        if not state.generator then
+            local backup=SC.TerminalHardware and SC.TerminalHardware.backupPower
+                and SC.TerminalHardware.backupPower(object)
+            return backup or {source="none"}
+        end
         local generator = origin and nearestGenerator(origin) or nil
         if not generator then return { source = "generator" } end
         return {

@@ -238,9 +238,16 @@ upgradeWindow:close()
 check(SC.RadioEndpoints.validate(player,endpoint)==false,"changing hardware invalidates old radio authority")
 squares["100:100"].generatorPower=false
 check(H.powered(pc)==true,"backup powers only this PC")
+check(H.backupPower(pc).source=="battery" and H.backupPower(pc).charge==100,
+    "backup query reads the actual mounted native-shaped battery")
+hardware.on=false check(H.backupPower(pc)==nil,"switched-off backup cannot advertise power") hardware.on=true
+local oldBatteryCondition=battery.condition battery.condition=0
+check(H.backupPower(pc)==nil,"broken mounted battery cannot advertise power") battery.condition=oldBatteryCondition
 check(squares["100:100"].generatorPower==false,"backup never grants electricity to the square")
 local start=T.hours hardware.lastHours=start T.hours=start+3 T.now=T.now+2000 H.pulse()
 check(math.abs(hardware.ups.charge-0.5)<0.001,"three game hours consume half of a full healthy backup")
+check(H.backupPower(pc).charge==50 and H.backupPower(pc).charge==50
+    and math.abs(hardware.ups.charge-0.5)<0.001,"power display reads live charge without draining or filling it")
 inventory.full=true
 check(H.remove(player,pc,"radio")==false and hardware.radio~=nil,"full inventory preserves mounted cargo")
 inventory.full=false

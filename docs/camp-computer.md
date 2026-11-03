@@ -50,6 +50,7 @@ lines. The operating system and the assistant are distinct.
   one-time amount of Electrical XP. Failure imposes one game hour of lockout;
   the same puzzle returns with fresh attempts afterward. Reopening or
   reloading never rerolls a puzzle or restores a spent bracket.
+  Most computers wait for a password. A very few just wait.
 - **Personal files.** Every computer has an assigned previous owner and
   short, original July 1993 entries matched to its room or building. Stories
   stay mostly grounded, with occasional dry humour. The owner and files remain

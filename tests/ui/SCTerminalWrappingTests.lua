@@ -34,6 +34,16 @@ local function verifyRows()
         "wrapping preserves all archive words and long-token characters")
 end
 verifyRows()
+w.queue={}
+w:enqueue({paragraph},"emma")
+local queued={}
+for _,row in ipairs(w.queue) do
+    check(width(row.text)*w.textZoom<=w:transcriptWidth(),"queued text uses native glyph widths before streaming")
+    queued[#queued+1]=row.text
+end
+check(table.concat(queued," "):gsub("%s+","")==paragraph:gsub("%s+",""),
+    "measured queue wrapping preserves every word and long token")
+w.queue={}
 local typingText=string.rep("W",95)
 w.typing={text=typingText,shown=#typingText,kind="emma"} w.state="typing"
 for _,row in ipairs(w:readingFrame(T.now).extra) do

@@ -7,6 +7,7 @@
 local T, SC = TERMINAL_TEST, SurvivorCompanion
 local Terminal, Brain = SC.Terminal, SC.TerminalBrain
 local check = T.check
+T.originalWorldNew = SC.TerminalWorld.new
 
 -- Camp facts for the brain; the live adapter has its own harness.
 SC.TerminalWorld.new = function()

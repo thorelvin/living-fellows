@@ -1,0 +1,44 @@
+SC_REAL_SANDBOX_EVENTS_V1
+run_id=SC-Harness-20261103-114322-7ecca147
+PASS|gameplay_clock_running|game_speed=1
+PASS|companion_bootstrap_loaded|table 0x1983337403{ install=closure 0x590191550, remove=closure 0x29159501, isInstalled=closure 0x298796157, cleanupPending=closure 0x1571383156 }
+PASS|single_player_client|server=false client=false
+PASS|native_bridge_ready|native IsoCompanion provider ready
+PASS|local_player_slot_zero|getPlayer equals getSpecificPlayer(0)
+PASS|local_observer_initially_alive|observer must be alive in the cloned save; no resurrection or damage immunity
+PASS|observer_alive_initial|restored=true health=100 alive=true clean_body=true infection=false/0 fake=false mortality=-1 infection_time=-1 wounds=0/0/0
+PASS|camp_four_native_companions|normal saved roster; decisions remain enabled
+PASS|camp_base_loaded|existing native camp
+SKIP|camp_menus_closed_timing|recorded separately in SC-Harness-20261103-113323-a9d9c0b9; no repeated baseline
+PASS|camp_fixture_free_tile_1|free native camp floor
+PASS|camp_fixture_request_1|spawn_pending
+PASS|camp_fixture_spawn_1|table 0x1744840823{ id=sc-1.793702797303E9-1-573940, actor=SCNativeCompanion{  Name:null,  ID:48 }, recruited=true, identity=table 0x1108200609, state=table 0x850719831, order=follow, followDistance=3, allowOverload=false, scavenge=true, rideWithPlayer=true, moveMode=copy, combatMode=defensive, combatDoctrine=close_defense, holdFire=false, weaponPriority=best, workMode=auto, personalityProfile=table 0x50484345, trust=0, bond=0, morale=55, stress=12, memories=table 0x178104524
+PASS|camp_fixture_free_tile_2|free native camp floor
+PASS|camp_fixture_request_2|spawn_pending
+PASS|camp_fixture_spawn_2|table 0x1895392448{ id=sc-1.793702797364E9-2-139769, actor=SCNativeCompanion{  Name:null,  ID:49 }, recruited=true, identity=table 0x1110091144, state=table 0x352411795, order=follow, followDistance=3, allowOverload=false, scavenge=true, rideWithPlayer=true, moveMode=copy, combatMode=defensive, combatDoctrine=close_defense, holdFire=false, weaponPriority=best, workMode=auto, personalityProfile=table 0x167589301, trust=0, bond=0, morale=55, stress=12, memories=table 0x84892855
+PASS|camp_fixture_free_tile_3|free native camp floor
+PASS|camp_fixture_request_3|spawn_pending
+PASS|camp_fixture_spawn_3|table 0x130589363{ id=sc-1.793702797446E9-3-766183, actor=SCNativeCompanion{  Name:null,  ID:50 }, recruited=true, identity=table 0x227861644, state=table 0x1497320589, order=follow, followDistance=3, allowOverload=false, scavenge=true, rideWithPlayer=true, moveMode=copy, combatMode=defensive, combatDoctrine=close_defense, holdFire=false, weaponPriority=best, workMode=auto, personalityProfile=table 0x1584584109, trust=0, bond=0, morale=55, stress=12, memories=table 0x47691620
+PASS|camp_fixture_free_tile_4|free native camp floor
+PASS|camp_fixture_request_4|spawn_pending
+PASS|camp_fixture_spawn_4|table 0x251098830{ id=sc-1.793702797526E9-4-513064, actor=SCNativeCompanion{  Name:null,  ID:51 }, recruited=true, identity=table 0x1988714497, state=table 0x1125208070, order=follow, followDistance=3, allowOverload=false, scavenge=true, rideWithPlayer=true, moveMode=copy, combatMode=defensive, combatDoctrine=close_defense, holdFire=false, weaponPriority=best, workMode=auto, personalityProfile=table 0x153099852, trust=0, bond=0, morale=55, stress=12, memories=table 0x10205492
+PASS|camp_money_storage|permitted Valuables storage from actual camp
+PASS|camp_sort_source|free floor near actual shelf
+PASS|camp_sort_zone|table 0x2121034378{ id=zone:28, kind=sorting_floor, name=sorting_floor, x1=12034, y1=6746, x2=12034, y2=6746, z=0, autoStair=false, createdAt=1793702797551 }
+PASS|camp_sort_job|job:252
+PASS|camp_eat_below_30|native hunger=0.24000000953674316 elapsed_ms=1065
+PASS|camp_standing_recovery|own endurance=0.705035388469696 initial=0.7
+PASS|camp_natural_sleep|normal AI reached bed; endurance=0.32264018058776855
+PASS|camp_sleep_recovery|own endurance=0.3277384340763092 at sleep=0.32264018058776855
+PASS|camp_meal_finished|hunger=0.24862483143806458
+PASS|camp_standing_finished|endurance=1
+PASS|camp_sleep_finished|fatigue=0.8112130165100098
+PASS|camp_stack_carried|max simultaneous exact native cash receipts=20
+PASS|camp_money_stable_storage|all 20 in same Valuables shelf for 15 seconds; stored=20 loop=nil
+PASS|camp_player_stamina_isolated|player endurance=1 before=1
+PASS|camp_native_pc|real computer inside actual camp
+PASS|camp_companion_persona_reaction|native speech actor=Meal Tester
+PASS|camp_persona_reaction_accepted|actual speech topic, normal availability/budget
+PASS|camp_reaction_readable|accepted speech is visible above the full-screen CRT
+PASS|camp_followup_delivered|completed real EMMA transcript marks once-only receipt
+PASS|camp_runtime_save|native LF persistence checkpoint before graceful game save

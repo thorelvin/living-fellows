@@ -1,0 +1,7 @@
+SC_REAL_SANDBOX_SUMMARY_V1
+run_id=SC-Harness-20261103-114322-7ecca147
+status=PASS
+passes=41
+failures=0
+skipped=1
+release=0.26.94

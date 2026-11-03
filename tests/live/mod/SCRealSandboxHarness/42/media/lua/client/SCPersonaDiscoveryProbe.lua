@@ -59,6 +59,10 @@ end
 local therapist={"hello","Ann","i dont know","last week","not really","ok","ok","ok","my mother","ok","ok","ok","ok"}
 local officer={"hello","Hicks","who is in command","i relieve you","no","sitrep"}
 function Probe.step(H,current,check,result,setPhase)
+    if H.config.camp_release_probe=="true" then
+        require "SCCampReleaseProbe"
+        return SCRealSandboxHarnessProbes.SCCampReleaseProbe.step(H,current,check,result,setPhase)
+    end
     local S=SC() local f=H.personaDiscovery
     if H.phase=="persona_discovery_setup" then
         f={ghost=H.player:isGhostMode(),maxWeight=H.player:getMaxWeightBase(),index=1} H.personaDiscovery=f
@@ -246,6 +250,26 @@ function Probe.step(H,current,check,result,setPhase)
         exactRewards(s.lock,check,"persona_reload_reward")
         f.window=open(H,f.deepPC)
         check("persona_reload_no_reissue",#f.window.system.lock.stash.items==#cp.items and f.window.system.lock.drawer.open,"reopening retains released drawer without reissuing loot")
+        setPhase("persona_discovery_resume_visible",current) return
+    elseif H.phase=="persona_discovery_resume_visible" then
+        -- Opening and taking a screenshot in the same OnTick captures the
+        -- previous world/debug frame. Allow the native UI to render first.
+        if current-H.phaseStartedAt<1000 then return end
+        if not check("persona_reload_visible",not f.window.closed and f.window:isVisible(),
+            "reloaded terminal is visible before continuing dialogue") then finish(H,f,current,setPhase) return end
+        typed(f.window,"sitrep") setPhase("persona_discovery_resume_submit",current) return
+    elseif H.phase=="persona_discovery_resume_submit" then
+        if current-H.phaseStartedAt<350 then return end
+        f.window.entry.javaObject:onKeyEnter() setPhase("persona_discovery_resume_reply",current) return
+    elseif H.phase=="persona_discovery_resume_reply" then
+        if f.window.state~="idle" and current-H.phaseStartedAt<30000 then return end
+        if not check("persona_reload_conversation",f.window.state=="idle"
+            and f.window.system.lock.persona.spoken>f.checkpoint.spoken
+            and f.window.system.lock.persona.flags.adjutant,
+            "same saved officer answers a new report as adjutant") then finish(H,f,current,setPhase) return end
+        inspectRows(f.window) setPhase("persona_discovery_resume_capture",current) return
+    elseif H.phase=="persona_discovery_resume_capture" then
+        if current-H.phaseStartedAt<1000 then return end
         shot(H,"duty-reloaded") typed(f.window,"factory reset") setPhase("persona_discovery_delete_enter",current) return
     elseif H.phase=="persona_discovery_delete_enter" then
         if current-H.phaseStartedAt<350 then return end
@@ -265,6 +289,22 @@ function Probe.step(H,current,check,result,setPhase)
             and not w.system.fresh,"dialogue deletion becomes permanent ordinary EMMA")
         check("persona_deleted_stays_met",S.TerminalLocks.ledger().persona.met.duty,"deleting software cannot spawn another officer")
         check("persona_deleted_keeps_ups",S.TerminalHardware.state(f.deepPC,false).ups~=nil,"factory reset preserves real mounted hardware")
+        f.factory=w setPhase("persona_discovery_factory_render",current) return
+    elseif H.phase=="persona_discovery_factory_render" then
+        if current-H.phaseStartedAt<1000 then return end
+        if f.factory.state~="idle" and current-H.phaseStartedAt<15000 then return end
+        check("persona_deleted_visible",not f.factory.closed and f.factory:isVisible()
+            and f.factory.state=="idle","ordinary EMMA finishes booting after deletion")
+        local power=f.factory.world.power()
+        local transcript={}
+        for _,row in ipairs(f.factory.rows) do transcript[#transcript+1]=row.text end
+        check("persona_backup_report",power.source=="battery" and power.charge>0
+            and table.concat(transcript,"\n"):find("battery backup, charge ",1,true)~=nil,
+            "ordinary EMMA names the actual mounted backup and live charge")
+        local book=S.TerminalLocks.ledger().persona
+        check("persona_followup_deferred",book.talked.duty and book.campReady.duty and not book.campMentions.duty,
+            "real handover conversation queues a camp follow-up without consuming it outside camp")
+        shot(H,"factory-after-reset")
         finish(H,f,current,setPhase)
     end
 end

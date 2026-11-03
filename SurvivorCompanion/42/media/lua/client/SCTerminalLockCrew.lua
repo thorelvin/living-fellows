@@ -3,6 +3,9 @@
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local C={} SC.TerminalLockCrew=C
 local lines={
+    persona_spiffy={"Customer service outlived the customers.","I think it still wants us to buy something.","That was almost cheerful. Almost."},
+    persona_ellis={"We can leave whenever you want.","I might let you do the talking here.","She sounds very sure of us for someone we just met."},
+    persona_duty={"Someone has had a very long shift.","I don't think anyone told it to stand down.","Keep your voice down. It sounds official."},
     storyDeath={"I object to that version of events.","I was carrying the torch. That should count for something.","That is a very unfair game.","I would like to appeal to Dennis."},
     storyWin={"We made it. Even the fictional version of me is relieved.","Keep the treasure. I want my boots back.","Dennis owes us fifteen dollars.","A dungeon with a working exit. Novel idea."},
     first={"That machine has kept its secrets longer than most people.","Try the files. People write down what they cannot remember.","I used to complain about passwords. I miss having smaller problems.","Take your time. I will listen for the other problem."},
@@ -25,9 +28,9 @@ local function speak(w,actor,moment,kind,value)
     if not SC.Banter.budgetAllows(now) then return false end
     local topic="terminal.lock."..moment..(kind and "."..kind or "")
     if not SC.Dialogue.has(topic) then SC.Dialogue.register(topic,{common=kind and hintLines[kind] or lines[moment]}) end
-    local spoken=SC.Dialogue.say(actor,topic,nil,value and {value} or {}, {player=w.player})
+    local spoken,line=SC.Dialogue.say(actor,topic,nil,value and {value} or {}, {player=w.player})
     if spoken then SC.Banter.spendBudget(now) end
-    return spoken==true
+    return spoken==true,line
 end
 function C.candidates(w,higher,force)
     local result={} local now=SC.GameplayUtil.nowMs()
@@ -71,12 +74,29 @@ end
 function C.react(w,moment,chance)
     local lock=w.system and w.system.lock if not lock then return false end
     lock.reactions=lock.reactions or {}
+    local persona=moment:sub(1,8)=="persona_"
     if moment=="lamp" then if w.lampReaction then return false end w.lampReaction=true
-    else if lock.reactions[moment] then return false end lock.reactions[moment]=true end
+    else if lock.reactions[moment] then return false end
+        if not persona then lock.reactions[moment]=true end
+    end
     local pick=SC.TerminalSystem.random(w.system.seed+#moment*71)
-    if pick(100)>(chance or 100) then return false end
+    if pick(100)>(chance or 100) then
+        if persona then lock.reactions[moment]=true end
+        return false
+    end
     local actors=C.candidates(w,false,true)
-    return #actors>0 and speak(w,actors[pick(#actors)],moment) or false
+    if #actors==0 then return false end
+    local actor=actors[pick(#actors)]
+    local spoken,line=speak(w,actor,moment)
+    if spoken and persona then
+        lock.reactions[moment]=true
+        -- The full-screen CRT covers native overhead bubbles. Echo only the
+        -- line the nearby companion actually said, once, in the transcript.
+        if type(line)=="string" and type(w.print)=="function" then
+            w:print(C.name(actor)..", nearby: "..line,"system")
+        end
+    end
+    return spoken
 end
 function C.helper(w)
     if w.system.lock and not w.system.lock.crewHint then return C.candidates(w,true)[1] end

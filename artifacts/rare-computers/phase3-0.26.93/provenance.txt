@@ -1,0 +1,13 @@
+Native 42.21.0 game captures, 1280x720, 2026-11-03.
+Final source: SC-Harness-20261103-105243-d87f89d3/cache/Screenshots.
+Captured by getCore():TakeFullScreenshot in the isolated native acceptance
+probe. Copied without edits; no image generation, mockups or compositing.
+
+emma-backup-power.png SHA-256
+719594e647cf3b6d3dcb6d89a0697e29e1eab630785a364fc3e78b79d8a391e1
+duty-reloaded.png SHA-256
+1c286f9455b404b7f4a861573787f790f34014b8334773a102dd46c4297b41a9
+
+The initial Phase 3 run, SC-Harness-20261103-103909-6b59766a, retains its raw
+captures with its cloned save. The exported files here use the final ordinary
+queue-wrapping implementation and the original substation-source priority.

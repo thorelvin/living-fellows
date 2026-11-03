@@ -324,7 +324,8 @@ function L.recovery(player)
         if ledger and ledger.beaten[kind] and (kind~="rival" or target==#L.KINDS) then beaten=beaten+1 end
         if ledger and ledger.seen[kind] then names[#names+1]=L.NAMES[kind]..(ledger.beaten[kind] and " / recovered" or " / not recovered") end
     end
-    return "Recovery log: "..beaten.."/"..target..(ledger and ledger.licensee and ("\nLICENSED TO "..ledger.licensee) or "").."\n"..table.concat(names,"\n")
+    local note=SC.TerminalPersonaDiscovery and SC.TerminalPersonaDiscovery.recoveryLine()
+    return "Recovery log: "..beaten.."/"..target..(ledger and ledger.licensee and ("\nLICENSED TO "..ledger.licensee) or "").."\n"..table.concat(names,"\n")..(note and ("\n"..note) or "")
 end
 function L.reset() ledgerSource,ledgerCache=nil,nil end
 return L
