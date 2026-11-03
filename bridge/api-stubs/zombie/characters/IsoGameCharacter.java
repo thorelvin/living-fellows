@@ -66,6 +66,7 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     public IsoCell getCell() { return null; }
     public BodyDamage getBodyDamage() { return null; }
     public Stats getStats() { return null; }
+    public float getRecoveryMod() { return 1; }
     public zombie.characters.traits.CharacterTraits getCharacterTraits() { return null; }
     public double getFatiqueMultiplier() { return 1.0; }
     public boolean isSitting() { return false; }
@@ -195,8 +196,10 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     public boolean isMoving() { return false; }
     public void setMoving(boolean moving) {}
     public void setRunning(boolean running) {}
+    public boolean isRunning() { return false; }
     public void setSneaking(boolean sneaking) {}
     public void setSprinting(boolean sprinting) {}
+    public boolean isSprinting() { return false; }
     public void setXp(XP xp) {}
     public float setX(float x) { return x; }
     public float setY(float y) { return y; }

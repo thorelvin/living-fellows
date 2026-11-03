@@ -501,8 +501,7 @@ local function woodOn(square, order, workerId, before)
             local item = call(wrapper, "getItem")
             local itemType = item and U().itemType(item) or nil
             local id = item and itemId(item)
-            if item and id and (itemType == "Base.Log"
-                or itemType == "Base.TreeBranch" or itemType == "Base.Twigs")
+            if item and id and itemType == "Base.Log"
                 and (marker(item) == order.id
                     or marker(item) == nil and not (before and before[id]))
                 and (not order.woodClaims[id] or order.woodClaims[id] == workerId) then

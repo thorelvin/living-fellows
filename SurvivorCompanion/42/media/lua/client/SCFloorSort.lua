@@ -95,6 +95,8 @@ local function eligible(item, actor)
         local claim = job and job.type == "sort_floor" and type(job.target) == "table"
             and job.target.floorCargo or nil
         if type(claim) == "table" and tonumber(claim.itemId) == nativeId then return false end
+        local stack=job and job.target and job.target.floorStack
+        for _,id in ipairs(stack and stack.ids or {}) do if id==nativeId then return false end end
         -- An intake job can outlive its claim and later carry another item.
         -- Its old marker does not reserve this item against a fresh pickup.
         if not clear(item, ownerJob) then return false end
@@ -170,7 +172,7 @@ local function nextItem(zone, actor)
             if cooldown then scan.sawBlocked = true end
             if not cooldown and eligible(item, actor)
                 and U().worldItemPresent(square, worldItem) == true then
-                return { item = item, worldItem = worldItem, square = square }
+                return { item = item, worldItem = worldItem, square = square, sourceIndex=scan.objectIndex-1 }
             end
         end
     end
@@ -435,6 +437,16 @@ local function carried(actor, claim, jobId, proving)
 end
 
 local function releaseClaim(job)
+    local claim,stack=job.target.floorCargo,job.target.floorStack
+    if stack and claim then
+        for index=#stack.ids,1,-1 do if stack.ids[index]==claim.itemId then table.remove(stack.ids,index) end end
+        if #stack.ids>0 then
+            job.target.floorCargo={zoneId=claim.zoneId,itemId=stack.ids[1],x=claim.x,y=claim.y,z=claim.z}
+            cargoSearches[job.id]=nil;returning[job.id]=nil
+            return
+        end
+    end
+    job.target.floorStack=nil
     job.target.floorCargo, job.target.trashZoneId,
         job.target.trashPoint = nil, nil, nil
     job.target.failedFloorDestinations, job.target.floorReturnReason = nil, nil
@@ -650,8 +662,20 @@ function Floor.update(actor, baseState, job)
             return true, "floor_item_discarded"
         end
         job.target.trashZoneId, job.target.trashPoint = nil, nil
-        local moved, reason = SC.BaseWork.depositToStorage(actor, baseState,
-            chosen.storage, chosen.container, item, { deferLogYardBundle = true })
+        local moved,reason
+        if job.target.floorStack and baseState.floorStackDestination==chosen.key
+            and SC.BaseWork.depositStackItem then
+            moved,reason=SC.BaseWork.depositStackItem(actor,chosen.storage,chosen.container,item)
+            if moved then reason="base_supply_returned" end
+            if not moved and reason=="base_storage_out_of_reach" then
+                baseState.floorStackDestination=nil
+                moved,reason=SC.BaseWork.depositToStorage(actor,baseState,
+                    chosen.storage,chosen.container,item,{deferLogYardBundle=true})
+            end
+        else
+            moved,reason=SC.BaseWork.depositToStorage(actor,baseState,
+                chosen.storage,chosen.container,item,{deferLogYardBundle=true})
+        end
         if moved and reason == "base_supply_returned" then
             local present = chosen.storage.kind == "log_yard"
                 and call(item, "getWorldItem") ~= nil
@@ -660,6 +684,7 @@ function Floor.update(actor, baseState, job)
                 return false, "floor_deposit_unverified", true
             end
             if not clear(item, job.id) then return false, "floor_marker_clear_failed", true end
+            if job.target.floorStack then baseState.floorStackDestination=chosen.key end
             releaseClaim(job)
             rewind(zone)
             -- Bundling consumes the exact loose log. Finish its ownership
@@ -752,7 +777,51 @@ function Floor.update(actor, baseState, job)
     if U().inventoryContains(root, selected.item) ~= true then
         return false, "floor_pickup_unverified", true
     end
+    if chosen.kind=="storage" and chosen.storage.kind~="log_yard" and SC.SortBatch and U().itemType then
+        -- Same tile and destination only. Claim each world object before its
+        -- verified pickup; grouping never combines item data or creates items.
+        local stack={ids={receipt.itemId}}
+        local list=worldItems(selected.square)
+        local snapshot={}
+        local length=count(list) or 0
+        for offset=0,math.min(length-1,47) do
+            snapshot[#snapshot+1]=entry(list,((selected.sourceIndex or 0)+offset)%length)
+        end
+        for _,wrapper in ipairs(snapshot) do
+            if #stack.ids>=20 then break end
+            local candidate=call(wrapper,"getItem") or type(wrapper)=="table" and wrapper.item
+            if candidate and eligible(candidate,actor) and SC.SortBatch.compatible(selected.item,candidate)
+                and SC.SortBatch.roomForExtra(actor,candidate)
+                and SC.WorkTransport.hasRoom(root,actor,candidate)==true
+                and U().worldItemPresent(selected.square,wrapper)==true then
+                local nextDestination=destination(actor,candidate,job)
+                if nextDestination and nextDestination.key==chosen.key and mark(candidate,job.id) then
+                    stack.ids[#stack.ids+1]=itemId(candidate);job.target.floorStack=stack
+                    local okay=U().takeWorldItemVerified(wrapper,root,candidate)
+                    if not okay then
+                        if U().worldItemPresent(selected.square,wrapper)==true then
+                            clear(candidate,job.id);table.remove(stack.ids)
+                        end
+                        break
+                    end
+                end
+            end
+        end
+        if #stack.ids>1 then job.target.floorStack=stack end
+    end
     return true, "floor_item_carried"
+end
+
+local updateOne=Floor.update
+function Floor.update(actor,baseState,job)
+    for _=1,20 do
+        local handled,why,terminal,complete=updateOne(actor,baseState,job)
+        if why~="floor_item_stored" or not job.target.floorStack or not job.target.floorCargo then
+            if not job.target.floorStack then baseState.floorStackDestination=nil end
+            return handled,why,terminal,complete
+        end
+    end
+    return true,"floor_item_stored"
 end
 
 function Floor.cancel(actor, job)
@@ -808,6 +877,15 @@ function Floor.cancel(actor, job)
     if sourceZone then rewind(sourceZone) end
     visuals[actor] = nil
     return true, "floor_cargo_unaccounted"
+end
+
+local cancelOne=Floor.cancel
+function Floor.cancel(actor,job)
+    for _=1,20 do
+        local okay,why=cancelOne(actor,job)
+        if not okay or not job or not job.target or not job.target.floorStack then return okay,why end
+    end
+    return false,"floor_stack_return_pending"
 end
 
 function Floor.cancelActor(actor)

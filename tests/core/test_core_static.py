@@ -625,6 +625,19 @@ require("updateCompanionAimingDelay();" in native_companion
         "the companion update no longer runs the engine's aim-steadying step, so "
         "ranged criticals are lost")
 
+# The real-JAR control exercises endurance itself. Check the integration call
+# separately so a working helper cannot silently become disconnected or tick twice.
+actor_update = native_companion.split("public void update() {", 1)[1].split(
+    "private void applyBridgeMovement()", 1)[0]
+require(actor_update.count("updateCompanionEndurance();") == 1
+        and actor_update.count("updateCompanionSleepEndurance();") == 1
+        and actor_update.index("boolean sleepingAtStart =") < actor_update.index("updateGenericCharacter();")
+        and actor_update.index("boolean stateOwnedEndurance =") < actor_update.index("updateGenericCharacter();")
+        and actor_update.index("updateGenericCharacter();") < actor_update.index("updateCompanionEndurance();")
+        and "if (sleepingAtStart && isAsleep()) updateCompanionSleepEndurance();" in actor_update
+        and "else if (!stateOwnedEndurance) updateCompanionEndurance();" in actor_update,
+        "the native companion frame must advance its owned endurance exactly once")
+
 # The closed-door path guard asks PolygonalMap2 the same question twice: once
 # with doors ignored, once respecting them. Those two boolean literals are the
 # whole fix, and no harness world contains a door to exercise them through, so

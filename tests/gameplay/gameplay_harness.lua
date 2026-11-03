@@ -22348,6 +22348,8 @@ check(SurvivorCompanion.GameplayUtil.itemPhrase("Canned Beans (Opened)")
 -- letters. These are real Build 42.21 item names.
 local phrase = SurvivorCompanion.GameplayUtil.itemPhrase
 local phraseCases = {
+    { "Money", "some money" }, { "Cash", "some cash" },
+    { "Money Bundle", "a money bundle" }, { "Gold Bar", "a gold bar" },
     { "Water Bottle", "a water bottle" }, { "Ammunition Box", "an ammunition box" },
     { "Milk Carton", "a milk carton" }, { "Sugar Cookie", "a sugar cookie" },
     { "Salt Lick", "a salt lick" }, { "Milk Powder", "some milk powder" },

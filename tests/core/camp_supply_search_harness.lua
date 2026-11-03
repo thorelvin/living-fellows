@@ -110,10 +110,14 @@ rows = { crate }
 local reader = worker(0, 0)
 local firstLook = take(reader)
 check(firstLook == "in_progress", "the first slice of a full crate proves nothing yet: " .. tostring(firstLook))
+for slice=2,4 do
+    check(take(reader)=="in_progress","an unfinished bounded crate slice is still pending: "..slice)
+end
 check(take(reader) == "missing", "once the whole crate has been read the hammer really is missing")
 filler[#filler + 1] = makeItem("Base.Hammer")
-take(reader)
-check(take(reader) == "in_progress" and reader ~= nil,
+for slice=1,4 do take(reader) end
+local foundStatus,_,foundPhase=take(reader)
+check(foundStatus == "in_progress" and foundPhase~="searching",
     "a hammer at the bottom of a full crate is found on the next slice")
 E.cancelPlayerSupply(reader)
 

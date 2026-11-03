@@ -1191,7 +1191,9 @@ do
         end
         return count
     end
-    local first, second = makeItem("Base.Bandage"), makeItem("Base.Bandage")
+    -- Keep two incompatible stacks so a refused deposit cannot silently
+    -- trigger another pickup. Matching-stack throughput has its own harness.
+    local first, second = makeItem("Base.Bandage"), makeItem("Base.Bandage", {condition=90})
     ctx.storageObject.container:AddItem(first)
     ctx.storageObject.container:AddItem(second)
     local queued = SC.BaseLife.enqueueJob({

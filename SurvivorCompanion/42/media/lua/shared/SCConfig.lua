@@ -30,6 +30,9 @@ local valueData = {
     performanceNavigationNodesPerFrame = 64,
     performanceScavengeSquaresPerFrame = 28,
     performanceScavengeContainersPerFrame = 2,
+    -- Shared by all companions, rather than multiplied by camp storage count.
+    performanceCampSupplyItemsPerFrame = 128,
+    performanceCampSupplyContainersPerFrame = 4,
     performanceFactionSamplesPerFrame = 12,
     performanceUrgentUnitFloor = 96,
     -- Broad perception scans share square contents between nearby companions.
@@ -1212,7 +1215,7 @@ local valueData = {
     needsRateMultiplier = 1 / 3,
     needsRateSampleMs = 1000,
     needsNaturalDeltaLimit = 1.0,
-    needsHungerThreshold = 0.75,
+    needsHungerThreshold = 0.70,
     needsHungerSerious = 0.80,
     needsFollowPauseMs = 15000,
     needsFollowSourceRadius = 6,

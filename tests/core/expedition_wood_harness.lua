@@ -198,6 +198,7 @@ local function nativeFell(value, logs)
     target.tree, value.active = nil, false
     for _ = 1, logs do drop(target, item("Base.Log")) end
     drop(target, item("Base.TreeBranch"))
+    drop(target, item("Base.Twigs"))
 end
 
 check(Wood.normalizeRequest({ mode = "count" }).quantity == 12, "default request")
@@ -287,6 +288,15 @@ check(#wood.acquisitions == 2, "second raw log pickup counts once")
 check(not Wood.status(wood).done, "quota waits for crew and cargo settlement")
 for _ = 1, 6 do pulse(cutter, ctx) pulse(hauler, ctx) end
 check(Wood.status(wood).done and Wood.status(wood).loaded == 2, "quota stops after all cargo loaded")
+local debris=0
+for _,wrapper in ipairs(target.world) do
+    if wrapper.item.kind=="Base.TreeBranch" or wrapper.item.kind=="Base.Twigs" then
+        debris=debris+1
+        check(wrapper.item.owner==nil and not Wood.reserved(wrapper.item),
+            "expedition leaves native branches and twigs on the ground without cargo claims")
+    end
+end
+check(debris==2,"both debris types remain after the expedition's real logs reach the trunk")
 check(Wood.cargoCounts(wood, roster, nil, 42).loaded == 2
     and Wood.cargoCounts(wood, roster, { "cutter" }, 42).complete == false, "cargo progress respects actual trunk and visibility")
 check(chops == 1 and #car.cargo.items == 2, "no extra trees chopped once quantity reached")

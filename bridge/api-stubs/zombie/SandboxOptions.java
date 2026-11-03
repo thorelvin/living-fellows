@@ -3,4 +3,5 @@ package zombie;
 public class SandboxOptions {
     public static final SandboxOptions instance = new SandboxOptions();
     public double getStatsDecreaseMultiplier() { return 1; }
+    public double getEnduranceRegenMultiplier() { return 1; }
 }

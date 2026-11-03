@@ -819,3 +819,67 @@ check(realBaseWork.cancelJob(job.id, actor.id) == true and currentVisual == nil
     "the final floor job releases its exact visual")
 
 SC_TEST_REPORT = "FLOOR_SORT_PASS pickup=verified reload=verified trash=physical blocked=reported cancel=returned alternate=verified carryback=walked interrupted=feet gone=released absent=released heavy=deferred log_bundle=settled cancel_selection=cleared crowded=root_and_bag_delivered nested=delivered visual_timeout=settled visual_replacement=preserved handoff=leased"
+
+-- Real floor controller: a stack takes one trip and keeps every native ID.
+base.jobs,source.worldItems,inventory.items,storage.items={},{},{},{}
+actor.x,actor.y=source.x,source.y
+SC.GameplayUtil.itemType=function(i) return i.kind or "Base.Test" end
+SC.GameplayUtil.itemWeight=function(i) return i.weight or .01 end
+SC.GameplayUtil.inventoryLoad=function() return #inventory.items*.01,50 end
+SC.GameplayUtil.carryLoad=function() return #inventory.items*.01,12 end
+SC.GameplayUtil.move=function() return true end
+SC.NativeActions.visualStatus=function() return "completed" end
+SC.NativeActions.visualToken=nil
+SC.NativeActions.clearVisual=function() return true end
+SC.NativeActions.cancelVisual=function() return true end
+SC.WorkTransport={foreignProtected=function() return false end,hasRoom=function() return true end}
+local stackPoses,stackFast=0,0
+SC.BaseWork={choreReserved=function() return false end,
+    floorDestinations=function() return {{destination={id="storage:stack"},container=storage}},"valuables" end,
+    depositToStorage=function(_,_,_,container,candidate)
+        stackPoses=stackPoses+1;return SC.GameplayUtil.transferItemVerified(inventory,container,candidate) and true,"base_supply_returned"
+    end,
+    depositStackItem=function(_,_,container,candidate)
+        stackFast=stackFast+1;return SC.GameplayUtil.transferItemVerified(inventory,container,candidate)
+    end}
+local function floorMoney(id)
+    local value=item(id,false);value.kind="Base.Money";value.weight=.01
+    function value:getCondition() return 10 end
+    function value:getDisplayName() return "Money" end
+    function value:CanStack() return false end
+    return value
+end
+local function prepareStack(n)
+    base.jobs={};source.worldItems={};inventory.items={};storage.items={}
+    for index=1,n do addWorld(source,floorMoney(10000+index)) end
+    SC.BaseLife.enqueueJob({type="sort_floor",target={zoneId="zone:sorting",x=10,y=10,z=0}})
+    local current=base.jobs[1];current.reservedBy=actor.id
+    local runtime={}
+    for _=1,5 do
+        local _,why=Floor.update(actor,runtime,current);current.lastTestReason=why
+        if #inventory.items>0 then break end
+    end
+    return current
+end
+local stackJob=prepareStack(20)
+check(#inventory.items==20 and #source.worldItems==0 and #stackJob.target.floorStack.ids==20,
+    "one floor pickup collects twenty same-tile identities without creating items: "..#inventory.items.."/"..#source.worldItems.." "..tostring(stackJob.lastTestReason))
+for _,value in ipairs(inventory.items) do
+    check(realTransport.isCargoProtected(value,actor),"every floor stack member is protected before it becomes the primary claim")
+end
+Floor.update(actor,{},stackJob)
+check(#storage.items==20 and #inventory.items==0 and stackPoses==1 and stackFast==19,
+    "floor stack delivers in one trip and shares one deposit pose")
+for _,value in ipairs(storage.items) do check(value.modData.LF_FloorSortJob==nil,"floor delivery releases every marker") end
+stackJob=prepareStack(7)
+check(Floor.cancel(actor,stackJob) and #inventory.items==0 and #source.worldItems==7
+    and stackJob.target.floorCargo==nil and stackJob.target.floorStack==nil,
+    "floor cancellation physically returns the entire stack and clears all claims")
+stackJob=prepareStack(7)
+stackJob.target=SC.StableValue.copyStrict(stackJob.target,{maxDepth=3,maxEntries=96})
+FLOOR_STACK_TEST={resume=function()
+    Floor.update(actor,{},stackJob)
+    check(#storage.items==7 and #inventory.items==0 and stackJob.target.floorStack==nil,
+        "floor stack survives saved-target normalization and a fresh floor controller")
+    SC_TEST_REPORT=SC_TEST_REPORT.." floor_stack=20_native_ids floor_stack_reload=verified floor_stack_cancel=verified"
+end}

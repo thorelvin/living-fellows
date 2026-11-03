@@ -1,0 +1,84 @@
+Living Fellows: stored-money loop and stack sorting
+Date: 2026-11-02
+Working branch: living_fellows/0.26.92
+Base commit: 7fb17f11ab5db05fa2d6f2048b349f9dedadf687
+Target: Project Zomboid 42.21.0 single-player
+
+Report and diagnosis
+The user confirmed that money was taken from a Valuables shelf and returned
+to that same storage. Code inspection found different field-collection and
+personal-loadout targets: field scavenging admits three valuables, while the
+personal loadout keeps none. Camp surplus handling then shelves them again.
+The same mismatch can affect other non-loadout stock, extra crafting supplies
+and temporary need bonuses. This diagnosis is from code and regression tests;
+the local console was stale, not a current reproduction of the tester's loop.
+
+Changes
+- Ordinary scavenging of marked camp storage stops at the personal target.
+  Needed personal supplies, real clothing/bag upgrades, unusable-weapon
+  replacement and explicit supply requests keep their checked paths.
+- Currency remains classified as Valuables without requiring a deposit marker.
+  Different markers resolving to one physical container cannot create a trip.
+- Shelf and floor sorting haul up to twenty compatible items per trip, limited
+  by real inventory/carrying capacity. Same full type, live condition and name;
+  every item remains a separate native identity with its original properties.
+  Floor grouping stays on one source tile and one destination. Trash disposal
+  and Log Yard bundling retain their existing special handling.
+- One pickup/deposit pose per stack; each physical move is individually checked.
+  Source reserves, destination permissions, protected items and competing work
+  claims remain effective. Missing storage or unknown cargo blocks recovery.
+- Optional job-target receipts preserve all native IDs across reloads. Partial
+  deliveries preserve completed moves; cancellation returns remaining cargo.
+  Confirmed death/removal releases affinity without changing corpse contents;
+  dormant/unloaded workers retain receipts. No item reconstruction is added.
+- Money/cash are mass nouns: "some money", while bundles/bars keep articles.
+
+Performance and native inspection
+No event handler, background service, native bridge or save-schema change.
+Source discovery reuses the rotating eighty-item storage slice. Extra floor
+pickup inspects at most forty-eight world objects. Recovery retains a cursor
+and scans at most 256 items per work tick; groups contain at most twenty IDs.
+Native getCountType is used only for qualified exact types, with the existing
+fallback for other queries, avoiding repeated Lua scans for stack reserves.
+Inspected installed ISInventoryTransferAction.lua and InventoryItem/
+ItemContainer bytecode. InventoryItem.CanStack is a constant-false stub in
+42.21.0, so it is deliberately not used to identify hauling groups. Vanilla's
+transfer queue groups up to twenty items of one full type. Our native-shaped
+test items deliberately return false from CanStack.
+
+Automated results: PASS
+- tests/gameplay/run_floor_cargo_logistics_tests.ps1: existing floor cargo/
+  logistics cases; floor stack pickup, one-trip deposit, full cancellation and
+  controller reload; SORTING_BATCH_PASS checks=85; SORTING_STORAGE_PASS checks=10.
+- Shelf cases include twenty separate cash IDs, two poses/forty verified moves,
+  reserved claims, competing sorter, full destination mid-delivery, source
+  reserves, aggregate capacity, protected/variant items, changed permissions,
+  reserve-aware selection, native-container aliases, currency already stored, source window beyond
+  eighty items, dormant/dead carrier, camp stock vs field loot, valid upgrades,
+  strict plain-value checkpoints, immediate cold cancellation, native receipt
+  gap, malformed duplicate IDs and missing-item reconciliation without creation.
+- Production BaseLife export/restore retains twenty floor IDs alongside all
+  thirty-two failed destinations and the source claim; shelf IDs/owner survive.
+  Native count dispatch/fallback retains reserve and qualified-type semantics.
+- tests/gameplay/run_gameplay_tests.ps1: full gameplay gate passed, including
+  existing combat, ownership, needs, farming, fishing, floor and terminal cases.
+- Lua payload compilation: all 280 files in normal and debug modes passed;
+  compiler negative control passed.
+- Static gameplay contracts: 922 assertions / 58 sources / 47 commands passed.
+- Harness wiring: 188 harnesses / 88 scripts passed.
+- Temporary-copy negative controls detected removal of the camp-stock guard,
+  an incorrect twenty-one-item stack ceiling, and discarded missing-cargo IDs.
+- git diff --check passed.
+
+Local evidence (not packaged)
+C:/ZOMBOID/outputs/sorting-gameplay.log
+C:/ZOMBOID/outputs/sorting-floor-gate.log
+C:/ZOMBOID/outputs/sorting-controls/
+C:/ZOMBOID/outputs/review-8890/sorting-*.log
+
+Limits
+Tests run real Lua modules in the installed Kahlua runtime against simulated
+engine objects. No live game was launched, no save was changed and no local
+installation was performed. Normal-play observation of a populated shelf and
+floor pile remains pending. Headless JVMs ran serially at BelowNormal priority,
+with a 256 MB heap, two active processors and Serial GC.

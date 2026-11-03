@@ -14,6 +14,9 @@ import org.lwjgl.util.vector.Vector3f;
 
 import zombie.Lua.LuaEventManager;
 import zombie.GameTime;
+import zombie.SystemDisabler;
+import zombie.SandboxOptions;
+import zombie.ZomboidGlobals;
 import zombie.ai.AIBrainPlayerControlVars;
 import zombie.ai.State;
 import zombie.ai.astar.AStarPathFinder;
@@ -23,6 +26,7 @@ import zombie.ai.states.PathFindState;
 import zombie.ai.states.SwipeStatePlayer;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.CharacterStat;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.component.AIComponent;
@@ -38,6 +42,8 @@ import zombie.iso.objects.IsoWindow;
 import zombie.inventory.types.HandWeapon;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.network.fields.hit.HitInfo;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.util.list.PZArrayList;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
@@ -108,6 +114,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
     private static final Method GENERIC_CHARACTER_UPDATE = resolveGenericCharacterUpdate();
     private static final Method PLAYER_VEHICLE_UPDATE = resolvePlayerVehicleUpdate();
+    private static final Method PLAYER_ENDURANCE_UPDATE = resolveDeclaredNoArg(IsoPlayer.class, "updateEndurance");
     private static final Method PLAYER_ACTION_GROUP_CHECK = resolvePlayerActionGroupCheck();
     private static final Method PLAYER_EMITTER_UPDATE = resolvePlayerEmitterUpdate();
     private static final Method COMBAT_MANAGER_INSTANCE = resolveStatic("zombie.CombatManager", "getInstance");
@@ -2827,6 +2834,8 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeComfort.beforeUpdate(getBodyDamage());
             refreshBridgeFloorAttackInput();
             boolean seated = getVehicle() != null;
+            boolean sleepingAtStart = isAsleep();
+            boolean stateOwnedEndurance = seated || isSitting() || isResting() || sleepingAtStart;
             if (seated) suspendBridgeLocomotion();
             else if (bridgeDriver.isActive()) bridgeDriver.stop(this, "left_driver_seat");
             reconcileBridgePathState();
@@ -2865,6 +2874,10 @@ public final class SCNativeCompanion extends IsoPlayer {
             // Advance this non-local actor's fatigue once, without running the
             // full player awake/input update or duplicating hunger/thirst.
             SCCompanionFatigue.update(this);
+            // An exit/wake action can change posture during the generic pass,
+            // after that state's recovery has already run for this frame.
+            if (sleepingAtStart && isAsleep()) updateCompanionSleepEndurance();
+            else if (!stateOwnedEndurance) updateCompanionEndurance();
             bridgeComfort.afterUpdate(getBodyDamage());
             advanceBridgePath();
             consumeBridgeDeferredMovement();
@@ -3299,6 +3312,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     void synchronizePlayerLocomotion() {
         boolean moving = isBridgeLocomotionActive();
         isPlayerMoving = moving;
+        // Native endurance reads this player-owned speed field, rather than
+        // the generic character's movement flag. Mirror vanilla remote-player
+        // locomotion values so walking recovers and running pays its own cost.
+        currentSpeed = moving ? (isSprinting() ? 1.5f : isRunning() ? 1.0f : 0.5f) : 0.0f;
         super.setMoving(moving);
         applyCompanionTacticalMovement();
         try {
@@ -3532,6 +3549,47 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /** Advance only the native on-foot stamina path omitted with local input. */
+    void updateCompanionEndurance() {
+        // Sitting/resting and vehicles already own their native recovery. The
+        // singleton, sleep and unsupported multiplayer paths must not tick twice.
+        if (!SystemDisabler.doCharacterStats || GameClient.client || GameServer.server
+                || this == IsoPlayer.getInstance() || isDead() || isAsleep() || isGodMod()
+                || getVehicle() != null || isSitting() || isResting() || getStats() == null) return;
+        if (PLAYER_ENDURANCE_UPDATE == null) {
+            throw new IllegalStateException("native on-foot endurance update is unavailable");
+        }
+        try {
+            PLAYER_ENDURANCE_UPDATE.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("native on-foot endurance update is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("native on-foot endurance update failed", cause);
+        }
+    }
+
+    /** The endurance-only part of IsoPlayer.updateStats_Sleeping in 42.21. */
+    void updateCompanionSleepEndurance() {
+        // WakeState reaches the native sleep update only for the singleton in
+        // single-player. Downtime owns this companion's bed/tiredness recovery;
+        // restore only its missing stamina, without repeating the other stats.
+        if (!SystemDisabler.doCharacterStats || GameClient.client || GameServer.server
+                || this == IsoPlayer.getInstance() || isDead() || !isAsleep() || isGodMod()
+                || getStats() == null) return;
+        GameTime time = GameTime.getInstance();
+        SandboxOptions sandbox = SandboxOptions.instance;
+        if (time == null || sandbox == null) return;
+        float sleepScale = 2.0f;
+        if (IsoPlayer.allPlayersAsleep()) sleepScale *= time.getDeltaMinutesPerDay();
+        float recovery = (float) (ZomboidGlobals.imobileEnduranceReduce
+                * sandbox.getEnduranceRegenMultiplier() * getRecoveryMod()
+                * time.getMultiplier() * sleepScale);
+        if (Float.isFinite(recovery) && recovery > 0) getStats().add(CharacterStat.ENDURANCE, recovery);
+    }
+
     private static Method resolveGenericCharacterUpdate() {
         try {
             Method method = IsoGameCharacter.class.getDeclaredMethod("updateInternal");
@@ -3762,6 +3820,9 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (!failure.isEmpty()) return failure;
         failure = reflectedMethodFailure(PLAYER_VEHICLE_UPDATE,
                 IsoPlayer.class, "updateWhileInVehicle");
+        if (!failure.isEmpty()) return failure;
+        failure = reflectedMethodFailure(PLAYER_ENDURANCE_UPDATE,
+                IsoPlayer.class, "updateEndurance");
         if (!failure.isEmpty()) return failure;
         return reflectedMethodFailure(PLAYER_ACTION_GROUP_CHECK,
                 IsoPlayer.class, "checkActionGroup");

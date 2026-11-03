@@ -315,6 +315,7 @@ local function quarantine(receipt, reason, owner, preserveDetachedProof)
 end
 
 function Transport.isCargoProtected(item, actorOrId, operation)
+    if SC.SortBatch and SC.SortBatch.protected(item) then return true,"sort_batch_owned" end
     if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return true end
     if SC.FarmWork and SC.FarmWork.isItemProtected
         and SC.FarmWork.isItemProtected(item, actorOrId, operation) then return true end
@@ -330,8 +331,11 @@ function Transport.isCargoProtected(item, actorOrId, operation)
         -- The intake controller stages its exact cargo at inventory root.
         -- Packing it away again interrupts delivery with another Loot pose.
         -- A stale marker must not reserve a later item carried by this job.
-        if type(claim) == "table" and nativeId ~= nil
-            and tonumber(claim.itemId) == nativeId then return true end
+        if type(claim) == "table" and nativeId ~= nil then
+            if tonumber(claim.itemId) == nativeId then return true end
+            local stack=job.target.floorStack
+            for _,id in ipairs(stack and stack.ids or {}) do if id==nativeId then return true end end
+        end
     end
     if data.LF_FieldOrder ~= nil or data.LF_FieldBorrowedAxe ~= nil
         or data.LF_FieldCarryWorker ~= nil then
@@ -1306,6 +1310,311 @@ function Transport.reset(actor)
             firstReservationAt = nil, lastDeliveryAt = nil,
         }
     end
+end
+
+-- Shelf sorting groups the same compatible items as vanilla's transfer queue
+-- (at most twenty), but retains an exact native identity for every member.
+-- The saved job target is the receipt; there is no new service or save schema.
+local Batch={} SC.SortBatch=Batch
+local BATCH_MARKER="LF_SortBatchJob"
+function Batch.releaseGone(job)
+    local saved=job and job.target and job.target.stockBatch
+    if not saved or not SC.BaseWork or type(SC.BaseWork.workerUnregistered)~="function"
+        or not SC.BaseWork.workerUnregistered(saved.owner) then return false end
+    -- The native inventory/corpse keeps its contents. Release only the work
+    -- affinity; a dormant or unloaded worker must keep its recovery receipt.
+    job.target.stockBatch=nil
+    if job.assignedId==saved.owner then job.assignedId=nil end
+    return true
+end
+function Batch.protected(item,actor)
+    local fields=item and itemData(item)
+    local job=fields and fields[BATCH_MARKER] and SC.BaseLife and SC.BaseLife.job(fields[BATCH_MARKER])
+    if job and Batch.releaseGone(job) then return false end
+    local saved=job and type(job.target)=="table" and job.target.stockBatch
+    if actor and saved and saved.owner~=U().idOf(actor) then return false end
+    for _,id in ipairs(saved and type(saved.ids)=="table" and saved.ids or {}) do
+        if id==tonumber(itemNativeId(item)) then return true end
+    end
+    return false
+end
+local function batchRemove(cargo,item)
+    local id=tonumber(itemNativeId(item))
+    for i=#cargo.batch.ids,1,-1 do if cargo.batch.ids[i]==id then table.remove(cargo.batch.ids,i) end end
+    for i=#cargo.items,1,-1 do if cargo.items[i]==item then table.remove(cargo.items,i) end end
+    local fields=itemData(item)
+    if fields and fields[BATCH_MARKER]==cargo.jobId then fields[BATCH_MARKER]=nil end
+    cargo.item=cargo.items[1]
+end
+local function batchClear(job,cargo)
+    if job and job.target and job.target.stockBatch==cargo.batch then
+        job.target.stockBatch=nil
+        if cargo.batch.assigned and job.assignedId==cargo.batch.owner then job.assignedId=nil end
+    end
+end
+local function batchLimit(actor,item,projected)
+    if not U().inventoryLoad or not U().carryLoad then return false end
+    local weight,capacity=U().inventoryLoad(actor)
+    local _,carry=U().carryLoad(actor)
+    capacity=math.min(tonumber(capacity) or 0,tonumber(carry) or capacity or 0)
+    return capacity>0 and (projected or weight)+U().itemWeight(item)<=math.max(0,capacity-1)
+end
+local function batchCompatible(first,item)
+    -- InventoryItem.CanStack() is a constant-false stub in 42.21.0. Compare
+    -- live identities/properties instead; grouping never combines their data.
+    local condition,known=U().call(first,"getCondition")
+    local other,otherKnown=U().call(item,"getCondition")
+    local name,named=U().call(first,"getDisplayName")
+    local otherName,otherNamed=U().call(item,"getDisplayName")
+    return known and otherKnown and condition==other and named and otherNamed and name==otherName
+        and not select(1,U().call(item,"getInventory"))
+        and not select(1,U().call(item,"getItemContainer"))
+end
+local function batchCandidates(actor,job,source,container,destination,first)
+    local result={first}
+    local seen={[tonumber(itemNativeId(first))]=true}
+    if not U().inventoryLoad or type(destination.id)~="string" then return result end
+    local available=SC.BaseLife.availableCountExact or SC.BaseLife.availableCount
+    local maximum=available and math.min(20,math.max(1,math.floor(tonumber(available(source,U().itemType(first))) or 0))) or 1
+    local weight=select(1,U().inventoryLoad(actor))+U().itemWeight(first)
+    local items=SC.BaseWork.sortSourceItems(container)
+    U().each(items,80,function(item)
+        if #result>=maximum then return false end
+        if item~=first and U().itemType(item)==U().itemType(first)
+            and batchCompatible(first,item)
+            and not Batch.protected(item) and not SC.BaseWork.choreReserved(item)
+            and not (SC.PersonalItems and SC.PersonalItems.isProtected(item,actor,"base_haul"))
+            and not Transport.foreignProtected(item,actor)
+            and tonumber(itemNativeId(item))~=nil and not seen[tonumber(itemNativeId(item))]
+            and itemData(item) and batchLimit(actor,item,weight) then
+            for _,row in ipairs(SC.BaseWork.sortDestinations(job,actor,item,source)) do
+                if row.destination==destination then
+                    result[#result+1]=item;weight=weight+U().itemWeight(item)
+                    seen[tonumber(itemNativeId(item))]=true;break
+                end
+            end
+        end
+    end)
+    return result
+end
+function Batch.compatible(first,item)
+    return U().itemType and U().itemType(first)==U().itemType(item) and batchCompatible(first,item)
+end
+function Batch.roomForExtra(actor,item) return batchLimit(actor,item) end
+
+-- Only used after reload: retain a bounded cursor rather than repeatedly
+-- searching the first few objects in a large inventory. Never fabricate cargo.
+local function batchRestore(actor,state,job,saved)
+    if type(saved.ids)~="table" or #saved.ids>20 or type(saved.sourceId)~="string"
+        or (saved.phase~="take" and saved.phase~="deposit") then return nil,"haul_cargo_receipt_invalid" end
+    local identities={}
+    for _,id in ipairs(saved.ids) do
+        if type(id)~="number" or id~=id or math.abs(id)==math.huge
+            or id~=math.floor(id) or identities[id] then return nil,"haul_cargo_receipt_invalid" end
+        identities[id]=true
+    end
+    if saved.owner~=U().idOf(actor) then return nil,"haul_cargo_other_worker" end
+    local source=SC.BaseLife.storage(saved.sourceId)
+    if not source then return nil,"haul_source_marker_missing" end
+    local scan=state.batchScan
+    if not scan then
+        if not U().inventory(actor) then return nil,"haul_cargo_owner_unknown" end
+        local destination=SC.BaseLife.storage(saved.destinationId)
+        scan={containers={U().inventory(actor)},at=1,index=0,found={},seen={}}
+        local function include(container)
+            if container and not scan.seen[container] then
+                scan.seen[container]=true;scan.containers[#scan.containers+1]=container
+            end
+        end
+        scan.seen[scan.containers[1]]=true
+        include(SC.BaseLife.resolveContainer(source))
+        if destination then include(SC.BaseLife.resolveContainer(destination)) end
+        state.batchScan=scan
+    end
+    local wanted={} for _,id in ipairs(saved.ids) do wanted[id]=true end
+    local budget=256
+    while budget>0 and scan.at<=#scan.containers do
+        local container=scan.containers[scan.at]
+        local items=select(1,U().call(container,"getItems"))
+        local size=U().listSize(items)
+        while budget>0 and scan.index<size do
+            local item=U().listGet(items,scan.index);scan.index=scan.index+1;budget=budget-1
+            local id=item and tonumber(itemNativeId(item))
+            if wanted[id] then scan.found[id]=item end
+            if #scan.containers<7 then
+                local bag=select(1,U().call(item,"getInventory")) or select(1,U().call(item,"getItemContainer"))
+                if bag and not scan.seen[bag] then scan.seen[bag]=true;scan.containers[#scan.containers+1]=bag end
+            end
+        end
+        if scan.index>=size then scan.at=scan.at+1;scan.index=0 end
+    end
+    local all=true for _,id in ipairs(saved.ids) do if not scan.found[id] then all=false end end
+    if not all and scan.at<=#scan.containers then return nil,"haul_cargo_search_pending" end
+    if not all then state.batchScan=nil;return nil,"haul_cargo_owner_unknown" end
+    local cargo={batch=saved,items={},source=source,sourceId=source.id,jobId=job.id}
+    for _,id in ipairs(saved.ids) do cargo.items[#cargo.items+1]=scan.found[id] end
+    cargo.item=cargo.items[1];state.batchScan=nil
+    return cargo
+end
+function Batch.savedForActor(actor)
+    local base=SC.BaseLife.active()
+    for index,job in ipairs(base and base.jobs or {}) do
+        if index>256 then break end
+        local saved=job.target and job.target.stockBatch
+        if saved and saved.owner==U().idOf(actor) then return job end
+    end
+end
+function Batch.storageInUse(storageId)
+    local base=SC.BaseLife.active()
+    for index,job in ipairs(base and base.jobs or {}) do
+        if index>256 then break end
+        Batch.releaseGone(job)
+        local saved=job.target and job.target.stockBatch
+        if saved and saved.sourceId==storageId and type(saved.ids)=="table" and #saved.ids>0 then
+            return true,"sort_cargo_uses_storage"
+        end
+    end
+    return false
+end
+function Batch.restoreState(actor,state,job)
+    if not state.cargo and job and job.target and job.target.stockBatch then
+        local cargo,why=batchRestore(actor,state,job,job.target.stockBatch)
+        if not cargo then return false,why end
+        state.cargo=cargo
+    end
+    return true
+end
+function Batch.returnCargo(actor,cargo)
+    local source=cargo.source
+    if not source or SC.BaseLife.storage(source.id)~=source then return false,"haul_source_marker_missing" end
+    local destination=SC.BaseLife.resolveContainer(source)
+    if not destination then return false,"haul_source_storage_changed" end
+    for i=#cargo.items,1,-1 do
+        local item=cargo.items[i]
+        local owner=select(1,U().call(item,"getContainer"))
+        if owner==destination and U().inventoryContains(destination,item) then
+            batchRemove(cargo,item)
+        elseif owner and U().inventoryContains(owner,item) then
+            local owned=owner==U().inventory(actor) or SC.PersonalItems and SC.PersonalItems.ownedBy(item,actor)==true
+            if not owned then return false,"haul_cargo_owner_unknown" end
+            local okay,why=Transport.transferVerified(owner,destination,item,actor)
+            if not okay then return false,why end
+            batchRemove(cargo,item)
+        else return false,"haul_cargo_owner_unknown" end
+    end
+    batchClear(SC.BaseLife.job(cargo.jobId),cargo)
+    return true,"haul_cargo_returned"
+end
+function Batch.update(actor,state,job)
+    local cargo=state.cargo
+    if cargo and cargo.batch and cargo.jobId~=job.id then
+        local okay,why=Batch.returnCargo(actor,cargo)
+        if okay then state.cargo,state.transfer=nil,nil end
+        return okay,why,not okay
+    end
+    if not cargo and job.target and job.target.stockBatch then
+        local why;cargo,why=batchRestore(actor,state,job,job.target.stockBatch)
+        if not cargo then return why=="haul_cargo_search_pending",why,why~="haul_cargo_search_pending" end
+        state.cargo=cargo
+    end
+    if not cargo then
+        local source,container,destination,_,first,why=SC.BaseWork.sortTransfer(job,actor)
+        if not source then return false,why,true end
+        if tonumber(itemNativeId(first))==nil then return false,"haul_item_identity_missing",true end
+        local items=batchCandidates(actor,job,source,container,destination,first)
+        local saved={owner=U().idOf(actor),sourceId=source.id,destinationId=destination.id,
+            ids={},phase="take",assigned=job.assignedId==nil}
+        job.target=job.target or {};job.target.stockBatch=saved
+        job.assignedId=saved.owner
+        cargo={batch=saved,items=items,item=first,source=source,sourceId=source.id,jobId=job.id}
+        state.cargo=cargo
+        for _,item in ipairs(items) do
+            saved.ids[#saved.ids+1]=tonumber(itemNativeId(item))
+            local fields=itemData(item);if fields then fields[BATCH_MARKER]=job.id end
+        end
+    end
+    local saved=cargo.batch
+    if saved.phase=="take" then
+        local source=SC.BaseLife.resolveContainer(cargo.source)
+        if not source then return false,"base_storage_unloaded",true end
+        local primary=true
+        for i=#cargo.items,1,-1 do
+            local item=cargo.items[i]
+            if not U().inventoryContains(U().inventory(actor),item) then
+                local owner=select(1,U().call(item,"getContainer"))
+                if owner and owner~=source and SC.PersonalItems and SC.PersonalItems.ownedBy(item,actor)==true then
+                    local okay,why=Transport.transferVerified(owner,U().inventory(actor),item,actor)
+                    if not okay then return false,why,true end
+                    primary=false
+                elseif not U().inventoryContains(source,item) then
+                    batchRemove(cargo,item)
+                elseif not primary and not batchLimit(actor,item) then
+                    batchRemove(cargo,item)
+                else
+                    local okay,why
+                    if primary then okay,why=SC.BaseWork.withdrawFromStorage(actor,state,cargo.source,source,item)
+                    else okay,why=SC.BaseWork.withdrawStackItem(actor,cargo.source,source,item) end
+                    if okay and why~="base_supply_taken" and primary then return true,why end
+                    if not okay then
+                        if primary then return false,why,true end
+                        batchRemove(cargo,item)
+                    else primary=false end
+                end
+            else primary=false end
+        end
+        saved.phase="deposit";state.visualAt=nil
+    end
+    -- A save/event callback can occur after the native move but before its
+    -- Lua receipt is cleared. Recognize that destination without moving twice.
+    local priorDestination=SC.BaseLife.storage(saved.destinationId)
+    local priorContainer=priorDestination and SC.BaseLife.resolveContainer(priorDestination)
+    for i=#cargo.items,1,-1 do
+        if priorContainer and U().inventoryContains(priorContainer,cargo.items[i]) then
+            batchRemove(cargo,cargo.items[i])
+        end
+    end
+    if #cargo.items==0 then
+        batchClear(job,cargo);state.cargo,state.transfer=nil,nil
+        SC.BaseLife.completeJob(job.id,U().idOf(actor),"hauled")
+        return true,"base_transfer_complete"
+    end
+    for _,item in ipairs(cargo.items) do
+        if not U().inventoryContains(U().inventory(actor),item) then
+            local owner=select(1,U().call(item,"getContainer"))
+            local owned=SC.PersonalItems and SC.PersonalItems.ownedBy(item,actor)==true
+            if not owned or not owner or not U().inventoryContains(owner,item) then
+                return false,"haul_cargo_owner_unknown",true
+            end
+            local okay,why=Transport.transferVerified(owner,U().inventory(actor),item,actor)
+            if not okay then return false,why,true end
+        end
+    end
+    local rows=SC.BaseWork.sortDestinations(job,actor,cargo.item,cargo.source)
+    if #rows==0 then
+        local okay,why=Batch.returnCargo(actor,cargo)
+        if okay then state.cargo,state.transfer=nil,nil end
+        return false,okay and "haul_destinations_full" or why,true
+    end
+    local destination,container=rows[1].destination,rows[1].container
+    if saved.destinationId~=destination.id then state.visualAt=nil;saved.destinationId=destination.id end
+    local first=true
+    for i=#cargo.items,1,-1 do
+        local item=cargo.items[i]
+        local okay,why
+        if U().inventoryContains(container,item) then okay=true
+        elseif first then okay,why=SC.BaseWork.depositToStorage(actor,state,destination,container,item)
+        else okay,why=SC.BaseWork.depositStackItem(actor,destination,container,item) end
+        if okay and why~="base_supply_returned" and first and not U().inventoryContains(container,item) then return true,why end
+        if not okay then
+            state.visualAt=nil
+            return true,"haul_destination_changed"
+        end
+        first=false;batchRemove(cargo,item)
+    end
+    batchClear(job,cargo);state.cargo,state.transfer=nil,nil
+    SC.BaseLife.completeJob(job.id,U().idOf(actor),"hauled")
+    if SC.NativeActions and SC.NativeActions.noteResult then SC.NativeActions.noteResult(actor,"base_transfer","hauled_stack") end
+    return true,"base_transfer_complete"
 end
 
 return Transport

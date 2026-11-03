@@ -1,0 +1,66 @@
+Living Fellows 0.26.93: release verification
+Date: 2026-11-03
+Branch: living_fellows/0.26.93
+Base: 7fb17f11ab5db05fa2d6f2048b349f9dedadf687 (0.26.92)
+
+Scope
+- Bounded, retained, party-wide camp supply discovery and category priority.
+- Prevent money/surplus stock being removed and immediately returned to the
+  same marked store. Sort matching items in batches of up to twenty with exact
+  item receipts, reserve limits, cancellation and cold-reload reconciliation.
+- Restore individual companion stamina recovery during standing, eligible
+  walking and sleep. Keep native load, fitness and fatigue effects isolated.
+- Begin eating at 70% hunger and finish base-duty meals below 30% hunger.
+- Collect raw logs only after field chopping; leave twigs and branches intact.
+- Synchronize VERSION.txt, README badge, shipped README, both mod.info files,
+  SC.Identity.release and bridge manifest at 0.26.93.
+
+Bridge
+Reproducible Java 17 build and byte-for-byte packaged JAR comparison: PASS.
+The archive contains 84 bridge classes and no packaged zombie API stubs.
+SHA-256: d27130980786e64e82c66f3e4c28e2c520a99b043cccf8efca83a0967710ddfd
+Protocol: 42.21-isocompanion-27; save bucket: SC_WorldV1/schema-3 (unchanged).
+
+Completed current-code verification before the metadata-only release bump
+- Full core gate: 92 of 92 stages pass in one run (native rebuild and duplicate
+  source stages skipped; bridge had already been rebuilt and tested).
+- Full gameplay gate: PASS, including needs priority (145 checks), its six
+  negative controls, camp supply budget (175 checks) and 922 static assertions.
+- Supply scan negative controls: all seven intentional faults detected.
+- Native real-JAR controls and isolation/missing/double-recovery mutations:
+  PASS; see validation-companion-stamina-meals.txt for detailed native coverage.
+- Sorting, exact cargo ownership, reload/cancellation, reserve contention and
+  logs-only harvesting tests: PASS. See the individual validation records.
+- All 280 Lua files compile normally and with debug locals; compiler-limit
+  negative control passes. Harness wiring: 189 harnesses / 88 scripts.
+
+Final 0.26.93 release checks: PASS
+- Full source gate, including static/runtime contracts, release synchronization,
+  Java controls and all 41 installer transaction/rollback cases, passes.
+- Floor cargo/logistics gate passes: floor stack pickup, reload and cancellation,
+  sorting batches (85 checks) and actual storage/count fixtures (10 checks).
+- Standalone package validation passes with installer/uninstaller checks and
+  normal/debug compilation of all 280 Lua files. Rebuilt JAR matches payload.
+- Standalone ZIP SHA-256:
+  72974dedd515d8e828780ba043657205ac931b7b941255acc70c87e6be16edaf
+- git diff --check passes. The complete 30-stage project gate was not rerun;
+  the changed core/gameplay suites and release-specific gates are recorded above.
+
+Performance evidence and limits
+The same 32-container/two-floor fixture drops from 8,192 item inspections in
+the first needs update in released .92 to 64 in the working fix. With fresh
+food available, unrelated-item inspections drop from 7,168 to zero.
+These are headless work counts, not a live FPS measurement or proof that all
+sources of the tester's camp stutter are resolved. No current tester save or
+console was supplied. Live acceptance remains outstanding for these changes.
+
+Test execution is serial, BelowNormal priority, pinned to two CPUs, with a
+256 MB Java heap cap and Serial GC. No game client or save is modified.
+Publication scope is the requested Git branch; installation and Workshop
+publication are separate actions.
+
+Evidence retained locally
+C:/ZOMBOID/outputs/camp-fix-core.log
+C:/ZOMBOID/outputs/camp-fix-gameplay.log
+C:/ZOMBOID/outputs/release-02693-checks.py
+C:/ZOMBOID/outputs/release-02693/

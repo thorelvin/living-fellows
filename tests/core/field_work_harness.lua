@@ -218,6 +218,7 @@ local function cropAt(x, y, ripe, seedType)
     function tile.plant:canHarvest() return self.ripe end
     return tile
 end
+local chopDebris = {}
 local function finish(value, kind, yieldCount)
     if kind == "harvest" then
         local plant = value.pending.plant
@@ -240,6 +241,14 @@ local function finish(value, kind, yieldCount)
             item = wood, square = tree.square,
             getItem = function(self) return self.item end,
         }
+        if value.chopDebris then
+            for _,kind in ipairs({"Base.Twigs","Base.TreeBranch"}) do
+                local debris=item(kind)
+                local wrapper={item=debris,square=tree.square,getItem=function(self) return self.item end}
+                tree.square.world[#tree.square.world+1]=wrapper
+                chopDebris[#chopDebris+1]=wrapper
+            end
+        end
     end
     value.active = false
 end
@@ -381,6 +390,7 @@ for x = 100, 105 do
 end
 check(Field.start("chop", square(100, 100), player) == true
     and Field.status().carId == nil, "wood trip runs without a car")
+one.chopDebris=true
 for _ = 1, 220 do
     Field.update(one, player)
     Field.update(two, player)
@@ -393,6 +403,14 @@ check(Field.status().completed == 6, "all nearby trees are cleared")
 check(square(105, 100).tree == nil, "sixth tree is felled too")
 check(#one.bag.items >= 7, "logs carried without a car")
 check(Field.status().phase == "complete", "no-car order completes")
+check(#chopDebris==12,"six felled trees leave their native twigs and branches")
+for _,wrapper in ipairs(chopDebris) do
+    local present,marked=false,false
+    for _,other in ipairs(wrapper.square.world) do if other==wrapper then present=true end end
+    for _ in pairs(wrapper.item.data) do marked=true end
+    check(present and wrapper.item:getContainer()==nil and not marked,
+        "walking wood work leaves each twig and branch untouched on the ground")
+end
 Field.restore(nil)
 two.follow = false
 one.x, one.y = 100, 99
@@ -435,6 +453,15 @@ for _, value in ipairs(car.part.bag.items) do
 end
 check(axeBack and carriedAxe.data.LF_FieldBorrowedAxe == nil,
     "borrowed axe returned to same car")
+check(#chopDebris==14,"driving wood work also observes twigs and branches from its felled tree")
+for _,wrapper in ipairs(chopDebris) do
+    local present,marked=false,false
+    for _,other in ipairs(wrapper.square.world) do if other==wrapper then present=true end end
+    for _ in pairs(wrapper.item.data) do marked=true end
+    check(present and wrapper.item:getContainer()==nil and not marked,
+        "wood work with a car leaves debris outside crew bags and the trunk")
+end
+one.chopDebris=nil
 Field.restore(nil)
 one.bag = inventory()
 one.x, one.y = 100, 99

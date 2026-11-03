@@ -1,0 +1,98 @@
+Living Fellows: stamina recovery and complete camp meals
+2026-11-03; working changes on living_fellows/0.26.92, based on 7fb17f11.
+Target: installed Project Zomboid 42.21.0, single-player.
+
+Stamina diagnosis and change
+The companion invokes the generic character update instead of IsoPlayer's local
+input controller. Inspection of the installed IsoPlayer bytecode confirms that
+updateInternal2 owns normal updateEndurance calls; separate sitting/resting and
+vehicle paths already run. This accounts for recovery working only when seated.
+
+The native actor now calls its own cached updateEndurance handle once after the
+generic character update. It mirrors vanilla's remote-player currentSpeed values
+from its existing movement flags. Standing recovery, eligible walking recovery,
+running/sprinting costs, fitness, fatigue and heavy-load restrictions therefore
+use the engine's existing calculations. Sitting, resting and vehicles retain
+their existing native paths. Dead/god-mode actors, the singleton, disabled
+character stats and unsupported multiplayer are excluded. Posture ownership is captured before the generic pass
+so exiting a car, standing up or waking cannot add a second recovery that frame.
+No stamina refund, shared Stats pointer, player-slot
+change or global update wrapper is added. The cached call adds no world scan.
+
+Sleep follow-up (November 3)
+WakeState also gates updateStats_Sleeping to the singleton. The earlier fix
+left sleep excluded under the incorrect assumption it already recovered.
+Companions now run only that native method's endurance calculation while asleep:
+the installed recovery constant, sandbox multiplier, own recovery modifier,
+frame multiplier and the native all-players-asleep day-length factor. The normal
+on-foot update stays excluded. Existing Downtime fatigue recovery continues to
+own tiredness; hunger/thirst are not advanced again. Snapshotting sleep before
+the generic pass prevents two recovery paths on entry/exit frames.
+
+Meal diagnosis and change
+The eating action already requests enough food to reach roughly 25% hunger, but
+small foods cannot supply that much. After one item, the 75% admission threshold
+could turn hunger work off before a complete meal. A companion on base duty now
+keeps its meal episode active until actual hunger falls below 30%. Exactly 30%
+still requests the final portion. Each portion uses a real native food action;
+no scripted reduction of hunger or health is added. The starting threshold is
+now 70% as requested, including narration and fallback defaults. Food preferences,
+permissions, shortages, danger checks and travel
+pause rules remain. Changing orders, leaving camp or joining an expedition ends
+the duty-only episode. This runtime state adds no save schema or service.
+
+Automated results
+- The real game-JAR companion control passes standing recovery, slower walking
+  recovery, running and sprinting costs, native fatigue/load effects, exact
+  one-call equivalence, owner isolation, and skipping sitting/resting,
+  vehicles, the singleton, disabled stats and multiplayer. Existing native swing
+  costs, hit costs and HUD feedback isolation also pass in the same process.
+- Sleep recovery exactly matches the independent native updateStats_Sleeping
+  result with the main player awake and asleep. Sleeping in a seated bed pose
+  and with a heavy load recovers; the native maximum remains 100%. Hunger,
+  thirst, fatigue and the other actors' stamina remain isolated. Awake actors,
+  the singleton, disabled stats and multiplayer skip the sleep helper.
+- Needs-priority harness: 145 checks pass, including a multi-item meal, exactly
+  30% versus below 30%, combat interruption/resumption, changing to moving Follow
+  and leaving camp. Existing safe food, fridge priority, emergency food and
+  travel/expedition constraints remain covered. The boundary tests now verify
+  69.9% defers an ordinary meal and 70% admits it, while the base meal completes
+  below 30%.
+- Full gameplay gate passes, including needs growth, decision arbitration,
+  combat, farming, ownership and terminal regressions.
+- November 2 core baseline: 91/92 stages passed in the full run. The failed work-transport stage
+  exposed a pending sorting issue: selection claimed stock reserved on a shelf.
+  Batch selection is now capped at available unreserved stock. The next run
+  passed that race check, then reached an old one-item fixture incompatible with
+  intentional stack hauling. Giving its two bandages different conditions keeps
+  that fixture's original separate-trip/refused-deposit purpose. The exact core
+  work-transport source list then passed, including 385 cleaning-mixture checks.
+  Thus all 92 core stages passed across the full run and focused correction;
+  this is not a claim that the original all-stage command exited successfully.
+- November 3 follow-up reruns the complete real-JAR companion control and the
+  full gameplay gate for sleep recovery and the earlier eating threshold.
+- Core static wiring checks require one endurance call in the actor frame.
+  Temporary controls detect removing it, doubling it and removing the meal latch.
+- All 280 Lua payload files compile in normal and debug modes.
+- Gameplay static contracts: 922 assertions, 58 sources, 47 commands pass.
+- Release metadata/source alignment and harness wiring checks pass.
+
+Packaged bridge
+SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar
+SHA-256: 3cb2a40c92ccbdfd2b1645915f1adf0582591747134804eed02d982127407477
+Protocol 42.21-isocompanion-27 and SC_WorldV1/schema-3 remain unchanged.
+The tested native JAR is copied into the working payload alongside the Lua fix.
+
+Evidence retained locally
+C:/ZOMBOID/outputs/vitals-core.log
+C:/ZOMBOID/outputs/review-8890/vitals-work-transport.log
+C:/ZOMBOID/outputs/vitals-gameplay.log
+C:/ZOMBOID/outputs/review-8890/vitals-native-control.log
+C:/ZOMBOID/outputs/vitals-controls/
+
+Limits
+No current tester log or save was supplied for these two reports. Diagnosis uses
+the production code and installed native classes; tests are headless controls,
+not an observed in-game session. No game client was launched, no save edited and
+no local installation performed. Normal-play acceptance remains pending. JVMs
+ran serially at BelowNormal priority, with a 256 MB heap and two active processors.

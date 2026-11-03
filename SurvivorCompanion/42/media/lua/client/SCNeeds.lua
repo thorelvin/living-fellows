@@ -521,7 +521,7 @@ local SEVERITY_NAME = { "noted", "serious", "urgent" }
 
 local function thresholds(kind)
     if kind == "hunger" then
-        return U().config("needsHungerThreshold") or 0.75,
+        return U().config("needsHungerThreshold") or 0.70,
             U().config("needsHungerSerious") or 0.80,
             U().config("needsHungerEmergency") or 0.82
     end
@@ -747,6 +747,16 @@ function Needs.assess(actor, runtime)
         fatigue = U().characterStatValue(actor, "FATIGUE", state.fatigue or 0)
         state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
     end
+    -- A camp meal is one needs episode, even when it takes several small
+    -- foods. Do not release duty after the first bite drops below the 70%
+    -- admission threshold. Orders/travel still own whether eating is allowed.
+    local hungerThreshold = U().config("needsHungerThreshold") or 0.70
+    local commands = needsCommands(actor)
+    local atBase = commands.order == "base_duty" and not commands.expeditionMember
+        and not commands.expeditionMoving and SC.BaseLife
+        and type(SC.BaseLife.isInside) == "function" and SC.BaseLife.isInside(actor) == true
+    if not atBase or hunger < 0.30 then state.baseMeal = nil
+    elseif hunger >= hungerThreshold then state.baseMeal = true end
     local hour = worldHour()
     local peeDueAt = peeSchedule(actor, hour)
     local inVehicle = select(1, U().call(actor, "getVehicle")) ~= nil
@@ -754,7 +764,7 @@ function Needs.assess(actor, runtime)
         hunger = hunger,
         thirst = thirst,
         fatigue = fatigue,
-        hungry = hunger >= (U().config("needsHungerThreshold") or 0.75),
+        hungry = hunger >= hungerThreshold or state.baseMeal == true,
         thirsty = thirst >= (U().config("needsThirstThreshold") or 0.48),
         emergency = hunger >= (U().config("needsHungerEmergency") or 0.82)
             or thirst >= (U().config("needsThirstEmergency") or 0.75),
@@ -1493,9 +1503,15 @@ local function fetchFromCamp(actor, key, predicate, snapshot, searchOptions)
         return false, "camp_storage_unavailable"
     end
     local options={origin=actor,snapshot=snapshot,moveMode="walk"}
+    if key=="needs_water" then
+        local atHome=SC.BaseLife and SC.BaseLife.isInside and SC.BaseLife.isInside(actor)==true
+        options.markedOnly=atHome
+        options.campFloors=atHome and not (searchOptions and searchOptions.radius)
+        options.preferredCategories={"water"}
+    end
     for key,value in pairs(searchOptions or {}) do options[key]=value end
-    local status, reason = SC.Encounter.takePlayerSupply(actor, key, predicate, options)
-    return status == "taken" or status == "in_progress", reason or status,status
+    local status, reason, phase = SC.Encounter.takePlayerSupply(actor, key, predicate, options)
+    return status == "taken" or status == "in_progress", reason or status,status,phase
 end
 
 local function feed(actor,player,state,assessment,snapshot,scope,options,commands)
@@ -1535,7 +1551,8 @@ local function feed(actor,player,state,assessment,snapshot,scope,options,command
     local atHome=SC.BaseLife and type(SC.BaseLife.isInside)=="function"
         and SC.BaseLife.isInside(actor)==true
     local search={markedOnly=atHome,campFloors=atHome and not scope,
-        revalidatePredicate=true,completeSearch=true,squareBudget=220}
+        revalidatePredicate=true,completeSearch=true,squareBudget=220,
+        preferredCategories=tier==1 and {"fresh_food","food"} or {"food","fresh_food"}}
     if scope then search.origin,search.radius=scope.origin,scope.radius end
     if not atHome and not scope then search.radius=6 end
     local fetched,why,status=fetchFromCamp(actor,"needs_food_"..tier,wanted,snapshot,search)
@@ -1642,13 +1659,13 @@ function Needs.update(actor, player, runtime, options)
             state.waterSource, state.waterOriginSquare = nil, nil
             state.nextWaterSearchAt = 0
             if water then return track(drinkItem(actor, water, assessment.thirst)) end
-            local fetched, fetchReason = fetchFromCamp(actor,
+            local fetched, fetchReason, _, fetchPhase = fetchFromCamp(actor,
                 "needs_water", safeWater, snapshot,waterScope and {origin=waterScope.origin,radius=waterScope.radius} or nil)
-            if fetched then return track(true, fetchReason) end
+            if fetched and not (assessment.hungry and fetchPhase=="searching") then return track(true, fetchReason) end
         elseif not travelling or assessment.emergency then
-            local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot,
+            local fetched, fetchReason, _, fetchPhase = fetchFromCamp(actor, "needs_water", safeWater, snapshot,
                 waterScope and {origin=waterScope.origin,radius=waterScope.radius} or nil)
-            if fetched then return track(true, fetchReason) end
+            if fetched and not (assessment.hungry and fetchPhase=="searching") then return track(true, fetchReason) end
             thirstReason = "clean_water_unavailable"
         end
     end

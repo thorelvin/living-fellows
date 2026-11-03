@@ -469,9 +469,13 @@ local function normalizeJob(source)
             and #stages < 2 then stages[#stages + 1] = recipeId end
     end
     local stageIndex = integer(source.stageIndex, 1, 1, math.max(1, #stages))
+    local targetLimit=64
+    local batch=type(source.target)=="table" and (source.target.stockBatch or source.target.floorStack)
+    if (source.type=="sort" or source.type=="sort_floor") and type(batch)=="table"
+        and type(batch.ids)=="table" and #batch.ids<=20 then targetLimit=96 end
     return {
         id = source.id, type = source.type, priority = integer(source.priority, 3, 1, 5),
-        state = state, target = stableCopy(source.target, 3, { count = 64 }),
+        state = state, target = stableCopy(source.target, 3, { count = targetLimit }),
         recipeId = type(source.recipeId) == "string" and cleanText(source.recipeId, "", 128) or nil,
         stages = stages, stageIndex = stageIndex,
         planId = type(source.planId) == "string" and cleanText(source.planId, "", 64) or nil,
@@ -2285,6 +2289,15 @@ end
 function BaseLife.availableCountExact(storage, itemType)
     local container = BaseLife.resolveContainer(storage)
     if not container then return 0 end
+    -- Flat native counts have the same full-type semantics as this fallback,
+    -- without one Lua/Java boundary call per stored item for each stack member.
+    if type(itemType)=="string" and itemType:find(".",1,true)
+        and not itemType:find("/",1,true) then
+        local native,called=U().call(container,"getCountType",itemType)
+        if called and type(native)=="number" and native>=0 and native<math.huge then
+            return math.max(0,native-BaseLife.storageReserve(storage,itemType))
+        end
+    end
     local count = 0
     for _, item in ipairs(U().inventoryItems(container, math.huge)) do
         if itemType == nil or U().itemType(item) == itemType then count = count + 1 end

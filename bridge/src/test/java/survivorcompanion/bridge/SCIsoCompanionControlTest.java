@@ -114,6 +114,170 @@ public final class SCIsoCompanionControlTest {
         System.out.println("GUNSHOT_SOUND_PASS magazine=true chamber=true pump=true revolver=true dry=true jam=true unlimited=true duplicate=true native_dispatch=true custom=true");
     }
 
+    private static void testStaminaRecovery(IsoPlayer primary,
+            SCNativeCompanion first, SCNativeCompanion second) throws Exception {
+        var endurance = zombie.characters.CharacterStat.ENDURANCE;
+        var fatigue = zombie.characters.CharacterStat.FATIGUE;
+        IsoPlayer[] actors = {primary, first, second};
+        float[] saved = new float[3], tiredness = new float[3];
+        for (int i = 0; i < actors.length; i++) {
+            saved[i] = actors[i].getStats().get(endurance);
+            tiredness[i] = actors[i].getStats().get(fatigue);
+        }
+        var nativeUpdate = IsoPlayer.class.getDeclaredMethod("updateEndurance");
+        nativeUpdate.setAccessible(true);
+        var moodles = first.getMoodles();
+        var mapField = moodles.getClass().getDeclaredField("moodles");
+        mapField.setAccessible(true);
+        var map = (java.util.Map<?, ?>) mapField.get(moodles);
+        var moodleType = Class.forName("zombie.scripting.objects.MoodleType");
+        Object heavy = map.get(moodleType.getField("HEAVY_LOAD").get(null));
+        Object winded = map.get(moodleType.getField("ENDURANCE").get(null));
+        var level = heavy.getClass().getDeclaredField("moodleLevel");
+        level.setAccessible(true);
+        int savedHeavy = level.getInt(heavy), savedWinded = level.getInt(winded);
+        boolean statsEnabled = zombie.SystemDisabler.doCharacterStats;
+        boolean client = zombie.network.GameClient.client, server = zombie.network.GameServer.server;
+        // This headless control does not boot defines.lua. Seed its installed
+        // 42.21 native constants, and restore the caller's globals afterward.
+        String[] rateNames = {"imobileEnduranceReduce", "runningEnduranceReduce", "sprintingEnduranceReduce"};
+        double[] rates = {.0000930 / 3, .0000520, .0004550}, priorRates = new double[3];
+        var globals = Class.forName("zombie.ZomboidGlobals");
+        for (int i = 0; i < rateNames.length; i++) {
+            var field = globals.getField(rateNames[i]);priorRates[i] = field.getDouble(null);field.setDouble(null, rates[i]);
+        }
+        try {
+            zombie.SystemDisabler.doCharacterStats = true;
+            zombie.network.GameClient.client = zombie.network.GameServer.server = false;
+            first.setMoving(false);first.setRunning(false);first.setSprinting(false);
+            first.synchronizePlayerLocomotion();
+            level.setInt(heavy, 0);level.setInt(winded, 0);
+            first.getStats().set(fatigue, .2f);
+            first.getStats().set(endurance, .4f);
+            nativeUpdate.invoke(first);
+            float expected = first.getStats().get(endurance);
+            require(expected > .4f, "standing native control did not recover stamina");
+            first.getStats().set(endurance, .4f);
+            first.updateCompanionEndurance();
+            require(first.getStats().get(endurance) == expected,
+                    "standing recovery differs from exactly one native update");
+            float standing = expected - .4f;
+            first.setMoving(true);first.synchronizePlayerLocomotion();
+            require(first.currentSpeed == .5f && first.isPlayerMoving(), "walking speed was not mirrored for stamina");
+            first.getStats().set(endurance, .4f);first.updateCompanionEndurance();
+            float walking = first.getStats().get(endurance) - .4f;
+            require(walking > 0 && walking < standing, "ordinary walking must recover more slowly than standing");
+            first.setRunning(true);first.synchronizePlayerLocomotion();
+            require(first.currentSpeed == 1, "running speed was not mirrored");
+            first.getStats().set(endurance, .7f);first.updateCompanionEndurance();
+            require(first.getStats().get(endurance) < .7f, "running no longer pays native stamina cost");
+            first.setSprinting(true);first.synchronizePlayerLocomotion();
+            require(first.currentSpeed == 1.5f, "sprinting speed was not mirrored");
+            first.getStats().set(endurance, .7f);first.updateCompanionEndurance();
+            require(first.getStats().get(endurance) < .7f, "sprinting lost its native stamina cost");
+            first.setRunning(false);first.setSprinting(false);first.setMoving(false);
+            first.synchronizePlayerLocomotion();
+            first.getStats().set(endurance, .4f);first.getStats().set(fatigue, .9f);
+            first.updateCompanionEndurance();
+            require(first.getStats().get(endurance) > .4f && first.getStats().get(endurance) - .4f < standing,
+                    "high tiredness lost its native recovery penalty");
+            level.setInt(heavy, 2);first.getStats().set(endurance, .4f);
+            first.updateCompanionEndurance();
+            require(first.getStats().get(endurance) == .4f, "heavy load incorrectly allowed standing recovery");
+            level.setInt(heavy, 0);
+            for (String flag : new String[]{"setSitOnGround", "setIsResting", "setAsleep"}) {
+                var setter = first.getClass().getMethod(flag, boolean.class);
+                setter.invoke(first, true);first.getStats().set(endurance, .4f);
+                first.updateCompanionEndurance();
+                require(first.getStats().get(endurance) == .4f, "duplicate/invalid recovery while " + flag);
+                setter.invoke(first, false);
+            }
+            var nativeSleep = IsoPlayer.class.getDeclaredMethod("updateStats_Sleeping");
+            nativeSleep.setAccessible(true);
+            var hunger = zombie.characters.CharacterStat.HUNGER;
+            var thirst = zombie.characters.CharacterStat.THIRST;
+            float ownHunger = first.getStats().get(hunger), ownThirst = first.getStats().get(thirst);
+            boolean primaryAsleep = primary.isAsleep();
+            try {
+                first.setAsleep(true);
+                for (boolean allSleeping : new boolean[]{false, true}) {
+                    primary.setAsleep(allSleeping);
+                    require(IsoPlayer.allPlayersAsleep() == allSleeping,
+                            "native sleep-speed control does not match its local-player state");
+                    // Zero fatigue avoids the native bed/fatigue branch in this
+                    // control. Its independent native stamina result is the oracle.
+                    first.getStats().set(fatigue, 0);first.getStats().set(endurance, .4f);
+                    nativeSleep.invoke(first);
+                    float sleepExpected = first.getStats().get(endurance);
+                    first.getStats().set(hunger, ownHunger);first.getStats().set(fatigue, 0);
+                    first.getStats().set(endurance, .4f);first.updateCompanionSleepEndurance();
+                    require(sleepExpected > .4f && first.getStats().get(endurance) == sleepExpected,
+                            "companion sleep recovery differs from exactly one native sleep tick");
+                    require(first.getStats().get(hunger) == ownHunger && first.getStats().get(thirst) == ownThirst
+                            && first.getStats().get(fatigue) == 0,
+                            "sleep stamina recovery duplicated hunger, thirst or tiredness changes");
+                }
+                first.getStats().set(fatigue, .9f);level.setInt(heavy, 4);
+                first.getClass().getMethod("setSitOnGround", boolean.class).invoke(first, true);
+                first.getStats().set(endurance, .4f);first.updateCompanionSleepEndurance();
+                require(first.getStats().get(endurance) > .4f && first.getStats().get(fatigue) == .9f,
+                        "heavy load or a seated bed pose blocked sleep recovery or duplicated fatigue recovery");
+                first.getStats().set(endurance, .99999f);
+                for (int frame = 0; frame < 120; frame++) first.updateCompanionSleepEndurance();
+                require(first.getStats().get(endurance) == 1, "sleep recovery did not stop at native maximum stamina");
+            } finally {
+                primary.setAsleep(primaryAsleep);first.setAsleep(false);
+                first.getClass().getMethod("setSitOnGround", boolean.class).invoke(first, false);
+                level.setInt(heavy, 0);first.getStats().set(fatigue, .9f);first.getStats().set(hunger, ownHunger);
+            }
+            first.getStats().set(endurance, .4f);first.updateCompanionSleepEndurance();
+            require(first.getStats().get(endurance) == .4f, "sleep recovery ran while awake");
+            var unsafeField = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");
+            unsafeField.setAccessible(true);Object unsafe = unsafeField.get(null);
+            Class<?> carType = Class.forName("zombie.vehicles.BaseVehicle");
+            Object car = unsafe.getClass().getMethod("allocateInstance", Class.class).invoke(unsafe, carType);
+            var vehicle = zombie.characters.IsoGameCharacter.class.getDeclaredField("vehicle");
+            vehicle.setAccessible(true);Object previousVehicle = vehicle.get(first);
+            try {
+                vehicle.set(first, car);first.getStats().set(endurance, .4f);first.updateCompanionEndurance();
+                require(first.getStats().get(endurance) == .4f, "vehicle recovery ran a second time");
+            } finally { vehicle.set(first, previousVehicle); }
+            try {
+                IsoPlayer.setInstance(first);first.getStats().set(endurance, .4f);first.updateCompanionEndurance();
+                require(first.getStats().get(endurance) == .4f, "the real-player update was advanced twice");
+                first.setAsleep(true);first.updateCompanionSleepEndurance();
+                require(first.getStats().get(endurance) == .4f, "main-player sleep recovery was advanced twice");
+                first.setAsleep(false);
+            } finally { IsoPlayer.setInstance(primary); }
+            for (int mode = 0; mode < 3; mode++) {
+                zombie.SystemDisabler.doCharacterStats = mode != 0;
+                zombie.network.GameClient.client = mode == 1;
+                zombie.network.GameServer.server = mode == 2;
+                first.getStats().set(endurance, .4f);first.updateCompanionEndurance();
+                require(first.getStats().get(endurance) == .4f, "stats-disabled/multiplayer recovery was advanced");
+                first.setAsleep(true);first.updateCompanionSleepEndurance();
+                require(first.getStats().get(endurance) == .4f, "stats-disabled/multiplayer sleep recovery was advanced");
+                first.setAsleep(false);
+            }
+            require(primary.getStats().get(endurance) == saved[0] && second.getStats().get(endurance) == saved[2],
+                    "recovery changed another actor's stamina");
+            require(first.getStats().get(fatigue) == .9f && primary.getStats().get(fatigue) == tiredness[0]
+                    && second.getStats().get(fatigue) == tiredness[2], "recovery changed tiredness");
+            require(IsoPlayer.getInstance() == primary, "recovery changed the main player");
+        } finally {
+            zombie.SystemDisabler.doCharacterStats = statsEnabled;
+            zombie.network.GameClient.client = client;zombie.network.GameServer.server = server;
+            for (int i = 0; i < rateNames.length; i++) globals.getField(rateNames[i]).setDouble(null, priorRates[i]);
+            level.setInt(heavy, savedHeavy);level.setInt(winded, savedWinded);
+            first.setMoving(false);first.setRunning(false);first.setSprinting(false);
+            first.synchronizePlayerLocomotion();
+            for (int i = 0; i < actors.length; i++) {
+                actors[i].getStats().set(endurance, saved[i]);actors[i].getStats().set(fatigue, tiredness[i]);
+            }
+        }
+        System.out.println("STAMINA_RECOVERY_PASS native_once=true standing=true walking=true running_cost=true fatigue=true load=true isolated=true seated_skipped=true sleep=true sleep_speed=true sleep_stats_isolated=true");
+    }
+
     private static void testStaminaIsolation(IsoPlayer primary,
             SCNativeCompanion first, SCNativeCompanion second) throws Exception {
         IsoPlayer[] actors = { primary, first, second };
@@ -2244,6 +2408,8 @@ public final class SCIsoCompanionControlTest {
         testRetainedMovementAndPathState((SCNativeCompanion) actor);
         testCompanionBallisticInput((SCNativeCompanion) actor, (IsoPlayer) localPlayer);
         testStaminaIsolation((IsoPlayer) localPlayer,
+                (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
+        testStaminaRecovery((IsoPlayer) localPlayer,
                 (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);
         testMoodleFeedbackIsolation((IsoPlayer) localPlayer,
                 (SCNativeCompanion) actor, (SCNativeCompanion) secondActor);

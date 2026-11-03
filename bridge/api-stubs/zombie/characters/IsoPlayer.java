@@ -14,8 +14,10 @@ public class IsoPlayer extends IsoLivingCharacter {
     public boolean dirtyRecalcGridStack;
     public float dirtyRecalcGridStackTime;
     protected boolean isPlayerMoving;
+    public float currentSpeed;
     private boolean initiateAttack;
     private boolean attackStarted;
+    private void updateEndurance() {}
 
     public IsoPlayer(IsoCell cell, SurvivorDesc descriptor, int x, int y, int z, boolean animal) {
         super(cell, x, y, z);
@@ -23,6 +25,7 @@ public class IsoPlayer extends IsoLivingCharacter {
 
     public final int getPlayerNum() { return playerIndex; }
     public static IsoPlayer getInstance() { return null; }
+    public static boolean allPlayersAsleep() { return false; }
     public static void setInstance(IsoPlayer player) {}
     public static boolean getCoopPVP() { return false; }
     public static void setCoopPVP(boolean enabled) {}

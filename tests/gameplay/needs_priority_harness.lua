@@ -146,8 +146,8 @@ end
 local function update(options) return N.update(a,player,roots[a],options) end
 local function tick(count,options) for i=1,count do now=now+100;update(options) end end
 reset()
-a.values.HUNGER=.749;check(not N.assess(a).hungry,"routine meals wait until 75 percent hunger")
-a.values.HUNGER=.75;check(N.assess(a).hungry,"75 percent hunger admits a meal")
+a.values.HUNGER=.699;check(not N.assess(a).hungry,"routine meals wait until 70 percent hunger")
+a.values.HUNGER=.70;check(N.assess(a).hungry,"70 percent hunger admits a meal before starvation")
 reset();a.inventory=inventory({sauce,bait,normal})
 local fridge=storage(13,10,0,{fresh})
 tick(2)
@@ -157,7 +157,7 @@ reset();a.inventory=inventory({sauce,bait,normal})
 local junk={};for i=1,300 do junk[i]={} end;junk[300]=fresh
 storage(13,10,0,junk)
 update();check(action==nil,"an unfinished storage slice does not permit a carried inferior meal")
-tick(2);check(action and action.intent.item==fresh,"fresh food beyond the first storage slice is found")
+tick(5);check(action and action.intent.item==fresh,"fresh food beyond the first storage slice is found")
 reset();a.inventory=inventory({sauce,bait});storage(13,10,0,{normal});tick(4)
 check(action and action.intent.item==normal,"stored normal food beats owned emergency food")
 reset();a.inventory=inventory({sauce,bait});tick(6)
@@ -218,7 +218,7 @@ reset();commands[a]={recruited=true,order="base_duty"};a.inventory=inventory({no
 check(action and action.intent.item==normal,"camp workers do not wait for a travelling player")
 reset();a.inventory=inventory({normal});a.values.THIRST=.6
 local deep={};for i=1,300 do deep[i]={} end;deep[300]=fresh
-storage(12,10,0,deep);tick(4)
+storage(12,10,0,deep);tick(6)
 check(action and action.intent.item==fresh,"interleaved failed water searches retain the deep-fridge food cursor")
 reset();a.inventory=inventory({bait});a.values.HUNGER=.9
 local borrowed,bo=storage(11,10,0,{normal});bo.approach=true
@@ -309,5 +309,219 @@ for _,formation in ipairs({1,2,3,5,8}) do
     check(update() and action and action.intent.object==nearby,"boundary errand reaches its exact water source without returning to formation")
     local prior=cancels;player.moving=true;update()
     check(cancels==prior+1 and not active,"leader movement still cancels the admitted boundary errand")
+end
+reset()
+a.values.HUNGER=.95
+local meals={food("fresh"),food("fresh"),food("fresh"),food("fresh")}
+for _,meal in ipairs(meals) do function meal:getHungerChange() return -.2 end end
+a.inventory=inventory(meals)
+check(update() and action and action.intent.action=="eat_food","base duty starts a real meal when hungry")
+for portion=1,4 do
+    local eating=action and action.intent
+    check(eating and eating.item==meals[1],"meal continues selecting an actual carried food item")
+    a.values.HUNGER=math.max(0,a.values.HUNGER+eating.item:getHungerChange()*eating.percentage)
+    table.remove(a.inventory.items,1)
+    active=false;action=nil;now=now+1000
+    local handled=update()
+    if portion<4 then
+        check(handled and action and N.assess(a).hungry,
+            "base meal keeps eating below the admission threshold")
+    else
+        check(not action and not N.assess(a).hungry and a.values.HUNGER<.30,
+            "meal releases base duty only after real consumption lowers hunger below thirty percent")
+    end
+end
+reset();a.inventory=inventory({fresh});check(update() and action,"meal boundary fixture starts")
+active=false;action=nil;a.values.HUNGER=.30;now=now+1000
+check(update() and action,"exactly thirty percent still needs the final portion")
+active=false;action=nil;a.values.HUNGER=.299;now=now+1000
+check(not update() and not action,"below thirty percent ends the meal")
+reset();a.inventory=inventory({fresh});check(update() and action,"second meal fixture starts")
+active=false;action=nil;a.values.HUNGER=.55;now=now+1000
+commands[a]={recruited=true,order="follow"};player.moving=true
+check(not update() and not action and not N.assess(a).hungry,
+    "switching to a moving Follow order ends the base meal latch without an extra snack")
+reset();a.inventory=inventory({fresh});check(update() and action,"interrupted meal fixture starts")
+active=false;action=nil;a.values.HUNGER=.55;now=now+1000
+roots[a].snapshot={immediateCount=1}
+check(not update() and not action,"combat interrupts a base meal between native food actions")
+roots[a].snapshot={};check(update() and action,"safe base meal resumes after the interruption")
+reset();a.inventory=inventory({fresh});check(update() and action,"camp boundary fixture starts")
+active=false;action=nil;a.values.HUNGER=.55;atHome=false;now=now+1000
+check(not update() and not N.assess(a).hungry,"leaving camp clears the duty-only meal episode")
+SC_TEST_SUPPLY_BUDGET={}
+function SC_TEST_SUPPLY_BUDGET.run()
+    local P=SC.Performance
+    local inspected,resolved,exactCounts=0,0,0
+    local originalEach,originalResolve=SC.GameplayUtil.each,SC.BaseLife.resolveContainer
+    local oldReserve,oldExact,oldCount=SC.BaseLife.storageReserve,SC.BaseLife.availableCountExact,SC.BaseLife.availableCount
+    SC.GameplayUtil.each=function(items,limit,callback,offset)
+        return originalEach(items,limit,function(value)
+            if value and value.supplyAudit then inspected=inspected+1 end
+            return callback(value)
+        end,offset)
+    end
+    SC.BaseLife.resolveContainer=function(row)
+        resolved=resolved+1
+        return not row.unloaded and originalResolve(row) or nil
+    end
+    SC.BaseLife.storageReserve=function(row) return row.reserved and 1 or 0 end
+    SC.BaseLife.availableCountExact=function(row) exactCounts=exactCounts+1;return row.reserved and 0 or 1 end
+    SC.BaseLife.availableCount=function() error("bounded reserve counts cannot authorize withdrawals") end
+    local function setup()
+        P.endFrame(0,false);reset();SC.Encounter.reset()
+        P.reset();P._setClock(function() return now end)
+        inspected,resolved,exactCounts=0,0,0
+    end
+    local function contents(n)
+        local list={}
+        for index=1,n do list[index]={supplyAudit=true,index=index} end
+        return list
+    end
+    local function query(who,key,predicate,options)
+        return SC.Encounter.takePlayerSupply(who,key,predicate,options or {
+            markedOnly=true,completeSearch=true,revalidatePredicate=true,campFloors=true,
+            preferredCategories={"fresh_food","food"}})
+    end
+    local function frame() now=now+100;P.beginFrame(3,now) end
+    setup()
+    for index=1,32 do storage(10+index,10,index%2,contents(300)) end
+    frame()
+    for index=1,4 do
+        local worker=actor(10,10,0)
+        local before=inspected
+        local status,_,phase=query(worker,"empty",function() return false end)
+        check(status=="in_progress" and phase=="searching","an exhausted discovery slice is pending, not missing")
+        check(inspected-before<=64,"one request examines at most sixty-four items across all storages")
+    end
+    check(inspected==128 and resolved<=4,"all companions share the frame's 128-item/four-container allowance")
+    P.endFrame(0,false)
+    setup()
+    for index=1,32 do storage(10+index,10,0,{}) end
+    frame()
+    query(a,"empty-markers",function() return false end)
+    check(resolved==2,"one request resolves at most two empty containers")
+    query(a,"empty-markers",function() return false end)
+    query(a,"empty-markers",function() return false end)
+    check(resolved==4,"empty containers also consume the shared metadata allowance")
+    P.endFrame(0,false)
+    local status
+    for _=1,20 do
+        frame();status=query(a,"empty-markers",function() return false end);P.endFrame(0,false)
+        if status=="missing" then break end
+    end
+    check(status=="missing" and resolved==32,"retained container progress finishes without revisiting the first markers")
+    setup()
+    local grid=SC.GameplayUtil.gridSquare
+    local geometry=0
+    SC.GameplayUtil.gridSquare=function(...) geometry=geometry+1;return grid(...) end
+    frame();status=query(a,"empty-home",function() return false end,{radius=6});P.endFrame(0,false)
+    SC.GameplayUtil.gridSquare=grid
+    check(status=="missing" and geometry==0,"an empty camp search never falls through to a geometric world scan")
+    setup()
+    for index=1,28 do local row=storage(20+index,10,0,contents(300));row.category="crafting" end
+    local wanted=food("fresh")
+    storage(12,10,1,{wanted})
+    frame();status=query(a,"food-first",function(value) return value==wanted end)
+    check(status=="taken" and inspected==0 and wanted.container==a.inventory and exactCounts==0,
+        "food storage and cross-floor access avoid inspecting thousands of unrelated crafting items")
+    P.endFrame(0,false)
+    setup()
+    for index=1,28 do local row=storage(10+index,10,0,contents(300));row.category="crafting" end
+    local wanted=food("fresh")
+    storage(40,10,1,{wanted})
+    frame();update();P.endFrame(0,false)
+    frame();update();P.endFrame(0,false)
+    check(action and action.intent.item==wanted and inspected==0,
+        "actual needs requests prioritize food storage without reading unrelated crafting inventories")
+    setup()
+    local wanted=food("fresh")
+    local list=contents(300);list[300]=wanted
+    local row,object=storage(12,10,1,list);object.approach=true
+    local seen={}
+    local function predicate(value) seen[value]=(seen[value] or 0)+1;return value==wanted end
+    for _=1,8 do
+        frame();query(a,"deep-food",predicate);P.endFrame(0,false)
+        if seen[wanted] then break end
+    end
+    check(seen[wanted] and inspected==299 and wanted.container==row.container,
+        "a deep fridge cursor examines each preceding item once before starting the physical errand")
+    local other=actor(10,10,0)
+    local beforeHeld=inspected
+    frame();status=query(other,"deep-food",predicate);P.endFrame(0,false)
+    check(status=="in_progress" and inspected==beforeHeld and #other.inventory.items==0,
+        "known reserved food waits without re-reading the busy fridge or stealing its item")
+    SC.Encounter.cancelPlayerSupply(a)
+    frame();status=query(other,"deep-food",function() return false end);P.endFrame(0,false)
+    check(status=="in_progress" and wanted.container==row.container,
+        "a different actor's predicate is rechecked before using a shared candidate")
+    row.withdrawals=false
+    frame();status=query(other,"deep-food",predicate);P.endFrame(0,false)
+    check(status=="missing" and #other.inventory.items==0,"cached candidates cannot bypass revoked withdrawals")
+    row.withdrawals=true
+    local previousSeen=seen[wanted]
+    for _=1,8 do
+        frame();query(a,"deep-food",predicate);P.endFrame(0,false)
+        if seen[wanted]>previousSeen then break end
+    end
+    SC.Encounter.cancelPlayerSupply(a)
+    wanted.protected=true
+    frame();status=query(other,"deep-food",predicate);P.endFrame(0,false)
+    check(status=="in_progress" and wanted.container==row.container,"cached personal items remain protected")
+    wanted.protected=false;row.reserved=true
+    frame();status=query(other,"deep-food",predicate);P.endFrame(0,false)
+    check(status=="in_progress" and wanted.container==row.container and exactCounts>0,"cached food cannot consume reserved stock")
+    row.reserved=false;object.approach=false
+    local before=inspected
+    frame();status=query(other,"deep-food",predicate);P.endFrame(0,false)
+    check(status=="taken" and wanted.container==other.inventory and inspected==before,
+        "another companion reuses the validated candidate without repeating the fridge scan")
+    local third=actor(10,10,0)
+    frame();status=query(third,"deep-food",predicate);P.endFrame(0,false)
+    check(status=="in_progress" and #third.inventory.items==0 and wanted.container==other.inventory,
+        "a consumed or moved cached item cannot be taken from another actor")
+    setup()
+    local wanted=food("fresh")
+    local list=contents(100);list[65]=wanted
+    local row=storage(11,10,0,list)
+    frame();status=query(a,"shifting-stock",function(value) return value==wanted end);P.endFrame(0,false)
+    check(status=="in_progress","first slice stops before the boundary item")
+    table.remove(row.container.items,1)
+    frame();status=query(a,"shifting-stock",function(value) return value==wanted end);P.endFrame(0,false)
+    check(status=="taken" and wanted.container==a.inventory,"stock removal cannot shift an unexamined food behind the cursor")
+    setup()
+    local row,object=storage(11,10,0,contents(300))
+    frame();query(a,"reload-stock",function(value) return value.kind=="fresh" end);P.endFrame(0,false)
+    local oldContainer=row.container
+    local wanted=food("fresh");row.container=inventory({wanted})
+    function row.container:getParent() return object end
+    frame();status=query(a,"reload-stock",function(value) return value.kind=="fresh" end);P.endFrame(0,false)
+    check(status=="taken" and wanted.container==a.inventory and #oldContainer.items==300,
+        "a replaced native container restarts only that storage's cursor and preserves the old contents")
+    setup()
+    local row=storage(11,10,0,{food("fresh")});row.unloaded=true
+    frame();status=query(a,"unloaded",function() return true end);P.endFrame(0,false)
+    check(status=="in_progress" and #a.inventory.items==0,"unloaded storage remains uncertain rather than licensing food fallback")
+    setup()
+    storage(11,10,0,contents(100))
+    local precise=now
+    P._setClock(function() return precise end)
+    local seen={}
+    local function slow(value)
+        seen[value.index]=(seen[value.index] or 0)+1;precise=precise+.4;return false
+    end
+    P.beginFrame(3,now);query(a,"slow",slow);P.endFrame(.8,false)
+    check(seen[1]==1 and seen[2]==1 and seen[3]==nil,"expensive predicates yield at the short time deadline")
+    P.beginFrame(3,now);query(a,"slow",slow);P.endFrame(.8,false)
+    check(seen[1]==1 and seen[2]==1 and seen[3]==1 and seen[4]==1,
+        "time-sliced searches resume after processed items rather than redoing their predicates")
+    setup();storage(11,10,0,contents(100));precise=now
+    P._setClock(function() return precise end);P.beginFrame(3,now);precise=precise+4
+    status=query(a,"expired-frame",function() return false end)
+    check(status=="in_progress" and inspected==0 and resolved==0,"an exhausted scheduler frame starts no supply scan")
+    P.endFrame(4,false);P._setClock(nil)
+    SC.GameplayUtil.each,SC.BaseLife.resolveContainer=originalEach,originalResolve
+    SC.BaseLife.storageReserve,SC.BaseLife.availableCountExact,SC.BaseLife.availableCount=oldReserve,oldExact,oldCount
+    SC_TEST_REPORT="CAMP_SUPPLY_BUDGET_PASS checks="..checks
 end
 SC_TEST_REPORT="NEEDS_PRIORITY_PASS checks="..checks

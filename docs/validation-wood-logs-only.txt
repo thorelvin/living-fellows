@@ -1,0 +1,32 @@
+Living Fellows: logs-only tree harvesting
+2026-11-03; living_fellows/0.26.92 working changes.
+
+The direct field woodcutting worker explicitly selected Base.Log,
+Base.TreeBranch and Base.Twigs after chopping. It now selects Base.Log only.
+The shared logging and wood-expedition workers already filter for raw logs.
+Native tree drops stay physical and untouched; no debris is deleted and no
+replacement items are created. Tree clearing, axe handling, carrying capacity,
+log ownership and trunk delivery retain their existing paths. No native change
+or save-schema change is needed for this fix.
+
+Verification: PASS
+- Full field-work harness: six trees cut without a car, then another tree with
+  a car. Logs are collected and the borrowed axe returned. All fourteen twig/
+  branch objects remain on their original ground squares, unclaimed and outside
+  crew inventories and the trunk.
+- Wood worker harness: native felling produces both branches and twigs alongside
+  two logs. Only those logs are collected/loaded and counted toward the target;
+  both debris objects remain on the ground without cargo reservations.
+- Existing wood decision, integration/delivery and mission lifecycle harnesses
+  pass with the gate's original source lists.
+- A temporary-copy negative control restores the old branch/twig selection;
+  the new walking test correctly fails on debris being removed from the ground.
+- Lua payload compilation and core static contracts pass.
+
+These are headless production-Lua regressions with native-shaped object
+fixtures, not live-game acceptance. No game client was launched or local
+installation performed. Tests run serially below normal priority with a 256 MB
+heap and two active processors.
+
+Local evidence: C:/ZOMBOID/outputs/review-8890/wood-debris-*.log
+Negative control: C:/ZOMBOID/outputs/wood-debris-negative.log

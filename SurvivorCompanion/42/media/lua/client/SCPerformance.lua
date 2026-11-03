@@ -48,6 +48,8 @@ local quotaKeys = {
     navigation = "performanceNavigationNodesPerFrame",
     scavengeSquares = "performanceScavengeSquaresPerFrame",
     scavengeContainers = "performanceScavengeContainersPerFrame",
+    campSupplyItems = "performanceCampSupplyItemsPerFrame",
+    campSupplyContainers = "performanceCampSupplyContainersPerFrame",
     factionSamples = "performanceFactionSamplesPerFrame",
 }
 
@@ -348,6 +350,7 @@ function Performance.beginFrame(budgetMs, startedAt)
     frame = {
         id = frameSequence,
         startedAt = current,
+        startedPrecise = Performance.preciseNowMs(),
         budgetMs = math.max(0.1, tonumber(budgetMs) or configured("frameBudgetMs", 2)),
         used = {},
         yielded = {},
@@ -602,6 +605,11 @@ end
 
 function Performance.frameId()
     return frame and frame.id or nil
+end
+
+function Performance.remainingBudgetMs()
+    if not frame then return nil end
+    return math.max(0, frame.budgetMs - (Performance.preciseNowMs() - frame.startedPrecise))
 end
 
 function Performance.loadLevel()

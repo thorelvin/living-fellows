@@ -1,0 +1,85 @@
+Living Fellows: bounded camp supply discovery
+2026-11-03; living_fellows/0.26.92 working changes.
+
+Report and finding
+The tester confirms version 0.26.92. No current tester console, save or frame
+capture is available. The local console is dated October 31 and the local loose
+installation is 0.26.86; neither establishes the tester's live cause.
+
+Released .92 has a reproducible excessive scan: findMarkedSupply examines up to
+256 items PER marked container, with no total item/container/time allowance.
+It visits unrelated storage categories even when food is immediately available.
+The scheduler checks its deadline between callbacks and cannot interrupt this
+loop. The per-container limit dates to .80; .88 extended food discovery across
+camp floors, amplifying this cost in large multi-storey camps.
+
+The inspected .92 computer paths do not resume an idle world-discovery service:
+persona discovery is first-boot work; building controls require an open terminal
+and closing pauses the building scan. The fix adds no background service.
+
+Production fix
+- Retain each query's storage/item cursor across work slices. A partial search
+  stays pending and cannot authorize emergency food or declare supplies missing.
+- Limit each request to 64 inspected items and two container resolutions.
+  All companions share 128 items and four containers per scheduler frame.
+  Refund unused quota; honor the scheduler's remaining frame time.
+- Yield cooperatively at 0.75 ms between item/container operations. A single
+  native lookup cannot be preempted; this is not a hard frame-time guarantee.
+- Check food/water categories first and nearer stores within each category.
+  Other permitted categories remain searchable for misfiled supplies.
+- Share up to eight positive candidates per camp/query for two seconds. Recheck
+  current storage membership, withdrawal permissions, exact item/container,
+  actor predicate, personal protection, reserves and claims before selection.
+  No candidate actor references or persistent save data are introduced.
+- Handle moved items, changed containers and a shrinking source without losing
+  a shifted candidate. Unknown/unloaded stores remain pending. A busy known
+  matching source does not cause repeated prefix scans.
+- Interleave pending water and food discovery for hungry/thirsty companions;
+  an actual supply errand still keeps its existing ownership.
+- At camp, a missing marked supply does not trigger a second broad square scan.
+  Ordinary outside-camp nearby supply behavior is retained.
+- Skip redundant reserve counts for zero-reserve stock; use exact counts for
+  protected quantities rather than the old first-80-item availability sample.
+
+Measured first-update work, same headless native-shaped fixture
+Each source contains 300 items. Counts below are item predicate inspections,
+not elapsed time, live FPS, or promises about the tester's frame rate.
+
+Scenario                         Released .92    Working fix
+4 containers / one floor             1,024              64
+32 containers / one floor            8,192              64
+32 containers / two floors           8,192              64
+32 / two floors / food available     7,168               0
+
+The food-available row counts unrelated items only: four food stores contain
+fresh food first and 28 crafting stores contain no usable food. The working
+search reaches food without inspecting those unrelated crafting contents.
+
+Automated verification: PASS
+- Camp supply budget harness: 175 checks, including shared quota contention,
+  empty rows, retained progress, category priority through Needs.update,
+  exact reserves, actor-specific predicates, source mutation, access changes,
+  ownership, busy sources, unloaded stores and short/exhausted deadlines.
+- Seven temporary-copy negative controls detect removing the request limit,
+  party item/container limits, retained cursor, candidate reuse, short deadline
+  or exhausted-frame guard. Production source hashes remain unchanged.
+- Existing focused camp-supply and performance scalability harnesses pass.
+- Full core gate: 92/92, serial; native build and duplicate static stages skipped.
+- Full gameplay gate, including needs priority (145 checks), its six negative
+  controls, new camp-supply stage and static contracts (922 assertions), passes.
+- All 280 Lua payload files compile normally and with debug locals enabled;
+  compiler-limit negative control passes. Harness wiring: 189 harnesses,
+  88 scripts. Release synchronization passes for .92/protocol 27/schema 3.
+
+Tests run serially below normal priority with a 256 MB JVM heap and two active
+processors. No game client was launched, installed, committed or pushed for
+this fix. The native bridge is unchanged by the supply performance work.
+Live tester frame-time confirmation is still outstanding.
+
+Local evidence
+C:/ZOMBOID/outputs/camp-supply-audit.py
+C:/ZOMBOID/outputs/review-8890/camp-scan-7fb17f11-*.log
+C:/ZOMBOID/outputs/review-8890/camp-scan-working-*.log
+C:/ZOMBOID/outputs/camp-supply-controls/
+C:/ZOMBOID/outputs/camp-fix-core.log
+C:/ZOMBOID/outputs/camp-fix-gameplay.log

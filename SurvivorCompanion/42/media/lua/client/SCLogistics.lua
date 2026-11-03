@@ -684,7 +684,7 @@ local function requestedSupplyMatches(requestedCategory, category)
         or requestedCategory == "useful" and usefulSupplyCategories[category] == true)
 end
 
-function Logistics.canTake(actor, item, category, audit, requestedCategory)
+function Logistics.canTake(actor, item, category, audit, requestedCategory, sourceStorage)
     if not actor or not item then return false, "invalid_loot" end
     if notRealGear(item) then return false, "not_real_gear" end
     audit = audit or Logistics.audit(actor)
@@ -718,6 +718,16 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory)
         if not SC.Combat.weaponOperational(actor, item) then return false, "weapon_unusable" end
         local _, usable = SC.Combat.weaponAvailability(actor)
         needsWeapon = target > 0 and usable == 0
+    end
+    -- Marked camp stock is already home. Replenish the personal loadout,
+    -- without taking extras that surplus handling would immediately shelve.
+    -- Keep real equipment upgrades, unusable-weapon replacement and explicit
+    -- supply requests on their existing checked paths.
+    if sourceStorage and requestedCategory==nil and not needsWeapon then
+        local carriedTarget=tonumber(audit.profile.target[category]) or 0
+        if (audit.counts[category] or 0)>=carriedTarget then
+            return false,"camp_stock_already_stored"
+        end
     end
     if not needsWeapon and (target <= 0 or (audit.counts[category] or 0) >= target) then
         -- A finite expedition request can exceed this survivor's personal
@@ -850,13 +860,13 @@ function Logistics.needTier(actor, category, audit, hasStock)
     return hasStock and TIER.ignore or TIER.marginal
 end
 
-function Logistics.itemNeedScore(actor, item, commands, audit)
+function Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
     audit = audit or Logistics.audit(actor)
     local category = Logistics.itemCategory(item)
     local requestedCategory = type(commands) == "table"
         and commands.scavengeRequestedCategory or nil
     local accepted, reason = Logistics.canTake(
-        actor, item, category, audit, requestedCategory)
+        actor, item, category, audit, requestedCategory, sourceStorage)
     if not accepted then return 0, category end
     local target = math.max(1, dynamicTarget(audit, category, actor))
     local held = audit.counts[category] or 0

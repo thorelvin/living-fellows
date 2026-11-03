@@ -1367,6 +1367,7 @@ local massItemWords = {
     powder = true, vinegar = true, oil = true, sauce = true, tape = true,
     glue = true, thread = true, twine = true, wire = true, bread = true,
     cheese = true, butter = true, honey = true, pasta = true,
+    money = true, cash = true, silver = true, gold = true,
 }
 -- Singular head nouns that happen to end in "s".
 local singularHeadWords = {

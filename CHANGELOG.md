@@ -2,6 +2,29 @@
 
 # Changelog
 
+## 0.26.93 - Camp performance and companion supplies
+
+- Spread camp supply searches across short, shared work slices. Check food and
+  water storage first, retain search progress and reuse verified supplies so
+  large camps do not repeat expensive storage searches for every companion.
+- Collect only logs when cutting trees; leave twigs and branches on the ground.
+- Restore normal stamina recovery while sleeping, standing and during eligible walking,
+  preserving the effects of tiredness, fitness, load and running.
+- Start eating at 70% hunger. Let companions on base duty finish a meal until
+  hunger is below 30%, using additional food items when needed. Keep combat
+  interruptions and travel rules.
+- Stop companions taking money and other surplus supplies from marked storage
+  only to put them straight back. Needed supplies and equipment upgrades remain available.
+- Carry up to 20 matching items together when sorting shelves or floor piles,
+  within the companion's carrying capacity. Keep each item's identity and properties.
+- Preserve stack cargo through interruptions and reloads, and return the whole
+  remaining stack when work is cancelled or storage fills up.
+- Leave protected reserve stock outside sorting batches so another worker can
+  still select the remaining available items.
+- Say "some money" when finding cash.
+- Ship the matching rebuilt native bridge; retain protocol
+  `42.21-isocompanion-27` and existing save formats.
+
 ## 0.26.92 - Computer and companion fixes
 
 - Use meters for companion distances, travel estimates and directions, with

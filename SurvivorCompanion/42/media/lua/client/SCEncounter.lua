@@ -11,6 +11,7 @@ local states = setmetatable({}, { __mode = "k" })
 local containerReservations = setmetatable({}, { __mode = "k" })
 local corpseContainers = setmetatable({}, { __mode = "k" })
 local failedContainers = setmetatable({}, { __mode = "k" })
+local supplyCacheGeneration = 0
 local stopScavengeMovement
 local cleanupScavengeTarget
 
@@ -361,9 +362,13 @@ end
 
 -- Marked storage keeps its reserve: never take an item below it.
 local function storageAllows(storage, item)
-    local count = SC.BaseLife and SC.BaseLife.availableCount
+    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return false end
+    local base = SC.BaseLife
+    local kind = U().itemType(item)
+    if base and type(base.storageReserve)=="function" and base.storageReserve(storage,kind)==0 then return true end
+    local count = base and (base.availableCountExact or base.availableCount)
     if type(count) ~= "function" then return true end
-    local ok, available = pcall(count, storage, U().itemType(item))
+    local ok, available = pcall(count, storage, kind)
     return ok and (tonumber(available) or 0) > 0
 end
 
@@ -387,86 +392,189 @@ local function releasePlayerSupply(actor, state)
     if state then state.supply = nil end
 end
 
--- Inside camp the marked storage list is the whole answer and short enough to
--- read in one pass, so a miss here proves the item is not there. Returns the
--- nearest match, or nil and true when it may yet be found: another worker holds a
--- container that has one, or a very full container has more left to read.
-local function findMarkedSupply(actor, predicate, oz, state, options)
-    local utility = U()
-    local baseLife = SC.BaseLife
-    local best, bestDistance, waiting
-    local sliceSize = 256
-    state.supplySlices = state.supplySlices or setmetatable({}, { __mode = "k" })
-    for _, storage in ipairs(baseLife.storageRows(nil, true)) do
-        local found, container = pcall(baseLife.resolveContainer, storage)
-        local owner=found and container and containerOwner(container) or nil
-        local nearby=not options.radius or ownerDistance(options.origin or actor,owner)<=options.radius
-        local rejected=state.supplyRejected and state.supplyRejected[container] or 0
-        local floorAllowed=math.floor(tonumber(storage.z) or 0)==math.floor(oz or 0)
-        if not floorAllowed and options.campFloors and owner
-            and type(baseLife.allowsFloorTransit)=="function" then
-            local okay,allowed=pcall(baseLife.allowsFloorTransit,actor,owner,{workCampOnly=true})
-            floorAllowed=okay and allowed==true
+-- One retained pass over marked stock. The item/container limits cover the
+-- entire request and share the scheduler's frame quotas across companions.
+-- A yield remains pending; it must never authorize lower-priority food.
+local function findMarkedSupply(actor, predicate, oz, state, options, supplyKey)
+    local utility, baseLife, performance = U(), SC.BaseLife, SC.Performance
+    local clock = performance and performance.preciseNowMs or now
+    local deadline = clock() + 0.75
+    if performance and performance.remainingBudgetMs then
+        local remaining = performance.remainingBudgetMs()
+        if remaining and remaining<=0 then return nil,true end
+        if remaining then deadline=math.min(deadline,clock()+remaining) end
+    end
+    local itemLimit, containerLimit, itemClaim, containerClaim = 64, 2
+    if performance and performance.claimUnits then
+        itemLimit,itemClaim=performance.claimUnits("campSupplyItems",itemLimit,false,true)
+        containerLimit,containerClaim=performance.claimUnits("campSupplyContainers",containerLimit,false,true)
+    end
+    local examined, visited = 0, 0
+    local function finish(result, pending)
+        if performance and performance.settleUnits then
+            performance.settleUnits(itemClaim,examined)
+            performance.settleUnits(containerClaim,visited)
         end
-        if found and container and nearby and now()>=rejected
-            and floorAllowed then
-            local reservation = pruneReservation(container, now())
-            local held = reservation ~= nil and reservation.actor ~= actor
-            local items = containerItems(container)
-            local offset = state.supplySlices[container] or 0
-            local match
-            utility.each(items, sliceSize, function(candidate)
-                local protected = SC.PersonalItems
-                    and SC.PersonalItems.isProtected(candidate, actor, "camp_supply")
-                if not protected then
-                    local ok, value = pcall(predicate, candidate)
-                    if ok and value == true and storageAllows(storage, candidate) then
-                        match = candidate
-                        return false
-                    end
-                end
-                return true
-            end, offset)
-            if match then
-                state.supplySlices[container] = nil
-                if held then
-                    waiting = true
-                else
-                    local owner = containerOwner(container)
-                    local distance = ownerDistance(actor, owner)
-                    if not bestDistance or distance < bestDistance then
-                        best = { container = container, item = match, owner = owner }
-                        bestDistance = distance
-                    end
-                end
-            elseif offset + sliceSize < utility.listSize(items) then
-                state.supplySlices[container] = offset + sliceSize
-                waiting = true
-            else
-                state.supplySlices[container] = nil
+        if pending and performance and performance.markYield then
+            performance.markYield("camp-supply",utility.idOf and utility.idOf(actor),examined)
+        end
+        return result,pending
+    end
+    if itemLimit<=0 or containerLimit<=0 then return finish(nil,true) end
+    local rows, membership = baseLife.storageRows(nil,true), {}
+    for _,row in ipairs(rows) do membership[row]=true end
+    local base=type(baseLife.active)=="function" and baseLife.active() or nil
+    local key=tostring(supplyCacheGeneration)..":"..tostring(base and base.id or baseLife)..":"..tostring(supplyKey)
+    local query=key..":"..tostring(oz)..":"..tostring(options.radius)..":"..tostring(options.campFloors)
+    if options.radius then
+        local x,y=utility.position(options.origin or actor)
+        query=query..":"..tostring(math.floor(x or 0))..":"..tostring(math.floor(y or 0))
+    end
+    local scan=state.markedScan
+    local changed=not scan or scan.query~=query or #scan.sources~=#rows
+    if not changed then
+        for index,row in ipairs(rows) do if scan.sources[index]~=row then changed=true break end end
+    end
+    if changed then
+        scan={query=query,sources=rows,rows={},at=1,index=0,waiting=false}
+        local priorities={}
+        for index,kind in ipairs(options.preferredCategories or {}) do priorities[kind]=index end
+        local ax,ay=utility.position(actor)
+        for index,row in ipairs(rows) do
+            local dx,dy=(tonumber(row.x) or math.huge)-(ax or 0),(tonumber(row.y) or math.huge)-(ay or 0)
+            scan.rows[#scan.rows+1]={row=row,priority=priorities[row.category] or 100,
+                distance=dx*dx+dy*dy,index=index}
+        end
+        table.sort(scan.rows,function(a,b)
+            if a.priority~=b.priority then return a.priority<b.priority end
+            if a.distance~=b.distance then return a.distance<b.distance end
+            return a.index<b.index
+        end)
+        state.markedScan=scan
+    end
+    local resolved={}
+    local function inspect(row)
+        if resolved[row] then return resolved[row].value,resolved[row].reason end
+        if not membership[row] then return nil,"gone" end
+        if visited>=containerLimit or examined>0 and clock()>=deadline then return nil,"budget" end
+        visited=visited+1
+        local okay,container=pcall(baseLife.resolveContainer,row)
+        local owner=okay and container and containerOwner(container)
+        local value,reason
+        if not container or not owner then reason="unknown"
+        elseif (state.supplyRejected and state.supplyRejected[container] or 0)>now() then reason="rejected"
+        elseif options.radius and ownerDistance(options.origin or actor,owner)>options.radius then reason="outside"
+        else
+            local floorAllowed=math.floor(tonumber(row.z) or 0)==math.floor(oz or 0)
+            if not floorAllowed and options.campFloors and type(baseLife.allowsFloorTransit)=="function" then
+                local called,allowed=pcall(baseLife.allowsFloorTransit,actor,owner,{workCampOnly=true})
+                floorAllowed=called and allowed==true
             end
+            if floorAllowed then
+                local items=containerItems(container)
+                if items then value={container=container,owner=owner,items=items,storage=row}
+                else reason="unknown" end
+            else reason="outside" end
+        end
+        resolved[row]={value=value,reason=reason}
+        return value,reason
+    end
+    local function accepted(item,source)
+        if examined>=itemLimit or examined>0 and clock()>=deadline then return false,"budget" end
+        examined=examined+1
+        if SC.PersonalItems and SC.PersonalItems.isProtected(item,actor,"camp_supply") then return false end
+        local called,matches=pcall(predicate,item)
+        return called and matches==true and storageAllows(source.storage,item)
+    end
+    local cached=performance and performance.cacheGet and performance.cacheGet("camp-supply",key,now()) or {}
+    local function remember(source,item)
+        if not performance or not performance.cachePut then return end
+        for _,entry in ipairs(cached) do if entry.item==item and entry.storage==source.storage then return end end
+        if #cached>=8 then table.remove(cached,1) end
+        cached[#cached+1]={item=item,container=source.container,storage=source.storage}
+        performance.cachePut("camp-supply",key,cached,2000,now())
+    end
+    -- Probe at most one cached candidate so protected/reserved results cannot
+    -- consume the entire container allowance and starve new discovery.
+    for _=1,math.min(1,#cached) do
+        state.supplyCacheCursor=((state.supplyCacheCursor or 0)%#cached)+1
+        local entry=cached[state.supplyCacheCursor]
+        local source,reason=inspect(entry.storage)
+        if reason=="budget" then return finish(nil,true) end
+        if source and source.container==entry.container and utility.inventoryContains(source.container,entry.item) then
+            local allowed,why=accepted(entry.item,source)
+            if why=="budget" then return finish(nil,true) end
+            if allowed then
+                local reservation=pruneReservation(source.container,now())
+                if not reservation or reservation.actor==actor then
+                    state.markedScan=nil
+                    return finish({container=source.container,item=entry.item,owner=source.owner},false)
+                end
+                scan.waiting=true
+                source.heldMatch=true
+            end
+        elseif reason=="gone" or source then
+            -- The item moved or the marker/container was replaced. This is
+            -- invalid for every actor, unlike an actor-specific predicate.
+            table.remove(cached,state.supplyCacheCursor)
+            state.supplyCacheCursor=math.max(0,state.supplyCacheCursor-1)
         end
     end
-    return best, waiting
+    while scan.at<=#scan.rows do
+        local source,reason=inspect(scan.rows[scan.at].row)
+        if reason=="budget" or examined>=itemLimit then return finish(nil,true) end
+        if source and not source.heldMatch then
+            local size=utility.listSize(source.items)
+            if scan.container~=source.container or scan.index>size or scan.size and size>scan.size then
+                scan.container,scan.index=source.container,0
+            elseif scan.size and size<scan.size then
+                scan.index=math.max(0,scan.index-(scan.size-size))
+            end
+            scan.size=size
+            local chosen,yielded
+            utility.each(source.items,itemLimit-examined,function(item)
+                local allowed,why=accepted(item,source)
+                if why=="budget" then yielded=true return false end
+                scan.index=scan.index+1
+                if allowed then chosen=item return false end
+            end,scan.index)
+            if chosen then
+                remember(source,chosen)
+                local reservation=pruneReservation(source.container,now())
+                if not reservation or reservation.actor==actor then
+                    state.markedScan=nil
+                    return finish({container=source.container,item=chosen,owner=source.owner},false)
+                end
+                scan.waiting=true
+                -- A known matching container is pending, not a reason to read
+                -- every remaining copy of the same food while another NPC uses it.
+                scan.index=size
+            end
+            if yielded or scan.index<size then return finish(nil,true) end
+        elseif reason=="unknown" then scan.waiting=true end
+        scan.at,scan.index,scan.container,scan.size=scan.at+1,0,nil,nil
+    end
+    state.markedScan=nil
+    return finish(nil,scan.waiting)
 end
 
 -- Searches the base's marked storage inside the base and, away from it, the
 -- world containers the local player has opened. The rotating outer-band
 -- sample keeps a 24-tile camp useful without turning every companion
 -- decision into a full square scan.
-local function findPlayerSupply(actor, predicate, options, state)
+local function findPlayerSupply(actor, predicate, options, state, supplyKey)
     local utility = U()
-    local storages = storageIndex()
     local origin = options.origin or actor
     local ox, oy, oz = utility.position(origin)
     if not ox then return nil end
-    if (not options.radius or options.markedOnly) and insideBase(origin) and SC.BaseLife
+    if insideBase(origin) and SC.BaseLife
         and type(SC.BaseLife.storageRows) == "function"
         and type(SC.BaseLife.resolveContainer) == "function" then
-        local marked, waiting = findMarkedSupply(actor, predicate, oz, state,options)
-        if options.markedOnly then return marked,waiting end
-        if marked or waiting then return marked, waiting end
+        -- Registered storage is the permitted source set at home. A completed
+        -- miss must not start another scan of hundreds of world squares.
+        return findMarkedSupply(actor,predicate,oz,state,options,supplyKey)
     end
+    local storages = storageIndex()
     local radius = math.max(1, math.min(32,
         math.floor(tonumber(options.radius) or utility.config("campStorageRadius") or 24)))
     local squareBudget = math.max(1,
@@ -615,13 +723,13 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     end
     if not supply then
         local waiting
-        supply, waiting = findPlayerSupply(actor, predicate, options, discovery)
+        supply, waiting = findPlayerSupply(actor, predicate, options, discovery, supplyKey)
         if not supply then
-            if waiting then return "in_progress", "camp_supply_reserved" end
+            if waiting then return "in_progress", "camp_supply_reserved", "searching" end
             return "missing", "camp_supply_missing"
         end
         if not reserveContainer(supply.container, actor, current, lease) then
-            return "in_progress", "camp_supply_reserved"
+            return "in_progress", "camp_supply_reserved", "searching"
         end
         supply.key = supplyKey
         state.supply = supply
@@ -839,10 +947,10 @@ local function priorityMeleeAllowed(actor, item, audit, commands)
     return true
 end
 
-local function itemNeedScore(actor, item, needs, commands, audit)
+local function itemNeedScore(actor, item, needs, commands, audit, sourceStorage)
     local score, category
     if SC.Logistics and type(SC.Logistics.itemNeedScore) == "function" then
-        score, category = SC.Logistics.itemNeedScore(actor, item, commands, audit)
+        score, category = SC.Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
         if priorityMeleeAllowed(actor, item, audit, commands) then
             return math.max(140, tonumber(score) or 0), "weapon"
         end
@@ -1312,7 +1420,7 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
             and SC.PersonalItems.isProtected(item, actor, "return_to_owner")
         local score, category = 0, nil
         if not protected then
-            score, category = itemNeedScore(actor, item, needs, commands, audit)
+            score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
             local supplyCategory = category
             local supplyScore = score
             if category == "weapon" and usableMeleeWeapon(item)
@@ -1342,6 +1450,12 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
                     category = supplyCategory
                 end
             end
+        end
+        if storage and score>0 and SC.Logistics and SC.Logistics.canTake
+            and not (SC.Quirks and SC.Quirks.acceptsLoot and SC.Quirks.acceptsLoot(actor,item,commands)) then
+            local accepted=SC.Logistics.canTake(actor,item,category,audit,
+                commands and commands.scavengeRequestedCategory,storage)
+            if accepted~=true and not priorityMeleeAllowed(actor,item,audit,commands) then score=0 end
         end
         if score > bestScore and (storage == nil or storageAllows(storage, item)) then
             bestItem, bestCategory, bestScore = item, category, score
@@ -2188,7 +2302,7 @@ local function commitTask(actor, state, task, commands, audit, time)
         actor, task.item, audit, commands) and SC.Logistics
         and type(SC.Logistics.canTake) == "function" then
         local accepted, reason = SC.Logistics.canTake(actor, task.item,
-            task.category, audit, commands.scavengeRequestedCategory)
+            task.category, audit, commands.scavengeRequestedCategory, currentStorage)
         if accepted ~= true then
             resetScavengeTarget(actor, state, {
                 reason = reason or "loadout_changed", phase = "cancelled",
@@ -2602,8 +2716,9 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     if not ritualAccepts and not priorityMeleeAllowed(
         actor, task.item, audit, commands) and SC.Logistics
         and type(SC.Logistics.canTake) == "function" then
+        local _,_,sourceStorage=Encounter.mayTakeFrom(task.container,storageIndex())
         local accepted, reason = SC.Logistics.canTake(actor, task.item,
-            task.category, audit, commands.scavengeRequestedCategory)
+            task.category, audit, commands.scavengeRequestedCategory, sourceStorage)
         if accepted ~= true then
             resetScavengeTarget(actor, state, {
                 reason = reason or "loadout_changed", phase = "cancelled",
@@ -3230,6 +3345,7 @@ function Encounter.reset(actor)
         releasePlayerSupply(actor, state)
         states[actor] = nil
     else
+        supplyCacheGeneration=supplyCacheGeneration+1
         states = setmetatable({}, { __mode = "k" })
         containerReservations = setmetatable({}, { __mode = "k" })
         corpseContainers = setmetatable({}, { __mode = "k" })

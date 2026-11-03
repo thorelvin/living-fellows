@@ -154,12 +154,15 @@ try {
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $SharedRoot 'SCCall.lua'),
                 (Join-Path $SharedRoot 'SCNativeList.lua'),
+                (Join-Path $SharedRoot 'SCStableValue.lua'),
                 (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
                 (Join-Path $TestRoot 'base_work_fixture.lua'),
                 (Join-Path $ClientRoot 'SCWorkTransport.lua'),
                 (Join-Path $ClientRoot 'SCFloorSort.lua'),
                 (Join-Path $ClientRoot 'SCBaseWork.lua'),
-                (Join-Path $TestRoot 'floor_sort_harness.lua')
+                (Join-Path $TestRoot 'floor_sort_harness.lua'),
+                (Join-Path $ClientRoot 'SCFloorSort.lua'),
+                (Join-Path $TestRoot 'floor_stack_reload_harness.lua')
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @floorSortFiles
             if ($LASTEXITCODE -ne 0) { throw 'Floor sorting regression harness failed.' }
@@ -242,6 +245,13 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsPriorityFiles
             if ($LASTEXITCODE -ne 0) { throw 'Needs food preference and travel pause regression failed.' }
+            $campSupplyBudgetFiles = $needsPriorityFiles + @(
+                (Join-Path $SharedRoot 'SCConfig.lua'),
+                (Join-Path $ClientRoot 'SCPerformance.lua'),
+                (Join-Path $TestRoot 'camp_supply_budget_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @campSupplyBudgetFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Shared camp supply budget, cursor and cache regression failed.' }
             & (Join-Path $TestRoot 'Test-NeedsPriorityNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $needsPriorityFiles -BuildRoot $BuildRoot
             $supplyPolicyFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),

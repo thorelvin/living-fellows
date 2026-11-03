@@ -393,6 +393,8 @@ local function withdrawalAllowed(storage, expectedContainer, item)
         return false, "base_supply_moved"
     end
     local itemType = U().itemType(item)
+    if type(SC.BaseLife.storageReserve)=="function"
+        and SC.BaseLife.storageReserve(storage,itemType)==0 then return true end
     local available = type(SC.BaseLife.availableCountExact) == "function"
         and SC.BaseLife.availableCountExact(storage, itemType)
         or SC.BaseLife.availableCount(storage, itemType)
@@ -1584,8 +1586,7 @@ local function classifyItem(item)
     category = string.lower(tostring(category or ""))
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
         and SC.FarmWork.isFarmingSupply(item) == true then return "farming", true end
-    if SC.BaseLife.isValuableItem(item)
-        and #SC.BaseLife.depositStorageRows("valuables") > 0 then
+    if SC.BaseLife.isValuableItem(item) then
         return "valuables", true
     end
     local display = displayCategory(item)
@@ -1675,9 +1676,7 @@ end
 -- Floor intake follows the ordinary camp sorter's exact category and capacity
 -- rules. It never falls back to General when a dedicated marker is absent.
 function BaseWork.floorDestinations(actor, item)
-    -- The ordinary sorter leaves valuables on a general shelf until their
-    -- dedicated marker exists. A floor intake has no shelf to preserve them
-    -- on, so identify the category even when its destination is missing.
+    -- A floor intake has no shelf on which to preserve undeliverable stock.
     local category = SC.BaseLife.isValuableItem(item)
         and "valuables" or classifyItem(item)
     if category == "food" or category == "fresh_food" then
@@ -1700,7 +1699,7 @@ function BaseWork.destinationForCarItem(actor, item)
     if category == "food" or category == "fresh_food" then
         category = SC.BaseLife.foodDepositCategory(item)
     end
-    local kinds = category == "valuables" and { category }
+    local kinds = category == "valuables" and #SC.BaseLife.depositStorageRows("valuables")>0 and { category }
         or { category, "general", "output" }
     for _, kind in ipairs(kinds) do
         if kind ~= "memorial" then
@@ -1733,6 +1732,9 @@ local function findTransfer(job, actor)
                         or not belongsIn(item, source.category)
                     local rows = needsSorting and destinationsFor(job, item, actor, source.id)
                         or {}
+                    for index=#rows,1,-1 do
+                        if rows[index].container==container then table.remove(rows,index) end
+                    end
                     if #rows > 0 and sourceItemAvailable(source, itemType) then
                         -- The audit also calls this selector. Leave its selected
                         -- window ready for the worker's first execution tick.
@@ -1764,6 +1766,33 @@ local function findTransfer(job, actor)
         matchingStoreFull and "haul_destinations_full" or "no_sortable_supply"
 end
 
+-- The stack controller reuses the same selector and exact-item policy as
+-- single supply trips. Its extra members share a pose, never admission checks.
+function BaseWork.sortTransfer(job,actor) return findTransfer(job,actor) end
+function BaseWork.sortSourceItems(container) return storageItemSlice(container) end
+function BaseWork.sortDestinations(job,actor,item,source)
+    local result={}
+    local sourceContainer=source and SC.BaseLife.resolveContainer(source)
+    for _,row in ipairs(destinationsFor(job,item,actor,source and source.id)) do
+        if row.container~=sourceContainer then result[#result+1]=row end
+    end
+    return result
+end
+function BaseWork.withdrawStackItem(actor,storage,container,item)
+    local allowed,why=withdrawalAllowed(storage,container,item)
+    if not allowed then return false,why end
+    local object=SC.BaseLife.resolveObject(storage)
+    if not object or U().directInteractionAccess(actor,object)~=true then return false,"base_storage_out_of_reach" end
+    return SC.WorkTransport.transferVerified(container,U().inventory(actor),item,actor)
+end
+function BaseWork.depositStackItem(actor,storage,container,item)
+    local allowed,why=SC.BaseLife.storageAcceptsDeposit(storage,container)
+    if not allowed then return false,why end
+    local object=SC.BaseLife.resolveObject(storage)
+    if not object or U().directInteractionAccess(actor,object)~=true then return false,"base_storage_out_of_reach" end
+    return SC.WorkTransport.transferVerified(U().inventory(actor),container,item,actor)
+end
+
 local function cargoContainer(actor, cargo)
     local root = U().inventory(actor)
     if U().inventoryContains(root, cargo.item) then return root, "owned" end
@@ -1785,6 +1814,7 @@ end
 -- inventory decisions must leave that item available until delivery or return.
 function BaseWork.cargoReserved(actor, item)
     local state = actor and states[actor]
+    if SC.SortBatch and SC.SortBatch.protected(item,actor) then return true end
     return item ~= nil and state ~= nil and type(state.cargo) == "table"
         and state.cargo.item == item
 end
@@ -1792,6 +1822,7 @@ end
 -- Put carried cargo back where it came from, so a blocked job never leaves a
 -- worker quietly holding base stock.
 local function returnCargo(actor, cargo)
+    if cargo and cargo.batch and SC.SortBatch then return SC.SortBatch.returnCargo(actor,cargo) end
     if type(cargo) ~= "table" or cargo.item == nil then return true end
     local sourceInventory, ownership = cargoContainer(actor, cargo)
     if ownership == "absent" then return true end
@@ -1830,10 +1861,15 @@ end
 -- Destination markers remain editable; the worker can choose another one or
 -- return cargo to its still-registered source.
 function BaseWork.storageInUse(storageId)
+    if SC.SortBatch then
+        local used,why=SC.SortBatch.storageInUse(storageId)
+        if used then return true,why end
+    end
     for actor, state in pairs(states) do
         local cargo = state.cargo
         if type(cargo) == "table" and cargo.sourceId == storageId
-            and cargo.item ~= nil then
+            and cargo.item ~= nil
+            and not (cargo.batch and BaseWork.workerUnregistered(cargo.batch.owner)) then
             local _, ownership = cargoContainer(actor, cargo)
             if ownership ~= "absent" then return true, "sort_cargo_uses_storage" end
         end
@@ -1852,6 +1888,9 @@ local function settleCargo(actor, state)
 end
 
 local function updateTransfer(actor, state, job)
+    if SC.SortBatch and (job.type=="sort" and not state.cargo or state.cargo and state.cargo.batch) then
+        return SC.SortBatch.update(actor,state,job)
+    end
     -- Cargo from an earlier attempt is still owned by this worker: deliver
     -- that before withdrawing anything else.
     if state.transfer == nil and type(state.cargo) == "table" then
@@ -3164,6 +3203,14 @@ end
 
 function BaseWork.cancel(actor, reason)
     local state = states[actor]
+    if SC.SortBatch then
+        local batchJob=SC.SortBatch.savedForActor(actor)
+        if batchJob then
+            state=state or stateFor(actor);state.jobId=state.jobId or batchJob.id
+            local restored,why=SC.SortBatch.restoreState(actor,state,batchJob)
+            if not restored then return false,why end
+        end
+    end
     if SC.FloorSort and type(SC.FloorSort.cancelActor) == "function" then
         local okay, why = SC.FloorSort.cancelActor(actor)
         if okay ~= true then return false, why or "floor_sort_cancel_failed" end
@@ -3247,6 +3294,16 @@ end
 -- report success while the exact accepted native action is still executable.
 function BaseWork.cancelJob(jobId, ownerId, reason)
     local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
+    if unloadJob and unloadJob.target and unloadJob.target.stockBatch and SC.SortBatch then
+        if SC.SortBatch.releaseGone(unloadJob) then return true,"sort_worker_gone" end
+        local worker=unloadJob.target.stockBatch.owner
+        local actor=worker and U().resolveActor(worker)
+        if not actor then return false,"haul_cargo_owner_unknown" end
+        local state=stateFor(actor);state.jobId=state.jobId or jobId
+        local restored,why=SC.SortBatch.restoreState(actor,state,unloadJob)
+        if not restored then return false,why end
+        ownerId=worker
+    end
     if unloadJob and unloadJob.type == "sort_floor" then
         local worker = ownerId or unloadJob.assignedId
         local actor = worker and U().resolveActor(worker) or nil
@@ -3364,6 +3421,7 @@ end
 -- Refuel and car-upkeep chores reserve one exact item by job id. A marker
 -- whose job no longer names that item is stale and reserves nothing.
 function BaseWork.choreReserved(item)
+    if SC.SortBatch and SC.SortBatch.protected(item) then return true end
     local data = U().modData(item) or {}
     for kind, marker in pairs(CLEAN_MARKERS) do
         local jobId = data[marker]
@@ -3386,6 +3444,7 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
     if type(job) ~= "table" or type(ownerId) ~= "string" then
         return false, "expired_job_owner_missing"
     end
+    if SC.SortBatch and SC.SortBatch.releaseGone(job) then return true,"expired_job_worker_gone" end
     if job.type == "production" then
         if SC.Production and type(SC.Production.reconcileExpiredJob) == "function" then
             return SC.Production.reconcileExpiredJob(job, ownerId)
