@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.87 — First Edition, Twenty-Fourth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.93 — First Edition, Twenty-Fifth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -331,9 +331,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#ch14c"><strong>Leave someone on Base Watch.</strong></a> Keep the camp working while you travel, and call in by radio to hear how things are going.</li>
   <li><a href="#ch5c_taxi"><strong>Call Markus's taxi.</strong></a> Find a road, call from a working walkie-talkie and let someone else do the driving.</li>
   <li><a href="#emma"><strong>Ask EMMA.</strong></a> Check supplies, find out who needs care, read the old files or fit a radio and run expeditions from your camp computer.</li>
+  <li><a href="#emma-locks"><strong>Break into a locked computer.</strong></a> Undelete the owner's files, turn the Larchfield code wheel or argue your case with EMMA, then open the drawer beside it.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.87</strong>, with <a href="#emma-discovery">EMMA's building scanner</a>, <a href="#ch14b_clean">cleaning mixtures</a>, <a href="#ch13">barricades that reach across furniture</a> and <a href="#emma-grid">LARCH/GRID power control</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.93</strong>, with <a href="#emma-locks">locked computers and their drawers</a>, <a href="#ch8_meals">proper meals and stamina that comes back</a>, <a href="#ch5c_board">followers who run for the car</a> and <a href="#ch11_floor">sorting in stacks of up to twenty</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -629,7 +630,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A companion is not a remote-controlled gun. Doctrine, Hold Fire, line of sight, safe attack choice and overrun judgement all still apply, and a companion may refuse a bad instruction rather than obey it blindly. A <strong>push</strong> costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape route or missing support, and is remembered differently if it succeeds or gets them hurt.</div>
 
 <h3 id="ch4_field">One-off Field Work Away from Camp</h3>
-<p>With recruited companions on Follow, right-click a ground tile near you and choose <span class="menu">Living Fellows → Squad → Harvest nearby ripe crops</span> or <span class="menu">Clear nearby trees (8-tile area)</span>. One temporary green circle marks the tile you clicked. Harvesting takes every ripe crop within 16 tiles; clearing takes every standing tree within eight tiles. Followers within 32 tiles join a harvest, and within 25 tiles a clearing; each option appears only when a follower is that close. They claim different targets and use the game's farming or tree-chopping actions, and one of them says what the squad is starting. Camp-owned areas are left to the regular base jobs.</p>
+<p>With recruited companions on Follow, right-click a ground tile near you and choose <span class="menu">Living Fellows → Squad → Harvest nearby ripe crops</span> or <span class="menu">Clear nearby trees (8-tile area)</span>. One temporary green circle marks the tile you clicked. Harvesting takes every ripe crop within 16 tiles; clearing takes every standing tree within eight tiles. Followers within 32 tiles join a harvest, and within 25 tiles a clearing; each option appears only when a follower is that close. They claim different targets and use the game's farming or tree-chopping actions, and one of them says what the squad is starting. A tree worker gathers only the logs; twigs and branches stay on the ground. Camp-owned areas are left to the regular base jobs.</p>
 <p>If the last non-taxi car you rode, as driver or passenger, is parked within 40 tiles of a crop order or 20 tiles of a tree order, the squad loads its gathered items into that car, up to eight at a time, including produce carried in bags. A woodcutter can borrow an axe from its trunk and return it when finished. Without a nearby car, the workers carry what they gather and keep it for you. If that car's trunk is locked, one follower enters, unlocks it from inside, and gets out before work begins. A locked or unreachable door, a failed unlock or an unavailable car pauses the order with a reason instead of switching cars. The squad uses the car's real cargo space, even on a modded vehicle that names its trunk differently; seats and the glovebox are never filled.</p>
 <p>Each worker plans against its carrying limit (<a href="#ch7_carry">Chapter 7</a>). A trip ends at about four-fifths of that limit, and a crop worker skips a plant whose biggest possible yield, counting seeds and farming skill, would take it over; after unloading at the car it goes back for that plant. A crop worker carrying none of the order's produce may still take one heavy plant, such as a pumpkin, if it fits in the pack. With a car, a tree worker carrying none of the order's logs takes one log per trip to the trunk the same way: a log (9) beside an axe (3) is already over four-fifths of an average companion's limit of 12. Without a car, a worker picks up a log only if it stays under four-fifths of its limit with it, so most leave their logs on the ground.</p>
 <p>A full bag or trunk doesn't stop the order. A crop worker keeps what it has picked and leaves the remaining plants growing; a tree worker goes on clearing and leaves the new logs where they fall. The worker says so once. A trunk that refuses an item for some other reason, or whose space can't be checked, is not treated as full: the order pauses, the worker keeps the cargo and says why, and <strong>Resume field work</strong> carries on. When the order ends, a worker reports whether the area is clear, whether some trees or crops are left, or that part of it wasn't loaded and couldn't be checked. Back inside the camp, a worker without a car puts its own harvest into matching marked storage, and logs into a marked log yard (<a href="#ch11">Chapter 11</a>). Its protected gear and provisions stay with it, and if that storage is full or out of reach, the cargo stays too until a later try.</p>
@@ -708,7 +709,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Stairs are the hardest ground a companion walks. If a follower can't cross floors by the direct path, it surveys the loaded stairs nearby, walks to a verified entrance and climbs from there. A staircase it can't reach, behind a wall or a locked door, is dropped after twenty seconds of trying without getting closer, and the next loaded staircase is tried. Time spent fighting or holding position doesn't count against those twenty seconds.</p>
 
 <h3>Vehicles</h3>
-<p>With <strong>Ride with player</strong> on, companions take free passenger seats and get out when you do. When the car is full, the extra followers wait safely on foot. No one leaves a moving vehicle: getting out waits until it has stopped. Seats, statuses and shooting from a car are in <a href="#ch5c">Chapter 5c</a>.</p>
+<p>With <strong>Ride with player</strong> on, companions take free passenger seats and get out when you do. When the car is full, the extra followers wait safely on foot. No one leaves a moving vehicle: getting out waits until it has stopped. When you get into a car close by, followers with a seat break off a distant fight and run for it. Seats, statuses and shooting from a car are in <a href="#ch5c">Chapter 5c</a>.</p>
 
 <div class="callout callout-also"><span class="callout-label">See also — </span>If a companion seems stuck, give it a moment to recover on its own, then use <strong>Regroup</strong>. <a href="#appC">Appendix C</a> says what to note for a report if it stays stuck.</div>
 
@@ -775,6 +776,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>When the car is full, Loadout says so (<em>Vehicle full … waiting safely</em>) and the extra followers wait on foot instead of chasing the car. Come back for them, or let them walk.</div>
 
+<h3 id="ch5c_board">Running for the Car</h3>
+<p>Get into a stopped car within <strong>12 tiles</strong> of a follower, on its floor, and a follower with a seat assigned treats it as the moment to leave: it breaks off a fight with distant or indoor zombies and runs to its door, even a door only a few steps away. A zombie in contact, being surrounded, bleeding, a critical wound or an urgent need still comes first, and so does a hostile person within about two and a half tiles.</p>
+<p>If the car is full, still moving or farther away, nobody drops the fight: the follower defends itself as usual and boards when it can. Companions on Stay, on an expedition, driving a follow car or with Ride with player switched off keep to their own orders.</p>
+
 <h3>Getting Out</h3>
 <p>Nobody steps out of a moving vehicle. A companion who needs out waits until it stops; then <span class="menu">Exit vehicle now</span> appears on Loadout and in the companion's right-click menu if you want them out before you.</p>
 <p>Leave companions sitting in a parked car and travel far away, and they get out when the car's ground unloads. When you come back, or after a restart, they're waiting beside the car.</p>
@@ -798,7 +803,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 6 -->
 <h2 class="chapter" id="ch6"><img class="ico" src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Chapter 6: Combat and the Rules of Engagement<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Companions fight with the game's own attack animations and weapon timings. Before every swing or shot they weigh their wounds, stamina, panic, pain, morale, skill and weapon condition against the support around them and the routes out. They split targets, avoid friendly fire, shove when it is safe, finish zombies on the ground, and cover a retreat. Against a small group, they can backpedal into the reach of their particular weapon and start a swing as a zombie closes. A lone fighter with room to retreat can kite up to three zombies, while nearby companions use separate attack lanes. Downed or rising zombies can be finished when no standing threat can reach the fighter. If a last weapon breaks against one isolated zombie, a healthy companion can make room for another carried weapon or close to shove and stomp.</p>
+<p>Companions fight with the game's own attack animations and weapon timings, and their guns make the weapon's own firing sound. Before every swing or shot they weigh their wounds, stamina, panic, pain, morale, skill and weapon condition against the support around them and the routes out. They split targets, avoid friendly fire, shove when it is safe, finish zombies on the ground, and cover a retreat. Against a small group, they can backpedal into the reach of their particular weapon and start a swing as a zombie closes. A lone fighter with room to retreat can kite up to three zombies, while nearby companions use separate attack lanes. Downed or rising zombies can be finished when no standing threat can reach the fighter. If a last weapon breaks against one isolated zombie, a healthy companion can make room for another carried weapon or close to shove and stomp.</p>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/7/73/Idle_Zombie_Horde.png" alt="A crowd of zombies standing in the front yard of a white house beside a parked station wagon.">
@@ -889,7 +894,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Ha! A box of nails. Now that's a find.<span class="who">— a happy scavenger</span></div>
 
 <h3>Inside the Camp</h3>
-<p>Inside your base it works the other way round. Companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. <strong>Memorial</strong> storage keeps its keepsakes. See <a href="#ch11">Chapter 11</a> for marking storage.</p>
+<p>Inside your base it works the other way round. Companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. Ordinary scavenging there stops once a companion holds what its role needs, so nobody takes money or spare supplies off a shelf only to put them straight back; needed supplies and better clothing or bags are still fetched. <strong>Memorial</strong> storage keeps its keepsakes. See <a href="#ch11">Chapter 11</a> for marking storage.</p>
 
 <h3>Gear and Upkeep</h3>
 <ul>
@@ -922,7 +927,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 8 -->
 <h2 class="chapter" id="ch8"><img class="ico" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt="">Chapter 8: Needs, Medicine and Death<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>one-third</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. Awake, they tire at half the rate the game would otherwise give them; sleep works as usual, and tiredness and stamina carry across saves. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
+<p>Companions get hungry, thirsty and tired on the game's own needs. By default hunger and thirst rise at <strong>one-third</strong> the player's rate; the sandbox page can set anything from off to twice the player's rate. Awake, they tire at half the rate the game would otherwise give them; sleep works as usual, and tiredness and stamina carry across saves. Stamina comes back the way yours does: standing, walking at an easy pace and asleep. Running and sprinting spend it, and a heavy load, poor fitness or tiredness slow the recovery. They eat, drink, fetch from camp storage, and look after themselves, but they can only use what the world gives them.</p>
 
 <h3>When They Speak Up</h3>
 <p>A companion says something once when a need crosses a threshold, and again only if it gets worse. It waits out danger and the usual speech cooldowns, and can raise the same need again only after it has improved and come back. Asking about their status in Talk still gets a direct answer.</p>
@@ -930,7 +935,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <table>
   <tr><th></th><th>Need</th><th>Noticed</th><th>Serious</th><th>Urgent</th></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/fd/Moodle_Icon_Thirsty.png" alt=""></td><td><strong>Thirst</strong></td><td>48%</td><td>62%</td><td>75%</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt=""></td><td><strong>Hunger</strong></td><td>55%</td><td>70%</td><td>82%</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt=""></td><td><strong>Hunger</strong></td><td>70%</td><td>80%</td><td>82%</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Tiredness</strong></td><td>50%</td><td>68%</td><td>82%</td></tr>
 </table>
 <p class="tbl-note">Percentages are of the game's own need scale, as the mod reads it.</p>
@@ -945,6 +950,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>A companion drinks only <strong>clean</strong> water: a bottle or other small container it carries, a safe source nearby such as a working sink, or water fetched from camp storage. Tainted or poisoned water is not drunk. At camp, a clean tap or well within six tiles on the same floor comes before their own bottles, which they save for the road, and a source on a connected camp floor will do; a source that fails is left alone for a short while. Thirst comes first, but no water never stops a companion eating. One that is thirsty and hungry with no clean water in reach eats its food and keeps looking for water.</p>
 <p>A companion on Follow, once you stop, or on base duty tops up any container of up to 3 litres it carries when one falls below half. It uses a verified clean source within three tiles, a short detour, or any clean source in the camp areas. It never leaves a Stay or Guard post for it, and doesn't stop to refill in danger, while bleeding, or with a more urgent need.</p>
 <p>Bottles, canteens, drinking glasses and other vessels the game files as water containers count as water gear even when empty, modded ones included. An empty pot, mug, can, cleaning bottle or keepsake doesn't: it keeps its usual shelf and takes no water slot, though clean water in one is still water. A saucepan stays a weapon and a hydration pack stays a bag. A thirsty companion drinks from its lightest container first, and sheds empty vessels before safe water.</p>
+
+<h3 id="ch8_meals">When They Eat</h3>
+<p>A companion starts a meal at <strong>70% hunger</strong> and drinks from 48% thirst. It eats safe fresh food first, then ordinary food that keeps, and saves insects, worms and condiments for a hunger emergency (82%). Spoiled or otherwise unsafe food stays where it is.</p>
+<p>On base duty, a meal carries on until hunger is <strong>below 30%</strong>, with a second or third item when one isn't enough. A fight still interrupts it, and new orders, leaving camp or joining an expedition end it.</p>
+<p>Followers wait for a proper stop. Once you have stood still for <strong>15 seconds</strong>, a follower on your floor and close to its place eats, drinks or tops up a bottle from what it carries or from a source within six tiles of you. When you move on, it stops. Getting into a car or walking off restarts the wait, and a companion sitting in a car doesn't hold up the others. In an emergency (hunger 82%, thirst 75%) none of that applies: it uses whatever it can reach near itself.</p>
+<p>An expedition crew doesn't stop for routine meals while it travels. At a stop it eats and drinks what it carries, and an emergency still comes first (<a href="#ch17">Chapter 17</a>).</p>
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Mark a <strong>Water</strong> container and a <strong>Regular food</strong> or <strong>Fresh food</strong> container at camp (<a href="#ch11">Chapter 11</a>). A companion who can't find either nearby will fetch from them.</div>
 
@@ -1597,7 +1608,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <h3>Marking Storage</h3>
-<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. Shelf sorting carries matching items together too, up to twenty a trip; items held back as a reserve stay out of the batch. A trip in progress survives a reload, and a cancelled one puts the rest of the stack back. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
 <p>Camp jobs, car unloading and expedition deliveries try every container of the right category before they pause for lack of space. The Base panel names each full destination, and the worker says so once, then waits for room.</p>
 <p>To remove a marking, right-click the container and choose <span class="menu">Living Fellows → Base life → Unmark storage</span>. This removes the camp registration; the container and everything in it stay where they are. Storage management is at the bottom of the Base panel, below the daily job controls.</p>
 
@@ -1626,9 +1637,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Quiet minute. How are you doing, friend?<span class="who">— a resident at camp</span></div>
 
 <h3 id="ch11_floor">The Sorting Floor and Trash Pile</h3>
-<p>Draw a <strong>Sorting floor</strong> where you dump loot, then leave it to the camp. Residents on base duty, Quartermasters first, pick up each item lying there, one at a time and in plain view, and carry it to marked storage of its category by the shelf sorter's rules: food goes to Regular or Fresh food, logs to a log yard when one is marked, and valuables wait for marked Valuables storage. An item whose category has no marked storage stays on the floor; the sorting floor never fills General with it. Anything the game counts as trash goes to the nearest free tile of a marked <strong>Trash pile</strong> and is left there on the ground, where you can still pick through it.</p>
+<p>Draw a <strong>Sorting floor</strong> where you dump loot, then leave it to the camp. Residents on base duty, Quartermasters first, pick up what lies there in plain view and carry it to marked storage of its category by the shelf sorter's rules. Matching items from one tile travel together, up to <strong>twenty</strong> at a time within the worker's carrying limit, and each keeps its own condition and contents: food goes to Regular or Fresh food, logs to a log yard when one is marked, and valuables wait for marked Valuables storage. An item whose category has no marked storage stays on the floor; the sorting floor never fills General with it. Anything the game counts as trash goes to the nearest free tile of a marked <strong>Trash pile</strong> and is left there on the ground, where you can still pick through it.</p>
 <p>When an item can't be put away, the job waits and the Base panel says why: <em>No marked Tools storage; items remain on the sorting floor</em>, <em>Marked Tools storage is full</em>, or <em>No trash pile is marked</em>. When nothing of that kind, or no trash pile, is marked at all, a resident within earshot also says so once. An item a worker has no room for is set aside for half a minute while lighter ones go first. Items another job has reserved, quest items and things that belong to someone are left alone.</p>
-<p>A worker never drops an item from across the camp. If storage fills up or disappears while it carries something, it walks the item back to its tile and puts it down there, or puts it down where it stands if it can't get back within half a minute. Called away, it puts the item down where it stands. If the item is gone from its pack, because you took it or it was used up, the job lets it go. Each sorting floor and trash pile lies inside the camp and holds at most 256 tiles, and none may overlap another of either kind. A zone can't be removed while a worker is carrying an item from it or to it.</p>
+<p>A worker never drops an item from across the camp. If storage fills up or disappears while it carries something, it walks what is left of the stack back to its tile and puts it down there, or puts it down where it stands if it can't get back within half a minute. Called away, it puts the item down where it stands. If the item is gone from its pack, because you took it or it was used up, the job lets it go. Each sorting floor and trash pile lies inside the camp and holds at most 256 tiles, and none may overlap another of either kind. A zone can't be removed while a worker is carrying an item from it or to it.</p>
 
 <h3>Abandoning a Camp</h3>
 <p>To move, choose <span class="menu">Abandon camp</span> from the camp's right-click menu or at the end of <span class="menu">More → Base</span>, confirm, and set a new camp core. Running camp work is stopped. Anything a companion was carrying for the camp stays with it, and residents leave duty and stay where they stand. The camp's zones, storage marks and plans are removed; buildings and stored items stay in the world.</p>
@@ -2009,7 +2020,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>There is still someone willing to answer questions at the office. She lives on a desktop, calls herself the <strong>Emergency Management Assistant</strong>, and has rather more confidence in the county's emergency arrangements than the evidence warrants.</p>
 <p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and, inside your camp, an expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
-<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-files">files and passwords</a> · <a href="#emma-reset">factory reset</a>.</p>
+<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-locks">locked computers</a> · <a href="#emma-files">files</a> · <a href="#emma-reset">factory reset</a>.</p>
 <p class="tbl-note">The screens below were captured in-game. On the website, select a screen image to open it at full size.</p>
 
 <figure class="plate terminal-shot">
@@ -2020,7 +2031,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3 id="emma-start">Your First Session</h3>
 <ol class="steps">
   <li><span class="step-n">1</span>Find a <strong>desktop computer</strong>, stand beside it and right-click <span class="menu">Use computer</span>. It needs working grid or generator power, or a fitted battery backup.</li>
-  <li><span class="step-n">2</span>Let the Larchfield BIOS and memory test finish, or press <kbd>Enter</kbd> to skip startup. If the machine is locked, recover its password first (<a href="#emma-files">below</a>).</li>
+  <li><span class="step-n">2</span>Let the Larchfield BIOS and memory test finish, or press <kbd>Enter</kbd> to skip startup. If the machine is locked, recover access first (<a href="#emma-locks">below</a>).</li>
   <li><span class="step-n">3</span>Choose <strong>Camp report</strong>, or press <kbd>Tab</kbd> and type <code>what should I do?</code>. Press <kbd>Enter</kbd> to send.</li>
 </ol>
 <p><strong>Camp records stay at home.</strong> A computer inside your camp can read its people, storage, jobs and expeditions. A computer elsewhere still has EMMA, local services and its old files, but cannot look into your camp from across town, and <strong>Camp report</strong> appears only inside camp. You can carry a computer home; its files, locks and mounted parts travel with it.</p>
@@ -2210,9 +2221,49 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Relays and contacts need Electrical 3; motors and motion sensing need Electrical 4. The installation menu lists the tools and parts for the chosen device. Work happens beside it and needs a usable route. A moved or disconnected authorizing computer suspends its routines.</p>
 <p><strong>No extra power mod is needed.</strong> Lighting circuits and generator supply work through LF's own controls. Individual fridge/freezer switching is not available; stopping its actual generator removes generator power in the usual way.</p>
 
-<h3 id="emma-files">Passwords, Previous Owners and County Files</h3>
-<p>About <strong>40% of newly discovered computers outside camp</strong> are password-locked. The lock covers the whole computer and stays with it when moved. Recovery is a word puzzle: pick a candidate and the result counts letters in the correct positions. Hidden bracket groups remove a wrong candidate or restore attempts. Higher Electrical skill helps.</p>
-<p>Run out of attempts and recovery locks for <strong>one game hour</strong>. The same puzzle returns afterward with fresh attempts. Closing the window or reloading does not reroll it. A successful recovery awards a little Electrical XP once for that computer.</p>
+<h3 id="emma-locks">Locked Computers</h3>
+<p>About <strong>40% of newly discovered computers outside camp</strong> are locked; the sandbox page can change that share (<a href="#appB">Appendix B</a>). The lock covers the whole computer and travels with it, and closing, losing power or reloading never rerolls it. The header names the recovery tool. Your first locked computer is the remembering kind, the second is the classic word puzzle, and new kinds keep turning up over the next dozen or so.</p>
+<table>
+  <tr><th>Recovery tool</th><th>What you do</th></tr>
+  <tr><td><strong>Password recovery</strong></td><td>Pick a six-letter candidate; the result counts letters in the right positions. Bracket groups remove a wrong word or restore attempts. Run out and recovery locks for an hour, then the same words return with fresh attempts.</td></tr>
+  <tr><td><strong>Every wrong word remembers</strong></td><td>The same puzzle, made from the owner's own words. Each wrong guess brings back the sentence in their files that holds it.</td></tr>
+  <tr><td><strong>UNDELETE.EXE</strong></td><td>Click an index word or type a search of 4 to 32 letters. Restore the owner's four deleted files; each one you recover points to the next index. After three empty searches the screen offers an index, and after eight it offers other ways in.</td></tr>
+  <tr><td><strong>Larchfield code wheel</strong></td><td>Open the owner's manual left beside the PC; its last page is the wheel. Turn the marker to the requested letter with the arrow keys, the mouse wheel or the turn buttons, and read the numbered window. Three challenges, or one if you carry a manual of your own. Three wrong letters pause it for ten minutes.</td></tr>
+  <tr><td><strong>Make your case to EMMA</strong></td><td>Choose one of four numbered arguments a round. She checks what you claim about days survived, the people with you, a screwdriver in your hand, a zombie nearby or your Electrical skill. A caught lie or an argument she won't hear costs patience. Four points of conviction win; losing her patience twice, or five rounds, closes the discussion for an hour. She remembers how you won.</td></tr>
+</table>
+
+<details class="terminal-startup">
+  <summary>A few computers ask you to step away from the keyboard (spoilers)</summary>
+  <ul>
+    <li><strong>LARCH/DIAL-BACK.</strong> In a building with an internal telephone, choose <strong>[1] Place call</strong>, go to the phone and right-click <span class="menu">Answer the telephone</span> while the call lasts, about a minute. Type the six-digit code back at the computer. Redial waits ten minutes, or five at Electrical 3. A building without a phone offers another method.</li>
+    <li><strong>County Key Escrow.</strong> Note the serial, tune a powered radio to <strong>96.4 MHz</strong> and listen at <strong>03:00</strong>. The broadcast reads your serial and a six-digit key. A radio in your hands or on your back works, or a set nearby with the volume up.</li>
+    <li><strong>USER2.</strong> Someone else is typing at the same moment. Whoever finds the word first, the computer opens, and USER2 tells you who they are and roughly where.</li>
+    <li><strong>Kobolds of Kentucky.</strong> A shareware dungeon on the owner's disk: five scenes, a d20 on some of them, and companions within 12 tiles join your party in the story only. Win for the reset code. Dying starts a new adventurer, and after three deaths other ways in open.</li>
+  </ul>
+</details>
+
+<h4>Other Ways In</h4>
+<p>Choose <span class="menu">Other ways in</span> and confirm with <code>y</code>; a failed puzzle opens the same choices. USER2 is the exception: that race opens the machine either way.</p>
+<ul>
+  <li><strong>CRACK.EXE</strong> recovers the owner's password slowly: <strong>12 hours</strong> below Electrical 4, 9 at 4–7 and 6 at 8 or more. Time only counts while the computer has power, and progress is kept between visits. Letters appear as it works; type the whole password to try it early. A wrong guess adds an hour.</li>
+  <li><strong>Open case</strong> needs a screwdriver and one Scrap Electronics. Move the CLR CMOS jumper, or take out the CMOS battery for half the risk and a longer job; on some boards it is soldered in. After choosing Other ways in you can also right-click the computer: <span class="menu">Computer: open the case</span>. The risk starts at 60% and falls 5 points per Electrical level, to 10%. A slip still opens the computer, but erases the owner's files and burns your hand.</li>
+</ul>
+
+<h4>The Lamp, Hints and Rewards</h4>
+<ul>
+  <li><strong>The movement lamp</strong> at the right of a locked screen's hint line flashes faster as something comes closer, and ticks inside about 10 tiles. Being hit, bitten, scratched or knocked down closes the computer; bleeding from an older wound doesn't. Mod Options sets it to Flash, Steady or Off (<a href="#appB_mod">Appendix B</a>).</li>
+  <li><strong>Electrical skill</strong> shows its edge on every screen: fewer candidates and more attempts, then from Electrical 3 a highlighted wheel window, a second index, EMMA's tell, a faster redial or +2 on the dice.</li>
+  <li><strong>A companion with more Electrical than you</strong>, nearby and free to talk, offers one hint per computer: choose <span class="menu">Ask [name]</span> on the screen. It removes a wrong word, reads a wheel window, names the next index or EMMA's weak spot, repeats the last three digits it heard, steers you off a dice choice, takes an hour off a crack or lowers the case risk.</li>
+  <li><strong>Experience</strong> comes once per computer: 15 Electrical XP for the word puzzles, 30 for UNDELETE, the wheel and EMMA, 60 for the rarer screens. Cracking and the case pay one step less, and a slip pays nothing. Typing a cracked password early, or finishing with a threat within 5 tiles, doubles it.</li>
+</ul>
+
+<h4>The Drawer Beside It</h4>
+<p>A locked computer often has a desk drawer, side table, filing cabinet or dresser beside it. Its container button shows a padlock and <em>LOCKED: CONTROLLED BY THIS COMPUTER</em>, and a tall enough screen reads <em>DRAWER INTERLOCK: ENGAGED</em>. After recovery, choose <span class="menu">Unlock drawer</span> on the main menu. The better the recovery tool, the better what is inside. With a crowbar, right-click the drawer and choose <span class="menu">Force the drawer</span> instead: the computer stays locked, the supplies are a step poorer, and the noise carries about 25 tiles. Moving the computer or the furniture releases the interlock and loses the reward.</p>
+<p>Your first sign-in shows the owner's welcome screen, with unread mail and the last document they had open. Without a drawer, the owner sometimes left a note: <span class="menu">A note about supplies</span> in Personal files says where the things really are in that building. On a locked screen, <span class="menu">Failed logins</span> lists earlier attempts, yours and sometimes theirs.</p>
+<p>On an unlocked computer, ask <code>recovery log</code> or <code>what locks have I beaten?</code>. Beat every kind of recovery and your name goes on a Larchfield licence, shown when a camp computer boots. It is a title only; cracking and opening the case don't count.</p>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>From August, a very few computers outside camp aren't running EMMA at all. You'll know one when it boots. <span class="menu">Unusual computers</span> on the sandbox page sets them to Rare, Common or Off (<a href="#appB">Appendix B</a>).</div>
+
+<h3 id="emma-files">Previous Owners and County Files</h3>
 <p><strong>Personal files</strong> belong to the machine's former owner: dated July 1993 entries selected for the room or business. A police desk, a family bedroom and a funeral home tell different stories. There are hundreds of entries, from ordinary office complaints to the things nobody wanted written down.</p>
 
 <figure class="plate terminal-shot">
@@ -2350,6 +2401,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-tip"><span class="callout-label">Note — </span>The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
 
 <p>The time you choose decides when the team turns home; it doesn't promise when they arrive. On the way back, a stale route or stair approach gets a bounded retry, and a follower left on the last stair tread is guided to the verified exit. A returning Search squad finishes its trip once everyone has reached you, including when you're standing on a staircase. An intact squad says one of twenty homecoming lines once its leader view is released.</p>
+
+<p>While a mission is under way, it owns the crew's cargo and route. Nobody stops at camp to unload or runs a routine supply errand on the way out, and the crew eats and drinks what it carries at stops (<a href="#ch8_meals">Chapter 8</a>). An emergency need or a medical route still comes first.</p>
 
 <h3 id="ch17_delivery">Bringing the Supplies Home</h3>
 <p>The squad keeps a ledger of what you asked for. Requested items found on its members, in their bags or in the car's trunk are carried to matching marked storage at camp, and unrelated gear stays where it is. If that storage is full or can't be reached, the items stay with their carrier and delivery tries again when room opens. The debrief counts every step, for example <em>Requested 8; collected 8; brought back 8; stored 6; pending 2.</em>, and names who found and who carried each item. Pending deliveries survive a save and reload, and the Expeditions tab lists earlier supplies still awaiting storage.</p>
@@ -2523,7 +2576,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.87 uses native bridge protocol <code>42.21-isocompanion-27</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.93 uses native bridge protocol <code>42.21-isocompanion-27</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2692,6 +2745,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Companion nicknames</td><td>on / off</td><td>on</td><td>Whether companions bring, earn and use nicknames. Saved nicknames stay when it's off (<a href="#ch9g">Ch 9g</a>).</td></tr>
   <tr><td>Rare famous namesakes</td><td>on / off</td><td>off</td><td>A very few new survivors may share an exact name with a fictional zombie-story character</td></tr>
   <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists locations visited or revealed by reading maps</td></tr>
+  <tr><td>Chance of a locked computer</td><td>0–100%</td><td>40%</td><td>Share of newly discovered computers outside camp that are locked. Machines you already have stay as they are (<a href="#emma-locks">Ch 16b</a>).</td></tr>
+  <tr><td>Classic computer locks only</td><td>on / off</td><td>off</td><td>New locked computers use only the original word puzzle; other ways in, the lamp and drawer rewards remain</td></tr>
+  <tr><td>Computer drawer rewards</td><td>on / off</td><td>on</td><td>Recoveries can release a desk drawer or reveal real supplies in the building</td></tr>
+  <tr><td>Unusual computers</td><td>Off, Rare, Common</td><td>Rare</td><td>A very few computers outside camp behave differently from August onward. Needs drawer rewards; computers already found keep what they are.</td></tr>
 </table>
 <p>Independent survivors normally appear 50 to 110 tiles away, outside your immediate view. The group-size slowdown affects new independent survivor attempts, not the separate Strange Folk schedule.</p>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Lowering a limit never deletes companions, households or camps already in the save. Turning diaries off never removes a book or its pages.</div>
@@ -2704,6 +2761,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Coughs and sneezes</td><td>Normal, Rare, Off</td><td>Normal</td><td>At most one a real minute on Normal, one every five real minutes on Rare, or none</td></tr>
   <tr><td>Ordinary colds</td><td>on / off</td><td>on</td><td>Off clears a companion's cold and stops new ones; Knox infection and infected wounds are untouched. A cold caught in the moment before can still make one sound.</td></tr>
   <tr><td>Protect recruited companions from player attacks</td><td>on / off</td><td>off</td><td>Your swings, shoves, stomps and shots do nothing to a recruited ally, and your explosives' blast does it no damage (<a href="#ch9d_hits">Ch 9d</a>). Fire, burns and car hits still hurt.</td></tr>
+  <tr><td>Terminal movement lamp</td><td>Flash, Steady, Off</td><td>Flash</td><td>Shows approaching threats while you recover a locked computer. Flash is capped at three flashes a second, Steady changes brightness, and Off hides the lamp and its ticks.</td></tr>
 </table>
 
 <p class="appendix-label">Appendix C</p>
@@ -2724,6 +2782,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3>Items stay on the sorting floor</h3>
 <p>The Base panel names what is missing. Mark storage of that category or make room in it, and mark a Trash pile for trash; the sorting floor never puts an item into General storage instead. An item a worker has no room for waits until someone can carry it, and the floor is only worked by residents on base duty (<a href="#ch11_floor">Chapter 11</a>).</p>
+
+<h3>A locked computer won't let me in</h3>
+<p>The header names the recovery tool, and the hint line says which keys it takes. If a puzzle has beaten you, choose <span class="menu">Other ways in</span> and crack the password or open the case (<a href="#emma-locks">Ch 16b</a>). A screen that asks you to step away is waiting for something in the world, not at the keyboard. If it closes while you type, you were hit or stepped away; the lamp shows what is coming.</p>
+
+<h3>The drawer beside a computer won't open</h3>
+<p>Unlock the computer, then choose <span class="menu">Unlock drawer</span> on its main menu, or force the drawer with a crowbar. If the computer or the furniture has been moved, the interlock is released, but the reward is gone with it.</p>
 
 <h3>A companion is missing after a long trip</h3>
 <p>Companions left behind come back where they were as soon as their ground loads again, so head toward where you left them. One left in a parked car waits beside it. If someone is still missing, open <span class="menu">More → Support</span> and send its report; reloading the save brings them back.</p>
@@ -2758,7 +2822,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.87</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.93</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -2900,7 +2964,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <table>
   <tr><th></th><th>Noticed</th><th>Serious</th><th>Urgent</th></tr>
   <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/f/fd/Moodle_Icon_Thirsty.png" alt="">Thirst</td><td>48%</td><td>62%</td><td>75%</td></tr>
-  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt="">Hunger</td><td>55%</td><td>70%</td><td>82%</td></tr>
+  <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/d3/Moodle_Icon_Hungry.png" alt="">Hunger</td><td>70%</td><td>80%</td><td>82%</td></tr>
   <tr><td><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt="">Tired</td><td>50%</td><td>68%</td><td>82%</td></tr>
 </table>
 <ul>
@@ -2977,6 +3041,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Try <code>who is hurt?</code>, <code>how many nails?</code>, <code>any problems?</code> or <code>what should I do?</code>. Camp records need a PC at home; requests need <span class="k">Y/N</span> confirmation.</p>
 <p><span class="k">Local services → Computer upgrades</span>: mount a two-way radio with Electrical 2, screwdriver, 1 wire and 2 scrap. Ask <code>open radio</code> for scanning, the notebook and team services.</p>
 <p><span class="k">LARCH/GRID</span>: link a substation, crack it from a powered camp PC, energize.</p>
+<p><span class="k">Locked?</span> The header names the tool; <span class="k">Other ways in</span> cracks it or opens the case. Then <span class="k">Unlock drawer</span>.</p>
 <p><span class="k">Building services</span>: connect local controls, then <span class="k">Discover building</span>. Closing pauses; <span class="k">Resume discovery</span> continues. Equipment opens saved finds.</p>
 <p class="tbl-note">Ch 16b</p>
 </div>
@@ -2997,7 +3062,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.87 &nbsp;·&nbsp; First Edition, Twenty-Fourth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.93 &nbsp;·&nbsp; First Edition, Twenty-Fifth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
