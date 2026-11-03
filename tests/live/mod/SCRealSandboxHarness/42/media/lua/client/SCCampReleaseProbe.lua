@@ -7,6 +7,10 @@ local function stat(a,k) return a:getStats():get(CharacterStat[k]) end
 local function set(a,k,v) a:getStats():set(CharacterStat[k],v) end
 local function shot(H,n) getCore():TakeFullScreenshot(H.config.run_id..'-camp-'..n..'.png') end
 local function rows(w) local t={} for _,r in ipairs(w.rows or {}) do t[#t+1]=r.text end return table.concat(t,'\n') end
+local function enter(w,text)
+ w:setEntryText('') for i=1,#text do w.entry.javaObject:putCharacter(text:byte(i)) end
+ w.entry.javaObject:onKeyEnter()
+end
 local function pcAt(cp)
  local sq=getCell():getGridSquare(cp.x,cp.y,cp.z)
  if sq then for i=0,sq:getObjects():size()-1 do local o=sq:getObjects():get(i) if S().Terminal.isComputer(o) then return o end end end
@@ -163,10 +167,21 @@ function P.step(H,t,check,result,phase)
   phase('persona_discovery_camp_greeting',t) return
  elseif H.phase=='persona_discovery_camp_greeting' then
   if f.w.state~='idle' and t-H.phaseStartedAt<45000 then return end
-  f.w:setEntryText('') for i=1,5 do f.w.entry.javaObject:putCharacter(('hello'):byte(i)) end
-  f.w.entry.javaObject:onKeyEnter() phase('persona_discovery_camp_reply',t) return
+  enter(f.w,'hello') phase('persona_discovery_camp_reply',t) return
  elseif H.phase=='persona_discovery_camp_reply' then
   if t-H.phaseStartedAt<1500 or f.w.state~='idle' and t-H.phaseStartedAt<45000 then return end
+  local p=f.w.system.lock.persona
+  if not check('camp_spiffy_asks_name',p.expect=='name','greeting asks for the player name before qualifying a guest') then finish(H,f,t,phase) return end
+  enter(f.w,'no') phase('persona_discovery_camp_guest_reply',t) return
+ elseif H.phase=='persona_discovery_camp_guest_reply' then
+  if t-H.phaseStartedAt<1500 or f.w.state~='idle' and t-H.phaseStartedAt<45000 then return end
+  local p=f.w.system.lock.persona local book=SC.TerminalLocks.ledger().persona
+  if not check('camp_spiffy_nameless_guest',not p.name and (tonumber(p.used.name_none) or 0)>0,
+   'real dialogue filed the player as VALUED GUEST') then finish(H,f,t,phase) return end
+  if not check('camp_spiffy_guest_qualified',book.spiffyGuest==true and book.campReady.spiffy==true,
+   'finished native reply qualifies the persisted follow-up') then finish(H,f,t,phase) return end
+  phase('persona_discovery_camp_story_complete',t) return
+ elseif H.phase=='persona_discovery_camp_story_complete' then
   local heard=false for _,r in ipairs(f.crew) do if SC.Dialogue.lastSpokenTopic(r.actor)=='terminal.lock.persona_spiffy' then heard=true result('PASS','camp_companion_persona_reaction','native speech actor='..r.actor:getFullName()) end end
   check('camp_persona_reaction_accepted',heard,'actual speech topic, normal availability/budget')
   check('camp_reaction_readable',rows(f.w):find(', nearby: ',1,true)~=nil,'accepted speech is visible above the full-screen CRT')

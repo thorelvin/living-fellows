@@ -1,4 +1,7 @@
 Living Fellows 0.26.94 candidate: camp and rare-computer acceptance
+Later review fixes and the corrected dialogue-probe contract are recorded in
+validation-spiffy-followup-review-02694.txt. The native results below predate them.
+
 2026-11-03. Branch living_fellows/0.26.94, based on 58c7aeb9 (.93).
 
 Native results

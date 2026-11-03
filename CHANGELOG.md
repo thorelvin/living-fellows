@@ -4,6 +4,8 @@
 
 ## 0.26.94 - Computer conversations and polish
 
+- Keep camp computer follow-ups tied to the conversation you actually had,
+  without repeating lines after loading an older save.
 - Let unusual computer conversations leave a small impression: occasional
   companion remarks and a later word from EMMA at camp. Show nearby remarks
   in the terminal transcript, and retain missed opportunities while crew are busy.

@@ -11,12 +11,16 @@ function D.normalizeLedger(raw)
     local old=type(raw.persona)=="table" and raw.persona or {}
     local boots=math.floor(V.number(old.boots,0,10000000) or 0)
     local last=V.number(old.lastAt,0,10000000)
-    local clean={boots=boots,lastAt=last and math.min(boots,math.floor(last)) or nil,met={},talked={},campReady={},campMentions={}}
+    local clean={boots=boots,lastAt=last and math.min(boots,math.floor(last)) or nil,met={},talked={},campReady={},campMentions={},spiffyGuest=false}
     for _,id in ipairs(SC.TerminalPersona.ORDER) do
         if type(old.met)=="table" and old.met[id]==true then clean.met[id]=true end
         if clean.met[id] and type(old.talked)=="table" and old.talked[id]==true then clean.talked[id]=true end
-        if clean.talked[id] and type(old.campReady)=="table" and old.campReady[id]==true then clean.campReady[id]=true end
-        if clean.campReady[id] and type(old.campMentions)=="table" and old.campMentions[id]==true then clean.campMentions[id]=true end
+        if id=="spiffy" and clean.talked[id] and old.spiffyGuest==true then clean.spiffyGuest=true end
+        -- Older readiness did not prove that SPIFFY filed a nameless guest.
+        if clean.talked[id] and type(old.campReady)=="table" and old.campReady[id]==true
+            and (id~="spiffy" or clean.spiffyGuest) then clean.campReady[id]=true end
+        -- Delivery remains consumed even when eligibility is requalified.
+        if clean.talked[id] and type(old.campMentions)=="table" and old.campMentions[id]==true then clean.campMentions[id]=true end
     end
     raw.persona=clean
 end
@@ -29,6 +33,7 @@ function D.noteConversation(w)
         -- The supplied follow-ups describe real outcomes, not just discovery.
         -- SPIFFY's line only fits a player it filed as VALUED GUEST.
         local guest=p.id=="spiffy" and not p.name and (tonumber(p.used and p.used.name_none) or 0)>0
+        if guest then book.spiffyGuest=true end
         if guest or p.id=="ellis" and w.system.lock.effects and w.system.lock.effects.reliefDay~=nil
             or p.id=="duty" and p.flags.relieved then book.campReady[p.id]=true end
     end
@@ -45,7 +50,7 @@ function D.campLine(w)
     local ledger=SC.TerminalLocks.ledger() local book=ledger and ledger.persona
     if not book then return nil end
     for _,id in ipairs(SC.TerminalPersona.ORDER) do
-        if book.campReady[id] and not book.campMentions[id] then
+        if book.campReady[id] and (id~="spiffy" or book.spiffyGuest==true) and not book.campMentions[id] then
             return campLines[id],id
         end
     end
@@ -55,7 +60,8 @@ function D.completeCampLine(w,id)
     local camp=w.world and read(w.world.camp)
     if type(camp)~="table" or camp.inside~=true then return false end
     local ledger=SC.TerminalLocks.ledger() local book=ledger and ledger.persona
-    if not book or not book.campReady[id] or book.campMentions[id] then return false end
+    if not book or not book.campReady[id] or (id=="spiffy" and book.spiffyGuest~=true)
+        or book.campMentions[id] then return false end
     book.campMentions[id]=true
     return true
 end
@@ -105,7 +111,7 @@ function D.settle(state,player,object,insideCamp)
     local ledger=SC.TerminalLocks.ledger()
     if not ledger then return false end
     local book=ledger.persona
-    local draft={boots=book.boots,lastAt=book.lastAt,met={},talked={},campReady={},campMentions={}}
+    local draft={boots=book.boots,lastAt=book.lastAt,met={},talked={},campReady={},campMentions={},spiffyGuest=book.spiffyGuest==true}
     for _,id in ipairs(P.ORDER) do
         draft.met[id]=book.met[id]
         draft.talked[id]=book.talked[id]

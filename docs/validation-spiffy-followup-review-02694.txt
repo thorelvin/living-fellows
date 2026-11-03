@@ -1,0 +1,38 @@
+0.26.94 review fixes: SPIFFY follow-up qualification and camp probe
+Base: 5b79c4cca21deed64e3ef728a266d505a9a9fb3e.
+
+Changes
+- Add an optional, boolean world-ledger receipt, spiffyGuest, issued only
+  after the real name_none dialogue with no supplied player name.
+- Legacy pending readiness has no proof of that milestone. Normalize it
+  away, while retaining met/talked history. Revisit the machine and complete
+  qualifying dialogue to restore an undelivered follow-up.
+- Preserve all valid delivered-line receipts independently of readiness,
+  so an old delivered SPIFFY line cannot repeat after requalification.
+- Check qualification both when selecting a line and when acknowledging
+  delivery, including an already cached legacy ledger. Retain qualification
+  through cold normalization and later first-boot Director decisions.
+- Ellis and Duty readiness is unchanged. No save-schema or bridge change;
+  no scanning, background service, supplied-engine or dialogue-file change.
+- The live camp probe now sends hello, verifies the name prompt, enters no,
+  and verifies name_none plus the persisted qualification before closing
+  SPIFFY or checking ordinary EMMA's camp follow-up.
+
+Verification
+The first new migration test reproduced the failure on unmodified 5b79c4cc.
+The corrected focused batch passes with 22 migration checks and nine camp
+probe checks. The latter executes the maintained live driver's input phases
+against the real persona engine; native text-entry delivery/completion is
+adapted for headless execution. It does not claim a new live game run.
+Full UI, release sync, harness wiring, persona content/integration audits,
+no-playtest-output guard and live-harness static checks pass. All four
+changed/added Lua files compile normally and with debug locals checks.
+Six temporary-copy negative controls cover stale readiness, replayed
+receipts, lost Director qualification, cached selection, cached completion
+and missing name refusal: all six detected their intended failures. Production
+source hashes remained unchanged during the controls. Final result:
+REVIEW_FIXES_02694_PASS controls=6 productionHashesUnchanged=true.
+
+No game client was started, no native code changed and no local game install
+was modified. Earlier native results in validation-camp-acceptance-02694.txt
+predate the stricter guest requirement and this probe correction.
