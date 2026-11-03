@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.94 — First Edition, Twenty-Sixth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.26.93 — First Edition, Twenty-Fifth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -334,7 +334,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma-locks"><strong>Break into a locked computer.</strong></a> Undelete the owner's files, turn the Larchfield code wheel or argue your case with EMMA, then open the drawer beside it.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.94</strong>, with <a href="#emma-locks">locked computers and their drawers</a>, <a href="#ch8_meals">proper meals and stamina that comes back</a>, <a href="#ch5c_board">followers who run for the car</a> and <a href="#ch11_floor">sorting in stacks of up to twenty</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.93</strong>, with <a href="#emma-locks">locked computers and their drawers</a>, <a href="#ch8_meals">proper meals and stamina that comes back</a>, <a href="#ch5c_board">followers who run for the car</a> and <a href="#ch11_floor">sorting in stacks of up to twenty</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -2096,8 +2096,6 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>When radio and grid control are both available, <strong>More services</strong> holds Computer upgrades and Expedition station. The Expedition station only appears on a computer inside the camp. Each page keeps its numbered choices visible.</p>
 
 <h4>Battery Backup and Moving Hardware</h4>
-<p>The power report identifies the current supply. On a battery backup, it also shows the remaining charge.</p>
-<figure class="plate terminal-shot"><a href="assets/lf_emma_backup_power.png" target="_blank" rel="noopener"><img loading="lazy" decoding="async" src="assets/lf_emma_backup_power.png" width="1280" height="720" alt="EMMA reporting battery backup power and its remaining charge in the game."></a><figcaption>EMMA identifies the active power supply when the computer starts.</figcaption></figure>
 <p>An optional UPS needs <strong>Electrical 4, a screwdriver, one wire, four scrap and a charged car battery</strong>. A full, healthy battery supplies about six game hours of active computer and radio use; poorer condition reduces that time. It powers this PC, not the building or door motors. Remove it to recharge normally. A computer with a mounted radio keeps listening with the window closed, so on battery alone it runs flat in those same six hours. Without a radio, an idle battery holds its charge until you come back.</p>
 <p>Mounted radios and batteries move with the computer and add to its weight. Their identities and settings remain intact. If the computer is unpowered, its context menu still lets you remove fitted hardware.</p>
 
@@ -2263,10 +2261,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>A locked computer often has a desk drawer, side table, filing cabinet or dresser beside it. Its container button shows a padlock and <em>LOCKED: CONTROLLED BY THIS COMPUTER</em>, and a tall enough screen reads <em>DRAWER INTERLOCK: ENGAGED</em>. After recovery, choose <span class="menu">Unlock drawer</span> on the main menu. The better the recovery tool, the better what is inside. With a crowbar, right-click the drawer and choose <span class="menu">Force the drawer</span> instead: the computer stays locked, the supplies are a step poorer, and the noise carries about 25 tiles. Moving the computer or the furniture releases the interlock and loses the reward.</p>
 <p>Your first sign-in shows the owner's welcome screen, with unread mail and the last document they had open. Without a drawer, the owner sometimes left a note: <span class="menu">A note about supplies</span> in Personal files says where the things really are in that building. On a locked screen, <span class="menu">Failed logins</span> lists earlier attempts, yours and sometimes theirs.</p>
 <p>On an unlocked computer, ask <code>recovery log</code> or <code>what locks have I beaten?</code>. Beat every kind of recovery and your name goes on a Larchfield licence, shown when a camp computer boots. It is a title only; cracking and opening the case don't count.</p>
-<div class="callout callout-tip"><span class="callout-label">Note — </span>From August, a very few computers outside camp aren't running EMMA at all. You'll know one when it boots. <span class="menu">Unusual computers</span> on the sandbox page sets them to Rare, Common or Off (<a href="#appB">Appendix B</a>).</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Most computers wait for a password. A very few just wait. (<a href="#appB">Appendix B</a>: <span class="menu">Unusual computers</span>.)</div>
 
 <h3 id="emma-files">Previous Owners and County Files</h3>
-<p>Most computers wait for a password. A very few just wait. A nearby companion may have something to say; their remark also appears on the screen. EMMA sometimes remembers these visits when you next use a camp computer.</p>
 <p><strong>Personal files</strong> belong to the machine's former owner: dated July 1993 entries selected for the room or business. A police desk, a family bedroom and a funeral home tell different stories. There are hundreds of entries, from ordinary office complaints to the things nobody wanted written down.</p>
 
 <figure class="plate terminal-shot">
@@ -2579,7 +2576,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.94 uses native bridge protocol <code>42.21-isocompanion-27</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.93 uses native bridge protocol <code>42.21-isocompanion-27</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2825,7 +2822,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.94</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.93</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -3065,7 +3062,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.94 &nbsp;·&nbsp; First Edition, Twenty-Sixth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.93 &nbsp;·&nbsp; First Edition, Twenty-Fifth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
