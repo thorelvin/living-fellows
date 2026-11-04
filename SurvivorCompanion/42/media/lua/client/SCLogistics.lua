@@ -2169,6 +2169,10 @@ function Preparation.warn(preparation, warning)
     end
 end
 
+function Preparation.foodTier(item)
+    return SC.Needs and type(SC.Needs.foodTier) == "function" and SC.Needs.foodTier(item) or 2
+end
+
 function Preparation.kit(actor, audit, requirements)
     local keep, tools, missing, exact = {}, {}, {}, {}
     local supplied = requirements.keepItems or {}
@@ -2184,7 +2188,7 @@ function Preparation.kit(actor, audit, requirements)
     end
     end
     local minima = Logistics.roleMinimums(actor)
-    local counts = {}
+    local counts, foods = {}, { {}, {}, {} }
     for _, record in ipairs(audit.items) do
         local category = record.category
         local safe = category ~= "food" or not SC.Needs or not SC.Needs.isSafeFoodItem
@@ -2193,7 +2197,16 @@ function Preparation.kit(actor, audit, requirements)
             or SC.Needs.isSafeWaterItem(record.item))
         if safe and (category == "food" or category == "water" or category == "medicine") then
             counts[category] = (counts[category] or 0) + 1
-            if counts[category] <= (tonumber(minima[category]) or 0) then keep[record.item] = true end
+            if category == "food" then
+                local tier = Preparation.foodTier(record.item)
+                foods[tier][#foods[tier] + 1] = record.item
+            elseif counts[category] <= (tonumber(minima[category]) or 0) then keep[record.item] = true end
+        end
+    end
+    local neededFood = tonumber(minima.food) or 0
+    for _, tier in ipairs(foods) do
+        for _, item in ipairs(tier) do
+            if neededFood > 0 then keep[item], neededFood = true, neededFood - 1 end
         end
     end
     for _, wanted in ipairs(requirements.requiredTools or {}) do
@@ -2287,7 +2300,8 @@ function Preparation.assess(actor, preparation, audit, tools)
             or contents + free
         assessment.rawFree = math.max(assessment.rawFree, free)
         if #assessment.bags < 8 then assessment.bags[#assessment.bags + 1] = {
-            id = bag.item and U().itemStableId(bag.item, false) or "inventory",
+            -- Reporting is read-only; ordinary bags need no persistent token.
+            id = bag.item and (U().itemStableId(bag.item, false) or "bag:" .. tostring(bag.item)) or "inventory",
             name = bag.item and U().itemName(bag.item) or "Inventory",
             weight = contents, capacity = capacity, free = free, factor = bag.factor,
         } end
@@ -2564,6 +2578,15 @@ function Preparation.findSupply(actor, preparation, audit, purpose, wanted)
                         local _, difference = Logistics.bagUpgrade(actor, item)
                         if not scan.best or difference > scan.difference then
                             scan.best, scan.difference = candidate, difference
+                        end
+                    elseif purpose == "food" then
+                        local tier = Preparation.foodTier(item)
+                        if not scan.best or tier < scan.foodTier then
+                            scan.best, scan.foodTier = candidate, tier
+                        end
+                        if tier == 1 then
+                            preparation.scan, preparation.supply = nil, candidate
+                            return true
                         end
                     else
                         preparation.scan, preparation.supply = nil, candidate

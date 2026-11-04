@@ -7,10 +7,13 @@
 - Keep expedition packing moving when carried weight or carrying limits change
   during a storage walk or transfer animation. Recheck current supplies in
   bounded slices, preserve required gear and complete each transfer once.
+- Prefer fresh food, then normal food, then emergency food when packing rations
+  or collecting them from storage. Correct usable-bag counts and displayed loads.
 - Try up to six nearby road connections when parked cars or obstacles block the
   nearest exit. Verify each complete corridor and use the chosen entry for driving.
-- Choose an accessible installed passenger seat when another seat or door is
-  unavailable. Keep the driver, other occupants and safe exits checked.
+- Choose an accessible installed passenger seat for expeditions and Send Home
+  when another seat or door is unavailable. Recheck the seats at dispatch and
+  keep the driver, other occupants and safe exits checked.
 - Explain parking-boundary and road-access refusals. Keep unavailable parked cars
   visible for review, and prefer a fitting area when parking outlines overlap.
 - Show preparation status before the crew starts walking to its car.

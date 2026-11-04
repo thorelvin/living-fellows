@@ -2123,10 +2123,19 @@ do
         for index=2,#records do
             local record=records[index]
             if seats[record.id]==nil then
+                local doorReason
                 for seat=1,count-1 do
-                    if installed[seat] and not used[seat] and occupants[seat]==nil then seats[record.id],used[seat]=seat,true break end
+                    if installed[seat] and not used[seat] and occupants[seat]==nil then
+                        local reachable=true
+                        if doors then
+                            local squares,_,why=SC.Vehicle.boardingSquares(record.actor,vehicle,seat,false)
+                            reachable=squares~=nil and #squares>0
+                            if not reachable then doorReason=doorReason or why or "door_inaccessible" end
+                        end
+                        if reachable then seats[record.id],used[seat]=seat,true break end
+                    end
                 end
-                if seats[record.id]==nil then return reject("seat_unavailable") end
+                if seats[record.id]==nil then return reject(doorReason or "seat_unavailable") end
             end
         end
         for _,record in ipairs(records) do
@@ -2347,6 +2356,7 @@ do
             plan={}
             for key,value in pairs(cached) do plan[key]=value end
             plan.records,plan.leaderId=records,records[1].id
+            plan.seats=fresh.seats
             plan.homeStop=Car.copyFieldStop(cached.homeStop,base)
         else plan,reason,review=Car.preflightField(records,vehicle,baseOrOptions) end
         if not plan then return nil,reason,review end

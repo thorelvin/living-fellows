@@ -225,6 +225,16 @@ function SurvivorCompanion.__testPreparationPacking()
                 and fellow.inventory:contains(cargo) and cargo:getModData().LF_QuestItem == true
                 and (placement ~= "held" or fellow.secondary == bag),
             "preparation packs ordinary supplies into a " .. placement .. " bag without moving protected gear")
+        local bags = 0
+        for _, row in ipairs(assessment.bags) do
+            if row.id ~= "inventory" then
+                bags = bags + 1
+                check(row.name == bag:getName() and row.capacity == 28,
+                    "the " .. placement .. " bag retains its reported name and capacity")
+            end
+        end
+        check(bags == 1 and sc.GameplayUtil.itemStableId(bag, false) == nil,
+            "an unidentified " .. placement .. " bag is reported without assigning a persistent identity")
         request = { key = "raw-reserve-" .. placement, atCamp = false, allowHeldBag = true,
             cargoRaw = 28, cargoEffective = 1.6, haulRequired = true,
             requiredTools = { { itemType = "Base.HandAxe" } } }
@@ -353,6 +363,59 @@ function SurvivorCompanion.__testPreparationPacking()
             and surplus:getContainer() == fellow.inventory
             and sc.ActionSupervisor.reservationCount(fellow) == 0,
         "preparation revalidates a newly required exact kit item before depositing it")
+
+    local function ration(name, kind, fresh)
+        local value = item("Base." .. name, "Food", { weight = 0.1, hungerChange = -0.2 })
+        function value:getFoodType() return kind end
+        function value:isFresh() return fresh == true end
+        function value:getOffAge() return fresh and 4 or 1000000000 end
+        return value
+    end
+    for preferred = 1, 3 do
+        local emergency = ration("MaggotsPreparation" .. preferred, "Insect")
+        local normal = ration("CannedPeasPreparation" .. preferred, "Vegetables")
+        local fresh = ration("PeachPreparation" .. preferred, "Fruit", true)
+        local foods = { emergency }
+        if preferred <= 2 then foods[#foods + 1] = normal end
+        if preferred == 1 then foods[#foods + 1] = fresh end
+        local carrier = resident("ration-priority-" .. preferred, { unpack(foods) })
+        local wanted = preferred == 1 and fresh or preferred == 2 and normal or emergency
+        local packed = prepare(carrier, { key = "ration-priority-" .. preferred,
+            atCamp = true, allowBagUpgrade = false, cargoRaw = 1 })
+        check(packed and carrier.inventory:contains(wanted),
+            "packing keeps the best available food tier " .. preferred)
+        for _, candidate in ipairs(foods) do
+            if candidate ~= wanted then
+                check(shelf:contains(candidate) and not carrier.inventory:contains(candidate),
+                    "lower-priority food is stored instead of replacing the selected ration")
+            end
+        end
+    end
+    local oldAvailable, oldObject = base.availableCountExact, base.resolveObject
+    local supply = containerObject(fellow.square, {})
+    local supplies = { id = "storage:preparation-food", category = "food", withdrawals = true, deposits = false }
+    local emergency = ration("MaggotsStoredPreparation", "Insect")
+    local normal = ration("CannedPeasStoredPreparation", "Vegetables")
+    local fresh = ration("PeachStoredPreparation", "Fruit", true)
+    supply:AddItem(emergency) supply:AddItem(normal)
+    for index = 1, 80 do supply:AddItem(item("Base.SupplyFiller" .. index, "Item", { favorite = true, weight = 0 })) end
+    supply:AddItem(fresh)
+    base.storageRows = function(_, withdrawals) return withdrawals and { supplies } or { row } end
+    base.storage = function(id) return id == supplies.id and supplies or id == row.id and row or nil end
+    base.resolveContainer = function(storage)
+        local container = storage == supplies and supply or shelf
+        return container, container.owner
+    end
+    base.resolveObject = function(storage) return storage == supplies and supply.owner or shelf.owner end
+    base.availableCountExact = function(_, kind)
+        for _, candidate in ipairs(supply.items) do if candidate:getFullType() == kind then return 1 end end
+        return 0
+    end
+    local carrier = resident("stored-ration", {})
+    ready = prepare(carrier, { key = "stored-ration", atCamp = true, allowBagUpgrade = false, cargoRaw = 1 })
+    check(ready and carrier.inventory:contains(fresh) and supply:contains(emergency) and supply:contains(normal),
+        "bounded supply discovery finds fresh food beyond its first scan slice")
+    base.availableCountExact, base.resolveObject = oldAvailable, oldObject
     base.isInside, base.active, base.storageRows, base.storage, base.resolveContainer =
         oldInside, oldActive, oldRows, oldStorage, oldResolve
     for _, fellow in ipairs(residents) do

@@ -35,6 +35,18 @@ Completed automated verification
   attachment before later replanning passed their focused regressions.
 - git diff --check: PASS.
 
+Review follow-up
+- Packing retains fresh, normal and emergency food in that order. Bounded
+  stored-food discovery also applies the same priority across scan slices.
+- Worn and held bags without an LF item token are reported as real bags,
+  without creating persistent identities just to display their loads.
+- Send Home chooses reachable passenger seats and carries the freshly checked
+  seat map into cached dispatch. Already seated travellers retain their seats.
+- Focused car, Home, driving, road-route and expedition UI groups: PASS.
+- All five project checks: PASS in 44.5s, including the new packing regressions.
+  Evidence: build/test-results/20261104-225531-5dfd12/summary.json.
+  Package results above describe the initial release build, before this follow-up.
+
 Bridge
 Protocol: 42.21-isocompanion-29; game: 42.21.0; world save: SC_WorldV1/schema-3.
 The reproducible build matches the packaged JAR. Native implementation and save

@@ -52,6 +52,24 @@ check(plan.seats.leader==0 and plan.seats.mate==2 and review.seats==3,"removed s
 check(plan.keyHolderId=="mate" and plan.fuelPercent==25 and plan.requiredFuelPercent>0,"review reports actual key holder and route fuel reserve")
 check(plan.homeStop.provisional and plan.homeStop.clearanceOnArrival,"marked/mapped review never claims loaded arrival clearance")
 check(transfers==0 and not T.team[1].actor.car and not T.team[2].actor.car and car.x==400 and not car.engine,"preflight does not move keys, actors, seats, car or engine")
+installed[1],T.doorBlocked=true,1
+local accessible=Car.preflightField(T.team,car,T.base)
+check(accessible and accessible.seats.mate==2,
+    "Send Home uses a reachable rear seat when the installed front passenger door is blocked")
+T.doorBlocked=0
+check(select(2,Car.preflightField(T.team,car,T.base))=="door_inaccessible",
+    "Send Home still requires an accessible driver door")
+T.doorBlocked=nil T.blockedDoors={[1]=true,[2]=true,[3]=true}
+check(select(2,Car.preflightField(T.team,car,T.base))=="door_inaccessible",
+    "Send Home refuses a car when every passenger door is blocked")
+T.blockedDoors=nil
+T.team[2].actor.car,T.team[2].actor.seat=car,3 car.occupied[3]=T.team[2].actor
+T.doorBlocked=3
+accessible=Car.preflightField(T.team,car,T.base)
+check(accessible and accessible.seats.mate==3,
+    "an already seated traveller keeps the exact seat despite another available seat")
+T.team[2].actor.car,T.team[2].actor.seat=nil,nil car.occupied[3]=nil
+installed[1],T.doorBlocked=false,nil
 local calls=#T.routeCalls
 local rows=Car.fieldCandidates(T.team,T.player)
 check(#rows==1 and rows[1].vehicle==car and rows[1].canUse and #T.routeCalls==calls,"cheap candidates do not plan a route")
@@ -97,6 +115,14 @@ local prepared=Car.prepareField(T.team,car,T.base,{reviewedPlan=plan})
 check(prepared and #T.routeCalls==calls and transfers==1 and key.container==T.team[1].actor.inventory,
     "unchanged reviewed plan reuses route and transfers the same real key only at dispatch")
 check(not T.team[1].actor.car and not T.team[2].actor.car and car.x==400,"prepare does not fake seat boarding or car travel")
+installed[1]=true
+local seatReview=assert(Car.preflightField(T.team,car,T.base))
+check(seatReview.seats.mate==1,"review initially selects the clear front passenger seat")
+T.doorBlocked=1 calls=#T.routeCalls
+local changedSeat=Car.prepareField(T.team,car,T.base,{reviewedPlan=seatReview})
+check(changedSeat and changedSeat.seats.mate==2 and #T.routeCalls==calls,
+    "cached Send Home dispatch uses the freshly reachable rear seat without replanning the road route")
+installed[1],T.doorBlocked=false,nil
 plan=assert(Car.preflightField(T.team,car,T.base))
 local oldX2=T.zone.x2 T.zone.x2=oldX2-1
 calls=#T.routeCalls
