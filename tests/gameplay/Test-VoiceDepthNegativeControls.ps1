@@ -18,7 +18,7 @@ $cases=@(
     @{Name='night-stand-to';File='SCBaseAlert.lua';From='return Voice.available("camp_alert.night." .. level, regular)';To='return level == "stand_to" and regular or Voice.available("camp_alert.night." .. level, regular)';Expected='night stand-to'},
     @{Name='blind';File='SCBaseAlert.lua';From='return Voice.available("camp_alert.blind", regular)';To='return regular';Expected='fog contact'},
     @{Name='again';File='SCBaseAlert.lua';From='return Voice.available("camp_alert.again", regular)';To='return regular';Expected='again precedes night'},
-    @{Name='clear-fought';File='SCBaseAlert.lua';From='local topic = finished.fought and "camp_alert.clear.fought" or "camp_alert.clear.passed"';To='local topic = "camp_alert.clear.passed"';Expected='actual told combat owner'},
+    @{Name='clear-fought';File='SCBaseAlert.lua';From='local topic = finished.fought and "camp_alert.clear.fought" or "camp_alert.clear.passed"';To='local topic = "camp_alert.clear.passed"';Expected='accepted offense changes all-clear'},
     @{Name='clear-passed';File='SCBaseAlert.lua';From='local topic = finished.fought and "camp_alert.clear.fought" or "camp_alert.clear.passed"';To='local topic = finished.fought and "camp_alert.clear.fought" or "camp_alert.clear"';Expected='all-clear after no combat'},
     @{Name='hurt';File='SCBaseAlert.lua';From='and Voice.hurt(entry.actor, entries, current) then';To='and false then';Expected='nearby visible buddy'},
     @{Name='rest';File='SCRelationship.lua';From='if tonumber(description.fatigue or 0) >= 0.68 then return "rest" end';To='if false then return "rest" end';Expected='status admits serious tiredness'},

@@ -1518,6 +1518,37 @@ function U.carryLoad(actor)
     return weight, limit, weight / limit, inventory
 end
 
+-- A two-handed task may relinquish a held bag before carrying its output.
+-- Native bag weights include both the shell and its contents, so project the
+-- exact lost equipped discount rather than treating that bag as empty space.
+function U.projectedCarryLoad(actor, allowHeldBag)
+    local weight, limit, ratio, inventory = U.carryLoad(actor)
+    if allowHeldBag ~= false then return weight, limit, ratio, inventory, 0 end
+    local primary = select(1, U.call(actor, "getPrimaryHandItem"))
+    local secondary = select(1, U.call(actor, "getSecondaryHandItem"))
+    local delta, seen = 0, {}
+    for _, item in ipairs({ primary or false, secondary or false }) do
+        if item and not seen[item] then
+            seen[item] = true
+            local nested = select(1, U.call(item, "getInventory"))
+                or select(1, U.call(item, "getItemContainer"))
+            if nested and U.inventoryContains(inventory, item)
+                and select(1, U.call(actor, "isEquippedClothing", item)) ~= true then
+                local equipped = select(1, U.call(item, "getEquippedWeight"))
+                local unequipped = select(1, U.call(item, "getUnequippedWeight"))
+                if type(equipped) ~= "number" or type(unequipped) ~= "number"
+                    or equipped ~= equipped or unequipped ~= unequipped
+                    or math.abs(equipped) == math.huge or math.abs(unequipped) == math.huge then
+                    return nil, limit, nil, inventory, nil
+                end
+                delta = delta + math.max(0, unequipped - equipped)
+            end
+        end
+    end
+    local projected = type(weight) == "number" and weight + delta or nil
+    return projected, limit, projected and limit and limit > 0 and projected / limit or nil, inventory, delta
+end
+
 local function normalizedTagName(value)
     if value == nil then return nil end
     local text = string.lower(tostring(value))

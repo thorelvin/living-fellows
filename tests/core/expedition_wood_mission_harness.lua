@@ -392,4 +392,109 @@ do
     check(E.prepareReset() and E.reset(),"manual wood persistence releases its view")
     F.preview=savedPreview
 end
+do
+    local previousLogistics, previousActor, previousPreview = SC.Logistics, SC.Actor, F.preview
+    local previousGear, previousReady, previousClock = W.departureGear, W.departureReady, SC_TEST_CLOCK
+    local ready, calls, resets, blocked, expected, pending, settles = {}, {}, 0, false, nil, nil, 0
+    SC.Actor = { stop = function(a) a.preparationHeld = true return true end }
+    SC.Logistics = {
+        prepareLoadout = function(a, request)
+            check(a == expected and request.haulRequired == false and request.cargo.weight == 9,
+                "only the current actor services its own shared loadout and cargo reservation")
+            calls[a] = (calls[a] or 0) + 1
+            if a == follower and blocked then return false, "loadout_storage_unavailable", false, { stage = "blocked" } end
+            return not ready[a], ready[a] and "loadout_ready" or "loadout_pack", ready[a],
+                { stage = ready[a] and "ready" or "pack", cargoReady = a == follower,
+                    carryWeight = 9, carryCapacity = 17, rawFree = 30, bags = {} }
+        end,
+        busy = function(a) return pending == a end,
+        settlePreparation = function(a)
+            check(a == expected and pending == a, "only the actor polls its existing preparation transfer")
+            pending, settles = nil, settles + 1
+            return true, "loadout_settled", true
+        end,
+        resetPreparation = function(a)
+            if pending == a then return false, "loadout_inventory_pending" end
+            resets = resets + 1 return true
+        end,
+    }
+    W.departureGear = function(a) return { "axe-kept" }, a ~= leader end
+    W.departureReady = function(_, _, _, options)
+        check(options.allowHeldById.leader == false and options.allowHeldById.follower == true,
+            "the final wood gate preserves the cutter's tool hands and the helper's held bag allowance")
+        return true
+    end
+    F.preview = function() return { candidates = { site } } end
+    prepared, hour, timeOfDay, leader.x, follower.x = false, 40, 12, 104, 105
+    local beforeDeparture = departures
+    local started, trip = E.startWoodCollection(roster, { travelMode = "straight" })
+    local leaderRow, followerRow = E.departurePreparationFor(leader), E.departurePreparationFor(follower)
+    check(started and leaderRow and followerRow and leaderRow.gearPending, "whole crew receives stable shared preparation rows")
+    E.updateDeparturePreparation(follower)
+    check(not calls[follower] and follower.preparationHeld, "followers wait for required tools before any packing action")
+    prepared, hour = true, 41
+    E.updateWood(leader)
+    check(E.departurePreparationFor(leader) == leaderRow and not leaderRow.gearPending
+        and departures == beforeDeparture and trip.scout.departureHour == 40 and trip.scout.turnHomeAtHour == 44,
+        "gear completion preserves the handoff identity and does not start the trip clock or announcement")
+    ready[leader], expected = true, leader
+    E.updateDeparturePreparation(leader)
+    expected = follower
+    E.updateDeparturePreparation(follower)
+    local car, carPulses = SC.ExpeditionCar, 0
+    SC.ExpeditionCar = { pulse = function() carPulses = carPulses + 1 return true end }
+    trip.scout.vehicle = { state = "walking_to_car", leg = "outbound" }
+    E.pulse()
+    check(carPulses == 0 and departures == beforeDeparture and trip.testWaypoint == nil,
+        "walking and boarding remain held until every surviving member finishes")
+    trip.scout.vehicle, SC.ExpeditionCar = nil, car
+    local saved = E.export()
+    check(saved.schema == 7 and saved.scout.departurePreparation.originCampId == "camp"
+        and saved.scout.departurePreparation.members[1].ready == nil,
+        "existing schema saves only the pending preparation, origin and exact member identities")
+    check(E.prepareReset() and E.reset() and E.restore(saved) and E.pulse(), "pending shared preparation survives native teardown and reload")
+    trip = E.current()
+    leaderRow, followerRow = E.departurePreparationFor(leader), E.departurePreparationFor(follower)
+    check(leaderRow and not leaderRow.ready and followerRow and not followerRow.ready, "reload re-audits readiness instead of trusting saved ready flags")
+    expected = leader
+    E.updateDeparturePreparation(leader)
+    blocked, expected = true, follower
+    E.updateDeparturePreparation(follower)
+    local beforeCalls, beforeResets = calls[follower], resets
+    E.updateDeparturePreparation(follower)
+    check(calls[follower] == beforeCalls, "blocked preparation remains quiet before its retry deadline")
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 180001
+    E.updateDeparturePreparation(follower)
+    check(calls[follower] == beforeCalls + 1 and resets == beforeResets + 1, "blocked preparation retries after three minutes")
+    check(not E.retryDeparturePreparation("old-trip") and E.retryDeparturePreparation(trip.radioSession), "manual retry is bound to the exact active trip")
+    blocked, ready[follower], hour = false, true, 43
+    E.updateDeparturePreparation(follower)
+    check(not trip.scout.departurePreparation and departures == beforeDeparture + 1
+        and trip.scout.departureHour == 43 and trip.scout.turnHomeAtHour == 47,
+        "only complete crew readiness starts the real departure and travel allowance")
+    check(E.prepareReset() and E.reset(), "shared preparation fixture releases its mission")
+    started, trip = E.startWoodCollection(roster, { travelMode = "straight" })
+    E.updateWood(leader)
+    followerRow = E.departurePreparationFor(follower)
+    local beforePacking = calls[follower]
+    pending, expected, prepared, trip.scout.wood.preparation = follower, follower, false, true
+    E.pulse()
+    E.updateDeparturePreparation(follower)
+    check(started and settles == 1 and not pending and calls[follower] == beforePacking
+        and E.departurePreparationFor(follower) == followerRow and followerRow.gearPending,
+        "reopened gear work settles an existing member transfer without beginning another packing action")
+    prepared = true
+    E.updateWood(leader)
+    pending = follower
+    trip.scout.departurePreparation.returnReason = "radio_return"
+    E.pulse()
+    check(trip.scout.departurePreparation and pending == follower, "return waits while the exact inventory transfer is pending")
+    E.updateDeparturePreparation(follower)
+    E.pulse()
+    check(settles == 2 and calls[follower] == beforePacking and not trip.scout.departurePreparation
+        and trip.scout.phase == "inbound", "the actor settles cancellation ownership before return resumes without new preparation")
+    check(E.prepareReset() and E.reset(), "pending preparation return tears down cleanly")
+    SC.Logistics, SC.Actor, F.preview = previousLogistics, previousActor, previousPreview
+    W.departureGear, W.departureReady, SC_TEST_CLOCK = previousGear, previousReady, previousClock
+end
 print("EXPEDITION_WOOD_MISSION_KAHLUA_PASS checks=" .. checks)

@@ -209,8 +209,8 @@ local supervisorUpdate=SC.ActionSupervisor.update
 SC.ActionSupervisor.update=function() error("voice observation must not update action ownership") end
 check(SC.ActionSupervisor.peekOwner(a)==nil,"pure action-owner observation")
 SC.ActionSupervisor.update=supervisorUpdate
-local owners={}
-SC.ActionSupervisor.peekOwner=function(actor) return owners[actor] end
+local combatRecords={}
+SC.Combat.peek=function(actor) return combatRecords[actor] end
 local spoken={}
 D.say=function(actor,topic,_,arguments)
     spoken[#spoken+1]={actor=actor,topic=topic,args=arguments}
@@ -261,11 +261,16 @@ missing["camp_alert.again"]=true
 check(begin(1,true)=="camp_alert.contact","missing again falls back to level") missing["camp_alert.again"]=nil
 world.age=61.01 world.hour=12 world.fog=0
 check(begin(1,true)=="camp_alert.contact","again expires after a game hour")
-begin() owners[b]="combat" clock=clock+1 A.pulse(clock) owners[b]=nil
-check(clearAlarm()=="camp_alert.clear.fought","actual told combat owner changes all-clear")
+combatRecords[b]={lastAcceptedOffenseAt=clock-1}
+begin()
+check(clearAlarm()=="camp_alert.clear.passed","old combat does not turn a later alarm into a fight")
+begin() clock=clock+1 combatRecords[b]={lastAcceptedOffenseAt=clock} A.pulse(clock)
+check(clearAlarm()=="camp_alert.clear.fought","accepted offense changes all-clear")
+combatRecords[b]=nil
 missing["camp_alert.clear.fought"]=true
-begin() owners[b]="combat" clock=clock+1100 A.pulse(clock) owners[b]=nil
+begin() clock=clock+1100 combatRecords[b]={lastAcceptedOffenseAt=clock} A.pulse(clock)
 check(clearAlarm()=="camp_alert.clear","missing fought falls back") missing["camp_alert.clear.fought"]=nil
+combatRecords[b]=nil
 missing["camp_alert.clear.passed"]=true
 begin() check(clearAlarm()=="camp_alert.clear","missing passed falls back") missing["camp_alert.clear.passed"]=nil
 begin()
@@ -334,6 +339,12 @@ description.immediateCount=1 R.respond("opinion",a,nil,state,description)
 check(chosen=="opinion.danger","danger precedes camp opinion") description.immediateCount=0
 SC.Senses.cached=function() return {threatCount=1} end
 R.respond("opinion",a,nil,state,description) check(chosen=="opinion.danger","cached visible threats prevent safe-camp opinion")
+SC.Senses.cached=function() return {threatCount=0,humanThreat={actor=b,visible=true}} end
+R.respond("opinion",a,nil,state,description)
+check(chosen=="opinion.danger","cached hostile humans prevent safe-camp opinion")
+SC.Senses.cached=function() return {threatCount=0,protectedActors={b}} end
+R.respond("opinion",a,nil,state,description)
+check(chosen=="opinion.camp","a protected bystander does not become a human threat")
 SC.Senses.cached=function() return nil end
 local fakeChoose=D.choose
 D.choose=function() return nil end
@@ -438,14 +449,56 @@ world.age=73 world.hour=12 world.rain=0
 local body=corpse("Police")
 local lines=study.lines(a,{personalityProfile={archetype="practical"}},body,clock)
 check(lines[1].topic=="study.outfit.law","first actual outfit study")
-lines=study.lines(a,{personalityProfile={archetype="practical"}},corpse("Police"),clock+1)
+check(B.voiceDay(3).groups.law==nil,"selecting study lines does not remember an unexamined body")
+local activity,studyState={object=body},{}
+before=#spoken
+study.prepare(a,activity,{},studyState,clock)
+check(activity.lines[1].topic=="study.outfit.law" and activity.studyOutfitGroup=="law"
+    and B.voiceDay(3).groups.law==nil and body.getModData().LF_Studied==nil and #spoken==before,
+    "preparing an approach stages its outfit without speech or completed-study memory")
+activity=nil -- The approach is aborted before its first bark or finish hook.
+check(B.voiceDay(3).groups.law==nil and body.getModData().LF_Studied==nil,
+    "an aborted study leaves its body and daily outfit memory untouched")
+activity={object=body}
+study.prepare(a,activity,{},studyState,clock+1)
+check(activity.lines[1].topic=="study.outfit.law","retrying the same unexamined body is still the first outfit study")
+study.finish(a,activity,clock+2)
+check(B.voiceDay(3).groups.law==3 and body.getModData().LF_Studied==true
+    and activity.studyOutfitGroup==nil,"finishing the real study commits its body marker and outfit memory")
+lines=study.lines(a,{personalityProfile={archetype="practical"}},corpse("Police"),clock+3)
 check(lines[1].topic=="study.again" and lines[1].arguments[1]=="with a badge","same-day repeated outfit study")
+check(B.restore(B.export())==true,"completed study outfit memory survives real camp export/restore")
+lines=study.lines(a,{},corpse("Police"),clock+4)
+check(lines[1].topic=="study.again","a distinct body recalls the completed outfit study after reload")
 missing["study.again"]=true
-lines=study.lines(a,{},corpse("Police"),clock+2)
+lines=study.lines(a,{},corpse("Police"),clock+5)
 check(lines[1].topic=="study.outfit.law","missing repeated-study topic falls back") missing["study.again"]=nil
 world.age=96
-lines=study.lines(a,{},corpse("Police"),clock+3)
-check(lines[1].topic=="study.outfit.law","new day forgets previous-day outfit")
+lines=study.lines(a,{},corpse("Police"),clock+6)
+check(lines[1].topic=="study.outfit.law" and B.voiceDay(4).groups.law==nil,
+    "new day forgets the previous completed study without recording an unexamined outfit")
+body=corpse("Police") body.isSkeleton=function() return true end
+activity={object=body}
+study.prepare(a,activity,{},studyState,clock+7)
+check(activity.lines[1].topic=="study.skeleton" and activity.studyOutfitGroup==nil,
+    "a skeleton opening stages no outfit memory")
+study.finish(a,activity,clock+8)
+check(B.voiceDay(4).groups.law==nil,"finishing a skeleton study does not remember its outfit")
+local oldStudyHash=study.hash
+study.hash=function() return 0 end
+body=corpse("Police") body.isCrawling=function() return true end
+activity={object=body}
+study.prepare(a,activity,{},studyState,clock+9)
+study.hash=oldStudyHash
+check(activity.lines[1].topic=="study.crawler" and activity.studyOutfitGroup==nil,
+    "a crawler opening stages no outfit memory")
+study.finish(a,activity,clock+10)
+check(B.voiceDay(4).groups.law==nil,"finishing a crawler study does not remember its outfit")
+activity={object=corpse("Police")}
+study.prepare(a,activity,{},studyState,clock+11)
+check(activity.lines[1].topic=="study.outfit.law","skeleton and crawler studies leave the first normal outfit opening available")
+study.finish(a,activity,clock+12)
+check(B.voiceDay(4).groups.law==4,"a completed normal study starts the new day's outfit memory")
 local oldPick=study.pick local candidates
 study.pick=function(options) candidates=candidates or options return options[1] end
 world.hour=22 world.rain=.3

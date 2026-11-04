@@ -257,15 +257,20 @@ function Voice.hurt(patient, entries, current)
     end
     return false
 end
+function Voice.hasFought(actor)
+    local combat = SC.Combat
+    local state = actor and combat and type(combat.peek) == "function" and combat.peek(actor) or nil
+    local at = type(state) == "table" and tonumber(state.lastAcceptedOffenseAt) or nil
+    return at ~= nil and at >= alert.startedAt
+end
 function Voice.watch(current, baseline)
     if not alert then return end
-    -- A strike can start and finish between the slower medical checks. Live
-    -- lease reads are cheap and pure, so notice combat on every alarm pulse.
-    local supervisor = SC.ActionSupervisor
-    if not alert.fought and supervisor and supervisor.peekOwner then
-        if supervisor.peekOwner(U().resolveActor(alert.spotterId)) == "combat" then alert.fought = true end
+    -- Accepted offense survives a finished swing and kill-credit cleanup.
+    -- The pure combat read never advances an action or counts loadout work.
+    if not alert.fought then
+        if Voice.hasFought(U().resolveActor(alert.spotterId)) then alert.fought = true end
         for id in pairs(alert.told) do
-            if supervisor.peekOwner(U().resolveActor(id)) == "combat" then alert.fought = true break end
+            if Voice.hasFought(U().resolveActor(id)) then alert.fought = true break end
         end
     end
     if not baseline and current < (alert.voiceCheckAt or 0) then return end

@@ -141,6 +141,48 @@ D.update(actor, nil, runtime, 1500)
 check(interrupts == 1 and woodCalls == 0,
     "fresh immediate danger interrupts the native chop before another wood-worker pulse")
 
+-- The shared departure owner is stable across tools, packing and crew waits.
+local departure, departureCalls = { key = "trip:packing", gearPending = true }, 0
+SC.ExpeditionPrototype.departurePreparationFor = function(value)
+    return value == actor and departure or nil
+end
+SC.ExpeditionPrototype.updateDeparturePreparation = function(value, passedRuntime)
+    check(value == actor and passedRuntime.snapshot == calm,
+        "departure services only this actor with its own current snapshot")
+    departureCalls = departureCalls + 1
+    return true, "packing_mission_kit", false
+end
+work, preparation, nativePhase = nil, nil, "none"
+commands.expeditionMember = true
+check(has(candidates(calm), "departure_preparation")
+    and not has(candidates(danger), "departure_preparation"),
+    "shared crew preparation is available only outside danger")
+local human = { threats = {}, immediateAttackers = {}, threatCount = 0,
+    humanThreat = { id = "hostile", visible = true }, player = {} }
+check(not has(candidates(human), "departure_preparation"),
+    "hostile humans do not permit departure chores")
+check(select(2, D._delegateForTests({ kind = "departure_preparation", detail = departure },
+    actor, nil, { snapshot = calm }, commands, calm, {})) == "packing_mission_kit",
+    "shared departure delegates to the current member")
+local oldPolls = 0
+SC.Logistics.update = function() oldPolls = oldPolls + 1 return true, "transfer_finishing" end
+packing, token = true, { owner = "logistics", phase = "committing", action = "pack" }
+runtime = { snapshot = calm }
+check(select(2, D.update(actor, nil, runtime, 1600)) == "departure_preparation_inventory_pending"
+    and oldPolls == 1,
+    "a previous camp inventory commit is serviced before the one-time handoff")
+token = nil
+D.update(actor, nil, runtime, 1700)
+local resetsAfterHandoff, cancelsAfterHandoff = packingResets, baseCancels
+departure.gearPending = false
+packing, token = true, { owner = "logistics", phase = "verifying", action = "pack" }
+local callsBefore = departureCalls
+check(select(2, D.update(actor, nil, runtime, 1800)) == "packing_mission_kit"
+    and departureCalls == callsBefore + 1 and packingResets == resetsAfterHandoff
+    and baseCancels == cancelsAfterHandoff,
+    "a preparation transfer advances without being cancelled on the stage change")
+token, packing, departure, commands.expeditionMember = nil, false, nil, nil
+
 local function marked(key)
     local item = { data = { [key] = { tripId = "wood:test", id = "native:1", memberId = actor.id } } }
     function item:getModData() return self.data end

@@ -893,6 +893,7 @@ function Relationship.respond(action, actor, player, state, description)
             or tonumber(description.threatCount or 0) > 0
             or senses and (tonumber(senses.threatCount or 0) > 0
                 or tonumber(senses.immediateCount or 0) > 0
+                or type(senses.humanThreat) == "table"
                 or #(senses.threats or {}) > 0)
         if danger or clamp(state.stress, 0, 100) >= 60 then
             return varied(actor, "opinion.danger", text("IGUI_SC_Opinion_Danger",

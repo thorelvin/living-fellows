@@ -101,7 +101,9 @@ local function roster(detail, selection)
     local records = selectionRecords(detail, selection)
     if SC.HomeTrip and type(SC.HomeTrip.roster) == "function" then
         local result = SC.HomeTrip.roster({ records = records,
-            leaderId = selection.leaderId }, viewer())
+            leaderId = selection.leaderId, travelMode = selection.travelMode,
+            vehicle = selection.vehicle, vehicleSqlId = selection.vehicleSqlId,
+            player = viewer() })
         if result then
             result.records = result.eligibleRecords or result.records or {}
             result.exclusions = result.exclusions or {}
@@ -252,10 +254,7 @@ function HomeUI.update(detail)
     end
     sheet.review = ok and type(review) == "table" and review
         or { canStart = false, blocker = "unavailable" }
-    if sheet.review.routeFallback == true and selection.travelMode ~= "drive" then
-        sheet.selection.travelMode = "straight"
-    end
-    selection.travelMode = sheet.selection.travelMode
+    -- The review key owns the requested mode; its route can fall back to straight.
     sheet.reviewAvailabilityKey = availabilityKey(selection, status)
     sheet.availabilityKey = sheet.reviewAvailabilityKey
     detail:rebuild(true)
@@ -264,8 +263,11 @@ end
 
 function HomeUI.whoOptions(detail)
     local sheet, options = detail.homeTripSheet, {}
+    local selection = sheet.selection
     if sheet.singleRecord then
-        local single = roster(detail, { record = sheet.singleRecord })
+        local single = roster(detail, { record = sheet.singleRecord,
+            travelMode = selection.travelMode, vehicle = selection.vehicle,
+            vehicleSqlId = selection.vehicleSqlId })
         local blocked = #single.records == 0 and single.exclusions[1]
         local reason = blocked and reasonText(blocked.reason or blocked.blocker,
             blocked.name or nameOf(sheet.singleRecord)) or nil
@@ -273,7 +275,9 @@ function HomeUI.whoOptions(detail)
             record = sheet.singleRecord, disabled = reason ~= nil, reason = reason }
     end
     for _, group in ipairs(GROUPS) do
-        local result = roster(detail, { group = group })
+        local result = roster(detail, { group = group,
+            travelMode = selection.travelMode, vehicle = selection.vehicle,
+            vehicleSqlId = selection.vehicleSqlId })
         if #result.records > 0 or #result.exclusions > 0
             or sheet.selection.group == group then
             local label = tr("UI_SC_Select_Group" .. string.upper(string.sub(group, 1, 1))
@@ -500,6 +504,7 @@ function HomeUI.buildSheet(detail, panel)
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
         tr("UI_SC_HomeTrip_CrewReview", displayNames(crew.records)))
     local review = sheet.review
+    local reviewedTravelMode = review and review.travelMode or sheet.selection.travelMode
     if sheet.selection.travelMode == "drive" and review and review.car then
         local car = review.car
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr("UI_SC_HomeTrip_SeatCheck",
@@ -518,13 +523,13 @@ function HomeUI.buildSheet(detail, panel)
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr("UI_SC_HomeTrip_Planning"))
     elseif review and tonumber(review.distance) then
         local routeText
-        if sheet.selection.travelMode == "drive" then
+        if reviewedTravelMode == "drive" then
             routeText = tr("UI_SC_HomeTrip_RouteDrive", math.floor(review.distance + 0.5), HomeUI.timeText(review.estimatedHours))
-        elseif sheet.selection.travelMode == "road" and #(review.streets or {}) > 0 then
+        elseif reviewedTravelMode == "road" and #(review.streets or {}) > 0 then
             routeText = tr("UI_SC_HomeTrip_RouteVia", math.floor(review.distance + 0.5),
                 table.concat(review.streets, " > "), HomeUI.timeText(review.estimatedHours))
         else
-            routeText = tr(sheet.selection.travelMode == "road" and "UI_SC_HomeTrip_RouteRoad"
+            routeText = tr(reviewedTravelMode == "road" and "UI_SC_HomeTrip_RouteRoad"
                 or "UI_SC_HomeTrip_RouteStraight", math.floor(review.distance + 0.5),
                 HomeUI.timeText(review.estimatedHours))
         end

@@ -211,6 +211,7 @@ function Planner.viewStructureSignature()
         tostring(view and view.plannedSite or ""),
         tostring(view and view.preparation or ""),
         tostring(view and view.preparationMemberId or ""),
+        Planner.departurePreparationSignature(view and view.departurePreparation),
         tostring(view and view.observedPhase or ""),
         tostring(view and view.visibleMembers or 0),
         tostring(view and view.supplyProgress
@@ -542,6 +543,94 @@ local function fishingPreparationMessage(view, mission)
     return tr(key, memberName(view.preparationMemberId, mission and mission.leader))
 end
 
+function Planner.departurePreparationSignature(summary)
+    if not summary then return "" end
+    local parts = { tostring(summary.ready), tostring(summary.total) }
+    for _, row in ipairs(summary.members or {}) do
+        local assessment = row.assessment or {}
+        parts[#parts + 1] = table.concat({ tostring(row.id), tostring(row.stage),
+            tostring(row.reason), tostring(row.ready), tostring(row.retrying),
+            tostring(assessment.carryWeight), tostring(assessment.carryCapacity),
+            tostring(assessment.rawFree), tostring(assessment.cargoReady),
+            tostring(assessment.cargoDeficit and assessment.cargoDeficit.raw),
+            tostring(assessment.cargoDeficit and assessment.cargoDeficit.effective) }, ",")
+        for _, bag in ipairs(assessment.bags or {}) do
+            parts[#parts + 1] = table.concat({ tostring(bag.id), tostring(bag.name),
+                tostring(bag.weight), tostring(bag.capacity), tostring(bag.free) }, ",")
+        end
+        for _, warning in ipairs(assessment.warnings or {}) do parts[#parts + 1] = tostring(warning) end
+    end
+    return table.concat(parts, ";")
+end
+
+function Planner.buildDeparturePreparation(detail, panel, y, summary)
+    if not summary then return y end
+    y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+        tr("UI_SC_Expedition_PreparationProgress", summary.ready or 0, summary.total or 0))
+    local blocked = false
+    for _, row in ipairs(summary.members or {}) do
+        local keys = { gear = "Gear", assessing = "Packing", packing = "Packing", pack = "Packing",
+            repack = "Packing", stash = "Stashing", staging = "Stashing", stashing = "Stashing",
+            supplies = "Supplies", topup = "Supplies", bag = "Bag", wear = "Bag", unwear = "Bag",
+            ready = "Ready", blocked = "Blocked" }
+        local key = keys[row.stage] or "Packing"
+        if row.stage == "blocked" then
+            blocked = true
+            local reason = tostring(row.reason or "")
+            if string.find(reason, "storage", 1, true) then key = "StorageWaiting"
+            elseif string.find(reason, "capacity", 1, true) or string.find(reason, "cargo", 1, true) then key = "CargoWaiting"
+            elseif string.find(reason, "tool", 1, true) or string.find(reason, "axe", 1, true) then key = "Gear"
+            elseif string.find(reason, "inventory_pending", 1, true) then key = "InventoryWaiting"
+            elseif string.find(reason, "camp_changed", 1, true) then key = "CampChanged"
+            elseif string.find(reason, "scan_limit", 1, true) then key = "InventoryLimit"
+            elseif string.find(reason, "unsafe", 1, true) then key = "SafetyWaiting" end
+        end
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_PreparationMember", memberName(row), tr("UI_SC_Expedition_Preparation" .. key)))
+        local assessment = row.assessment or {}
+        if type(assessment.carryWeight) == "number" and type(assessment.carryCapacity) == "number"
+            and type(assessment.rawFree) == "number" then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_PreparationCarry", string.format("%.1f", assessment.carryWeight),
+                    string.format("%.1f", assessment.carryCapacity), string.format("%.1f", assessment.rawFree)))
+        end
+        if type(assessment.bags) == "table" then
+            local count = 0
+            for _, bag in ipairs(assessment.bags) do if bag.id ~= "inventory" then count = count + 1 end end
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_PreparationBags", count))
+            for _, bag in ipairs(assessment.bags) do
+                if bag.id ~= "inventory" and type(bag.weight) == "number" and type(bag.capacity) == "number" then
+                    y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                        tr("UI_SC_Expedition_PreparationBagLoad", readableName(bag.name)
+                            or tr("UI_SC_Expedition_PreparationBagName"), string.format("%.1f", bag.weight),
+                            string.format("%.1f", bag.capacity)))
+                end
+            end
+        end
+        local deficit = assessment.cargoDeficit
+        if type(deficit) == "table" and ((tonumber(deficit.raw) or 0) > 0 or (tonumber(deficit.effective) or 0) > 0) then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_PreparationDeficit", string.format("%.1f", tonumber(deficit.raw) or 0),
+                    string.format("%.1f", tonumber(deficit.effective) or 0)))
+        end
+        local warnings = { loadout_storage_unavailable = "Storage", loadout_food_shortage = "Food",
+            loadout_water_shortage = "Water", loadout_medicine_shortage = "Medicine",
+            loadout_reduced_cargo_room = "Cargo" }
+        for _, warning in ipairs(assessment.warnings or {}) do
+            if warnings[warning] then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_PreparationWarning" .. warnings[warning]))
+            end
+        end
+    end
+    if blocked then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr("UI_SC_Expedition_PreparationRetryWait"))
+        y = addButton(detail, panel, y, "UI_SC_Expedition_PreparationRetry", "retry_preparation", summary.tripId)
+    end
+    return y
+end
+
 local function mapContext(detail)
     local draft=detail.expeditionDraft
     return SC.ExpeditionTargets.context(draft.leaderId,draft.travelMode)
@@ -648,6 +737,10 @@ function Planner.onButton(detail, button)
         local called, accepted, why = pcall(SC.ExpeditionPrototype.retryDelivery, button.scTripId)
         feedback(detail, called and accepted == true and tr("UI_SC_Expedition_WoodRetryQueued")
             or woodReason(why or accepted), called and accepted == true)
+    elseif action == "retry_preparation" then
+        local called, accepted = pcall(SC.ExpeditionPrototype.retryDeparturePreparation, button.scTripId)
+        feedback(detail, tr(called and accepted == true and "UI_SC_Expedition_PreparationRetryQueued"
+            or "UI_SC_Expedition_PreparationBlocked"), called and accepted == true)
     elseif action == "refresh" and draft.kind == "wood" then
         draft.woodPreviewComplete, draft.forestSite = nil, nil
         Planner.refreshForestPreview(detail)
@@ -741,6 +834,8 @@ function Planner.onButton(detail, button)
             elseif mission and mission.scout and mission.scout.wood
                 and mission.scout.wood.preparation then
                 preparation = woodReason(mission.scout.wood.preparationReason or "wood_preparing_axes")
+            elseif mission and mission.scout and mission.scout.departurePreparation then
+                preparation = tr("UI_SC_Expedition_PreparationProgress", 0, #mission.scout.departurePreparation.members)
             end
         end
         feedback(detail, ok and (preparation or tr("UI_SC_Expedition_Departed"))
@@ -929,6 +1024,7 @@ function Planner.build(detail, panel)
                 y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(progress.reason))
             end
         end
+        y = Planner.buildDeparturePreparation(detail, panel, y, view and view.departurePreparation)
         local preparation = fishingPreparationMessage(view, mission)
         if not preparation and view and view.kind == "wood" and view.preparation then
             preparation = woodReason(view.preparation)

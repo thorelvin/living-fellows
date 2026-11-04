@@ -451,7 +451,7 @@ function Car.preflight(records, zoneId, sqlId, destination)
 end
 
 local function preparingSupplies(scout)
-    return scout and (scout.fishingPreparation ~= nil
+    return scout and (scout.departurePreparation ~= nil or scout.fishingPreparation ~= nil
         or scout.wood and scout.wood.preparation == true)
 end
 
@@ -1024,6 +1024,14 @@ function Car.requestReturn(mission, now, reason)
     if not trip or trip.state == "abandoned" then return false, "no_car_trip" end
     if trip.leg == "home" or trip.state == "home_wait" then
         return false, "expedition_already_returning"
+    end
+    if scout.departurePreparation and SC.ExpeditionPrototype
+        and SC.ExpeditionPrototype._cancelDeparturePreparation then
+        local stopped, why = SC.ExpeditionPrototype._cancelDeparturePreparation(mission, "expedition_return")
+        if stopped ~= true then
+            scout.departurePreparation.returnReason = reason or "radio_return"
+            return false, why or "departure_preparation_settling"
+        end
     end
     if scout.wood then
         if not SC.ExpeditionWood or type(SC.ExpeditionWood.stop) ~= "function" then

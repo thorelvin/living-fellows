@@ -835,6 +835,273 @@ function Expedition.provisionTestRadios(player, records)
     return radios
 end
 
+-- Only the pending obligation crosses saves. Inventory owners, assessments
+-- and retry clocks belong to the current native actors and are rebuilt.
+function Expedition._copyDeparturePreparation(value, roster)
+    if value == nil then return nil end
+    if type(value) ~= "table" or value.version ~= 1
+        or type(value.members) ~= "table" or #value.members < 1 or #value.members > 4
+        or (value.returnReason ~= nil and (type(value.returnReason) ~= "string" or #value.returnReason > 96))
+        or (value.originCampId ~= nil and (type(value.originCampId) ~= "string"
+            or #value.originCampId < 1 or #value.originCampId > 128)) then return nil end
+    local known, seen, result = {}, {}, { version = 1, originCampId = value.originCampId,
+        returnReason = value.returnReason, members = {} }
+    for _, member in ipairs(roster or {}) do known[type(member) == "table" and member.id or member] = true end
+    if #value.members ~= #(roster or {}) then return nil end
+    for _, row in ipairs(value.members) do
+        if type(row) ~= "table" or type(row.id) ~= "string" or not known[row.id] or seen[row.id]
+            or (row.campStaging ~= nil and type(row.campStaging) ~= "boolean")
+            or row.campStaging and value.originCampId == nil then return nil end
+        seen[row.id] = true
+        result.members[#result.members + 1] = { id = row.id, campStaging = row.campStaging == true }
+    end
+    return result
+end
+
+function Expedition._syncDeparturePreparation(active)
+    local scout = active and active.scout
+    local preparation = scout and scout.departurePreparation
+    if not preparation then return end
+    local gearPending = scout.fishingPreparation ~= nil or scout.wood and scout.wood.preparation == true
+    for _, row in ipairs(preparation.members) do
+        row.gearPending = gearPending == true
+        if gearPending then row.stage = "gear"
+        elseif not row.ready and row.stage ~= "blocked" then row.stage = "packing" end
+    end
+end
+
+function Expedition._installDeparturePreparation(active, preparation)
+    if not preparation then return end
+    active.scout.departurePreparation = preparation
+    for index, row in ipairs(preparation.members) do
+        row.key, row.ready, row.stage = active.radioSession .. ":departure:" .. index, false, "packing"
+    end
+    Expedition._syncDeparturePreparation(active)
+end
+
+function Expedition._beginDeparturePreparation(active)
+    local scout = active and active.scout
+    if not scout or (scout.kind ~= "wood" and scout.kind ~= "search" and scout.kind ~= "scout")
+        or not SC.Logistics or type(SC.Logistics.prepareLoadout) ~= "function" then return end
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    local origin = base and SC.BaseLife.isInside and SC.BaseLife.isInside(active.leader.actor) and base.id or nil
+    local preparation = { version = 1, originCampId = origin, members = {} }
+    for _, member in ipairs(active.roster) do
+        preparation.members[#preparation.members + 1] = { id = member.id,
+            campStaging = origin ~= nil and SC.BaseLife.isInside(member.actor) == true }
+    end
+    Expedition._installDeparturePreparation(active, preparation)
+end
+
+-- A stable member row is also the Decision handoff identity during gear work.
+-- This query reads only mission state; the actor update owns every inspection.
+function Expedition.departurePreparationFor(actor)
+    local preparation = mission and mission.scout and mission.scout.departurePreparation
+    if not preparation or not actor or mission.restoring or mission.terminal
+        or mission.suspended or not mission.members[actor] then return nil end
+    for _, member in ipairs(mission.roster) do
+        if member.actor == actor and alive(member) then
+            for _, row in ipairs(preparation.members) do if row.id == member.id then return row end end
+        end
+    end
+    return nil
+end
+
+function Expedition._finishDeparturePreparation(active, waiting)
+    local scout = active and active.scout
+    local preparation = scout and scout.departurePreparation
+    if not preparation or scout.fishingPreparation or scout.wood and scout.wood.preparation then return false end
+    local total = 0
+    for _, member in ipairs(active.roster) do
+        if alive(member) then
+            local ready = false
+            for _, row in ipairs(preparation.members) do if row.id == member.id then ready = row.ready == true break end end
+            if not ready then return false end
+            total = total + 1
+        elseif member.actor == nil and (not active.survivors or active.survivors[member.id]) then return false end
+    end
+    if total == 0 or not alive(active.leader) then return false end
+    local cargoReady, issue = scout.kind == "scout", "departure_cargo_capacity"
+    if scout.wood and SC.ExpeditionWood and SC.ExpeditionWood.departureReady then
+        local allowed = {}
+        for _, row in ipairs(preparation.members) do allowed[row.id] = row.allowHeldBag ~= false end
+        cargoReady, issue = SC.ExpeditionWood.departureReady(active.roster, scout.wood,
+            scout.vehicle and scout.vehicle.state ~= "abandoned" and scout.vehicle or nil,
+            { allowHeldById = allowed })
+    else
+        for _, row in ipairs(preparation.members) do
+            if row.ready and type(row.assessment) == "table" and row.assessment.cargoReady == true then cargoReady = true break end
+        end
+        if not cargoReady and scout.vehicle and scout.vehicle.state ~= "abandoned"
+            and SC.Vehicle and SC.Vehicle.loadedBySqlId and SC.Vehicle.cargoPart then
+            local car = SC.Vehicle.loadedBySqlId(scout.vehicle.sqlId)
+            local trunk
+            if car then
+                local ignored
+                ignored, trunk = SC.Vehicle.cargoPart(car)
+            end
+            local free, read = SC.GameplayUtil.call(trunk, "getFreeCapacity", active.leader.actor)
+            if read and type(free) == "number" and free >= 1 then
+                for _, row in ipairs(preparation.members) do
+                    if row.ready and type(row.assessment) == "table"
+                        and (tonumber(row.assessment.rootFree) or 0) >= 1 then cargoReady = true break end
+                end
+            end
+        end
+    end
+    if not cargoReady then
+        if scout.wood and issue == "wood_axe_missing" then
+            scout.wood.preparation, scout.wood.preparationReason = true, "wood_preparing_axes"
+            for _, row in ipairs(preparation.members) do row.ready, row.retryRequested = false, true end
+            Expedition._syncDeparturePreparation(active)
+            return false
+        end
+        if waiting then
+            waiting.ready, waiting.stage, waiting.reason = false, "blocked", issue
+            waiting.retryAt = SC.GameplayUtil.nowMs() + 180000
+        end
+        return false
+    end
+    local hour = scoutWorldHour()
+    if scout.departureHour ~= nil then
+        if hour == nil then return false end
+    end
+    preparation.finishing = true
+    local released = Expedition._cancelDeparturePreparation(active, "departure_ready")
+    if released ~= true then return false end
+    if scout.departureHour ~= nil then
+        if scout.turnHomeAtHour then scout.turnHomeAtHour = hour + scout.turnHomeAtHour - scout.departureHour end
+        scout.departureHour = hour
+    end
+    scout.roadRoute, scout.travelBudget = nil, nil
+    scout.trail = { { x = math.floor(active.leader.actor:getX()),
+        y = math.floor(active.leader.actor:getY()), z = math.floor(active.leader.actor:getZ()) } }
+    announceDeparture(active)
+    return true
+end
+
+function Expedition._settleDeparturePreparation(actor, row, runtime)
+    local service = SC.Logistics
+    if not service or not service.busy or not service.busy(actor) then return true end
+    if type(service.settlePreparation) ~= "function" then return false, "departure_preparation_settling" end
+    local handled, reason, settled = service.settlePreparation(actor, row.key, runtime)
+    return settled == true, reason, handled
+end
+
+function Expedition.updateDeparturePreparation(actor, runtime)
+    local row = Expedition.departurePreparationFor(actor)
+    if not row then return false, "departure_preparation_inactive", false end
+    Expedition._syncDeparturePreparation(mission)
+    if row.gearPending or mission.scout.departurePreparation.returnReason
+        or mission.scout.departurePreparation.finishing then
+        local settled, reason = Expedition._settleDeparturePreparation(actor, row, runtime)
+        if not settled then return true, reason or "departure_preparation_settling", false end
+    end
+    if mission.scout.departurePreparation.finishing then
+        local finished = Expedition._finishDeparturePreparation(mission, row)
+        if not finished and SC.Actor and SC.Actor.stop then SC.Actor.stop(actor) end
+        return true, finished and "departure_ready" or "departure_preparation_settling", finished
+    end
+    if row.gearPending or mission.scout.departurePreparation.returnReason then
+        if SC.Actor and SC.Actor.stop then SC.Actor.stop(actor) end
+        return true, row.gearPending and "departure_waiting_for_tools" or "departure_preparation_settling", false
+    end
+    local service, now = SC.Logistics, SC.GameplayUtil.nowMs()
+    if not service or type(service.prepareLoadout) ~= "function" then
+        row.stage, row.reason = "blocked", "departure_preparation_unavailable"
+        return true, row.reason, false
+    end
+    if row.retryRequested or row.retryAt and now >= row.retryAt then
+        local settled, settleReason = Expedition._settleDeparturePreparation(actor, row, runtime)
+        if not settled then return true, settleReason or "departure_preparation_settling", false end
+        local reset, reason = true, nil
+        if type(service.resetPreparation) == "function" then reset, reason = service.resetPreparation(actor, row.key, "departure_retry") end
+        if reset ~= true then return true, reason or row.reason, false end
+        row.retryRequested, row.retryAt, row.assessment, row.reason = nil, nil, nil, nil
+        row.stage = "packing"
+    elseif row.retryAt then
+        if SC.Actor and SC.Actor.stop then SC.Actor.stop(actor) end
+        return true, row.reason or "departure_preparation_blocked", false
+    end
+    local scout, preparation = mission.scout, mission.scout.departurePreparation
+    if scout.search and scout.search.request.category == "fish" and mission.leader.actor == actor
+        and SC.Fishing and SC.Fishing.checkGear and not SC.Fishing.checkGear(actor) then
+        local _, missing = SC.Fishing.checkGear(actor)
+        scout.fishingPreparation = { reason = missing == "fishing_bait_missing"
+            and "fishing_preparing_bait" or "fishing_preparing_rod" }
+        for _, member in ipairs(preparation.members) do member.ready, member.retryRequested = false, true end
+        Expedition._syncDeparturePreparation(mission)
+        return true, "departure_waiting_for_tools", false
+    end
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    local camp = row.campStaging and base and base.id == preparation.originCampId
+        and SC.BaseLife.isInside and SC.BaseLife.isInside(actor) == true or false
+    local cargoWeight = scout.kind == "wood" and 9 or scout.kind == "scout" and 0 or 1
+    local keepItems, allowHeldBag = {}, true
+    if scout.wood and SC.ExpeditionWood and SC.ExpeditionWood.departureGear then
+        keepItems, allowHeldBag = SC.ExpeditionWood.departureGear(actor, scout.wood)
+    end
+    row.allowHeldBag = allowHeldBag
+    local requirements = { key = row.key, kind = scout.kind,
+        originCampId = preparation.originCampId, allowCampStaging = camp, atCamp = camp,
+        cargo = { weight = cargoWeight, itemType = scout.kind == "wood" and "Base.Log" or nil },
+        keepItems = keepItems, allowHeldBag = allowHeldBag, allowBagUpgrade = true, haulRequired = false }
+    local handled, reason, ready, assessment = service.prepareLoadout(actor, requirements, runtime)
+    row.reason, row.assessment, row.ready = reason, assessment, ready == true
+    row.stage = ready and "ready" or type(assessment) == "table" and assessment.stage or "packing"
+    if ready ~= true and handled ~= true then row.stage, row.retryAt = "blocked", now + 180000 end
+    if ready then Expedition._finishDeparturePreparation(mission, row) end
+    if mission.scout.departurePreparation and SC.Actor and SC.Actor.stop
+        and (row.ready or row.stage == "blocked") then SC.Actor.stop(actor) end
+    return handled == true or ready == true, row.reason or reason, row.ready == true
+end
+
+function Expedition.retryDeparturePreparation(tripId)
+    local preparation = mission and mission.scout and mission.scout.departurePreparation
+    if not preparation or mission.radioSession ~= tripId or mission.restoring or mission.terminal then
+        return false, "departure_preparation_stale"
+    end
+    for _, row in ipairs(preparation.members) do
+        if not row.ready and row.stage == "blocked" then row.retryRequested = true end
+    end
+    return true, "departure_retry_queued"
+end
+
+function Expedition._cancelDeparturePreparation(active, reason, retain)
+    local preparation = active and active.scout and active.scout.departurePreparation
+    if not preparation then return true end
+    for _, member in ipairs(active.roster) do
+        for _, row in ipairs(preparation.members) do
+            if row.id == member.id and member.actor and SC.Logistics and SC.Logistics.resetPreparation then
+                local stopped, why = SC.Logistics.resetPreparation(member.actor, row.key, reason)
+                if stopped ~= true then return false, why end
+            end
+        end
+    end
+    if not retain then active.scout.departurePreparation = nil end
+    return true
+end
+
+function Expedition._departurePreparationSummary(active)
+    local preparation = active and active.scout and active.scout.departurePreparation
+    if not preparation then return nil end
+    local result = { tripId = active.radioSession, ready = 0, total = 0, members = {} }
+    for _, member in ipairs(active.roster) do
+        if alive(member) then
+            for _, row in ipairs(preparation.members) do
+                if row.id == member.id then
+                    result.total = result.total + 1
+                    if row.ready then result.ready = result.ready + 1 end
+                    result.members[#result.members + 1] = { id = row.id, name = member.name or row.id,
+                        stage = row.stage, reason = row.reason, ready = row.ready == true,
+                        retrying = row.retryAt ~= nil, assessment = row.assessment }
+                end
+            end
+        end
+    end
+    return result
+end
+
 function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
     if plan ~= nil and type(plan) ~= "table" then return false, "invalid_scout_plan" end
@@ -1110,11 +1377,12 @@ function Expedition.start(records, plan)
         mission.commandSerials[member.id] =
             tonumber(state and state.commandSerial) or 0
     end
+    Expedition._beginDeparturePreparation(mission)
     if Events and Events.OnDeviceText then
         Events.OnDeviceText.Add(radioTextReceived)
         mission.radioTextHooked = true
     end
-    if not scout or (not scout.fishingPreparation and not (scout.wood and scout.wood.preparation)) then
+    if not scout or (not scout.departurePreparation and not scout.fishingPreparation and not (scout.wood and scout.wood.preparation)) then
         announceDeparture(mission)
     end
     return true, mission
@@ -1439,7 +1707,8 @@ function Expedition._updateWoodWork(actor, snapshot)
     context.snapshot = snapshot
     if context.wood.preparation then
         local handled, reason, ready = SC.ExpeditionWood.prepare(context.roster, context.wood,
-            activeWoodCar(mission.scout), mission.leader.id)
+            activeWoodCar(mission.scout), mission.leader.id,
+            { gearOnly = mission.scout.departurePreparation ~= nil })
         context.wood.preparationReason = reason
         if ready == true then
             local hour = scoutWorldHour()
@@ -1450,14 +1719,17 @@ function Expedition._updateWoodWork(actor, snapshot)
             context.wood.preparation = nil
             context.wood.preparationReason = nil
             local scout = mission.scout
-            if hour and scout.departureHour and scout.turnHomeAtHour then
-                scout.turnHomeAtHour = hour + scout.turnHomeAtHour - scout.departureHour
+            if not scout.departurePreparation then
+                if hour and scout.departureHour and scout.turnHomeAtHour then
+                    scout.turnHomeAtHour = hour + scout.turnHomeAtHour - scout.departureHour
+                end
+                scout.departureHour = hour or scout.departureHour
+                scout.roadRoute, scout.travelBudget = nil, nil
+                scout.trail = { { x = math.floor(mission.leader.actor:getX()),
+                    y = math.floor(mission.leader.actor:getY()), z = math.floor(mission.leader.actor:getZ()) } }
             end
-            scout.departureHour = hour or scout.departureHour
-            scout.roadRoute, scout.travelBudget = nil, nil
-            scout.trail = { { x = math.floor(mission.leader.actor:getX()),
-                y = math.floor(mission.leader.actor:getY()), z = math.floor(mission.leader.actor:getZ()) } }
-            announceDeparture(mission)
+            Expedition._syncDeparturePreparation(mission)
+            if not scout.departurePreparation then announceDeparture(mission) end
         end
         return handled == true or ready ~= true, reason or "wood_preparing_axes"
     end
@@ -1520,7 +1792,7 @@ function Expedition.updateFishingPreparation(actor)
     end
     local active = SC.Fishing.prepareGear(actor)
     if SC.Fishing.checkGear(actor) then
-        if scout.departureHour ~= nil then
+        if not scout.departurePreparation and scout.departureHour ~= nil then
             if worldHour == nil then return true, preparation.reason end
             if scout.turnHomeAtHour ~= nil then
                 scout.turnHomeAtHour = worldHour
@@ -1532,10 +1804,13 @@ function Expedition.updateFishingPreparation(actor)
         scout.fishingPreparation = nil
         -- The leader may have walked to another shelf while gathering gear.
         -- Rebuild road entry and travel allowance from its actual position.
-        scout.roadRoute, scout.travelBudget = nil, nil
-        scout.trail = { { x = math.floor(actor:getX()),
-            y = math.floor(actor:getY()), z = math.floor(actor:getZ()) } }
-        announceDeparture(mission)
+        if not scout.departurePreparation then
+            scout.roadRoute, scout.travelBudget = nil, nil
+            scout.trail = { { x = math.floor(actor:getX()),
+                y = math.floor(actor:getY()), z = math.floor(actor:getZ()) } }
+        end
+        Expedition._syncDeparturePreparation(mission)
+        if not scout.departurePreparation then announceDeparture(mission) end
         return true, "fishing_gear_ready"
     end
     local _, missing = SC.Fishing.checkGear(actor)
@@ -1850,6 +2125,8 @@ function Expedition.export()
             departureHour = mission.scout.departureHour,
             fishingPreparation = copyFishingPreparation(
                 mission.scout.fishingPreparation),
+            departurePreparation = Expedition._copyDeparturePreparation(
+                mission.scout.departurePreparation, mission.roster),
             endReason = mission.scout.endReason,
             returnRequested = mission.scout.returnRequested == true or nil,
             road = mission.scout.road and {
@@ -1967,6 +2244,7 @@ function Expedition.restore(saved)
         mission.scout.kind, mission.scout.search = "wood", nil
         mission.scout.wood = copyWood(scout.wood)
         mission.scout.phase = scout.phase
+        Expedition._syncDeparturePreparation(mission)
         if scout.wood.preparation and mission.scout.vehicle
             and scout.vehicle.state == "walking_to_car" then
             mission.scout.vehicle.state = "walking_to_car"
@@ -2018,7 +2296,7 @@ function Expedition.restore(saved)
             carSaved, mission.roster, saved.roster[1])
         if car then
             -- No seat or engine action has begun during gear preparation.
-            if mission.scout.fishingPreparation and type(carSaved) == "table"
+            if (mission.scout.fishingPreparation or mission.scout.departurePreparation) and type(carSaved) == "table"
                 and carSaved.state == "walking_to_car" then
                 car.state = "walking_to_car"
             end
@@ -2098,6 +2376,11 @@ function Expedition.restore(saved)
                 or scout.search.request.category ~= "fish"
                 or scout.search.startedHour ~= nil
                 or scout.search.endReason ~= nil))
+            or (scout.departurePreparation ~= nil and (
+                not Expedition._copyDeparturePreparation(scout.departurePreparation, saved.roster)
+                or scout.phase ~= "outbound" or (scout.kind ~= "search" and scout.kind ~= "scout")
+                or scout.kind == "search" and (type(scout.search) ~= "table"
+                    or scout.search.startedHour ~= nil or scout.search.endReason ~= nil)))
             or ((saved.schema == 4 or saved.schema == 5
                     and scout.kind == "search") and (scout.kind ~= "search"
                 or scout.phase == "observing"
@@ -2215,6 +2498,7 @@ function Expedition.restore(saved)
             arriveByHour = scout.arriveByHour,
             departureHour = scout.departureHour,
             fishingPreparation = copyFishingPreparation(scout.fishingPreparation),
+            departurePreparation = Expedition._copyDeparturePreparation(scout.departurePreparation, saved.roster),
             endReason = scout.endReason,
             returnRequested = scout.returnRequested == true,
             road = scout.road and {
@@ -2299,6 +2583,9 @@ function Expedition.restore(saved)
     end
     for _, record in ipairs(roster) do
         if record.id == saved.leaderId then mission.leader = record break end
+    end
+    if scout and scout.departurePreparation then
+        Expedition._installDeparturePreparation(mission, scout.departurePreparation)
     end
     return true
 end
@@ -2442,6 +2729,8 @@ function Expedition.prepareReset()
     if mission == nil then return true end
     if mission.suspended then return true end
     cancelFishingPreparation()
+    local prepared, preparationReason = Expedition._cancelDeparturePreparation(mission, "expedition_world_exit", true)
+    if prepared ~= true then return false, preparationReason or "departure_preparation_settling" end
     if mission.scout and mission.scout.wood and SC.ExpeditionWood then
         local stopped, reason = SC.ExpeditionWood.stop(mission.scout.wood, "expedition_world_exit")
         if stopped ~= true then return false, reason or "wood_work_settling" end
@@ -2682,6 +2971,7 @@ function Expedition.describeForPlayer(viewer)
                 or itinerary.wood and itinerary.wood.preparation and itinerary.wood.preparationReason) or nil,
         preparationMemberId = leaderVisible and itinerary
             and itinerary.fishingPreparation and leader.id or nil,
+        departurePreparation = leaderVisible and Expedition._departurePreparationSummary(mission) or nil,
         kind = itinerary and itinerary.kind or nil,
         plannedSite = itinerary and (itinerary.mapTarget and itinerary.mapTarget.label or itinerary.site
             and itinerary.site.label or itinerary.search
@@ -3948,6 +4238,11 @@ local function playerMetSearchSquad(player, leader)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    local prepared, preparationReason = Expedition._cancelDeparturePreparation(mission, "expedition_return")
+    if prepared ~= true then
+        if itinerary.departurePreparation then itinerary.departurePreparation.returnReason = reason end
+        return false, preparationReason or "departure_preparation_settling"
+    end
     if itinerary.wood then
         local wood = itinerary.wood
         local car = itinerary.vehicle
@@ -4293,6 +4588,18 @@ local function pulseScout()
                     or car.state == "unloading_site") then
                 SC.ExpeditionCar.pulse(mission, now, scoutWorldHour())
             end
+        end
+        return
+    end
+    if scout.departurePreparation then
+        Expedition._syncDeparturePreparation(mission)
+        if scout.departurePreparation.returnReason then
+            startReturnFromSite(scout, scout.departurePreparation.returnReason)
+            return
+        end
+        if scout.arriveByHour and scoutWorldHour() and scoutWorldHour() >= scout.arriveByHour then
+            startReturnFromSite(scout, "arrival_reserve_reached")
+            return
         end
         return
     end

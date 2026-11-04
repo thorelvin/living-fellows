@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.26.96 - Expedition packing and equipment care
+
+- Prepare expedition kits before walking or boarding: store spare stock, use
+  suitable bags, keep essentials and reserve space for the return cargo.
+- Show each crew member's preparation, real carrying limit, bag room and
+  shortages. Blocked preparation retries automatically and has a manual Retry.
+- Make gas masks and respirators manual equipment. Quietly remove automatically
+  worn masks while preserving the exact mask, filter and remaining charge.
+- Count hand-held bags when checking wood-expedition carrying space, and show
+  the companion's Strength carrying limit in Loadout.
+- Keep seated travellers in the selected car's Send Home review, and let a
+  reviewed walking fallback depart on the first Send.
+- Base all-clear replies on accepted combat actions, keep hostile humans in
+  danger replies, and remember corpse outfits only after a completed study.
+- Retain bridge protocol `42.21-isocompanion-29` for Project Zomboid 42.21.0;
+  ship the matching Lua and rebuilt bridge with 0.26.96 release metadata.
+
 ## 0.26.95 - Send companions home and deeper dialogue
 
 - Add 650 voice lines across camp alarms, Talk replies, body disposal and

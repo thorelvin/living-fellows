@@ -440,6 +440,8 @@ local function recordOffensiveAction(actor, state, commands, target, now, announ
     state.engagementActionCount = (tonumber(state.engagementActionCount) or 0) + 1
     state.lastOffensiveTarget = target
     state.lastOffensiveAt = now
+    -- Alarm observation must survive kill-credit and no-target cleanup.
+    state.lastAcceptedOffenseAt = now
     local designation = type(commands) == "table" and commands.targetDesignation or nil
     if type(designation) == "table" and designation.mode == "focus"
         and designation.pushed == true and designation.actor == target

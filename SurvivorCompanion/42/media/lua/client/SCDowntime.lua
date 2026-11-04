@@ -3189,7 +3189,7 @@ function Study.lines(actor, commands, body, current)
     local hour, day, rain
     if SC.Dialogue and SC.Dialogue.worldState then hour, day, rain = SC.Dialogue.worldState() end
     local skeleton = utility.call(body, "isSkeleton") == true
-    local lines = {}
+    local lines, outfitGroup = {}, nil
     if skeleton then
         lines[1] = { topic = "study.skeleton" }
     elseif utility.call(body, "isCrawling") == true and Study.hash(seed .. ":crawl") % 2 == 0 then
@@ -3201,7 +3201,7 @@ function Study.lines(actor, commands, body, current)
         else
             lines[1] = { topic = "study.outfit." .. group }
         end
-        if context then context.groups[group] = day end
+        outfitGroup = group
     else
         lines[1] = { topic = "study.open" }
     end
@@ -3252,7 +3252,7 @@ function Study.lines(actor, commands, body, current)
         local closer = Study.pick(closers, Study.hash(seed .. ":closerPick"))
         if closer then lines[#lines + 1] = { topic = closer.topic } end
     end
-    return lines
+    return lines, outfitGroup
 end
 
 function Study.duration(kind)
@@ -3265,7 +3265,7 @@ end
 -- The start claims the companion and party cooldowns, so an interrupted or
 -- unreachable look is not retried at once.
 function Study.prepare(actor, activity, commands, state, now)
-    activity.lines = Study.lines(actor, commands, activity.object, now)
+    activity.lines, activity.studyOutfitGroup = Study.lines(actor, commands, activity.object, now)
     activity.nextLineAt = 0
     state.studiedAt = now
     Study.lastPartyAt = now
@@ -3295,6 +3295,18 @@ end
 function Study.finish(actor, activity, now)
     local data = U().modData(activity.object)
     if type(data) == "table" then data[Study.MARKER] = true end
+    -- A failed approach or interrupted look never becomes a remembered study.
+    local group = activity.studyOutfitGroup
+    activity.studyOutfitGroup = nil
+    if group then
+        local day
+        if SC.Dialogue and type(SC.Dialogue.worldState) == "function" then
+            local _
+            _, day = SC.Dialogue.worldState()
+        end
+        local context = SC.BaseLife and SC.BaseLife.voiceDay and SC.BaseLife.voiceDay(day)
+        if context then context.groups[group] = day end
+    end
     if type(activity.lines) == "table" and #activity.lines > 0 then
         activity.nextLineAt = 0
         Study.speakNext(actor, activity, now)

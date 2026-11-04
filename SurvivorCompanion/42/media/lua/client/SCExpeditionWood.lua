@@ -187,14 +187,17 @@ local function freeCapacity(container, actor)
     local weight = tonumber(call(container, "getCapacityWeight"))
     return capacity and weight and math.max(0, capacity - weight) or nil
 end
-local function destinations(actor)
+local function destinations(actor, allowHeldBag)
     local entries = L().inventoryEntries(actor)
     if not entries then return {} end
     local result, root = {}, U().inventory(actor)
     result[1] = { container = root, factor = 1 }
     for _, entry in ipairs(entries) do
         local bag = call(entry.item, "getInventory")
-        if bag and entry.source == root and call(actor, "isEquippedClothing", entry.item) == true then
+        -- The engine applies bag weight reduction in either hand as well as
+        -- on the back. Recheck the current slot; ownership alone is not enough.
+        if bag and entry.source == root and (call(actor, "isEquippedClothing", entry.item) == true
+            or allowHeldBag ~= false and call(actor, "isHandItem", entry.item) == true) then
             local reduction = tonumber(call(entry.item, "getWeightReduction")) or 0
             result[#result + 1] = { container = bag, factor = 1 - math.max(0, math.min(100, reduction)) / 100 }
         end
@@ -202,17 +205,28 @@ local function destinations(actor)
     table.sort(result, function(a, b) return a.factor < b.factor end)
     return result
 end
-local function carryDestination(actor, log, car)
+local function carryDestination(actor, log, car, options)
     local weight, maximum = U().carryLoad(actor)
+    local lostReduction = 0
+    if type(U().projectedCarryLoad) == "function" then
+        local ignored, inventory
+        weight, maximum, ignored, inventory, lostReduction = U().projectedCarryLoad(
+            actor, options and options.allowHeldBag)
+    end
     if not finite(weight) or not finite(maximum) or maximum <= 0 then return nil, "wood_capacity_unavailable" end
-    for _, choice in ipairs(destinations(actor)) do
+    local root = U().inventory(actor)
+    local rootFree = freeCapacity(root, actor)
+    for _, choice in ipairs(destinations(actor, options and options.allowHeldBag)) do
         local free = freeCapacity(choice.container, actor)
         local itemWeight = log and U().itemWeight(log) or LOG_WEIGHT
+        if free and choice.container == root then free = free - lostReduction end
         -- A short car shuttle may use the physical inventory limit, as field
         -- logging already does. A walking return must remain under Heavy Load.
         local safe = car or weight + itemWeight * choice.factor <= maximum + 0.000001
         local admitted = not log or SC.WorkTransport.hasRoom(choice.container, actor, log) == true
-        if free and free + 0.000001 >= itemWeight and safe and admitted then return choice.container end
+        local physicalRoom = lostReduction == 0 or rootFree
+            and rootFree - lostReduction + 0.000001 >= itemWeight
+        if free and free + 0.000001 >= itemWeight and physicalRoom and safe and admitted then return choice.container end
     end
     return nil, "wood_carry_capacity"
 end
@@ -239,10 +253,12 @@ local function eligible(member)
     return type(member) == "table" and member.actor ~= nil
         and call(member.actor, "isDead") == false and resolve(member.id) == member.actor
 end
-local function rosterCanCarry(roster, carId, target)
+local function rosterCanCarry(roster, carId, target, options)
     for _, member in ipairs(roster or {}) do
+        local allowed = not options or not options.allowHeldById or options.allowHeldById[member.id] ~= false
         if eligible(member)
-            and carryDestination(member.actor, nil, shortShuttle(member.actor, carId, target)) then return true end
+            and carryDestination(member.actor, nil, shortShuttle(member.actor, carId, target),
+                { allowHeldBag = allowed }) then return true end
     end
     return false
 end
@@ -273,7 +289,39 @@ local function recordGearLoan(wood, pending)
     pending.marker[TOOL] = { id = pending.nativeId, memberId = pending.memberId }
     return true
 end
-function Wood.prepare(roster, wood, carDescriptor, leaderId)
+function Wood.departureGear(actor, wood)
+    local item = actor and axe(actor, wood)
+    local id = item and U().itemStableId(item, true)
+    return id and { id } or {}, not item or call(item, "isTwoHandWeapon") ~= true
+end
+
+function Wood.departureReady(roster, wood, carDescriptor, options)
+    local carId = carDescriptor and carDescriptor.sqlId
+    local cutter
+    for _, member in ipairs(roster or {}) do
+        if eligible(member) and axe(member.actor, wood) then cutter = member break end
+    end
+    if not cutter then return false, "wood_axe_missing" end
+    if not rosterCanCarry(roster, carId, nil, options) then return false, "wood_carry_capacity" end
+    if carId and not rosterCanCarry(roster, nil, nil, options)
+        and (not SC.ExpeditionIntegration or not SC.ExpeditionIntegration.woodReturnShuttleAvailable
+            or SC.ExpeditionIntegration.woodReturnShuttleAvailable(cutter.actor, carId) ~= true) then
+        return false, "wood_return_carry_capacity"
+    end
+    if carId then
+        local vehicle = SC.Vehicle.loadedBySqlId(carId)
+        local container
+        if vehicle then
+            local part
+            part, container = SC.Vehicle.cargoPart(vehicle)
+        end
+        local free = container and freeCapacity(container, cutter.actor)
+        if not free or free < LOG_WEIGHT then return false, "wood_trunk_capacity" end
+    end
+    return true, "wood_ready"
+end
+
+function Wood.prepare(roster, wood, carDescriptor, leaderId, options)
     if type(wood) ~= "table" or not Wood.normalizeRequest(wood.request) or not L() then
         return false, "invalid_wood_request", false
     end
@@ -305,21 +353,9 @@ function Wood.prepare(roster, wood, carDescriptor, leaderId)
     for _, member in ipairs(members) do if axe(member.actor, wood) then cutter = member break end end
     if cutter then
         wood.cutterId = actorId(cutter.actor)
-        if not rosterCanCarry(roster, carId) then return false, "wood_carry_capacity", false end
-        if carId and not rosterCanCarry(roster, nil)
-            and (not SC.ExpeditionIntegration or not SC.ExpeditionIntegration.woodReturnShuttleAvailable
-                or SC.ExpeditionIntegration.woodReturnShuttleAvailable(cutter.actor, carId) ~= true) then
-            return false, "wood_return_carry_capacity", false
-        end
-        if carId then
-            local vehicle = SC.Vehicle.loadedBySqlId(carId)
-            local container
-            if vehicle then
-                local part
-                part, container = SC.Vehicle.cargoPart(vehicle)
-            end
-            local free = container and freeCapacity(container, cutter.actor)
-            if not free or free < LOG_WEIGHT then return false, "wood_trunk_capacity", false end
+        if not (options and options.gearOnly == true) then
+            local ready, reason = Wood.departureReady(roster, wood, carDescriptor)
+            if not ready then return false, reason, false end
         end
         wood.prepared, wood.blocker = true, nil
         return true, "wood_ready", true

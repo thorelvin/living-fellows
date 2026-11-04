@@ -187,10 +187,20 @@ if SCHomeTripUITestFixture == nil then
     SurvivorCompanion.HomeTrip = {
         roster = function(selection)
             local result = { records = {}, exclusions = {} }
+            local selectedCar = selection.vehicle
+            if not selectedCar and selection.vehicleSqlId ~= nil then
+                for _, candidate in ipairs(f.cars or {}) do
+                    if candidate.sqlId == selection.vehicleSqlId then selectedCar = candidate.vehicle break end
+                end
+            end
+            local selectedParked = selection.travelMode == "drive" and selectedCar
+                and selectedCar.stationary ~= false
             for _, record in ipairs(selection.records or {}) do
-                if record.eligible then result.records[#result.records + 1] = record
+                local seatedCar = record.actor and record.actor.vehicle
+                local seatedEligible = not seatedCar or selectedParked and seatedCar == selectedCar
+                if record.eligible and seatedEligible then result.records[#result.records + 1] = record
                 else result.exclusions[#result.exclusions + 1] = { record = record,
-                    name = record.name, reason = "not_following" } end
+                    name = record.name, reason = seatedEligible and "not_following" or "home_member_seated" } end
             end
             return result
         end,
@@ -203,13 +213,18 @@ if SCHomeTripUITestFixture == nil then
             return result
         end,
         reviewKey = function(selection)
-            return tostring(selection.vehicleSqlId) .. ":" .. tostring(f.carRevision or 0)
+            return tostring(selection.travelMode or "road") .. ":" .. tostring(selection.vehicleSqlId)
+                .. ":" .. tostring(f.carRevision or 0)
                 .. ":" .. tostring(f.campRevision or 0)
         end,
         draft = function(selection)
             f.plans = f.plans + 1
             local result = SurvivorCompanion.HomeTrip.eligibility(selection)
-            result.distance, result.estimatedHours, result.routeFallback = 200, 1, f.fallback
+            result.distance, result.estimatedHours = 200, 1
+            result.requestedTravelMode = selection.travelMode or "road"
+            result.routeFallback = f.fallback == true and result.requestedTravelMode == "road"
+            result.travelMode = result.routeFallback and "straight" or result.requestedTravelMode
+            result.reviewKey = SurvivorCompanion.HomeTrip.reviewKey(selection)
             if selection.travelMode == "drive" then
                 result.car, result.homeStop = f.carReview, f.homeStop
             end
@@ -219,6 +234,10 @@ if SCHomeTripUITestFixture == nil then
             f.starts, f.startedIds = f.starts + 1, {}
             f.startedVehicle, f.startedReview = selection.vehicle, reviewedDraft
             if f.startReject then return false, f.startReject end
+            if reviewedDraft and reviewedDraft.reviewKey ~= SurvivorCompanion.HomeTrip.reviewKey(selection) then
+                return false, "home_review_changed"
+            end
+            f.startedTravelMode = reviewedDraft and reviewedDraft.travelMode
             for _, record in ipairs(SurvivorCompanion.HomeTrip.roster(selection).records) do
                 f.startedIds[#f.startedIds + 1] = record.id
             end
@@ -343,14 +362,16 @@ f.fallback = true
 HomeUI.openSheet({ record = detail.root.selectedRow })
 HomeUI.update(detail)
 panel = build(detail)
-assert(detail.homeTripSheet.selection.travelMode == "straight"
+assert(detail.homeTripSheet.selection.travelMode == "road"
+    and detail.homeTripSheet.review.travelMode == "straight"
+    and string.find(joinedText(panel), "200 m straight to camp", 1, true)
     and string.find(joinedText(panel), "No road route found", 1, true),
-    "road fallback visibly changes How and explains the route")
+    "road fallback preserves the reviewed request and describes the effective straight route")
 HomeUI.onButton(detail, footer(detail, "send"))
 assert(f.starts == 0 and detail.homeTripSheet.sendPending, "Send queues departure outside the click callback")
 HomeUI.update(detail)
-assert(f.starts == 1 and not detail.homeTripSheet,
-    "a reviewed eligible crew dispatches exactly once and returns to Squad")
+assert(f.starts == 1 and f.startedTravelMode == "straight" and not detail.homeTripSheet,
+    "the first Send dispatches the reviewed fallback exactly once and returns to Squad")
 f.fallback = false
 
 for _, change in ipairs({
@@ -468,6 +489,56 @@ HomeUI.update(detail)
 assert(f.starts == starts + 1 and f.startedVehicle == usableCar and f.startedReview == reviewed
     and f.plans == plans + 1 and not detail.homeTripSheet,
     "the scheduled departure passes the exact reviewed car and draft without another UI route plan")
+
+for _, allSeated in ipairs({ true, false }) do
+    detail = f.detail(3)
+    for index = 1, 3 do
+        if allSeated or index == 2 then f.records["member-" .. index].actor.vehicle = usableCar end
+    end
+    HomeUI.openSheet({ group = "alpha", travelMode = "drive",
+        vehicle = allSeated and usableCar or nil, vehicleSqlId = 20 })
+    HomeUI.update(detail)
+    panel = build(detail)
+    assert(footer(detail, "send").enable
+        and #control(panel, "scHomeField", "leaderId").options == 3
+        and string.find(joinedText(panel), "Travellers: Crew 1, Crew 2, Crew 3.", 1, true)
+        and not string.find(joinedText(panel), "stays:", 1, true),
+        "the selected parked car keeps every seated traveller in the crew and leader review")
+    local who = control(panel, "scHomeField", "who")
+    for index, option in ipairs(who.options) do
+        assert(not option.data.disabled, "single and group choices retain the selected-car eligibility")
+        if option.data.value == "single" then who.selected = index end
+    end
+    HomeUI.onSelect(detail, who)
+    HomeUI.update(detail)
+    panel = build(detail)
+    assert(footer(detail, "send").enable
+        and #control(panel, "scHomeField", "leaderId").options == 1
+        and detail.homeTripSheet.selection.vehicleSqlId == 20,
+        "switching to a single seated driver preserves the car and drive context")
+    who = control(panel, "scHomeField", "who")
+    for index, option in ipairs(who.options) do
+        if option.data.value == "alpha" then who.selected = index end
+    end
+    HomeUI.onSelect(detail, who)
+    HomeUI.update(detail)
+    panel = build(detail)
+    local starts = f.starts
+    HomeUI.onButton(detail, footer(detail, "send"))
+    HomeUI.update(detail)
+    assert(f.starts == starts + 1 and table.concat(f.startedIds, ",") == "member-1,member-2,member-3"
+        and not detail.homeTripSheet,
+        "both all-seated and mixed crews dispatch exactly the travellers shown in the drive review")
+
+    HomeUI.openSheet({ group = "alpha", travelMode = "road", vehicle = usableCar, vehicleSqlId = 20 })
+    HomeUI.update(detail)
+    panel = build(detail)
+    assert(footer(detail, "send").enable == (not allSeated)
+        and #detail.homeTripSheet.review.records == (allSeated and 0 or 2)
+        and string.find(joinedText(panel), "Crew 2 stays:", 1, true),
+        "walking still excludes seated crew even when a parked car is selected")
+    HomeUI.onButton(detail, { scHomeAction = "back" })
+end
 
 for _, when in ipairs({ "before click", "after click" }) do
     detail = f.detail(3)

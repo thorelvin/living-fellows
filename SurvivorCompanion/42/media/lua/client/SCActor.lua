@@ -773,7 +773,7 @@ local function releaseActionOwnership(actor, reason, preserveVehicleBoardCommit)
 end
 
 local runtimeReleaseHooks = {
-    { "BaseWork", "reset" }, { "Encounter", "reset" },
+    { "BaseWork", "reset" }, { "Encounter", "reset" }, { "Logistics", "reset" },
     { "Downtime", "reset" }, { "Medical", "releaseActor" },
     { "Combat", "releaseActor" }, { "Navigation", "reset" },
     { "NavTraffic", "releaseActor" }, { "NavTraversal", "releaseActor" },

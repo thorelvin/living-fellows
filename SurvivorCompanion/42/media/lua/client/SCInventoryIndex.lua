@@ -163,6 +163,11 @@ function Index.touch(actor)
     return true
 end
 
+-- A cache consumer may observe invalidation without rebuilding the index.
+function Index.version(actor)
+    return actor and (versions[actor] or 0) or 0
+end
+
 function Index.touchContainer(container)
     if container == nil then return false end
     local touched = false

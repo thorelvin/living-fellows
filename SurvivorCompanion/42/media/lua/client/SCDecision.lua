@@ -909,7 +909,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 add("base_work", (settlement or cleaningSettlement) and 86 or priorityWork and 76 or 58, false)
             end
         end
-        if threatCount == 0 and not bleeding and SC.ExpeditionPrototype then
+        if threatCount == 0 and not bleeding and humanThreat == nil and SC.ExpeditionPrototype then
+            local departure = type(SC.ExpeditionPrototype.departurePreparationFor) == "function"
+                and SC.ExpeditionPrototype.departurePreparationFor(actor) or nil
             local woodPreparation = type(SC.ExpeditionPrototype.woodPreparationFor) == "function"
                 and SC.ExpeditionPrototype.woodPreparationFor(actor) or nil
             local woodRequest = type(SC.ExpeditionPrototype.woodRequestFor) == "function"
@@ -923,6 +925,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             elseif type(SC.ExpeditionPrototype.fishingRequestFor) == "function" then
                 local request = SC.ExpeditionPrototype.fishingRequestFor(actor)
                 if request then add("fishing", 86, false, request) end
+            end
+            if departure and not woodPreparation and not preparation then
+                add("departure_preparation", 86, false, departure)
             end
         end
         -- A companion with its own task (an expedition leader searching its
@@ -2300,6 +2305,14 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("field-work", actor, function()
             return SC.FieldWork.update(actor, player)
         end)
+    elseif candidate.kind == "departure_preparation" then
+        if not SC.ExpeditionPrototype
+            or type(SC.ExpeditionPrototype.updateDeparturePreparation) ~= "function" then
+            return false, "departure_preparation_unavailable"
+        end
+        return callSubsystem("departure-preparation", actor, function()
+            return SC.ExpeditionPrototype.updateDeparturePreparation(actor, rootRuntime)
+        end)
     elseif candidate.kind == "wood" or candidate.kind == "wood_preparation" then
         if not SC.ExpeditionPrototype or type(SC.ExpeditionPrototype.updateWood) ~= "function" then
             return false, "wood_expedition_unavailable"
@@ -2597,7 +2610,8 @@ local function candidateInterval(candidate)
         return 250
     elseif candidate.kind == "field_work" then
         return 250
-    elseif candidate.kind == "fishing" or candidate.kind == "fishing_preparation"
+    elseif candidate.kind == "departure_preparation"
+        or candidate.kind == "fishing" or candidate.kind == "fishing_preparation"
         or candidate.kind == "wood" or candidate.kind == "wood_preparation" then
         return 250
     elseif candidate.kind == "logistics" then
@@ -2619,6 +2633,7 @@ local retainedApproachKinds = {
     scavenge = true, downtime = true, needs = true, water_refill = true,
     base_work = true, expedition_delivery = true, fishing = true,
     fishing_preparation = true, wood = true, wood_preparation = true,
+    departure_preparation = true,
     faction = true, purposeful_idle = true,
     field_work = true,
     joy_response = true, ritual = true,
@@ -3001,6 +3016,20 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     return true, state.intent
                 end
                 supervisedOwner = nil
+            elseif token.owner == "logistics" and SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.departurePreparationFor) == "function"
+                and type(SC.ExpeditionPrototype.updateDeparturePreparation) == "function"
+                and SC.ExpeditionPrototype.departurePreparationFor(actor) ~= nil then
+                -- Preparation owns the whole transfer, including verification
+                -- and reconciliation. Poll that controller before the generic
+                -- activity hold so its own native action can finish.
+                local safe, _, reason = U().safeSubsystem("departure-preparation", actor,
+                    SC.ExpeditionPrototype.updateDeparturePreparation, actor, rootRuntime or {})
+                state.current, state.currentKey = "departure_preparation", "departure_preparation"
+                state.intent = safe and (reason or "preparing_loadout")
+                    or "departure_preparation_failed"
+                state.lastHandledAt = current
+                return true, state.intent
             elseif token.rollbackObligation ~= nil then
                 state.current = "activity"
                 state.intent = tostring(token.owner) .. ":" .. tostring(token.action)
@@ -3443,11 +3472,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return safe and worked == true, state.intent
     end
 
+    local departurePreparation = SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.departurePreparationFor) == "function"
+        and SC.ExpeditionPrototype.departurePreparationFor(actor) or nil
+
     -- Car expeditions reserve the exact native seat before motion. Drive
     -- ownership above still wins for the leader once the wheel is engaged.
     local carOrder = SC.ExpeditionCar
         and SC.ExpeditionCar.boardingOrderFor(actor) or nil
-    if carOrder and (tonumber(snapshot.immediateCount) or 0) == 0 then
+    if carOrder and not departurePreparation and (tonumber(snapshot.immediateCount) or 0) == 0 then
         -- A shelving or packing move begun at camp holds this actor's action
         -- owner, and this branch returns before logistics could finish it,
         -- so the seat would be refused until the boarding deadline. The
@@ -3477,7 +3510,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     -- A walking departure can inherit one real inventory transfer started at
     -- camp. Cancel its approach or finish that exact in-flight transaction;
     -- never begin another home deposit while the mission owns this actor.
-    if commands.expeditionMember and not convoyEmergency
+    if commands.expeditionMember and not departurePreparation and not convoyEmergency
         and (tonumber(snapshot.immediateCount) or 0) == 0
         and SC.Logistics and type(SC.Logistics.busy) == "function"
         and SC.Logistics.busy(actor) and type(SC.Logistics.yieldToWork) == "function" then
@@ -3533,6 +3566,10 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         preparation = woodPreparation.wood
         preparationKind = "wood_preparation"
     end
+    if departurePreparation then
+        preparation = departurePreparation
+        preparationKind = "departure_preparation"
+    end
     if preparation == nil then
         state.fishingPreparationHandoff = nil
     elseif state.fishingPreparationHandoff ~= preparation
@@ -3540,8 +3577,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         and not ownerNeedsImmediatePreemption("work", snapshot, assessment, needs,
             commands, factionNeedsImmediateControl(actor, player, snapshot, commands), actor, player) then
         local safe, settled, settleReason = utility.safeSubsystem(
-            (preparationKind == "wood_preparation" and "wood-preparation-handoff"
-                or "fishing-preparation-handoff"), actor, function()
+            preparationKind .. "-handoff", actor, function()
                 local packing = SC.Logistics and type(SC.Logistics.busy) == "function"
                     and SC.Logistics.busy(actor)
                 local token = packing and SC.ActionSupervisor
@@ -3549,6 +3585,11 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                     and SC.ActionSupervisor.current(actor) or nil
                 if token and (token.phase == "committing" or token.phase == "verifying"
                     or token.rollbackObligation ~= nil) then
+                    if type(SC.Logistics.update) == "function" then
+                        -- Only the transaction proven busy above is serviced;
+                        -- its updater returns before selecting new logistics.
+                        SC.Logistics.update(actor, player, rootRuntime)
+                    end
                     return false, preparationKind .. "_inventory_pending"
                 end
                 if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then

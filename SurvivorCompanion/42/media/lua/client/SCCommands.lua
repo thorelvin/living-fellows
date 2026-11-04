@@ -1919,7 +1919,7 @@ function Commands.describe(companionId, player)
     if SC.Logistics and type(SC.Logistics.roleOf) == "function" then
         local ok, role = pcall(SC.Logistics.roleOf, actor)
         if ok then
-            local loadOk, weight, capacity, ratio = pcall(U().inventoryLoad, actor)
+            local loadOk, weight, capacity, ratio = pcall(U().carryLoad, actor)
             if loadOk then
                 load = { role = role, weight = weight,
                     capacity = capacity, ratio = ratio }

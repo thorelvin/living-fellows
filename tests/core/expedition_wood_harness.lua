@@ -49,6 +49,7 @@ local function actor(id, limit)
     function result:isDead() return self.dead == true end
     function result:isEnduranceSufficientForAction() return self.endurance ~= false end
     function result:isEquippedClothing(value) return self.worn == value end
+    function result:isHandItem(value) return self.primary == value or self.secondary == value end
     actors[id] = result
     return result
 end
@@ -214,6 +215,13 @@ check(not Wood._tests.carryDestination(walker, nil, false), "walking strength pr
 local bag = item("Base.Bag") bag.bag, bag.reduction = container(20), 70
 put(walker.bag, bag) walker.worn = bag
 check(Wood._tests.carryDestination(walker, nil, false) == bag.bag, "real reduced-weight bag admitted")
+walker.worn, walker.secondary = nil, bag
+check(Wood._tests.carryDestination(walker, nil, false) == bag.bag, "secondary-hand bag uses native weight reduction")
+walker.secondary, walker.primary = nil, bag
+check(Wood._tests.carryDestination(walker, nil, false) == bag.bag, "primary-hand bag uses native weight reduction")
+walker.primary = nil
+check(not Wood._tests.carryDestination(walker, nil, false), "putting a bag away removes its carrying benefit")
+walker.worn = bag
 local rejected = item("Base.Log") bag.bag.reject = true
 check(not Wood._tests.carryDestination(walker, rejected, false), "native bag admission required")
 bag.bag.reject = nil

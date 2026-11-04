@@ -6,6 +6,9 @@ Date: 2026-11-04. Branch: `feature/voice-depth`, based on published
 `living_fellows/0.26.95` at `27057aa6`.
 Project Zomboid 42.21.0; native protocol and release metadata unchanged.
 
+Follow-up review fixes and their current validation are recorded in
+[the 0.26.95 review](review-0.26.95.md).
+
 ## Automated results
 
 - Normal and debug compilation pass for all eight changed client Lua modules.

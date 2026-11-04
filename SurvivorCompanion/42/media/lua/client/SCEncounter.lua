@@ -19,6 +19,11 @@ local function U()
     return SC.GameplayUtil
 end
 
+local function manualEquipmentOnly(item)
+    return SC.Logistics and type(SC.Logistics.isManualOnlyFilterMask) == "function"
+        and SC.Logistics.isManualOnlyFilterMask(item) == true
+end
+
 local function matchesSupplyRequest(requestedCategory, category)
     return requestedCategory == "useful" and category ~= nil
         or requestedCategory == category
@@ -1419,7 +1424,7 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
         local protected = SC.PersonalItems
             and SC.PersonalItems.isProtected(item, actor, "return_to_owner")
         local score, category = 0, nil
-        if not protected then
+        if not protected and not manualEquipmentOnly(item) then
             score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
             local supplyCategory = category
             local supplyScore = score
@@ -2296,6 +2301,13 @@ local function commitTask(actor, state, task, commands, audit, time)
         })
         return false, "storage_withdrawn"
     end
+    if manualEquipmentOnly(task.item) then
+        resetScavengeTarget(actor, state, {
+            reason = "manual_equipment_only", phase = "cancelled",
+            memoryResult = "loadout_changed", time = time,
+        })
+        return false, "manual_equipment_only"
+    end
     local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
         and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
     if not ritualAccepts and not priorityMeleeAllowed(
@@ -2711,6 +2723,13 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         state.item, state.itemCategory = found, category
     end
 
+    if manualEquipmentOnly(task.item) then
+        resetScavengeTarget(actor, state, {
+            reason = "manual_equipment_only", phase = "cancelled",
+            memoryResult = "loadout_changed", time = time,
+        })
+        return false, "manual_equipment_only"
+    end
     local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
         and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
     if not ritualAccepts and not priorityMeleeAllowed(

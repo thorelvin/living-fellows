@@ -17,11 +17,12 @@ New context follows existing actions:
 
 - Camp calls choose recent-repeat, then night (21:00-05:00), then fog or heavy
   rain, then the ordinary alarm level. Fall-back is never replaced. All-clear
-  distinguishes an observed combat owner from an uneventful passing contact.
+  distinguishes accepted combat actions from an uneventful passing contact.
 - During an alarm, a newly wounded resident can be called out once by an
   awake witness on the same floor, within ten meters and with line of sight.
-  Medical checks are cached and limited to once a second; pure combat-owner
-  reads do not advance or cancel the action supervisor.
+  Medical checks are cached and limited to once a second; pure combat-state
+  reads do not advance or cancel actions. The accepted-offense timestamp
+  survives kill confirmation and no-target cleanup.
 - Talk reports rest from 68% fatigue, after illness, wounds, thirst and hunger.
   Camp residents discuss camp when on base duty or present there, after the
   danger branch. The actual describer supplies fatigue to both status and
@@ -32,8 +33,9 @@ New context follows existing actions:
   fifteen, twenty, thirty, forty and fifty may replace the usual drop line.
   The milestone's 100% chance still respects the ordinary actor cooldown,
   party gap and silence near threats. No second bark is added.
-- Studying another outfit group already seen that day can recall it. Night
-  and rain add weight-two middle candidates; study duration, curiosity,
+- Studying another outfit group already studied that day can recall it. The
+  group is remembered only when the study finishes; aborted approaches do not
+  count. Night and rain add weight-two middle candidates; study duration, curiosity,
   cooldowns and number of lines remain unchanged.
 
 Missing contextual pools fall back to existing topics or the established Talk
