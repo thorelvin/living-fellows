@@ -182,6 +182,13 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
             if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
             if ($FishingOnly) { return }
+            $voiceDepthFiles = @((Join-Path $ProjectRoot 'tests/core/core_fixture.lua')) + @($BaseLuaFiles) + @(
+                (Join-Path $ClientRoot 'SCProduction.lua'),
+                (Join-Path $TestRoot 'voice_depth_harness.lua')
+            )
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @voiceDepthFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Contextual voice depth and pacing harness failed.' }
+            & (Join-Path $TestRoot 'Test-VoiceDepthNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -VoiceDepthFiles $voiceDepthFiles -BuildRoot $BuildRoot
             # Other integration fixtures replace utility/subsystem tables.
             # Floor regressions need the real inventory scanner and storage
             # helper, so load them into a fresh Kahlua environment.

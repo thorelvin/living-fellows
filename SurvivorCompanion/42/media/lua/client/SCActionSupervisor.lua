@@ -935,6 +935,12 @@ function Supervisor.begin(actor, spec)
     return token, "started"
 end
 
+-- Observation must not recover/cancel a timed action while choosing a bark.
+function Supervisor.peekOwner(actor)
+    local token = actor and activeByActor[actor]
+    return token and token.terminalAt == nil and token.owner or nil
+end
+
 function Supervisor.current(actor)
     if actor == nil then return nil end
     Supervisor.update(actor)

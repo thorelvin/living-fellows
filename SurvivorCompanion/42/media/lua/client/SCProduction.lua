@@ -50,6 +50,7 @@ local SPEECH = {
     ["burial.haul.start"] = { chance = 35, actorMs = 60000 },
     ["burial.haul.drag"] = { chance = 20, actorMs = 45000 },
     ["burial.haul.drop"] = { chance = 25, actorMs = 30000 },
+    ["burial.haul.tally"] = { chance = 100, actorMs = 30000 },
     -- Spoken exactly when danger forces the drop, so it ignores the usual
     -- silence-near-threats rule (still bounded by its actor cooldown).
     ["burial.haul.threat"] = { chance = 100, actorMs = 20000, urgent = true },
@@ -258,12 +259,28 @@ local POOLS = {
             "Digging. Somebody has to.",
             "Shovel's heavier than it looks today.",
             "Every town needs a graveyard. Ours is just newer.",
+            "Dig, sweat, repeat.",
+            "Ground's soft today. Small favors.",
+            "Shovels out. Same as yesterday.",
         },
-        brave = { "Deep enough that they don't walk out of this one." },
-        cautious = { "Deep enough that nothing digs its way back. That's the standard." },
-        caring = { "They deserve better than the roadside. This is better." },
-        practical = { "Natural soil, good drainage. It'll do." },
-        low = { "I used to dig flower beds." },
+        brave = {
+            "Deep enough that they don't walk out of this one.",
+        },
+        cautious = {
+            "Deep enough that nothing digs its way back. That's the standard.",
+        },
+        caring = {
+            "They deserve better than the roadside. This is better.",
+        },
+        practical = {
+            "Natural soil, good drainage. It'll do.",
+        },
+        low = {
+            "I used to dig flower beds.",
+        },
+        stressed = {
+            "Just dig. Don't think. Dig.",
+        },
     },
     ["burial.dig.done"] = {
         common = {
@@ -273,8 +290,21 @@ local POOLS = {
             "Six feet and one last favor. Grave's ready.",
             "Fresh earth, clean edges. I wish that mattered more.",
             "Shovel down. We can bring them over now.",
+            "Deep enough. That's a miserable thing to be pleased about.",
+            "Grave's ready. I'll wash the shovel after.",
         },
-        practical = { "Grave complete. Five places." },
+        practical = {
+            "Grave complete. Five places.",
+        },
+        brave = {
+            "Done. Bring me the next one.",
+        },
+        caring = {
+            "It's ready. As good a spot as any.",
+        },
+        low = {
+            "Another hole. The county's turning into one big one.",
+        },
     },
     ["burial.lower"] = {
         common = {
@@ -283,13 +313,30 @@ local POOLS = {
             "You're off shift now.",
             "Lie still. That's all we ask.",
             "Whoever you were, you're done carrying it.",
+            "Easy does it. No rush now.",
+            "Down you go. Sleep tight.",
         },
-        brave = { "Stay down this time. That's an order." },
-        cautious = { "Checked twice. It's not getting up." },
-        caring = { "Somebody loved you once. Go easy." },
-        practical = { "Interred. Next." },
-        stressed = { "Don't look at the face. Don't look at the face." },
-        low = { "Sometimes I think they're the lucky ones. Then I remember the smell." },
+        brave = {
+            "Stay down this time. That's an order.",
+        },
+        cautious = {
+            "Checked twice. It's not getting up.",
+        },
+        caring = {
+            "Somebody loved you once. Go easy.",
+        },
+        practical = {
+            "Interred. Next.",
+        },
+        stressed = {
+            "Don't look at the face. Don't look at the face.",
+        },
+        low = {
+            "Sometimes I think they're the lucky ones. Then I remember the smell.",
+        },
+        hopeful = {
+            "Go on. Someone's waiting for you.",
+        },
     },
     ["burial.prayer"] = {
         common = {
@@ -331,8 +378,22 @@ local POOLS = {
         low = { "The end of the world has terrible funeral arrangements." },
     },
     ["burial.amen"] = {
-        common = { "Amen.", "...Amen.", "Amen. Stay down.", "What they said.", "Rest easy." },
-        practical = { "Amen. Shovels back in storage." },
+        common = {
+            "Amen.",
+            "...Amen.",
+            "Amen. Stay down.",
+            "What they said.",
+            "Rest easy.",
+            "Amen. Back to work.",
+            "Amen. And stay there.",
+            "Amen. Somebody keep watch while we put the tools away.",
+        },
+        practical = {
+            "Amen. Shovels back in storage.",
+        },
+        caring = {
+            "Amen. Rest well.",
+        },
     },
     ["burial.ritual.rubber_duck_oracle"] = { common = {
         "By yellow wing and squeaking beak, keep this one down and quiet.",
@@ -376,12 +437,31 @@ local POOLS = {
             "Come on, friend. One last walk. Well, drag.",
             "Room's ready for you. Let's go.",
             "Up you come. Nobody gets left in the yard.",
+            "Another one for the pile. Lift.",
+            "Up we go. You're lighter than the last one.",
+            "Sorry about this. It's nothing personal.",
         },
-        brave = { "On three. One... two... never mind, I've got you." },
-        cautious = { "Checking twice. Still dead. Okay, moving." },
-        caring = { "Easy now. I've got you. You're going somewhere quiet." },
-        practical = { "Body secured. Moving." },
-        stressed = { "Don't look at me. Don't look at me." },
+        brave = {
+            "On three. One... two... never mind, I've got you.",
+            "Come on, big fella. Your carriage awaits.",
+        },
+        cautious = {
+            "Checking twice. Still dead. Okay, moving.",
+        },
+        caring = {
+            "Easy now. I've got you. You're going somewhere quiet.",
+            "Gently. They were somebody's.",
+        },
+        practical = {
+            "Body secured. Moving.",
+            "Taking this one. Clear the path.",
+        },
+        stressed = {
+            "Don't look at me. Don't look at me.",
+        },
+        low = {
+            "I've carried more dead this month than groceries in my life.",
+        },
     },
     ["burial.haul.drag"] = {
         common = {
@@ -389,28 +469,82 @@ local POOLS = {
             "You could help, you know. No? Figures.",
             "Nearly there. Don't wake up.",
             "Mind the bumps. Not that you'd complain.",
+            "One foot. Other foot. Repeat until dead.",
+            "Stiff as a bench. Heavy as two.",
+            "Every one of them weighs a ton.",
         },
-        practical = { "Keep it steady. Almost there." },
-        stressed = { "Just keep walking. Just keep walking." },
-        low = { "Everybody gets dragged somewhere in the end." },
+        practical = {
+            "Keep it steady. Almost there.",
+        },
+        stressed = {
+            "Just keep walking. Just keep walking.",
+        },
+        low = {
+            "Everybody gets dragged somewhere in the end.",
+        },
+        brave = {
+            "Keep up, pal.",
+        },
+        cautious = {
+            "Slow. Watch the doorway.",
+        },
+        caring = {
+            "Almost there. Sorry for the bumps.",
+        },
     },
     ["burial.haul.drop"] = {
-        common = { "Your stop.", "Wait here. Not like you're going anywhere.", "And... down.",
+        common = {
+            "Your stop.",
+            "Wait here. Not like you're going anywhere.",
+            "And... down.",
             "End of the road. Rest where I leave you.",
             "Here we are. Sorry about the ride.",
             "Set down gently. That still matters.",
+            "There. With your friends.",
+            "Last stop. Everybody off.",
+            "Pile's getting tall.",
         },
-        practical = { "Placed. Next." },
+        practical = {
+            "Placed. Next.",
+        },
+        brave = {
+            "Next!",
+        },
+        caring = {
+            "Rest here a while.",
+        },
+        low = {
+            "Another one on the pile. Another name nobody'll say.",
+        },
     },
     ["burial.haul.threat"] = {
-        common = { "Dropping the body! Contact!", "Sorry, pal. Hold that thought.",
+        common = {
+            "Dropping the body! Contact!",
+            "Sorry, pal. Hold that thought.",
             "Body down. Eyes up. We've got company.",
             "Sorry, friend. I need both hands now.",
             "Leave them here. Deal with the moving threat.",
             "Contact ahead! Put the body down and move.",
+            "Putting you down. Stay put while I deal with your friend!",
         },
-        brave = { "Put it down! We've got live ones!" },
-        cautious = { "Contact! Leaving the body!" },
+        brave = {
+            "Put it down! We've got live ones!",
+        },
+        cautious = {
+            "Contact! Leaving the body!",
+        },
+        caring = {
+            "Sorry, friend. I'll come back for you!",
+        },
+        practical = {
+            "Dropping it. Weapon up.",
+        },
+        stressed = {
+            { "Shit! Live one!", clean = "Crap! Live one!" },
+        },
+        low = {
+            "Even the dead get interrupted.",
+        },
     },
     ["burn.ignite"] = {
         common = {
@@ -420,23 +554,54 @@ local POOLS = {
             "Ashes to ashes. We'll skip the dust.",
             "Warmest you've been in weeks, friend.",
             "Cremation. Cheaper than a plot, and no digging.",
+            "Stand back. Here it goes.",
+            "Fire's cleaner than the ground.",
         },
-        brave = { "Let it burn. Nothing gets up from ash." },
-        cautious = { "Stand back. Watch the grass!" },
-        caring = { "Go up easy. Nothing down here can hurt you now." },
-        practical = { "Fuel poured. Lighter lit. Stand clear." },
-        stressed = { "Don't breathe it in. Don't breathe it in." },
-        low = { "Used to be barbecues on Sundays." },
-        hopeful = { "Up with the smoke, friend. Somewhere better." },
+        brave = {
+            "Let it burn. Nothing gets up from ash.",
+            "Burn hot, burn fast.",
+        },
+        cautious = {
+            "Stand back. Watch the grass!",
+        },
+        caring = {
+            "Go up easy. Nothing down here can hurt you now.",
+            "Sorry it has to be this way.",
+        },
+        practical = {
+            "Fuel poured. Lighter lit. Stand clear.",
+        },
+        stressed = {
+            "Don't breathe it in. Don't breathe it in.",
+        },
+        low = {
+            "Used to be barbecues on Sundays.",
+        },
+        hopeful = {
+            "Up with the smoke, friend. Somewhere better.",
+        },
     },
     ["burn.watch"] = {
-        common = { "Nobody poke it.", "Keep an eye on the embers.",
+        common = {
+            "Nobody poke it.",
+            "Keep an eye on the embers.",
             "Smells like... no. Not finishing that sentence.",
             "Embers still live. Keep the water close.",
             "Waiting for ash. Nobody steps through yet.",
             "Pyre's holding. Wind's the part I don't trust.",
+            "Keep the buckets handy.",
+            "Don't stand downwind. Trust me.",
+            "Watching the fire. Not watching what's in it.",
         },
-        practical = { "Watching the burn. Nothing moves." },
+        practical = {
+            "Watching the burn. Nothing moves.",
+        },
+        cautious = {
+            "Wind's shifting. Watch the grass.",
+        },
+        caring = {
+            "I'll stay till it's done. Somebody should.",
+        },
     },
     ["burn.prayer"] = {
         common = {
@@ -444,9 +609,22 @@ local POOLS = {
             "Lord, take the smoke. It's all that's left of them.",
             "Let the fire keep what the world couldn't.",
             "Rise with the smoke. Stay up there this time.",
+            "Go up with the smoke. Don't come back down.",
+            "Lord, these are yours. Take the ashes too.",
+            "Burn clean. Rest clean.",
         },
-        caring = { "Nothing left to hurt you now. Go on home." },
-        cautious = { "Burned clean. Nothing comes back from that. Amen." },
+        caring = {
+            "Nothing left to hurt you now. Go on home.",
+        },
+        cautious = {
+            "Burned clean. Nothing comes back from that. Amen.",
+        },
+        brave = {
+            "Sorry, friend. Fire's the only sure thing.",
+        },
+        practical = {
+            "Short prayer. Hot fire. Amen.",
+        },
     },
     ["burn.gallows"] = {
         common = {
@@ -455,24 +633,54 @@ local POOLS = {
             "*hums* Burn, baby, burn... disco inferno. ...Sorry. Someone had to.",
             "Smokey says only you can prevent forest fires. Smokey isn't here.",
             "Nobody gets up from that. Nobody.",
+            "Smells like a cookout. A bad one.",
+            "Fire department's closed. Pyre department's open.",
+            "Smoke signals. Hope nobody's reading.",
         },
-        practical = { "Burn complete. Ash doesn't bite." },
-        stressed = { "Okay. It's out. It's out. We're fine." },
+        practical = {
+            "Burn complete. Ash doesn't bite.",
+        },
+        stressed = {
+            "Okay. It's out. It's out. We're fine.",
+        },
+        brave = {
+            { "Burn, you ugly bastards.", clean = "Burn, you ugly things." },
+        },
     },
     ["burn.fire_spread"] = {
-        common = { "Fire's spreading! Get back!", "That's not the pyre anymore! Move!",
+        common = {
+            "Fire's spreading! Get back!",
+            "That's not the pyre anymore! Move!",
             "That's grass burning. Clear the line now!",
             "Fire crossed the stones. Back away from it!",
             "Move the fuel! The flame is travelling.",
             "Forget the pyre. Save the house.",
+            "Grass is catching! Stamp it out!",
+            "Fire's loose! Buckets!",
+        },
+        stressed = {
+            "It's spreading! It's spreading!",
         },
     },
     ["burn.rain"] = {
-        common = { "Rain's got the fire. We'll try again later.", "Too wet to burn. Figures.",
+        common = {
+            "Rain's got the fire. We'll try again later.",
+            "Too wet to burn. Figures.",
             "Water won. We wait for dry timber.",
             "Smoke without heat. Rain has the last word.",
             "Too soaked to catch. Cover the fuel and wait.",
             "Sky called it off. Nobody light another match.",
+            "Wet wood, wet bodies. This'll take all day.",
+            "Sky picked a poor time to start helping.",
+        },
+        practical = {
+            "Rain's killing the fire. More fuel.",
+        },
+        stressed = {
+            "Come on, burn. Burn!",
+        },
+        low = {
+            "Even the sky wants them to stay.",
         },
     },
     -- A fallen companion's own grave. %1 is the name; never gallows humor.
@@ -481,9 +689,103 @@ local POOLS = {
             "Rest easy, %1. You watched our backs. We've got it from here.",
             "%1. We'll remember. Every one of us.",
             "Sleep, %1. The road's quiet now.",
+            "%1. You were one of us. You still are.",
+            "Goodbye, %1. Thanks for every watch you stood.",
+            "We kept you as long as we could, %1.",
+            "Rest, %1. We'll take the next watch.",
         },
-        caring = { "Goodbye, %1. You were one of us. You always will be." },
-        brave = { "%1 fought to the end. Nobody forgets that." },
+        caring = {
+            "Goodbye, %1. You were one of us. You always will be.",
+            "I'm sorry, %1. I'm so sorry.",
+        },
+        brave = {
+            "%1 fought to the end. Nobody forgets that.",
+            "You went down fighting, %1. We'll finish it.",
+        },
+        cautious = {
+            "Sleep sound, %1. We'll keep the gate shut.",
+        },
+        practical = {
+            "%1 kept this place running. We'll keep it running.",
+        },
+        low = {
+            "First the world. Now %1. Rest, friend.",
+        },
+    },
+    ["burial.haul.tally"] = {
+        common = {
+            "That's %1 today. Kentucky's generous.",
+            "Number %1. I've stopped looking at faces.",
+            "Today's count: %1. Not a record. Yet.",
+            "I've hauled %1 today. My back's keeping its own count.",
+            "%1 today. The shovel's getting more exercise than the stove.",
+            "That makes %1. I wish I was counting anything else.",
+            "%1 so far. Somebody else can keep the count tomorrow.",
+            "Today's total is %1. No, there isn't a prize.",
+        },
+        brave = {
+            "That's %1. Keep them coming.",
+        },
+        low = {
+            "That's %1 today. Every one of them had a mother.",
+        },
+    },
+    ["burial.haul.uniform"] = {
+        common = {
+            "Uniform. They were on duty when it happened.",
+            "One of the people who came to help. Easy with this one.",
+            "Badge, boots, the works. Somebody's hero.",
+            "They wore that to keep us safe. Gently.",
+            "Uniform still buttoned. They tried to keep things decent.",
+            "Used to call people like this when we needed help.",
+            "I'll carry them carefully. Seems like the least we owe.",
+            "Don't recognize the face. Recognize the work clothes.",
+        },
+        practical = {
+            "Uniform. Check the pockets for keys and a radio first.",
+        },
+    },
+    ["burial.haul.dressed"] = {
+        common = {
+            "Dressed up for something. Never got there.",
+            "Good clothes. Somebody had plans.",
+            "Sorry about the outfit. Mud doesn't come out.",
+            "Ready for a party that never started.",
+            "Somebody ironed that shirt. That's what gets me.",
+            "Special occasion, I guess. Nobody plans their last outfit.",
+            "Those shoes weren't made for this much walking.",
+            "I'll try not to tear the good clothes any worse.",
+        },
+    },
+    ["burn.night"] = {
+        common = {
+            "Fire at night. Every dead thing for a mile will see it.",
+            "Bright as a beacon. Let's make it quick.",
+            "Warmest light we've had in weeks. Wrong reason.",
+            "Keep an eye beyond the fire. That's where the trouble will be.",
+            "Light travels farther than I'd like tonight.",
+            "Night's cold. This isn't how I wanted to warm up.",
+            "Can see the smoke against the stars. Wish I couldn't.",
+            "Fire's bright enough. Don't bring out another lamp.",
+        },
+        cautious = {
+            "Night fire. Somebody watch the dark, not the flames.",
+        },
+    },
+    ["burial.dig.rain"] = {
+        common = {
+            "Digging in the rain. The hole fills as fast as I empty it.",
+            "Mud, mud and more mud. Perfect.",
+            { "Rain in the grave. Hell of a day for it.", clean = "Rain in the grave. What a day for it." },
+            "Rainwater in my collar, grave water in my boots.",
+            "At least the shovel goes in easy. Coming out is another matter.",
+            "Ground's drinking faster than I am.",
+            "I've dug worse ground. I've had better weather.",
+            "Nothing says a proper funeral like mud up to your knees.",
+        },
+        practical = {
+            "Wet ground digs easy. Small blessing.",
+        },
     },
 }
 
@@ -535,8 +837,9 @@ end
 
 -- Occasional lines only: chance, per-actor and party cooldowns, and never
 -- while a threat is visible. Speech never gates or delays work state.
-local function speak(actor, topic, arguments, salt, runtime)
-    local spec = SPEECH[topic]
+local function speak(actor, topic, arguments, salt, runtime, ordinaryTopic)
+    ordinaryTopic = ordinaryTopic or topic
+    local spec = SPEECH[topic] or SPEECH[ordinaryTopic]
     if not spec or not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return false end
     if spec.urgent ~= true and threatNearby(actor, runtime) then return false end
     local current = now()
@@ -553,14 +856,53 @@ local function speak(actor, topic, arguments, salt, runtime)
         and current - (tonumber(SC.Dialogue.lastSpokenAt(actor)) or -math.huge) < spec.actorMs then
         return false
     end
-    local key = tostring(actorId(actor)) .. ":" .. topic .. ":" .. tostring(salt or current)
+    local key = tostring(actorId(actor)) .. ":" .. ordinaryTopic .. ":" .. tostring(salt or current)
     if stableHash(key) % 100 >= spec.chance then return false end
+    if topic ~= ordinaryTopic and (not SC.Dialogue.has or not SC.Dialogue.has(topic)) then topic = ordinaryTopic end
     local spoken = SC.Dialogue.say(actor, topic, nil, arguments, { recentLimit = 4, salt = key })
     if spoken == true then
         lastProductionSpeechAt = current
         if urgentKey then Disposal.urgentAt[urgentKey] = current end
     end
     return spoken == true
+end
+
+function Disposal.voiceWorld()
+    if SC.Dialogue and type(SC.Dialogue.worldState) == "function" then return SC.Dialogue.worldState() end
+end
+function Disposal.contextVoice(topic, haul)
+    local hour, _, rain = Disposal.voiceWorld()
+    if topic == "burial.dig.start" and (tonumber(rain) or 0) >= 0.3 then return "burial.dig.rain" end
+    if topic == "burn.ignite" and type(hour) == "number" and (hour >= 20 or hour < 5) then return "burn.night" end
+    if topic == "burial.haul.start" then
+        local group = haul and haul.outfitGroup
+        if group == "law" or group == "military" or group == "fire" or group == "medic" then return "burial.haul.uniform" end
+        if group == "wedding" or group == "party" or group == "santa" then return "burial.haul.dressed" end
+    end
+    return topic
+end
+Disposal.TALLY_WORDS = { [5] = "five", [10] = "ten", [15] = "fifteen", [20] = "twenty",
+    [30] = "thirty", [40] = "forty", [50] = "fifty" }
+function Disposal.dropVoice(body)
+    local _, day = Disposal.voiceWorld()
+    local baseLife = SC.BaseLife
+    local context, baseId
+    if baseLife and baseLife.voiceDay then context, baseId = baseLife.voiceDay(day) end
+    local data = Disposal.bodyData(body)
+    if not context or not baseId or not data then return "burial.haul.drop" end
+    local receipts = data.LF_HaulVoiceReceipts
+    if receipts ~= nil and type(receipts) ~= "table" then return "burial.haul.drop" end
+    receipts = receipts or {}
+    if receipts[baseId] == day then return "burial.haul.drop" end
+    if receipts[baseId] == nil then
+        local count = 0
+        for _ in pairs(receipts) do count = count + 1 if count >= 8 then return "burial.haul.drop" end end
+    end
+    context.hauls = math.min(999999, context.hauls + 1)
+    receipts[baseId], data.LF_HaulVoiceReceipts = day, receipts
+    local word = Disposal.TALLY_WORDS[context.hauls]
+    if word then return "burial.haul.tally", { word } end
+    return "burial.haul.drop"
 end
 
 local function ceremonyTopic(actor, salt)
@@ -2401,7 +2743,7 @@ local function digNext(actor, order, state, context, forBurial)
         bodyKey = bodyAnchor and bodyAnchor.key or nil,
     }
     state.phase = "digging"
-    speak(actor, "burial.dig.start", nil, target.key, context.runtime)
+    speak(actor, Disposal.contextVoice("burial.dig.start"), nil, target.key, context.runtime, "burial.dig.start")
     return true, "production_digging"
 end
 
@@ -3820,7 +4162,7 @@ function Disposal.pollBurn(actor, order, state, context)
     if data then data[Production.BURNED_TAG] = tostring(order.id) end
     Disposal.clearTag(work.body)
     SC.BaseLife.noteProductionCounter("pyresLit", 1)
-    speak(actor, "burn.ignite", nil, work.key, context.runtime)
+    speak(actor, Disposal.contextVoice("burn.ignite"), nil, work.key, context.runtime, "burn.ignite")
     state.burn = {
         key = work.key, body = work.body, x = work.x, y = work.y, z = work.z, litAt = now(),
     }
@@ -4230,6 +4572,9 @@ function Disposal.beginHaul(actor, order, state, context, zone)
         end
     end
     if not Disposal.stepToBody(actor, haul) then return true, "stepping_to_body" end
+    if SC.Downtime and SC.Downtime.outfitGroup then
+        haul.outfitGroup = SC.Downtime.outfitGroup(select(1, U().call(haul.body, "getOutfitName")))
+    end
     local tag = Disposal.newTag(order, context.actorId)
     if not Disposal.setTag(haul.body, tag) then
         noteCandidateFailure(order, haul.purpose, haul.key, "body_tag_failed", haul.sourceZone)
@@ -4337,7 +4682,7 @@ function Disposal.pollGrab(actor, order, state, context)
     haul.windowScan = nil
     metrics.bodiesDragged = metrics.bodiesDragged + 1
     state.phase = "dragging"
-    speak(actor, "burial.haul.start", nil, haul.tag, context.runtime)
+    speak(actor, Disposal.contextVoice("burial.haul.start", haul), nil, haul.tag, context.runtime, "burial.haul.start")
     return true, "production_dragging"
 end
 
@@ -4970,7 +5315,9 @@ function Disposal.pollDrop(actor, order, state, context, options)
     -- doorway. The next grab needs a route survey from that new body tile.
     haul.departure, haul.departureIgnored = nil, nil
     claim(haul.key, order.id, context.actorId)
-    speak(actor, "burial.haul.drop", nil, haul.tag, context.runtime)
+    local voiceTopic, voiceArguments = "burial.haul.drop", nil
+    if options.settleOnly ~= true then voiceTopic, voiceArguments = Disposal.dropVoice(body) end
+    speak(actor, voiceTopic, voiceArguments, haul.tag, context.runtime, "burial.haul.drop")
     if options.settleOnly == true then
         -- Cancellation may prove the already-finished drop and retain its
         -- landed identity, but it must never cross into burial, ignition, or a
@@ -5571,6 +5918,10 @@ end
 
 function Production._ceremonyTopicForTests(actor, salt)
     return ceremonyTopic(actor, salt)
+end
+
+function Production._voiceForTests()
+    return Disposal, speak
 end
 
 Production.register({ id = "fell_trees", family = "harvest", update = updateFell })

@@ -1943,6 +1943,7 @@ function Commands.describe(companionId, player)
             health = medical.health,
             hunger = U().characterStatValue(actor, "HUNGER", 0),
             thirst = U().characterStatValue(actor, "THIRST", 0),
+            fatigue = U().characterStatValue(actor, "FATIGUE", nil),
             woundCount = medical.woundCount,
             supplies = supplies,
             ammunition = supplies.ammunition,

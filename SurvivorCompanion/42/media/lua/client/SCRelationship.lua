@@ -412,6 +412,7 @@ local function needCode(description, state)
     if tonumber(description.health or 100) < 45 or tonumber(description.woundCount or 0) > 0 then return "medical" end
     if tonumber(description.thirst or 0) >= 0.62 then return "water" end
     if tonumber(description.hunger or 0) >= 0.62 then return "food" end
+    if tonumber(description.fatigue or 0) >= 0.68 then return "rest" end
     if clamp(state.stress, 0, 100) >= 60 then return "safety" end
     local supplies = type(description.supplies) == "table" and description.supplies or {}
     if tonumber(supplies.bandages or 0) <= 0 then return "bandages" end
@@ -462,6 +463,7 @@ local needResponses = {
     medical = { "IGUI_SC_Needs_Medical", "I need treatment and a clean bandage.", "undecided" },
     water = { "IGUI_SC_Needs_Water", "Water, if we can spare it. I am getting very thirsty.", "undecided" },
     food = { "IGUI_SC_Needs_Food", "Food would help. I am running on empty.", "undecided" },
+    rest = { "IGUI_SC_Needs_Rest", "I need sleep before I make a mistake.", "undecided" },
     safety = { "IGUI_SC_Needs_Safety", "I need a quiet minute somewhere safe.", "ceasefire" },
     bandages = { "IGUI_SC_Needs_Bandages", "We should find clean bandages before someone needs one.", "undecided" },
     ammunition = { "IGUI_SC_Needs_Ammo", "I am short on ammunition. I will save what I have.", "ceasefire" },
@@ -886,10 +888,23 @@ function Relationship.respond(action, actor, player, state, description)
     elseif action == "background" then
         return backgroundResponse(state)
     elseif action == "opinion" then
-        if tonumber(description.immediateCount or 0) > 0 or clamp(state.stress, 0, 100) >= 60 then
+        local senses = SC.Senses and SC.Senses.cached and SC.Senses.cached(actor)
+        local danger = tonumber(description.immediateCount or 0) > 0
+            or tonumber(description.threatCount or 0) > 0
+            or senses and (tonumber(senses.threatCount or 0) > 0
+                or tonumber(senses.immediateCount or 0) > 0
+                or #(senses.threats or {}) > 0)
+        if danger or clamp(state.stress, 0, 100) >= 60 then
             return varied(actor, "opinion.danger", text("IGUI_SC_Opinion_Danger",
                 "We are pushing our luck. I want a clear way out before we go farther."),
                 nil, state), "ceasefire", false
+        end
+        local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+        local resident = base and SC.BaseLife.resident and SC.BaseLife.resident(U().idOf(actor))
+        if resident and resident.baseId == base.id and (state.order == "base_duty"
+            or SC.BaseLife.isInside and SC.BaseLife.isInside(actor) == true) then
+            return varied(actor, "opinion.camp", text("IGUI_SC_Opinion_Camp",
+                "It's ours, for now. Let's keep it that way."), nil, state), "signalok", false
         end
         if state.order == "guard" then
             return varied(actor, "opinion.guard", text("IGUI_SC_Opinion_Guard",

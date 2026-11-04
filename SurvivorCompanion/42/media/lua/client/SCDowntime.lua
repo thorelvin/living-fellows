@@ -2409,182 +2409,486 @@ local STUDY_POOLS = {
             "I keep checking faces for somebody from %1. Not this one. Thank God. Or not.",
         },
     },
-    ["study.profession.doctor"] = { common = {
-        "Pupils fixed and clouded. Mottling like late sepsis. Except sepsis has the decency to stop.",
-        "I'd write a cause of death, but I'd need a longer form.",
-        "The joints move wrong. Like the tendons forgot who they belonged to.",
-        "Medical school promised me the dead don't bite. I want a refund.",
-    } },
-    ["study.profession.nurse"] = { common = {
-        "I charted fevers like this. We sent them home with fluids and told them to rest.",
-        "Hospital bracelet. Somebody triaged this one and sent them back out. Could have been me.",
-        "Bedside manner's wasted on this one. Old habits.",
-    } },
-    ["study.profession.policeofficer"] = { common = {
-        "No wallet, no ID. John Doe number... I stopped counting.",
-        "Defensive wounds on the forearms. Fought whoever bit them. Lost.",
-        "Back on the job I'd tape this off and call it in. Now I just step over.",
-    } },
-    ["study.profession.veteran"] = { common = {
-        "Seen bodies before. Never seen them get back up. Different war.",
-        "The Army said that crash was nothing. The Army says a lot of things.",
-        "Check the pockets. Old habit. Keeps you alive.",
-    } },
-    ["study.profession.parkranger"] = { common = {
-        "Tracks, scat, bodies. Same job, meaner animal.",
-        "Walked a long way on those shoes. Soles are gone. Came in from the east road, I'd say.",
-        "Nature takes everything back. Usually it has the courtesy to wait.",
-    } },
-    ["study.profession.fireofficer"] = { common = {
-        "We used to carry people out. Now we make sure they stay down.",
-        "Smoke on the jacket. Got out of one fire and walked into this.",
-        "Soot under the collar. They went in after somebody. I hope they got them out.",
-    } },
-    ["study.profession.chef"] = { common = {
-        "Grey meat. I wouldn't serve it to a raccoon.",
-        "Smells like a walk-in cooler three weeks after the power died.",
-        "Used to judge dinner by the smell. This tells me enough.",
-    } },
-    ["study.profession.farmer"] = { common = {
-        "Seen livestock go down sick. Never seen a cow get up afterwards.",
-        "Put down a lame horse once. Cried all night. This one I'd do again.",
-        "Fields taught me every season ends. Didn't teach me this one.",
-    } },
-    ["study.profession.mechanics"] = { common = {
-        "Engine runs, nobody driving. Bad wiring all the way down.",
-        "Everything's still hooked up and nothing runs right. Won't stop turning over, though.",
-        "I'd reach for a wrench. There isn't a bolt loose enough to fix this.",
-    } },
-    ["study.profession.burglar"] = { common = {
-        "Pockets already turned out. Somebody got here first. Professional courtesy.",
-        "Keys on the belt. Some house out there is still locked and waiting. Tempting.",
-        "Locks kept people out. Never did much for keeping death away.",
-    } },
-    ["study.profession.securityguard"] = { common = {
-        "Night shift, I'd bet. Walked the same loop forever. Still doing it, in a way.",
-        "I checked doors for a living. Nobody checked this one's way out.",
-        "Used to log every visitor. Now I count who didn't leave.",
-    } },
+    ["study.profession.doctor"] = {
+        common = {
+            "Pupils fixed and clouded. Mottling like late sepsis. Except sepsis has the decency to stop.",
+            "I'd write a cause of death, but I'd need a longer form.",
+            "The joints move wrong. Like the tendons forgot who they belonged to.",
+            "Medical school promised me the dead don't bite. I want a refund.",
+            "Rigor's wrong. Starts, stops, starts. Like the body can't decide.",
+            "I'd sign the certificate if I knew what to write.",
+            "I used to know what every sign meant. I miss that.",
+            "Death certificates were simpler when death stayed finished.",
+        },
+    },
+    ["study.profession.nurse"] = {
+        common = {
+            "I charted fevers like this. We sent them home with fluids and told them to rest.",
+            "Hospital bracelet. Somebody triaged this one and sent them back out. Could have been me.",
+            "Bedside manner's wasted on this one. Old habits.",
+            "Pulse points cold. I still check. Habit.",
+            "We'd have bagged them by now. With tags. A little ceremony, even.",
+            "I keep expecting somebody to ask for a clean sheet.",
+            "Cold hands. I'd have brought a blanket once.",
+            "You learn not to look away. Doesn't mean it gets easy.",
+        },
+    },
+    ["study.profession.policeofficer"] = {
+        common = {
+            "No wallet, no ID. John Doe number... I stopped counting.",
+            "Defensive wounds on the forearms. Fought whoever bit them. Lost.",
+            "Back on the job I'd tape this off and call it in. Now I just step over.",
+            "No defensive wounds. They knew whoever bit them, I'd say.",
+            "I've seen worse at roadside wrecks. Not by much.",
+            "I'd have called this in. Waited for someone with a bag.",
+            "Nobody's writing a report. Feels wrong, leaving it at that.",
+            "My old training assumed the victim would stay where we put them.",
+        },
+    },
+    ["study.profession.veteran"] = {
+        common = {
+            "Seen bodies before. Never seen them get back up. Different war.",
+            "The Army said that crash was nothing. The Army says a lot of things.",
+            "Check the pockets. Old habit. Keeps you alive.",
+            "Thousand-yard stare. Seen it on living men too.",
+            "Somebody gave the order to fence us in. I'd like a word.",
+            "Seen bodies left like this. Always told myself it was somewhere else.",
+            "You look for what killed them. Then what might kill you.",
+            "I learned to count the living first.",
+        },
+    },
+    ["study.profession.parkranger"] = {
+        common = {
+            "Tracks, scat, bodies. Same job, meaner animal.",
+            "Walked a long way on those shoes. Soles are gone. Came in from the east road, I'd say.",
+            "Nature takes everything back. Usually it has the courtesy to wait.",
+            "Tick on the neck. Ticks don't care either.",
+            "Burrs on the pants. Came through the woods, trying to stay hidden.",
+            "Wildlife usually knows when to leave a carcass alone.",
+            "I used to report sick animals. Who do you call for this?",
+            "Not a trail I want anybody following.",
+        },
+    },
+    ["study.profession.fireofficer"] = {
+        common = {
+            "We used to carry people out. Now we make sure they stay down.",
+            "Smoke on the jacket. Got out of one fire and walked into this.",
+            "Soot under the collar. They went in after somebody. I hope they got them out.",
+            "Smoke didn't get them. Something worse did.",
+            "We trained for burns and falls. Not for this.",
+            "I'd have checked for breathing before anything else. Still want to.",
+            "We had procedures for bringing people out. None for bringing this back.",
+            "Worst part used to be telling the family. Can't even find them now.",
+        },
+    },
+    ["study.profession.chef"] = {
+        common = {
+            "Grey meat. I wouldn't serve it to a raccoon.",
+            "Smells like a walk-in cooler three weeks after the power died.",
+            "Used to judge dinner by the smell. This tells me enough.",
+            "Cut on the thumb. Kitchen knife. Before or after, can't tell.",
+            "Smells like a dumpster in August. July's getting ambitious.",
+            "I know when something's spoiled. This goes beyond spoiled.",
+            "I'd wash my hands twice after this. Three times, if there's water.",
+            "I used to complain about meat deliveries. That was a good life.",
+        },
+    },
+    ["study.profession.farmer"] = {
+        common = {
+            "Seen livestock go down sick. Never seen a cow get up afterwards.",
+            "Put down a lame horse once. Cried all night. This one I'd do again.",
+            "Fields taught me every season ends. Didn't teach me this one.",
+            "Bitten like a dog got them. Worse than a dog.",
+            "Seen a calf born dead. This is backwards.",
+            "Animals tell you when something's wrong. We should have listened.",
+            "Never seen rot refuse to settle down like this.",
+            "I've buried livestock with more ceremony. We'll do better when we can.",
+        },
+    },
+    ["study.profession.mechanics"] = {
+        common = {
+            "Engine runs, nobody driving. Bad wiring all the way down.",
+            "Everything's still hooked up and nothing runs right. Won't stop turning over, though.",
+            "I'd reach for a wrench. There isn't a bolt loose enough to fix this.",
+            "Grease under the nails. Worked with their hands to the end.",
+            "Every joint seized. Like an engine run dry.",
+            "Nothing should keep going with that much damage.",
+            "I'd call it beyond repair. Apparently nobody asked me.",
+            "I can fix a seized bearing. These joints are somebody else's problem.",
+        },
+    },
+    ["study.profession.burglar"] = {
+        common = {
+            "Pockets already turned out. Somebody got here first. Professional courtesy.",
+            "Keys on the belt. Some house out there is still locked and waiting. Tempting.",
+            "Locks kept people out. Never did much for keeping death away.",
+            "Wallet's still on them. Nobody's robbing the dead yet. Give it time.",
+            "I'd case this one's house. Old habits.",
+            "I keep checking the hands first. Old professional concern.",
+            "They won't mind a quiet look. First cooperative customer all week.",
+            "Spent years trying not to leave a trace. Look at this mess.",
+        },
+    },
+    ["study.profession.securityguard"] = {
+        common = {
+            "Night shift, I'd bet. Walked the same loop forever. Still doing it, in a way.",
+            "I checked doors for a living. Nobody checked this one's way out.",
+            "Used to log every visitor. Now I count who didn't leave.",
+            "Flashlight on the belt. Batteries dead too.",
+            "Clocked in. Never clocked out.",
+            "I'd have walked them off the property. Simpler job back then.",
+            "They got past somebody's fence. I keep wondering whose.",
+            "I used to get paid to stand around looking worried.",
+        },
+    },
     ["study.outfit.law"] = {
         common = {
             "Badge still pinned on. Served and protected right up to the end.",
             "Sheriff's star. Wonder if they ever got the order to evacuate.",
             "Cuffs on the belt. Never got to use them on the right suspect.",
             "Security uniform. Minimum wage to guard somebody else's stuff. Guarded it to the last.",
+            "Holster's empty. They used it all, I hope.",
+            "Ticket book in the pocket. The last one's half written.",
+            "Badge is still pinned straight. Habit outlives the wearer.",
+            "Somebody expected that uniform to mean safety.",
         },
-        caring = { "Kept people safe for a living. Nobody kept them safe." },
+        caring = {
+            "Kept people safe for a living. Nobody kept them safe.",
+        },
+        cautious = {
+            "Cuffs and a radio. Radio's dead. So are they.",
+        },
     },
-    ["study.outfit.medic"] = { common = {
-        "Scrubs. They were the first to catch it. They were the first to try.",
-        "Doctor's coat, stethoscope still on. Diagnosis: everything.",
-        "Paramedic. Answered the call. The call answered back.",
-    } },
-    ["study.outfit.patient"] = { common = {
-        "Hospital gown. Walked out of March Ridge in slippers.",
-        "Hospital bracelet. Already sick when they checked in. They treated the flu. It wasn't the flu.",
-        "They came for care and found a hallway full of worse.",
-    } },
-    ["study.outfit.military"] = { common = {
-        "Army fatigues. Sent here to hold the line. The line held them.",
-        "Soldier. They put kids on that fence with orders nobody explained.",
-        "Dog tags. Somebody's going to wait for a letter that never gets sent.",
-    } },
-    ["study.outfit.fire"] = { common = {
-        "Firefighter. Ran toward this. Of course they did.",
-        "Turnout gear. Built for heat. Not for teeth.",
-        "Heavy coat, no air left to breathe. Brave wasn't enough.",
-    } },
-    ["study.outfit.hazmat"] = { common = {
-        "Hazmat suit. Didn't help. Nothing helped.",
-        "Sealed suit, torn at the glove. One tear was all it took.",
-        "They knew something. You don't dress like this for the flu.",
-    } },
-    ["study.outfit.food"] = { common = {
-        "Name tag from the burger place. Still smells a little like fryer oil. And worse.",
-        "Spiffo's uniform. The raccoon on the shirt's still smiling. Somebody should.",
-        "Apron and a hairnet. Health code violations: all of them.",
-    } },
-    ["study.outfit.farm"] = { common = {
-        "Overalls, boots, dirt under the nails. Kentucky farmer. The corn will go to seed now.",
-        "Hunting vest. Spent a life stalking deer. Ended up the one doing the stalking.",
-        "Mud on the cuffs. The field kept growing after they stopped.",
-    } },
-    ["study.outfit.office"] = { common = {
-        "Tie still knotted. Stuck on Monday morning forever.",
-        "Office clothes. Probably died wondering about a deadline.",
-        "Company badge from some office in Louisville. Came in for one meeting. Stayed.",
-    } },
-    ["study.outfit.student"] = { common = {
-        "Just a kid. Summer vacation, 1993. Should have been the best one.",
-        "School jacket. Somebody's honor roll.",
-        "School clothes. They should have been worried about homework.",
-    } },
-    ["study.outfit.sports"] = { common = {
-        "Baseball cap. Louisville fan. Season's over, champ.",
-        "Team jersey. Went to the game, came home a monster. Well, some fans always did.",
-        "Running shoes. A jogger. Outran nothing in the end.",
-    } },
-    ["study.outfit.jockey"] = { common = {
-        "Jockey silks. Derby dreams, Knox County nightmare.",
-        "A jockey. Small, quick, light. Still wasn't fast enough.",
-        "Silks still bright. The track will never know who missed the start.",
-    } },
-    ["study.outfit.wedding"] = { common = {
-        "Wedding clothes. 'Til death do us part. Death did its part. Then kept going.",
-        "Somebody was getting married that week. Somebody's still waiting at the altar.",
-        "Someone pressed this outfit for a day they never reached.",
-    } },
-    ["study.outfit.inmate"] = { common = {
-        "Prison orange. Got out in the end. Not how anybody planned it.",
-        "Inmate. Served the sentence and then some.",
-        "Number on the shirt. I wonder whether anyone remembers the name.",
-    } },
-    ["study.outfit.clergy"] = { common = {
-        "Priest's collar. I hope they found the answers they preached.",
-        "A preacher. The end times came and nobody got raptured. Just this.",
-        "They might have blessed half the county. Nobody could bless them out of this.",
-    } },
-    ["study.outfit.home"] = { common = {
-        "Bathrobe and slippers. It came for them at home, on an ordinary morning.",
-        "Pajamas. Went to bed with a fever. Never really woke up.",
-        "Still dressed for breakfast. The dead never wait for a better hour.",
-    } },
-    ["study.outfit.worker"] = { common = {
-        "Coveralls with a name stitched on. Somebody's mechanic. Somebody's dad, maybe.",
-        "Mail carrier. Neither rain, nor sleet, nor this.",
-        "Hard hat still on. Safety first. It helped with falling bricks. Not with this.",
-        "Gas station shirt. Somebody still owes them for a fill-up.",
-    } },
-    ["study.outfit.party"] = { common = {
-        "Party clothes. Last good night out in Kentucky.",
-        "Dressed as a monster for fun. Irony has a mean streak.",
-        "Dressed to be seen. Now nobody wants to look.",
-    } },
-    ["study.outfit.santa"] = { common = {
-        "A Santa suit in July. There's a story here I'll never hear.",
-        "That red suit had one job: make children feel safe.",
-        "Someone wore this to make people smile. I hope it worked.",
-    } },
-    ["study.outfit.reporter"] = { common = {
-        "Press badge. LBMW. Told us all to keep calm right up to the end.",
-        "A reporter. Stayed on the story too long. The good ones always do.",
-        "I wish somebody saved their notes. We could use an honest account.",
-    } },
-    ["study.outfit.traveler"] = { common = {
-        "Tourist. Came to see Kentucky. Saw too much of it.",
-        "Backpack still on. Was trying to leave. Almost made it.",
-        "Evacuee. They told them where to go. Nobody said what would be waiting.",
-    } },
-    ["study.outfit.raider"] = { common = {
-        "Bandit gear. Lived by taking. Died the same as everybody.",
-        "Mask and a mean streak. Doesn't matter now.",
-        "Armor made from scraps. Whoever wore it expected a fight.",
-    } },
-    ["study.outfit.survivor"] = { common = {
-        "Survivor gear. One of us, once. Didn't make it.",
-        "Good boots, full pack, homemade armor. Did everything right. Still ended up here.",
-        "Extra pockets, careful stitching. They meant to stay out here a long time.",
-    } },
+    ["study.outfit.medic"] = {
+        common = {
+            "Scrubs. They were the first to catch it. They were the first to try.",
+            "Doctor's coat, stethoscope still on. Diagnosis: everything.",
+            "Paramedic. Answered the call. The call answered back.",
+            "Gloves still on. They did everything right.",
+            "Nurse's watch, pinned upside down. Stopped at the wrong hour.",
+            "Medical whites. They must have seen the first of it.",
+            "Scrubs and dried blood. Could belong to anybody now.",
+            "I'd have followed them into a hospital once.",
+        },
+        caring = {
+            "They held a lot of hands. Somebody should have held theirs.",
+        },
+    },
+    ["study.outfit.patient"] = {
+        common = {
+            "Hospital gown. Walked out of March Ridge in slippers.",
+            "Hospital bracelet. Already sick when they checked in. They treated the flu. It wasn't the flu.",
+            "They came for care and found a hallway full of worse.",
+            "IV tape still on the arm. Walked out mid-treatment.",
+            "Hospital socks. The grippy kind. Didn't help.",
+            "Gown ties in the back. Not much dignity left to lose.",
+            "They left without their own clothes. Must have been a hurry.",
+            "No shoes fit for running. Somebody forgot that part of evacuation.",
+        },
+        practical = {
+            "Wristband says admitted July ninth. Discharged themselves.",
+        },
+    },
+    ["study.outfit.military"] = {
+        common = {
+            "Army fatigues. Sent here to hold the line. The line held them.",
+            "Soldier. They put kids on that fence with orders nobody explained.",
+            "Dog tags. Somebody's going to wait for a letter that never gets sent.",
+            "Rank on the sleeve. Lot of good it did.",
+            "Rifle's gone. Somebody took it. Hope it was one of us.",
+            "Boots polished under the dirt. Somebody inspected those once.",
+            "All that training, and here we are.",
+            "Uniform doesn't tell me whose orders they were following.",
+        },
+        brave = {
+            "Went down fighting, by the look of the knuckles.",
+        },
+    },
+    ["study.outfit.fire"] = {
+        common = {
+            "Firefighter. Ran toward this. Of course they did.",
+            "Turnout gear. Built for heat. Not for teeth.",
+            "Heavy coat, no air left to breathe. Brave wasn't enough.",
+            "Axe marks on the coat. Fought their way through something.",
+            "Reflective strips still shine. Nothing left to see by.",
+            "Heavy coat for July. Wouldn't have helped them run.",
+            "Soot on the cuffs. They had another emergency first.",
+            "Those boots used to come through doors to help.",
+        },
+        caring = {
+            "Carried people out of fires. Nobody carried them.",
+        },
+    },
+    ["study.outfit.hazmat"] = {
+        common = {
+            "Hazmat suit. Didn't help. Nothing helped.",
+            "Sealed suit, torn at the glove. One tear was all it took.",
+            "They knew something. You don't dress like this for the flu.",
+            "Respirator still on. Breathed clean air right to the end.",
+            "Government contractor. Knew more than we did. Didn't help.",
+            "All those seals. One bad moment is all it takes.",
+            "I'd like to ask what they knew. Bad time for questions.",
+            "They dressed for something awful. Still weren't dressed for enough.",
+        },
+        cautious = {
+            "If the suit didn't stop it, a scarf won't. Keep your distance.",
+        },
+    },
+    ["study.outfit.food"] = {
+        common = {
+            "Name tag from the burger place. Still smells a little like fryer oil. And worse.",
+            "Spiffo's uniform. The raccoon on the shirt's still smiling. Somebody should.",
+            "Apron and a hairnet. Health code violations: all of them.",
+            "Burns on the forearms. Grill cook. Hard job, harder ending.",
+            "Still smells like fries. I'm hungry, and I hate that.",
+            "Apron strings still tied. Must have left in a hurry.",
+            "Somebody's order never made it out of the kitchen.",
+            "I miss food that arrived with a check.",
+        },
+        low = {
+            "Somebody's first job. Probably their last.",
+        },
+    },
+    ["study.outfit.farm"] = {
+        common = {
+            "Overalls, boots, dirt under the nails. Kentucky farmer. The corn will go to seed now.",
+            "Hunting vest. Spent a life stalking deer. Ended up the one doing the stalking.",
+            "Mud on the cuffs. The field kept growing after they stopped.",
+            "Calluses like tree bark. Worked every day of their life.",
+            "Seed cap from the feed store. Kentucky through and through.",
+            "Dirt in every seam. That part probably isn't new.",
+            "Hands like my grandfather's. I wish I hadn't looked.",
+            "Growing things all their life. Then this.",
+        },
+        practical = {
+            "Pocketknife and twine. Farmers carry the right things.",
+        },
+    },
+    ["study.outfit.office"] = {
+        common = {
+            "Tie still knotted. Stuck on Monday morning forever.",
+            "Office clothes. Probably died wondering about a deadline.",
+            "Company badge from some office in Louisville. Came in for one meeting. Stayed.",
+            "Coffee stain on the shirt. The last good cup in Kentucky.",
+            "Pen in the pocket. Still clicks.",
+            "Shirt tucked in. Last normal morning, maybe.",
+            "Dress shoes. Not much use on these roads.",
+            "Somebody still has their paperwork waiting on a desk.",
+        },
+        low = {
+            "Paid off a mortgage, maybe. On a house full of the dead.",
+        },
+    },
+    ["study.outfit.student"] = {
+        common = {
+            "Just a kid. Summer vacation, 1993. Should have been the best one.",
+            "School jacket. Somebody's honor roll.",
+            "School clothes. They should have been worried about homework.",
+            "Class ring. Class of '94. They didn't make it to graduation.",
+            "Backpack full of summer reading. Unread.",
+            "School clothes in July. Summer never really started for them.",
+            "Young face. I don't need to study that any longer.",
+            "All those years ahead. Gone in a morning.",
+        },
+        caring = {
+            "Somebody's kid. Somebody's still waiting by a phone.",
+        },
+    },
+    ["study.outfit.sports"] = {
+        common = {
+            "Baseball cap. Louisville fan. Season's over, champ.",
+            "Team jersey. Went to the game, came home a monster. Well, some fans always did.",
+            "Running shoes. A jogger. Outran nothing in the end.",
+            "Knee brace. Played hurt. Still does, I guess.",
+            "Wildcats shirt. Somebody's going to miss basketball season.",
+            "Team colors. Everybody's playing away now.",
+            "Running shoes survived better than the runner.",
+            "They kept the shirt. Must have loved that team.",
+        },
+        brave = {
+            "Athlete. Good legs. Glad I'm faster.",
+        },
+    },
+    ["study.outfit.jockey"] = {
+        common = {
+            "Jockey silks. Derby dreams, Knox County nightmare.",
+            "A jockey. Small, quick, light. Still wasn't fast enough.",
+            "Silks still bright. The track will never know who missed the start.",
+            "Whip still in the belt. Kentucky never lets go of its horses.",
+            "Light as a feather. Easy carry, hard look.",
+            "Silks bright enough to see across a field.",
+            "Never thought racing clothes would look so still.",
+            "Somebody at a stable's wondering where they went.",
+        },
+        practical = {
+            "Stable silks from outside Lexington, I'd guess.",
+        },
+    },
+    ["study.outfit.wedding"] = {
+        common = {
+            "Wedding clothes. 'Til death do us part. Death did its part. Then kept going.",
+            "Somebody was getting married that week. Somebody's still waiting at the altar.",
+            "Someone pressed this outfit for a day they never reached.",
+            "Ring's still on. Whoever they married, I hope it was quick for both.",
+            "Rice in the hair. They made it to the wedding, at least.",
+            "Good shoes, good clothes. Should have been a better day.",
+            "I'd rather not think about who was waiting at the church.",
+            "Everybody in those photographs was smiling. Probably.",
+        },
+        caring = {
+            "Somebody cried happy tears in that outfit once.",
+        },
+    },
+    ["study.outfit.inmate"] = {
+        common = {
+            "Prison orange. Got out in the end. Not how anybody planned it.",
+            "Inmate. Served the sentence and then some.",
+            "Number on the shirt. I wonder whether anyone remembers the name.",
+            "Fresh prison ink. Traded one cage for another.",
+            "Shackle marks on the ankles. Somebody let them out. Too late or too early.",
+            "That uniform never gave them much privacy alive, either.",
+            "Wonder who had the keys when the shouting started.",
+            "Don't know their sentence. This wasn't in it.",
+        },
+        cautious = {
+            "Orange shirt. Doesn't mean they were dangerous. Doesn't mean they weren't.",
+        },
+    },
+    ["study.outfit.clergy"] = {
+        common = {
+            "Priest's collar. I hope they found the answers they preached.",
+            "A preacher. The end times came and nobody got raptured. Just this.",
+            "They might have blessed half the county. Nobody could bless them out of this.",
+            "Bible in the jacket. Dog-eared at Revelation, of course.",
+            "Collar's crooked. Even preachers run.",
+            "Sunday clothes. Kentucky kept plenty of those ready.",
+            "I hope they believed in somewhere better than here.",
+            "Congregation must have needed them. Right to the end.",
+        },
+        low = {
+            "Preached about the dead rising. Got that one right.",
+        },
+    },
+    ["study.outfit.home"] = {
+        common = {
+            "Bathrobe and slippers. It came for them at home, on an ordinary morning.",
+            "Pajamas. Went to bed with a fever. Never really woke up.",
+            "Still dressed for breakfast. The dead never wait for a better hour.",
+            "One slipper. Lost the other running.",
+            "Curlers still in. Some mornings you don't get to finish.",
+            "House clothes. Nobody told them the day was going to change.",
+            "Dressed for a quiet morning. Had the wrong morning.",
+            "I keep thinking about the front door they left open.",
+        },
+        caring = {
+            "Cozy clothes. They were safe at home. Until they weren't.",
+        },
+    },
+    ["study.outfit.worker"] = {
+        common = {
+            "Coveralls with a name stitched on. Somebody's mechanic. Somebody's dad, maybe.",
+            "Mail carrier. Neither rain, nor sleet, nor this.",
+            "Hard hat still on. Safety first. It helped with falling bricks. Not with this.",
+            "Gas station shirt. Somebody still owes them for a fill-up.",
+            "Name tag says Earl. Hi, Earl.",
+            "Steel toes. Didn't help the rest of them.",
+            "Work clothes, worn thin. Didn't get much time off.",
+            "Somebody will still have their lunch waiting in a locker.",
+        },
+        practical = {
+            "Tool belt's still on. Somebody grab that screwdriver.",
+        },
+    },
+    ["study.outfit.party"] = {
+        common = {
+            "Party clothes. Last good night out in Kentucky.",
+            "Dressed as a monster for fun. Irony has a mean streak.",
+            "Dressed to be seen. Now nobody wants to look.",
+            "Glitter on the face. Must have been a good night.",
+            "Party hat. Somebody's birthday. Not a happy one.",
+            "Clothes for being seen. Hard to look at now.",
+            "Dressed better than any of us. Bad prize to win.",
+            "I wonder what the last song was.",
+        },
+        low = {
+            "Last thing they did was dance. Could be worse.",
+        },
+    },
+    ["study.outfit.santa"] = {
+        common = {
+            "A Santa suit in July. There's a story here I'll never hear.",
+            "That red suit had one job: make children feel safe.",
+            "Someone wore this to make people smile. I hope it worked.",
+            "Fake beard's real enough now. Matted with God knows what.",
+            "Ho, ho, no.",
+            "That suit must have been unbearable in this heat.",
+            "Somebody thought they'd make people smile today.",
+            "I'd prefer a lump of coal. Much prefer it.",
+        },
+        caring = {
+            "Santa in July. Must have been a charity thing.",
+        },
+    },
+    ["study.outfit.reporter"] = {
+        common = {
+            "Press badge. LBMW. Told us all to keep calm right up to the end.",
+            "A reporter. Stayed on the story too long. The good ones always do.",
+            "I wish somebody saved their notes. We could use an honest account.",
+            "Microphone cord still around the wrist.",
+            "Notepad. The last line says 'Army denies'. Of course it does.",
+            "Press clothes. They went toward the trouble on purpose.",
+            "Wanted a story. I hope somebody heard it.",
+            "Somebody at the station kept waiting for their call.",
+        },
+        practical = {
+            "Camera's broken. The film might not be.",
+        },
+    },
+    ["study.outfit.traveler"] = {
+        common = {
+            "Tourist. Came to see Kentucky. Saw too much of it.",
+            "Backpack still on. Was trying to leave. Almost made it.",
+            "Evacuee. They told them where to go. Nobody said what would be waiting.",
+            "Road map of Kentucky, folded wrong. Tourist for sure.",
+            "Suitcase tag from Indianapolis. Never made it home.",
+            "Clothes for a trip. This wasn't the destination.",
+            "I wonder how far they got before the roads closed.",
+            "They had somewhere to be. Everybody did.",
+        },
+        cautious = {
+            "Was heading north. Smart. Not smart enough.",
+        },
+    },
+    ["study.outfit.raider"] = {
+        common = {
+            "Bandit gear. Lived by taking. Died the same as everybody.",
+            "Mask and a mean streak. Doesn't matter now.",
+            "Armor made from scraps. Whoever wore it expected a fight.",
+            "Raider tattoos. Mean to the end, I bet.",
+            "Stolen jewelry on every finger.",
+            "Those clothes were meant to frighten somebody.",
+            "They made it through the first days. Then picked the wrong fight.",
+            "Hard to tell what they stole from what they started with.",
+        },
+        brave = {
+            "Raider. One less of those, at least.",
+        },
+    },
+    ["study.outfit.survivor"] = {
+        common = {
+            "Survivor gear. One of us, once. Didn't make it.",
+            "Good boots, full pack, homemade armor. Did everything right. Still ended up here.",
+            "Extra pockets, careful stitching. They meant to stay out here a long time.",
+            "Map with circles on it. Marked a safe house. Never got there.",
+            "Notebook in the pocket. The last page says 'go west'.",
+            "Dressed for the end of the world. So are we.",
+            "They held out a while. That has to count for something.",
+            "I keep looking for what they did wrong. That's why I look.",
+        },
+        caring = {
+            "One of us. Should have found us.",
+        },
+    },
     ["study.ritual.spiffo_salute"] = { common = {
         "*salutes* Colonel Spiffo, one more for the lost and found.",
         "Colonel, this one had a name before the uniform became a shroud.",
@@ -2621,6 +2925,51 @@ local STUDY_POOLS = {
         "Squeak once for the living. Stay quiet for the dead.",
         "Even the Duck knows when to stop joking. Rest now.",
     } },
+    ["study.again"] = {
+        common = {
+            "Another one %1. The whole shift must have turned.",
+            "Another one %1 today. They came in groups.",
+            "Another one %1. Starting to feel like a reunion.",
+            "Same clothes as the last one. Same ending.",
+            "Another one %1. I recognize the clothes before the face now.",
+            "More %1. Must have emptied the whole building.",
+            "Another %1. Same morning, same bad luck.",
+            "Seen those clothes already today. Wish I knew the names.",
+        },
+        practical = {
+            "Another one %1. Mark the area. There may be more.",
+        },
+        low = {
+            "Another one %1. I'm tired of meeting them like this.",
+        },
+    },
+    ["study.night"] = {
+        common = {
+            "Hard to see in this light. Maybe that's a mercy.",
+            "Hold the light steady. Actually, don't.",
+            "Faces look worse by flashlight. I didn't think that was possible.",
+            "I used to worry about waking the neighbors. Funny what changes.",
+            "Keep the light low. We're not the only ones looking.",
+            "Everything beyond the light's gone quiet. I don't trust quiet.",
+            "Not much to see, and too much all the same.",
+            "I'll be quick. I don't like turning my back on that dark.",
+        },
+        cautious = {
+            "Quick look. The dark's when the rest of them move.",
+        },
+    },
+    ["study.rain"] = {
+        common = {
+            "Rain's washing the blood off. Makes it worse, somehow.",
+            "Soaked through. Them and me both.",
+            "Rain or not, they don't care.",
+            "Can't tell where the rain ends and the rest starts.",
+            "Water running off the clothes. Looks almost ordinary.",
+            "Rain won't wash this part of the county clean.",
+            "Let's finish before my notes turn into soup.",
+            "Even soaked through, the smell gets through.",
+        },
+    },
 }
 
 -- Vanilla outfit names, checked in order. A token starting with "=" must
@@ -2688,6 +3037,19 @@ function Study.outfitGroup(name)
     end
     return nil
 end
+
+-- Shared with hauling: classification remains one pure outfit-name lookup.
+Downtime.outfitGroup = Study.outfitGroup
+Study.OUTFIT_PHRASES = {
+    law = "with a badge", medic = "in scrubs", patient = "in a hospital gown",
+    military = "in fatigues", fire = "in turnout gear", hazmat = "in a hazmat suit",
+    food = "in a work apron", farm = "in overalls", office = "in a tie",
+    student = "in school clothes", sports = "in a team shirt", jockey = "in silks",
+    wedding = "in wedding clothes", inmate = "in prison orange", clergy = "in a collar",
+    home = "in pajamas", worker = "in coveralls", party = "in party clothes",
+    santa = "in a Santa suit", reporter = "with a press badge", traveler = "with a backpack",
+    raider = "in raider gear", survivor = "in survivor gear",
+}
 
 -- A zombie corpse that stays down: never one that is faking, due to
 -- reanimate, or already studied or given its moment.
@@ -2824,6 +3186,8 @@ function Study.lines(actor, commands, body, current)
     local profile = type(commands.personalityProfile) == "table" and commands.personalityProfile or {}
     local seed = tostring(utility.idOf(actor)) .. ":" .. tostring(body) .. ":" .. tostring(current)
     local group = Study.outfitGroup(utility.call(body, "getOutfitName"))
+    local hour, day, rain
+    if SC.Dialogue and SC.Dialogue.worldState then hour, day, rain = SC.Dialogue.worldState() end
     local skeleton = utility.call(body, "isSkeleton") == true
     local lines = {}
     if skeleton then
@@ -2831,11 +3195,23 @@ function Study.lines(actor, commands, body, current)
     elseif utility.call(body, "isCrawling") == true and Study.hash(seed .. ":crawl") % 2 == 0 then
         lines[1] = { topic = "study.crawler" }
     elseif group and has("study.outfit." .. group) then
-        lines[1] = { topic = "study.outfit." .. group }
+        local context = SC.BaseLife and SC.BaseLife.voiceDay and SC.BaseLife.voiceDay(day)
+        if context and context.groups[group] == day and has("study.again") then
+            lines[1] = { topic = "study.again", arguments = { Study.OUTFIT_PHRASES[group] } }
+        else
+            lines[1] = { topic = "study.outfit." .. group }
+        end
+        if context then context.groups[group] = day end
     else
         lines[1] = { topic = "study.open" }
     end
     local middle = {}
+    if type(hour) == "number" and (hour >= 20 or hour < 5) and has("study.night") then
+        middle[#middle + 1] = { topic = "study.night", weight = 2 }
+    end
+    if (tonumber(rain) or 0) >= 0.3 and has("study.rain") then
+        middle[#middle + 1] = { topic = "study.rain", weight = 2 }
+    end
     local killer = utility.call(body, "getKilledBy")
     if killer ~= nil and killer == actor then
         middle[#middle + 1] = { topic = "study.ours.self", weight = 5 }

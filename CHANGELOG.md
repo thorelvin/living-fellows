@@ -2,8 +2,14 @@
 
 # Changelog
 
-## 0.26.95 - Send companions home
+## 0.26.95 - Send companions home and deeper dialogue
 
+- Add 650 voice lines across camp alarms, Talk replies, body disposal and
+  studying the dead, with more personality and mood variation.
+- Let companions notice repeat alarms, darkness, poor visibility, injured
+  residents, tiredness, uniforms and the day's hauling count.
+- Remember studied outfit groups and hauling counts per camp and game day,
+  while retaining the existing speech chances, cooldowns and quiet work.
 - Send up to four followers home on foot or by car from their quick orders or
   the Squad tab. Review the crew, leader, route and parking before sending them.
 - Follow their trip in the companion view, with a trip card and a nearby recall.

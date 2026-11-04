@@ -17,6 +17,7 @@ local serial = 0
 -- Per resident, kept across alerts: when it was last woken by one, how long
 -- it stays groggy, and when it last spoke for the alarm.
 local memory = {}
+local Voice = {}
 
 local function U() return SC.GameplayUtil end
 local function cfg(key, fallback)
@@ -200,6 +201,96 @@ local function speak(actor, topic, arguments, fallback, force)
     return spoken
 end
 
+function Voice.world()
+    if SC.Dialogue and type(SC.Dialogue.worldState) == "function" then return SC.Dialogue.worldState() end
+end
+function Voice.available(topic, fallback)
+    return SC.Dialogue and SC.Dialogue.has and SC.Dialogue.has(topic) and topic or fallback
+end
+function Voice.callTopic(level)
+    local regular = "camp_alert." .. level
+    if level == "fall_back" then return regular end
+    local hour, _, rain, fog, age = Voice.world()
+    local last = Alert.lastCleared
+    if last and last.reason == "clear" and last.baseId == alert.baseId
+        and type(age) == "number" and type(last.hour) == "number"
+        and age >= last.hour and age - last.hour <= 1 then
+        return Voice.available("camp_alert.again", regular)
+    end
+    if type(hour) == "number" and (hour >= 21 or hour < 5) then
+        return Voice.available("camp_alert.night." .. level, regular)
+    end
+    if level == "contact" and ((tonumber(fog) or 0) >= 0.5 or (tonumber(rain) or 0) >= 0.7) then
+        return Voice.available("camp_alert.blind", regular)
+    end
+    return regular
+end
+function Voice.wounds(actor)
+    if not SC.Medical or type(SC.Medical.assessCached) ~= "function" then return nil end
+    local ok, value = pcall(SC.Medical.assessCached, actor, nil, 1000)
+    if not ok or type(value) ~= "table" then return nil end
+    return { actor = actor, wounds = tonumber(value.woundCount) or 0,
+        bites = tonumber(value.bites) or 0, bleeding = tonumber(value.bleedingCount) or 0 }
+end
+function Voice.hurt(patient, entries, current)
+    if current - (alert.hurtCalledAt or -math.huge) < 4000 then return false end
+    local px, py, pz = position(patient)
+    if not px then return false end
+    local topic = Voice.available("camp_alert.hurt", "camp_alert." .. alert.level)
+    for _, entry in ipairs(entries) do
+        -- Seeing the wound is enough to call for help. An ordinary alarm
+        -- fallback still needs a witness who actually heard that alarm.
+        if entry.actor ~= patient and (topic == "camp_alert.hurt"
+            or entry.id == alert.spotterId or alert.told[entry.id])
+            and not sleeping(entry.actor) then
+            local x, y, z = position(entry.actor)
+            if x and floorOf(z) == floorOf(pz) and (x-px)^2+(y-py)^2 <= 100
+                and U().canSee and U().canSee(entry.actor, patient) == true then
+                local arguments = topic == "camp_alert.hurt" and { U().nameOf(patient) }
+                    or { direction(x, y, alert.threat.x, alert.threat.y), countWord(alert.threat.count) }
+                if speak(entry.actor, topic, arguments, "Someone's hurt! Cover them!") then
+                    alert.hurtCalledAt = current
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+function Voice.watch(current, baseline)
+    if not alert then return end
+    -- A strike can start and finish between the slower medical checks. Live
+    -- lease reads are cheap and pure, so notice combat on every alarm pulse.
+    local supervisor = SC.ActionSupervisor
+    if not alert.fought and supervisor and supervisor.peekOwner then
+        if supervisor.peekOwner(U().resolveActor(alert.spotterId)) == "combat" then alert.fought = true end
+        for id in pairs(alert.told) do
+            if supervisor.peekOwner(U().resolveActor(id)) == "combat" then alert.fought = true break end
+        end
+    end
+    if not baseline and current < (alert.voiceCheckAt or 0) then return end
+    alert.voiceCheckAt = current + 1000
+    alert.wounds, alert.hurtTold = alert.wounds or {}, alert.hurtTold or {}
+    local entries = residents()
+    for _, entry in ipairs(entries) do
+        local mark = Voice.wounds(entry.actor)
+        local previous = alert.wounds[entry.id]
+        if mark then
+            if previous and previous.actor == entry.actor and not alert.hurtTold[entry.id]
+                and (mark.wounds > previous.wounds or mark.bites > previous.bites or mark.bleeding > previous.bleeding) then
+                alert.hurtPending = alert.hurtPending or {}
+                alert.hurtPending[entry.id] = true
+            end
+            alert.wounds[entry.id] = mark
+            if alert.hurtPending and mark.wounds <= 0 and mark.bites <= 0 and mark.bleeding <= 0 then alert.hurtPending[entry.id] = nil end
+            if alert.hurtPending and alert.hurtPending[entry.id] and not alert.hurtTold[entry.id]
+                and Voice.hurt(entry.actor, entries, current) then
+                alert.hurtTold[entry.id], alert.hurtPending[entry.id] = true, nil
+            end
+        end
+    end
+end
+
 local function capable(actor)
     if SC.Medical and type(SC.Medical.isDowned) == "function"
         and SC.Medical.isDowned(actor) == true then return false end
@@ -366,7 +457,7 @@ local function call(spotter, current)
         fall_back = "Too many! Fall back!",
     }
     alert.calledAt = current
-    speak(spotter, "camp_alert." .. alert.level, words, fallbacks[alert.level], true)
+    speak(spotter, Voice.callTopic(alert.level), words, fallbacks[alert.level], true)
     -- A call is a real noise. The quiet word at a contact barely carries; a
     -- shout reaches the dead as surely as the living.
     if sx and type(addSound) == "function" then
@@ -376,6 +467,7 @@ local function call(spotter, current)
         pcall(addSound, spotter, math.floor(sx), math.floor(sy), math.floor(sz), radius, loud and 20 or 5)
     end
     spread(current)
+    Voice.watch(current, true)
 end
 
 local function clear(current, reason)
@@ -386,7 +478,8 @@ local function clear(current, reason)
     local told = 0
     for _ in pairs(finished.told) do told = told + 1 end
     if reason == "clear" and spotter and told > 0 and not sleeping(spotter) then
-        speak(spotter, "camp_alert.clear", nil, "All clear.")
+        local topic = finished.fought and "camp_alert.clear.fought" or "camp_alert.clear.passed"
+        speak(spotter, Voice.available(topic, "camp_alert.clear"), nil, "All clear.")
     end
     for id in pairs(finished.woken) do
         if SC.Downtime and type(SC.Downtime.alarmOver) == "function" then
@@ -394,8 +487,9 @@ local function clear(current, reason)
             if actor then SC.Downtime.alarmOver(actor) end
         end
     end
+    local _, _, _, _, age = Voice.world()
     Alert.lastCleared = { id = finished.id, at = current, reason = reason,
-        level = finished.level }
+        level = finished.level, baseId = finished.baseId, hour = reason == "clear" and age or nil }
 end
 
 function Alert.pulse(current)
@@ -403,6 +497,7 @@ function Alert.pulse(current)
     if not alert then return end
     local base = SC.BaseLife and SC.BaseLife.active() or nil
     if not base or base.id ~= alert.baseId then return clear(current, "camp_changed") end
+    Voice.watch(current)
     local quiet = alert.level == "contact"
         and (tonumber(cfg("baseAlertClearContactMs", 30000)) or 30000)
         or (tonumber(cfg("baseAlertClearMs", 60000)) or 60000)

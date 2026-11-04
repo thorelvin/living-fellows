@@ -885,6 +885,25 @@ local function normalizeFarm(source)
     return result
 end
 
+-- Optional, bounded flavour memory. It is part of the existing camp save,
+-- never a work revision or a reason to rebuild menus.
+function BaseLife.normalizeVoiceDay(source)
+    if type(source) ~= "table" or type(source.day) ~= "number"
+        or source.day ~= source.day or source.day < 0 or source.day > 10000000
+        or source.day ~= math.floor(source.day) then return nil end
+    local result = { day = source.day, hauls = integer(source.hauls, 0, 0, 999999), groups = {} }
+    local allowed = "|law|medic|patient|military|fire|hazmat|food|farm|office|student|sports|jockey|"
+        .. "wedding|inmate|clergy|home|worker|party|santa|reporter|traveler|raider|survivor|"
+    local count, inspected = 0, 0
+    for group, day in pairs(type(source.groups) == "table" and source.groups or {}) do
+        if count >= 24 or inspected >= 48 then break end
+        inspected = inspected + 1
+        if type(group) == "string" and #group <= 24 and string.find(allowed, "|"..group.."|", 1, true)
+            and day == source.day then result.groups[group] = day count = count + 1 end
+    end
+    return result
+end
+
 local function normalizeBase(source)
     if type(source) ~= "table" or not validId(source.id, "base:") then return nil end
     local core = normalizePoint(source.core)
@@ -979,6 +998,7 @@ local function normalizeBase(source)
     result.work = normalizeWork(source.work)
     result.production = normalizeProduction(source.production)
     result.farm = normalizeFarm(source.farm)
+    result.voiceDay = BaseLife.normalizeVoiceDay(source.voiceDay)
     return result
 end
 
@@ -1412,6 +1432,17 @@ end
 
 function BaseLife.active()
     return activeBase()
+end
+
+function BaseLife.voiceDay(day)
+    if type(day) ~= "number" or day ~= day or day < 0 or day > 10000000
+        or day ~= math.floor(day) then return nil end
+    local base = activeBase()
+    if not base then return nil end
+    if type(base.voiceDay) ~= "table" or base.voiceDay.day ~= day then
+        base.voiceDay = { day = day, hauls = 0, groups = {} }
+    end
+    return base.voiceDay, base.id
 end
 
 function BaseLife.beginZone(kind, square)
