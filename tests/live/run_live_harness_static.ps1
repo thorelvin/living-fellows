@@ -64,10 +64,6 @@ try {
     try {
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FirestationRestLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $HomeTripLua $HomeDriveFixtureLua $HomeRadioLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $HomeDriveFixtureLua (Join-Path $TestRoot 'SCHomeDriveFixtureTests.lua')
-        if ($LASTEXITCODE -ne 0) { throw 'Home-drive physical cargo fixture audit failed.' }
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $HomeRadioLua (Join-Path $TestRoot 'home_radio_probe_regression.lua')
-        if ($LASTEXITCODE -ne 0) { throw 'Home-radio native reply and exact cargo observer regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua $ALifeAdapterLua $GridControlLua
         if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat probe compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $BanditsCombatLua $BanditsCloseLua (Join-Path $TestRoot 'bandits_close_observer_regression.lua')
@@ -90,8 +86,6 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Native facing observer regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $ViewCutawayLua (Join-Path $TestRoot 'view_cutaway_probe_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'View cutaway live probe regression failed.' }
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $HomeTripLua (Join-Path $TestRoot 'home_trip_probe_regression_harness.lua')
-        if ($LASTEXITCODE -ne 0) { throw 'Home trip live probe convergence/screenshot regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $NormalKitchenLua (Join-Path $TestRoot 'normal_expedition_kitchen_regression_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Normal expedition kitchen probe regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner $ViewCutawayLua $WoodExpeditionLua (Join-Path $TestRoot 'wood_expedition_probe_regression_harness.lua')

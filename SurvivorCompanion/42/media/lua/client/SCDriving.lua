@@ -585,7 +585,12 @@ local function planJob(job)
     if not SC.ExpeditionRoute or not SC.ExpeditionRoute.planAvoidingAll then
         return parkResult(job, "failed", "no_route")
     end
-    route, reason = SC.ExpeditionRoute.planAvoidingAll(job.actor, job.goal, job.circles)
+    -- Plan from the verified road attachment, which may differ from the
+    -- nearest one behind a parked neighbour. The actual car position is
+    -- inserted below as the start of that already checked access corridor.
+    local origin = job.roadAccessEntry and {
+        x = job.roadAccessEntry.x, y = job.roadAccessEntry.y, z = 0 } or nil
+    route, reason = SC.ExpeditionRoute.planAvoidingAll(job.actor, job.goal, job.circles, origin)
     if not route then
         job.detail = reason
         return parkResult(job, "failed", "no_route")

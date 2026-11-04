@@ -29,6 +29,7 @@ try {
             (Join-Path $Client 'SCTaxiBooking.lua') `
             (Join-Path $Client 'SCTaxiCab.lua') `
             (Join-Path $Client 'SCTaxiFares.lua') `
+            (Join-Path $TestRoot 'taxi_fare_recovery_fixture.lua') `
             (Join-Path $TestRoot 'taxi_fare_recovery_harness.lua')
         if ($LASTEXITCODE -ne 0) { throw 'Taxi fare and recovery regression failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner `

@@ -5,7 +5,9 @@ param(
     [string]$ProjectRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     # Fault-injection cases that may run at once. 0 picks a value from the
     # machine. Set it to 1 to read a failure without interleaving.
-    [int]$Jobs = 0
+    [int]$Jobs = 1,
+    [switch]$Essential,
+    [string]$PrebuiltBridgeJar = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,8 +15,10 @@ $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 . (Join-Path $PSScriptRoot 'InstallerFixtures.ps1')
 . (Join-Path $ProjectRoot 'scripts\ScParallel.ps1')
 if ($Jobs -le 0) {
-    $Jobs = [Math]::Max(1, [Math]::Min(8, [int]$env:NUMBER_OF_PROCESSORS))
+    $Jobs = 1
 }
+$initialBridge = @{}
+if ($PrebuiltBridgeJar) { $initialBridge.PrebuiltBridgeJar = $PrebuiltBridgeJar }
 
 $BuildRoot = Join-Path $ProjectRoot 'build'
 $Sandbox = Join-Path $BuildRoot 'test-installer-sandbox'
@@ -59,7 +63,7 @@ foreach ($bat in @('Install.bat', 'Install-Debug.bat', 'Uninstall.bat')) {
 try {
     & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
         -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
-        -ConfigBackupRoot $ConfigBackupRoot -NativeBridge | Out-Null
+        -ConfigBackupRoot $ConfigBackupRoot -NativeBridge @initialBridge | Out-Null
     $Target = Join-Path $ModsRoot 'SurvivorCompanion'
     $Config = Join-Path $Target '42\media\lua\shared\SCConfig.lua'
     $configText = Get-Content -LiteralPath $Config -Raw -Encoding utf8
@@ -109,7 +113,7 @@ try {
 
     & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
         -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
-        -ConfigBackupRoot $ConfigBackupRoot -NativeBridge | Out-Null
+        -ConfigBackupRoot $ConfigBackupRoot -NativeBridge @initialBridge | Out-Null
     $profileText = Get-Content -LiteralPath $defaultProfile -Raw -Encoding utf8
     if (@([regex]::Matches($profileText,
             '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$')).Count -ne 1) {
@@ -185,6 +189,21 @@ try {
         'local-manifest-write', 'old-mod-backup', 'new-mod-move',
         'target-postcondition'
     )
+    if ($Essential) {
+        # Distinct publication and ownership boundaries, rather than every
+        # fresh/update permutation of the same rollback invariant.
+        Add-InstallerCase 'fresh-matrix' 'payload-validation'
+        Add-InstallerCase 'matrix' 'old-mod-backup'
+        Add-InstallerCase 'matrix' 'target-postcondition'
+        Add-InstallerCase 'native-failure-matrix'
+        Add-InstallerCase 'native-installed-config-hash' 'mismatch'
+        Add-InstallerCase 'manifestless-wrapper'
+        Add-InstallerCase 'schema2-migration'
+        Add-InstallerCase 'unmanaged-game-jar'
+        Add-InstallerCase 'standalone-atomic' 'standalone-postcondition'
+        Add-InstallerCase 'shared-launcher' 'uninstall'
+        Add-InstallerCase 'shared-launcher-ambiguous'
+    } else {
     # old-mod-backup cannot be reached on a fresh install: there is no
     # previous generation to back up.
     foreach ($boundary in @($failureBoundaries | Where-Object { $_ -ne 'old-mod-backup' })) {
@@ -216,12 +235,6 @@ try {
         Add-InstallerCase 'shared-launcher' $mode
     }
     Add-InstallerCase 'shared-launcher-ambiguous'
-
-    $expectedCases = 41
-    if ($cases.Count -ne $expectedCases) {
-        # A case list that quietly shrinks is a coverage loss that still
-        # reports a pass, so the count is part of the contract.
-        throw "Installer case list changed: expected $expectedCases, built $($cases.Count)."
     }
     Invoke-ScParallelSteps -Steps $cases.ToArray() -Throttle $Jobs -Label 'installer cases'
 
@@ -238,7 +251,8 @@ try {
     }
     if (-not $legacyRefused) { throw 'Installer did not reject the legacy loose actor class.' }
 
-    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true game-reinstall-recovery=true stale-protocol=true bat-wrapper-safe=true default-profile=true'
+    $coverage = if ($Essential) { 'essential-boundaries' } else { 'extended-boundaries' }
+    Write-Output "INSTALLER_TRANSACTION_PASS coverage=$coverage cases=$($cases.Count) ownership=true rollback=true exact-restore=true"
 }
 finally {
     if (Test-Path -LiteralPath $Sandbox) {

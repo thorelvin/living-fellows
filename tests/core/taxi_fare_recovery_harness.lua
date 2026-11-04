@@ -1,93 +1,10 @@
 -- SPDX-License-Identifier: MIT
+-- Extended fares, appearance and visit combinations remain available on demand.
 local SC = SurvivorCompanion
 local Booking, Cab, Fare = SC.TaxiBooking, SC.TaxiCab, SC.TaxiFares
-local function check(ok, label)
-    if not ok then error("taxi fare/recovery: " .. label) end
-end
-local function list(values)
-    return { values = values,
-        size = function(self) return #self.values end,
-        get = function(self, index) return self.values[index + 1] end }
-end
-local function container(values)
-    return { items = list(values or {}),
-        getItems = function(self) return self.items end,
-        contains = function(self, item)
-            for _, value in ipairs(self.items.values) do
-                if value == item then return true end
-            end
-            return false
-        end }
-end
-local function item(id, fullType)
-    local value = { id = id, fullType = fullType, data = {} }
-    function value:getID() return self.id end
-    function value:getFullType() return self.fullType end
-    function value:getModData() return self.data end
-    function value:isFavorite() return false end
-    function value:isQuestItem() return false end
-    return value
-end
-local glove, trunk = container(), container()
-local parts = {
-    { getId = function() return "GloveBox" end,
-        getItemContainer = function() return glove end },
-    { getId = function() return "TruckBed" end,
-        getItemContainer = function() return trunk end },
-}
-local vehicle = { sqlId = 771, script = "Base.CarTaxi", data = {},
-    seats = {}, blood = {} }
-function vehicle:getSqlId() return self.sqlId end
-function vehicle:getScriptName() return self.script end
-function vehicle:getModData() return self.data end
-function vehicle:getX() return 100 end
-function vehicle:getY() return 200 end
-function vehicle:getZ() return 0 end
-function vehicle:getPartCount() return #parts end
-function vehicle:getPartByIndex(index) return parts[index + 1] end
-function vehicle:getMaxPassengers() return 4 end
-function vehicle:getCharacter(seat) return self.seats[seat] end
-function vehicle:setBloodIntensity(area, value) self.blood[area] = value end
-function vehicle:getBloodIntensity(area) return self.blood[area] or 0 end
-function vehicle:transmitBlood() end
-local loaded = vehicle
-SC.Vehicle = { loadedBySqlId = function(id)
-    return loaded and loaded.sqlId == id and loaded or nil
-end, isStationary = function() return true end }
-
-local inventory = container()
-local radioData = { on = true,
-    getIsPortable = function() return true end,
-    getIsTwoWay = function() return true end,
-    getTransmitRange = function() return 100 end,
-    getIsTurnedOn = function(self) return self.on end,
-    getHasBattery = function() return true end,
-    getPower = function() return 1 end,
-    getMicIsMuted = function() return false end,
-    isNoTransmit = function() return false end }
-local radio = { radio = true,
-    getContainer = function() return inventory end,
-    getDeviceData = function() return radioData end }
-inventory.items.values = { radio }
-local player = { x = 100, y = 200, z = 0,
-    getInventory = function() return inventory end }
-function player:getVehicle() return self.vehicle end
-function getSpecificPlayer(index) return index == 0 and player or nil end
-SC.GameplayUtil = {
-    call = function(object, method, ...)
-        local callback = object and object[method]
-        if type(callback) ~= "function" then return nil, false end
-        return callback(object, ...), true
-    end,
-    instanceOf = function(value, kind) return kind == "Radio" and value.radio == true end,
-    containerContainsIdentity = function(source, value)
-        return source:contains(value)
-    end,
-    position = function(actor)
-        if actor.getX then return actor:getX(), actor:getY(), actor:getZ() end
-        return actor.x, actor.y, actor.z
-    end,
-}
+local X = assert(SC.TaxiTestFixture)
+local check, item, glove, trunk = X.check, X.item, X.glove, X.trunk
+local vehicle, player, radio = X.vehicle, X.player, X.radio
 
 local serviceRing = item(101, "Base.Ring_Left_RingFinger_Gold")
 glove.items.values = { serviceRing }
@@ -164,7 +81,7 @@ check(Cab.recover() == true and Fare.current().phase == "committed",
     "recover same native cab and receipt")
 check(Fare.quote(501).required == 1.5,
     "half-unit credit survives save reload")
-loaded = nil
+X.setLoaded(nil)
 player.vehicle = vehicle
 check(Cab.recover() == true,
     "cold passenger seat resolves cab before the cell vehicle list")
@@ -173,7 +90,7 @@ check(select(2, Cab.recover()) == "cab_unloaded_or_missing",
     "unloaded cab remains unresolved")
 check(Cab.prepareSpawn(Booking.current().generation) == false,
     "missing loaded cab cannot authorize a clone")
-loaded = vehicle
+X.setLoaded(vehicle)
 vehicle.data.LF_MarkusCab.token = "foreign"
 check(select(2, Cab.recover()) == "cab_identity_conflict",
     "conflicting loaded cab blocks recovery")
@@ -246,7 +163,7 @@ check(Booking.cancel(player, radio) and Booking.request(player, radio),
 glove.items.values, trunk.items.values = {}, {}
 local replacement = setmetatable({ sqlId = 772, script = "Base.CarTaxi",
     data = {}, seats = {}, blood = {} }, { __index = vehicle })
-loaded = replacement
+X.setLoaded(replacement)
 local newReady, newToken = Cab.prepareSpawn(Booking.current().generation)
 check(newReady and Cab.claimSpawn(replacement, newToken) == true
     and Cab.current().sqlId == 772 and Fare.hasBaseline(772),

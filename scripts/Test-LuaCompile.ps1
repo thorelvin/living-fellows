@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = '',
+    [object]$VerifiedCompilation = $null,
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
 )
 
@@ -12,6 +13,14 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $GameRoot = (Resolve-Path -LiteralPath $GameRoot -ErrorAction Stop).Path
+. (Join-Path $PSScriptRoot 'ScTestRuntime.ps1')
+if ($null -ne $VerifiedCompilation) {
+    if (-not (Test-ScLuaCompilationReceipt $VerifiedCompilation $ProjectRoot $GameRoot)) {
+        throw 'The shared Lua compilation receipt no longer matches the payload or runtime.'
+    }
+    Write-Output 'LUA_COMPILE_REUSED normal=true debug=true inputs=verified'
+    return
+}
 
 # Packaging must use the same pinned game compiler that will load the mod.
 & (Join-Path $ProjectRoot 'scripts\Test-PzRuntime.ps1') -GameRoot $GameRoot | Out-Null

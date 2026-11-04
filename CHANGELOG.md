@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.26.97 - Reliable expedition preparation and parking access
+
+- Keep expedition packing moving when carried weight or carrying limits change
+  during a storage walk or transfer animation. Recheck current supplies in
+  bounded slices, preserve required gear and complete each transfer once.
+- Try up to six nearby road connections when parked cars or obstacles block the
+  nearest exit. Verify each complete corridor and use the chosen entry for driving.
+- Choose an accessible installed passenger seat when another seat or door is
+  unavailable. Keep the driver, other occupants and safe exits checked.
+- Explain parking-boundary and road-access refusals. Keep unavailable parked cars
+  visible for review, and prefer a fitting area when parking outlines overlap.
+- Show preparation status before the crew starts walking to its car.
+- Consolidate the routine project gate into five essential checks, removing
+  duplicate tests and keeping deeper scenarios available on demand.
+- Retain bridge protocol `42.21-isocompanion-29` for Project Zomboid 42.21.0;
+  ship matching Lua and the rebuilt bridge with 0.26.97 release metadata.
+
 ## 0.26.96 - Expedition packing and equipment care
 
 - Prepare expedition kits before walking or boarding: store spare stock, use

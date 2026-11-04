@@ -1,206 +1,10 @@
 -- SPDX-License-Identifier: MIT
--- Exact native effects are supplied by this fixture; the worker must observe
--- those objects and move them, and cannot manufacture successful output.
+-- Extended physical timber permutations; essential cargo retains the complete effect chain.
 local SC = SurvivorCompanion
-local Wood, Logging = SC.ExpeditionWood, SC.LoggingWork
-local checks, clock, serial = 0, 1000, 0
-local function check(value, message)
-    checks = checks + 1
-    if not value then error("wood check " .. checks .. ": " .. message) end
-end
-local squares, actors, storages = {}, {}, {}
-local function weight(container)
-    local total = 0
-    for _, item in ipairs(container.items) do
-        total = total + item.weight + (item.bag and weight(item.bag) * (1 - item.reduction / 100) or 0)
-    end
-    return total
-end
-local function container(capacity)
-    local result = { items = {}, capacity = capacity or 50 }
-    function result:getItems() return self.items end
-    function result:getFreeCapacity() return self.capacity - weight(self) end
-    return result
-end
-local function put(owner, item)
-    owner.items[#owner.items + 1] = item
-    item.owner = owner
-end
-local function remove(owner, item)
-    for index, current in ipairs(owner.items) do
-        if current == item then table.remove(owner.items, index) item.owner = nil return true end
-    end
-    return false
-end
-local function item(kind)
-    serial = serial + 1
-    local result = { kind = kind, id = "wood-item-" .. serial, data = {},
-        weight = kind == "Base.Log" and 9 or kind == "Base.Axe" and 3 or 0.2 }
-    function result:getContainer() return self.owner end
-    function result:getWorldItem() return self.world end
-    function result:isBroken() return self.broken == true end
-    function result:getTreeDamage() return self.kind == "Base.Axe" and 10 or 0 end
-    function result:getInventory() return self.bag end
-    function result:getWeightReduction() return self.reduction or 0 end
-    return result
-end
-local function actor(id, limit)
-    local result = { id = id, bag = container(), limit = limit or 30, x = 0, y = 0, z = 0 }
-    function result:isDead() return self.dead == true end
-    function result:isEnduranceSufficientForAction() return self.endurance ~= false end
-    function result:isEquippedClothing(value) return self.worn == value end
-    function result:isHandItem(value) return self.primary == value or self.secondary == value end
-    actors[id] = result
-    return result
-end
-local function square(x, y, z)
-    if z ~= 0 then return nil end
-    local key = x .. ":" .. y
-    if not squares[key] then
-        local result = { x = x, y = y, z = 0, world = {} }
-        function result:getTree() return self.tree end
-        function result:getWorldObjects() return self.world end
-        squares[key] = result
-    end
-    return squares[key]
-end
-local function plant(x, y)
-    local result = square(x, y, 0)
-    result.tree = { health = 100 }
-    function result.tree:getObjectIndex() return 0 end
-    function result.tree:getSize() return 3 end
-    function result.tree:getHealth() return self.health end
-    return result
-end
-local function drop(target, value)
-    local wrapper = { item = value }
-    function wrapper:getItem() return self.item end
-    target.world[#target.world + 1] = wrapper
-    value.world = wrapper
-    return wrapper
-end
-local U = {}
-function U.call(object, method, ...)
-    if object and type(object[method]) == "function" then return object[method](object, ...), true end
-    return nil, false
-end
-function U.position(value) return value.x, value.y, value.z end
-function U.inventory(value) return value.bag end
-function U.nowMs() return clock end
-function U.idOf(value) return value.id end
-function U.resolveActor(id) return actors[id] end
-function U.modData(value) return value.data end
-function U.gridSquare(x, y, z) return square(x, y, z) end
-function U.itemType(value) return value.kind end
-function U.itemStableId(value) return value.id end
-function U.itemWeight(value) return value.weight end
-function U.itemHasTag(value, tag) return value.kind == "Base.Axe" and tag == "CHOP_TREE" end
-function U.listSize(list) return #list end
-function U.listGet(list, index) return list[index + 1] end
-function U.isSquareFree(value) return value.tree == nil end
-function U.sameSquare(value, target) return value.x == target.x and value.y == target.y and value.z == target.z end
-function U.inventoryContains(owner, sought)
-    for _, value in ipairs(owner and owner.items or {}) do if value == sought then return true end end
-    return false
-end
-function U.carryLoad(value) return weight(value.bag), value.limit, weight(value.bag) / value.limit, value.bag end
-function U.stop() return true end
-function U.transferItemVerified(source, destination, value)
-    if not remove(source, value) then return false, "source_missing" end
-    put(destination, value)
-    return true
-end
-function U.worldItemPresent(target, wrapper)
-    for _, value in ipairs(target.world) do if value == wrapper then return true end end
-    return false
-end
-function U.takeWorldItemVerified(wrapper, destination, value)
-    for _, target in pairs(squares) do
-        for index, current in ipairs(target.world) do
-            if current == wrapper and current.item == value then
-                table.remove(target.world, index)
-                value.world = nil
-                put(destination, value)
-                if U.pickupFault then U.pickupFault = nil return false, "native_pickup_receipt_failed" end
-                return true
-            end
-        end
-    end
-    return false, "world_missing"
-end
-local chops = 0
-function U.move(value, _, request)
-    if request.action ~= "chop_tree" or request.tool.kind ~= "Base.Axe" then return false end
-    chops = chops + 1
-    value.kind, value.active, value.target = "chop_tree", true, request.targetSquare
-    return true
-end
-SC.GameplayUtil = U
-SC.NativeActions = {
-    workKind = function(value) return value.kind end,
-    isWorkActive = function(value) return value.active == true end,
-    finishWork = function(value) value.kind = nil return true end,
-    cancelWork = function(value) value.kind, value.active = nil, false return true end,
-}
-SC.Navigation = {
-    interactionTargets = function(_, target) return { target } end,
-    requestAny = function(value, targets)
-        local target = targets[1]
-        value.x, value.y, value.z = target.x, target.y, target.z
-        return true, "arrived", target
-    end,
-    cancel = function() return true end,
-}
-SC.WorkTransport = {
-    hasRoom = function(owner, _, value)
-        if owner.reject then return false, "destination_item_rejected" end
-        return owner:getFreeCapacity() >= value.weight, "destination_full"
-    end,
-    foreignProtected = function() return false end,
-}
-SC.PersonalItems = { isProtected = function() return false end }
-SC.BaseLife = {
-    isInside = function() return false end,
-    policies = function() return { workOutsideAtNight = true } end,
-    storageRows = function(category) return category == "tools" and storages or {} end,
-    storage = function(id) for _, row in ipairs(storages) do if row.id == id then return row end end end,
-    withdrawable = function() return true end,
-    resolveContainer = function(storage) return storage.container end,
-    availableCountExact = function() return 1 end,
-}
-SC.BaseWork = {
-    withdrawFromStorage = function(value, _, storage, owner, tool)
-        if U.transferItemVerified(owner, value.bag, tool) then return true, "base_supply_taken" end
-        return false, "source_missing"
-    end,
-    returnToStorage = function(value, _, storage, owner, tool)
-        if U.transferItemVerified(tool.owner, owner, tool) then return true, "base_supply_returned" end
-        return false, "source_missing"
-    end,
-}
-local car = { x = 20, y = 20, z = 0, cargo = container(90) }
-function car:isTrunkLocked() return false end
-function car:getAreaCenter() return { x = 20, y = 20, z = 0 } end
-local part = { getArea = function() return "Trunk" end }
-SC.Vehicle = {
-    loadedBySqlId = function(id) return id == 42 and car end,
-    isStationary = function() return true end,
-    cargoPart = function() return part, car.cargo end,
-}
-local function context(wood, roster, carId)
-    return { missionId = "wood-trip", wood = wood, roster = roster, carId = carId,
-        destination = { x = 0, y = 0, z = 0 } }
-end
-local function pulse(value, ctx, count)
-    for _ = 1, count or 1 do clock = clock + 250 Wood.update(value, ctx) end
-end
-local function nativeFell(value, logs)
-    local target = value.target
-    target.tree, value.active = nil, false
-    for _ = 1, logs do drop(target, item("Base.Log")) end
-    drop(target, item("Base.TreeBranch"))
-    drop(target, item("Base.Twigs"))
-end
+local Wood, Logging, U, X = SC.ExpeditionWood, SC.LoggingWork, SC.GameplayUtil, assert(SC.WoodTestFixture)
+local check, actor, item, container = X.check, X.actor, X.item, X.container
+local put, remove, weight, plant, square, drop = X.put, X.remove, X.weight, X.plant, X.square, X.drop
+local pulse, nativeFell, context, car, actors = X.pulse, X.nativeFell, X.context, X.car, X.actors
 
 check(Wood.normalizeRequest({ mode = "count" }).quantity == 12, "default request")
 check(Wood.normalizeRequest({ mode = "full" }).quantity == nil, "full has no invented count")
@@ -265,7 +69,7 @@ check(not Logging.claimTree("wood", "hauler", target, hauler), "cross-controller
 cutter.kind, cutter.active = "chop_tree", true
 Logging.releaseTree("field", "cutter")
 check(not Logging.claimTree("wood", "hauler", target, hauler), "release cannot erase an unsettled native chop claim")
-clock = clock + 11000
+X.advanceClock(11000)
 check(not Logging.claimTree("wood", "hauler", target, hauler), "active chop retains claim")
 cutter.kind, cutter.active = nil, false
 check(Logging.claimTree("wood", "hauler", target, hauler), "inactive expired claim released")
@@ -277,7 +81,7 @@ local ctx = context(wood, roster, 42)
 local prepared, _, ready = Wood.prepare(roster, wood, { sqlId = 42 })
 check(prepared and ready, "car capacity and carried axe preflight")
 pulse(cutter, ctx, 1)
-check(cutter.active and chops == 1 and #wood.acquisitions == 0, "native action starts without fake output")
+check(cutter.active and X.chops() == 1 and #wood.acquisitions == 0, "native action starts without fake output")
 local saved = Wood.copy(wood)
 check(saved and saved.workers.cutter.work.point.x == -8, "active physical work serializes")
 check(saved.workers.cutter ~= wood.workers.cutter, "save is isolated copy")
@@ -307,7 +111,7 @@ end
 check(debris==2,"both debris types remain after the expedition's real logs reach the trunk")
 check(Wood.cargoCounts(wood, roster, nil, 42).loaded == 2
     and Wood.cargoCounts(wood, roster, { "cutter" }, 42).complete == false, "cargo progress respects actual trunk and visibility")
-check(chops == 1 and #car.cargo.items == 2, "no extra trees chopped once quantity reached")
+check(X.chops() == 1 and #car.cargo.items == 2, "no extra trees chopped once quantity reached")
 local copied = Wood.copy(wood)
 check(copied and #copied.acquisitions == 2, "loaded receipts survive save")
 copied.acquisitions[2].id = copied.acquisitions[1].id
@@ -324,7 +128,7 @@ check(not Wood.valid(copied), "native/function references rejected")
 local borrower = actor("borrower", 20)
 local borrowed = item("Base.Axe")
 local source = { id = "axe-source", container = container() }
-put(source.container, borrowed) storages = { source }
+put(source.container, borrowed) X.setStorages({ source })
 local loanWood = Wood.createState({ mode = "count", quantity = 1 })
 local loanRoster = { { id = "borrower", actor = borrower } }
 local handled, reason, loanReady = Wood.prepare(loanRoster, loanWood)
@@ -385,9 +189,9 @@ local full = actor("full", 2) put(full.bag, item("Base.Axe"))
 plant(-8, -8)
 local fullWood = Wood.createState({ mode = "full" })
 local fullCtx = context(fullWood, { { id = "full", actor = full } })
-local beforeChops = chops
+local beforeChops = X.chops()
 pulse(full, fullCtx, 2)
-check(Wood.status(fullWood).done and chops == beforeChops, "full walkers stop before cutting")
+check(Wood.status(fullWood).done and X.chops() == beforeChops, "full walkers stop before cutting")
 local protectedLog = item("Base.Log")
 put(hauler.bag, protectedLog)
 protectedLog.data.LF_ExpeditionWood = { tripId = "wood-trip", id = protectedLog.id, memberId = "hauler" }
@@ -397,7 +201,7 @@ trunkFull.workers.hauler = { phase = "loading", scan = 0 }
 car.cargo.capacity = weight(car.cargo)
 pulse(hauler, context(trunkFull, { { id = "hauler", actor = hauler } }, 42), 2)
 check(Wood.status(trunkFull).done and protectedLog.owner == hauler.bag, "full trunk retains real cargo for return")
-check(chops == beforeChops, "full trunk does not resume clearing trees")
+check(X.chops() == beforeChops, "full trunk does not resume clearing trees")
 
 -- A failed native invocation receipt is not an ownership fact. Reconcile
 -- the original moved object after reload instead of losing it or duplicating.
@@ -519,20 +323,20 @@ put(first.bag, firstAxe) put(second.bag, secondAxe)
 plant(-8, -8)
 local roleWood = Wood.createState({ mode = "count", quantity = 8 })
 local roleCtx = context(roleWood, { { id = first.id, actor = first }, { id = second.id, actor = second } })
-local oldChops = chops
+local oldChops = X.chops()
 pulse(second, roleCtx)
-check(roleWood.cutterId == first.id and not second.active and chops == oldChops,
+check(roleWood.cutterId == first.id and not second.active and X.chops() == oldChops,
     "first usable roster axe elects one cutter even when another member updates first")
 pulse(first, roleCtx)
-check(first.active and chops == oldChops + 1 and Wood.copy(roleWood).cutterId == first.id,
+check(first.active and X.chops() == oldChops + 1 and Wood.copy(roleWood).cutterId == first.id,
     "only selected cutter starts native work and role survives save")
 firstAxe.broken = true
 pulse(first, roleCtx)
 check(roleWood.cutterId == second.id and first.active == false, "broken axe hands off role and cancels former native action")
 pulse(second, roleCtx)
-check(second.active and chops == oldChops + 2, "replacement cutter acquires released tree rather than contending")
+check(second.active and X.chops() == oldChops + 2, "replacement cutter acquires released tree rather than contending")
 Wood.stop(roleWood, "test_complete")
 local malformed = Wood.copy(wood)
 malformed.workers = "corrupt"
 check(Wood.valid(malformed) == false, "scalar worker state fails closed without exception")
-SC_TEST_REPORT = "Wood expedition: " .. checks .. " physical ownership/capacity/reload/loan/claim checks passed"
+SC_TEST_REPORT = "Wood expedition: " .. X.checks() .. " physical ownership/capacity/reload/loan/claim checks passed"

@@ -1735,6 +1735,13 @@ local function markTransactionVerifying(transaction, detail)
     end
 end
 
+local function markTransactionCommitting(transaction)
+    local service = supervisor()
+    if service and transaction.supervisorToken and type(service.transition) == "function" then
+        service.transition(transaction.supervisorToken, "committing", { kind = transaction.kind })
+    end
+end
+
 local function transactionTargetKey(transaction)
     return tostring(transaction.kind) .. "|" .. tostring(transaction.item)
         .. "|" .. tostring(transaction.destination or transaction.square or "none")
@@ -1808,6 +1815,9 @@ local function advanceTransactionVisual(actor, transaction)
     local token = transaction.supervisorToken
     local visualAction = (transaction.kind == "wear" or transaction.kind == "unwear")
         and "wear_clothing" or "loot_container"
+    -- Commit validation can span bounded inventory scan slices. The pose
+    -- already completed; waiting for that scan must not replay it.
+    if transaction.phase == "commit" then return true, "logistics_action_completed" end
     if transaction.phase == "visual" then
         local status = visualStatus(actor, visualAction)
         if status == "active" then
@@ -1822,9 +1832,6 @@ local function advanceTransactionVisual(actor, transaction)
                 service.markVisualVerified(token, { action = visualAction })
             end
             transaction.phase = "commit"
-            if service and token and type(service.transition) == "function" then
-                service.transition(token, "committing", { action = visualAction })
-            end
             return true, "logistics_action_completed"
         end
         if status == nil then
@@ -1832,9 +1839,6 @@ local function advanceTransactionVisual(actor, transaction)
                 service.markVisualVerified(token, { action = visualAction, tracked = false })
             end
             transaction.phase = "commit"
-            if service and token and type(service.transition) == "function" then
-                service.transition(token, "committing", { action = visualAction })
-            end
             return true, "logistics_action_untracked"
         end
         return nil, "logistics_animation_" .. tostring(status)
@@ -1875,9 +1879,6 @@ local function advanceTransactionVisual(actor, transaction)
         service.markVisualVerified(token, { action = visualAction, tracked = status ~= nil })
     end
     transaction.phase = "commit"
-    if service and token and type(service.transition) == "function" then
-        service.transition(token, "committing", { action = visualAction })
-    end
     return true, "logistics_action_completed"
 end
 
@@ -1926,6 +1927,7 @@ local function executeTransaction(actor, state)
         if not Preparation.removableMask(actor, transaction.item) then
             return terminalTransaction(actor, state, false, "manual_mask_cleanup_protected")
         end
+        markTransactionCommitting(transaction)
         local _, removed = U().call(actor, "removeWornItem", transaction.item, false)
         local verified = removed and not isWorn(actor, transaction.item)
             and U().inventoryContains(transaction.source, transaction.item)
@@ -1937,6 +1939,7 @@ local function executeTransaction(actor, state)
     end
 
     if transaction.kind == "wear" then
+        markTransactionCommitting(transaction)
         local equipped, equipReason = commitWearable(actor, transaction.record)
         markTransactionVerifying(transaction, { kind = transaction.kind })
         if equipped and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
@@ -1952,6 +1955,7 @@ local function executeTransaction(actor, state)
     end
 
     if transaction.kind == "drop" then
+        markTransactionCommitting(transaction)
         local dropped, dropReason = U().dropItem(transaction.source,
             transaction.square, transaction.item, 0.5, 0.5, 0)
         markTransactionVerifying(transaction, { kind = transaction.kind })
@@ -1970,8 +1974,12 @@ local function executeTransaction(actor, state)
             or not Preparation.bagEquipped(actor, transaction.bag, transaction.allowHeldBag ~= false)) then
         return terminalTransaction(actor, state, false, "packing_bag_changed")
     end
-    if transaction.preparationKey and not Preparation.validTransfer(actor, transaction) then
-        return terminalTransaction(actor, state, false, "loadout_transfer_changed")
+    if transaction.preparationKey then
+        local valid, validationReason = Preparation.validTransfer(actor, transaction)
+        if valid == nil then return true, validationReason or "loadout_inventory_pending" end
+        if valid ~= true then
+            return terminalTransaction(actor, state, false, validationReason or "loadout_transfer_changed")
+        end
     end
     local room, capacityReason = U().containerHasRoom(
         transaction.destination, actor, transaction.item)
@@ -1980,6 +1988,7 @@ local function executeTransaction(actor, state)
             kind = transaction.kind,
         })
     end
+    markTransactionCommitting(transaction)
     local transferred, transferReason = U().transferItemVerified(
         transaction.source, transaction.destination, transaction.item)
     markTransactionVerifying(transaction, { kind = transaction.kind })
@@ -2400,9 +2409,32 @@ end
 function Preparation.validTransfer(actor, transaction)
     local preparation = Preparation.actors[actor]
     if not preparation or preparation.key ~= transaction.preparationKey then return false end
-    if not preparation.auditData or preparation.auditProof ~= Preparation.fingerprint(actor, preparation) then return false end
-    local audit = Logistics.audit(actor, preparation.auditData)
-    local keep, tools = Preparation.kit(actor, audit, preparation.requirements)
+    -- Weight, carrying limits and cache versions may change while walking to
+    -- storage or playing the transfer pose. They invalidate the cached audit,
+    -- not the exact transfer. Reconcile in bounded slices before committing.
+    if preparation.auditData and preparation.auditProof ~= Preparation.fingerprint(actor, preparation) then
+        preparation.auditData, preparation.inventoryScan = nil, nil
+    end
+    local audit, inventoryReason = Preparation.inventory(actor, preparation)
+    if not audit then
+        if inventoryReason then return false, inventoryReason end
+        local service, scan = supervisor(), preparation.inventoryScan
+        local token = transaction.supervisorToken
+        if service and token and scan then
+            -- Reconciliation is interruptible pre-commit work. Only genuine
+            -- scan advancement extends its deadline, never a stalled cursor.
+            if type(service.transition) == "function" then
+                service.transition(token, "waiting", { reason = "loadout_inventory_pending" })
+            end
+            if type(service.progress) == "function" then
+                service.progress(token, "inventory:" .. tostring(#scan.items) .. ":" .. tostring(scan.cursor))
+            end
+        end
+        return nil, "loadout_inventory_pending"
+    end
+    local keep, tools, _, _, exact = Preparation.kit(actor, audit, preparation.requirements)
+    preparation.exactKeep = exact
+    Preparation.assess(actor, preparation, audit, tools)
     if transaction.kind == "deposit" then
         return Preparation.camp(actor, preparation.requirements) and not keep[transaction.item]
             and not isProtected(actor, transaction.item) and transaction.storage ~= nil

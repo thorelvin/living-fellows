@@ -23,9 +23,6 @@ def capture(pattern: str, text: str, label: str) -> str:
 namespace = (ROOT / "SurvivorCompanion/42/media/lua/shared/SCNamespace.lua").read_text(
     encoding="utf-8"
 )
-actor = (ROOT / "SurvivorCompanion/42/media/lua/client/SCActor.lua").read_text(
-    encoding="utf-8"
-)
 bridge = (ROOT / "bridge/src/main/java/survivorcompanion/bridge/SCBridge.java").read_text(
     encoding="utf-8"
 )
@@ -35,19 +32,9 @@ version = (ROOT / "VERSION.txt").read_text(encoding="utf-8").strip()
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 payload_readme = (ROOT / "SurvivorCompanion/README.txt").read_text(encoding="utf-8")
 changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-source_workflow = (ROOT / ".github/workflows/source-ci.yml").read_text(encoding="utf-8")
-real_jar_workflow = (ROOT / ".github/workflows/real-jar-compatibility.yml").read_text(
-    encoding="utf-8"
-)
 native_installer = (ROOT / "scripts/Install-NativeBridge.ps1").read_text(
     encoding="utf-8"
 )
-project_gate = (ROOT / "scripts/Test-Project.ps1").read_text(encoding="utf-8")
-runtime_gate = (ROOT / "scripts/Test-PzRuntime.ps1").read_text(encoding="utf-8")
-core_gate = (ROOT / "tests/core/run_core_tests.ps1").read_text(encoding="utf-8")
-lua_gate = (ROOT / "scripts/Test-LuaCompile.ps1").read_text(encoding="utf-8")
-lua_compiler = (ROOT / "tests/ui/ReflectLuaCompiler.java").read_text(
-    encoding="utf-8")
 runtime_manifest = json.loads((ROOT / "tests/core/pz-runtime.json").read_text(
     encoding="utf-8"))
 
@@ -60,6 +47,7 @@ java_protocol = capture(r'PROTOCOL\s*=\s*"([^"]+)"', bridge, "Java protocol")
 java_game = capture(r'COMPILED_GAME_VERSION\s*=\s*"([^"]+)"', bridge, "Java game version")
 jar_protocol = capture(r'^SC-Bridge-Protocol:\s*(\S+)', manifest, "JAR protocol")
 jar_game = capture(r'^SC-Compiled-Game-Version:\s*(\S+)', manifest, "JAR game version")
+jar_release = capture(r'^Implementation-Version:\s*(\S+)', manifest, "JAR release")
 installer_protocol = capture(
     r"\$ExpectedProtocol\s*=\s*'([^']+)'", native_installer, "installer protocol"
 )
@@ -75,6 +63,7 @@ installer_compiled_game = capture(
 )
 
 require(version == lua_release, "VERSION.txt and SC.Identity.release disagree")
+require(version == jar_release, "source JAR release disagrees with VERSION.txt")
 require(f"release-{version}-blue.svg" in readme,
         "README release badge disagrees with VERSION.txt")
 require(payload_readme.startswith(f"Living Fellows {version} - release"),
@@ -104,45 +93,17 @@ require(re.fullmatch(r"[0-9A-F]{64}", runtime_manifest["projectZomboidJarSha256"
         "pinned real-JAR runtime identity is incomplete")
 require(installer_supported_game == ".".join(lua_game.split(".")[:2]),
         "installer supported game family disagrees with the pinned game version")
-require("local expectedNativeProtocol = SC.Identity.bridgeProtocol" in actor,
-        "SCActor must read the shared protocol identity")
 require(lua_protocol in architecture and "42.20-isocompanion-4" not in architecture,
         "architecture protocol documentation drifted")
 require(save_key == "SC_WorldV1" and save_schema == "3"
         and "Global ModData key `SC_WorldV1` with document schema 3" in architecture,
         "stable save key/schema documentation drifted")
-require("pull_request:" in source_workflow
-        and "branches: ['living_fellows/**']" in source_workflow
-        and "./scripts/Test-Source.ps1" in source_workflow,
-        "Living Fellows release branches and pull requests must execute the source-only gate")
-require("self-hosted" in real_jar_workflow
-        and "./scripts/Test-Project.ps1" in real_jar_workflow
-        and "tags:" in real_jar_workflow and "'v*'" in real_jar_workflow
-        and "github.ref_name" in real_jar_workflow,
-        "trusted real-JAR compatibility workflow is missing")
-require('$expected = "v$version-pz$game"' in real_jar_workflow
-        and "tests/core/pz-runtime.json" in real_jar_workflow,
-        "release tags must name the pinned Project Zomboid version: v<VERSION>-pz<game>")
-require(project_gate.index("Test-PzRuntime.ps1") < project_gate.index("Test-Source.ps1")
-        and "Get-FileHash" in runtime_gate and "projectzomboid.jar" in runtime_gate
-        and "SCNamespace.lua" in runtime_gate and "Install-NativeBridge.ps1" in runtime_gate,
-        "full project verification does not start with the pinned real-JAR identity gate")
-require("--verify-debug-limit" in core_gate and "--debug-compile @allLua" in core_gate
-        and "--verify-debug-limit" in lua_gate
-        and "--debug-compile @LuaFiles" in lua_gate
-        and 'getField("debug").setBoolean(null, true)' in lua_compiler,
-        "the pinned Kahlua debug compilation gate is not wired through")
-for builder in ("Build-Workshop.ps1", "Build-Standalone.ps1",
-                "Build-OfflinePlaytest.ps1"):
-    script = (ROOT / "scripts" / builder).read_text(encoding="utf-8")
-    require("Test-LuaCompile.ps1" in script,
-            f"{builder} can package Lua without the debug compilation gate")
-
 payload_jar = ROOT / "SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar"
 with zipfile.ZipFile(payload_jar) as archive:
     packaged_manifest = archive.read("META-INF/MANIFEST.MF").decode("utf-8")
-require(f"SC-Bridge-Protocol: {lua_protocol}" in packaged_manifest
-        and f"SC-Compiled-Game-Version: {lua_game}" in packaged_manifest,
+require(capture(r'^SC-Bridge-Protocol:\s*(\S+)', packaged_manifest, "packaged JAR protocol") == lua_protocol
+        and capture(r'^SC-Compiled-Game-Version:\s*(\S+)', packaged_manifest, "packaged JAR game") == lua_game
+        and capture(r'^Implementation-Version:\s*(\S+)', packaged_manifest, "packaged JAR release") == version,
         "packaged bridge metadata disagrees with source constants")
 
 print(

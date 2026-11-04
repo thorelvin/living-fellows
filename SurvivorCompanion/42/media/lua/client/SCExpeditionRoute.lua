@@ -156,7 +156,7 @@ function Route.planFromPoint(origin, target, continuingMission)
     return plan(nil, target, continuingMission, nil, nil, nil, origin)
 end
 
-function Route.planAvoidingAll(actor, target, circles)
+function Route.planAvoidingAll(actor, target, circles, origin)
     if type(circles) ~= "table" or #circles > 8 then return nil, "invalid_road_avoidance" end
     local parts, copied = {}, {}
     for key, circle in pairs(circles) do
@@ -167,7 +167,7 @@ function Route.planAvoidingAll(actor, target, circles)
         copied[#copied + 1] = { x = circle.x, y = circle.y, radius = circle.radius }
         parts[#parts + 1] = string.format("%.2f,%.2f,%.2f", circle.x, circle.y, circle.radius)
     end
-    return plan(actor, target, true, nil, table.concat(parts, ";"), copied)
+    return plan(actor, target, true, nil, table.concat(parts, ";"), copied, origin)
 end
 
 -- Use the leader's fresh visual contacts. A horde elsewhere in sight need not

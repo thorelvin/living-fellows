@@ -8,6 +8,11 @@ UIFont = { Small = 1 }
 Keyboard = {}
 Events = nil
 function getTexture() end
+function getText(key, ...)
+    local arguments = { ... }
+    for index, value in ipairs(arguments) do arguments[index] = tostring(value) end
+    return key .. (#arguments > 0 and (":" .. table.concat(arguments, ",")) or "")
+end
 function getCore()
     return { getScreenWidth = function() return fixture.screenWidth end,
         getScreenHeight = function() return fixture.screenHeight end }

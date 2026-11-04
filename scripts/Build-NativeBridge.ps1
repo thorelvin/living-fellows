@@ -37,8 +37,11 @@ if (-not $javac) {
     if ($command) { $javac = $command.Source }
 }
 if (-not $javac) { throw 'A Java 17 JDK with javac.exe is required to build the native bridge.' }
-$compilerVersion = (& $javac -version 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $compilerVersion -notmatch '^javac\s+17(?:\.|$)') {
+$compilerOutput = @(& $javac -version 2>&1)
+$compilerExit = $LASTEXITCODE
+$compilerVersion = @($compilerOutput | ForEach-Object { [string]$_ } |
+    Where-Object { $_ -match '^javac\s+' } | Select-Object -First 1) -join ''
+if ($compilerExit -ne 0 -or $compilerVersion -notmatch '^javac\s+17(?:\.|$)') {
     throw "The native bridge requires an exact Java 17 compiler; found '$compilerVersion' at $javac"
 }
 $jar = Join-Path (Split-Path -Parent $javac) 'jar.exe'

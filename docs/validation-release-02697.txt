@@ -1,0 +1,52 @@
+Living Fellows 0.26.97: release verification
+Date: 2026-11-04
+Branch: living_fellows/0.26.97
+Base: b28945ced7bdb248067acd424a43ec1f52451a2f (0.26.96)
+
+Scope
+- Reconcile changing carry values during expedition preparation without
+  rejecting a valid transfer, replaying its pose or losing required gear.
+- Try up to six nearby verified road attachments when the nearest corridor
+  is obstructed. Pass the selected entry into the actual driving route.
+- Select accessible passenger seats, preserve outside-occupant checks, retain
+  parking refusal explanations and prefer fitting overlapping parking areas.
+- Consolidate routine validation into five essential checks, keeping distinct
+  specialist scenarios available on demand and removing duplicate harness code.
+- Synchronize release metadata and rebuild the packaged native bridge.
+
+Completed automated verification
+- scripts/Test-Project.ps1 -Release: all five checks PASS in 196.7 seconds.
+  Build 146.8s; Lifecycle 41.0s; Behaviour 1.4s; Cargo 2.1s; Interface 5.4s.
+  Evidence: build/test-results/20261104-223045-423d2c/summary.json.
+- All shipped Lua compiled normally and with debug enabled. Package builders
+  reused only the current run's verified compilation receipt.
+- Installer boundaries: 11/11 PASS, including ownership, rollback and exact
+  restoration. Initial install, update and uninstall chain also passed.
+- Workshop release archive and standalone Windows package: PASS, version 0.26.97.
+- Focused car, Home car, physical driving, road route and expedition UI groups:
+  PASS. The driving group completed 246 checks. These runs preceded the
+  metadata-only release bump and use the same gameplay implementation.
+- Packing regression reproduced the failure on the prior code. The fix passed
+  with a multi-slice inventory, one exact deposit, one pose, no leaked reservation
+  and an item newly marked as required retained by its owner.
+- Parked-car regression finds an alternate mapped entry around a blocked
+  perpendicular corridor. Fully blocked or unverified exits remain refused.
+- Driver/seat ownership, overlapping outlines and clearing the initial road
+  attachment before later replanning passed their focused regressions.
+- git diff --check: PASS.
+
+Bridge
+Protocol: 42.21-isocompanion-29; game: 42.21.0; world save: SC_WorldV1/schema-3.
+The reproducible build matches the packaged JAR. Native implementation and save
+schemas are unchanged; the archive carries the new release metadata.
+SHA-256: 7dd99b828871100edfaa861764d0116bdffe64cab0f313c2759a57430e4d9a80
+
+Evidence and limits
+Focused scenario log: C:/ZOMBOID/outputs/expedition-parking-02696/scenarios.log.
+Consolidation timing and specialist coverage: docs/testing.md.
+The release gate ran serially with hidden BelowNormal children, a 256 MB Java
+heap and two processors. No live game was launched for this verification.
+The tester's exact parking layout and a physical trip using its alternate
+entry have not been replayed in-game. Automated results are not live acceptance.
+Publication scope is the requested Git branch. Local installation and Steam
+Workshop publication are separate actions.

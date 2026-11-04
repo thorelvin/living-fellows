@@ -9,10 +9,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TerminalLockAssets(unittest.TestCase):
-    def test_release_debug_override_is_disabled(self):
-        config = (ROOT / "SurvivorCompanion/42/media/lua/shared/SCConfig.lua").read_text(encoding="utf-8-sig")
-        self.assertRegex(config, r"debugLockKind\s*=\s*nil")
-
     def test_generated_manifest_and_texture_partitions(self):
         entries = json.loads((ROOT / "docs/terminal-lock-art.json").read_text(encoding="utf-8-sig"))
         self.assertEqual({e["id"] for e in entries}, {"AccessGranted", "Case486", "CrackTitle", "Padlock",

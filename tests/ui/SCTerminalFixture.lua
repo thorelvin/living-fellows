@@ -3,6 +3,7 @@
 -- computer uses, a fake clock, a computer on a powered desk, and a player.
 -- Drawing calls are counted, never rendered.
 function require() return true end
+SC_TEST_REPORT = ""
 TERMINAL_TEST = { checks = 0, now = 1000, hours = 100, queued = {}, walked = {}, performed = 0,
     uiAdds = 0, uiRemoves = 0, draws = 0 }
 local T = TERMINAL_TEST

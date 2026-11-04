@@ -45,7 +45,7 @@ SC.Vehicle = {
     end,
     isStationary = function() return T.ready end,
     boardingSquares = function(actor, _, seat)
-        if T.doorBlocked == seat then
+        if T.doorBlocked == seat or T.blockedDoors and T.blockedDoors[seat] then
             return nil, nil, T.doorReason or "door_inaccessible"
         end
         return { { x = actor.x, y = actor.y, z = actor.z } }, seat
@@ -123,6 +123,15 @@ SC.ExpeditionRoute = {
         T.routeCalls[#T.routeCalls + 1] = { origin = origin,
             destination = destination }
         if T.routeFailure then return nil, T.routeFailure end
+        if T.mappedAccess then
+            local entryY = origin.x == 90 and origin.y or 102
+            local points = { { x = 90, y = entryY, street = "Road" } }
+            if not T.noAccessGeometry then
+                points[2] = { x = 90, y = entryY + 64, street = "Road" }
+            end
+            return { points = points, roadLength = 60, inferredJunctions = 0 }, nil,
+                { entryX = 90, entryY = entryY, exitX = destination.x, exitY = destination.y }
+        end
         return { points = { { x = origin.x, y = origin.y, street = "Road" },
                 { x = destination.x, y = destination.y, street = "Road" } },
             roadLength = T.distance or 60, inferredJunctions = 0 }, nil,
@@ -145,7 +154,11 @@ function getCell()
             squares[key] = {
                 isSolid = function() return false end,
                 isSolidTrans = function() return false end,
-                getVehicleContainer = function() return nil end,
+                getVehicleContainer = function()
+                    if T.parkedAccessBlocker and x == 95 and y >= 101 and y <= 103
+                        or T.allAccessVehicleBlocked and x < 102 then return T.accessBlocker end
+                    return nil
+                end,
                 isSomethingTo = function() return T.accessBlocked == true end,
             }
         end
@@ -174,6 +187,7 @@ function T.car(id, x, y)
     function car:getKeyId() return 44 end
     function car:isSeatInstalled(seat)
         return seat < (T.installedSeats or 4)
+            and not (T.missingSeats and T.missingSeats[seat])
     end
     function car:getCharacter(seat) return self.occupied[seat] end
     function car:isEngineRunning() return self.engine == true end

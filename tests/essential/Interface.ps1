@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Ordered production files and observable cases; the shared runner owns execution.
+$interfacePanelFiles = @(
+    (Join-Path $UI 'SCUIBasePolicyFixture.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
+    (Join-Path $GameRoot 'media\lua\client\ISUI\ISUIElement.lua'),
+    (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
+    (Join-Path $Client 'SCUIFormat.lua'),
+    (Join-Path $Client 'SCUI.lua'),
+    (Join-Path $Essential 'interface_commands.lua'),
+    (Join-Path $UI 'SCUIBaseRefreshTests.lua'),
+    (Join-Path $UI 'SCHomeTripObservationTests.lua')
+)
+@{ Name = 'interface-selected-and-cached'; Files = $interfacePanelFiles }
+
+$interfaceTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'))
+foreach ($module in @(
+    'SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation', 'SCTerminalBrain',
+    'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',
+    'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil',
+    'SCTerminalPersona', 'SCTerminalPersonaSpiffy', 'SCTerminalPersonaEllis', 'SCTerminalPersonaDuty',
+    'SCTerminalPersonaDiscovery', 'SCTerminalPersonaUI', 'SCTerminalLockState', 'SCTerminalLockWords',
+    'SCTerminalLockSearch', 'SCTerminalLockWheelData', 'SCTerminalLockWheel', 'SCTerminalLockWheelUI',
+    'SCTerminalLockEmmaData', 'SCTerminalLockEmma', 'SCTerminalLockPhone', 'SCTerminalLockRadio',
+    'SCTerminalLockRival', 'SCTerminalLockStoryData', 'SCTerminalLockStory', 'SCTerminalLockCrack',
+    'SCTerminalLockCase', 'SCTerminalLockCrew', 'SCTerminalLockStashes', 'SCTerminalDrawers',
+    'SCTerminalPayoff', 'SCTerminalLockArt', 'SCTerminalLockUI', 'SCTerminalLocks',
+    'SCTerminalWorld', 'SCTerminalLamp', 'SCTerminalActions', 'SCTerminal'
+)) {
+    $interfaceTerminalFiles += Join-Path $Client ($module + '.lua')
+}
+@{ Name = 'interface-terminal-access-and-keys'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $UI 'SCTerminalActionTests.lua'),
+    (Join-Path $UI 'SCTerminalLockPhase2Tests.lua'),
+    (Join-Path $UI 'SCTerminalLockPhase3Tests.lua'),
+    (Join-Path $Client 'SCRuntime.lua'),
+    (Join-Path $Essential 'interface_terminal_idle.lua')
+) }
+
+$interfaceRadioFiles = @($interfaceTerminalFiles)
+foreach ($module in @('SCTerminalHardware', 'SCTerminalRadio', 'SCTerminalRadioUI', 'SCTerminalServices')) {
+    $interfaceRadioFiles += Join-Path $Client ($module + '.lua')
+}
+@{ Name = 'interface-radio-lifecycle'; Files = $interfaceRadioFiles + @(
+    (Join-Path $UI 'SCTerminalRadioTests.lua')
+) }

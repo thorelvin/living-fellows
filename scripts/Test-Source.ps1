@@ -2,28 +2,19 @@
 
 [CmdletBinding()]
 param(
-    # build\native-bridge is a shared directory that every caller wipes and
-    # rebuilds. Test-Project builds it once up front and passes this, so the
-    # stages can run side by side without destroying each other's classes.
-    # The committed-payload comparison below is unaffected: it still measures a
-    # freshly built JAR against the one checked in.
+    # Accepted for callers of the former combined gate. Source validation does
+    # not compile or launch Java, the game, or an installer.
     [switch]$SkipNativeBridge,
-    # Handed to the installer test's own case pool. Test-Project passes 1
-    # under -Serial so the whole gate really does run one thing at a time.
-    [int]$Jobs = 0
+    [int]$Jobs = 0,
+    [ValidateSet('All', 'Metadata', 'Content')][string]$Scope = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Python = (Get-Command python.exe -ErrorAction Stop).Source
-$Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
-$Java = Join-Path (Split-Path -Parent $Javac) 'java.exe'
-$BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
-    ('living-fellows-source-tests-' + [guid]::NewGuid().ToString('N'))
-
 $parseErrors = @()
-# Generated live runs can contain entire saves and junctions to external mods.
-# Parse maintained scripts, not every archived sandbox or generated installer.
+if ($Scope -ne 'Content') {
+# Generated live runs can contain saves and junctions to external mods.
 $scriptFiles = @(Get-ChildItem -LiteralPath $ProjectRoot -File -Filter '*.ps1')
 foreach ($sourceDirectory in @('scripts', 'tests', 'tools', '.github')) {
     $sourcePath = Join-Path $ProjectRoot $sourceDirectory
@@ -42,72 +33,17 @@ $scriptFiles | ForEach-Object {
 if ($parseErrors.Count -gt 0) {
     throw "PowerShell syntax failures:`n$($parseErrors -join "`n")"
 }
-
-if (-not $SkipNativeBridge) {
-    & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
-        -ProjectRoot $ProjectRoot | Out-Null
-}
-$builtBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
-if (-not (Test-Path -LiteralPath $builtBridge -PathType Leaf)) {
-    throw 'The reproducible native bridge build is missing; build it before skipping it.'
-}
-$payloadBridge = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
-if (-not (Test-Path -LiteralPath $payloadBridge -PathType Leaf)) {
-    throw 'Committed native bridge payload is missing.'
-}
-$builtHash = (Get-FileHash -LiteralPath $builtBridge -Algorithm SHA256).Hash
-$payloadHash = (Get-FileHash -LiteralPath $payloadBridge -Algorithm SHA256).Hash
-if ($builtHash -ne $payloadHash) {
-    throw 'Committed native bridge JAR differs from the reproducible Java 17 build.'
 }
 
-New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
-try {
-    & $Javac -cp (Join-Path $ProjectRoot 'build\native-bridge\classes') `
-        -d $BuildRoot `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCDeferredMainThreadQueueTest.java') `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCBootstrapLifecycleTest.java')
-    if ($LASTEXITCODE -ne 0) { throw 'Repository-stub Java control compilation failed.' }
-    & $Java -cp "$BuildRoot;$(Join-Path $ProjectRoot 'build\native-bridge\classes')" `
-        survivorcompanion.bridge.SCDeferredMainThreadQueueTest
-    if ($LASTEXITCODE -ne 0) { throw 'Repository-stub Java control failed.' }
-    & $Java -cp "$BuildRoot;$(Join-Path $ProjectRoot 'build\native-bridge\classes')" `
-        survivorcompanion.bridge.SCBootstrapLifecycleTest
-    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap generation lifecycle control failed.' }
-
-    foreach ($test in @(
-        'tests\core\test_core_static.py',
-        'tests\core\voice_action_labels_test.py',
-        'tests\gameplay\test_gameplay_static.py',
-        'tests\ui\test_ui_contract.py',
-        'tests\live\test_live_harness_static.py',
-        'tests\source\test_release_sync.py',
-        'tests\source\test_supervisor_contract.py',
-        'tests\source\test_harness_wiring.py'
-        'tests\source\test_terminal_lock_assets.py'
-        'tests\source\test_terminal_phase2.py'
-        'tests\source\test_terminal_phase3.py'
-        'tests\source\test_terminal_phase4.py'
-        'tests\source\test_persona_audit.py'
-        'tests\source\test_persona_integration.py'
-        'tests\source\test_no_playtest_output.py'
-    )) {
-        & $Python (Join-Path $ProjectRoot $test)
-        if ($LASTEXITCODE -ne 0) { throw "Source test failed: $test" }
-    }
-    & (Join-Path $ProjectRoot 'tests\core\test_installer.ps1') `
-        -ProjectRoot $ProjectRoot -Jobs $Jobs
+$tests = @()
+if ($Scope -ne 'Content') { $tests += 'tests\source\test_release_sync.py' }
+if ($Scope -ne 'Metadata') { $tests += @(
+    'tests\source\test_content_references.py',
+    'tests\source\test_terminal_lock_assets.py',
+    'tests\source\test_no_playtest_output.py'
+) }
+foreach ($test in $tests) {
+    & $Python (Join-Path $ProjectRoot $test)
+    if ($LASTEXITCODE -ne 0) { throw "Source test failed: $test" }
 }
-finally {
-    if (Test-Path -LiteralPath $BuildRoot) {
-        $resolved = [System.IO.Path]::GetFullPath($BuildRoot)
-        $temporary = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
-        if (-not $resolved.StartsWith($temporary,
-            [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing unsafe source-test cleanup: $resolved"
-        }
-        Remove-Item -LiteralPath $BuildRoot -Recurse -Force
-    }
-}
-
-Write-Output 'SOURCE_TEST_PASS powershell=true java-stubs=true static=true installer=true'
+Write-Output "SOURCE_TEST_PASS scope=$Scope native=false game=false installer=false"

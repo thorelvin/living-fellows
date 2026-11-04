@@ -47,10 +47,15 @@ New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 try {
     if (-not $SkipNativeBridge) {
         & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
-            -ProjectRoot $ProjectRoot -InstallIntoPayload | Out-Null
+            -ProjectRoot $ProjectRoot | Out-Null
     }
     if (-not (Test-Path -LiteralPath $NativeJar -PathType Leaf)) {
         throw 'Native bridge build gate did not produce its JAR.'
+    }
+    $payloadJar = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+    if ((Get-FileHash -LiteralPath $NativeJar -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $payloadJar -Algorithm SHA256).Hash) {
+        throw 'The payload bridge differs from the fresh build; tests do not rewrite the shipped JAR.'
     }
 
     # Another gate stage can rebuild build\native-bridge while this suite runs:
@@ -178,6 +183,12 @@ try {
     Push-Location -LiteralPath $GameRoot
     try {
         Add-ScJvmStep 'core' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $coreFiles 'Core Kahlua integration harness failed.'
+        $nativeActionFiles = @($coreFiles | Select-Object -SkipLast 2) + @(
+            (Join-Path $TestRoot 'native_action_contract_harness.lua'))
+        Add-ScJvmStep 'native-actions' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $nativeActionFiles 'Native action ownership contracts failed.'
+        $vehicleKeyFiles = @($coreFiles | Select-Object -SkipLast 2) + @(
+            (Join-Path $TestRoot 'vehicle_key_recovery_harness.lua'))
+        Add-ScJvmStep 'vehicle-keys' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $vehicleKeyFiles 'Vehicle key recovery failed.'
         $vitalsNeedsFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
@@ -422,6 +433,7 @@ try {
             (Join-Path $Client 'SCExpeditionWood.lua'),
             (Join-Path $Client 'SCExpeditionIntegration.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
+            (Join-Path $TestRoot 'wood_expedition_integration_fixture.lua'),
             (Join-Path $TestRoot 'wood_expedition_integration_harness.lua')
         )
         Add-ScJvmStep 'wood-expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $woodIntegrationFiles 'Wood cargo delivery, roadside recovery and retry harness failed.'
@@ -615,6 +627,7 @@ try {
             (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCLoggingWork.lua'),
             (Join-Path $Client 'SCExpeditionWood.lua'),
+            (Join-Path $TestRoot 'wood_collection_fixture.lua'),
             (Join-Path $TestRoot 'expedition_wood_harness.lua')
         )
         Add-ScJvmStep 'expedition-wood' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionWoodFiles 'Mission wood chopping, native pickups, capacity and shared claims harness failed.'

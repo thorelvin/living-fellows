@@ -1,203 +1,185 @@
 # SPDX-License-Identifier: MIT
-<#
-The full project gate.
-
-The stages used to run one after another, and two of them -- the core suite and
-the source gate -- accounted for most of the wall time. They do not depend on
-each other: every stage reads the payload, the pinned game JAR and the built
-bridge, and writes only into its own scratch directory.
-
-What did make them serial was build\native-bridge. Test-Source, the core suite
-and both packaging scripts each wiped and rebuilt it, so running them together
-would have destroyed each other's classes mid-run. It is built once here and
-the stages are told to skip it.
-
-Use -Serial to run the old way, which is the right thing to do when a parallel
-run reports something confusing and the interleaving is in question.
-#>
-
+<# Five production checks. Specialist regressions remain explicit on-demand runs. #>
 [CmdletBinding()]
 param(
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
-    # Stages to run at once, and the same budget again inside the core suite for
-    # its own harnesses. 0 picks a value from the machine.
-    [int]$Jobs = 0,
-    [switch]$Serial
+    [ValidateSet('Build', 'Lifecycle', 'Behaviour', 'Cargo', 'Interface')]
+    [string[]]$Check = @('Build', 'Lifecycle', 'Behaviour', 'Cargo', 'Interface'),
+    [switch]$Release,
+    [switch]$Serial,
+    [ValidateRange(0, 1)][int]$Jobs = 1
 )
-
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-& (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1') | Out-Null
-. (Join-Path $ProjectRoot 'scripts\ScParallel.ps1')
-
-if ($Jobs -le 0) {
-    $Jobs = [Math]::Max(1, [Math]::Min(8, [int]$env:NUMBER_OF_PROCESSORS))
+$order = @('Build', 'Lifecycle', 'Behaviour', 'Cargo', 'Interface')
+$selected = @($order | Where-Object { $Check -contains $_ })
+if ($selected.Count -eq 0) { throw 'Select at least one essential check.' }
+if ($Release -and $selected.Count -ne 5) { throw '-Release requires all five checks.' }
+. (Join-Path $PSScriptRoot 'ScTestRuntime.ps1')
+$Core = Join-Path $ProjectRoot 'tests\core'
+$Gameplay = Join-Path $ProjectRoot 'tests\gameplay'
+$UI = Join-Path $ProjectRoot 'tests\ui'
+$Essential = Join-Path $ProjectRoot 'tests\essential'
+$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
+$Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+. (Join-Path $Essential 'Gameplay.ps1')
+$script:ScTestJvmStarts = 0
+$prepared = $false
+$compilation = $null
+$tools = Join-Path ([IO.Path]::GetTempPath()) ('sc-essential-' + [guid]::NewGuid().ToString('N'))
+$logs = Join-Path $ProjectRoot ('build\test-results\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+New-Item -ItemType Directory -Path $tools, $logs -Force | Out-Null
+$jar = Join-Path $GameRoot 'projectzomboid.jar'
+$java = Join-Path $GameRoot 'jre64\bin\java.exe'
+$nativeClasses = Join-Path $ProjectRoot 'build\native-bridge\classes'
+$nativeJar = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
+$payloadJar = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+$hostPath = Get-ScPowerShellHost
+$native = @{
+    Build = @('SCNativeApiSignatureTest', 'SCBridgeLuaNumberContractTest', 'SCNativeBridgeExposureTest')
+    Lifecycle = @('SCIsoPlayerControlTest', 'SCIsoCompanionControlTest',
+        'SCBootstrapLifecycleTest', 'SCLightingSlotRetirementTest', 'SCLightingSlotLifecycleTest',
+        'SCNativeCleanupTransactionTest', 'SCRemoteArrivalTest', 'SCVehicleSaveBarrierTest')
+    Behaviour = @('SCCompanionFatigueTest', 'SCCompanionComfortTest')
+    Cargo = @('SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest')
+    Interface = @('SCTerminalLogoRendererTest')
 }
-if ($Serial) { $Jobs = 1 }
+$stubTests = @('SCBootstrapLifecycleTest', 'SCCompanionFatigueTest', 'SCCompanionComfortTest',
+    'SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCTerminalLogoRendererTest')
+$plainTests = @('SCNativeApiSignatureTest', 'SCBridgeLuaNumberContractTest')
 
-$gate = [System.Diagnostics.Stopwatch]::StartNew()
-
-# --- Serial prologue ---------------------------------------------------------
-# The pinned runtime check gates everything: no stage means anything if the
-# installed game is not the build this project is compiled and tested against.
-& (Join-Path $ProjectRoot 'scripts\Test-PzRuntime.ps1') -GameRoot $GameRoot
-
-# One build for every stage that follows. Deliberately without
-# -InstallIntoPayload, so the comparison below still measures the committed
-# payload JAR against a JAR freshly built from source.
-& (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') -ProjectRoot $ProjectRoot | Out-Null
-$builtBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
-$payloadBridge = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
-foreach ($required in @($builtBridge, $payloadBridge)) {
-    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
-        throw "Native bridge JAR is missing: $required"
+function Invoke-EssentialScript([string]$Label, [string]$Path, [string[]]$ScriptArgs = @()) {
+    Invoke-ScTestCommand -FilePath $hostPath -Arguments (
+        @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Path) + $ScriptArgs) `
+        -LogPath (Join-Path $logs "$Label.log") -WorkingDirectory $ProjectRoot
+}
+function Initialize-EssentialTools {
+    if ($script:prepared) { return }
+    # Missing or different native runtimes are prerequisite failures, never skips.
+    Invoke-EssentialScript 'runtime' (Join-Path $PSScriptRoot 'Test-PzRuntime.ps1') @('-GameRoot', $GameRoot)
+    Invoke-EssentialScript 'native-build' (Join-Path $PSScriptRoot 'Build-NativeBridge.ps1') @('-ProjectRoot', $ProjectRoot)
+    if ((Get-FileHash -LiteralPath $nativeJar -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $payloadJar -Algorithm SHA256).Hash) {
+        throw 'The committed bridge differs from the reproducible native build.'
+    }
+    $javac = & (Join-Path $PSScriptRoot 'Resolve-TestJavac.ps1')
+    $sources = @((Join-Path $Gameplay 'KahluaTestRunner.java'), (Join-Path $UI 'ReflectLuaCompiler.java'))
+    foreach ($name in @($selected | ForEach-Object { $native[$_] } | Select-Object -Unique)) {
+        if ($plainTests -contains $name) { $sources += Join-Path $Core "$name.java" }
+        else { $sources += Join-Path $ProjectRoot "bridge\src\test\java\survivorcompanion\bridge\$name.java" }
+    }
+    Invoke-ScTestCommand -FilePath $javac -Arguments (@('-cp', $nativeClasses, '-d', $tools) + $sources) `
+        -LogPath (Join-Path $logs 'tools.log') -WorkingDirectory $ProjectRoot
+    $script:prepared = $true
+}
+function Invoke-EssentialNative([string]$Domain) {
+    foreach ($name in $native[$Domain]) {
+        $class = if ($plainTests -contains $name) { $name } else { "survivorcompanion.bridge.$name" }
+        $classpath = if ($stubTests -contains $name) { "$tools;$nativeClasses" } else { "$tools;$nativeJar;$jar" }
+        Invoke-ScTestCommand -FilePath $java -Arguments @('-cp', $classpath, $class) `
+            -LogPath (Join-Path $logs "$Domain-$name.log") -WorkingDirectory $GameRoot
     }
 }
-# Test-Source asserts this too, but it has to hold before anything packages the
-# payload, and in a parallel run the packaging stages start alongside it.
-if ((Get-FileHash -LiteralPath $builtBridge -Algorithm SHA256).Hash -ne
-    (Get-FileHash -LiteralPath $payloadBridge -Algorithm SHA256).Hash) {
-    throw 'Committed native bridge JAR differs from the reproducible Java 17 build.'
+function Invoke-EssentialLua([string]$Domain) {
+    $groups = @(. (Join-Path $Essential "$Domain.ps1"))
+    if ($groups.Count -eq 0) { throw "$Domain has no production scenario groups." }
+    $lines = foreach ($group in $groups) {
+        if (-not $group.Name -or -not $group.Files) { throw "Invalid $Domain source group." }
+        "--group $($group.Name)"
+        foreach ($file in $group.Files) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing $Domain source: $file" }
+            [IO.Path]::GetFullPath($file)
+        }
+    }
+    $list = Join-Path $tools "$Domain.groups"
+    [IO.File]::WriteAllLines($list, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+    Invoke-ScTestCommand -FilePath $java -Arguments @('-cp', "$tools;$jar", 'KahluaTestRunner', '--groups', $list) `
+        -LogPath (Join-Path $logs "$Domain-lua.log") -WorkingDirectory $GameRoot
+}
+function Invoke-EssentialBuild {
+    Invoke-EssentialScript 'source' (Join-Path $PSScriptRoot 'Test-Source.ps1') @('-Scope', 'Metadata')
+    $lua = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua') `
+        -Recurse -File -Filter '*.lua' | Sort-Object FullName | ForEach-Object FullName)
+    $inputKey = Get-ScLuaCompilationKey $ProjectRoot $GameRoot
+    Invoke-ScTestCommand -FilePath $java -Arguments (@('-cp', "$tools;$jar", 'ReflectLuaCompiler') + $lua) `
+        -LogPath (Join-Path $logs 'lua-normal.log') -WorkingDirectory $GameRoot
+    Invoke-ScTestCommand -FilePath $java -Arguments (@('-cp', "$tools;$jar", 'ReflectLuaCompiler', '--debug-compile') + $lua) `
+        -LogPath (Join-Path $logs 'lua-debug.log') -WorkingDirectory $GameRoot
+    if ($inputKey -ne (Get-ScLuaCompilationKey $ProjectRoot $GameRoot)) {
+        throw 'Compilation inputs changed during the run; no package receipt was issued.'
+    }
+    $script:compilation = @{ Key = $inputKey; Normal = $true; Debug = $true }
+    Invoke-EssentialNative 'Build'
+    if ($Release) {
+        Invoke-EssentialScript 'installer' (Join-Path $Core 'test_installer.ps1') @(
+            '-ProjectRoot', $ProjectRoot, '-Essential', '-Jobs', '1', '-PrebuiltBridgeJar', $nativeJar)
+        # Same process: the compilation receipt is a per-run object, not an
+        # unchecked skip flag. Each builder rechecks the exact input hashes.
+        & (Join-Path $PSScriptRoot 'Build-Workshop.ps1') -ProjectRoot $ProjectRoot -GameRoot $GameRoot `
+            -SkipNativeBridge -VerifiedCompilation $script:compilation *> (Join-Path $logs 'workshop.log')
+        & (Join-Path $PSScriptRoot 'Build-Standalone.ps1') -ProjectRoot $ProjectRoot -GameRoot $GameRoot `
+            -SkipNativeBridge -VerifiedCompilation $script:compilation *> (Join-Path $logs 'standalone.log')
+    }
 }
 
-# --- Parallel stages ---------------------------------------------------------
-# Each stage owns a GUID scratch directory under the user temp folder and writes
-# nowhere else, except the two packaging stages, which own separate directories
-# under build\ (Workshop\Contents and build\standalone-release-stage).
-$stages = @(
-    (New-ScPowerShellStep -Name 'core' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_core_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot, '-SkipNativeBridge',
-                     '-SkipSharedSourceChecks', '-Jobs', "$Jobs") `
-        -Failure 'Core suite failed.'),
-    (New-ScPowerShellStep -Name 'strange-folk-behavior' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_strange_folk_behavior_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk Red/Kevin behavior tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-foundation' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_foundation_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk persistence and scheduler tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-room-guard' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_room_guard_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk encounter room guard tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-wendell' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_wendell_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk Wendell behavior tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-deputy' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_deputy_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk deputy checkpoint and captive tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-loretta' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_loretta_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk Loretta vehicle encounter tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-milli' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_milli_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk Milli Wilson encounter tests failed.'),
-    (New-ScPowerShellStep -Name 'taxi-booking' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_taxi_booking_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Markus taxi radio booking tests failed.'),
-    (New-ScPowerShellStep -Name 'taxi-fare-recovery' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_taxi_fare_recovery_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Markus taxi fare and cab recovery tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-animal-spawn' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_animal_spawn_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk animal spawn placement tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-silas-rusty' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_silas_rusty_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk cult and ringmaster tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-lonnie-virgil' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_lonnie_virgil_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk wedding and mail tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-clem-purdy' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_clem_purdy_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk duel and sniper tests failed.'),
-    (New-ScPowerShellStep -Name 'oddball-phase2' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_phase2_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strange Folk Phase 2 encounters failed.'),
-    (New-ScPowerShellStep -Name 'oddball-encounters' `
-        -Script (Join-Path $ProjectRoot 'tests\core\run_oddball_encounter_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot, '-Jobs', "$Jobs") `
-        -Failure 'Strange Folk single-encounter suites failed.'),
-    (New-ScPowerShellStep -Name 'source' `
-        -Script (Join-Path $ProjectRoot 'scripts\Test-Source.ps1') `
-        -Arguments @('-SkipNativeBridge', '-Jobs', "$Jobs") `
-        -Failure 'Source gate failed.'),
-    (New-ScPowerShellStep -Name 'gameplay' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_gameplay_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Gameplay suite failed.'),
-    (New-ScPowerShellStep -Name 'navigation-stability' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_navigation_stability_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Navigation stability suite failed.'),
-    (New-ScPowerShellStep -Name 'storage-route-yield' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_storage_route_yield_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Storage route reuse and companion yielding regressions failed.'),
-    (New-ScPowerShellStep -Name 'floor-cargo-logistics' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_floor_cargo_logistics_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Floor cargo ownership versus inventory packing regressions failed.'),
-    (New-ScPowerShellStep -Name 'perception-topology' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_perception_topology_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Perception topology suite failed.'),
-    (New-ScPowerShellStep -Name 'strike-barrier' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_strike_barrier_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Strike barrier regression suite failed.'),
-    (New-ScPowerShellStep -Name 'ui' `
-        -Script (Join-Path $ProjectRoot 'tests\ui\run_ui_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'UI suite failed.'),
-    (New-ScPowerShellStep -Name 'live-harness-static' `
-        -Script (Join-Path $ProjectRoot 'tests\live\run_live_harness_static.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Live harness static suite failed.'),
-    (New-ScPowerShellStep -Name 'bandits-adapter' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_bandits_adapter_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Bandits adapter regression failed.'),
-    (New-ScPowerShellStep -Name 'alife-adapter' `
-        -Script (Join-Path $ProjectRoot 'tests\gameplay\run_alife_adapter_tests.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'A-Life adapter regression failed.'),
-    (New-ScPowerShellStep -Name 'workshop' `
-        -Script (Join-Path $ProjectRoot 'scripts\Build-Workshop.ps1') `
-        -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
-                     '-SkipNativeBridge') `
-        -Failure 'Workshop packaging failed.'),
-    (New-ScPowerShellStep -Name 'persona-controls' `
-        -Script (Join-Path $ProjectRoot 'scripts\Test-PersonaControls.ps1') `
-        -Arguments @('-GameRoot', $GameRoot) `
-        -Failure 'Persona negative controls failed.'),
-    (New-ScPowerShellStep -Name 'standalone' `
-        -Script (Join-Path $ProjectRoot 'scripts\Build-Standalone.ps1') `
-        -Arguments @('-ProjectRoot', $ProjectRoot, '-GameRoot', $GameRoot,
-                     '-SkipNativeBridge') `
-        -Failure 'Standalone packaging failed.')
-)
-
-Invoke-ScParallelSteps -Steps $stages -Throttle $Jobs -Label 'gate stages'
-
-$gate.Stop()
-Write-Output ("PROJECT_TEST_PASS pz-runtime=true source=true core=true " +
-    "strange-folk-behavior=true oddball-foundation=true oddball-room-guard=true oddball-wendell=true " +
-    "oddball-deputy=true oddball-loretta=true oddball-milli=true taxi-booking=true taxi-fare-recovery=true oddball-animal-spawn=true " +
-    "oddball-silas-rusty=true oddball-lonnie-virgil=true " +
-    "oddball-clem-purdy=true oddball-phase2=true oddball-encounters=true gameplay=true " +
-    "navigation-stability=true storage-route-yield=true floor-cargo-logistics=true " +
-    "perception-topology=true strike-barrier=true ui=true live-harness-static=true bandits-adapter=true alife-adapter=true " +
-    "persona-controls=true workshop=true standalone=true seconds={0:N0} jobs={1}" -f $gate.Elapsed.TotalSeconds, $Jobs)
+$timer = [Diagnostics.Stopwatch]::StartNew()
+$results = @()
+$currentProcess = [Diagnostics.Process]::GetCurrentProcess()
+$previousPriority = $currentProcess.PriorityClass
+$oldJava = $env:JAVA_TOOL_OPTIONS
+$oldJdk = $env:JDK_JAVA_OPTIONS
+$oldJobs = $env:SC_TEST_JOBS
+$env:JAVA_TOOL_OPTIONS = '-Xmx256m -XX:ActiveProcessorCount=2 -XX:+UseSerialGC'
+$env:JDK_JAVA_OPTIONS = $env:JAVA_TOOL_OPTIONS
+$env:SC_TEST_JOBS = '1'
+try {
+    try { $currentProcess.PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal } catch { }
+    Write-Output 'Essential checks: serial, Java heap 256 MB, two processors; live game not launched.'
+    foreach ($name in $order) {
+        if ($selected -notcontains $name) { $results += @{ Check = $name; Status = 'not run'; Seconds = 0 }; continue }
+        $step = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            Initialize-EssentialTools
+            if ($name -eq 'Build') { Invoke-EssentialBuild }
+            else {
+                if ($name -eq 'Interface') {
+                    Invoke-EssentialScript 'content' (Join-Path $PSScriptRoot 'Test-Source.ps1') @('-Scope', 'Content')
+                }
+                Invoke-EssentialNative $name
+                Invoke-EssentialLua $name
+            }
+            $results += @{ Check = $name; Status = 'passed'; Seconds = $step.Elapsed.TotalSeconds }
+            Write-Output ("{0}: PASS ({1:N1}s)" -f $name, $step.Elapsed.TotalSeconds)
+        } catch {
+            $results += @{ Check = $name; Status = 'failed'; Seconds = $step.Elapsed.TotalSeconds; Error = $_.Exception.Message }
+            Write-Output ("{0}: FAIL ({1:N1}s)`n{2}" -f $name, $step.Elapsed.TotalSeconds, $_.Exception.Message)
+            if (-not $script:prepared -or $name -eq 'Build') {
+                foreach ($remaining in $order | Where-Object { $results.Check -notcontains $_ }) {
+                    $results += @{ Check = $remaining; Status = 'not run'; Seconds = 0 }
+                }
+                break
+            }
+        }
+    }
+} finally {
+    $timer.Stop()
+    $env:JAVA_TOOL_OPTIONS = $oldJava
+    $env:JDK_JAVA_OPTIONS = $oldJdk
+    $env:SC_TEST_JOBS = $oldJobs
+    try { $currentProcess.PriorityClass = $previousPriority } catch { }
+    $prefix = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    if (-not ([IO.Path]::GetFullPath($tools)).StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Unsafe test scratch cleanup: $tools"
+    }
+    Remove-Item -LiteralPath $tools -Recurse -Force
+}
+$summary = @{ Profile = $(if ($Release) { 'release' } else { 'routine' }); Checks = $results;
+    Seconds = $timer.Elapsed.TotalSeconds; DirectJvmStarts = $script:ScTestJvmStarts; Live = 'not run' }
+$summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $logs 'summary.json') -Encoding utf8
+Write-Output ("Elapsed {0:N1}s; direct JVM launches {1}; evidence {2}" -f $timer.Elapsed.TotalSeconds, $script:ScTestJvmStarts, $logs)
+if (@($results | Where-Object { $_.Status -eq 'failed' }).Count -gt 0) { throw 'Essential checks failed.' }
+if ($selected.Count -eq 5) {
+    Write-Output ("PROJECT_TEST_PASS checks=5 profile={0} live=false" -f $summary.Profile)
+} else {
+    Write-Output ("FOCUSED_TEST_PASS checks={0}/5 full-project=false live=false" -f $selected.Count)
+}

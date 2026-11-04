@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = '',
+    [object]$VerifiedCompilation = $null,
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [string]$OutputRoot = '',
     # build\native-bridge is a shared directory that every caller wipes and
@@ -26,7 +27,7 @@ if (-not $OutputRoot.StartsWith($buildPrefix, [System.StringComparison]::Ordinal
     throw "Standalone output must stay inside the project build directory: $OutputRoot"
 }
 & (Join-Path $ProjectRoot 'scripts\Test-LuaCompile.ps1') `
-    -ProjectRoot $ProjectRoot -GameRoot $GameRoot
+    -ProjectRoot $ProjectRoot -GameRoot $GameRoot -VerifiedCompilation $VerifiedCompilation
 $version = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'VERSION.txt') -Raw -Encoding utf8).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid release version: $version" }
 

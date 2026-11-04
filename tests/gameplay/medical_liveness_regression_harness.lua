@@ -224,7 +224,8 @@ do
         end
         check(handled and result == "followed" and (value.followCalls or 0) > 0
                 and (value.stopCalls or 0) == 0 and SC.Decision.peek(value).current == "follow",
-            "health " .. health .. " follows normally without a medical or safety hold")
+            "health " .. health .. " follows normally without a medical or safety hold: "
+                .. tostring(handled) .. "/" .. tostring(result))
         local rescuer, rescueRuntime = patient(100), quietRuntime()
         rescueRuntime.snapshot.allies = { { actor = value } }
         check(medicalCount(rescuer, value, rescueRuntime) == 0,

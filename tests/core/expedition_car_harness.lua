@@ -74,9 +74,28 @@ check(Car.fitsParking(T.cars[1], T.zone, ready.seats),
 T.polyOffset = 12
 check(#Car.candidates(T.zone) == 0,
     "selector omits cars whose footprint is outside the parking area")
+local unavailable = Car.candidates(T.zone, nil, true)
+check(#unavailable == 1 and unavailable[1].sqlId == 44
+        and unavailable[1].unavailableReason == "parking_footprint_outside_area",
+    "review discovery retains an in-zone car and its exact footprint refusal")
+unavailable = Car.parkedCars(T.zone.id, true)
+check(#unavailable == 1 and unavailable[1].unavailableReason == "parking_footprint_outside_area",
+    "parked-car review discovery preserves unavailable car diagnostics")
+check(select(2, Car.preflight(T.team, nil, 44, destination))
+    == "parking_footprint_outside_area",
+    "explicit car review preserves the footprint refusal when no area is selected")
 check(select(2, Car.fitsParking(T.cars[1], T.zone, ready.seats))
     == "parking_footprint_outside_area",
     "centre inside the area cannot conceal an outside vehicle corner")
+local largerZone = { id = "zone:larger", kind = "parking", z = 0,
+    x1 = 100, y1 = 100, x2 = 118, y2 = 110 }
+T.zones[#T.zones + 1] = largerZone
+unavailable = Car.parkedCars(nil, true)
+check(#unavailable == 1 and unavailable[1].zone == largerZone
+        and unavailable[1].unavailableReason == nil
+        and Car.preflight(T.team, nil, nil, destination).zone == largerZone,
+    "overlapping parking outlines prefer the zone that fully contains the same car")
+table.remove(T.zones)
 T.polyOffset = nil
 T.exitBlocked = 1
 check(select(2, Car.fitsParking(T.cars[1], T.zone, ready.seats))
@@ -132,10 +151,48 @@ T.accessBlocked = true
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
     == "road_access_blocked", "wall across driveway refuses dispatch")
 T.accessBlocked = nil
-T.doorBlocked = 1
+T.mappedAccess, T.parkedAccessBlocker, T.accessBlocker = true, true, {}
+local accessCalls = #T.routeCalls
+local alternative = Car.preflight(T.team, T.zone.id, 44, destination)
+check(alternative and alternative.entry.x == 90 and alternative.entry.y ~= 102
+        and alternative.route.points[1].y == alternative.entry.y,
+    "a parked car across the nearest connector permits a verified clear alternative on the same road")
+check(#T.routeCalls - accessCalls <= 7,
+    "road-access recovery performs at most one initial plan and six alternative plans")
+T.allAccessVehicleBlocked = true
+accessCalls = #T.routeCalls
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
-    == "door_inaccessible", "blocked passenger door refuses dispatch")
+        == "road_access_vehicle_blocked" and #T.routeCalls - accessCalls <= 7,
+    "cars blocking every connector retain the refusal within the bounded planning limit")
+T.allAccessVehicleBlocked, T.noAccessGeometry = nil, true
+accessCalls = #T.routeCalls
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
+        == "road_access_vehicle_blocked" and #T.routeCalls - accessCalls == 1,
+    "a blocked connector without mapped road direction never invents an alternative")
+T.mappedAccess, T.parkedAccessBlocker, T.accessBlocker, T.noAccessGeometry = nil, nil, nil, nil
+T.doorBlocked = 1
+local rearSeat = Car.preflight(T.team, T.zone.id, 44, destination)
+check(rearSeat and rearSeat.seats.leader == 0 and rearSeat.seats.mate == 2,
+    "a blocked front passenger door selects an accessible rear seat")
+T.cars[1].occupied[1] = { id = "stranger" }
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
+    == "car_has_other_occupants",
+    "a stranger in an unassigned low-numbered seat still prevents departure")
+T.cars[1].occupied[1] = nil
 T.doorBlocked = nil
+T.missingSeats = { [1] = true }
+rearSeat = Car.preflight(T.team, T.zone.id, 44, destination)
+check(rearSeat and rearSeat.seats.mate == 2,
+    "a missing front passenger seat does not conceal an installed accessible rear seat")
+T.missingSeats = nil
+T.doorBlocked = 0
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
+    == "door_inaccessible", "a blocked driver door still refuses dispatch")
+T.doorBlocked = nil
+T.blockedDoors = { [1] = true, [2] = true, [3] = true }
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
+    == "door_inaccessible", "blocking every passenger door refuses dispatch")
+T.blockedDoors = nil
 
 local descriptor = {
     state = "driving_out", leg = "outbound", sqlId = 44,

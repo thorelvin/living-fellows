@@ -132,14 +132,17 @@ function Car.displayName(vehicle)
     return "Car"
 end
 
-function Car.candidates(zone, vehicles)
+function Car.candidates(zone, vehicles, includeBlocked)
     local result = {}
     if zone == nil or not SC.Vehicle or not SC.Vehicle.loadedVehicles then
         return result
     end
     for _, vehicle in ipairs(vehicles or SC.Vehicle.loadedVehicles()) do
         local at = point(vehicle)
-        if contains(zone, at) and Car.fitsParking(vehicle, zone, {}) == true then
+        local inside = contains(zone, at)
+        local fits, fitReason
+        if inside then fits, fitReason = Car.fitsParking(vehicle, zone, {}) end
+        if inside and (fits == true or includeBlocked == true) then
             local okId, sqlId = call(vehicle, "getSqlId")
             local okName, script = call(vehicle, "getScriptName")
             local okSeats, seats = call(vehicle, "getMaxPassengers")
@@ -157,6 +160,7 @@ function Car.candidates(zone, vehicles)
                     seats = okSeats and tonumber(seats) or 0,
                     fuel = amountOk and finite(fuel) or nil,
                     point = at,
+                    unavailableReason = fits ~= true and fitReason or nil,
                 }
             end
         end
@@ -165,17 +169,22 @@ function Car.candidates(zone, vehicles)
     return result
 end
 
-function Car.parkedCars(zoneId)
+function Car.parkedCars(zoneId, includeBlocked)
     local zones = zoneId ~= nil and { Car.areaById(zoneId) }
         or Car.parkingAreas()
     local result, seen = {}, {}
     if not SC.Vehicle or not SC.Vehicle.loadedVehicles then return result end
     local vehicles = SC.Vehicle.loadedVehicles()
     for _, zone in ipairs(zones) do
-        for _, car in ipairs(Car.candidates(zone, vehicles)) do
-            if not seen[car.sqlId] then
-                seen[car.sqlId] = true
+        for _, car in ipairs(Car.candidates(zone, vehicles, includeBlocked)) do
+            local previous = seen[car.sqlId]
+            if not previous then
                 result[#result + 1] = car
+                seen[car.sqlId] = #result
+            elseif result[previous].unavailableReason and not car.unavailableReason then
+                -- Overlapping zones can contain the same car. A clipped
+                -- outline must not hide another zone that fits it fully.
+                result[previous] = car
             end
         end
     end
@@ -262,6 +271,49 @@ function Car.accessReady(vehicle, entry)
     return Car.accessBetween(vehicle, point(vehicle), entry)
 end
 
+-- A parked neighbour may block the nearest perpendicular road connector
+-- while the lot has a clear diagonal exit. Try at most six nearby mapped
+-- attachments, only during review/departure. Every complete corridor keeps
+-- the same loaded-ground, wall and vehicle checks as the original choice.
+function Car.planRoadAccess(vehicle, at, destination, continuingMission)
+    local route, reason, native = SC.ExpeditionRoute.planFromPoint(at, destination, continuingMission)
+    if not route then return nil, reason, native end
+    local entry = native and { x = finite(native.entryX), y = finite(native.entryY), z = 0 }
+    if not entry or not entry.x or not entry.y then return nil, "road_access_unavailable" end
+    local clear, blockedReason = Car.accessBetween(vehicle, at, entry)
+    if clear then return route, nil, native end
+    if blockedReason ~= "road_access_vehicle_blocked" and blockedReason ~= "road_access_blocked" then
+        return nil, blockedReason
+    end
+    local points = route.points or {}
+    local first, direction = points[1], nil
+    if first and (first.x - entry.x)^2 + (first.y - entry.y)^2 <= 2.25 then
+        for index = 2, math.min(#points, 16) do
+            local dx, dy = points[index].x - first.x, points[index].y - first.y
+            local length = math.sqrt(dx * dx + dy * dy)
+            if length >= 1 then direction = { x = dx / length, y = dy / length } break end
+        end
+    end
+    if not direction then return nil, blockedReason end
+    for _, offset in ipairs({ 8, -8, 16, -16, 32, -32 }) do
+        local candidate = { x = entry.x + direction.x * offset,
+            y = entry.y + direction.y * offset, z = 0 }
+        if Car.accessBetween(vehicle, at, candidate) then
+            local alternate, _, attachment = SC.ExpeditionRoute.planFromPoint(
+                candidate, destination, continuingMission)
+            local actual = attachment and { x = finite(attachment.entryX),
+                y = finite(attachment.entryY), z = 0 }
+            -- A projected point beyond a street end is not a mapped exit.
+            if alternate and actual and actual.x and actual.y
+                and (actual.x - candidate.x)^2 + (actual.y - candidate.y)^2 <= 2.25
+                and Car.accessBetween(vehicle, at, actual) then
+                return alternate, nil, attachment
+            end
+        end
+    end
+    return nil, blockedReason
+end
+
 local function equippedOrHeldKey(actor, vehicle)
     if SC.Driving and SC.Driving.hasKey(actor, vehicle) then return true end
     local hotOk, hot = call(vehicle, "isHotwired")
@@ -340,28 +392,39 @@ local function preflightSpecific(records, zoneId, sqlId, destination)
     if not count or count < #records or count > 32 then
         return nil, "too_few_seats"
     end
-    local seatMap = {}
-    for index, record in ipairs(records) do
-        local seat = index - 1
+    local installedSeats, seatMap, usedSeats = {}, {}, {}
+    for seat = 0, count - 1 do
         local installedOk, installed = call(vehicle, "isSeatInstalled", seat)
         local occupantOk, occupant = call(vehicle, "getCharacter", seat)
-        if not installedOk or installed ~= true or not occupantOk
-            or occupant ~= nil then return nil, "seat_unavailable" end
+        if not installedOk or not occupantOk then return nil, "seat_unavailable" end
+        if occupant ~= nil then
+            return nil, seat == 0 and "seat_unavailable" or "car_has_other_occupants"
+        end
+        installedSeats[seat] = installed == true
+    end
+    for index, record in ipairs(records) do
         if record.id == nil or record.actor == nil then
             return nil, "team_unavailable"
         end
-        seatMap[record.id] = seat
-        local doors, _, doorReason = SC.Vehicle.boardingSquares(
-            record.actor, vehicle, seat, seat == 0)
-        if not doors or #doors < 1 then
-            return nil, doorReason or "door_inaccessible"
+        -- The driver needs seat zero. Passengers may use any installed seat
+        -- with a real boarding route and a safe exit, including a van's rear.
+        local first, last = index == 1 and 0 or 1, index == 1 and 0 or count - 1
+        local firstReason
+        for seat = first, last do
+            if installedSeats[seat] and not usedSeats[seat] then
+                local doors, _, doorReason = SC.Vehicle.boardingSquares(
+                    record.actor, vehicle, seat, seat == 0)
+                local exits = doors and #doors > 0 and SC.Vehicle.safeExitSquares
+                    and SC.Vehicle.safeExitSquares(vehicle, seat) or nil
+                if exits and #exits > 0 then
+                    seatMap[record.id], usedSeats[seat] = seat, true
+                    break
+                end
+                firstReason = firstReason or (not doors or #doors < 1)
+                    and (doorReason or "door_inaccessible") or "parking_exit_blocked"
+            end
         end
-    end
-    for seat = #records, count - 1 do
-        local occupantOk, occupant = call(vehicle, "getCharacter", seat)
-        if not occupantOk or occupant ~= nil then
-            return nil, "car_has_other_occupants"
-        end
+        if seatMap[record.id] == nil then return nil, firstReason or "seat_unavailable" end
     end
     local fits, fitReason = Car.fitsParking(vehicle, zone, seatMap)
     if not fits then return nil, fitReason end
@@ -394,8 +457,7 @@ local function preflightSpecific(records, zoneId, sqlId, destination)
     if type(destination) ~= "table" or destination.z ~= 0 then
         return nil, "destination_unavailable"
     end
-    local route, routeReason, native = SC.ExpeditionRoute.planFromPoint(
-        at, destination)
+    local route, routeReason, native = Car.planRoadAccess(vehicle, at, destination)
     if not route then return nil, routeReason end
     local entryX = native and finite(native.entryX)
     local entryY = native and finite(native.entryY)
@@ -405,9 +467,6 @@ local function preflightSpecific(records, zoneId, sqlId, destination)
         return nil, "road_access_unavailable"
     end
     local access = math.sqrt((at.x - entryX)^2 + (at.y - entryY)^2)
-    local accessReady, accessReason = Car.accessReady(vehicle,
-        { x = entryX, y = entryY, z = 0 })
-    if not accessReady then return nil, accessReason end
     local rate = fuelRate(script)
     local distance = finite(route.roadLength) or 0
     local required = (distance * 2 + access * 2 + 30) * rate * 1.5
@@ -432,7 +491,7 @@ function Car.preflight(records, zoneId, sqlId, destination)
         if zoneId ~= nil then
             return preflightSpecific(records, zoneId, sqlId, destination)
         end
-        for _, car in ipairs(Car.parkedCars()) do
+        for _, car in ipairs(Car.parkedCars(nil, true)) do
             if car.sqlId == sqlId then
                 return preflightSpecific(records, car.zone.id, sqlId,
                     destination)
@@ -441,7 +500,7 @@ function Car.preflight(records, zoneId, sqlId, destination)
         return nil, "car_unavailable"
     end
     local firstReason
-    for _, car in ipairs(Car.parkedCars(zoneId)) do
+    for _, car in ipairs(Car.parkedCars(zoneId, true)) do
         local plan, reason = preflightSpecific(records, car.zone.id,
             car.sqlId, destination)
         if plan then return plan end
@@ -709,16 +768,13 @@ local function departReady(mission, trip, car)
         and (trip.homeRoadEntry or trip.departure) or trip.siteStop
     local at = point(car)
     if not at then return false, "car_position_unavailable" end
-    local route, routeReason, native = SC.ExpeditionRoute.planFromPoint(
-        at, goal, true)
+    local route, routeReason, native = Car.planRoadAccess(car, at, goal, true)
     if not route then return false, routeReason or "no_route" end
     local entry = native and { x = finite(native.entryX),
         y = finite(native.entryY), z = 0 }
     if not entry or not entry.x or not entry.y then
         return false, "road_access_unavailable"
     end
-    local access, why = Car.accessBetween(car, at, entry)
-    if not access then return false, why end
     local tankOk, tank = call(car, "getPartById", "GasTank")
     local fuelOk, fuel = false, nil
     if tankOk and tank then fuelOk, fuel = call(tank,
@@ -1255,17 +1311,13 @@ local function resumeReady(mission, trip, car)
     end
     local goal = trip.leg == "home"
         and (trip.homeRoadEntry or trip.departure) or trip.siteStop
-    local route, routeReason, native = SC.ExpeditionRoute.planFromPoint(
-        at, goal, true)
+    local route, routeReason, native = Car.planRoadAccess(car, at, goal, true)
     if not route then return false, routeReason end
     local entryX = native and finite(native.entryX)
     local entryY = native and finite(native.entryY)
     if not entryX or not entryY then
         return false, "road_access_unavailable"
     end
-    local access, accessReason = Car.accessBetween(car, at,
-        { x = entryX, y = entryY, z = 0 })
-    if not access then return false, accessReason end
     local tankOk, tank = call(car, "getPartById", "GasTank")
     local fuelOk, fuel = false, nil
     if tankOk and tank then fuelOk, fuel = call(tank, "getContainerContentAmount") end
@@ -1520,6 +1572,9 @@ function Car.pulse(mission, now, worldHour)
         if not ready then
             trip.state, trip.blocker = "boarding_rollback", why
             return true
+        end
+        if trip.leg == "outbound" then
+            trip.homeRoadEntry = { x = roadEntry.x, y = roadEntry.y, z = 0 }
         end
         local goal = trip.leg == "home"
             and (trip.homeRoadEntry or trip.departure) or trip.siteStop
@@ -2215,15 +2270,13 @@ do
         return best
     end
     local function routeFor(plan,stop)
-        local route,reason,native=SC.ExpeditionRoute.planFromPoint(plan.departure,stop.point)
+        local route,reason,native=Car.planRoadAccess(plan.vehicle,plan.departure,stop.point)
         if not route then return nil,reason end
         local roadLength=finite(route.roadLength)
         local entry=native and {x=finite(native.entryX),y=finite(native.entryY),z=0}
         local exit=native and {x=finite(native.exitX),y=finite(native.exitY),z=0}
         if not roadLength or roadLength<0 or roadLength>5000 or not entry or not entry.x or not entry.y
             or not exit or not exit.x or not exit.y then return nil,"road_access_unavailable" end
-        local ready,why=Car.accessReady(plan.vehicle,entry)
-        if not ready then return nil,why end
         stop.roadEntry=exit
         if stop.kind=="roadside" then stop.point=pointCopy(exit) end
         plan.route,plan.entry,plan.exit=route,entry,exit

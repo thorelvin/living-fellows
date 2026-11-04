@@ -984,7 +984,7 @@ function Planner.build(detail, panel)
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PlannedDestination", view.plannedSite))
         end
-        if view and view.vehicleState then
+        if view and view.vehicleState and not view.departurePreparation then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_CarState", view.vehicleState))
         end
@@ -1294,19 +1294,22 @@ function Planner.build(detail, panel)
         y = addSelector(detail, panel, y, "UI_SC_Expedition_ParkingArea",
             "parkingZoneId", areaOptions)
         local cars = SC.ExpeditionCar and
-            SC.ExpeditionCar.parkedCars(draft.parkingZoneId) or {}
+            SC.ExpeditionCar.parkedCars(draft.parkingZoneId, true) or {}
         table.sort(cars, function(a, b)
             if a.name ~= b.name then return a.name < b.name end
             return a.sqlId < b.sqlId
         end)
         local carOptions = { { value = nil,
             key = "UI_SC_Expedition_AnyVehicle" } }
-        local chosenPresent = false
+        local chosenPresent, chosenReason = false, nil
         for _, car in ipairs(cars) do
             carOptions[#carOptions + 1] = { value = car.sqlId,
-                label = tr("UI_SC_Expedition_CarOption", car.name,
+                label = tr(car.unavailableReason and "UI_SC_Expedition_CarBlockedOption"
+                    or "UI_SC_Expedition_CarOption", car.name,
                     car.sqlId, car.seats, SC.UIFormat.baseZoneLabel(car.zone, tr)) }
-            if car.sqlId == draft.vehicleSqlId then chosenPresent = true end
+            if car.sqlId == draft.vehicleSqlId then
+                chosenPresent, chosenReason = true, car.unavailableReason
+            end
         end
         if draft.vehicleSqlId ~= nil and not chosenPresent then
             carOptions[#carOptions + 1] = { value = draft.vehicleSqlId,
@@ -1315,6 +1318,9 @@ function Planner.build(detail, panel)
         end
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Vehicle",
             "vehicleSqlId", carOptions)
+        if chosenReason then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(chosenReason))
+        end
         y = addButton(detail, panel, y,
             "UI_SC_Expedition_RefreshCars", "refresh_cars")
     end

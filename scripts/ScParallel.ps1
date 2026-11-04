@@ -100,13 +100,15 @@ function Invoke-ScParallelSteps {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Steps,
-        [int]$Throttle = 4,
+        [int]$Throttle = 1,
         [string]$Label = 'steps',
         [switch]$Quiet
     )
 
     if ($Steps.Count -eq 0) { return }
-    if ($Throttle -lt 1) { $Throttle = 1 }
+    $budget = 1
+    if ($env:SC_TEST_JOBS -match '^[12]$') { $budget = [int]$env:SC_TEST_JOBS }
+    $Throttle = [Math]::Max(1, [Math]::Min($budget, $Throttle))
 
     $captureRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
         ('sc-parallel-' + [guid]::NewGuid().ToString('N'))
@@ -129,7 +131,7 @@ function Invoke-ScParallelSteps {
                 $errPath = Join-Path $captureRoot "$index.err"
                 $startArgs = @{
                     FilePath               = $step.FilePath
-                    NoNewWindow            = $true
+                    WindowStyle            = 'Hidden'
                     PassThru               = $true
                     RedirectStandardOutput = $outPath
                     RedirectStandardError  = $errPath
@@ -141,7 +143,21 @@ function Invoke-ScParallelSteps {
                 if (-not [string]::IsNullOrWhiteSpace($step.WorkingDirectory)) {
                     $startArgs.WorkingDirectory = $step.WorkingDirectory
                 }
-                $process = Start-Process @startArgs
+                $priorJavaTool = $env:JAVA_TOOL_OPTIONS
+                $priorJdkTool = $env:JDK_JAVA_OPTIONS
+                $priorTestJobs = $env:SC_TEST_JOBS
+                try {
+                    $env:JAVA_TOOL_OPTIONS = '-Xmx256m -XX:ActiveProcessorCount=2 -XX:+UseSerialGC'
+                    $env:JDK_JAVA_OPTIONS = $env:JAVA_TOOL_OPTIONS
+                    # A child may run work, not open another independent pool.
+                    $env:SC_TEST_JOBS = '1'
+                    $process = Start-Process @startArgs
+                    try { $process.PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal } catch { }
+                } finally {
+                    $env:JAVA_TOOL_OPTIONS = $priorJavaTool
+                    $env:JDK_JAVA_OPTIONS = $priorJdkTool
+                    $env:SC_TEST_JOBS = $priorTestJobs
+                }
                 # Touching Handle caches the native handle in the .NET object.
                 # Without it the handle is closed when the child exits and
                 # ExitCode comes back empty, which reads as a failed step even

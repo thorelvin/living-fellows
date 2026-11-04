@@ -369,7 +369,12 @@ do
 end
 
 do
-    local actor = managed("drive-replan")
+    local actor = managed("drive-replan", {
+        roadAccessEntry = { x = 150, y = 100, z = 0 } })
+    check(T.plans[#T.plans].sx == 150 and T.plans[#T.plans].sy == 100
+            and T.lastFollowRoute:find("^100%.00,100%.00,5%.0;150%.00,100%.00,") ~= nil,
+        "initial driving preserves the verified road attachment and actual driveway segment")
+    actor.x, actor.vehicle.x = 130, 130
     local before = #T.plans
     T.block(actor, 147, 106)
     Driving.tick(1000)
@@ -377,8 +382,9 @@ do
     local status = Driving.jobStatus(actor)
     check(status.attempts == 1 and #status.circles == 1
         and status.circles[1].x == 147 and status.circles[1].y == 106
-        and T.plans[#T.plans].circles == "147.00,106.00,12.00" and #T.plans == before + 1,
-        "replanning avoids the reported world point, never blockedAt distance")
+        and T.plans[#T.plans].circles == "147.00,106.00,12.00" and #T.plans == before + 1
+        and T.plans[#T.plans].sx == 130 and T.plans[#T.plans].sy == 100,
+        "replanning avoids the reported point from the current position after consuming the driveway attachment")
     T.block(actor, 169, 102)
     Driving.tick(7000)
     Driving.tick(12000)

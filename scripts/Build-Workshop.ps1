@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = '',
+    [object]$VerifiedCompilation = $null,
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [ValidateSet('playtest', 'public-beta', 'release')]
     [string]$Channel = 'release',
@@ -18,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 & (Join-Path $ProjectRoot 'scripts\Test-LuaCompile.ps1') `
-    -ProjectRoot $ProjectRoot -GameRoot $GameRoot
+    -ProjectRoot $ProjectRoot -GameRoot $GameRoot -VerifiedCompilation $VerifiedCompilation
 $Payload = Join-Path $ProjectRoot 'SurvivorCompanion'
 $Workshop = Join-Path $ProjectRoot 'Workshop'
 $ModsStageRoot = Join-Path $Workshop 'Contents\mods'

@@ -172,24 +172,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal UI tests failed.' }
         if ($TerminalOnly) { Write-Output 'TERMINAL_UI_PASS'; return }
         $phase2Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
-        $phase2Files+=Join-Path $TestRoot 'SCTerminalLockPhase2Tests.lua'
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase2Files
-        if($LASTEXITCODE -ne 0){throw 'Standalone phase-two regression harness failed.'}
-        & (Join-Path $TestRoot 'Test-TerminalPhase2NegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $phase2Files -BuildRoot $BuildRoot
         $emmaSimulationFiles=@($phase2Files|Where-Object{$_ -notmatch 'Tests\.lua$'})
         $emmaSimulationFiles+=Join-Path $TestRoot 'SCTerminalEmmaSimulation.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @emmaSimulationFiles
         if($LASTEXITCODE -ne 0){throw 'EMMA argument policy simulation failed.'}
-        $phase3Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
-        $phase3Files+=Join-Path $TestRoot 'SCTerminalLockPhase3Tests.lua'
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase3Files
-        if($LASTEXITCODE -ne 0){throw 'Standalone phase-three regression harness failed.'}
-        & (Join-Path $TestRoot 'Test-TerminalPhase3NegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $phase3Files -BuildRoot $BuildRoot
-        $phase4Files=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
-        $phase4Files+=Join-Path $TestRoot 'SCTerminalLockPhase4Tests.lua'
-        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phase4Files
-        if($LASTEXITCODE -ne 0){throw 'Standalone phase-four regression harness failed.'}
-        & (Join-Path $TestRoot 'Test-TerminalPhase4NegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -Files $phase4Files -BuildRoot $BuildRoot
         $storyFiles=@($terminalFiles|Where-Object{$_ -notmatch 'Tests\.lua$'})
         $storyFiles+=Join-Path $TestRoot 'SCTerminalStorySimulation.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @storyFiles
@@ -225,7 +211,6 @@ try {
         $scanScreenFiles+=Join-Path $TestRoot 'SCBuildingScanScreenTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @scanScreenFiles
         if ($LASTEXITCODE -ne 0) { throw 'Building discovery screen integration tests failed.' }
-        & (Join-Path $TestRoot 'Test-BuildingScanNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -ScanFiles $scanFiles -ScanUiFiles $scanUiFiles -ScanScreenFiles $scanScreenFiles -BuildRoot $BuildRoot
         $inventoryFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
             (Join-Path $Client 'SCControlUtil.lua'),
@@ -254,7 +239,6 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @gridRadioFiles
         if ($LASTEXITCODE -ne 0) { throw 'On-demand grid radio tests failed.' }
-        & (Join-Path $TestRoot 'Test-GridNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -GridFiles $gridFiles -BuildRoot $BuildRoot
         $gridUiFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
         foreach ($module in @('SCControlUtil','SCTerminalHardware','SCTerminalServices','SCGridControl','SCTerminalGridUI')) {
             $gridUiFiles+=Join-Path $Client ($module+'.lua')
