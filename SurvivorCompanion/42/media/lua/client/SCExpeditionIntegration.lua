@@ -63,6 +63,9 @@ local function stateFor(record, actor, create)
 end
 
 local function deferReceipt(state, row, delay)
+    if state.homeStorage and state.homeStorage.receipt == row then
+        state.homeStorage, state.navigationChoice = nil, nil
+    end
     if row.retryRemainingMs ~= nil then
         row.retryRemainingMs = WOOD_RETRY_MS
         retryClocks[row] = U().nowMs()
@@ -70,7 +73,7 @@ local function deferReceipt(state, row, delay)
 end
 local function copyRow(row)
     local destination = row.destination
-    return { id = row.id, itemType = row.itemType,
+    return { id = row.id, itemType = row.itemType, nativeId = row.nativeId,
         finderId = row.finderId, finderName = row.finderName,
         carrierId = row.carrierId, carrierName = row.carrierName,
         carrierKind = row.carrierKind, returned = row.returned == true,
@@ -100,9 +103,15 @@ function Integration.valid(value)
         or (wood and value.toolReason ~= nil and (type(value.toolReason) ~= "string" or #value.toolReason > 96))
         or (wood and value.woodWork ~= nil and (not SC.ExpeditionWood
             or not SC.ExpeditionWood.valid(value.woodWork)))
-        or type(value.items) ~= "table" or #value.items > (wood and WOOD_LIMIT or 16)
+        or type(value.items) ~= "table" or #value.items > ((wood or value.kind=="home") and WOOD_LIMIT or 16)
         or type(value.members) ~= "table" or #value.members > 4 then return false end
-    local ids = {}
+    if value.kind == "home" and (value.version ~= 1 or value.restock ~= true
+        or value.requested ~= 1 or #value.members < 1
+        or not SC.HomeTrip or not SC.HomeTrip.validCamp(value.homeCamp)
+        or value.baseId ~= value.homeCamp.id) then return false end
+    if value.kind=="home" and value.carId~=nil and (not SC.HomeTrip.validCarReceipt
+        or not SC.HomeTrip.validCarReceipt(value.carSaveReceipt,value.carId)) then return false end
+    local ids,nativeIds = {},{}
     for _, row in ipairs(value.items) do
         if type(row) ~= "table" or not validId(row.id)
             or ids[row.id] or not validId(row.itemType)
@@ -143,6 +152,11 @@ function Integration.valid(value)
             end
         end
         ids[row.id] = true
+        if value.kind=="home" then
+            if type(row.nativeId)~="number" or row.nativeId~=math.floor(row.nativeId)
+                or row.nativeId < -2147483648 or row.nativeId>2147483647 or nativeIds[row.nativeId] then return false end
+            nativeIds[row.nativeId]=true
+        end
     end
     local members = {}
     for _, row in ipairs(value.members) do
@@ -164,6 +178,14 @@ function Integration.valid(value)
                 or amount < 0 or amount > 100 then return false end
         end
         members[row.id] = true
+        if value.kind == "home" then
+            if type(row.cleanupDone) ~= "boolean" or type(row.restocked) ~= "table"
+                or (row.cleanupReason ~= nil and (type(row.cleanupReason) ~= "string" or #row.cleanupReason > 96)) then return false end
+            for category,count in pairs(row.restocked) do
+                if (category ~= "food" and category ~= "water" and category ~= "medicine" and category ~= "ammunition")
+                    or type(count) ~= "number" or count < 0 or count > 100 or count ~= math.floor(count) then return false end
+            end
+        end
     end
     return true
 end
@@ -177,6 +199,8 @@ function Integration.copy(value)
         toolReason = value.toolReason,
         woodWork = woodRecord(value) and value.woodWork and SC.ExpeditionWood.copy(value.woodWork) or nil,
         baseId = value.baseId, carId = value.carId,
+        carSaveReceipt = value.kind=="home" and value.carSaveReceipt and SC.HomeTrip.copyCarReceipt(value.carSaveReceipt,value.carId) or nil,
+        homeCamp = value.kind == "home" and SC.HomeTrip.copyCamp(value.homeCamp) or nil,
         restock = value.restock, requested = value.requested,
         items = {}, members = {} }
     for index, row in ipairs(value.items) do copy.items[index] = copyRow(row) end
@@ -187,6 +211,11 @@ function Integration.copy(value)
             commandSerial = row.commandSerial,
             restockIndex = row.restockIndex, dutyDone = row.dutyDone,
             dutyReason = row.dutyReason, shortages = shortages }
+        if value.kind == "home" then
+            copy.members[index].cleanupDone, copy.members[index].cleanupReason = row.cleanupDone, row.cleanupReason
+            copy.members[index].restocked = {}
+            for category,count in pairs(row.restocked) do copy.members[index].restocked[category] = count end
+        end
     end
     return copy
 end
@@ -194,18 +223,22 @@ end
 function Integration.create(mission)
     local scout = mission and mission.scout
     local wood = scout and scout.kind == "wood"
-    local search = scout and (wood and scout.wood or scout.search)
+    local search = scout and (wood and scout.wood or scout.search
+        or scout.kind == "home" and {request = {quantity = 1}, acquisitions = scout.home.cargo or {}})
     if not search then return nil end
     local base = SC.BaseLife and SC.BaseLife.active()
     local request = search.request or {}
-    local record = { version = wood and 2 or 1, kind = wood and "wood" or nil,
+    local record = { version = wood and 2 or 1, kind = wood and "wood" or scout.kind == "home" and "home" or nil,
         requestedMode = wood and request.mode or nil, tripId = mission.radioSession,
         retryRemainingMs = wood and 0 or nil,
         woodWork = wood and SC.ExpeditionWood and SC.ExpeditionWood.copy(search) or nil,
         baseId = mission.homeBaseId or base and base.id or nil,
         carId = scout.vehicle and scout.vehicle.sqlId or nil,
+        carSaveReceipt = scout.kind=="home" and scout.home.carSaveReceipt
+            and SC.HomeTrip.copyCarReceipt(scout.home.carSaveReceipt,scout.home.vehicleSqlId) or nil,
         requested = wood and request.mode == "full" and WOOD_LIMIT or request.quantity,
         restock = mission.restockBaseDuty == true,
+        homeCamp = scout.kind == "home" and SC.HomeTrip.copyCamp(scout.home.camp) or nil,
         items = {}, members = {} }
     if wood then record.returnedToBase = false end
     local names = {}
@@ -219,15 +252,19 @@ function Integration.create(mission)
                 or tonumber(state and state.commandSerial) or 0,
             restockIndex = 1, dutyDone = not record.restock,
             shortages = {},
+            cleanupDone = scout.kind ~= "home",
+            restocked = scout.kind == "home" and {} or nil,
         }
     end
     for _, receipt in ipairs(search.acquisitions) do
         record.items[#record.items + 1] = {
-            id = receipt.id, itemType = receipt.itemType,
-            finderId = receipt.memberId,
-            finderName = names[receipt.memberId] or receipt.memberId,
+            id = receipt.id, itemType = receipt.itemType, nativeId = receipt.nativeId,
+            finderId = receipt.memberId or mission.leader and mission.leader.id,
+            finderName = names[receipt.memberId or mission.leader and mission.leader.id] or receipt.memberId,
             returned = false, stored = false,
-            reason = record.baseId == nil and "base_missing" or nil,
+            reason = record.baseId == nil and "base_missing" or scout.kind=="home" and "home_trunk_waiting_parking" or nil,
+            carrierKind = scout.kind=="home" and "trunk" or nil,
+            carrierName = scout.kind=="home" and "Car trunk" or nil,
             retryRemainingMs = wood and 0 or nil,
         }
     end
@@ -306,6 +343,7 @@ end
 
 local function locate(record, row, rescanned)
     local entry = locations(record)[row.id]
+    if record.kind=="home" and entry and call(entry.item,"getID")~=row.nativeId then return nil end
     if entry and U().inventoryContains(entry.source, entry.item)
         and call(entry.item, "getContainer") == entry.source then
         local root
@@ -338,8 +376,9 @@ end
 local function inspectCargo(record)
     local found, complete = {}, true
     local wanted = {}
+    local wantedNative = {}
     for _, row in ipairs(record.items) do
-        if not row.stored and not row.released then wanted[row.id] = row.itemType end
+        if not row.stored and not row.released then wanted[row.id],wantedNative[row.id] = row.itemType,row.nativeId end
     end
     local function inspect(root)
         if root == nil then complete = false return end
@@ -373,7 +412,8 @@ local function inspectCargo(record)
                 examined = examined + 1
                 if call(item, "getContainer") ~= container then complete = false return end
                 local id = U().itemStableId(item, false)
-                if wanted[id] and U().itemType(item) == wanted[id] then found[id] = true end
+                if wanted[id] and U().itemType(item) == wanted[id]
+                    and (record.kind~="home" or call(item,"getID")==wantedNative[id]) then found[id] = true end
                 local nested
                 for _, method in ipairs({ "getItemContainer", "getInventory" }) do
                     local value, okay = U().call(item, method)
@@ -533,7 +573,9 @@ function Integration.refresh(record)
                 end
                 row.carrierId = member and member.id or nil
                 row.carrierName = member and member.name or "Car trunk"
-                if woodRecord(record) and not row.returned then row.reason = "cargo_pending"
+                if record.kind=="home" and kind=="trunk" and (not SC.VehicleUnload
+                    or not SC.VehicleUnload.eligible or SC.VehicleUnload.eligible(holder,{allowLocked=true})~=true) then row.reason="home_trunk_waiting_parking"
+                elseif woodRecord(record) and not row.returned then row.reason = "cargo_pending"
                 elseif not woodRecord(record) or (remainingRetry(row) or 0) <= 0
                     and (remainingRetry(record) or 0) <= 0 then
                     row.reason = record.baseId == nil and "base_missing" or nil
@@ -600,6 +642,7 @@ end
 function Integration.summary(record)
     if not Integration.valid(record) then return nil end
     local result = { version = record.version, kind = record.kind, tripId = record.tripId,
+        carId = record.carId, trunkPending = 0,
         requested = record.requested, collected = #record.items,
         requestedMode = record.requestedMode, requestMode = record.requestedMode,
         broughtBack = 0, returned = 0, carried = 0, stored = 0, released = 0, unknown = 0, pending = 0,
@@ -611,6 +654,7 @@ function Integration.summary(record)
         elseif row.released then result.released = result.released + 1
         else
             result.pending = result.pending + 1
+            if row.carrierKind=="trunk" then result.trunkPending=result.trunkPending+1 end
             if locate(record, row) then result.carried = result.carried + 1
             else result.unknown = result.unknown + 1 end
         end
@@ -626,7 +670,19 @@ function Integration.summary(record)
         for key, amount in pairs(member.shortages) do shortages[key] = amount end
         result.members[#result.members + 1] = { id = member.id,
             name = member.name, dutyDone = member.dutyDone,
-            dutyReason = member.dutyReason, shortages = shortages }
+            dutyReason = member.dutyReason, shortages = shortages,
+            expectedCommandSerial = member.commandSerial }
+        local registered = SC.Registry and SC.Registry.byId(member.id)
+        local command = registered and registered.actor and SC.Commands and SC.Commands.peek(registered.actor)
+        result.members[#result.members].actualCommandSerial = command and command.commandSerial or nil
+        if record.kind == "home" then
+            local row = result.members[#result.members]
+            row.cleanupDone, row.cleanupReason, row.restocked = member.cleanupDone, member.cleanupReason, {}
+            for category,count in pairs(member.restocked) do row.restocked[category] = count end
+            if not member.cleanupDone or not member.dutyDone then
+                result.deliveryPending, result.complete = true, false
+            end
+        end
     end
     return result
 end
@@ -700,6 +756,7 @@ function Integration.settle(record)
     local lostBase = restoreFinished() and (base == nil and "camp_missing"
         or record.baseId ~= nil and base.id ~= record.baseId
             and "camp_changed") or nil
+    if record.kind == "home" and restoreFinished() and not SC.HomeTrip.campUnchanged(record.homeCamp) then lostBase = "camp_changed" end
     local settled, conclusive = true, true
     for _, member in ipairs(record.members) do
         local presence, actor = memberPresence(member)
@@ -708,15 +765,19 @@ function Integration.settle(record)
             local command = actor and SC.Commands and SC.Commands.peek(actor)
             if lostBase then
                 member.dutyDone, member.dutyReason = true, lostBase
+                if record.kind == "home" then member.cleanupDone, member.cleanupReason = true, lostBase end
             elseif presence == "gone" then
                 member.dutyDone, member.dutyReason = true, "member_unavailable"
+                if record.kind == "home" then member.cleanupDone, member.cleanupReason = true, "member_unavailable" end
             elseif command and tonumber(command.commandSerial) ~= member.commandSerial
                 and command.order ~= "base_duty" then
                 member.dutyDone, member.dutyReason = true, "new_player_order"
+                if record.kind == "home" then member.cleanupDone, member.cleanupReason = true, "new_player_order" end
             else
                 settled = false
             end
         end
+        if record.kind == "home" and not member.cleanupDone then settled = false end
     end
     if record.carId ~= nil and not (SC.Vehicle and SC.Vehicle.loadedBySqlId
         and SC.Vehicle.loadedBySqlId(record.carId)) then conclusive = false end
@@ -777,7 +838,7 @@ local function approachTimedOut(state, actor, storage, row)
     return now - watch.at >= 180000
 end
 
-local function selectStorage(actor, item, state)
+local function selectStorage(actor, item, state, homeReceipt)
     if not SC.BaseWork or not SC.BaseLife then return nil, nil, "base_unavailable" end
     local category = SC.BaseWork.classifyItem(item)
     if category == "food" or category == "fresh_food" then
@@ -788,6 +849,11 @@ local function selectStorage(actor, item, state)
     if #rows == 0 then return nil, nil, "matching_storage_missing" end
     local unavailable = "matching_storage_full"
     local choices = {}
+    local retained = homeReceipt and state.homeStorage or nil
+    if retained and (retained.receipt ~= homeReceipt or retained.item ~= item
+        or retained.category ~= category) then
+        state.homeStorage, state.navigationChoice, retained = nil, nil, nil
+    end
     for _, storage in ipairs(rows) do
         local blockedUntil = state.blockedStorage
             and state.blockedStorage[storage.id] or 0
@@ -807,6 +873,14 @@ local function selectStorage(actor, item, state)
                 end
                 local object = SC.BaseLife.resolveObject(storage)
                 if object then
+                    -- A Home carrier must finish its trunk approach before a
+                    -- fresh destination survey can consume its movement beat.
+                    -- Revalidate the marked category, permission, capacity and
+                    -- exact loaded object/container above on every poll.
+                    if retained and retained.storageId == storage.id
+                        and retained.container == container and retained.object == object then
+                        return storage, container
+                    end
                     choices[#choices + 1] = {
                         id = storage.id, object = object,
                         storage = storage, container = container,
@@ -817,6 +891,7 @@ local function selectStorage(actor, item, state)
             unavailable = "matching_storage_unloaded"
         end
     end
+    if retained then state.homeStorage, state.navigationChoice = nil, nil end
     if #choices > 0 then
         if SC.Navigation and type(SC.Navigation.selectInteraction) == "function" then
             local selected, reason = SC.Navigation.selectInteraction(actor, state,
@@ -824,6 +899,11 @@ local function selectStorage(actor, item, state)
                 choices, { nodeBudget = 1800, workCampOnly = true,
                     workReach = true })
             if selected then
+                if homeReceipt then
+                    state.homeStorage = { receipt = homeReceipt, item = item,
+                        category = category, storageId = selected.storage.id,
+                        container = selected.container, object = selected.object }
+                end
                 return selected.storage, selected.container
             end
             if reason == "pending" then
@@ -1004,7 +1084,10 @@ local function itemForWorker(record, actor, state)
             local item, source, holder, member, kind = locate(record, row)
             if item and (holder == actor or kind == "trunk"
                 and (atBase(holder) or woodCarAtHome(record, holder))) then
-                return row, item, source, holder, kind
+                if record.kind=="home" and kind=="trunk" and (not SC.VehicleUnload
+                    or not SC.VehicleUnload.eligible or SC.VehicleUnload.eligible(holder,{allowLocked=true})~=true) then
+                    row.reason="home_trunk_waiting_parking"
+                else return row, item, source, holder, kind end
             end
         end
     end
@@ -1037,6 +1120,10 @@ function Integration.retry(record, receiptId)
             if receiptId then state.retryByReceipt[receiptId] = nil
             else state.retryByReceipt = {} end
             state.blockedStorage, state.woodStorage = nil, nil
+            if record.kind == "home" and (receiptId == nil or state.homeStorage
+                and state.homeStorage.receipt.id == receiptId) then
+                state.homeStorage, state.navigationChoice = nil, nil
+            end
         end
     end
     locationCache[record] = nil
@@ -1091,6 +1178,33 @@ local function woodDeliveryReach(record, actor)
         if not row.stored and not row.released then
             local item, _, holder, _, kind = locate(record, row)
             if item and kind == "trunk" and holder == car then return true end
+        end
+    end
+    return false
+end
+
+local function homeDeliveryReach(record, actor)
+    if record.kind ~= "home" or record.carId == nil
+        or not SC.BaseLife or type(SC.BaseLife.withinWorkReach) ~= "function"
+        or SC.BaseLife.withinWorkReach(actor) ~= true then return false end
+    local member = memberFor(record, actor)
+    local registered = member and SC.Registry and SC.Registry.byId(member.id)
+    if not registered or registered.actor ~= actor then return false end
+    local car = SC.Vehicle and SC.Vehicle.loadedBySqlId and SC.Vehicle.loadedBySqlId(record.carId)
+    if not car or tonumber(call(car, "getSqlId")) ~= record.carId
+        or not SC.Vehicle.isStationary or SC.Vehicle.isStationary(car) ~= true
+        or call(car, "isEngineRunning") ~= false
+        or SC.BaseLife.withinWorkReach(car) ~= true
+        or not SC.VehicleUnload or not SC.VehicleUnload.eligible
+        or SC.VehicleUnload.eligible(car, { allowLocked = true }) ~= true then return false end
+    -- The assigned worker can cross the bounded gap to its actual parked
+    -- cargo before pickup. A car, a completed row, or an item in another
+    -- holder alone cannot keep this delivery owner alive outside camp.
+    for _, row in ipairs(record.items) do
+        if not row.stored and not row.released then
+            local item, _, holder, _, kind = locate(record, row)
+            if item and holder == car and kind == "trunk"
+                and call(item, "getID") == row.nativeId and U().itemType(item) == row.itemType then return true end
         end
     end
     return false
@@ -1244,6 +1358,9 @@ local function restock(actor, member, record, state)
                                 or U().inventoryContains(container, item) then
                                 return false, "restock_transfer_unverified"
                             end
+                            if record.kind == "home" then
+                                member.restocked[category] = (member.restocked[category] or 0) + 1
+                            end
                         end
                         return taken, reason
                     end
@@ -1264,8 +1381,9 @@ function Integration.wants(record, actor)
     local base = SC.BaseLife and SC.BaseLife.active()
     if base and record.baseId == nil then record.baseId = base.id end
     if not base or record.baseId ~= base.id then return false end
+    if record.kind == "home" and not SC.HomeTrip.campUnchanged(record.homeCamp) then return false end
     if not atBase(actor) and not returnedCarrierNearBase(record, actor)
-        and not woodDeliveryReach(record, actor) then
+        and not woodDeliveryReach(record, actor) and not homeDeliveryReach(record, actor) then
         return false
     end
     local member = memberFor(record, actor)
@@ -1274,6 +1392,7 @@ function Integration.wants(record, actor)
         and command.order ~= "base_duty" then
         if record.restock and not member.dutyDone then
             member.dutyDone, member.dutyReason = true, "new_player_order"
+            if record.kind == "home" then member.cleanupDone, member.cleanupReason = true, "new_player_order" end
         end
         return false
     end
@@ -1298,14 +1417,34 @@ function Integration.wants(record, actor)
         if woodToolsPending(record, actor) then return true end
         if woodToolsPending(record) then return false end
     end
-    return record.restock and member.dutyDone ~= true
+    return record.kind == "home" and not member.cleanupDone or record.restock and member.dutyDone ~= true
 end
 
 function Integration.update(record, actor)
     if not Integration.wants(record, actor) then return false, "delivery_not_ready" end
     local state = stateFor(record, actor, true)
+    if record.kind == "home" then
+        local member = memberFor(record, actor)
+        if not member.cleanupDone then
+            -- The cleanup policy chooses surplus while keeping protected gear
+            -- and role minimums. An empty search ledger carries no receipts.
+            -- Persist the obligation separately and resume it while loaded.
+            local data = call(actor, "getModData")
+            if type(data) ~= "table" or not SC.Logistics or not SC.Logistics.update then
+                member.cleanupReason = "home_cleanup_unavailable"
+                return false, member.cleanupReason
+            end
+            data.LF_FieldReturnCleanup = true
+            local registered = SC.Registry and SC.Registry.byId(member.id)
+            local handled, reason = SC.Logistics.update(actor, nil, registered and registered.runtime)
+            member.cleanupReason = safeReason(reason)
+            if data.LF_FieldReturnCleanup == nil then member.cleanupDone = true end
+            return handled, reason
+        end
+    end
     local row, item, source, holder, kind = itemForWorker(record, actor, state)
     if not row then
+        if record.kind == "home" then state.homeStorage, state.navigationChoice = nil, nil end
         if woodRecord(record) then
             local handled, reason, done = returnWoodTools(record, actor)
             if done ~= true then
@@ -1323,6 +1462,7 @@ function Integration.update(record, actor)
     end
     if state.currentReceiptId ~= row.id then
         state.deliveryApproach, state.visualAt, state.storageVisualToken = nil, nil, nil
+        if record.kind == "home" then state.homeStorage, state.navigationChoice = nil, nil end
         state.currentReceiptId = row.id
     end
     row.returned = true
@@ -1334,7 +1474,8 @@ function Integration.update(record, actor)
     local storage, container, why
     if woodRecord(record) then storage, container, why = selectWoodStorage(actor, item, state,
         (kind == "trunk" or row.carrierKind == "trunk") and record.carId or nil)
-    else storage, container, why = selectStorage(actor, item, state) end
+    else storage, container, why = selectStorage(actor, item, state,
+        record.kind == "home" and row or nil) end
     if not storage then
         if why == "storage_route_pending" then return true, why end
         state.deliveryApproach = nil
@@ -1361,6 +1502,9 @@ function Integration.update(record, actor)
         if woodRecord(record) then taken, reason = woodTakeExact(record, actor, item, source, state, row, storage)
         else taken, reason = SC.VehicleUnload.takeExact(actor, record.carId, item, state, source) end
         row.reason = safeReason(reason)
+        if record.kind == "home" and taken ~= true and accessFailure(reason) then
+            state.homeStorage, state.navigationChoice = nil, nil
+        end
         if taken == true and reason == "car_item_carried" then
             locationCache[record] = nil
             row.carrierId, row.carrierName, row.carrierKind =
@@ -1425,6 +1569,7 @@ function Integration.update(record, actor)
         locationCache[record] = nil
         state.visualAt = nil
         state.deliveryApproach = nil
+        if record.kind == "home" then state.homeStorage, state.navigationChoice = nil, nil end
         return true, "expedition_supply_stored"
     end
     if moved == true and reason == "base_storage_looting" then

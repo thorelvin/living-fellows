@@ -568,6 +568,10 @@ ritualState.flavor = { version = 1, placesSeen = { police = true }, storiesTold 
 ritualState.followCarSqlId = 501
 check(SC.Commands.persist(actor), "personal ritual state commits through Commands")
 local commandSnapshot, commandSnapshotReason = SC.Persistence.captureRecord(record)
+check(commandSnapshot and commandSnapshot.order.commandSerial == ritualState.commandSerial
+        and commandSnapshot.order.commandSerial > 0
+        and record.state.order.commandSerial == ritualState.commandSerial,
+    "real Commands and Registry persist the nonzero player-order revision in actor snapshots")
 check(SC.SpeechColors.valid(record.speechColorKey)
     and commandSnapshot.speechColorKey == record.speechColorKey,
     "speech colour survives the production registry/capture path")
@@ -621,9 +625,77 @@ for _, key in ipairs({
     "SC_Order", "SC_FollowDistance", "SC_Scavenge", "SC_MoveMode", "SC_CombatMode",
     "SC_CombatDoctrine", "SC_HoldFire", "SC_WeaponPriority", "SC_Group", "SC_Trust", "SC_Bond",
     "SC_Morale", "SC_Stress", "SC_TimeTogetherMs", "SC_WorkMode", "SC_FollowCarSqlId",
+    "SC_CommandSerial",
 }) do actor.data[key] = nil end
 SC.Commands.reset(actor)
 local restoredCommandState = SC.Commands.peek(actor)
+check(restoredCommandState.commandSerial == commandSnapshot.order.commandSerial,
+    "command revision survives clearing transient moddata and rebuilding real Commands state")
+do
+    local saved=SC.StableValue.copyStrict(commandSnapshot,{maxDepth=32,maxEntries=65536})
+    saved.id,saved.order.current,saved.skills,saved.identity.appearance="sc-command-serial-reload","follow",{},nil
+    local spawn,begin,vitalsApply=SC.Actor.spawn,SC.Actor.beginSpawn,SC.Vitals.apply
+    SC.Actor.beginSpawn=nil
+    SC.Vitals.apply=function() return true end -- native body setters are outside this command adapter regression
+    SC.Actor.spawn=function(at,profile)
+        local fresh=setmetatable({__owned=true,__class="IsoPlayer",data={SC_Recruited=true,
+            SC_Order="follow",SC_CommandSerial=1},square=at},{__index=actor})
+        check(SC.Commands.peek(fresh).commandSerial==1,"native spawn fixture creates a real Commands cache before restore initialization")
+        local initialized,reason=profile.initialize(fresh,{})
+        check(initialized and SC.Commands.peek(fresh).commandSerial==saved.order.commandSerial,
+            "actual Persistence initializer replaces unregistered spawn cache/moddata revision with the saved revision: "..tostring(reason))
+        local record=SC.Registry.register(fresh,profile)
+        check(record and SC.Commands.restore(fresh,record),"normal Registry and Commands restore follow native initialization")
+        return fresh,"restored"
+    end
+    local restoredActor=SC.Persistence.restoreAt(saved,square)
+    SC.Actor.spawn,SC.Actor.beginSpawn,SC.Vitals.apply=spawn,begin,vitalsApply
+    local restoredRecord=restoredActor and SC.Registry.byId(saved.id)
+    check(restoredRecord and restoredRecord.state.order.commandSerial == commandSnapshot.order.commandSerial
+        and SC.Commands.peek(restoredActor).commandSerial == commandSnapshot.order.commandSerial,
+        "real restore initializer, Registry normalizer and fresh actor Commands preserve the serialized revision")
+    local secondSnapshot = SC.Persistence.captureRecord(restoredRecord)
+    check(secondSnapshot and secondSnapshot.order.commandSerial == commandSnapshot.order.commandSerial,
+        "second production capture after fresh-actor reconstruction keeps the same revision")
+    local baseReader,inside,pending,status=SC.BaseLife.active,SC.BaseLife.isInside,
+        SC.Persistence.isPending,SC.Persistence.restoreStatus
+    local serialBase={id="serial-control-camp",core={x=0,y=0,z=0},
+        zones={{kind="area",x1=0,y1=0,x2=10,y2=10,z=0}}}
+    SC.BaseLife.active=function() return serialBase end
+    SC.BaseLife.isInside=function(subject) return subject==restoredActor end
+    local handover=SC.ExpeditionIntegration.copy({version=1,kind="home",tripId="serial-reload",
+        baseId=serialBase.id,homeCamp=SC.HomeTrip.captureCamp(serialBase),restock=true,
+        requested=1,items={},members={{id=saved.id,name="Serial survivor",
+            commandSerial=secondSnapshot.order.commandSerial,restockIndex=1,dutyDone=false,
+            shortages={},cleanupDone=false,restocked={}}}})
+    check(handover and SC.ExpeditionIntegration.wants(handover,restoredActor),
+        "real home handover retains ownership after saved revision passes through actual actor initialization")
+    restoredRecord.actor=nil
+    SC.Persistence.isPending=function(id) return id==saved.id or pending(id) end
+    SC.Persistence.restoreStatus=function() return true end
+    check(not SC.ExpeditionIntegration.settle(handover) and not handover.members[1].dutyDone,
+        "dormant pending survivor keeps cleanup and duty owed without losing handover ownership")
+    handover=SC.ExpeditionIntegration.copy(SC.StableValue.copyStrict(handover,{maxDepth=12,maxEntries=1024}))
+    restoredRecord.actor=restoredActor
+    check(handover and SC.ExpeditionIntegration.wants(handover,restoredActor),
+        "serialized dormant home obligation owns the restored actor with matching actual command revision")
+    check(SC.Commands.issue(restoredRecord.id,"set_group",{group="Serial control"},nil),
+        "real explicit player command remains available after revision restore")
+    check(SC.Commands.peek(restoredActor).commandSerial==commandSnapshot.order.commandSerial+1,
+        "first genuine player order increments the saved revision exactly once")
+    local resumed,reason = SC.Commands.resumeBaseDutyIfUnchanged(restoredRecord.id,
+        commandSnapshot.order.commandSerial,"serial-control-camp")
+    check(not resumed and reason == "new_player_order"
+        and not SC.Commands.restoreCommandSerial(restoredActor,commandSnapshot.order.commandSerial)
+        and not SC.ExpeditionIntegration.wants(handover,restoredActor)
+        and handover.members[1].dutyReason=="new_player_order"
+        and handover.members[1].cleanupReason=="new_player_order",
+        "a newer real player command wins; restore cannot erase its revision or force base duty")
+    SC.BaseLife.active,SC.BaseLife.isInside,SC.Persistence.isPending,SC.Persistence.restoreStatus=
+        baseReader,inside,pending,status
+    SC.Commands.reset(restoredActor)
+    SC.Registry.unregister(restoredActor)
+end
 check(restoredCommandState.order == "guard" and restoredCommandState.followDistance == 8
     and restoredCommandState.followCarSqlId == 501
     and restoredCommandState.scavenge == false and restoredCommandState.moveMode == "jog"

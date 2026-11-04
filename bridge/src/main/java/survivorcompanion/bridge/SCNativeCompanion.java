@@ -171,6 +171,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     // cheat role. A story passenger needs a private, temporary exemption while
     // sealed inside her vehicle; never change the player's cheat permissions.
     private transient volatile boolean bridgeStoryZombieIgnored;
+    // Set only by the exact acknowledged remote-arrival lease. The on-disk
+    // companion now owns this logical character; these old native objects are
+    // inert cleanup subjects until their world membership is fully retired.
+    private transient volatile boolean bridgeRemoteArrivalRetired;
     private volatile String bridgeFailure = "";
     private volatile boolean bridgeDeathStarted;
     private volatile boolean corpseReady;
@@ -348,9 +352,31 @@ public final class SCNativeCompanion extends IsoPlayer {
     @Override
     public float Hit(HandWeapon weapon, IsoGameCharacter wielder, float damageSplit,
             boolean ignoreDamage, float modDelta, boolean remote) {
+        if (bridgeRemoteArrivalRetired) return 0.0f;
         if (blocksPlayerWeaponHit(wielder)) return 0.0f;
         return super.Hit(weapon, wielder, damageSplit, ignoreDamage, modDelta, remote);
     }
+
+    @Override
+    public boolean isGodMod() {
+        return bridgeRemoteArrivalRetired || super.isGodMod();
+    }
+
+    @Override
+    public boolean isInvulnerable() {
+        return bridgeRemoteArrivalRetired || super.isInvulnerable();
+    }
+
+    void markRemoteArrivalRetired() { bridgeRemoteArrivalRetired = true; }
+
+    void protectRemoteArrivalRetirement() { setGodMod(true, true); }
+
+    void finishRemoteArrivalRetirement(boolean originalGodMode) {
+        setGodMod(originalGodMode, true);
+        bridgeRemoteArrivalRetired = false;
+    }
+
+    boolean isRemoteArrivalRetired() { return bridgeRemoteArrivalRetired; }
 
     boolean blocksPlayerWeaponHit(IsoGameCharacter wielder) {
         if (!SCBridge.isProtectRecruitedCompanions() || !SCBridge.isCompanion(this)
@@ -402,7 +428,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     @Override
     public void StartAction(BaseAction action) {
-        if (action == null || bridgeDisabled) return;
+        if (action == null || bridgeDisabled || bridgeRemoteArrivalRetired) return;
         bridgeActionStartFailure = "";
         if (!bridgePendingActionStarts.add(action)) return;
         try {
@@ -414,7 +440,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     void completeDeferredActionStart(BaseAction action) {
-        if (!bridgePendingActionStarts.remove(action) || bridgeDisabled) return;
+        if (!bridgePendingActionStarts.remove(action) || bridgeDisabled || bridgeRemoteArrivalRetired) return;
         try {
             super.StartAction(action);
         } catch (RuntimeException | LinkageError failure) {
@@ -1145,6 +1171,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void postupdate() {
+        if (bridgeRemoteArrivalRetired) return;
         if (bridgeDisabled) {
             return;
         }
@@ -2813,6 +2840,10 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void update() {
+        // Native BodyDamage.Update heals god-mode actors. Return before all
+        // generic updates so the temporary retirement protection cannot heal,
+        // consume supplies, advance fatigue or play a new physical action.
+        if (bridgeRemoteArrivalRetired) return;
         if (bridgeSleepModelBed != null && (!isOnBed()
                 || getSitOnFurnitureObject() != bridgeSleepModelBed
                 || bridgeSleepModelBed.getObjectIndex() < 0)) clearSleepModelOffset();

@@ -922,6 +922,30 @@ local pools = {
         cautious = { "Close in, but watch the exits!" },
         stressed = { "Help! Right now, please!" },
     },
+    ["home.departure"] = { common = {
+        { "Heading home.", clean = "Heading home." },
+        { "We'll keep the kettle on.", clean = "We'll keep the kettle on." },
+        { "All right. We'll meet you back at camp.", clean = "All right. We'll meet you back at camp." },
+        { "Back to camp. Stay close, everyone.", clean = "Back to camp. Stay close, everyone." },
+    } },
+    ["home.arrival"] = { common = {
+        { "Home. Kettle's still where I left it.", clean = "Home. Kettle's still where I left it." },
+        { "We're home. Let's put this lot away.", clean = "We're home. Let's put this lot away." },
+        { "Made it. Boots off once the work's done.", clean = "Made it. Boots off once the work's done." },
+        { "Back at camp. Time to check the shelves.", clean = "Back at camp. Time to check the shelves." },
+    } },
+    ["home.turning_back"] = { common = {
+        { "Copy. Turning back to your position.", clean = "Copy. Turning back to your position." },
+        { "Heard you. We'll meet you there.", clean = "Heard you. We'll meet you there." },
+        { "Coming back. Stay where you called from.", clean = "Coming back. Stay where you called from." },
+    } },
+    ["home.holding"] = { common = {
+        { "Copy. We'll hold here.", clean = "Copy. We'll hold here." },
+        { "Holding position. Call when you're ready.", clean = "Holding position. Call when you're ready." },
+    } },
+    ["home.push_on"] = { common = {
+        { "Copy. Moving on.", clean = "Copy. Moving on." },
+    } },
     ["expedition.departure"] = {
         common = {
             "Gather up, people. We're heading out.",

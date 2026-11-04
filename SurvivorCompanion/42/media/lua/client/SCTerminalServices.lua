@@ -9,6 +9,14 @@ local S=SC.TerminalServices
 local function U() return SC.ControlUtil end
 local function B() return SC.BuildingControls end
 local function option(label,action,value) return {label=label,serviceAction=action,serviceValue=value} end
+function S.radioUnavailable()
+    local expedition=SC.ExpeditionPrototype
+    local trip=expedition and type(expedition.current)=="function" and expedition.current()
+    if not (trip and trip.scout and trip.scout.kind=="home") then return nil end
+    local key="UI_SC_HomeTrip_OrdersAway"
+    local message=type(getText)=="function" and getText(key)
+    return message and message~=key and message or "On a trip home. Get near them to call off the trip."
+end
 local function page(window,name)
     window.menuPage,window.menuSelection,window.servicePage=name,1,0
     window.scanPage=nil
@@ -176,11 +184,19 @@ function S.menu(window)
         local rows=SC.BuildingCircuits.list(window.object)
         return paged(window,rows,function(row) return option(tostring(row.label)..": "..(row.on and "On" or "Off"),"propose",{operation="circuit",id=row.id,on=not row.on}) end,"services")
     elseif p=="station" then
-        return {option("Plan expedition","page","expedition_plan"),option("Request progress report","propose",{operation="radio",command="progress_report",payload="status"}),
-            option("Recall expedition","propose",{operation="radio",command="return_now",payload="now"}),option("Route decisions","page","radio_decisions"),
-            option("Radio channel / status","radio_status"),option("Book Marcus taxi","propose",{operation="taxi",verb="book"}),
-            option("Taxi status","taxi_status"),option("Cancel taxi booking","propose",{operation="taxi",verb="cancel"}),option("Back to services","page","home_services")}
+        local result={option("Plan expedition","page","expedition_plan")}
+        if not S.radioUnavailable() then
+            result[#result+1]=option("Request progress report","propose",{operation="radio",command="progress_report",payload="status"})
+            result[#result+1]=option("Recall expedition","propose",{operation="radio",command="return_now",payload="now"})
+            result[#result+1]=option("Route decisions","page","radio_decisions")
+        end
+        for _,entry in ipairs({option("Radio channel / status","radio_status"),option("Book Marcus taxi","propose",{operation="taxi",verb="book"}),
+            option("Taxi status","taxi_status"),option("Cancel taxi booking","propose",{operation="taxi",verb="cancel"}),option("Back to services","page","home_services")}) do
+            result[#result+1]=entry
+        end
+        return result
     elseif p=="radio_decisions" then
+        if S.radioUnavailable() then return {option("Back","page","station")} end
         return {option("Hold position","propose",{operation="radio",command="expedition_decision",payload="hold_position"}),
             option("Try another route","propose",{operation="radio",command="expedition_decision",payload="push_on"}),
             option("Return home","propose",{operation="radio",command="expedition_decision",payload="return"}),
@@ -272,6 +288,10 @@ function S.prepare(window,proposal)
     end
     local saved={}
     for _,key in ipairs({"operation","kind","item","id","verb","on","command","payload","group"}) do saved[key]=request[key] end
+    if saved.operation=="radio" then
+        local reason=S.radioUnavailable()
+        if reason then return nil,reason end
+    end
     if saved.operation=="circuit" then
         local circuit,prompt=SC.BuildingCircuits.prepare(window.object,saved.id,saved.on,window.player)
         if not circuit then return nil,prompt end
@@ -411,6 +431,8 @@ function S.execute(window,request)
         if not panel or panel.security.locked or not B().connected(pc,panel) or not row or row.kind~="shutter" then return false,"Choose an authorized loading shutter." end
         panel.returnGarageId=row.id return true,"Return garage assigned: "..row.label
     elseif operation=="radio" then
+        local unavailable=S.radioUnavailable()
+        if unavailable then return false,unavailable end
         local trip=SC.ExpeditionPrototype.current()
         if not trip or trip.radioSession~=request.missionId then return false,"The expedition changed. Ask again." end
         local okay,reason=SC.ExpeditionPrototype.sendRadioOrder(player,request.command,request.payload,request.endpoint)

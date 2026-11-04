@@ -755,7 +755,12 @@ function Field.unlockTrunkFor(actor, vehicle, state, snapshot)
     if seated ~= nil and seated ~= vehicle then
         return false, "companion_in_other_car"
     end
-    local locked = call(vehicle, "isTrunkLocked")
+    -- The general call convenience wrapper collapses false to nil. The native
+    -- lock's false value is a required transaction postcondition here.
+    local locked, lockKnown = U().call(vehicle, "isTrunkLocked")
+    if not lockKnown or type(locked) ~= "boolean" then
+        return false, "car_trunk_lock_unavailable"
+    end
     if seated == nil and locked == false then
         if state.unlocked then sayTrunkUnlocked(actor) end
         state.unlocked = nil
@@ -767,7 +772,8 @@ function Field.unlockTrunkFor(actor, vehicle, state, snapshot)
             state.readyAt = state.readyAt or now + 700
             if now < state.readyAt then return true, "field_trunk_unlocking" end
             local _, changed = U().call(vehicle, "setTrunkLocked", false)
-            if changed ~= true or call(vehicle, "isTrunkLocked") ~= false then
+            local lockedAfter, verified = U().call(vehicle, "isTrunkLocked")
+            if changed ~= true or verified ~= true or lockedAfter ~= false then
                 return false, "car_trunk_unlock_failed"
             end
             state.unlocked = true

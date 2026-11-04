@@ -87,6 +87,12 @@ final class SCTurnAround {
         return reason;
     }
 
+    /** A bounded caller can stop this manoeuvre without issuing another pedal. */
+    void abort(String why) {
+        state = State.FAILED;
+        reason = why;
+    }
+
     /** For tests: start with the reverse wheel the wrong way round. */
     void startWithReverseSign(float sign) {
         reverseSign = sign < 0.0f ? -1.0f : 1.0f;

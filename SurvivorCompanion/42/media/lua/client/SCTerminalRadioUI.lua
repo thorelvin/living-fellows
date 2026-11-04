@@ -62,9 +62,15 @@ function UI.options(w)
         return {option("Volume -","volume",-0.1),option("Volume +","volume",0.1),option("Speaker "..(rt and rt.volume>0 and "mute" or "unmute"),"mute"),
             option("Microphone "..(rt and rt.mic and "mute" or "open"),"mic"),option("Visual: "..(rt and rt.memory.mode or "bars"),"visual"),option("Back","back")}
     elseif p=="team" then
-        return {option("Tune team channel","team"),option("Progress report","control",{operation="radio",command="progress_report",payload="status"}),
-            option("Recall expedition","control",{operation="radio",command="return_now",payload="now"}),
-            option("Book Marcus","control",{operation="taxi",verb="book"}),option("Last report","lastReport"),option("Back","back")}
+        local result={option("Tune team channel","team")}
+        if not (SC.TerminalServices and SC.TerminalServices.radioUnavailable and SC.TerminalServices.radioUnavailable()) then
+            result[#result+1]=option("Progress report","control",{operation="radio",command="progress_report",payload="status"})
+            result[#result+1]=option("Recall expedition","control",{operation="radio",command="return_now",payload="now"})
+        end
+        result[#result+1]=option("Book Marcus","control",{operation="taxi",verb="book"})
+        result[#result+1]=option("Last report","lastReport")
+        result[#result+1]=option("Back","back")
+        return result
     end
     return {option("Presets","page","presets"),option("Scanner","page","scan"),option("Audio / visual","page","audio"),
         option("Notebook","page","library"),option("Team / Marcus","page","team"),option("Back to EMMA","leave")}

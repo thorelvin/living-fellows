@@ -73,7 +73,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-27";
+    public static final String PROTOCOL = "42.21-isocompanion-29";
 
     /** True only while the optional Viewpoint renderer reports active 3D. */
     public static boolean isViewpoint3DActive() {
@@ -1579,6 +1579,22 @@ public final class SCBridge {
         }
         driver.approach(path, cruiseKmh);
         return true;
+    }
+
+    /**
+     * Physically align a stopped owned driver toward a nearby parking point.
+     * This retains its wheel owner and never changes the forward-approach guard.
+     */
+    public static boolean driveAlign(SCNativeCompanion actor, double targetX, double targetY) {
+        lastFailure = "";
+        String refused = driveRefusal(actor);
+        if (!refused.isEmpty()) return failBoolean(refused);
+        try {
+            String failure = actor.companionDriver().alignParking(actor, targetX, targetY);
+            return failure.isEmpty() || failBoolean(failure);
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("parking alignment failed: " + failure.getClass().getSimpleName());
+        }
     }
 
     /** Copy the engine's actual world-space vehicle polygon into a Lua table. */

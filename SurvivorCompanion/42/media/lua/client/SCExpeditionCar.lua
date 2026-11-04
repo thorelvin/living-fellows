@@ -6,8 +6,19 @@ local SC = SurvivorCompanion
 SC.ExpeditionCar = SC.ExpeditionCar or {}
 local Car = SC.ExpeditionCar
 
-local function traceTrip(trip, action, detail)
+local function traceTrip(trip, action, detail, driveStatus)
     if type(print) ~= "function" then return end
+    if type(driveStatus) == "table" then
+        detail = (detail and detail .. " " or "")
+            .. "drivePhase=" .. tostring(driveStatus.phase):sub(1, 64)
+            .. " result=" .. tostring(driveStatus.result):sub(1, 64)
+            .. " reason=" .. tostring(driveStatus.reason):sub(1, 128)
+            .. " managed=" .. tostring(driveStatus.managed)
+            .. " parked=" .. tostring(driveStatus.parked)
+            .. " owned=" .. tostring(driveStatus.owned)
+            .. " firstRefusal=" .. tostring(driveStatus.firstParkingRefusal):sub(1, 128)
+            .. " alignmentReason=" .. tostring(driveStatus.parkingAlignmentReason):sub(1, 128)
+    end
     print("[SurvivorCompanion/expedition-car] car="
         .. tostring(trip and trip.sqlId or "?") .. " action="
         .. tostring(action) .. (detail and " " .. detail or ""))
@@ -457,7 +468,7 @@ end
 function Car.boardingOrderFor(actor)
     local mission, trip, seat = activeSeat(actor)
     if not mission or seat == nil then return nil end
-    if preparingSupplies(mission.scout) then return nil end
+    if preparingSupplies(mission.scout) or trip.radioResumeState then return nil end
     if trip.state ~= "walking_to_car" and trip.state ~= "boarding_out"
         and trip.state ~= "returning_to_car"
         and trip.state ~= "boarding_home" then return nil end
@@ -512,6 +523,7 @@ function Car.boardMember(actor, order, snapshot)
     if mission and trip.sqlId == order.sqlId and preparingSupplies(mission.scout) then
         return false, "expedition_preparing_supplies"
     end
+    if mission and trip.radioResumeState then return false, "home_radio_holding" end
     local seated, current, actualSeat = SC.Vehicle.isNativeSeated(actor)
     if seated then
         if current == car and actualSeat == seat then
@@ -579,6 +591,11 @@ local function sameParkingArea(zone, saved)
     return zone and saved and zone.z == saved.z
         and zone.x1 == saved.x1 and zone.y1 == saved.y1
         and zone.x2 == saved.x2 and zone.y2 == saved.y2
+end
+
+local function homeParkingMatches(trip)
+    if trip.field then return Car.fieldParkingCurrent and Car.fieldParkingCurrent(trip)==true end
+    return sameParkingArea(Car.areaById(trip.parkingZoneId),trip.parking)
 end
 
 local function travelMember(mission, member)
@@ -685,8 +702,7 @@ local function departReady(mission, trip, car)
     if not equippedOrHeldKey(mission.leader.actor, car) then
         return false, "driver_needs_key"
     end
-    if trip.leg == "home" and not sameParkingArea(
-        Car.areaById(trip.parkingZoneId), trip.parking) then
+    if trip.leg == "home" and not homeParkingMatches(trip) then
         return false, "home_parking_changed"
     end
     local goal = trip.leg == "home"
@@ -750,13 +766,27 @@ local function wholeTeamOnFoot(mission)
     return teamOnFoot(mission)
 end
 
+local function fieldStopBarrier(mission,trip,car)
+    if not trip.field then return true end
+    if not SC.HomeTrip or type(SC.HomeTrip.carStopReady)~="function" then return false,"home_car_save_unavailable" end
+    local called,ready,reason=pcall(SC.HomeTrip.carStopReady,mission,car)
+    if not called or ready~=true then return false,reason or ready or "home_car_save_pending" end
+    return true
+end
+
 local function abandonToWalking(mission, trip, car)
+    local saved,saveReason=fieldStopBarrier(mission,trip,car)
+    if not saved then return false,saveReason end
     local scout = mission.scout
     local leader = mission.leader and mission.leader.actor
     local x, y, z
     if leader then x, y, z = SC.GameplayUtil.position(leader) end
     if not x or not y or not z then return false, "leader_position_unavailable" end
     trip.state = "abandoned"
+    trip.radioResumeState, trip.radioHoldCar = nil, nil
+    if trip.field and (trip.blocker == "home_car_save_pending"
+        or trip.blocker == "home_car_save_failed"
+        or trip.blocker == "home_car_save_unavailable") then trip.blocker = nil end
     trip.abandonedAt = car and point(car) or trip.position
     scout.phase = (scout.returnRequested or trip.returnRequested
         or trip.leg == "home") and "inbound" or "outbound"
@@ -861,6 +891,7 @@ local function stopAndUnload(mission, trip, car, now)
             leader, trip.sqlId)
         if not recovered then return false, recoveryReason end
     end
+    if trip.field then trip.engineStopped=true end
     return true
 end
 
@@ -931,6 +962,18 @@ function Car.recoverDeadDriver(mission)
             local inside, current = SC.Vehicle.isNativeSeated(passenger.actor)
             if inside or current ~= nil then return false, "unload_unverified" end
         end
+    end
+    if trip.field then
+        if not car then return false,"car_not_loaded" end
+        local owned,why=unloadOwnership(mission,trip,car)
+        if not owned then return false,why end
+        local stopped=SC.Vehicle.isStationary(car)
+        local runningOkay,running=call(car,"isEngineRunning")
+        local startingOkay,starting=call(car,"isEngineStarted")
+        if not stopped or not runningOkay or not startingOkay or running~=false or starting~=false then return false,"engine_shutdown_pending" end
+        trip.engineStopped=true
+        local saved,saveReason=fieldStopBarrier(mission,trip,car)
+        if not saved then return false,saveReason end
     end
     trip.abandonedAt = car and point(car) or trip.position
     trip.state = "abandoned"
@@ -1199,7 +1242,7 @@ local function resumeReady(mission, trip, car)
         return false, "driver_needs_key"
     end
     local zone = Car.areaById(trip.parkingZoneId)
-    if trip.leg == "home" and not sameParkingArea(zone, trip.parking) then
+    if trip.leg == "home" and not homeParkingMatches(trip) then
         return false, "home_parking_changed"
     end
     local goal = trip.leg == "home"
@@ -1273,10 +1316,28 @@ local parkingRetryReason = {
     parking_exit_blocked = true,
 }
 
+function Car.parkingFailed(mission, trip, car, reason, status)
+    trip.parkingRefusal = trip.parkingRefusal
+        or tostring(status and status.firstParkingRefusal or reason or "parking_approach_failed"):sub(1, 128)
+    trip.lastFailure = trip.lastFailure or { reason = trip.parkingRefusal, at = point(car) }
+    trip.approachStartedAt, trip.parkingAligning = nil, nil
+    if trip.field then
+        trip.blocker = reason or "parking_approach_failed"
+        trip.state, mission.scout.phase = "fallback_unloading", "fallback_unloading"
+    else hold(trip, reason or "parking_approach_failed") end
+    if trip.parkingRefusalReason ~= reason then
+        trip.parkingRefusalReason = reason
+        traceTrip(trip, "parking_refused", "reason=" .. tostring(reason), status)
+    end
+end
+
 function Car.pulse(mission, now, worldHour)
     local scout = mission and mission.scout
     local trip = scout and scout.vehicle
     if not trip or trip.state == "abandoned" then return false end
+    -- A radio hold owns the existing car and seats until an explicit resume
+    -- or recall. Generic held recovery must not abandon it after a timer.
+    if trip.radioResumeState then return true end
     if preparingSupplies(scout) then return true end
     if trip.state == "parked_at_site" then
         if scout.phase ~= "inbound" then return false end
@@ -1286,6 +1347,22 @@ function Car.pulse(mission, now, worldHour)
         return true
     end
     if trip.state == "held" then
+        -- A field arrival cannot silently become a purported roadside stop
+        -- after a full/blocked marked bay. Keep the physical car and roster
+        -- held until loaded clearance can actually be rechecked.
+        if trip.field and trip.resumeState=="parking_home" then
+            local status = SC.Driving.jobStatus(mission.leader.actor)
+            if status and (status.owned == false or status.phase == "released") then
+                Car.parkingFailed(mission, trip, carLoaded(trip),
+                    status.firstParkingRefusal or trip.parkingRefusal or status.reason or trip.blocker, status)
+                return true
+            end
+            if now>=(trip.nextRecoveryCheckAt or 0) then
+                trip.nextRecoveryCheckAt=now+2000
+                trip.state,scout.phase="parking_home","parking_home"
+            end
+            return true
+        end
         -- A chunk or roster actor can appear after the restore callback. A
         -- temporary wait resumes the saved leg once both are present. A car
         -- that never reloads can be left behind only after the entire roster
@@ -1367,8 +1444,8 @@ function Car.pulse(mission, now, worldHour)
     if trip.state == "walking_to_car" then
         local transferred, why = Car.ensureDriverKey(mission.roster, car)
         if not transferred then hold(trip, why) return true end
-        trip.state = "boarding_out"
-        scout.phase = "boarding_out"
+        trip.state = trip.field and trip.leg=="home" and "boarding_home" or "boarding_out"
+        scout.phase = trip.state
         trip.boardStartedAt = now
         return true
     end
@@ -1474,13 +1551,18 @@ function Car.pulse(mission, now, worldHour)
     if trip.state == "driving_out" or trip.state == "driving_home" then
         local status = SC.Driving.jobStatus(mission.leader.actor)
         if status and status.result == "arrived" then
+            if status.owned == false or status.phase == "released" then
+                Car.parkingFailed(mission, trip, car,
+                    status.firstParkingRefusal or status.reason or "parking_requires_arrived_drive", status)
+                return true
+            end
             trip.state = trip.leg == "home" and "parking_home"
                 or "unloading_site"
             scout.phase = trip.state
             if trip.leg == "home" then
                 local at = point(car)
                 traceTrip(trip, "road_arrived", "point="
-                    .. tostring(at and at.x) .. "," .. tostring(at and at.y))
+                    .. tostring(at and at.x) .. "," .. tostring(at and at.y), status)
             end
         elseif status and status.result == "failed" then
             trip.blocker = status.reason
@@ -1541,8 +1623,14 @@ function Car.pulse(mission, now, worldHour)
         return true
     end
     if trip.state == "parking_home" then
+        if trip.field and trip.homeStop and trip.homeStop.kind=="roadside" then
+            local clear,why=Car.fieldStopClear(mission,trip,car)
+            if clear then trip.state,scout.phase="unloading_home","unloading_home"
+            else hold(trip,why or "home_stop_unavailable") end
+            return true
+        end
         local zone = Car.areaById(trip.parkingZoneId)
-        if not sameParkingArea(zone, trip.parking) then
+        if not homeParkingMatches(trip) then
             hold(trip, "home_parking_changed")
         else
             local fit, reason = Car.fitsParking(car, zone, trip.seats)
@@ -1565,8 +1653,9 @@ function Car.pulse(mission, now, worldHour)
             elseif trip.approachStartedAt then
                 trip.parkingSettleStartedAt = nil
                 local status = SC.Driving.jobStatus(mission.leader.actor)
-                if status and status.result == "failed" then
-                    hold(trip, status.reason or "parking_approach_failed")
+                if status and status.firstParkingRefusal then trip.parkingRefusal = trip.parkingRefusal or status.firstParkingRefusal end
+                if status and (status.result == "failed" or status.owned == false or status.phase == "released") then
+                    Car.parkingFailed(mission, trip, car, status.reason or "parking_approach_failed", status)
                 elseif status and status.result == "arrived" then
                     if trip.approachStage == "road"
                         or trip.approachStage == "driveway" then
@@ -1575,11 +1664,15 @@ function Car.pulse(mission, now, worldHour)
                         -- another short leg toward the marked bay.
                         trip.approachStage, trip.approachStartedAt = nil, nil
                     else
-                        hold(trip, reason or "parking_footprint_outside_area")
+                        Car.parkingFailed(mission, trip, car, reason or "parking_footprint_outside_area", status)
                     end
+                elseif status and status.phase == "parking_aligning" then
+                    trip.parkingAligning = true
+                elseif trip.parkingAligning and status and status.phase == "approaching" then
+                    trip.parkingAligning, trip.approachStartedAt = nil, now
                 elseif now - trip.approachStartedAt > 30000 then
                     SC.Driving.release(mission.leader.actor, "parking_timeout")
-                    hold(trip, "parking_approach_timeout")
+                    Car.parkingFailed(mission, trip, car, "parking_approach_timeout", status)
                 end
             else
                 trip.parkingSettleStartedAt = nil
@@ -1608,12 +1701,14 @@ function Car.pulse(mission, now, worldHour)
                     else
                         local started, why = SC.Driving.approach(
                             mission.leader.actor, road, 30000,
-                            trip.parkingRecovery == true)
+                            trip.parkingRecovery == true, trip.field == true)
                         if started then
                             trip.parkingRecovery = nil
                             trip.approachStage, trip.approachStartedAt = "road", now
                             traceTrip(trip, "parking_segment", "stage=road")
-                        else hold(trip, why) end
+                        else
+                            Car.parkingFailed(mission, trip, car, why, SC.Driving.jobStatus(mission.leader.actor))
+                        end
                     end
                 else
                     local clear, why = targetBayClear(car, zone, trip.departure)
@@ -1630,7 +1725,7 @@ function Car.pulse(mission, now, worldHour)
                         end
                         local started, startReason = SC.Driving.approach(
                             mission.leader.actor, waypoint, 30000,
-                            trip.parkingRecovery == true)
+                            trip.parkingRecovery == true, trip.field == true)
                         if started then
                             trip.parkingRecovery = nil
                             trip.approachStage = waypoint == trip.departure
@@ -1640,7 +1735,9 @@ function Car.pulse(mission, now, worldHour)
                                 .. trip.approachStage .. " target="
                                 .. tostring(waypoint.x) .. ","
                                 .. tostring(waypoint.y))
-                        else hold(trip, startReason) end
+                        else
+                            Car.parkingFailed(mission, trip, car, startReason, SC.Driving.jobStatus(mission.leader.actor))
+                        end
                     end
                 end
             end
@@ -1666,7 +1763,13 @@ function Car.pulse(mission, now, worldHour)
                 y = math.floor(mission.leader.actor:getY()), z = 0 } }
             scout.roadRoute, scout.road = nil, nil
         elseif trip.state == "unloading_home" then
-            trip.state, scout.phase = "home_wait", "awaiting_player"
+            local saved,saveReason=fieldStopBarrier(mission,trip,car)
+            if not saved then trip.blocker=saveReason return true end
+            trip.state, scout.phase = "home_wait", trip.field and "inbound" or "awaiting_player"
+            if trip.field and (trip.blocker == "home_car_save_pending"
+                or trip.blocker == "home_car_save_failed"
+                or trip.blocker == "home_car_save_unavailable") then trip.blocker = nil end
+            if trip.field then scout.roadRoute,scout.road=nil,nil end
             traceTrip(trip, "home_unloaded")
         else
             local abandoned, abandonReason = abandonToWalking(
@@ -1739,10 +1842,24 @@ function Car.copyDescriptor(value, roster, leaderId)
     if not parking or not departure or not home or not siteStop then
         return nil, "vehicle_anchor_invalid"
     end
+    local homeStop
+    if value.field~=nil and type(value.field)~="boolean" then return nil,"vehicle_field_invalid" end
+    if value.field==true then
+        homeStop=Car.copyFieldStop and Car.copyFieldStop(value.homeStop)
+        if not homeStop or value.leg~="home"
+            or home.x~=homeStop.core.x or home.y~=homeStop.core.y
+            or departure.x~=homeStop.point.x or departure.y~=homeStop.point.y then return nil,"vehicle_field_invalid" end
+    elseif value.homeStop~=nil then return nil,"vehicle_field_invalid" end
     local homeRoadEntry = value.homeRoadEntry ~= nil
         and pointCopy(value.homeRoadEntry) or nil
     if value.homeRoadEntry ~= nil and not homeRoadEntry then
         return nil, "vehicle_road_entry_invalid"
+    end
+    if homeStop then
+        if not homeRoadEntry or homeRoadEntry.x~=homeStop.roadEntry.x or homeRoadEntry.y~=homeStop.roadEntry.y
+            or siteStop.x~=departure.x or siteStop.y~=departure.y
+            or homeStop.kind=="parking" and (value.parkingZoneId~=homeStop.zoneId or not sameParkingArea(parking,homeStop.parking))
+            or homeStop.kind=="roadside" and value.parkingZoneId~="field:roadside" then return nil,"vehicle_field_invalid" end
     end
     local seats, used = {}, {}
     if type(roster) ~= "table" then return nil, "vehicle_roster_invalid" end
@@ -1777,6 +1894,8 @@ function Car.copyDescriptor(value, roster, leaderId)
         or failure.obstacle ~= nil and (type(failure.obstacle) ~= "string" or #failure.obstacle > 64)) then
         return nil, "vehicle_failure_invalid"
     end
+    if value.parkingRefusal ~= nil and (type(value.parkingRefusal) ~= "string"
+        or #value.parkingRefusal < 1 or #value.parkingRefusal > 128) then return nil, "vehicle_failure_invalid" end
     local resumeState = value.resumeState
     if state == "held" and not validStates[resumeState] then
         return nil, "vehicle_hold_invalid"
@@ -1798,7 +1917,18 @@ function Car.copyDescriptor(value, roster, leaderId)
             and value.blocker:sub(1, 128) or nil,
         lastFailure = failure and { reason = failure.reason,
             at = failureAt, obstacle = failure.obstacle } or nil,
+        parkingRefusal = value.parkingRefusal,
     }
+    if value.field then
+        if value.engineStopped~=nil and type(value.engineStopped)~="boolean" then return nil,"vehicle_field_invalid" end
+        result.field,result.homeStop,result.engineStopped=true,homeStop,value.engineStopped==true
+    end
+    if value.radioResumeState ~= nil then
+        if not value.field or not validStates[value.radioResumeState]
+            or value.radioResumeState == "held" or value.radioResumeState == "abandoned"
+            or value.radioResumeState == "home_wait" then return nil,"vehicle_hold_invalid" end
+        result.radioResumeState = value.radioResumeState
+    end
     return result
 end
 
@@ -1812,10 +1942,582 @@ end
 function Car.restoreDescriptor(value, roster, leaderId)
     local result, reason = Car.copyDescriptor(value, roster, leaderId)
     if not result then return nil, reason end
-    if interruptedStates[result.state] then
+    if interruptedStates[result.state] or result.field and result.state == "held"
+        and result.resumeState == "parking_home" then
         result.state = "interrupted_by_load"
+        result.resumeState = nil
+    end
+    if result.radioResumeState then
+        result.state, result.resumeState = "interrupted_by_load", nil
+        result.radioResumeState = "interrupted_by_load"
     end
     return result
+end
+
+-- Field home trips share the proven physical home-leg controller. Review only
+-- reads native objects/map geometry; keys and seats change after dispatch.
+do
+    local function fieldPlayer(options)
+        return type(options)=="table" and options.player
+            or type(getSpecificPlayer)=="function" and getSpecificPlayer(0) or nil
+    end
+    local function fieldBase(value)
+        return type(value)=="table" and (value.base or value.zones and value)
+            or SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    end
+    local function range(a,b)
+        return a and b and math.sqrt((a.x-b.x)^2+(a.y-b.y)^2) or math.huge
+    end
+    local function nameOf(record)
+        return SC.Names and SC.Names.displayName and SC.Names.displayName(record)
+            or record and (record.name or record.id) or ""
+    end
+    local function physicalKey(records,vehicle)
+        local okay,id=call(vehicle,"getKeyId")
+        if not okay or not finite(id) or id<0 or id~=math.floor(id) then return nil end
+        return findSquadKey(records,vehicle)
+    end
+    function Car.fieldFingerprint(vehicle,records,player)
+        local parts={tostring(vehicle)}
+        local function read(object,method,...)
+            local okay,value=call(object,method,...)
+            parts[#parts+1]=okay and tostring(value) or "unreadable"
+            return okay and value or nil
+        end
+        for _,method in ipairs({"getSqlId","getScriptName","getX","getY","getZ","getKeyId","isEngineRunning"}) do read(vehicle,method) end
+        local count=tonumber(read(vehicle,"getMaxPassengers")) or 0
+        for seat=0,math.min(31,count-1) do read(vehicle,"isSeatInstalled",seat) read(vehicle,"getCharacter",seat) end
+        for _,id in ipairs({"Engine","TireFrontLeft","TireFrontRight","TireRearLeft","TireRearRight","GasTank"}) do
+            local okay,part=call(vehicle,"getPartById",id)
+            if okay then read(part,"getCondition") read(part,"getInventoryItem")
+                if id=="GasTank" then read(part,"getContainerContentAmount") end
+            else parts[#parts+1]="missing:"..id end
+        end
+        player=player or fieldPlayer()
+        read(player,"getVehicle")
+        for _,record in ipairs(records or {}) do
+            parts[#parts+1]=tostring(record.id) parts[#parts+1]=tostring(record.actor)
+            read(record.actor,"getX") read(record.actor,"getY") read(record.actor,"getZ")
+            read(record.actor,"getVehicle")
+            local held=physicalKey({record},vehicle)
+            parts[#parts+1]=tostring(held and held.item)
+        end
+        return table.concat(parts,"|")
+    end
+    local function fieldCheck(records,vehicle,player,doors)
+        local review={vehicle=vehicle,name=Car.displayName(vehicle),neededSeats=type(records)=="table" and #records or 0,seats=0}
+        local function reject(reason) review.canUse=false review.reason=reason return nil,reason,review end
+        if type(records)~="table" or #records<1 or #records>4 then return reject("team_unavailable") end
+        local ids,actors={},{ }
+        for _,record in ipairs(records) do
+            if type(record)~="table" or type(record.id)~="string" or not record.actor or ids[record.id] or actors[record.actor] then return reject("team_unavailable") end
+            ids[record.id],actors[record.actor]=true,record.id
+        end
+        local identity,sqlId=call(vehicle,"getSqlId")
+        sqlId=identity and finite(sqlId) or nil
+        if not sqlId or sqlId<1 or sqlId~=math.floor(sqlId) or not SC.Vehicle
+            or not SC.Vehicle.loadedBySqlId or SC.Vehicle.loadedBySqlId(sqlId)~=vehicle then return reject("car_unavailable") end
+        review.sqlId=sqlId
+        local at=point(vehicle) local leaderAt=point(records[1].actor)
+        review.distance=range(at,leaderAt)
+        if not at or math.abs(at.z)>.2 or not leaderAt or review.distance>30 then return reject("car_too_far") end
+        local playerOkay,playerCar=call(player,"getVehicle")
+        local playerKey=player and physicalKey({{actor=player}},vehicle)
+        review.yourCar=playerKey~=nil or playerOkay and playerCar==vehicle
+        if not playerOkay then return reject("player_unavailable") end
+        if playerCar==vehicle then return reject("player_car") end
+        local stopped,why=SC.Vehicle.isStationary(vehicle)
+        if not stopped then return reject(why=="vehicle is moving" and "car_moving" or why or "car_moving") end
+        local scriptOkay,script=call(vehicle,"getScriptName")
+        if not scriptOkay or type(script)~="string" or script=="" then return reject("car_identity_unavailable") end
+        local countOkay,count=call(vehicle,"getMaxPassengers")
+        count=countOkay and finite(count) or nil
+        if not count or count~=math.floor(count) or count<1 or count>32 then return reject("too_few_seats") end
+        local installed,occupants,seats,used={},{},{},{}
+        for seat=0,count-1 do
+            local hasOkay,has=call(vehicle,"isSeatInstalled",seat)
+            local occupiedOkay,occupant=call(vehicle,"getCharacter",seat)
+            if not hasOkay or not occupiedOkay then return reject("seat_unavailable") end
+            installed[seat],occupants[seat]=has==true,occupant
+            if has==true then review.seats=review.seats+1 end
+            if occupant and not actors[occupant] then return reject("car_has_other_occupants") end
+        end
+        if review.seats<#records then return reject("too_few_seats") end
+        if not installed[0] then return reject("seat_unavailable") end
+        if occupants[0] and occupants[0]~=records[1].actor then return reject("field_driver_mismatch") end
+        seats[records[1].id],used[0]=0,true
+        for index,record in ipairs(records) do
+            local deadOkay,dead=call(record.actor,"isDead")
+            if not deadOkay or dead~=false then return reject("team_unavailable") end
+            local seated,current,seat=SC.Vehicle.isNativeSeated(record.actor)
+            if seated then
+                if current==vehicle and index==1 and seat~=0 then return reject("field_driver_mismatch") end
+                if current~=vehicle or not installed[seat] or occupants[seat]~=record.actor
+                    or index==1 and seat~=0 or index>1 and (seat==0 or used[seat]) then return reject("seat_unavailable") end
+                seats[record.id],used[seat]=seat,true
+            end
+        end
+        for index=2,#records do
+            local record=records[index]
+            if seats[record.id]==nil then
+                for seat=1,count-1 do
+                    if installed[seat] and not used[seat] and occupants[seat]==nil then seats[record.id],used[seat]=seat,true break end
+                end
+                if seats[record.id]==nil then return reject("seat_unavailable") end
+            end
+        end
+        for _,record in ipairs(records) do
+            local seat=seats[record.id]
+            if doors and occupants[seat]~=record.actor then
+                local squares,_,reason=SC.Vehicle.boardingSquares(record.actor,vehicle,seat,seat==0)
+                if not squares or #squares<1 then return reject(reason or "door_inaccessible") end
+            end
+        end
+        if not componentReady(vehicle,"Engine") then return reject("engine_unusable") end
+        for _,id in ipairs({"TireFrontLeft","TireFrontRight","TireRearLeft","TireRearRight"}) do
+            if not componentReady(vehicle,id,true) then return reject("wheel_unusable") end
+        end
+        local held=physicalKey(records,vehicle)
+        if not held then return reject(playerKey and "driver_needs_key_from_player" or "driver_needs_key") end
+        review.keyHolderId,review.keyHolderName=held.record.id,nameOf(held.record)
+        local tankOkay,tank=call(vehicle,"getPartById","GasTank")
+        local fuelOkay,fuel=call(tankOkay and tank or nil,"getContainerContentAmount")
+        local capacityOkay,capacity=call(tankOkay and tank or nil,"getContainerCapacity")
+        fuel=fuelOkay and finite(fuel) or nil capacity=capacityOkay and finite(capacity) or nil
+        if fuel==nil or fuel<0 then return reject("fuel_unreadable") end
+        review.fuel,review.fuelCapacity=fuel,capacity
+        review.fuelPercent=capacity and capacity>0 and fuel/capacity*100 or nil
+        if fuel<=0 then return reject("fuel_insufficient") end
+        local headingOkay,heading=call(vehicle,"getAngleZ")
+        heading=headingOkay and finite(heading) or nil
+        if heading==nil then return reject("car_orientation_unavailable") end
+        review.canUse=true
+        return {field=true,vehicle=vehicle,sqlId=sqlId,script=script,name=review.name,seats=seats,seatCount=review.seats,records=records,leaderId=records[1].id,
+            neededSeats=#records,departure=at,heading=heading,fuel=fuel,fuelCapacity=capacity,fuelPercent=review.fuelPercent,
+            keyHolderId=review.keyHolderId,keyHolderName=review.keyHolderName,yourCar=review.yourCar},nil,review
+    end
+    function Car.fieldCandidates(records,player)
+        local rows={} local leader=type(records)=="table" and records[1] and point(records[1].actor)
+        if not leader or not SC.Vehicle or not SC.Vehicle.loadedVehicles then return rows end
+        player=player or fieldPlayer()
+        for _,vehicle in ipairs(SC.Vehicle.loadedVehicles()) do
+            if range(point(vehicle),leader)<=30 then
+                local _,_,row=fieldCheck(records,vehicle,player,false)
+                row.fingerprint=Car.fieldFingerprint(vehicle,records,player)
+                rows[#rows+1]=row
+            end
+        end
+        table.sort(rows,function(a,b) if a.distance==b.distance then return (a.sqlId or -1)<(b.sqlId or -1) end return (a.distance or math.huge)<(b.distance or math.huge) end)
+        return rows
+    end
+    local function fieldBounds(value)
+        if type(value)~="table" or value.z~=0 then return nil end
+        local result={z=0}
+        for _,key in ipairs({"x1","y1","x2","y2"}) do
+            local n=finite(value[key])
+            if not n or n~=math.floor(n) or n<0 or n>30000 then return nil end
+            result[key]=n
+        end
+        return result.x1<=result.x2 and result.y1<=result.y2 and result or nil
+    end
+    local function baseFingerprint(base)
+        if type(base)~="table" or not pointCopy(base.core) then return nil end
+        local rows={tostring(base.id),base.core.x..","..base.core.y..","..base.core.z}
+        for _,zone in ipairs(base.zones or {}) do
+            if zone.kind=="area" or zone.kind=="parking" then
+                rows[#rows+1]=table.concat({tostring(zone.kind),tostring(zone.id),tostring(zone.name),
+                    tostring(zone.x1),tostring(zone.y1),tostring(zone.x2),tostring(zone.y2),tostring(zone.z)},",")
+            end
+        end
+        table.sort(rows)
+        return table.concat(rows,"|")
+    end
+    function Car.fieldBaseFingerprint(base) return baseFingerprint(base) end
+    local function outside(bounds,at,radius)
+        for _,area in ipairs(bounds) do
+            if at.x+radius>=area.x1 and at.x-radius<area.x2+1
+                and at.y+radius>=area.y1 and at.y-radius<area.y2+1 then return false end
+        end
+        return true
+    end
+    function Car.copyFieldStop(value,camp)
+        if type(value)~="table" or value.kind~="parking" and value.kind~="roadside"
+            or type(value.baseId)~="string" or #value.baseId<1 or #value.baseId>128 then return nil,"home_stop_invalid" end
+        local at,core,entry=pointCopy(value.point),pointCopy(value.core),pointCopy(value.roadEntry)
+        if not at or not core or not entry or type(value.boundaries)~="table" or #value.boundaries<1 or #value.boundaries>128 then return nil,"home_stop_invalid" end
+        if camp and (camp.id~=value.baseId or not camp.core or range(camp.core,core)>.01 or camp.core.z~=0) then return nil,"home_stop_camp_changed" end
+        local bounds={}
+        for _,area in ipairs(value.boundaries) do local clean=fieldBounds(area) if not clean then return nil,"home_stop_invalid" end bounds[#bounds+1]=clean end
+        local result={kind=value.kind,baseId=value.baseId,point=at,core=core,roadEntry=entry,boundaries=bounds,
+            label=type(value.label)=="string" and value.label:sub(1,128) or "",
+            warning=type(value.warning)=="string" and value.warning:sub(1,128) or nil,
+            provisional=value.provisional==true,clearanceOnArrival=true}
+        if value.kind=="parking" then
+            result.parking=rectangleCopy(value.parking) result.zoneId=value.zoneId
+            if not result.parking or type(result.zoneId)~="string" or #result.zoneId<1 or #result.zoneId>128
+                or not contains(result.parking,at) then return nil,"home_stop_invalid" end
+        else
+            result.radius=finite(value.radius) result.roadWidth=finite(value.roadWidth)
+            if not result.radius or result.radius<=0 or result.radius>32 or not result.roadWidth or result.roadWidth<6
+                or result.roadWidth>64 or range(at,core)>40 or not outside(bounds,at,result.radius) then return nil,"home_stop_invalid" end
+        end
+        return result
+    end
+    function Car.validFieldStop(value,camp) return Car.copyFieldStop(value,camp)~=nil end
+    local function shapeRadius(vehicle)
+        local at,poly=point(vehicle),Car.footprint(vehicle)
+        if not at or not poly then return nil end
+        local radius=0
+        for index=1,4 do
+            local x,y=finite(poly["x"..index]),finite(poly["y"..index])
+            if not x or not y then return nil end
+            radius=math.max(radius,range(at,{x=x,y=y}))
+        end
+        return radius>0 and radius<=16 and radius or nil
+    end
+    local function bayTargets(zone)
+        local result={} local center={x=(zone.x1+zone.x2+1)/2,y=(zone.y1+zone.y2+1)/2,z=0}
+        result[1]=center
+        for x=zone.x1,zone.x2 do for y=zone.y1,zone.y2 do result[#result+1]={x=x+.5,y=y+.5,z=0} end end
+        table.sort(result,function(a,b) local da,db=range(a,center),range(b,center) if da==db then return a.x==b.x and a.y<b.y or a.x<b.x end return da<db end)
+        return result
+    end
+    local function mappedRoadside(route,base,bounds,radius)
+        local best,bestRange
+        for index=2,#(route.points or {}) do
+            local a,b=route.points[index-1],route.points[index]
+            local length=range(a,b) local width=finite(b.width) or finite(a.width) or 0
+            if length<6000 and width>=6 then
+                -- SCRoadFollower's right-hand lane offset is bounded by one
+                -- quarter of the mapped width. Reserve that real controller
+                -- offset as well as the whole car's measured corner radius.
+                local laneMargin=width*.25
+                for step=0,math.ceil(length) do
+                    local t=length>0 and math.min(1,step/length) or 0
+                    local at={x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t,z=0}
+                    local distance=range(at,base.core)
+                    if distance<=40-laneMargin and outside(bounds,at,radius+laneMargin) and (not bestRange or distance<bestRange) then
+                        best,bestRange={kind="roadside",baseId=base.id,point=at,core=pointCopy(base.core),roadEntry=pointCopy(at),
+                            boundaries=bounds,radius=radius+laneMargin,roadWidth=width,label=b.street or "",warning="roadside_trunk_pending",
+                            provisional=true,clearanceOnArrival=true},distance
+                    end
+                end
+            end
+        end
+        return best
+    end
+    local function routeFor(plan,stop)
+        local route,reason,native=SC.ExpeditionRoute.planFromPoint(plan.departure,stop.point)
+        if not route then return nil,reason end
+        local roadLength=finite(route.roadLength)
+        local entry=native and {x=finite(native.entryX),y=finite(native.entryY),z=0}
+        local exit=native and {x=finite(native.exitX),y=finite(native.exitY),z=0}
+        if not roadLength or roadLength<0 or roadLength>5000 or not entry or not entry.x or not entry.y
+            or not exit or not exit.x or not exit.y then return nil,"road_access_unavailable" end
+        local ready,why=Car.accessReady(plan.vehicle,entry)
+        if not ready then return nil,why end
+        stop.roadEntry=exit
+        if stop.kind=="roadside" then stop.point=pointCopy(exit) end
+        plan.route,plan.entry,plan.exit=route,entry,exit
+        plan.access=range(plan.departure,entry)
+        plan.distance=roadLength+plan.access+range(exit,stop.point)
+        if plan.distance>5000 then return nil,"home_drive_too_far" end
+        plan.fuelRequired=(plan.distance+30)*fuelRate(plan.script)*1.5
+        if plan.fuel<plan.fuelRequired then return nil,"fuel_insufficient" end
+        plan.requiredFuelPercent=plan.fuelCapacity and plan.fuelCapacity>0 and plan.fuelRequired/plan.fuelCapacity*100 or nil
+        plan.estimatedHours=plan.distance/30000
+        plan.homeStop=stop
+        return plan
+    end
+    function Car.preflightField(records,vehicle,baseOrOptions)
+        local plan,reason,review=fieldCheck(records,vehicle,fieldPlayer(baseOrOptions),true)
+        if not plan then return nil,reason,review end
+        local base=fieldBase(baseOrOptions)
+        local function reject(why) review.canUse,review.reason=false,why return nil,why,review end
+        if type(base)~="table" or type(base.id)~="string" or not pointCopy(base.core)
+            or type(base.zones)~="table" or #base.zones>128 then return reject("home_stop_unavailable") end
+        local bounds={}
+        for _,zone in ipairs(base.zones) do if zone.kind=="area" then local clean=fieldBounds(zone) if clean then bounds[#bounds+1]=clean end end end
+        if #bounds<1 then return reject("home_stop_unavailable") end
+        if not SC.ExpeditionRoute or not SC.ExpeditionRoute.planFromPoint then return reject("road_routing_unavailable") end
+        local radius=shapeRadius(vehicle)
+        if not radius then return reject("parking_footprint_unreadable") end
+        local stop
+        for _,zone in ipairs(base.zones) do
+            if zone.kind=="parking" and SC.BaseLife.parkingZoneValid(zone,base.zones) and rectangleCopy(zone) then
+                for _,target in ipairs(bayTargets(zone)) do
+                    local clear,why=targetBayClear(vehicle,zone,target)
+                    if clear or why=="parking_not_loaded" then
+                        stop={kind="parking",baseId=base.id,point=target,core=pointCopy(base.core),boundaries=bounds,
+                            zoneId=zone.id,parking=rectangleCopy(zone),label=zone.name or zone.id,provisional=true,clearanceOnArrival=true}
+                        break
+                    end
+                end
+                if stop then break end
+            end
+        end
+        if not stop then
+            local route,why=SC.ExpeditionRoute.planFromPoint(plan.departure,base.core)
+            if not route then return reject(why or "home_stop_unavailable") end
+            if not finite(route.roadLength) or route.roadLength>5000 then return reject("home_drive_too_far") end
+            stop=mappedRoadside(route,base,bounds,radius)
+            if not stop then return reject("home_stop_unavailable") end
+        end
+        local accepted,why=routeFor(plan,stop)
+        if not accepted then return reject(why) end
+        if not Car.validFieldStop(stop,{id=base.id,core=base.core}) then return reject("home_stop_unavailable") end
+        for _,key in ipairs({"homeStop","fuelRequired","requiredFuelPercent","distance","estimatedHours"}) do review[key]=plan[key] end
+        review.fingerprint=Car.fieldFingerprint(vehicle,records,fieldPlayer(baseOrOptions))
+        plan.fingerprint,plan.fieldBaseFingerprint=review.fingerprint,baseFingerprint(base)
+        return plan,nil,review
+    end
+    function Car.prepareField(records,vehicle,baseOrOptions,options)
+        local plan,reason,review
+        local cached=type(options)=="table" and options.reviewedPlan
+        if cached then
+            local fresh
+            fresh,reason,review=fieldCheck(records,vehicle,fieldPlayer(baseOrOptions),true)
+            if not fresh then return nil,reason,review end
+            local base=fieldBase(baseOrOptions)
+            local fingerprint=Car.fieldFingerprint(vehicle,records,fieldPlayer(baseOrOptions))
+            if cached.vehicle~=vehicle or cached.fingerprint~=fingerprint or options.fingerprint and options.fingerprint~=fingerprint
+                or cached.fieldBaseFingerprint~=baseFingerprint(base) or not Car.validFieldStop(cached.homeStop,base)
+                or not finite(cached.fuelRequired) or fresh.fuel<cached.fuelRequired then return nil,"home_review_changed",review end
+            plan={}
+            for key,value in pairs(cached) do plan[key]=value end
+            plan.records,plan.leaderId=records,records[1].id
+            plan.homeStop=Car.copyFieldStop(cached.homeStop,base)
+        else plan,reason,review=Car.preflightField(records,vehicle,baseOrOptions) end
+        if not plan then return nil,reason,review end
+        local held=physicalKey(records,vehicle)
+        local target=SC.GameplayUtil.inventory(records[1].actor)
+        local okay,source=call(held and held.item,"getContainer")
+        if not held or not okay or not source or not target then return nil,"key_owner_unavailable",review end
+        if source~=target and (not SC.GameplayUtil.transferItemVerified
+            or SC.GameplayUtil.transferItemVerified(source,target,held.item)~=true) then return nil,"key_transfer_failed",review end
+        if not SC.Driving.hasKey(records[1].actor,vehicle) then return nil,"key_transfer_unverified",review end
+        plan.keyHolderId,plan.keyHolderName=records[1].id,nameOf(records[1])
+        return plan,nil,review
+    end
+    function Car.fieldParkingCurrent(trip)
+        local stop=Car.copyFieldStop(trip and trip.homeStop)
+        if not stop then return false end
+        local base=fieldBase()
+        if not base or not Car.validFieldStop(stop,base) then return false end
+        if stop.kind=="roadside" then
+            local current={}
+            for _,zone in ipairs(base.zones or {}) do if zone.kind=="area" then local area=fieldBounds(zone) if area then current[#current+1]=area end end end
+            return #current>0 and outside(current,stop.point,stop.radius)
+        end
+        return trip.parkingZoneId==stop.zoneId and sameParkingArea(Car.areaById(stop.zoneId),stop.parking)
+    end
+    function Car.fieldStopClear(mission,trip,vehicle)
+        if not Car.fieldParkingCurrent(trip) then return false,"home_parking_changed" end
+        local stop=trip.homeStop local seats={}
+        for _,member in ipairs(mission.roster or {}) do if travelMember(mission,member) then seats[member.id]=trip.seats[member.id] end end
+        if stop.kind=="parking" then return Car.fitsParking(vehicle,Car.areaById(stop.zoneId),seats) end
+        local stationary,why=SC.Vehicle.isStationary(vehicle)
+        if not stationary then return false,why or "parking_not_stationary" end
+        local at,poly=point(vehicle),Car.footprint(vehicle)
+        if not at or not poly or range(at,stop.point)>5 or range(at,stop.core)>40 then return false,"roadside_stop_not_reached" end
+        local minX,minY,maxX,maxY=30000,30000,0,0
+        for index=1,4 do
+            local x,y=finite(poly["x"..index]),finite(poly["y"..index])
+            if not x or not y then return false,"parking_footprint_unreadable" end
+            minX,minY,maxX,maxY=math.min(minX,x),math.min(minY,y),math.max(maxX,x),math.max(maxY,y)
+        end
+        for _,area in ipairs(stop.boundaries) do
+            if minX<area.x2+1 and maxX>=area.x1 and minY<area.y2+1 and maxY>=area.y1 then return false,"roadside_inside_camp" end
+        end
+        local clear,reason=targetBayClear(vehicle,{x1=math.floor(minX),y1=math.floor(minY),x2=math.floor(maxX),y2=math.floor(maxY),z=0},at)
+        if not clear then return false,reason end
+        for _,seat in pairs(seats) do
+            local exits=SC.Vehicle.safeExitSquares and SC.Vehicle.safeExitSquares(vehicle,seat)
+            if not exits or #exits<1 then return false,"parking_exit_blocked" end
+        end
+        return true
+    end
+    local function radioHoldCar(mission, trip)
+        if not trip or not trip.field or trip.leg ~= "home"
+            or type(trip.seats) ~= "table" or type(mission.members) ~= "table"
+            or type(mission.roster) ~= "table" or not mission.leader or not mission.leader.actor
+            or trip.state == "abandoned" or trip.state == "home_wait" then
+            return nil, "home_car_trip_invalid"
+        end
+        local car = carLoaded(trip)
+        if not car then return nil, "car_not_loaded" end
+        if trip.radioHoldCar and trip.radioHoldCar ~= car then return nil, "car_identity_changed" end
+        local scriptOkay, script = call(car, "getScriptName")
+        if not scriptOkay or script ~= trip.script then return nil, "car_identity_changed" end
+        local owned, reason = unloadOwnership(mission, trip, car)
+        if not owned then return nil, reason end
+        for _, member in ipairs(mission.roster or {}) do
+            if travelMember(mission, member) then
+                if not member.actor or not mission.members[member.actor]
+                    or not SC.Actor.isCompanion(member.actor) then return nil, "restart_team_unavailable" end
+                if SC.Registry and SC.Registry.byId then
+                    local registered = SC.Registry.byId(member.id)
+                    if not registered or registered.actor ~= member.actor then return nil, "restart_team_unavailable" end
+                end
+                local deadOkay, dead = call(member.actor, "isDead")
+                if not deadOkay or dead ~= false then return nil, "restart_team_unfit" end
+                local seat = trip.seats[member.id]
+                local installedOkay, installed = call(car, "isSeatInstalled", seat)
+                if not installedOkay or installed ~= true then return nil, "seat_unavailable" end
+                local seated, current, actualSeat = SC.Vehicle.isNativeSeated(member.actor)
+                if seated and (current ~= car or actualSeat ~= seat)
+                    or not seated and current ~= nil then return nil, "wrong_vehicle_or_seat" end
+            end
+        end
+        return car
+    end
+
+    -- Unlike recall, Hold never unloads or abandons the chosen car. The old
+    -- managed job is stopped, not kept as resumable native motion authority.
+    function Car.holdHome(mission, now)
+        local trip = mission and mission.scout and mission.scout.vehicle
+        local leader = mission and mission.leader
+        local actor = leader and leader.actor
+        -- Brake a proven owned job before rejecting a damaged seat/crew
+        -- context. Identity failures must not stop somebody else's car.
+        if trip and trip.field and trip.leg == "home" and actor
+            and type(mission.members) == "table" and type(trip.seats) == "table"
+            and mission.members[actor] and trip.seats[leader.id] == 0
+            and SC.Registry and SC.Registry.byId and SC.Actor.isCompanion(actor)
+            and SC.Driving._stopOwnedVehicle then
+            local registered = SC.Registry.byId(leader.id)
+            local currentCar = carLoaded(trip)
+            local aboard, nativeCar, nativeSeat = SC.Vehicle.isNativeSeated(actor)
+            local identityOkay, sqlId = call(currentCar, "getSqlId")
+            if registered and registered.actor == actor and currentCar
+                and identityOkay and sqlId == trip.sqlId and aboard
+                and nativeCar == currentCar and nativeSeat == 0
+                and (not trip.radioHoldCar or trip.radioHoldCar == currentCar) then
+                local stopped, why = SC.Driving._stopOwnedVehicle(actor, currentCar, "home_radio_hold")
+                if stopped == true or why ~= "drive_not_owned" and why ~= "drive_owner_mismatch" then
+                    trip.radioResumeState = trip.radioResumeState
+                        or (trip.state == "held" and trip.resumeState or trip.state)
+                    trip.radioHoldCar = currentCar
+                end
+                if stopped ~= true and why ~= "drive_not_owned" then return false, why end
+            end
+        end
+        local car, reason = radioHoldCar(mission, trip)
+        if not car then return false, reason end
+        trip.radioResumeState = trip.radioResumeState
+            or (trip.state == "held" and trip.resumeState or trip.state)
+        trip.radioHoldCar = car
+        leader = mission.leader and mission.leader.actor
+        local seated, current, seat
+        if leader then seated, current, seat = SC.Vehicle.isNativeSeated(leader) end
+        if leader and (seated and current == car and seat == 0
+            or SC.Driving.isDriving(leader)) then
+            local stopped, why = SC.Driving.release(leader, "home_radio_hold")
+            if stopped ~= true then return false, why or "drive_stop_pending" end
+        end
+        for _, member in ipairs(mission.roster) do
+            if travelMember(mission, member) then
+                local aboard = SC.Vehicle.isNativeSeated(member.actor)
+                if not aboard then
+                    if SC.Vehicle.cancelTransaction then
+                        local cancelled, why = SC.Vehicle.cancelTransaction(member.actor, "home_radio_hold")
+                        if cancelled ~= true then return false, why or "vehicle_stop_pending" end
+                    end
+                    if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(member.actor, "home_radio_hold") end
+                    if not SC.Actor.stop then return false, "home_car_stop_unavailable" end
+                    local stopped, why = SC.Actor.stop(member.actor)
+                    if stopped ~= true then return false, why or "home_car_stop_pending" end
+                end
+            end
+        end
+        local stationary, why = SC.Vehicle.isStationary(car)
+        if not stationary then return false, why or "car_not_stopped" end
+        local stopped, stopReason = stopOwnedEngine(mission, trip, car, now)
+        if not stopped then return false, stopReason end
+        if (trip.radioResumeState == "driving_home" or trip.radioResumeState == "parking_home")
+            and not teamSeated(mission, trip, car) then return false, "team_not_seated" end
+        return true, "home_radio_holding"
+    end
+
+    function Car.resumeHome(mission, now)
+        local trip = mission and mission.scout and mission.scout.vehicle
+        if not trip or not trip.radioResumeState then return false, "home_car_not_held" end
+        local held, reason = Car.holdHome(mission, now)
+        if not held then return false, reason end
+        local car, state = trip.radioHoldCar, trip.radioResumeState
+        if state == "interrupted_by_load" then
+            local ready, why = resumeReady(mission, trip, car)
+            if not ready then return false, why end
+            local transferred, transferReason = Car.ensureDriverKey(mission.roster, car)
+            if not transferred then return false, transferReason end
+            state = "boarding_home"
+        elseif state == "driving_home" or state == "parking_home" then
+            if state == "parking_home" and Car.fieldStopClear(mission, trip, car) then
+                state = "unloading_home"
+            else
+                local ready, why, roadEntry = departReady(mission, trip, car)
+                if not ready then return false, why end
+                local goal = trip.homeRoadEntry or trip.departure
+                local started, startReason = SC.Driving.drive(mission.leader.actor, goal, {
+                    speedKmh = 30, stopShortTiles = 0, roadAccessEntry = roadEntry,
+                    roadAccessExit = trip.homeRoadEntry and { entry = trip.homeRoadEntry, bay = trip.departure } or nil,
+                })
+                if started ~= true then
+                    -- A rejected start can still own a native starting job.
+                    -- Keep the hold and request its verified stop before retry.
+                    local stopped, stopReason = SC.Driving.release(mission.leader.actor, "home_radio_resume_failed")
+                    return false, stopped == true and startReason or stopReason or "drive_stop_pending"
+                end
+                state, trip.engineStopped = "driving_home", false
+            end
+        elseif state ~= "walking_to_car" and state ~= "boarding_home"
+            and state ~= "unloading_home" and state ~= "fallback_unloading"
+            and state ~= "boarding_rollback" then return false, "home_car_trip_invalid" end
+        trip.state, mission.scout.phase = state, state
+        trip.radioResumeState, trip.radioHoldCar = nil, nil
+        trip.boardStartedAt, trip.approachStartedAt, trip.parkingAligning = now, nil, nil
+        trip.recoveryAt, trip.nextRecoveryCheckAt = nil, nil
+        return true, "home_radio_resumed"
+    end
+
+    function Car.homeArrivalReady(mission)
+        local trip=mission and mission.scout and mission.scout.vehicle
+        if not trip or not trip.field then return false,"home_car_trip_invalid" end
+        if not wholeTeamOnFoot(mission) then return false,"home_car_unloading" end
+        local vehicle=carLoaded(trip)
+        if trip.state=="abandoned" and trip.engineStopped and not vehicle then return true end
+        if trip.state~="home_wait" and trip.state~="abandoned" then return false,"home_car_unsettled" end
+        if not vehicle then return false,"car_not_loaded" end
+        local stopped,why=SC.Vehicle.isStationary(vehicle)
+        if not stopped then return false,why or "car_moving" end
+        local runningOkay,running=call(vehicle,"isEngineRunning")
+        local startingOkay,starting=call(vehicle,"isEngineStarted")
+        if not runningOkay or not startingOkay or running~=false or starting~=false then return false,"engine_shutdown_pending" end
+        if trip.state=="home_wait" then return Car.fieldStopClear(mission,trip,vehicle) end
+        return trip.engineStopped==true,trip.engineStopped and nil or "home_car_unsettled"
+    end
+    function Car.cancelField(mission,now)
+        local trip=mission and mission.scout and mission.scout.vehicle
+        if not trip or not trip.field then return false,"home_car_trip_invalid" end
+        local vehicle=carLoaded(trip)
+        if not vehicle then
+            if trip.state=="abandoned" and trip.engineStopped and wholeTeamOnFoot(mission) then return true end
+            return false,"car_not_loaded"
+        end
+        local stopped,reason=stopAndUnload(mission,trip,vehicle,now)
+        if not stopped then return false,reason end
+        return abandonToWalking(mission,trip,vehicle)
+    end
+    function Car.fieldDescriptor(plan,camp)
+        local stop=type(plan)=="table" and Car.copyFieldStop(plan.homeStop,camp)
+        if not stop or not plan.field then return nil,"home_stop_invalid" end
+        return Car.copyDescriptor({field=true,homeStop=stop,state="walking_to_car",leg="home",sqlId=plan.sqlId,script=plan.script,
+            seats=plan.seats,parkingZoneId=stop.zoneId or "field:roadside",parking=stop.parking or {
+                x1=math.floor(stop.point.x)-1,y1=math.floor(stop.point.y)-1,x2=math.floor(stop.point.x)+1,y2=math.floor(stop.point.y)+1,z=0},
+            departure=stop.point,homeRoadEntry=stop.roadEntry,home=camp.core,siteStop=stop.point,
+            position=plan.departure,departureFuel=plan.fuel,departureHeading=plan.heading},
+            plan.records or plan.roster or {},plan.leaderId)
+    end
 end
 
 return Car

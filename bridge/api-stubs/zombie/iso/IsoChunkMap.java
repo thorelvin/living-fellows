@@ -11,6 +11,8 @@ public class IsoChunkMap {
     public IsoChunkMap(IsoCell cell) {}
     public void Unload() {}
     public IsoChunk[] getChunks() { return null; }
+    public IsoChunk getChunkForGridSquare(int x, int y) { return null; }
+    public IsoGridSquare getGridSquare(int x, int y, int z) { return null; }
     public int getWorldXMin() { return -1; }
     public int getWorldYMin() { return -1; }
     public int getWorldXMinTiles() { return -1; }

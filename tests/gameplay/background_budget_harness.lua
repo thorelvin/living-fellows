@@ -74,6 +74,96 @@ B.create({ x = 20, y = 20, z = 0 }, "Replacement camp")
 current = finish(function(budget) return B.auditOperations(false, budget) end, 4)
 check(current.stock[1].count == 0, "base reset discards old pending inventory cursor")
 
+-- Real userdata follows the native-list branch. Its contents can disappear
+-- between two bounded calls just as an ItemContainer's Java ArrayList does
+-- when a secondary chunk unloads. An invalid get is a test failure, even if
+-- a production native wrapper would catch the Java exception afterwards.
+do
+    local firstList, secondList = SC_TEST_JAVA_OBJECT, SC_TEST_BOXED_FLOAT
+    check(type(firstList)=="userdata" and type(secondList)=="userdata", "audit lifecycle fixture uses userdata lists")
+    local nativeSize,nativeGet,resolve=SC.NativeList.size,SC.NativeList.get,B.resolveContainer
+    local rows,gets,sizes,retired={}, {},0,{}
+    SC.NativeList.size=function(list)
+        if rows[list]~=nil then sizes=sizes+1 return #rows[list] end
+        return nativeSize(list)
+    end
+    SC.NativeList.get=function(list,index)
+        local values=rows[list]
+        if values~=nil then
+            check(not retired[list] and index>=0 and index<#values,
+                "retained audit never reads a retired or out-of-range native list cursor")
+            gets[list]=(gets[list] or 0)+1
+            return values[index+1],true
+        end
+        return nativeGet(list,index)
+    end
+    B.resolveContainer=function(storage) return not storage.unloaded and storage.container or nil end
+    local function values(count)
+        local result={}
+        for index=1,count do result[index]=item(index) end
+        return result
+    end
+    local function storage(count)
+        B.reset()
+        local created,camp=B.create({x=30,y=30,z=0},"Unloading audit camp")
+        check(created,"lifecycle audit camp created")
+        rows[firstList],rows[secondList],retired[firstList],retired[secondList]=values(count),nil,nil,nil
+        gets[firstList],gets[secondList],sizes=0,0,0
+        local record={id="native-stock",category="food",container=inventory(firstList)}
+        camp.storages={record}
+        local report=B.auditOperations(true)
+        check(report.stock[1].count==count,"initial native stock audit publishes its complete count")
+        clock=clock+10000
+        return record
+    end
+
+    local marked=storage(6)
+    local prior,_,more=B.auditOperations(false,allowance(2))
+    check(more and prior.stock[1].count==6 and gets[firstList]==7,
+        "one native item prefix is retained only as an unpublished subtotal")
+    rows[firstList]={}
+    current=finish(function(budget) return B.auditOperations(false,budget) end,4)
+    check(current.stock[1].count==0 and gets[firstList]==7,
+        "an emptied retained native list drops its old prefix without attempting any stale get")
+
+    marked=storage(8)
+    B.auditOperations(false,allowance(3))
+    rows[firstList]=values(1)
+    current=finish(function(budget) return B.auditOperations(false,budget) end,4)
+    check(current.stock[1].count==1 and gets[firstList]==11,
+        "a shortened native list restarts that storage subtotal instead of counting its old prefix")
+
+    marked=storage(5)
+    B.auditOperations(false,allowance(3))
+    rows[secondList],retired[firstList]=values(5),true
+    marked.container.items=secondList
+    current=finish(function(budget) return B.auditOperations(false,budget) end,4)
+    check(current.stock[1].count==5 and gets[firstList]==7 and gets[secondList]==5,
+        "a replacement list with unchanged length is read from its own first item and never revisits the retired list")
+
+    marked=storage(7)
+    B.auditOperations(false,allowance(3))
+    marked.unloaded,retired[firstList],rows[firstList]=true,true,{}
+    current=finish(function(budget) return B.auditOperations(false,budget) end,4)
+    check(current.stock[1].count==0 and current.unloadedStores==1 and gets[firstList]==9,
+        "unloaded storage discards retained native references and partial stock instead of publishing stale inventory")
+    clock=clock+10000
+    marked.unloaded,rows[secondList],marked.container=false,values(3),inventory(secondList)
+    current=finish(function(budget) return B.auditOperations(false,budget) end,4)
+    check(current.stock[1].count==3 and current.unloadedStores==0 and gets[secondList]==3,
+        "a reloaded storage resolves and audits its new container without resurrecting the retired native list")
+
+    local cap=U.config("baseOperationsStorageItemBudget") or 160
+    B.reset()
+    local _,camp=B.create({x=40,y=40,z=0},"Capped native audit camp")
+    rows[firstList],retired[firstList],gets[firstList],sizes=values(cap+7),nil,0,0
+    camp.storages={{id="capped-native-stock",category="food",container=inventory(firstList)}}
+    current=B.auditOperations(true)
+    check(current.stock[1].count==cap and gets[firstList]==cap and sizes==1,
+        "native audit keeps its hard item cap and checks size once per slice, not before every get")
+    SC.NativeList.size,SC.NativeList.get,B.resolveContainer=nativeSize,nativeGet,resolve
+end
+
 -- Faction resources use an exact nested container cursor and retain the old
 -- resource object until all members have been read.
 local records = {}

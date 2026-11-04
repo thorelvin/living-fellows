@@ -23,6 +23,8 @@ local worldStore = nil
 local scheduledSave = nil
 local scheduledSaveRetryAt = 0
 local captureYieldHook = nil
+local remoteArrival = nil
+local completedRemoteArrivalToken = nil
 
 local function driverKeySaveReady()
     if SC.Vehicle and type(SC.Vehicle.validateDriverKeyRecovery) == "function" then
@@ -771,7 +773,7 @@ local function captureNativeItemFacts(item)
     return result
 end
 
-local function captureItemCore(item)
+local function captureItemCore(item, context)
     local entry = captureNativeItemFacts(item)
     local ok, value
     if entry == nil then
@@ -858,16 +860,31 @@ local function captureItemCore(item)
         entry.radio = radio
     end
     entry.visual = captureItemVisual(item)
+    -- NativeList.get may be the final argument and also return its availability
+    -- Boolean. Only an explicit context table carries native-ID policy.
+    if type(context) == "table" and context.preserveNativeIds == true then
+        local idOkay,nativeId = invoke(item,"getID")
+        nativeId = finite(nativeId,nil)
+        if not idOkay or nativeId == nil or nativeId ~= math.floor(nativeId)
+            or nativeId < -2147483648 or nativeId > 2147483647 or not method(item,"setID") then
+            return nil,"exact inventory item has no restorable native identity"
+        end
+        if context.nativeIds then
+            if context.nativeIds[nativeId] then return nil,"duplicate captured native item identity" end
+            context.nativeIds[nativeId] = true
+        end
+        entry.nativeId = nativeId
+    end
     return entry
 end
 
-local function captureItem(item)
+local function captureItem(item, context)
     local performance = SC.Performance
     if not performance or type(performance.isTracing) ~= "function"
-        or performance.isTracing() ~= true then return captureItemCore(item) end
+        or performance.isTracing() ~= true then return captureItemCore(item, context) end
     local started = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
     local scope = performance.beginScope("persistence.item-capture")
-    local values = SC.Call.pack(pcall(captureItemCore, item))
+    local values = SC.Call.pack(pcall(captureItemCore, item, context))
     performance.endScope(scope)
     local finished = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or started
     performance.record("persistence.item-capture", nil,
@@ -876,7 +893,7 @@ local function captureItem(item)
     return SC.Call.unpack(values, 2, values.n)
 end
 
-local function captureInventory(actor)
+local function captureInventory(actor, captureContext)
     local inventoryOk, inventory = invoke(actor, "getInventory")
     if not inventoryOk or inventory == nil then
         return nil, "native inventory is unavailable"
@@ -892,6 +909,8 @@ local function captureInventory(actor)
         maxDepth = SC.Config.get("persistence", "maxSavedInventoryDepth") or 12,
         seen = {},
         itemIds = {},
+        preserveNativeIds = captureContext and captureContext.preserveNativeIds == true,
+        nativeIds = {},
     }
     local roots = {}
     local captureNode
@@ -911,7 +930,7 @@ local function captureInventory(actor)
         local id, idReason = nextId(prefix)
         if not id then return nil, idReason end
         context.seen[item] = true
-        local entry, entryReason = captureItem(item)
+        local entry, entryReason = captureItem(item, context)
         if not entry then return nil, entryReason or "inventory item has no stable type" end
         entry.id = id
         context.itemIds[item] = id
@@ -945,7 +964,7 @@ local function captureInventory(actor)
                 if not available then return nil, "inventory changed during capture" end
                 local partId, partIdReason = nextId("p")
                 if not partId then return nil, partIdReason end
-                local partEntry, partReason = captureItem(part)
+                local partEntry, partReason = captureItem(part, context)
                 if not partEntry then return nil, partReason or "weapon part has no stable type" end
                 partEntry.id = partId
                 entry.weaponParts[#entry.weaponParts + 1] = partEntry
@@ -1031,6 +1050,7 @@ local function captureInventory(actor)
         count = context.count,
         roots = roots,
         equipment = equipment,
+        preserveNativeIds = context.preserveNativeIds and true or nil,
     }
 end
 
@@ -1072,7 +1092,7 @@ function persistence.captureDetachedItem(item)
     }
 end
 
-local function capturePossessions(actor, source, ownerId)
+local function capturePossessions(actor, source, ownerId, context)
     local possessions, copyReason = stableCopy(source or {}, 6, 256, "$.possessions")
     if copyReason ~= nil then return nil, copyReason end
     possessions.version = 1
@@ -1086,7 +1106,7 @@ local function capturePossessions(actor, source, ownerId)
         keepsake.status = "carried"
         keepsake.lastSeenAt = math.max(0, finite(keepsake.lastSeenAt, 0))
         if depth and depth > 0 then
-            local nested, nestedReason = captureItem(item)
+            local nested, nestedReason = captureItem(item, context)
             if nested == nil then return nil, nestedReason end
             keepsake.nestedCarried = nested
         else keepsake.nestedCarried = nil end
@@ -1152,7 +1172,7 @@ local function captureLastDowntime(value)
     return downtimeRecord
 end
 
-function persistence.captureRecord(record, vehicleState)
+function persistence.captureRecord(record, vehicleState, options)
     if type(record) ~= "table" or not SC.Registry.isValidId(record.id) then
         return nil, "valid registry record is required"
     end
@@ -1180,14 +1200,21 @@ function persistence.captureRecord(record, vehicleState)
     local order = type(state.order) == "table" and state.order or {}
     local personality = type(state.personality) == "table" and state.personality or {}
     local objectives = type(state.objectives) == "table" and state.objectives or {}
-    local possessions, possessionsReason = capturePossessions(actor, state.possessions, record.id)
+    local context = { preserveNativeIds = type(options) == "table" and options.preserveNativeIds == true }
+    local expedition = SC.ExpeditionPrototype
+    if not context.preserveNativeIds and expedition and type(expedition.pendingHomeInventory) == "function" then
+        local called, owned = pcall(expedition.pendingHomeInventory, record.id)
+        if not called or type(owned) ~= "boolean" then return nil,"Home delivery inventory ownership is unavailable" end
+        context.preserveNativeIds = owned
+    end
+    local possessions, possessionsReason = capturePossessions(actor, state.possessions, record.id, context)
     if possessions == nil then return nil, possessionsReason end
     local downtime = type(state.downtime) == "table" and state.downtime or {}
     local vitals, vitalsReason = SC.Vitals.capture(actor)
     if vitals == nil then
         return nil, vitalsReason
     end
-    local inventorySnapshot, inventoryReason = captureInventory(actor)
+    local inventorySnapshot, inventoryReason = captureInventory(actor, context)
     if inventorySnapshot == nil then return nil, inventoryReason end
     local workTarget
     if type(order.workTarget) == "table" and finite(order.workTarget.x, nil) ~= nil
@@ -1220,6 +1247,11 @@ function persistence.captureRecord(record, vehicleState)
     local orderAnchor
     local productionAction
     local anchorDataOk, anchorData = invoke(actor, "getModData")
+    local commandSerial = finite(anchorDataOk and type(anchorData) == "table"
+        and anchorData.SC_CommandSerial or order.commandSerial,0)
+    if commandSerial ~= math.floor(commandSerial) or commandSerial < 0 or commandSerial > 10000000 then
+        return nil,"invalid command serial during capture"
+    end
     if anchorDataOk and type(anchorData) == "table"
         and finite(anchorData.SC_AnchorX, nil) ~= nil
         and finite(anchorData.SC_AnchorY, nil) ~= nil then
@@ -1315,6 +1347,7 @@ function persistence.captureRecord(record, vehicleState)
         position = position,
         order = {
             current = text(order.current, SC.Config.get("defaultOrder"), 32),
+            commandSerial = commandSerial,
             followDistance = finite(order.followDistance, SC.Config.get("defaultFollowDistance")),
             anchor = orderAnchor,
             scavenge = order.scavenge ~= false,
@@ -1423,7 +1456,7 @@ local function scheduledSubsystemDefinitions()
         { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
         { field = "viewSlot", owner = SC.ViewSession, depth = 2, entries = 16 },
         { field = "expedition", owner = SC.ExpeditionPrototype,
-            depth = 8, entries = 1024 },
+            depth = 12, entries = 32768 },
         { field = "taxiBooking", owner = SC.TaxiBooking,
             depth = 4, entries = 32 },
         { field = "taxiCab", owner = SC.TaxiCab,
@@ -1683,6 +1716,7 @@ local function scheduledDocument(current)
 end
 
 function persistence.requestScheduledSave(player)
+    if remoteArrival then return false, "remote_arrival_save_pending" end
     local keyReady, keyReason = driverKeySaveReady()
     if not keyReady then return false, keyReason end
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
@@ -1998,6 +2032,7 @@ local function restartScheduledCapture(job, current, reason)
 end
 
 function persistence.pulse()
+    if remoteArrival then persistence.cancelPendingSave("remote arrival") return "idle" end
     local job = scheduledSave
     if job == nil then return "idle" end
     local clock = type(getTimestampMs) == "function" and getTimestampMs
@@ -2205,6 +2240,9 @@ function persistence.pulse()
 end
 
 function persistence.save(player)
+    if remoteArrival and not remoteArrival.capturing and not remoteArrival.durable then
+        return false, "remote_arrival_save_pending"
+    end
     local keyReady, keyReason = driverKeySaveReady()
     if not keyReady then return false, keyReason end
     persistence.cancelPendingSave("synchronous save")
@@ -2226,7 +2264,11 @@ function persistence.save(player)
     for _, definition in ipairs(subsystemDefinitions) do
         local source
         local quarantine = quarantined.subsystems[definition.field]
-        if quarantine ~= nil then
+        if remoteArrival and remoteArrival.durable and definition.field == "expedition" then
+            source = remoteArrival.document.expedition
+        elseif remoteArrival and remoteArrival.durable and definition.field == "viewSlot" then
+            source = remoteArrival.document.viewSlot
+        elseif quarantine ~= nil then
             source = quarantine.raw
         elseif definition.owner ~= nil and type(definition.owner.export) == "function" then
             local called, value, exportReason = pcall(definition.owner.export)
@@ -2256,7 +2298,9 @@ function persistence.save(player)
             local priorBucket = record.recruited == true and "companions" or "factionActors"
             local deadOk, dead = invoke(record.actor, "isDead")
             local inactive = type(record.runtime) == "table" and record.runtime.inactive == true
-            if deadOk and dead == true then
+            if remoteArrival and remoteArrival.durable and remoteArrival.byId[record.id] then
+                destination[record.id] = remoteArrival.byId[record.id].raw
+            elseif deadOk and dead == true then
                 -- Death is permanent as soon as native health reaches zero. Do
                 -- not retain a prior snapshot while the corpse animation is
                 -- still finishing, or the companion would return after load.
@@ -2346,6 +2390,21 @@ function persistence.save(player)
     if outgoing == nil then
         return false, "outgoing save validation failed: " .. tostring(outgoingReason)
     end
+    if remoteArrival and remoteArrival.durable then
+        local transaction = remoteArrival
+        if store ~= transaction.store or store.document ~= transaction.document then
+            return false,"remote_arrival_document_changed"
+        end
+        -- Keep the acknowledged object and exact crew snapshots. Everything
+        -- else comes from this fresh, fully validated save, including unrelated
+        -- inventory transfers and subsystem state while cleanup is retrying.
+        outgoing.expedition,outgoing.viewSlot = transaction.document.expedition,transaction.document.viewSlot
+        for _,member in ipairs(transaction.members) do outgoing.companions[member.id] = member.raw end
+        for _,key in ipairs(sortedKeys(transaction.document)) do transaction.document[key] = nil end
+        for key,value in pairs(outgoing) do transaction.document[key] = value end
+        lastDocument = transaction.document
+        return true,transaction.document
+    end
     local assigned, assignmentReason = pcall(function()
         store.document = outgoing
     end)
@@ -2377,6 +2436,12 @@ local function copyInventoryNode(source, context, depth)
     if id == "" or context.ids[id] then return nil, "duplicate or empty inventory node id" end
     context.ids[id] = true
     local clean = { id = id, type = text(source.type, "", 128) }
+    if context.preserveNativeIds then
+        local nativeId = finite(source.nativeId,nil)
+        if nativeId == nil or nativeId ~= math.floor(nativeId) or nativeId < -2147483648
+            or nativeId > 2147483647 or context.nativeIds[nativeId] then return nil,"missing or duplicate saved native item identity" end
+        context.nativeIds[nativeId],clean.nativeId = true,nativeId
+    end
     if source.condition ~= nil then clean.condition = math.floor(finite(source.condition, 0)) end
     if source.favorite ~= nil then clean.favorite = source.favorite == true end
     local copyReason
@@ -2434,11 +2499,17 @@ local function copyInventoryNode(source, context, depth)
 end
 
 local function normalizeInventorySnapshot(source)
+    if type(source) == "table" and source.preserveNativeIds ~= nil
+        and (type(source.preserveNativeIds) ~= "boolean" or source.schema ~= 2) then
+        return nil,"invalid native item identity policy"
+    end
     local context = {
         count = 0,
         maximum = SC.Config.get("persistence", "maxSavedInventoryItems") or 2048,
         maxDepth = SC.Config.get("persistence", "maxSavedInventoryDepth") or 12,
         ids = {}, seen = {},
+        preserveNativeIds = type(source) == "table" and source.preserveNativeIds == true,
+        nativeIds = {},
     }
     local rootsSource, equipmentSource, legacy
     if type(source) == "table" and source.schema == 2 then
@@ -2459,6 +2530,7 @@ local function normalizeInventorySnapshot(source)
     local result = {
         schema = 2, complete = true, roots = {},
         equipment = { worn = {}, attached = {} }, legacy = legacy == true,
+        preserveNativeIds = context.preserveNativeIds and true or nil,
     }
     for _, node in ipairs(rootsSource) do
         local copied, reason = copyInventoryNode(node, context, 1)
@@ -2592,6 +2664,22 @@ local function validateRecord(id, source)
         or (source.recruited ~= true and type(source.factionId) ~= "string")
         or type(source.identity) ~= "table" then
         return nil, "invalid companion save record"
+    end
+    if source.restorePrimaryOnly ~= nil and type(source.restorePrimaryOnly) ~= "boolean" then
+        return nil, "invalid primary-area restoration policy"
+    end
+    if source.restorePrimaryOnly == true and source.vehicle ~= nil then
+        return nil, "primary-area restoration requires an on-foot snapshot"
+    end
+    if source.restorePrimaryOnly == true and (type(source.inventory) ~= "table"
+        or source.inventory.preserveNativeIds ~= true) then
+        return nil, "primary-area snapshot lacks exact native item identities"
+    end
+    if type(source.order) == "table" and source.order.commandSerial ~= nil then
+        local serial = source.order.commandSerial
+        if type(serial) ~= "number" or serial ~= math.floor(serial) or serial < 0 or serial > 10000000 then
+            return nil,"invalid saved command serial"
+        end
     end
     if source.vehicle == nil then
         if type(source.position) ~= "table" or finite(source.position.x, nil) == nil
@@ -3199,6 +3287,16 @@ local function cleanupCreatedItems(context)
 end
 
 local function createRecoveryItem(itemType)
+    -- Build 42's public Lua factory returns an unattached native object.
+    -- InventoryItemFactory is not exposed in the live Lua environment.
+    if type(instanceItem) == "function" then
+        local created,item = pcall(instanceItem,itemType)
+        if not created or item == nil then
+            return false,"inventory item could not be instantiated: "..tostring(itemType)..": "..tostring(item)
+        end
+        return true,item
+    end
+    -- Keep compatibility with older adapters and isolated fixture providers.
     local factory = type(_G) == "table" and rawget(_G, "InventoryItemFactory") or nil
     if factory == nil then
         return false, "recovery reconstruction item factory is unavailable"
@@ -3210,7 +3308,21 @@ local function createRecoveryItem(itemType)
     return true, item
 end
 
-local function addCreatedItem(parentInventory, itemType, context, root)
+local function addCreatedItem(parentInventory, itemType, context, root, nativeId)
+    if context.preserveNativeIds then
+        local created,item = createRecoveryItem(itemType)
+        if not created then return false,item end
+        local assigned = invoke(item,"setID",nativeId)
+        local readOkay,actual = invoke(item,"getID")
+        if not assigned or not readOkay or actual ~= nativeId then return false,"native item identity assignment failed" end
+        local addedOkay,added = invoke(parentInventory,"AddItem",item)
+        local afterOkay,after = invoke(item,"getID")
+        if not addedOkay or added ~= item or not afterOkay or after ~= nativeId then
+            return false,"native item identity insertion was not verified"
+        end
+        context.currentInventory = parentInventory
+        return true,item
+    end
     if context.recoveryId == nil then
         local addedOk, item = invoke(parentInventory, "AddItem", itemType)
         if not addedOk or item == nil then
@@ -3246,12 +3358,13 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     local personal = type(entry.personal) == "table" and entry.personal or nil
     local personalKey = personal and text(personal.key, "", 128) or ""
     if personalKey ~= "" and context.restoredKeys[personalKey] then
+        if context.preserveNativeIds then return false,"duplicate personal identity in exact inventory" end
         context.byId[entry.id] = context.restoredKeys[personalKey]
         SC.Diagnostics.report("personal-item", personal.ownerId,
             "duplicate personal key ignored during restore", personalKey)
         return true, context.restoredKeys[personalKey]
     end
-    local addedOk, item = addCreatedItem(parentInventory, entry.type, context, depth == 1)
+    local addedOk, item = addCreatedItem(parentInventory, entry.type, context, depth == 1, entry.nativeId)
     if not addedOk then return false, item end
     context.byId[entry.id] = item
     local stateOk, stateReason = applyItemState(item, entry, context.restoredKeys,
@@ -3267,7 +3380,7 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     end
     for _, partEntry in ipairs(entry.weaponParts) do
         local partOk, part = addCreatedItem(
-            context.rootInventory, partEntry.type, context, false)
+            context.rootInventory, partEntry.type, context, false, partEntry.nativeId)
         if not partOk then return false, part end
         context.byId[partEntry.id] = part
         local partStateOk, partStateReason = applyItemState(part, partEntry,
@@ -3407,7 +3520,8 @@ local function applyInventory(actor, entries, companionId)
     if not snapshot then return false, snapshotReason end
     local cleared, clearReason = clearActorInventory(actor, inventory)
     if not cleared then return false, clearReason end
-    local context = { rootInventory = inventory, byId = {}, restoredKeys = {} }
+    local context = { rootInventory = inventory, byId = {}, restoredKeys = {},
+        preserveNativeIds = snapshot.preserveNativeIds == true }
     for _, entry in ipairs(snapshot.roots) do
         local applied, reason = addInventoryNode(inventory, entry, context, 1)
         if not applied then return false, reason end
@@ -3418,6 +3532,7 @@ local function applyInventory(actor, entries, companionId)
     context.snapshot = snapshot
     return true, context
 end
+persistence._applyInventoryForTests = applyInventory
 
 local function applyNestedKeepsake(actor, possessions, context)
     if type(context) ~= "table" or type(context.snapshot) ~= "table"
@@ -3579,6 +3694,17 @@ end
 persistence._applyAppearanceForTests = applyAppearance
 
 local function initializeRestoredActor(actor, input, saved)
+    local serial = type(saved.order) == "table" and saved.order.commandSerial or nil
+    if serial ~= nil then
+        if SC.Commands and SC.Commands.restoreCommandSerial then
+            local restored,reason = SC.Commands.restoreCommandSerial(actor,serial)
+            if restored ~= true then return false,reason end
+        else
+            local okay,data = invoke(actor,"getModData")
+            if not okay or type(data) ~= "table" then return false,"saved command serial could not be restored" end
+            data.SC_CommandSerial = serial
+        end
+    end
     local inventoryOk, contextOrReason = applyInventory(actor, saved.inventory, saved.id)
     local context = inventoryOk and contextOrReason or nil
     local inventoryReason = (not inventoryOk) and contextOrReason or nil
@@ -3630,6 +3756,18 @@ local function postCommittedRestore(actor, saved)
         if not called or recovered ~= true then
             SC.Diagnostics.report("vehicle-key", saved.id, "restored driver key recovery deferred",
                 tostring(called and reason or recovered))
+        end
+    end
+    local record = actor and SC.Registry.byId(saved.id)
+    if record and record.actor == actor and SC.Registry.isActive(actor, saved.id) then
+        -- The restored actor can unload before Runtime's first health pulse.
+        -- Record only its current native-health-verified square now that item,
+        -- vitals and registry restoration have committed; never use saved XY.
+        local called, position, reason = pcall(persistence.noteStablePosition, record)
+        if not called or position == nil then
+            SC.Diagnostics.report("persistence", saved.id,
+                "restored companion recovery anchor deferred",
+                tostring(called and reason or position))
         end
     end
 end
@@ -3786,6 +3924,14 @@ end
 
 local function squareFor(record)
     if type(getCell) ~= "function" then return nil end
+    if record.restorePrimaryOnly == true then
+        local at = record.position
+        if type(at) ~= "table" or SCSplitScreenProbe == nil then return nil end
+        local called, contains = pcall(function()
+            return SCSplitScreenProbe.primaryAreaContains(at.x, at.y, at.z)
+        end)
+        if not called or contains ~= true then return nil end
+    end
     if restoresOnFoot(record) and SC.Vehicle ~= nil
         and type(SC.Vehicle.reloadedCarSquare) == "function" then
         local car = type(record.vehicle.vehicle) == "table" and record.vehicle.vehicle or {}
@@ -3803,7 +3949,15 @@ local function squareFor(record)
     end
     local squareOk, square = invoke(cell, "getGridSquare",
         math.floor(position.x), math.floor(position.y), math.floor(position.z))
-    return squareOk and nearbyRestoreSquare(square) or nil
+    local candidate = squareOk and nearbyRestoreSquare(square) or nil
+    if candidate and record.restorePrimaryOnly == true then
+        local at = positionOf(candidate)
+        local called, contains = pcall(function()
+            return at and SCSplitScreenProbe.primaryAreaContains(at.x, at.y, at.z)
+        end)
+        if not called or contains ~= true then return nil end
+    end
+    return candidate
 end
 
 local function importVehicleRecord(record)
@@ -3886,7 +4040,7 @@ function persistence.restorePulse(player)
     local maximum = SC.Config.get("restorePerPulse")
     for _, id in ipairs(pendingOrder) do
         local entry = pending[id]
-        if entry ~= nil and entry.status ~= "quarantined" and processed < maximum
+        if entry ~= nil and entry.remoteToken == nil and entry.status ~= "quarantined" and processed < maximum
             and current >= (entry.nextAt or 0) then
             local active = SC.Registry.byId(id)
             if active ~= nil then
@@ -3950,6 +4104,7 @@ function persistence.restorePulse(player)
 end
 
 function persistence.restore(player)
+    if remoteArrival then return false, "remote_arrival_transaction_pending" end
     restoreCommitted = false
     restoreFailureReason = "restore is in progress"
     local store, storeReason = worldData()
@@ -3998,6 +4153,36 @@ function persistence.restore(player)
         and type(candidateDocument.factionActors) ~= "table" then
         return blockSave(document, "SC_WorldV1 factionActors bucket is malformed")
     end
+    -- Unreleased home-trip saves omitted actor order revisions while retaining
+    -- the same revision in their active mission roster. Recover only that
+    -- coherent active-home evidence; a present revision or a changed order wins.
+    do
+        local trip = candidateDocument.expedition
+        if type(trip) == "table" and trip.schema == 9 and type(trip.scout) == "table"
+            and trip.scout.kind == "home" and (trip.scout.phase == "inbound" or trip.scout.phase == "awaiting_player")
+            and type(trip.commandSerials) == "table" and type(trip.survivors) == "table"
+            and type(trip.roster) == "table" and #trip.roster >= 1 and #trip.roster <= 4 then
+            local known,survivors,coherent = {},{},true
+            for _,id in ipairs(trip.roster) do
+                if not SC.Registry.isValidId(id) or known[id] then coherent = false end
+                known[id] = true
+            end
+            for _,id in ipairs(trip.survivors) do
+                if not known[id] or survivors[id] then coherent = false end
+                survivors[id] = true
+            end
+            for _,id in ipairs(trip.roster) do
+                local saved = candidateDocument.companions[id]
+                local order = type(saved) == "table" and saved.order
+                local serial = trip.commandSerials[id]
+                if coherent and survivors[id] and type(saved) == "table" and saved.id == id
+                    and type(order) == "table" and order.commandSerial == nil
+                    and (order.current == "follow" or order.current == "regroup")
+                    and type(serial) == "number" and serial == math.floor(serial)
+                    and serial >= 0 and serial <= 10000000 then order.commandSerial = serial end
+            end
+        end
+    end
 
     local repairedKnox = repairLegacyKnoxCohort(candidateDocument)
     if repairedKnox > 0 then
@@ -4021,9 +4206,29 @@ function persistence.restore(player)
     -- string/numeric keys are deterministic and invalid keys enter quarantine
     -- instead of reaching table.sort's incomparable-key failure.
     local seenIds, factionCandidates = {}, {}
+    local nativeOwners,nativeConflicts = {},{}
+    local function inspectNativeIds(nodes, ownerId)
+        for _,node in ipairs(type(nodes) == "table" and nodes or {}) do
+            if type(node) == "table" then
+                local nativeId = finite(node.nativeId,nil)
+                if nativeId ~= nil then
+                    local previous = nativeOwners[nativeId]
+                    if previous then nativeConflicts[previous],nativeConflicts[ownerId] = true,true
+                    else nativeOwners[nativeId] = ownerId end
+                end
+                inspectNativeIds(node.children,ownerId)
+                inspectNativeIds(node.weaponParts,ownerId)
+            end
+        end
+    end
+    for id,saved in pairs(candidateDocument.companions) do
+        if type(saved) == "table" and type(saved.inventory) == "table"
+            and saved.inventory.preserveNativeIds == true then inspectNativeIds(saved.inventory.roots,id) end
+    end
     for _, id in ipairs(sortedKeys(candidateDocument.companions)) do
         seenIds[id] = true
         local clean, reason = validateRecord(id, candidateDocument.companions[id])
+        if nativeConflicts[id] then clean,reason = nil,"ambiguous native item identity across saved companions" end
         if clean ~= nil then
             candidatePending[id] = {
                 record = clean, nextAt = 0, attempts = 0, status = "pending",
@@ -4200,6 +4405,7 @@ function persistence.pendingBootstrap(id)
     if type(id) ~= "string" then return nil end
     local entry = pending[id]
     if entry == nil or entry.vehicle == true or entry.spawnTicket ~= nil
+        or entry.remoteToken ~= nil or entry.record.restorePrimaryOnly == true
         or entry.status == "quarantined" then return nil end
     local saved = entry.record
     local position = type(saved) == "table" and saved.position or nil
@@ -4230,6 +4436,8 @@ function persistence.pendingSnapshot()
             reason = entry.reason,
             nextAt = entry.nextAt,
             status = entry.status or "pending",
+            remoteHeld = entry.remoteToken ~= nil,
+            restorePrimaryOnly = entry.record and entry.record.restorePrimaryOnly == true,
             hasSpawnTicket = entry.spawnTicket ~= nil,
             failureClass = entry.failureClass,
             firstAttemptAt = entry.firstAttemptAt,
@@ -4291,6 +4499,278 @@ local function pendingOrderEnsure(id)
         if pendingOrder[index] == id then table.remove(pendingOrder, index) end
     end
     pendingOrder[#pendingOrder + 1] = id
+end
+
+-- A remote arrival is one short save/detach transaction. Its held records are
+-- ordinary pending snapshots; only this runtime lease prevents restoration
+-- while the original actors still belong to the secondary view.
+do
+    local function detached(member)
+        if SC.Registry.byId(member.id) ~= nil then return false end
+        if SC.Actor.isCompanion and SC.Actor.isCompanion(member.actor) then return false end
+        for _,name in ipairs({"isExistInTheWorld", "isAddedToModelManager", "isScheduled"}) do
+            local okay,value = invoke(member.actor,name)
+            if not okay or value ~= false then return false end
+        end
+        local okay,square = invoke(member.actor,"getCurrentSquare")
+        return okay and square == nil
+    end
+    local function sameRoster(transaction, actors)
+        if #transaction.members ~= #actors then return false end
+        for index,member in ipairs(transaction.members) do
+            if member.actor ~= actors[index] then return false end
+        end
+        return true
+    end
+    local function captureCrew(actors, camp)
+        if type(actors) ~= "table" or #actors < 1 or #actors > 4
+            or not SC.HomeTrip or not SC.HomeTrip.campUnchanged(camp)
+            or not SC.Actor or type(SC.Actor.remove) ~= "function" then
+            return nil, "remote_arrival_invalid_roster_or_camp"
+        end
+        if SC.Actor.checkBridge then
+            local called,ready,reason = pcall(SC.Actor.checkBridge,false)
+            if not called or ready ~= true then return nil,reason or "remote_arrival_actor_bridge_unavailable" end
+        end
+        local members,seen,nativeIds = {},{},{}
+        local function exactIds(nodes)
+            for _,node in ipairs(nodes or {}) do
+                local id = finite(node.nativeId,nil)
+                if id == nil or id ~= math.floor(id) or id < -2147483648 or id > 2147483647 or nativeIds[id] then return false end
+                nativeIds[id] = true
+                if not exactIds(node.children) or not exactIds(node.weaponParts) then return false end
+            end
+            return true
+        end
+        for index,actor in ipairs(actors) do
+            local id = SC.Registry.idOf(actor)
+            local record = id and SC.Registry.byId(id)
+            if not record or record.actor ~= actor or record.recruited ~= true or seen[id]
+                or not SC.Registry.isActive(actor,id) then return nil,"remote_arrival_member_unavailable" end
+            seen[id] = true
+            local deadOkay,dead = invoke(actor,"isDead")
+            local vehicleOkay,vehicle = invoke(actor,"getVehicle")
+            if not deadOkay or dead ~= false or not vehicleOkay or vehicle ~= nil then return nil,"remote_arrival_member_unsettled" end
+            if SC.Vehicle and SC.Vehicle.isNativeSeated then
+                local seated,car = SC.Vehicle.isNativeSeated(actor)
+                if seated or car ~= nil then return nil,"remote_arrival_member_seated" end
+            end
+            if SC.Trade and SC.Trade.prepareActorLifecycle then
+                local called,ready,reason = pcall(SC.Trade.prepareActorLifecycle,actor)
+                if not called or ready ~= true then return nil,reason or "remote_arrival_trade_pending" end
+            end
+            -- Unlike health-gate recovery, arrival never accepts an old
+            -- lastStableSnapshot or the fallback in capturePosition().
+            local at,positionReason = persistence.noteStablePosition(record)
+            if not at then return nil,positionReason or "remote_arrival_position_unverified" end
+            local area = camp.arrival
+            if at.z ~= 0 or at.x < area.x1 or at.x > area.x2 or at.y < area.y1 or at.y > area.y2 then
+                return nil,"remote_arrival_member_outside_camp"
+            end
+            local called,raw,reason = pcall(persistence.captureRecord,record,nil,{preserveNativeIds=true})
+            if not called or type(raw) ~= "table" then return nil,reason or raw or "remote_arrival_capture_failed" end
+            if type(raw.inventory) ~= "table" or not exactIds(raw.inventory.roots) then return nil,"remote_arrival_native_item_identity_invalid" end
+            raw.inventory.preserveNativeIds = true
+            local verified = persistence.noteStablePosition(record)
+            if not verified or not raw.position or raw.vehicle ~= nil
+                or raw.position.x ~= verified.x or raw.position.y ~= verified.y or raw.position.z ~= verified.z then
+                return nil,"remote_arrival_fresh_position_required"
+            end
+            raw.restorePrimaryOnly = true
+            local clean,issue = validateRecord(id,raw)
+            if not clean then return nil,issue end
+            if pending[id] and pending[id].spawnTicket then return nil,"remote_arrival_spawn_already_pending" end
+            members[index] = {id=id,actor=actor,raw=raw,record=clean}
+        end
+        return members
+    end
+    local function stageDocument(transaction, camp, integration)
+        local members,reason = captureCrew(transaction.actors,camp)
+        if not members then return false,reason end
+        local finalized,issue = SC.ExpeditionPrototype.exportRemoteArrival(integration)
+        if not finalized then return false,issue end
+        local slotOkay,slotId = pcall(function()
+            return SCSplitScreenProbe.remoteArrivalSlotSqlId(transaction.token)
+        end)
+        if not slotOkay or type(slotId) ~= "number" or slotId < 2
+            or finalized.slotSqlId ~= slotId then return false,"remote_arrival_slot_identity_invalid" end
+        persistence.cancelPendingSave("remote arrival commit")
+        transaction.capturing = true
+        local called,saved,document = pcall(persistence.save,
+            type(getSpecificPlayer) == "function" and getSpecificPlayer(0) or nil)
+        transaction.capturing = nil
+        if not called or saved ~= true then return false,document or saved or "remote_arrival_world_capture_failed" end
+        local outgoing,copyReason = stableCopy(document,documentDepthLimit(),documentEntryLimit(),"$.remoteArrival")
+        if not outgoing then return false,copyReason end
+        outgoing.expedition = finalized
+        outgoing.viewSlot = {schema=1,slotSqlId=slotId}
+        for _,member in ipairs(members) do outgoing.companions[member.id] = member.raw end
+        local store,storeReason = worldData()
+        if not store then return false,storeReason end
+        local assigned,assignmentReason = pcall(function() store.document = outgoing end)
+        if not assigned then return false,assignmentReason end
+        transaction.members,transaction.document,transaction.store = members,outgoing,store
+        transaction.byId = {}
+        transaction.priorPending = transaction.priorPending or {}
+        lastDocument = outgoing
+        for _,member in ipairs(members) do
+            transaction.byId[member.id] = member
+            if transaction.priorPending[member.id] == nil then transaction.priorPending[member.id] = pending[member.id] or false end
+            pendingOrderEnsure(member.id)
+            pending[member.id] = {record=member.record,raw=member.raw,bucket="companions",
+                nextAt=0,attempts=0,status="remote_arrival_held",remoteToken=transaction.token}
+        end
+        return true
+    end
+    function persistence.abortRemoteArrival(token)
+        if token == nil then return false,"remote_arrival_ticket_required" end
+        local transaction = remoteArrival
+        if transaction and transaction.token ~= token then return false,"remote_arrival_transaction_mismatch" end
+        if transaction and transaction.durable then return false,"remote_arrival_already_durable" end
+        if transaction and transaction.deadViewReleased then return false,"remote_arrival_dead_completion_pending" end
+        if transaction and transaction.document then
+            -- Re-capture the active world rather than reinstating an older
+            -- document: the player or another companion may have transferred
+            -- items since a failed flush. No native actor has been removed.
+            transaction.capturing = true
+            local called,saved,reason = pcall(persistence.save,
+                type(getSpecificPlayer) == "function" and getSpecificPlayer(0) or nil)
+            transaction.capturing = nil
+            if not called or saved ~= true then return false,reason or saved or "remote_arrival_abort_capture_failed" end
+        end
+        local called,cancelled = pcall(function() return SCSplitScreenProbe.cancelRemoteArrival(token) end)
+        if not called or cancelled ~= true then return false,"remote_arrival_cancel_pending:"..tostring(cancelled) end
+        if transaction then
+            for _,member in ipairs(transaction.members) do
+                local entry = pending[member.id]
+                if entry and entry.remoteToken == token then
+                    pending[member.id] = transaction.priorPending[member.id] or nil
+                    for index=#pendingOrder,1,-1 do
+                        if pendingOrder[index] == member.id then table.remove(pendingOrder,index) end
+                    end
+                    if pending[member.id] then pendingOrderEnsure(member.id) end
+                end
+            end
+        end
+        remoteArrival = nil
+        return true,"remote_arrival_aborted"
+    end
+    function persistence.commitRemoteArrival(actors,camp,token,integration)
+        if token == nil or type(actors) ~= "table" then return false,"remote_arrival_ticket_required" end
+        if remoteArrival and (remoteArrival.token ~= token or not sameRoster(remoteArrival,actors)) then
+            return false,"remote_arrival_transaction_mismatch"
+        end
+        if not remoteArrival then
+            -- Probe ownership APIs before publishing pending records.
+            if not SCSplitScreenProbe or not SC.ExpeditionPrototype
+                or not SC.ExpeditionPrototype.exportRemoteArrival then return false,"remote_arrival_bridge_unavailable" end
+            remoteArrival = {token=token,actors=actors,members={}}
+        end
+        local transaction = remoteArrival
+        if not transaction.durable then
+            local staged,reason = stageDocument(transaction,camp,integration)
+            if not staged then
+                if not transaction.document then remoteArrival = nil end
+                return false,reason
+            end
+            local called,acknowledged = pcall(function()
+                return SCSplitScreenProbe.acknowledgeRemoteArrival(token,SC.Identity.worldSaveKey,transaction.document)
+            end)
+            if not called or acknowledged ~= true then return false,"remote_arrival_flush_failed:"..tostring(acknowledged) end
+            transaction.durable = true
+        end
+        if transaction.store.document ~= transaction.document then return false,"remote_arrival_document_changed" end
+        -- Followers first, leader last. A failed native cleanup retains both
+        -- the exact lease and frozen snapshots; no replacement is spawned.
+        for step=1,#transaction.members do
+            local index = step < #transaction.members and step+1 or 1
+            local member = transaction.members[index]
+            if not member.removed then
+                if detached(member) then member.removed = true
+                else
+                    local called,removed,reason = pcall(SC.Actor.remove,member.actor)
+                    if not called or removed ~= true then return false,reason or removed or "remote_arrival_remove_pending" end
+                    if SC.Registry.byId(member.id) ~= nil then return false,"remote_arrival_unregister_pending" end
+                    member.removed = true
+                end
+            end
+        end
+        return true
+    end
+    function persistence.completeRemoteArrival(token)
+        if token == nil then return false,"remote_arrival_ticket_required" end
+        if completedRemoteArrivalToken == token and remoteArrival == nil then return true,"already_complete" end
+        local transaction = remoteArrival
+        if not transaction or transaction.token ~= token or not transaction.durable then return false,"remote_arrival_not_committed" end
+        if type(getSpecificPlayer) ~= "function" or getSpecificPlayer(1) ~= nil
+            or SC.ViewSession and SC.ViewSession.owner and SC.ViewSession.owner() ~= nil then return false,"remote_arrival_view_still_owned" end
+        for _,member in ipairs(transaction.members) do
+            if not member.removed or not detached(member) then return false,"remote_arrival_member_not_detached" end
+        end
+        for _,member in ipairs(transaction.members) do
+            local entry = pending[member.id]
+            if entry and entry.remoteToken == token then
+                entry.remoteToken,entry.status,entry.nextAt = nil,"pending",0
+            end
+        end
+        completedRemoteArrivalToken,remoteArrival = token,nil
+        return true
+    end
+    -- releaseDeadLeader has already durably retained every exact corpse and
+    -- closed its native view. Its unacknowledged live snapshots must never
+    -- remain queued for reconstruction after that successful death teardown.
+    function persistence.completeDeadRemoteArrival(token, actors, finalized)
+        local transaction = remoteArrival
+        if token == nil or type(actors) ~= "table" or #actors < 1 or #actors > 4 then return false,"remote_arrival_ticket_required" end
+        if transaction and (transaction.token ~= token or not sameRoster(transaction,actors)) then return false,"remote_arrival_transaction_mismatch" end
+        if transaction and transaction.durable then return false,"remote_arrival_already_durable" end
+        if type(getSpecificPlayer) ~= "function" or getSpecificPlayer(1) ~= nil
+            or SC.ViewSession and SC.ViewSession.owner and SC.ViewSession.owner() ~= nil then return false,"remote_arrival_view_still_owned" end
+        for _,actor in ipairs(actors) do
+            local deadOkay,dead = invoke(actor,"isDead")
+            local readyOkay,ready = invoke(actor,"isCorpseReady")
+            if not deadOkay or dead ~= true or not readyOkay or ready ~= true then return false,"remote_arrival_corpse_pending" end
+        end
+        if not transaction then return true,"remote_arrival_no_staging" end
+        if type(finalized) ~= "table" or finalized.state ~= "idle"
+            or (finalized.schema ~= 2 and finalized.schema ~= 7)
+            or type(finalized.slotSqlId) ~= "number" or finalized.slotSqlId < 2
+            or finalized.roster ~= nil or finalized.survivors ~= nil or finalized.leaderId ~= nil
+            or finalized.scout ~= nil then return false,"remote_arrival_dead_descriptor_invalid" end
+        local idle,reason = stableCopy(finalized,documentDepthLimit(),documentEntryLimit(),"$.remoteArrivalDead")
+        if not idle then return false,reason end
+        local store,storeReason = worldData()
+        if not store or type(store.document) ~= "table" then return false,storeReason or "remote_arrival_document_missing" end
+        for _,member in ipairs(transaction.members) do
+            if pending[member.id] and pending[member.id].remoteToken ~= token then return false,"remote_arrival_pending_changed" end
+        end
+        persistence.cancelPendingSave("remote arrival dead completion")
+        for _,member in ipairs(transaction.members) do
+            -- Drop the exact dead IDs from every retained document, including
+            -- a fresh active document installed by a previously failed abort.
+            for _,document in ipairs({store.document,transaction.document,lastDocument}) do
+                if type(document) == "table" then
+                    if type(document.companions) == "table" then document.companions[member.id] = nil end
+                    document.expedition = idle
+                    document.viewSlot = {schema=1,slotSqlId=idle.slotSqlId}
+                end
+            end
+        end
+        transaction.deadViewReleased = true
+        -- Corpse chunks are already durable. Flush the installed LF death
+        -- outcome too, before releasing snapshots that could otherwise revive
+        -- this crew after a crash. Failed writes keep held rows for this retry.
+        local flushed,accepted = pcall(function() return SCSplitScreenProbe.flushGlobalModDataForWorldExit() end)
+        if not flushed or accepted ~= true then return false,"remote_arrival_dead_flush_failed" end
+        for _,member in ipairs(transaction.members) do
+            pending[member.id] = nil
+            for index=#pendingOrder,1,-1 do
+                if pendingOrder[index] == member.id then table.remove(pendingOrder,index) end
+            end
+        end
+        lastDocument,remoteArrival = store.document,nil
+        return true,"remote_arrival_dead_complete"
+    end
 end
 
 function persistence.retainForRecovery(record)
@@ -4435,6 +4915,7 @@ function persistence.reset()
     restoreFailureReason = "restore has not committed"
     worldStore = nil
     scheduledSaveRetryAt = 0
+    remoteArrival,completedRemoteArrivalToken = nil,nil
     return true
 end
 

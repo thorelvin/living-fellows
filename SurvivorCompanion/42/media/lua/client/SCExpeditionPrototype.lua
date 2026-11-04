@@ -48,7 +48,8 @@ end
 local function announceDeparture(active)
     local actor, scout = active.leader.actor, active.scout
     if SC.Dialogue and type(SC.Dialogue.say) == "function" then
-        pcall(SC.Dialogue.say, actor, "expedition.departure")
+        pcall(SC.Dialogue.say, actor, scout and scout.kind == "home"
+            and "home.departure" or "expedition.departure")
     end
     if scout and SC.GameplayUtil
         and type(SC.GameplayUtil.diagnostic) == "function" then
@@ -346,6 +347,7 @@ end
 
 local function copyDebrief(value)
     if value == nil then return nil end
+    if value.kind == "home" then return SC.HomeTrip and SC.HomeTrip.copyDebrief(value) end
     if value.kind == "search" or value.kind == "wood" then
         local returned = {}
         for index, id in ipairs(value.returnedIds or {}) do returned[index] = id end
@@ -377,6 +379,9 @@ local function copyDebrief(value)
 end
 
 local function validDebrief(value)
+    if type(value) == "table" and value.kind == "home" then
+        return SC.HomeTrip and SC.HomeTrip.validDebrief(value) or false
+    end
     if type(value) == "table" and not validCarFailure(value.carFailure) then return false end
     if type(value) == "table" and (value.kind == "search" or value.kind == "wood") then
         if not validPoint(value.destination)
@@ -470,7 +475,7 @@ local function queueDelivery(record)
     while #pendingDeliveries >= DELIVERY_LIMIT do
         local removable
         for index, pending in ipairs(pendingDeliveries) do
-            if pending.kind ~= "wood" then removable = index break end
+            if pending.kind ~= "wood" and pending.kind ~= "home" then removable = index break end
         end
         if not removable then return false, "wood_delivery_queue_full" end
         table.remove(pendingDeliveries, removable)
@@ -834,6 +839,18 @@ function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
     if plan ~= nil and type(plan) ~= "table" then return false, "invalid_scout_plan" end
     pruneCompletedDeliveries()
+    if plan and plan.kind == "home" then
+        local ready, reason
+        if SC.HomeTrip then ready, reason = SC.HomeTrip.validateStart(records, plan) end
+        if ready ~= true then return false, reason or "home_service_unavailable" end
+        if #pendingDeliveries >= DELIVERY_LIMIT then
+            local available = false
+            for _, pending in ipairs(pendingDeliveries) do
+                if pending.kind ~= "wood" and pending.kind ~= "home" then available = true break end
+            end
+            if not available then return false, "home_delivery_queue_full" end
+        end
+    end
     if SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() then
         return false, "base_watch_uses_companion_view"
     end
@@ -893,13 +910,15 @@ function Expedition.start(records, plan)
         end
         local searchPlan = type(plan) == "table" and plan.kind == "search"
         local woodPlan = type(plan) == "table" and plan.kind == "wood"
+        -- Home validation lives in its own module to keep this file below
+        -- Kahlua's file-scope local limit.
         local player = type(getSpecificPlayer) == "function"
             and getSpecificPlayer(0) or nil
         local returnPoint = player and {
             x = math.floor(player:getX()), y = math.floor(player:getY()),
             z = math.floor(player:getZ()),
         } or nil
-        local homeBase = (searchPlan or woodPlan) and SC.BaseLife
+        local homeBase = (searchPlan or woodPlan or plan.kind == "home") and SC.BaseLife
             and SC.BaseLife.active() or nil
         if homeBase and validPoint(homeBase.core)
             and homeBase.core.z == plan.destination.z then
@@ -908,18 +927,24 @@ function Expedition.start(records, plan)
         local carPlan, carReason
         if travelMode == "drive" then
             if not SC.ExpeditionCar then return false, "driving_unavailable" end
-            carPlan, carReason = SC.ExpeditionCar.preflight(records,
-                plan.parkingZoneId, plan.vehicleSqlId, plan.destination)
-            if not carPlan then return false, carReason end
-            local doors = SC.Vehicle.boardingSquares(roster[1].actor,
-                carPlan.vehicle, 0, true)
-            local assembly = doors and doors[1]
-            local ax, ay, az = SC.GameplayUtil.position(assembly)
-            if not ax or not ay or not az then
-                return false, "parking_assembly_unavailable"
+            if plan.kind == "home" then
+                carPlan, carReason = SC.ExpeditionCar.prepareField(records,
+                    plan.fieldVehicle or SC.Vehicle.loadedBySqlId(plan.vehicleSqlId),homeBase,
+                    {reviewedPlan=plan.fieldCarPlan})
+                if carPlan and not SC.HomeTrip.sameStop(plan.home.carStop,carPlan.homeStop) then return false,"home_review_changed" end
+            else
+                carPlan, carReason = SC.ExpeditionCar.preflight(records,
+                    plan.parkingZoneId, plan.vehicleSqlId, plan.destination)
             end
-            returnPoint = { x = math.floor(ax), y = math.floor(ay),
-                z = math.floor(az) }
+            if not carPlan then return false, carReason end
+            if plan.kind ~= "home" then
+                local doors = SC.Vehicle.boardingSquares(roster[1].actor,
+                    carPlan.vehicle, 0, true)
+                local assembly = doors and doors[1]
+                local ax, ay, az = SC.GameplayUtil.position(assembly)
+                if not ax or not ay or not az then return false, "parking_assembly_unavailable" end
+                returnPoint = { x = math.floor(ax), y = math.floor(ay), z = math.floor(az) }
+            end
         end
         local fishingPlan = searchPlan and type(plan.request) == "table"
             and plan.request.category == "fish"
@@ -942,11 +967,12 @@ function Expedition.start(records, plan)
             elseif not plan.site or plan.site.id ~= mapTarget.id then return false, "map_target_changed" end
         end
         local destinationRadius = mapTarget and SC.ExpeditionTargets.limit(travelMode)
+            or plan.kind == "home" and (travelMode == "drive" and 5000 or 1000)
             or woodPlan and 1000 or SC.Config and SC.Config.get(fishingPlan
             and "expeditionFishingRadius" or "expeditionDestinationRadius")
             or (fishingPlan and 1000 or 200)
         if type(plan) ~= "table"
-            or (plan.kind ~= "scout" and not searchPlan and not woodPlan)
+            or (plan.kind ~= "scout" and plan.kind ~= "home" and not searchPlan and not woodPlan)
             or (woodPlan and not validWood(plan.wood))
             or not validPoint(plan.destination)
             or not validPoint(returnPoint)
@@ -955,7 +981,7 @@ function Expedition.start(records, plan)
                 (carPlan.departure.x - plan.destination.x)^2
                 + (carPlan.departure.y - plan.destination.y)^2)
                 or distanceToPoint(roster[1].actor, plan.destination))
-                < ((searchPlan or woodPlan) and 8 or 20)
+                < (plan.kind == "home" and 0 or (searchPlan or woodPlan) and 8 or 20)
             or (not mapTarget and (travelMode == "drive" and math.sqrt(
                 (carPlan.departure.x - plan.destination.x)^2
                 + (carPlan.departure.y - plan.destination.y)^2)
@@ -977,16 +1003,24 @@ function Expedition.start(records, plan)
                 return false, "road_routing_unavailable"
             end
             local routeReason
-            roadRoute, routeReason = SC.ExpeditionRoute.plan(
-                roster[1].actor, plan.destination)
+            roadRoute = plan.kind == "home" and plan.roadRoute or nil
+            if roadRoute == nil then
+                roadRoute, routeReason = SC.ExpeditionRoute.plan(
+                    roster[1].actor, plan.destination)
+            end
             if roadRoute == nil then return false, routeReason end
             local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
                 roadRoute, roster[1].actor)
             if not entryReady then return false, entryReason end
         end
+        if plan.kind == "home" then
+            local routeDistance = carPlan and carPlan.distance or SC.HomeTrip.routeDistance(roadRoute, roster[1].actor, plan.destination)
+            if type(routeDistance)~="number" or routeDistance > (carPlan and 5000 or 1000) then return false, "home_too_far" end
+        end
         scout = {
             kind = plan.kind,
-            phase = travelMode == "drive" and "walking_to_car" or "outbound",
+            phase = plan.kind == "home" and "inbound"
+                or travelMode == "drive" and "walking_to_car" or "outbound",
             travelMode = travelMode, extended = extended,
             destination = copyPoint(plan.destination),
             site = copySite(plan.site),
@@ -1006,13 +1040,14 @@ function Expedition.start(records, plan)
             } or nil,
             wood = woodPlan and copyWood(plan.wood) or nil,
             homeBaseId = homeBase and homeBase.id or nil,
+            home = plan.kind == "home" and SC.HomeTrip.copyState(plan.home) or nil,
             fishingPreparation = fishingPlan and SC.Fishing
                 and not SC.Fishing.checkGear(roster[1].actor)
                 and { reason = "fishing_preparing_rod" } or nil,
             roadRoute = roadRoute,
             road = roadRoute and SC.ExpeditionRoute.descriptor(
-                roadRoute, "outbound") or nil,
-            vehicle = carPlan and {
+                roadRoute, plan.kind == "home" and "inbound" or "outbound") or nil,
+            vehicle = carPlan and plan.kind ~= "home" and {
                 state = "walking_to_car", leg = "outbound",
                 sqlId = carPlan.sqlId, script = carPlan.script,
                 seats = carPlan.seats,
@@ -1029,6 +1064,11 @@ function Expedition.start(records, plan)
                 departureFuel = carPlan.fuel,
             } or nil,
         }
+        if carPlan and plan.kind == "home" then
+            scout.vehicle = SC.ExpeditionCar.fieldDescriptor(carPlan,plan.home.camp)
+            if not scout.vehicle then return false,"home_invalid_plan" end
+            scout.phase = scout.vehicle.state
+        end
         if roadRoute ~= nil then
             scout.extended = extended
                 or remainingTravelDistance(scout, roster[1].actor) > 120
@@ -1078,6 +1118,59 @@ function Expedition.start(records, plan)
         announceDeparture(mission)
     end
     return true, mission
+end
+
+function Expedition.startHome(records, plan)
+    if type(plan) ~= "table" or plan.kind ~= "home" then return false, "home_invalid_plan" end
+    return Expedition.start(records, plan)
+end
+
+function Expedition.homeDeliveryAvailable()
+    if #pendingDeliveries < DELIVERY_LIMIT then return true end
+    for _, pending in ipairs(pendingDeliveries) do
+        if pending.kind ~= "wood" and pending.kind ~= "home" then return true end
+    end
+    return false
+end
+
+-- UI ownership query only: no settlement, inventory scan, or readiness check.
+-- A dormant member still owns its home handover until both tasks are done.
+function Expedition.pendingHomeMember(id)
+    if type(id) ~= "string" or id == "" then return false end
+    for index, record in ipairs(pendingDeliveries) do
+        if index > DELIVERY_LIMIT then break end
+        if record.kind == "home" then
+            for memberIndex, member in ipairs(record.members or {}) do
+                if memberIndex > 4 then break end
+                if member.id == id and (member.cleanupDone ~= true or member.dutyDone ~= true) then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- Persistence identity scope only. A player's new order ends UI duty ownership,
+-- but cannot change the native IDs of cargo whose exact Home receipts remain.
+-- Read only the bounded ledger; never settle records or inspect inventories.
+function Expedition.pendingHomeInventory(id)
+    if type(id) ~= "string" or id == "" then return false end
+    for index, record in ipairs(pendingDeliveries) do
+        if index > DELIVERY_LIMIT then break end
+        if record.kind == "home" then
+            for memberIndex, member in ipairs(record.members or {}) do
+                if memberIndex > 4 then break end
+                if member.id == id then
+                    if member.cleanupDone ~= true or member.dutyDone ~= true then return true end
+                    for itemIndex, item in ipairs(record.items or {}) do
+                        if itemIndex > 256 then break end
+                        if item.stored ~= true and item.released ~= true then return true end
+                    end
+                    break
+                end
+            end
+        end
+    end
+    return false
 end
 
 -- Draft reads have no gameplay effects. Requery at commit time so a stale
@@ -1783,11 +1876,26 @@ function Expedition.export()
         saved.baseSchema, saved.schema = saved.schema, 8
         saved.scout.mapTarget = SC.ExpeditionTargets.copy(mission.scout.mapTarget)
     end
+    if mission.scout and mission.scout.kind == "home" then
+        saved.schema = 9
+        saved.scout.home = SC.HomeTrip.copyState(mission.scout.home)
+    end
     return saved
 end
 
 function Expedition.restore(saved)
     if mission ~= nil then return false, "expedition is already active" end
+    if type(saved) == "table" and saved.schema == 9 then
+        local legacy, reason
+        if SC.HomeTrip then legacy, reason = SC.HomeTrip.savedLegacy(saved) end
+        if not legacy then return false, reason or "saved home itinerary is invalid" end
+        local restored, issue = Expedition.restore(legacy)
+        if restored then
+            mission.scout.kind, mission.scout.home = "home", SC.HomeTrip.copyState(saved.scout.home)
+            if mission.scout.vehicle and mission.scout.vehicle.state=="abandoned" then mission.scout.travelMode="straight" end
+        end
+        return restored, issue
+    end
     if type(saved) == "table" and saved.schema == 8 then
         if type(saved.scout) ~= "table" then return false, "saved map itinerary is invalid" end
         local target = saved.scout and saved.scout.mapTarget
@@ -2199,7 +2307,7 @@ function Expedition.current() return mission end
 function Expedition.lastOutcome() return lastOutcome end
 function Expedition.lastDebrief()
     local copy = copyDebrief(lastDebrief)
-    if copy and (copy.kind == "search" or copy.kind == "wood") and copy.integration then
+    if copy and (copy.kind == "search" or copy.kind == "wood" or copy.kind == "home") and copy.integration then
         for _, record in ipairs(pendingDeliveries) do
             if record.tripId == copy.integration.tripId then
                 copy.integration = SC.ExpeditionIntegration.copy(record)
@@ -2239,6 +2347,7 @@ local function homecomingRecord()
     if mission == nil or mission.scout == nil
         or (mission.scout.search == nil and mission.scout.wood == nil)
         or mission.scout.phase ~= "awaiting_player"
+        or (mission.scout.kind == "home" and mission.scout.home.recalling)
         or mission.integration ~= nil
         or not SC.ExpeditionIntegration then return end
     mission.integration = SC.ExpeditionIntegration.create(mission)
@@ -2250,6 +2359,7 @@ end
 function Expedition.integrationFor(actor)
     if not actor or not SC.ExpeditionIntegration then return nil end
     if mission and mission.members[actor] then
+        if mission.homeRelease or mission.scout and mission.scout.kind == "home" then return nil end
         local record = mission.integration
         return record and SC.ExpeditionIntegration.wants(record, actor)
             and record or nil
@@ -2378,6 +2488,7 @@ function Expedition.prepareReset()
                 mission.slotSqlId or reusableSlotSqlId, true)
         end
     end
+    if mission.scout and mission.scout.kind=="home" then SC.HomeTrip.cancelRadio(mission) end
     mission.pendingRadio = nil
     mission.radioAuthorization = nil
     if mission.radioTextHooked then
@@ -2393,6 +2504,7 @@ function Expedition.reset()
         return false, "expedition_view_still_owned"
     end
     mission = nil
+    if SC.HomeTrip and SC.HomeTrip.reset then SC.HomeTrip.reset() end
     lastOutcome = nil
     lastDebrief = nil
     pendingDeliveries = {}
@@ -2632,6 +2744,7 @@ end
 function Expedition.followDistanceFor(actor)
     if not Expedition.isFollower(actor) then return nil end
     local itinerary = mission.scout
+    if itinerary and itinerary.kind == "home" and itinerary.phase == "awaiting_player" then return 1 end
     if itinerary and itinerary.phase == "searching" then
         local square = mission.leader.actor:getCurrentSquare()
         if square and square:getRoom() ~= nil then return 5 end
@@ -2760,10 +2873,76 @@ local function applyBlockDecision(payload)
     return false, "unsupported_radio_order"
 end
 
+function Expedition.applyHomeRadioPush(request,player)
+    if not mission or not mission.scout or mission.scout.kind~="home"
+        or not Expedition.radioCommandAuthorized(mission.leader.actor,"home_radio",request,player) then
+        return false,"home_radio_stale"
+    end
+    return applyBlockDecision("push_on")
+end
+
+-- Home queues outside rendering, but the command and its acknowledgement both
+-- use the existing native OnDeviceText receipt. Portable return replies are
+-- verified explicitly; a successful outbound send is never an acknowledgement.
+function Expedition.exchangeHomeRadio(request)
+    local active=mission
+    if not active or not active.scout or active.scout.kind~="home" then return false,"home_radio_stale" end
+    if active.pendingRadio or active.pendingReport then return false,"home_radio_busy" end
+    local okay,proof=SC.HomeTrip.beginRadioRequest(active,request)
+    if not okay then return false,proof end
+    if not active.radioTextHooked or not alive(active.leader) then return false,"home_radio_unavailable" end
+    active.radioSequence=active.radioSequence+1
+    local sequence=active.radioSequence
+    local pair=proof.pair
+    local guid="LF-EXP-"..active.radioSession
+    local target=proof.target
+    local text="Home order: "..proof.verb..(proof.verb=="come_back"
+        and (" "..target.x..","..target.y..","..target.z) or "")
+    local pending={leader=proof.leader,receiver=pair.receiver,guid=guid,codes="HOME-CMD-"..sequence,text=text}
+    if not SC.HomeTrip.ownRadioField(active,request,"pendingRadio",pending) then return false,"home_radio_stale" end
+    local sent=pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
+        math.floor(proof.player:getX()),math.floor(proof.player:getY()),pair.channel,
+        text,guid,pending.codes,.8,.9,1,pair.range,false)
+    local valid,reason=SC.HomeTrip.radioRequestCurrent(active,request)
+    if not sent or not pending.received or mission~=active or not valid then
+        SC.HomeTrip.clearRadioField(active,request,"pendingRadio")
+        return false,not valid and reason or "home_radio_no_ack"
+    end
+    local reply=type(getText)=="function" and getText("UI_SC_HomeTrip_RadioOrderReceived",active.leader.name)
+        or (tostring(active.leader.name)..": Radio order received.")
+    local acknowledgement={leader=proof.leader,receiver=pair.source,guid=guid,
+        codes="HOME-ACK-"..sequence,text=reply}
+    if not SC.HomeTrip.ownRadioField(active,request,"pendingReport",acknowledgement) then return false,"home_radio_stale" end
+    local replied=pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
+        math.floor(proof.leader:getX()),math.floor(proof.leader:getY()),pair.channel,
+        reply,guid,acknowledgement.codes,.95,.7,.35,pair.returnRange,false)
+    SC.HomeTrip.clearRadioField(active,request,"pendingReport")
+    valid,reason=SC.HomeTrip.radioRequestCurrent(active,request)
+    if not replied or not acknowledgement.received or mission~=active or not valid then
+        SC.HomeTrip.clearRadioField(active,request,"pendingRadio")
+        return false,not valid and reason or "home_radio_no_ack"
+    end
+    local authorization={actor=proof.leader,command="home_radio",payload=request,player=proof.player}
+    if not SC.HomeTrip.ownRadioField(active,request,"radioAuthorization",authorization) then return false,"home_radio_stale" end
+    local called,accepted,issue=pcall(SC.HomeTrip.applyRadioRequest,active,request,proof.player)
+    SC.HomeTrip.clearRadioField(active,request,"radioAuthorization")
+    SC.HomeTrip.clearRadioField(active,request,"pendingRadio")
+    if not called then return false,"home_radio_unavailable" end
+    return accepted==true,issue
+end
+
 -- Private vertical slice: send one real native radio message, accept only its
 -- exact receiver-side text event, then use the existing Commands owner.
 function Expedition.sendRadioOrder(player, command, payload, endpoint)
     if mission == nil or mission.terminal then return false, "no_active_expedition" end
+    if mission.scout and mission.scout.kind == "home" then
+        if endpoint~=nil then return false,"home_radio_unavailable" end
+        local verb=command=="come_back" and "come_back" or command=="hold_position" and "hold"
+            or command=="progress_report" and payload=="status" and "status"
+            or command=="expedition_decision" and payload=="push_on" and "push_on"
+        if not verb then return false,"home_radio_unavailable" end
+        return SC.HomeTrip.requestRadio(player,verb,mission.radioSession)
+    end
     if player == nil or getSpecificPlayer(0) ~= player then
         return false, "invalid_local_operator"
     end
@@ -3588,6 +3767,9 @@ local function useReachedTrailForReturn(itinerary, avoidance)
     -- leader is upstairs. Only a same-floor waypoint may be consumed.
     itinerary.returnIndex = reachedTrailReturnIndex(
         mission.leader.actor, itinerary.trail)
+    -- A home trip has no outbound route to retrace. Keep the existing local
+    -- avoidance fallback, aiming at home rather than its departure tile.
+    if itinerary.kind == "home" then itinerary.returnIndex = 0 end
     itinerary.roadRoute = nil
     itinerary.trailReturn = true
     itinerary.replans = 0
@@ -4093,6 +4275,7 @@ end
 local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
+    if scout.kind == "home" and SC.HomeTrip.pulse(mission) then return end
     local now = SC.GameplayUtil.nowMs()
     if scout.wood and scout.wood.pendingCarReturnReason and SC.ExpeditionCar then
         local reason = scout.wood.pendingCarReturnReason
@@ -4525,7 +4708,10 @@ local function pulseScout()
         if now - (scout.waypointStagedAt or now) < 30000
             and SC.Navigation and type(SC.Navigation.status) == "function" then
             local navigation = SC.Navigation.status(leader)
-            if navigation and navigation.phase == "planning"
+            -- Recovery takes precedence over planning in status.phase. The
+            -- retained search age, rather than that display phase, proves
+            -- that Navigation still owns a bounded ordered-move search.
+            if navigation and navigation.active == true
                 and navigation.action == "ordered_move"
                 and type(navigation.pathSearchAgeMs) == "number"
                 and navigation.pathSearchAgeMs >= 0 and navigation.pathSearchAgeMs < 30000 then
@@ -5275,13 +5461,18 @@ end
 -- The player has physically met the team. Release only slot 1's chunk map;
 -- the primary player's map must already cover the leader and all survivors.
 function Expedition.finishAtPlayer(player)
+    if mission and mission.scout and mission.scout.kind=="home" and mission.scout.home.radioHold then
+        return false,"home_radio_holding"
+    end
     if mission == nil or mission.terminal then return false, "no_active_expedition" end
+    if mission.scout and mission.scout.kind == "home"
+        and not mission.scout.home.recalling then return false, "home_not_recalled" end
     if player == nil or getSpecificPlayer(0) ~= player
         or not alive(mission.leader)
         or getSpecificPlayer(1) ~= mission.leader.actor then
         return false, "return_view_unavailable"
     end
-    if mission.pendingRadio ~= nil or mission.technicalIssue ~= nil then
+    if mission.pendingRadio ~= nil or mission.homeRadioRequest ~= nil or mission.technicalIssue ~= nil then
         return false, "return_busy_or_paused"
     end
     local viewOwner = SC.ViewSession.owner()
@@ -5295,7 +5486,8 @@ function Expedition.finishAtPlayer(player)
         end
         return false, "companion_view_owner_mismatch"
     end
-    if mission.homeBaseId and SC.BaseLife and SC.BaseLife.active()
+    if not (mission.scout and mission.scout.kind == "home")
+        and mission.homeBaseId and SC.BaseLife and SC.BaseLife.active()
         and SC.BaseLife.active().id == mission.homeBaseId
         and not SC.BaseLife.isInside(mission.leader.actor)
         and not SC.BaseLife.isInside(mission.leader.actor, "parking") then
@@ -5358,6 +5550,9 @@ function Expedition.finishAtPlayer(player)
         if mission.survivors == nil or mission.survivors[record.id] then
             if record.actor == nil then return false, "return_member_unresolved" end
             if not record.actor:isDead() then
+                if mission.scout and mission.scout.kind == "home" and SC.HomeTrip.memberSeated(record.actor) then
+                    return false, "home_member_seated"
+                end
                 if not alive(record) or math.abs(record.actor:getX() - px) > 12
                     or math.abs(record.actor:getY() - py) > 12
                     or not assembledFloor(record.actor:getZ()) then
@@ -5394,10 +5589,18 @@ function Expedition.finishAtPlayer(player)
     if not identityOk or not validSlotSqlId(slotSqlId) then
         return false, "return_slot_identity_unavailable:" .. tostring(slotSqlId)
     end
+    if mission.scout and mission.scout.kind=="home" then
+        local ready,reason=SC.HomeTrip.recallReadyForRelease(mission)
+        if not ready then return false,reason end
+    end
     local uiOk, uiError = pcall(destroyPlayerData, mission.leader.actor)
     if not uiOk then
         mission.technicalIssue = { reason = "return_ui_teardown_failed" }
         return false, tostring(uiError)
+    end
+    if mission.scout and mission.scout.kind=="home" then
+        local ready,reason=SC.HomeTrip.recallReadyForRelease(mission)
+        if not ready then return false,reason end
     end
     local released, value = pcall(SCSplitScreenProbe.releaseJoinedLeader)
     if not released or value ~= true then
@@ -5417,12 +5620,14 @@ function Expedition.finishAtPlayer(player)
         Events.OnDeviceText.Remove(radioTextReceived)
     end
     mission.terminal = "returned"
-    if intactRoster and homecomingSpeaker ~= nil
+    if not (mission.scout and mission.scout.kind == "home")
+        and intactRoster and homecomingSpeaker ~= nil
         and SC.Dialogue and type(SC.Dialogue.say) == "function" then
         pcall(SC.Dialogue.say, homecomingSpeaker, "expedition.homecoming")
     end
     if mission.scout ~= nil then
-        lastDebrief = pendingDebrief or {
+        lastDebrief = mission.scout.kind == "home" and SC.HomeTrip.debrief(mission,
+            mission.scout.home.recallByRadio and "recalled_radio" or "recalled_nearby") or pendingDebrief or {
             kind = "scout",
             destination = copyPoint(mission.scout.destination),
             returnPoint = copyPoint(mission.scout.returnPoint),
@@ -5436,10 +5641,83 @@ function Expedition.finishAtPlayer(player)
         }
     end
     if mission.integration then queueDelivery(mission.integration) end
+    if mission.scout and mission.scout.kind=="home" then SC.HomeTrip.releaseCarSave(mission) end
     mission = nil
     reusableSlotSqlId = slotSqlId
     lastOutcome = "returned"
     return true, "returned"
+end
+
+function Expedition.cancelHome(reason, player)
+    if not mission or not mission.scout or mission.scout.kind ~= "home" then return false, "home_no_trip" end
+    local allowed, issue = SC.HomeTrip.canRecall(player)
+    if not allowed then return false, issue end
+    return SC.HomeTrip.stageRecall(mission, player, reason)
+end
+
+function Expedition.finishHome()
+    if not mission or not mission.scout or mission.scout.kind ~= "home" then return false, "home_no_trip" end
+    local ready, actors = true, mission.homeRelease and mission.homeRelease.actors
+    if not mission.homeRelease then
+        ready, actors = SC.HomeTrip.arrivalReady(mission)
+        if ready ~= true then return false, actors end
+    end
+    if mission.scout.home.recalling or mission.scout.home.radioHold or mission.pendingRadio or mission.homeRadioRequest then return false, "home_finish_busy" end
+    if not (mission.homeRelease and mission.homeRelease.nativeReleased)
+        and SC.ViewSession.owner() ~= "expedition" then return false, "companion_view_owner_mismatch" end
+    -- Create the durable cleanup/restock obligation before unloading anyone.
+    mission.integration = mission.integration or SC.ExpeditionIntegration.create(mission)
+    if not mission.integration then return false, "home_handover_unavailable" end
+    SC.HomeTrip.announceArrival(mission)
+    local released, slotId = SC.HomeTrip.releaseRemote(mission, actors)
+    if released ~= true then
+        mission.scout.home.blocker = string.sub(tostring(slotId),1,96)
+        mission.technicalIssue = mission.homeRelease and {reason = mission.scout.home.blocker} or nil
+        return false, slotId
+    end
+    lastDebrief = SC.HomeTrip.debrief(mission, "home")
+    if mission.integration then queueDelivery(mission.integration) end
+    SC.HomeTrip.releaseCarSave(mission)
+    if mission.radioTextHooked then Events.OnDeviceText.Remove(radioTextReceived) end
+    mission.terminal = "home"
+    mission = nil
+    reusableSlotSqlId, lastOutcome = slotId, "home"
+    return true, "home"
+end
+
+-- The persistence transaction must save the finished state before detaching
+-- its first native actor. Build that document without ending the live mission;
+-- the retained ticket still owns teardown/retry until native release commits.
+function Expedition.exportRemoteArrival(integration)
+    if not mission or not mission.scout or mission.scout.kind ~= "home"
+        or mission.scout.home.recalling or not SC.ExpeditionIntegration.valid(integration)
+        or integration.kind ~= "home" or integration.tripId ~= mission.radioSession then
+        return nil, "home_remote_descriptor_unavailable"
+    end
+    local deliveries = copyDeliveryList(pendingDeliveries)
+    for index = #deliveries, 1, -1 do
+        if deliveries[index].tripId == integration.tripId then table.remove(deliveries, index) end
+    end
+    while #deliveries >= DELIVERY_LIMIT do
+        local removable
+        for index, pending in ipairs(deliveries) do
+            if pending.kind ~= "wood" and pending.kind ~= "home" then removable = index break end
+        end
+        if not removable then return nil, "home_delivery_queue_full" end
+        table.remove(deliveries, removable)
+    end
+    deliveries[#deliveries + 1] = SC.ExpeditionIntegration.copy(integration)
+    local slotId = mission.homeRelease and mission.homeRelease.slotId
+        or SC.ViewSession.slotSqlId() or mission.slotSqlId
+    if not validSlotSqlId(slotId) then return nil, "home_slot_identity_unavailable" end
+    local debrief = SC.HomeTrip.debrief(mission, "home")
+    debrief.integration = SC.ExpeditionIntegration.copy(integration)
+    return {schema = 2, state = "idle", slotSqlId = slotId,
+        debrief = debrief, deliveries = deliveries}
+end
+
+function Expedition.dismissHomeDebrief()
+    if lastDebrief and lastDebrief.kind == "home" then lastDebrief = nil end
 end
 
 local function updateSupportCall()
@@ -5494,7 +5772,27 @@ end
 
 function Expedition.pulse()
     if mission == nil then return false, "no_mission" end
+    if mission.homeRelease and mission.homeRelease.deadViewReleased then
+        local complete,reason = SC.Persistence.completeDeadRemoteArrival(
+            mission.homeRelease.token,mission.homeRelease.actors,Expedition.export())
+        if not complete then return false,reason end
+        mission,lastOutcome = nil,"all_dead"
+        return true,lastOutcome
+    end
     if mission.terminal then return false, mission.terminal end
+    -- A durable remote handover can have detached live actors already. Retry
+    -- its native ticket before ordinary liveness/casualty handling.
+    if mission.homeRelease then
+        local release = mission.homeRelease
+        local allDead = release.committed ~= true and type(release.actors) == "table" and #release.actors > 0
+        for _,actor in ipairs(release.actors or {}) do
+            if SC.GameplayUtil.isDead(actor) ~= true then allDead = false break end
+        end
+        if allDead then
+            for _,record in ipairs(mission.roster) do if alive(record) then allDead = false break end end
+        end
+        if not allDead then return Expedition.finishHome() end
+    end
     -- Build 42's slot-1 ISHotbar:update() makes a non-joypad bar visible,
     -- while ISHotbar:render() hides every slot above zero. That oscillates the
     -- numbered bar every frame in the companion view. This AI slot has no
@@ -5757,6 +6055,8 @@ function Expedition.pulse()
         return false, tostring(released)
     end
     SC.ViewSession.released("expedition", releasedSlotSqlId)
+    if mission.scout and mission.scout.kind == "home" then SC.HomeTrip.releaseCarSave(mission) end
+    if mission.homeRelease then mission.homeRelease.deadViewReleased = true end
     mission.terminal = "all_dead"
     if validSlotSqlId(releasedSlotSqlId) then
         reusableSlotSqlId = releasedSlotSqlId
@@ -5771,6 +6071,11 @@ function Expedition.pulse()
         lastDebrief = searchDebrief(mission.scout)
         lastDebrief.integration = SC.ExpeditionIntegration.copy(woodRecovery)
         queueDelivery(woodRecovery)
+    end
+    if mission.homeRelease then
+        local complete,reason = SC.Persistence.completeDeadRemoteArrival(
+            mission.homeRelease.token,mission.homeRelease.actors,Expedition.export())
+        if not complete then return false,reason end
     end
     mission = nil
     lastOutcome = "all_dead"

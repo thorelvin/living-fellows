@@ -346,6 +346,7 @@ local function defaultState(source, recruited)
     return {
         order = {
             current = currentOrder,
+            commandSerial = boundedNumber(order.commandSerial,0,0,10000000,true),
             followDistance = followDistance,
             allowOverload = order.allowOverload == true,
             anchor = anchor,

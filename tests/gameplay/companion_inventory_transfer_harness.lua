@@ -251,8 +251,57 @@ assert(#variantMenu.options == 1
         and variantMenu.options[1].name == "Wear on Companion",
     "companion inventory menu kept vanilla player-targeted variant Wear submenu")
 
+-- An arrival handover freezes only its exact crew, including nested bags and
+-- stale queued drags. Travelling without an arrival lease stays unchanged.
+local frozen = true
+SurvivorCompanion.HomeTrip = {
+    inventoryFrozen = function(actor) return frozen and actor == companion end,
+    inventoryContainerFrozen = function(container)
+        for _ = 1, 12 do
+            if not container then return false end
+            if container == companionInventory then return frozen end
+            local item = container.getContainingItem and container:getContainingItem()
+            container = item and item:getContainer() or nil
+        end
+        return false
+    end,
+}
+local queuedCalls = 0
+local originalQueued = function(self, item)
+    queuedCalls = queuedCalls + 1
+    return ISTransferAction:transferItem(self.character, item, self.srcContainer, self.destContainer)
+end
+ISInventoryTransferAction = { transferItem = originalQueued }
+assert(bridge.installTransferHook())
+local held = newItem(bagInventory)
+local refused = ISTransferAction:transferItem(player, held, bagInventory, playerInventory)
+assert(refused == nil and held.container == bagInventory and contains(bagInventory, held)
+    and not contains(playerInventory, held), "arrival blocks taking an exact nested crew item before native transfer")
+local gift = newItem(playerInventory)
+assert(ISTransferAction:transferItem(player, gift, playerInventory, bagInventory) == nil
+    and gift.container == playerInventory and contains(playerInventory, gift),
+    "arrival blocks giving an item into a frozen nested crew inventory")
+ISInventoryTransferAction.transferItem({ character = player, srcContainer = bagInventory,
+    destContainer = playerInventory }, held)
+assert(queuedCalls == 0 and held.container == bagInventory,
+    "stale queued drag is refused before stock post-transfer callbacks")
+local unrelated = newItem(otherInventory)
+assert(ISTransferAction:transferItem(player, unrelated, otherInventory, playerInventory) == unrelated
+    and unrelated.container == playerInventory, "arrival leaves unrelated inventory transfers working")
+assert(not bridge.openInventory(companion, player)
+    and not bridge.equipOnCompanion(companion, crowbar, player, "weapon"),
+    "frozen crew cannot expose mutable inventory or change exact equipment")
+local frozenMenu = menuWithVanilla("Wear", vanillaWear)
+bridge.fillInventoryContextMenu(0, frozenMenu, { shoulderPads })
+assert(frozenMenu.options[1].notAvailable, "arrival disables existing inventory context actions")
+frozen = false
+assert(ISTransferAction:transferItem(player, held, bagInventory, playerInventory) == held
+    and held.container == playerInventory, "aborted handover immediately restores ordinary travel transfers")
+
 -- With the other mod gone, teardown restores the vanilla function.
 ISTransferAction.transferItem = ours
 removed = bridge.removeTransferHook()
 assert(removed == true and ISTransferAction.transferItem == original)
+assert(ISInventoryTransferAction.transferItem == originalQueued,
+    "teardown restores the exact queued-transfer callback")
 SC_TEST_REPORT = "Companion inventory transfer: equipped item removal, root/bag gifts, exact Equip/Wear and foreign wrapper chain"

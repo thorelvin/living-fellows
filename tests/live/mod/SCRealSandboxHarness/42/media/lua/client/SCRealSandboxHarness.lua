@@ -15797,6 +15797,10 @@ local function externalProbe(moduleName, ...)
     return probe.step(...)
 end
 
+function Harness.probeHomeTrip(...)
+    return externalProbe("SCHomeTripProbe", ...)
+end
+
 Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
@@ -16474,6 +16478,8 @@ local function tick()
         else
             setPhase("finish", current)
         end
+    elseif string.find(tostring(Harness.phase), "home_trip_", 1, true) == 1 then
+        Harness.probeHomeTrip(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "persona_discovery_", 1, true) == 1 then
         Harness.probePersonaDiscovery(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "persona_play_", 1, true) == 1 then
@@ -17467,6 +17473,8 @@ local function onGameStart()
         setPhase("ui_menu_probe", Harness.startedAt)
     elseif Harness.config.fishing_map_list_probe == "true" then
         setPhase("fishing_map_list", Harness.startedAt)
+    elseif Harness.config.home_trip_probe == "true" then
+        setPhase("home_trip_setup", Harness.startedAt)
     elseif Harness.config.persona_discovery_probe == "true" then
         setPhase("persona_discovery_setup", Harness.startedAt)
     elseif Harness.config.persona_play_probe == "true" then

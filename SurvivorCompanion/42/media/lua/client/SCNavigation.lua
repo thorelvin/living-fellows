@@ -4292,12 +4292,53 @@ local function goalsShareHeading(actor, oldGoal, newGoal)
     return (odx * ndx + ody * ndy) / (oldLength * newLength) >= 0.35
 end
 
+-- Home's final entry has a separate thirty-second mission watchdog. Spend a
+-- bounded part of it on Lua A*, then let the normal exhausted-budget/native
+-- lease path handle the real doorway before that outer watchdog discards it.
+-- A caller's hint alone never grants this shorter search allowance.
+function Navigation._homeApproachSearchForRequest(actor, sourceSquare, requestedGoal, goalSquare, intent, planningGoal)
+    if type(intent) ~= "table" or intent.expeditionHomeApproach ~= true
+        or intent.action ~= "ordered_move" or intent.workCampOnly == true
+        or intent.draggingBody == true or intent.stealthAvoidance == true then return false end
+    local home = SC.HomeTrip
+    if not home or type(home.current) ~= "function" or type(home.finalApproachFor) ~= "function"
+        or type(home.campUnchanged) ~= "function" then return false end
+    local read, active = pcall(home.current)
+    local scout = read and type(active) == "table" and active.scout
+    local trip = type(scout) == "table" and scout.home
+    local camp = type(trip) == "table" and trip.camp
+    local core = type(camp) == "table" and camp.core
+    local waypoint = read and type(active) == "table" and active.testWaypoint
+    if type(core) ~= "table" or type(waypoint) ~= "table" or not active.leader
+        or active.leader.actor ~= actor or active.homeRelease or active.technicalIssue or active.cohesionHold
+        or trip.recalling or scout.pause or scout.kind ~= "home" or scout.phase ~= "inbound"
+        or core.z ~= 0 or waypoint.x ~= core.x or waypoint.y ~= core.y or waypoint.z ~= core.z
+        or scout.vehicle and scout.vehicle.state ~= "home_wait" and scout.vehicle.state ~= "abandoned" then return false end
+    local approachRead, approach = pcall(home.finalApproachFor, actor)
+    local campRead, unchanged = pcall(home.campUnchanged, camp)
+    if not approachRead or approach ~= true or not campRead or unchanged ~= true then return false end
+    local actorX, actorY, actorZ = U().position(actor)
+    local _, _, sourceZ = U().position(sourceSquare)
+    if actorZ ~= 0 or sourceZ ~= 0 or type(actorX) ~= "number" or type(actorY) ~= "number"
+        or type(core.x) ~= "number" or type(core.y) ~= "number"
+        or not ((actorX-core.x)^2 + (actorY-core.y)^2 <= 18^2)
+        or requestedGoal == nil or goalSquare == nil or planningGoal == nil then return false end
+    for _, target in ipairs({ requestedGoal, goalSquare, planningGoal }) do
+        local x, y, z = U().position(target)
+        if x ~= core.x or y ~= core.y or z ~= core.z then return false end
+    end
+    return true
+end
+
 local function pathSearchBounds(pending)
     local leaseMs = tonumber(U().config("navigationPathSearchLeaseMs")) or 6500
     local hardMs = tonumber(U().config("navigationPathSearchHardMs")) or 30000
-    if type(pending) == "table" and pending.action == "move_to_base_storage" then
+    if type(pending) == "table" and (pending.action == "move_to_base_storage"
+        or pending.action == "move_to_car_trunk" and pending.workCampOnly == true
+            and pending.workReach == true) then
         -- A marked container can be only a few tiles away across a room wall;
-        -- reaching its door can need more than the ordinary 30-second search.
+        -- reaching its door, or leaving it for a marked camp car, can need more
+        -- than the ordinary 30-second search. The idle lease stays unchanged.
         hardMs = math.max(hardMs, 75000)
     end
     if type(pending) == "table" and pending.followRouting == true then
@@ -4305,6 +4346,9 @@ local function pathSearchBounds(pending)
             tonumber(U().config("navigationFollowPathSearchLeaseMs")) or 2500)
         hardMs = math.min(hardMs,
             tonumber(U().config("navigationFollowPathSearchHardMs")) or 5000)
+    end
+    if type(pending) == "table" and pending.homeFinalApproach == true then
+        leaseMs, hardMs = math.min(leaseMs, 6000), math.min(hardMs, 6000)
     end
     return leaseMs, math.max(leaseMs, hardMs)
 end
@@ -7591,6 +7635,8 @@ function Navigation.request(actor, target, movementMode, intent)
                 startedAt = now,
                 progressAt = now,
                 action = requestIntent.action,
+                workCampOnly = requestIntent.workCampOnly == true,
+                workReach = requestIntent.workReach == true,
                 lastExpanded = 0,
                 stealthAvoidance = requestIntent.stealthAvoidance == true,
                 followRouting = followRouting == true,
@@ -7601,6 +7647,17 @@ function Navigation.request(actor, target, movementMode, intent)
             state.activeWorkRoute = nil
             SC.WorkRoutes.count("navigation.astar.started")
         end
+        -- Only a frontier created with the actual camp admission may retain
+        -- its longer trunk allowance. Reuse can revoke that proof, not grant
+        -- it to an earlier ungated search through a later caller's flags.
+        state.pathSearch.workCampOnly = state.pathSearch.workCampOnly == true
+            and requestIntent.workCampOnly == true
+        state.pathSearch.workReach = state.pathSearch.workReach == true
+            and requestIntent.workReach == true
+        -- Recheck on reuse as well: a later ordinary order cannot inherit a
+        -- Home-only deadline from a retained frontier for these coordinates.
+        state.pathSearch.homeFinalApproach = SC.Navigation._homeApproachSearchForRequest(
+            actor, sourceSquare, requestedGoalSquare, goalSquare, requestIntent, planningGoal)
         -- A direct MoveForward pulse from the discarded route otherwise remains
         -- active while this Lua search yields. Acquire a stationary, posture-safe
         -- hold once per search; the first completed route can start immediately.

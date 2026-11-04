@@ -20,6 +20,51 @@ local function managed(id, options)
 end
 
 do
+    local actor = managed("car-hold-owned-stop")
+    local vehicle, token = actor.vehicle, Supervisor.current(actor)
+    local parks = T.parks
+    check(select(2, Driving._stopOwnedVehicle(actor, {})) == "drive_owner_mismatch"
+        and T.parks == parks and T.native[actor].active,
+        "car hold cannot stop a managed job through a replacement vehicle object")
+    actor.vehicle = {}
+    check(not Driving._stopOwnedVehicle(actor, vehicle) and T.parks == parks,
+        "car hold requires the actor to remain in its job's exact native vehicle")
+    actor.vehicle = vehicle
+    vehicle.driver = {}
+    check(not Driving._stopOwnedVehicle(actor, vehicle) and T.parks == parks,
+        "car hold cannot stop a different native driver")
+    vehicle.driver = actor
+    local isCurrent = Supervisor.isCurrent
+    Supervisor.isCurrent = function(candidate)
+        if candidate == token then return false end
+        return isCurrent(candidate)
+    end
+    check(not Driving._stopOwnedVehicle(actor, vehicle) and T.parks == parks,
+        "car hold cannot use a superseded managed supervisor token")
+    Supervisor.isCurrent = isCurrent
+    actor.companion = false
+    check(not Driving._stopOwnedVehicle(actor, vehicle) and T.parks == parks,
+        "car hold cannot stop a stale unregistered native actor")
+    actor.companion = true
+    T.stopRejected = true
+    check(not Driving._stopOwnedVehicle(actor, vehicle, "home_radio_hold")
+        and Supervisor.current(actor) == token and Driving.jobStatus(actor).phase == "stopping",
+        "a rejected owned stop retains the exact token for braking retry")
+    T.stopRejected = false
+    check(Driving._stopOwnedVehicle(actor, vehicle, "home_radio_hold")
+        and not T.native[actor].active and Supervisor.current(actor) == nil,
+        "a verified owned stop releases only its exact managed job")
+    parks = T.parks
+    check(not Driving._stopOwnedVehicle(actor, vehicle) and T.parks == parks,
+        "car hold has no native-stop fallback after the managed job is gone")
+    local direct = manual("car-hold-manual-negative")
+    parks = T.parks
+    check(not Driving._stopOwnedVehicle(direct, direct.vehicle) and T.parks == parks,
+        "car hold cannot claim an unrelated manual wheel lease")
+    Driving.release(direct)
+end
+
+do
     local actor = managed("taxi-corner-speed", { speedKmh = 20,
         cornerSpeedScale = 2 })
     check(T.tunedFollow and T.tunedFollow.actor == actor
@@ -581,6 +626,154 @@ do
     check(SC.Runtime.releaseActor(actor) and Driving.jobStatus(actor) == nil
         and Supervisor.current(actor) == nil and not T.native[actor].active,
         "runtime retirement retries parking and clears the drive outcome after verification")
+end
+
+do
+    local actor = managed("drive-arrived-ownership-snapshot")
+    actor.vehicle.x, actor.vehicle.y = goal.x, goal.y
+    T.native[actor].state, T.native[actor].mode = "arrived", "arrived"
+    Driving.tick()
+    local status = Driving.jobStatus(actor)
+    check(status.managed and status.owned and status.parked
+        and status.phase == "arrived" and status.result == "arrived",
+        "an arrived job exposes its exact current managed lease after native control parks")
+    check(Driving.release(actor, "ownership_probe_released"), "the arrived ownership fixture releases normally")
+    status = Driving.jobStatus(actor)
+    check(status.managed and not status.owned and status.parked
+        and status.phase == "released" and status.result == "arrived"
+        and status.reason == "ownership_probe_released",
+        "a released arrived outcome cannot report the former lease as currently owned")
+
+    actor = managed("drive-stale-arrived-ownership-snapshot")
+    actor.vehicle.x, actor.vehicle.y = goal.x, goal.y
+    T.native[actor].state, T.native[actor].mode = "arrived", "arrived"
+    Driving.tick()
+    check(Supervisor.complete(Supervisor.current(actor), "ownership_probe_stale"),
+        "the stale ownership fixture retires only its supervisor token")
+    status = Driving.jobStatus(actor)
+    local motion = T.motionCalls
+    local accepted, reason = Driving.approach(actor, { x = goal.x + 3, y = goal.y, z = 0 })
+    check(status.managed and status.parked and not status.owned
+        and status.phase == "arrived" and status.result == "arrived"
+        and not accepted and reason == "parking_requires_arrived_drive"
+        and T.motionCalls == motion,
+        "a stale arrived token is visible without relaxing or dispatching the parking ownership guard")
+    Driving.release(actor)
+end
+
+do
+    local firstRefusal = "parking bay requires a clear forward approach"
+    local target = { x = goal.x + 5, y = goal.y, z = 0 }
+    local function arrived(id)
+        local actor = managed(id)
+        actor.vehicle.x, actor.vehicle.y = goal.x, goal.y
+        T.native[actor].state, T.native[actor].mode = "arrived", "arrived"
+        Driving.tick()
+        return actor
+    end
+    local actor = arrived("drive-parking-alignment")
+    local token, alignments, approaches = Supervisor.current(actor), T.alignments or 0, T.approaches or 0
+    T.approachRejects = 1
+    check(Driving.approach(actor, target, 30000, false, true)
+        and Driving.jobStatus(actor).phase == "parking_aligning"
+        and Driving.jobStatus(actor).owned and (T.alignments or 0) == alignments + 1
+        and T.lastAlignment.x == target.x and T.lastAlignment.y == target.y
+        and Supervisor.current(actor) == token and (T.approaches or 0) == approaches,
+        "a real forward-cone refusal starts one bounded alignment under the same managed lease")
+    check(Driving.jobStatus(actor).firstParkingRefusal == firstRefusal
+        and Driving.jobStatus(actor).alignmentAttempts == 1,
+        "alignment keeps the original native refusal and its bounded attempt count")
+    actor.vehicle.x, actor.vehicle.y = goal.x + 1, goal.y + 1
+    T.native[actor].state, T.native[actor].mode = "turned", "turned"
+    T.stopRejected, T.stopDropsActive = true, true
+    Driving.tick()
+    check(Driving.jobStatus(actor).phase == "stopping" and Supervisor.current(actor) == token
+        and Driving.jobStatus(actor).owned and not T.native[actor].active
+        and (T.approaches or 0) == approaches,
+        "a partial native stop keeps pending alignment cleanup authority without starting the parking leg")
+    T.stopRejected, T.stopDropsActive = false, false
+    Driving.tick()
+    check(Driving.jobStatus(actor).phase == "approaching" and Driving.jobStatus(actor).owned
+        and Supervisor.current(actor) == token and (T.approaches or 0) == approaches + 1
+        and T.lastApproachRoute == "201.000,101.000,5;205.000,100.000,5"
+        and Driving.jobStatus(actor).firstParkingRefusal == firstRefusal,
+        "TURNED rebuilds the unchanged guarded forward leg from the actual post-alignment car pose")
+    Driving.release(actor)
+
+    actor = arrived("drive-parking-alignment-missing-api")
+    local align = SCBridge.driveAlign
+    SCBridge.driveAlign = nil T.approachRejects = 1
+    local accepted, reason = Driving.approach(actor, target, 30000, false, true)
+    SCBridge.driveAlign = align
+    check(not accepted and reason == "parking_alignment_unavailable"
+        and Driving.jobStatus(actor).owned and Driving.jobStatus(actor).parked
+        and Driving.jobStatus(actor).result == "failed" and not T.native[actor].active
+        and Driving.jobStatus(actor).firstParkingRefusal == firstRefusal,
+        "an older bridge missing alignment safely parks without discarding the lease or first refusal")
+    Driving.release(actor)
+
+    actor = arrived("drive-parking-alignment-no-room")
+    T.approachRejects, T.alignReject = 1, "parking alignment room is blocked or unloaded"
+    check(not Driving.approach(actor, target, 30000, false, true)
+        and Driving.jobStatus(actor).result == "failed" and Driving.jobStatus(actor).owned
+        and Driving.jobStatus(actor).firstParkingRefusal == firstRefusal and not T.native[actor].active,
+        "blocked alignment space cannot dispatch a parking leg or lose the truthful refusal")
+    T.alignReject = nil Driving.release(actor)
+
+    actor = arrived("drive-parking-alignment-failed")
+    T.approachRejects = 1
+    check(Driving.approach(actor, target, 30000, false, true), "a checked alignment begins before a later obstacle")
+    T.native[actor].state, T.native[actor].mode = "turn_failed", "turn_failed"
+    T.native[actor].turnReason = "parking_alignment_room_changed"
+    Driving.tick()
+    check(Driving.jobStatus(actor).reason == "parking_alignment_room_changed"
+        and Driving.jobStatus(actor).owned and Driving.jobStatus(actor).parked
+        and Driving.jobStatus(actor).firstParkingRefusal == firstRefusal,
+        "a new obstruction stops alignment under its existing lease for safe unloading")
+    Driving.release(actor)
+
+    actor = arrived("drive-parking-alignment-starting-timeout")
+    T.approachRejects = 1 Driving.approach(actor, target, 30000, false, true)
+    T.native[actor].state, T.native[actor].mode = "starting", nil
+    Driving.tick(SC_TEST_CLOCK + 22001)
+    check(Driving.jobStatus(actor).reason == "parking_alignment_timeout"
+        and Driving.jobStatus(actor).parked and not T.native[actor].active,
+        "the Lua alignment deadline also bounds a stalled engine start before native turn polling")
+    Driving.release(actor)
+
+    actor = arrived("drive-parking-alignment-second-cone-refusal")
+    alignments = T.alignments or 0 T.approachRejects = 2
+    Driving.approach(actor, target, 30000, false, true)
+    T.native[actor].state, T.native[actor].mode = "turned", "turned"
+    Driving.tick()
+    check(Driving.jobStatus(actor).result == "failed" and Driving.jobStatus(actor).parked
+        and Driving.jobStatus(actor).firstParkingRefusal == firstRefusal
+        and (T.alignments or 0) == alignments + 1,
+        "a second forward-cone refusal never loops or relaxes the guard after alignment")
+    Driving.release(actor)
+
+    actor = arrived("drive-parking-alignment-stale-lease")
+    T.approachRejects = 1 Driving.approach(actor, target, 30000, false, true)
+    local motion = T.motionCalls
+    Supervisor.complete(Supervisor.current(actor), "alignment_owner_retired")
+    Driving.tick()
+    check(Driving.jobStatus(actor).phase == "released" and not Driving.jobStatus(actor).owned
+        and Driving.jobStatus(actor).firstParkingRefusal == firstRefusal and T.motionCalls == motion
+        and not T.native[actor].active,
+        "a stale alignment lease is released rather than reconstructed from an old arrived result")
+
+    actor = arrived("drive-parking-alignment-world-reset")
+    T.approachRejects = 1 Driving.approach(actor, target, 30000, false, true)
+    alignments = T.alignments or 0
+    check(Driving.reset() and Driving.jobStatus(actor) == nil
+        and Supervisor.current(actor) == nil and not T.native[actor].active,
+        "world teardown clears ephemeral alignment control, token and arrived outcome together")
+    check(Driving.drive(actor, goal) and Driving.jobStatus(actor).owned
+        and Driving.jobStatus(actor).phase == "following" and not Driving.jobStatus(actor).parked
+        and Driving.jobStatus(actor).firstParkingRefusal == nil and (T.alignments or 0) == alignments,
+        "a revalidated reload starts a fresh managed road owner without importing an old alignment lease")
+    Driving.release(actor)
+    T.approachRejects, T.nativeFailure = nil, nil
 end
 
 do

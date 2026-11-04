@@ -10,7 +10,10 @@ import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.zip.CRC32;
+
+import se.krka.kahlua.vm.KahluaTable;
 
 import zombie.characters.IsoPlayer;
 import zombie.MainThread;
@@ -54,6 +57,9 @@ public final class SCSplitScreenProbe {
     private static final int PRIMARY_RESTORE_FRAME_LIMIT = 60;
     private static StockObserverProbe stockObserverProbe;
     private static String stockObserverIssue = "idle";
+    private static SCRemoteArrival.Lease remoteArrival;
+    private static long remoteArrivalSequence;
+    private static String remoteArrivalFailure = "";
 
     private static final class StockObserverProbe {
         final IsoPlayer actor;
@@ -102,6 +108,11 @@ public final class SCSplitScreenProbe {
             }
             originX = map.getWorldXMin();
             originY = map.getWorldYMin();
+        }
+
+        SecondaryLightingRelease(int originX, int originY) {
+            this.originX = originX;
+            this.originY = originY;
         }
     }
 
@@ -321,6 +332,9 @@ public final class SCSplitScreenProbe {
 
     /** Finish a joined trip with a durable identity for the next expedition. */
     public static int persistJoinedLeaderSlotForReuse() {
+        if (remoteArrival != null && remoteArrival.acknowledged()) {
+            throw remoteArrivalRefusal("acknowledged remote arrival must finish its owned teardown");
+        }
         String issue = joinedReleaseIssue();
         if (issue != null) throw new IllegalStateException(issue);
         SCNativeCompanion current = leader;
@@ -594,8 +608,12 @@ public final class SCSplitScreenProbe {
 
     /** Called after ordinary slot-0 world teardown has released its map. */
     public static boolean finalizeCorpseChunksAfterWorldExit() {
+        if (leader != null || remoteArrival != null || SCBridge.getOwnedCount() != 0) {
+            throw new IllegalStateException("native world teardown still owns companion actors or an arrival lease");
+        }
         try {
             releaseRetainedCorpseChunks(false);
+            SCVehicleSaveBarrier.clearAfterWorldExit();
             return true;
         } catch (IOException failure) {
             throw new IllegalStateException("native corpse chunk restore failed", failure);
@@ -619,30 +637,56 @@ public final class SCSplitScreenProbe {
         if (map == null || map.playerId != 1 || retainedCorpseChunks.isEmpty()) {
             throw new IllegalStateException("owned second chunk map is unavailable");
         }
-        SecondaryLightingRelease lightingRelease = new SecondaryLightingRelease(map);
-        // Native Unload releases only this map's chunk references, queues
-        // unshared chunks for save and clears pending loads and physics state.
-        // Ignore late worker completions before invoking it.
-        map.ignore = true;
-        map.Unload();
-        try {
-            releaseRetainedCorpseChunks(true);
-        } catch (IOException failure) {
-            throw new IllegalStateException("native corpse chunk restore failed", failure);
-        }
-        current.unmarkCoopLeaderForProbe();
-        slots[1] = null;
-        IsoPlayer.numPlayers = 1;
-        IsoPlayer.setInstance(primary);
-        leader = null;
-        armPrimaryViewRestore(primary, world.getCell(), lightingRelease);
-        restoreZoomAfterRelease();
+        runDeadArrivalTeardown(current, () -> saveRetainedCorpseChunksNow(), closingArrival -> {
+            SecondaryLightingRelease lightingRelease = closingArrival != null
+                    && closingArrival.deadTeardownStarted()
+                    ? new SecondaryLightingRelease(closingArrival.deadLightingX(), closingArrival.deadLightingY())
+                    : new SecondaryLightingRelease(map);
+            if (closingArrival != null) {
+                closingArrival.beginDeadTeardown(lightingRelease.originX, lightingRelease.originY);
+            }
+            // Native Unload releases only this map's chunk references, queues
+            // unshared chunks for save and clears pending loads and physics state.
+            // Ignore late worker completions before invoking it.
+            map.ignore = true;
+            map.Unload();
+            try {
+                releaseRetainedCorpseChunks(true);
+            } catch (IOException failure) {
+                throw new IllegalStateException("native corpse chunk restore failed", failure);
+            }
+            current.unmarkCoopLeaderForProbe();
+            slots[1] = null;
+            IsoPlayer.numPlayers = 1;
+            IsoPlayer.setInstance(primary);
+            leader = null;
+            armPrimaryViewRestore(primary, world.getCell(), lightingRelease);
+            restoreZoomAfterRelease();
+        });
         return true;
+    }
+
+    /** Package-only operation seam; production always supplies its native corpse/write teardown. */
+    static void runDeadArrivalTeardown(SCNativeCompanion current, Runnable corpseBarrier,
+                                      Consumer<SCRemoteArrival.Lease> teardown) {
+        SCRemoteArrival.Lease closingArrival = remoteArrival;
+        if (closingArrival != null) {
+            closingArrival.requireDeadTeardown(current, retainedCorpseActors);
+            // Persist every retained corpse, including chunks still held by
+            // the primary map, before replacing a prepared living-crew lease.
+            corpseBarrier.run();
+        }
+        teardown.accept(closingArrival);
+        if (closingArrival != null) {
+            closingArrival.finishDeadTeardown();
+            remoteArrival = null;
+        }
     }
 
     /** Main-menu teardown: unload only LF's second map before actor disposal. */
     public static boolean releaseForWorldExit() {
         cancelPrimaryViewRestore("world_exit");
+        SCRemoteArrival.Lease closingArrival = remoteArrival;
         // A plain stock observer belongs to vanilla full-world teardown. It
         // has no retained LF actor; never carry this debug authority to a reload.
         stockObserverProbe = null;
@@ -656,6 +700,8 @@ public final class SCSplitScreenProbe {
                 }
                 coldProbe = null;
             }
+            if (closingArrival != null) closingArrival.finishRetirement();
+            remoteArrival = null;
             restoreZoomAfterRelease();
             return true;
         }
@@ -696,6 +742,8 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        if (closingArrival != null) closingArrival.finishRetirement();
+        remoteArrival = null;
         restoreZoomAfterRelease();
         if (current == coldProbe) {
             if (!SCBridge.disposeColdProbeActor(current)) {
@@ -721,9 +769,188 @@ public final class SCSplitScreenProbe {
         return true;
     }
 
+    /** Additive API presence; callers must also own a complete LF snapshot transaction. */
+    public static boolean remoteArrivalCapability() { return true; }
+
+    public static String remoteArrivalFailure() { return remoteArrivalFailure; }
+
+    /** Drive-only capability: walking arrivals do not depend on vehicle SQL APIs. */
+    public static boolean homeVehicleSaveCapability() { return SCVehicleSaveBarrier.capable(); }
+
+    public static long requestHomeVehicleSave(zombie.vehicles.BaseVehicle car) { return SCVehicleSaveBarrier.request(car); }
+
+    public static String pollHomeVehicleSave(long ticket) { return SCVehicleSaveBarrier.poll(ticket); }
+
+    public static String homeVehicleSaveFailure(long ticket) { return SCVehicleSaveBarrier.failure(ticket); }
+
+    /** Safe near recall only: the exact stopped car remains in the real primary map. */
+    public static boolean primaryRetainsHomeVehicle(zombie.vehicles.BaseVehicle car, int expectedSqlId) {
+        return remoteArrival == null && SCVehicleSaveBarrier.primaryRetains(car,expectedSqlId);
+    }
+
+    public static KahluaTable homeVehicleSaveReceipt(long ticket) { return SCVehicleSaveBarrier.receipt(ticket); }
+
+    public static long restoreHomeVehicleSave(KahluaTable receipt) { return SCVehicleSaveBarrier.restore(receipt); }
+
+    public static boolean cancelHomeVehicleSave(long ticket) { return SCVehicleSaveBarrier.cancel(ticket); }
+
+    public static boolean attachRemoteArrivalVehicleSave(long leaseToken, long ticket) {
+        SCRemoteArrival.Lease lease = requireRemoteArrival(leaseToken);
+        lease.requireContext(leader);
+        lease.attachVehicleSave(ticket);
+        return true;
+    }
+
+    /**
+     * Dormant arrivals restore only after the primary map really owns their
+     * saved square. Read the map directly: the cell cache can briefly retain a
+     * secondary-only square after its view has unloaded.
+     */
+    public static boolean primaryAreaContains(int x, int y, int z) {
+        if (Thread.currentThread() != MainThread.mainThread || z < -32 || z > 31) return false;
+        try {
+            IsoPlayer[] slots = IsoPlayer.players;
+            IsoWorld world = IsoWorld.instance;
+            IsoCell cell = world == null ? null : world.getCell();
+            IsoChunkMap map = cell == null ? null : cell.getChunkMap(0);
+            if (slots == null || slots.length != 4 || slots[0] == null
+                    || slots[0].isDead() || map == null || map.ignore || map.playerId != 0
+                    || x < map.getWorldXMinTiles() || x > map.getWorldXMaxTiles()
+                    || y < map.getWorldYMinTiles() || y > map.getWorldYMaxTiles()) return false;
+            IsoChunk chunk = map.getChunkForGridSquare(x, y);
+            IsoGridSquare square = map.getGridSquare(x, y, z);
+            return chunk != null && square != null && square.getChunk() == chunk
+                    && square.getCell() == cell && square.getX() == x
+                    && square.getY() == y && square.getZ() == z
+                    && chunk.refs != null && chunk.refs.contains(map)
+                    && IsoChunkMap.SharedChunks.get((chunk.wx << 16) + chunk.wy) == chunk;
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * Capture the exact crew physically standing at camp. This grants no right
+     * to unload their map: acknowledgement and verified detachment follow.
+     */
+    public static long prepareRemoteArrival(KahluaTable roster,
+            int minX, int minY, int maxX, int maxY, int z) {
+        if (remoteArrival != null) {
+            throw remoteArrivalRefusal("a remote arrival transaction is already prepared");
+        }
+        String readiness = SCBridge.checkReady();
+        if (!readiness.isEmpty()) throw remoteArrivalRefusal(readiness);
+        try {
+            SCRemoteArrival.Lease prepared = SCRemoteArrival.prepare(
+                    ++remoteArrivalSequence, leader, roster, minX, minY, maxX, maxY, z);
+            remoteArrival = prepared;
+            remoteArrivalFailure = "";
+            return prepared.token;
+        } catch (RuntimeException | LinkageError failure) {
+            remoteArrivalFailure = "remote arrival preparation failed: " + failure.getMessage();
+            throw failure;
+        }
+    }
+
+    /** The already reserved slot row may be reused by the next owned view. */
+    public static int remoteArrivalSlotSqlId(long token) {
+        SCRemoteArrival.Lease lease = requireRemoteArrival(token);
+        lease.requireContext(leader);
+        return lease.slotSqlId;
+    }
+
+    /**
+     * Explicit Lua-to-native save acknowledgement. A caller cannot substitute a
+     * boolean for the installed full-roster document or skip the native write.
+     */
+    public static boolean acknowledgeRemoteArrival(long token,
+            String storeKey, KahluaTable document) {
+        SCRemoteArrival.Lease lease = requireRemoteArrival(token);
+        try {
+            lease.requireContext(leader);
+            if (Core.getInstance().isNoSave()) {
+                throw new IllegalStateException("remote arrival requires enabled native saving");
+            }
+            // Preserve physical death outcomes before the LF document can
+            // declare the survivors' mission complete. This existing native
+            // snapshot/worker/SafeWrite barrier may fail while slot 1 is still
+            // intact. Retained owner refs remain bounded and intentionally
+            // survive Unload; no fallible corpse I/O follows the view commit.
+            if (!saveRetainedCorpseChunksNow()) {
+                throw new IllegalStateException("remote arrival corpse chunk save did not complete");
+            }
+            lease.acknowledge(storeKey, document);
+            remoteArrivalFailure = "";
+            return true;
+        } catch (IOException | RuntimeException | LinkageError failure) {
+            throw remoteArrivalRefusal("remote arrival save acknowledgement failed: " + failure.getMessage());
+        }
+    }
+
+    /** Read-only readiness; an incomplete cleanup leaves the second map intact. */
+    public static boolean canReleaseRemoteArrival(long token) {
+        try {
+            SCRemoteArrival.Lease lease = requireRemoteArrival(token);
+            lease.requireContext(leader);
+            lease.requireDetachedMembers();
+            remoteArrivalFailure = "";
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            remoteArrivalFailure = String.valueOf(failure.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Close an explicitly acknowledged remote arrival after Lua has removed and
+     * unregistered every captured native actor. The normal joined-release
+     * ownership/distance guard below remains a separate, unchanged path.
+     */
+    public static boolean releaseRemoteArrival(long token) {
+        SCRemoteArrival.Lease lease = requireRemoteArrival(token);
+        lease.requireContext(leader);
+        lease.requireDetachedMembers();
+        SecondaryLightingRelease lightingRelease = new SecondaryLightingRelease(lease.companionMap);
+        lease.companionMap.ignore = true;
+        lease.companionMap.Unload();
+        lease.leader.unmarkCoopLeaderForProbe();
+        lease.slots[1] = null;
+        IsoPlayer.numPlayers = 1;
+        IsoPlayer.setInstance(lease.primary);
+        leader = null;
+        lease.finishRetirement();
+        remoteArrival = null;
+        remoteArrivalFailure = "";
+        armPrimaryViewRestore(lease.primary, lease.cell, lightingRelease);
+        restoreZoomAfterRelease();
+        return true;
+    }
+
+    /** Abort only while the exact native crew is still fully present. */
+    public static boolean cancelRemoteArrival(long token) {
+        SCRemoteArrival.Lease lease = requireRemoteArrival(token);
+        lease.requireContext(leader);
+        lease.requireCancelable();
+        remoteArrival = null;
+        remoteArrivalFailure = "";
+        return true;
+    }
+
+    private static SCRemoteArrival.Lease requireRemoteArrival(long token) {
+        if (remoteArrival == null || token <= 0 || remoteArrival.token != token) {
+            throw remoteArrivalRefusal("remote arrival transaction token is stale or unavailable");
+        }
+        return remoteArrival;
+    }
+
+    private static IllegalStateException remoteArrivalRefusal(String reason) {
+        remoteArrivalFailure = reason;
+        return new IllegalStateException(reason);
+    }
+
     /** Return handoff: the primary player's own map already owns this area. */
     public static boolean canReleaseJoinedLeader() {
-        return joinedReleaseIssue() == null;
+        return (remoteArrival == null || !remoteArrival.acknowledged()) && joinedReleaseIssue() == null;
     }
 
     private static String joinedReleaseIssue() {
@@ -759,6 +986,9 @@ public final class SCSplitScreenProbe {
     }
 
     public static boolean releaseJoinedLeader() {
+        if (remoteArrival != null && remoteArrival.acknowledged()) {
+            throw remoteArrivalRefusal("acknowledged remote arrival must finish its owned teardown");
+        }
         String issue = joinedReleaseIssue();
         if (issue != null) throw new IllegalStateException(issue);
         SCNativeCompanion current = leader;
@@ -778,6 +1008,7 @@ public final class SCSplitScreenProbe {
         IsoPlayer.numPlayers = 1;
         IsoPlayer.setInstance(primary);
         leader = null;
+        remoteArrival = null;
         armPrimaryViewRestore(primary, IsoWorld.instance.getCell(), lightingRelease);
         restoreZoomAfterRelease();
         return true;
@@ -1233,6 +1464,7 @@ public final class SCSplitScreenProbe {
                 + " lightingChunks=" + primaryRestoreLightingChunks
                 + " secondaryLighting=" + secondaryLightingRetirement
                 + " stockObserver=" + (stockObserverProbe == null ? "nil" : "present")
+                + " retainedCorpseChunks=" + retainedCorpseChunks.size()
                 + " stockTeardown=" + (stockObserverProbe != null && stockObserverProbe.teardownStarted ? "started" : "idle")
                 + " stockIssue=" + stockObserverIssue;
     }

@@ -413,6 +413,31 @@ do
     check(S.review(station) and station.stationReviewed.carSqlId==5,"driving review captures the exact selected native car")
     pending=S.prepare(station,{request={operation="launch"}}) carId=6
     check(not S.execute(station,pending) and starts==1 and station.stationReviewed==nil,"a different car invalidates review and cannot be accepted by repeating Launch")
+    do
+        local current=SC.ExpeditionPrototype.current
+        local trip={radioSession="radio-ui-trip",leader={name="First companion"},scout={kind="search"}}
+        local radioCalls=0
+        SC.ExpeditionPrototype.current=function() return trip end
+        SC.ExpeditionPrototype.sendRadioOrder=function() radioCalls=radioCalls+1 return true,"returning" end
+        local request=S.prepare(station,{request={operation="radio",command="return_now",payload="now"}})
+        check(request~=nil and S.radioUnavailable()==nil,"ordinary expedition radio requests retain checked preparation")
+        trip.scout.kind="home"
+        local reason=S.radioUnavailable()
+        check(type(reason)=="string" and reason:find("Get near",1,true),"home radio refusal uses readable nearby-recall guidance")
+        for _,name in ipairs({"station","radio_decisions"}) do
+            station.menuPage=name
+            for _,entry in ipairs(S.menu(station)) do
+                check(not (type(entry.serviceValue)=="table" and entry.serviceValue.operation=="radio")
+                    and entry.serviceValue~="radio_decisions","home trip hides unsupported station radio commands on "..name)
+            end
+        end
+        local rejected,message=S.prepare(station,{request={operation="radio",command="progress_report",payload="status"}})
+        check(rejected==nil and message==reason,"typed or cached home radio preparation explains physical recall")
+        local accepted,message=S.execute(station,request)
+        check(not accepted and message==reason and radioCalls==0,"stale expedition radio confirmation cannot dispatch to a home trip or leak a backend code")
+        SC.ExpeditionPrototype.current=current
+        SC.ExpeditionPrototype.sendRadioOrder=nil
+    end
     local function hasStation(options)
         for _,option in ipairs(options) do if option.serviceValue=="station" then return true end end
         return false

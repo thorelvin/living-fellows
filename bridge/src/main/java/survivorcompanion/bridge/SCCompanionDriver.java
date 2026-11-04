@@ -245,6 +245,44 @@ final class SCCompanionDriver {
         turnRequested = false;
     }
 
+    /** A bounded physical correction before the unchanged forward parking leg. */
+    String alignParking(IsoGameCharacter actor, double targetX, double targetY) {
+        BaseVehicle current = vehicle;
+        if (!active || current == null || actor == null
+                || actor.getVehicle() != current || current.getDriver() != actor) {
+            return "parking alignment requires the exact active driver";
+        }
+        if (SCBridge.playerAboard(current)) return "parking alignment refuses a player aboard";
+        if (!Double.isFinite(targetX) || !Double.isFinite(targetY)
+                || targetX < 0.0 || targetX > 30000.0
+                || targetY < 0.0 || targetY > 30000.0
+                || !Float.isFinite(current.getZ()) || Math.floor(current.getZ()) != 0.0) {
+            return "parking alignment needs a finite ground-floor target";
+        }
+        float x = current.getX();
+        float y = current.getY();
+        float currentSpeed = current.getCurrentSpeedKmHour();
+        SCDrivePath path = SCDrivePath.parse(x + "," + y + ",5;"
+                + targetX + "," + targetY + ",5");
+        if (path == null) return "parking alignment has no bounded target route";
+        current.getForwardVector(forward);
+        float[] body = bodySize(current);
+        WorldView world = new WorldView(current, true);
+        world.avoidZombies = true;
+        SCRoadFollower next = new SCRoadFollower(path, SCTurnAround.FORWARD_KMH, false, true);
+        String refused = next.beginParkingAlignment(world, x, y, 0, forward.x, forward.z,
+                currentSpeed, body[0], body[1], System.nanoTime() / 1_000_000L);
+        if (!refused.isEmpty()) return refused;
+        follower = next;
+        convoyLead = null;
+        cruiseKmh = SCTurnAround.FORWARD_KMH;
+        steering = 0.0f;
+        autoBrake = true;
+        turnRequested = false;
+        nextScanAt = 0L;
+        return "";
+    }
+
     /** Turns round on the next frame; with followBack, drives the route back. */
     String turnAround(boolean followBack) {
         if (follower == null) return "companion is not following a route";
@@ -362,26 +400,31 @@ final class SCCompanionDriver {
     private void driveRoute(BaseVehicle current, CarController.ClientControls controls, long now) {
         current.getForwardVector(forward);
         float length = (float) Math.hypot(forward.x, forward.z);
-        float headingX = length > 0.001f ? forward.x / length : 1.0f;
-        float headingY = length > 0.001f ? forward.z / length : 0.0f;
+        boolean lostAlignmentHeading = follower.parkingAlignment()
+                && (!Float.isFinite(length) || length < 0.9f);
+        float headingX = lostAlignmentHeading ? Float.NaN
+                : length > 0.001f ? forward.x / length : 1.0f;
+        float headingY = lostAlignmentHeading ? Float.NaN
+                : length > 0.001f ? forward.z / length : 0.0f;
         float[] body = bodySize(current);
         float x = current.getX();
         float y = current.getY();
-        int z = (int) Math.floor(current.getZ());
-        WorldView world = new WorldView(current);
+        int z = follower.parkingAlignment() && !Float.isFinite(current.getZ())
+                ? -1 : (int) Math.floor(current.getZ());
+        WorldView world = new WorldView(current, follower.parkingAlignment());
         if (now - nextScanAt >= 0L) {
             nextScanAt = now + SCAN_INTERVAL_NANOS;
             if (SCHordeAvoidance.ahead(world, x, y, z, headingX, headingY,
                     body[0], body[1])) {
                 hordeAvoidUntil = now + HORDE_AVOID_HOLD_NANOS;
             }
-            world.avoidZombies = now - hordeAvoidUntil < 0L;
+            world.avoidZombies = follower.parkingAlignment() || now - hordeAvoidUntil < 0L;
             lastScan.copyFrom(SCLaneScan.scan(world, x, y, z, headingX, headingY, body[0],
                     body[1] + 0.1f, lookAheadFor(follower.cruiseKmh())));
             lastRearScan.copyFrom(SCLaneScan.scan(world, x, y, z, -headingX, -headingY, body[0],
                     body[1] + 0.1f, REAR_LOOK));
         }
-        world.avoidZombies = now - hordeAvoidUntil < 0L;
+        world.avoidZombies = follower.parkingAlignment() || now - hordeAvoidUntil < 0L;
         if (turnRequested) {
             turnRequested = false;
             follower.beginTurn((float) Math.atan2(headingY, headingX),
@@ -586,11 +629,17 @@ final class SCCompanionDriver {
     private static final class WorldView implements SCLaneScan.World, SCHordeAvoidance.World {
         private final BaseVehicle self;
         private final IsoCell cell;
+        private final boolean requireGround;
         private boolean avoidZombies;
 
         WorldView(BaseVehicle self) {
+            this(self, false);
+        }
+
+        WorldView(BaseVehicle self, boolean requireGround) {
             this.self = self;
             this.cell = self.getCell();
+            this.requireGround = requireGround;
         }
 
         @Override
@@ -609,6 +658,7 @@ final class SCCompanionDriver {
         public int squareKind(int x, int y, int z) {
             IsoGridSquare square = cell == null ? null : cell.getGridSquare(x, y, z);
             if (square == null) return SCLaneScan.UNLOADED;
+            if (requireGround && !square.TreatAsSolidFloor()) return SCLaneScan.SOLID;
             BaseVehicle other = square.getVehicleContainer();
             if (other != null && other != self) return SCLaneScan.VEHICLE;
             if (square.HasTree()) return SCLaneScan.TREE;

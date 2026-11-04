@@ -3,11 +3,13 @@
 param(
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [switch]$FishingOnly,
-    [switch]$NicknamesOnly
+    [switch]$NicknamesOnly,
+    [switch]$HomeTripOnly
 )
 
 $ErrorActionPreference = 'Stop'
 if ($FishingOnly -and $NicknamesOnly) { throw 'Choose one focused test group.' }
+if ($HomeTripOnly -and ($FishingOnly -or $NicknamesOnly)) { throw 'Choose one focused test group.' }
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
 $ClientRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
@@ -136,6 +138,40 @@ try {
 
     Push-Location -LiteralPath $GameRoot
     try {
+        $homeTripFiles = @(
+            (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+            (Join-Path $ClientRoot 'SCExpeditionIntegration.lua'),
+            (Join-Path $ClientRoot 'SCHomeTrip.lua'),
+            (Join-Path $ClientRoot 'SCExpeditionPrototype.lua'),
+            (Join-Path $TestRoot 'home_trip_harness.lua')
+        )
+        $homeUiFiles = @(
+            (Join-Path $ProjectRoot 'tests/ui/SCHomeTripUITests.lua'),
+            (Join-Path $ClientRoot 'SCUIHomeTrip.lua'),
+            (Join-Path $ProjectRoot 'tests/ui/SCHomeTripUITests.lua')
+        )
+        $homeArrivalPersistenceFiles = @(
+            (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+            (Join-Path $SharedRoot 'SCCall.lua'),
+            (Join-Path $SharedRoot 'SCStableValue.lua'),
+            (Join-Path $SharedRoot 'SCNativeList.lua'),
+            (Join-Path $SharedRoot 'SCConfig.lua'),
+            (Join-Path $SharedRoot 'SCDiagnostics.lua'),
+            (Join-Path $ClientRoot 'SCPersistence.lua'),
+            (Join-Path $TestRoot 'home_arrival_persistence_harness.lua')
+        )
+        if ($HomeTripOnly) {
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeTripFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Walking home trip lifecycle harness failed.' }
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeArrivalPersistenceFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Remote home arrival persistence harness failed.' }
+            & (Join-Path $TestRoot 'Test-HomeTripNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -HomeTripFiles $homeTripFiles -HomeUiFiles $homeUiFiles -BuildRoot $BuildRoot
+            return
+        }
         $needsFiles = @(
             (Join-Path $ClientRoot 'SCNeeds.lua'),
             (Join-Path $TestRoot 'needs_rate_regression_harness.lua')
@@ -218,6 +254,11 @@ try {
             )
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @expeditionDeadlineFiles
             if ($LASTEXITCODE -ne 0) { throw 'Expedition bounded discovery and real return clock regression harness failed.' }
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeTripFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Walking home trip lifecycle harness failed.' }
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeArrivalPersistenceFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Remote home arrival persistence harness failed.' }
+            & (Join-Path $TestRoot 'Test-HomeTripNegativeControls.ps1') -GameJava $GameJava -Classpath "$BuildRoot;$Jar" -HomeTripFiles $homeTripFiles -HomeUiFiles $homeUiFiles -BuildRoot $BuildRoot
             $decisionArbitrationFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),

@@ -661,6 +661,33 @@ do
     SC.ExpeditionPrototype = saved.expedition
 end
 
+-- A home handover holds only its captured crew. Ordinary actors continue,
+-- while neither decisions/incoming attack scripting nor vitals touch the crew.
+do
+    local oldHome = SC.HomeTrip
+    SC.Scheduler.reset(true)
+    records = { makeRecord(91), makeRecord(92) }
+    local held = records[1].actor
+    local trip = {homeRelease={token=7}}
+    SC.HomeTrip = { current=function() return trip end,
+        handoverOwns=function(actor) return actor==held end }
+    grabbed,services={},{}
+    local base=prime(1900000)
+    for index=1,4 do decisionTask(base+index*100,1000000) end
+    check(services[records[1].id]==nil and (services[records[2].id] or 0)>0,
+        "a captured home crew cannot act while unrelated actors keep receiving decisions")
+    local heldReads=0
+    held.isDead=function() heldReads=heldReads+1 return false end
+    records={records[1]}
+    for index=1,4 do SC.Runtime._vitalsTaskForTests(base+index*1000) end
+    check(heldReads==0,"captured crew vitals are not modified during native teardown retry")
+    trip.homeRelease=nil
+    services={}
+    for index=1,4 do decisionTask(base+5000+index*100,1000000) end
+    check((services[records[1].id] or 0)>0,"pre-save abort restores ordinary actor service")
+    SC.HomeTrip=oldHome
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
     .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed"
     .. " hardened=true critical-fairness=rotating")

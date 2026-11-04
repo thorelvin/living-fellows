@@ -659,6 +659,124 @@ public final class SCRoadFollowerTest {
                 "a rolling player trail extends the route without stopping the car");
     }
 
+    private static final SCLaneScan.World PARKING_ROOM = new SCLaneScan.World() {
+        @Override public int squareKind(int x, int y, int z) { return SCLaneScan.CLEAR; }
+        @Override public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) { return false; }
+    };
+
+    private static SCRoadFollower alignment(float targetX, float targetY) {
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(
+                "50,100,5;" + targetX + "," + targetY + ",5"), 4.0f, false, true);
+        require(follower.beginParkingAlignment(PARKING_ROOM, 50, 100, 0, 1, 0, 0,
+                        Car.HALF_WIDTH, Car.HALF_LENGTH, 0).isEmpty(),
+                "a stopped driver can request a bounded turn in verified loaded parking room");
+        return follower;
+    }
+
+    private static void boundedParkingAlignment() {
+        SCRoadFollower left = alignment(50, 85);
+        require(left.turn().side() == -1 && Math.abs(left.turn().targetHeading()
+                        + (float) Math.PI / 2) < 0.001f,
+                "north of an east-facing car selects the shortest left turn, not 270 degrees right");
+        SCRoadFollower right = alignment(50, 115);
+        require(right.turn().side() == 1,
+                "south of an east-facing car selects the shortest right turn");
+        Drive drive = new Drive(null, new Car(50, 100, 0), left);
+        drive.world = PARKING_ROOM;
+        drive.run(21.0f, () -> left.mode() != SCRoadFollower.Mode.TURNING);
+        float dx = 50 - drive.car.x;
+        float dy = 85 - drive.car.y;
+        float forward = ((float) Math.cos(drive.car.heading) * dx
+                + (float) Math.sin(drive.car.heading) * dy) / (float) Math.hypot(dx, dy);
+        require(!drive.collided && left.mode() == SCRoadFollower.Mode.TURNED
+                        && drive.car.heading < -0.8f && drive.car.x > 51
+                        && Math.hypot(drive.car.x - 50, drive.car.y - 100)
+                            <= SCRoadFollower.PARKING_ALIGN_TRAVEL + 0.1f
+                        && forward >= 0.75f && Math.abs(drive.car.kmh()) <= SCDriveControl.STOPPED_KMH,
+                "normal pedals physically align and stop before the original forward cone is admitted: "
+                        + drive.trace + " mode=" + left.mode() + " at=" + drive.car.x + "," + drive.car.y
+                        + " heading=" + drive.car.heading + " dot=" + forward);
+
+        SCRoadFollower freshBearing = alignment(50, 95);
+        SCRoadFollower.Command command = freshBearing.update(PARKING_ROOM,
+                55, 100, 0, 0, -1, 0, Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 1, null);
+        require(freshBearing.mode() == SCRoadFollower.Mode.TURN_FAILED
+                        && "parking_alignment_target_not_forward".equals(freshBearing.turn().reason())
+                        && command.targetKmh == 0,
+                "the original heading cannot hide a moved car whose current target is outside the cone");
+
+        SCRoadFollower moving = alignment(60, 100);
+        command = moving.update(PARKING_ROOM, 50, 100, 0, 1, 0, 2,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 1, null);
+        require(moving.mode() == SCRoadFollower.Mode.TURNING && command.targetKmh == 0,
+                "alignment cannot complete until native braking has actually stopped the car");
+        moving.update(PARKING_ROOM, 50, 100, 0, 1, 0, 0,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 2, command);
+        require(moving.mode() == SCRoadFollower.Mode.TURNED,
+                "a stopped already-forward car completes without a position or heading change");
+
+        SCRoadFollower displaced = alignment(50, 85);
+        command = displaced.update(PARKING_ROOM, 56.1f, 100, 0, 1, 0, 0,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 1, null);
+        require(displaced.mode() == SCRoadFollower.Mode.TURN_FAILED
+                        && "parking_alignment_displacement".equals(displaced.turn().reason())
+                        && command.targetKmh == 0,
+                "a parking correction cannot roam beyond its checked travel bound");
+        SCRoadFollower expired = alignment(50, 85);
+        command = expired.update(PARKING_ROOM, 50, 100, 0, 1, 0, 0,
+                Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1,
+                SCRoadFollower.PARKING_ALIGN_LIMIT_MS, null);
+        require(expired.mode() == SCRoadFollower.Mode.TURN_FAILED && command.targetKmh == 0,
+                "a parking correction has a fixed wall-clock deadline");
+        SCRoadFollower legs = alignment(50, 85);
+        for (int frame = 0; frame < 15 && legs.mode() == SCRoadFollower.Mode.TURNING; frame++) {
+            command = legs.update(PARKING_ROOM, 50, 100, 0, 1, 0, 0,
+                    Car.HALF_WIDTH, Car.HALF_LENGTH, 0, 0, frame * 1000L, command);
+        }
+        require(legs.mode() == SCRoadFollower.Mode.TURN_FAILED
+                        && legs.turn().legs() <= SCRoadFollower.PARKING_ALIGN_MAX_LEGS + 1
+                        && command.targetKmh == 0,
+                "blocked forward and rear bumpers cannot create unbounded parking legs");
+
+        for (int kind : new int[] { SCLaneScan.UNLOADED, SCLaneScan.TREE,
+                SCLaneScan.CHARACTER, SCLaneScan.VEHICLE }) {
+            SCLaneScan.World blocked = new SCLaneScan.World() {
+                @Override public int squareKind(int x, int y, int z) {
+                    return x == 55 && y == 100 ? kind : SCLaneScan.CLEAR;
+                }
+                @Override public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) { return false; }
+            };
+            SCRoadFollower refused = new SCRoadFollower(SCDrivePath.parse("50,100,5;50,85,5"),
+                    4, false, true);
+            require(!refused.beginParkingAlignment(blocked, 50, 100, 0, 1, 0, 0,
+                            Car.HALF_WIDTH, Car.HALF_LENGTH, 0).isEmpty() && refused.turn() == null,
+                    "unloaded, tree, human and vehicle envelopes refuse before any manoeuvre: " + kind);
+            SCRoadFollower changed = alignment(50, 85);
+            command = changed.update(blocked, 50, 100, 0, 1, 0, 0,
+                    Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 100, command);
+            require(changed.mode() == SCRoadFollower.Mode.TURN_FAILED && command.targetKmh == 0,
+                    "new objects in checked parking room stop an in-progress correction: " + kind);
+        }
+        SCLaneScan.World fence = new SCLaneScan.World() {
+            @Override public int squareKind(int x, int y, int z) { return SCLaneScan.CLEAR; }
+            @Override public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) {
+                return fx == 55 && fy == 100 && tx == 56;
+            }
+        };
+        SCRoadFollower invalid = new SCRoadFollower(SCDrivePath.parse("50,100,5;50,85,5"),
+                4, false, true);
+        require(!invalid.beginParkingAlignment(fence, 50, 100, 0, 1, 0, 0,
+                        Car.HALF_WIDTH, Car.HALF_LENGTH, 0).isEmpty(),
+                "a fence between clear squares blocks the possible parking body envelope");
+        require(!invalid.beginParkingAlignment(PARKING_ROOM, 50, 100, 0, 1, 0, 1,
+                        Car.HALF_WIDTH, Car.HALF_LENGTH, 0).isEmpty()
+                        && !invalid.beginParkingAlignment(PARKING_ROOM, 50, 100, 1, 1, 0, 0,
+                            Car.HALF_WIDTH, Car.HALF_LENGTH, 0).isEmpty()
+                        && !invalid.beginParkingAlignment(PARKING_ROOM, 50, 101, 0, 1, 0, 0,
+                            Car.HALF_WIDTH, Car.HALF_LENGTH, 0).isEmpty(),
+                "moving, upper-floor and over-15m targets never start a parking turn");
+    }
+
     public static void main(String[] args) {
         pathBasics();
         reverseRules();
@@ -677,6 +795,7 @@ public final class SCRoadFollowerTest {
         personInLane();
         tooNarrowToTurn();
         preciseParking();
+        boundedParkingAlignment();
         rollingConvoyTrail();
         streetToStreet(true);
         streetToStreet(false);

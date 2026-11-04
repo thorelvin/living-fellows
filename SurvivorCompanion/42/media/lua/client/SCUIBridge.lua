@@ -25,6 +25,7 @@ Bridge.VIEW_DISTANCE = 64
 local ownedLootPane = nil
 local transferOwners = setmetatable({}, { __mode = "kv" })
 local originalTransferItem, transferItemWrapper
+local originalQueuedTransfer, queuedTransferWrapper
 local transferHookActive = false
 local inventoryMenuInstalled = false
 local nearbySignatures = setmetatable({}, { __mode = "k" })
@@ -51,6 +52,45 @@ end
 
 local function failure(key, argument)
     return false, key, argument
+end
+
+local function arrivalFrozen(actor)
+    return SC.HomeTrip and SC.HomeTrip.inventoryFrozen
+        and SC.HomeTrip.inventoryFrozen(actor) == true
+end
+
+function Bridge.transferAvailability(source, destination)
+    local home = SC.HomeTrip
+    if home and home.inventoryContainerFrozen
+        and (home.inventoryContainerFrozen(source) or home.inventoryContainerFrozen(destination)) then
+        return false, "UI_SC_HomeTrip_FinishBusy"
+    end
+    return true
+end
+
+local function frozenTransferNote(character)
+    local key = "UI_SC_HomeTrip_FinishBusy"
+    local message = SC.UI and SC.UI.text and SC.UI.text(key)
+        or type(getText) == "function" and getText(key) or key
+    safeMethod(character, "setHaloNote", message)
+end
+
+local function installQueuedTransferGuard()
+    if originalQueuedTransfer ~= nil then return end
+    if type(ISInventoryTransferAction) ~= "table" and type(require) == "function" then
+        pcall(require, "TimedActions/ISInventoryTransferAction")
+    end
+    if type(ISInventoryTransferAction) ~= "table"
+        or type(ISInventoryTransferAction.transferItem) ~= "function" then return end
+    originalQueuedTransfer = ISInventoryTransferAction.transferItem
+    queuedTransferWrapper = function(self, item, ...)
+        if transferHookActive and not Bridge.transferAvailability(self.srcContainer, self.destContainer) then
+            frozenTransferNote(self.character)
+            return
+        end
+        return originalQueuedTransfer(self, item, ...)
+    end
+    ISInventoryTransferAction.transferItem = queuedTransferWrapper
 end
 
 local function companionId(actor)
@@ -185,6 +225,7 @@ end
 function Bridge.installTransferHook()
     if originalTransferItem ~= nil then
         transferHookActive = true
+        installQueuedTransferGuard()
         installInventoryMenu()
         return true
     end
@@ -197,6 +238,10 @@ function Bridge.installTransferHook()
     end
     originalTransferItem = ISTransferAction.transferItem
     transferItemWrapper = function(self, character, item, source, destination, ...)
+        if transferHookActive and not Bridge.transferAvailability(source, destination) then
+            frozenTransferNote(character)
+            return nil
+        end
         local result = originalTransferItem(self, character, item,
             source, destination, ...)
         if not transferHookActive then return result end
@@ -245,6 +290,7 @@ function Bridge.installTransferHook()
     end
     ISTransferAction.transferItem = transferItemWrapper
     transferHookActive = true
+    installQueuedTransferGuard()
     installInventoryMenu()
     return true
 end
@@ -260,6 +306,11 @@ function Bridge.removeTransferHook()
     nearbySignatures = setmetatable({}, { __mode = "k" })
     lastWeaponThanksAt = setmetatable({}, { __mode = "k" })
     transferHookActive = false
+    if originalQueuedTransfer ~= nil and type(ISInventoryTransferAction) == "table"
+        and ISInventoryTransferAction.transferItem == queuedTransferWrapper then
+        ISInventoryTransferAction.transferItem = originalQueuedTransfer
+        originalQueuedTransfer, queuedTransferWrapper = nil, nil
+    end
     if inventoryMenuInstalled and Events and Events.OnFillInventoryObjectContextMenu then
         Events.OnFillInventoryObjectContextMenu.Remove(Bridge.fillInventoryContextMenu)
     end
@@ -291,6 +342,7 @@ function Bridge.nearbyInventories(player)
     for _, record in ipairs(SC.Registry.snapshot()) do
         local actor = record.actor
         if record.recruited == true and actor
+            and not arrivalFrozen(actor)
             and not (type(record.runtime) == "table"
                 and record.runtime.inactive == true) then
             local square = safeMethod(actor, "getSquare")
@@ -357,6 +409,7 @@ function Bridge.validateNearbyActor(actor, player, maximumDistance)
 end
 
 function Bridge.equipOnCompanion(actor, item, player, kind)
+    if arrivalFrozen(actor) then return false, "UI_SC_HomeTrip_FinishBusy" end
     local valid, reason = Bridge.validateNearbyActor(actor, player,
         Bridge.NEARBY_DISTANCE)
     if not valid then return false, reason end
@@ -459,6 +512,21 @@ function Bridge.fillInventoryContextMenu(playerIndex, context, entries)
     if not context or type(context.addOption) ~= "function" then return end
     local item = firstInventoryItem(entries)
     if not item then return end
+    if not Bridge.transferAvailability(safeMethod(item, "getContainer"), nil) then
+        for _, option in ipairs(context.options or {}) do
+            option.notAvailable = true
+            if type(ISToolTip) == "table" then
+                local tooltip = ISToolTip:new()
+                tooltip:initialise()
+                tooltip:setVisible(false)
+                tooltip.description = SC.UI and SC.UI.text and SC.UI.text("UI_SC_HomeTrip_FinishBusy")
+                    or type(getText) == "function" and getText("UI_SC_HomeTrip_FinishBusy")
+                    or "UI_SC_HomeTrip_FinishBusy"
+                option.toolTip = tooltip
+            end
+        end
+        return
+    end
     local actor = Bridge.ownerOfContainer(safeMethod(item, "getContainer"))
     if not actor then return end
     local player = type(getSpecificPlayer) == "function"
@@ -494,6 +562,7 @@ function Bridge.fillInventoryContextMenu(playerIndex, context, entries)
 end
 
 function Bridge.openInventory(actor, player)
+    if arrivalFrozen(actor) then return false, "UI_SC_HomeTrip_FinishBusy" end
     local valid, reason, argument = Bridge.validateNearbyActor(actor, player, Bridge.NEARBY_DISTANCE)
     if not valid then
         return false, reason, argument
@@ -671,6 +740,7 @@ end
 -- the borrowed movement hold as soon as that happens, instead of waiting for the
 -- user to leave Loadout or close Living Fellows itself.
 function Bridge.maintainInventory()
+    if ownedLootPane and arrivalFrozen(ownedLootPane.heldActor) then return Bridge.restoreInventory() end
     local snap = ownedLootPane
     if snap == nil then return true, "not_owned" end
     local lootPage = snap.page

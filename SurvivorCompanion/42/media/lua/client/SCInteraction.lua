@@ -29,8 +29,9 @@ Interaction.actions = {
     guard = { key = "UI_SC_Action_Guard", kind = "order" },
     regroup = { key = "UI_SC_Action_Regroup", kind = "order" },
     retreat = { key = "UI_SC_Action_Retreat", kind = "order" },
+    send_home = { key = "UI_SC_HomeTrip_Menu", kind = "sheet" },
 }
-Interaction.quickOrders = { "follow", "stay", "regroup", "retreat" }
+Interaction.quickOrders = { "follow", "stay", "regroup", "retreat", "send_home" }
 Interaction.recruitedOnly = {
     relationship = true, encourage = true, praise = true,
 }
@@ -72,6 +73,20 @@ function Interaction.availability(row, action, player)
     local descriptor = Interaction.actions[action]
     if not descriptor then return false, "UI_SC_Disabled_CommandService" end
     if not row or not row.id or row.id == "" then return false, "UI_SC_Disabled_NoSelection" end
+    local home = SC.HomeTrip
+    if action == "send_home" then
+        if not home or not home.eligibility then return false, "UI_SC_HomeTrip_Unavailable" end
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+        local status = home.eligibility({ record = record or row })
+        return status.canStart == true, status.blocker and home.reasonText(status.blocker, row.name) or nil
+    end
+    if home and home.isMemberId and home.isMemberId(row.id) then
+        if action == "follow" or action == "regroup" then
+            local allowed, reason = home.canRecall(player)
+            return allowed == true, allowed ~= true and home.reasonText(reason, row.name) or nil
+        end
+        return false, "UI_SC_HomeTrip_OrdersAway"
+    end
     if row.alive == false then return false, "UI_SC_Disabled_NotAlive" end
     if row.available == false or not row.actor then return false, "UI_SC_Disabled_Unavailable" end
     if row.recruited ~= true and (descriptor.kind == "order"
@@ -147,6 +162,10 @@ local interruptionKeys = {
 }
 
 function Interaction.reasonText(reason, argument)
+    if type(reason) == "string" and string.sub(reason, 1, 5) == "home_"
+        and SC.HomeTrip and SC.HomeTrip.reasonText then
+        return SC.HomeTrip.reasonText(reason, argument)
+    end
     local key = interruptionKeys[reason] or reason
     if type(key) == "string" and string.sub(key, 1, 6) == "UI_SC_" then
         if key == "UI_SC_Disabled_TooFar" and argument == nil then argument = 16 end
@@ -170,8 +189,23 @@ end
 
 function Interaction.issue(row, action, player)
     local enabled, reason, argument = Interaction.availability(row, action, player)
-    if not enabled then return false, reason, argument end
+    if not enabled then
+        if SC.HomeTrip and row and action == "send_home" then
+            local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+            local status = SC.HomeTrip.eligibility({ record = record or row })
+            return false, status.blocker or "home_member_unavailable", row.name
+        elseif SC.HomeTrip and row and SC.HomeTrip.isMemberId and SC.HomeTrip.isMemberId(row.id) then
+            local _, why = SC.HomeTrip.canRecall(player)
+            return false, why or "home_recall_first", row.name
+        end
+        return false, reason, argument
+    end
     local descriptor = Interaction.actions[action]
+    if action == "send_home" then
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+        return SC.UIHomeTrip and SC.UIHomeTrip.openSheet({ record = record or row }) == true,
+            "home_sheet_opened"
+    end
     local ok, accepted, result = pcall(SC.Commands.issue, row.id, action, nil, player)
     if not ok then return false, "UI_SC_Disabled_CommandService" end
     if accepted ~= true then

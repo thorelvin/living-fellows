@@ -5,7 +5,9 @@ local row = { id = "sam", actor = {}, alive = true, available = true,
     recruited = true, distance = 2 }
 
 assert(#interaction.categories == 3)
-assert(#interaction.quickOrders == 4)
+assert(#interaction.quickOrders == 5)
+assert(interaction.quickOrders[5] == "send_home"
+    and interaction.descriptor("send_home").kind == "sheet")
 assert(interaction.availability(row, "doing", player))
 SurvivorCompanion.GameplayUtil = {
     sameFloor = function() return false end,

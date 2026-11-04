@@ -234,7 +234,7 @@ end
 
 function Planner.refreshZoom(detail)
     local draft = detail and detail.expeditionDraft
-    if draft and draft.kind == "wood" and Planner.refreshForestPreview
+    if detail and detail.tab ~= "groups" and draft and draft.kind == "wood" and Planner.refreshForestPreview
         and Planner.refreshForestPreview(detail) then return false end
     local slider = detail and detail.expeditionZoomSlider
     local expedition = SC.ExpeditionPrototype
@@ -310,6 +310,17 @@ local function addZoomSlider(detail, panel, y, values)
     panel:addChild(slider)
     detail.expeditionZoomSlider = slider
     return y + metrics.buttonHeight + 7
+end
+
+function Planner.buildViewZoom(detail, panel, y)
+    detail.expeditionZoomSlider = nil
+    local expedition = SC.ExpeditionPrototype
+    local mission = expedition and expedition.current and expedition.current() or nil
+    local values = readExpeditionZoom(mission)
+    if values then return addZoomSlider(detail, panel, y, values) end
+    return detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+        tr(joinedExpeditionView(mission) and "UI_SC_Expedition_ViewZoomUnavailable"
+            or "UI_SC_Expedition_ViewZoomPending"))
 end
 
 local function squadRows(detail, group)
@@ -810,7 +821,7 @@ local function addReturnReports(detail, panel, y, expedition)
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_CarFailure", SC.UI.baseFailureReason(debrief.carFailure.reason)))
     end
-    local latest = debrief and debrief.integration
+    local latest = debrief and debrief.kind ~= "home" and debrief.integration
     if latest and SC.ExpeditionIntegration then
         local summary = SC.ExpeditionIntegration.summary(latest)
         if summary then
@@ -828,7 +839,8 @@ local function addReturnReports(detail, panel, y, expedition)
     local older
     for _, report in ipairs(expedition and expedition.pendingDeliveryReports
             and expedition.pendingDeliveryReports() or {}) do
-        if report.summary and (not latest
+        local homeTripId = debrief and debrief.kind == "home" and debrief.integration and debrief.integration.tripId
+        if report.summary and report.tripId ~= homeTripId and (not latest
             or report.tripId ~= latest.tripId) then
             if not older then
                 y = detail:addSection(panel, y + 4,
@@ -843,6 +855,12 @@ end
 
 function Planner.build(detail, panel)
     detail.expeditionZoomSlider = nil
+    local initialY = 7
+    if SC.UIHomeTrip then
+        local active
+        initialY, active = SC.UIHomeTrip.buildCard(detail, panel, initialY, "expeditions")
+        if active then return initialY end
+    end
     local draft = detail.expeditionDraft
     if not draft then
         draft = { kind = "scout", style = "stealth", hours = 2,
@@ -859,7 +877,7 @@ function Planner.build(detail, panel)
         draft.parkingZoneId = preferred and preferred.zoneId or nil
         draft.vehicleSqlId = preferred and preferred.sqlId or nil
     end
-    local y = detail:addSection(panel, 7, "UI_SC_Tab_Expeditions")
+    local y = detail:addSection(panel, initialY, "UI_SC_Tab_Expeditions")
     local expedition = SC.ExpeditionPrototype
     if expedition and expedition.current and expedition.current() then
         local mission = expedition.current()

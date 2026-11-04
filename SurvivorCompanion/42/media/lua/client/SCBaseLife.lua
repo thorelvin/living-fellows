@@ -5303,21 +5303,28 @@ function BaseLife.auditOperations(force, remainingBudget)
         local category = storage.category
         local stockCategory = category == "fresh_food" and "food" or category
         if defaultStockTargets[stockCategory] ~= nil then
-            if scan.storage ~= storage then
-                scan.storage, scan.container = storage, BaseLife.resolveContainer(storage)
-                scan.itemIndex, scan.itemCount, scan.itemLimit = 0, 0, nil
+            -- Native container lists can be emptied or replaced when their
+            -- chunks unload between budget slices. Re-resolve once per slice,
+            -- before reading a retained cursor; never retain an unloaded
+            -- prefix as current stock or bounds-check every native list get.
+            local container = BaseLife.resolveContainer(storage)
+            if scan.storage ~= storage or scan.container ~= container then
+                scan.storage, scan.container = storage, container
+                scan.itemIndex, scan.itemCount, scan.itemSize = 0, 0, nil
+                scan.items, scan.itemLimit = nil, nil
             end
-            local container = scan.container
             if container then
-                if scan.itemLimit == nil then
-                    local items, read = U().call(container, "getItems")
-                    if not read then items = type(container) == "table" and (container.items or container) end
-                    local length = type(items) == "table" and #items
-                        or SC.NativeList and select(1, SC.NativeList.size(items)) or 0
-                    scan.items, scan.itemLimit = items, math.min(tonumber(length) or 0,
-                        U().config("baseOperationsStorageItemBudget") or 160)
+                local items, read = U().call(container, "getItems")
+                if not read then items = type(container) == "table" and (container.items or container) end
+                local length = type(items) == "table" and #items
+                    or SC.NativeList and select(1, SC.NativeList.size(items)) or 0
+                length = tonumber(length) or 0
+                if scan.items ~= items or scan.itemSize ~= length then
+                    scan.itemIndex, scan.itemCount = 0, 0
                 end
-                local items, limit = scan.items, scan.itemLimit
+                scan.items, scan.itemSize = items, length
+                scan.itemLimit = math.min(length, U().config("baseOperationsStorageItemBudget") or 160)
+                local limit = scan.itemLimit
                 while scan.itemIndex < limit do
                     if not available() then return pending() end
                     local item = type(items) == "table" and items[scan.itemIndex + 1]

@@ -44,6 +44,11 @@ final class SCRoadFollower {
     private static final float TURN_FIRST_KMH = 3.0f;
     private static final float DEPARTURE_ALIGN_ANGLE = (float) Math.toRadians(60.0);
     private static final float DEPARTURE_FRONT_ROOM = 8.0f;
+    static final float PARKING_ALIGN_TRAVEL = 6.0f;
+    static final long PARKING_ALIGN_LIMIT_MS = 20000L;
+    static final int PARKING_ALIGN_MAX_LEGS = 5;
+    private static final float PARKING_ALIGN_BRAKE_MARGIN = SCDriveControl.stoppingDistance(6.0f);
+    private static final long PARKING_ROOM_INTERVAL_MS = 100L;
     /**
      * Stopped this long while asking to go forward through a clear bumper scan:
      * something the scan cannot see (a wall corner beside the wheel, a kerb)
@@ -100,6 +105,12 @@ final class SCRoadFollower {
     private float backoffSteering;
     private float backoffAlong = -1.0f;
     private int backoffs;
+    private boolean parkingAlignment;
+    private float alignmentX;
+    private float alignmentY;
+    private float alignmentRoomRadius;
+    private long alignmentStartedAt;
+    private long alignmentRoomCheckedAt;
 
     SCRoadFollower(SCDrivePath path, float cruiseKmh, boolean keepRight) {
         this(path, cruiseKmh, keepRight, false);
@@ -197,16 +208,86 @@ final class SCRoadFollower {
         return turn;
     }
 
+    boolean parkingAlignment() { return parkingAlignment; }
+
     /**
      * Turns round to face back down the route. With followBack the car then
      * drives the same route the other way.
      */
     void beginTurn(float heading, int side, boolean thenFollowBack) {
+        parkingAlignment = false;
         turn = new SCTurnAround(SCTurnAround.wrap(heading + (float) Math.PI), side);
         followBack = thenFollowBack;
         resumeAfterTurn = false;
         initialAlignmentPending = false;
         mode = Mode.TURNING;
+    }
+
+    /**
+     * A stopped parking correction, under the same driver's owner. The whole
+     * possible body envelope is loaded and clear before any pedal is issued;
+     * normal bumper scans still brake every forward and reverse leg.
+     */
+    String beginParkingAlignment(SCLaneScan.World world, float x, float y, int z,
+                                 float headingX, float headingY, float speedKmh,
+                                 float halfWidth, float halfLength, long nowMs) {
+        if (z != 0 || !Float.isFinite(x) || !Float.isFinite(y)
+                || !Float.isFinite(speedKmh)
+                || Math.abs(speedKmh) > SCDriveControl.STOPPED_KMH
+                || !Float.isFinite(halfWidth) || !Float.isFinite(halfLength)
+                || halfWidth <= 0.0f || halfLength <= 0.0f) {
+            return "parking alignment requires a stopped ground-floor car";
+        }
+        float headingLength = (float) Math.hypot(headingX, headingY);
+        path.pointAt(path.length(), 0.0f, point);
+        float distance = (float) Math.hypot(point[0] - x, point[1] - y);
+        if (!Float.isFinite(headingLength) || headingLength < 0.9f
+                || !Float.isFinite(distance) || distance < 0.5f || distance > 15.0f) {
+            return "parking alignment needs a target within 15 tiles";
+        }
+        float radius = PARKING_ALIGN_TRAVEL + (float) Math.hypot(halfWidth, halfLength)
+                + PARKING_ALIGN_BRAKE_MARGIN;
+        if (!parkingRoom(world, x, y, z, radius)) {
+            return "parking alignment room is blocked or unloaded";
+        }
+        float heading = (float) Math.atan2(headingY, headingX);
+        float targetHeading = (float) Math.atan2(point[1] - y, point[0] - x);
+        float error = SCTurnAround.wrap(targetHeading - heading);
+        turn = new SCTurnAround(targetHeading, error < 0.0f ? -1 : 1);
+        followBack = false;
+        resumeAfterTurn = false;
+        initialAlignmentPending = false;
+        parkingAlignment = true;
+        alignmentX = x;
+        alignmentY = y;
+        alignmentRoomRadius = radius;
+        alignmentStartedAt = nowMs;
+        alignmentRoomCheckedAt = nowMs;
+        mode = Mode.TURNING;
+        return "";
+    }
+
+    private static boolean parkingRoom(SCLaneScan.World world, float x, float y,
+                                       int z, float radius) {
+        if (world == null || !Float.isFinite(radius) || radius > 12.0f) return false;
+        int checked = 0;
+        float radiusSq = radius * radius;
+        for (int sx = (int) Math.floor(x - radius); sx <= (int) Math.ceil(x + radius); sx++) {
+            for (int sy = (int) Math.floor(y - radius); sy <= (int) Math.ceil(y + radius); sy++) {
+                float dx = Math.max(Math.abs(sx + 0.5f - x) - 0.5f, 0.0f);
+                float dy = Math.max(Math.abs(sy + 0.5f - y) - 0.5f, 0.0f);
+                if (dx * dx + dy * dy > radiusSq) continue;
+                if (++checked > 512 || world.squareKind(sx, sy, z) != SCLaneScan.CLEAR
+                        || world.edgeBlocked(sx, sy, sx + 1, sy, z)
+                        || world.edgeBlocked(sx, sy, sx, sy + 1, z)) return false;
+            }
+        }
+        return true;
+    }
+
+    private void failParkingAlignment(String why) {
+        turn.abort(why);
+        mode = Mode.TURN_FAILED;
     }
 
     Command update(SCLaneScan.World world, float x, float y, int z, float headingX,
@@ -218,12 +299,59 @@ final class SCRoadFollower {
         command.maneuver = false;
         float heading = (float) Math.atan2(headingY, headingX);
         if (mode == Mode.TURNING) {
+            if (parkingAlignment) {
+                if (!Float.isFinite(x) || !Float.isFinite(y) || z != 0
+                        || !Float.isFinite(heading) || !Float.isFinite(speedKmh)
+                        || Math.abs(speedKmh) > 6.0f) {
+                    failParkingAlignment("parking_alignment_pose_or_speed");
+                    return command;
+                }
+                if (Math.hypot(x - alignmentX, y - alignmentY) > PARKING_ALIGN_TRAVEL) {
+                    failParkingAlignment("parking_alignment_displacement");
+                    return command;
+                }
+                if (nowMs < alignmentStartedAt
+                        || nowMs - alignmentStartedAt >= PARKING_ALIGN_LIMIT_MS
+                        || turn.legs() > PARKING_ALIGN_MAX_LEGS) {
+                    failParkingAlignment("parking_alignment_limit");
+                    return command;
+                }
+                if (nowMs - alignmentRoomCheckedAt >= PARKING_ROOM_INTERVAL_MS) {
+                    alignmentRoomCheckedAt = nowMs;
+                    if (!parkingRoom(world, alignmentX, alignmentY, z, alignmentRoomRadius)) {
+                        failParkingAlignment("parking_alignment_room_changed");
+                        return command;
+                    }
+                }
+            }
             SCTurnAround.Step step = turn.update(heading, speedKmh, frontClear, rearClear,
                     nowMs, turnStep);
+            if (parkingAlignment && turn.legs() > PARKING_ALIGN_MAX_LEGS) {
+                failParkingAlignment("parking_alignment_limit");
+                return command;
+            }
             command.steering = step.steering;
             command.targetKmh = step.targetKmh;
             command.maneuver = true;
             if (turn.state() == SCTurnAround.State.DONE) {
+                if (parkingAlignment) {
+                    // The body moved during the turn: the old target heading
+                    // cannot establish a safe forward approach from this pose.
+                    if (Math.abs(speedKmh) > SCDriveControl.STOPPED_KMH) return command;
+                    path.pointAt(path.length(), 0.0f, point);
+                    float dx = point[0] - x;
+                    float dy = point[1] - y;
+                    float distance = (float) Math.hypot(dx, dy);
+                    float forwardDot = distance > 0.0f
+                            ? (float) (Math.cos(heading) * dx + Math.sin(heading) * dy) / distance
+                            : 1.0f;
+                    if (distance >= 0.5f && forwardDot < 0.75f) {
+                        failParkingAlignment("parking_alignment_target_not_forward");
+                    } else {
+                        mode = Mode.TURNED;
+                    }
+                    return command;
+                }
                 if (followBack || resumeAfterTurn) {
                     if (followBack) path = path.reversed();
                     segment = -1;

@@ -782,4 +782,20 @@ local pausedRuntime={snapshot=quiet()}
 check(D.update(pausedFollower,player,pausedRuntime,clock) and paused==1
     and D.peek(pausedFollower).current~="activity",
     "movement reaches needs cancellation before the native activity ownership gate")
+local priorNavigation,finalIntent=SC.Navigation,nil
+SC.Navigation={request=function(_,_,_,intent) finalIntent=intent return true,"walking" end}
+local finalActor=person("home-final-approach",13)
+local finalCommand=order("move_to")
+finalCommand.tacticalTarget={x=0,y=0,z=0}
+finalCommand.expeditionHomeApproach=true
+check(D._doTacticalForTests(finalActor,player,{},finalCommand,quiet(),{})
+    and finalIntent.arrivalDistance==0.35 and finalIntent.requireSameSquare==true
+    and finalIntent.expeditionHomeApproach==true,
+    "home final approach requires physical entry at the exact camp waypoint")
+finalCommand.expeditionHomeApproach=false
+check(D._doTacticalForTests(finalActor,player,{},finalCommand,quiet(),{})
+    and finalIntent.arrivalDistance==nil and finalIntent.requireSameSquare==false
+    and finalIntent.expeditionHomeApproach==false,
+    "ordinary ordered movement retains its existing arrival policy")
+SC.Navigation=priorNavigation
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

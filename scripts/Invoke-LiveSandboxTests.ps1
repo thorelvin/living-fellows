@@ -260,6 +260,16 @@ param(
     [switch]$PersonaReadinessProbe,
     [switch]$PersonaPlayProbe,
     [switch]$PersonaDiscoveryProbe,
+    [switch]$HomeTripProbe,
+    [switch]$HomeTripControlled,
+    [ValidateSet(1,2,3)][int]$HomeTripMembers = 1,
+    [ValidateSet('walk','drive')][string]$HomeTripTransport = 'walk',
+    [ValidateSet('parking','roadside')][string]$HomeTripStop = 'parking',
+    [ValidateSet('walk','radio','save_midtrip','resume_midtrip','resume_midtrip_save_dormant','resume_active','save_dormant','resume_dormant','save_delivery','resume_delivery')]
+    [string]$HomeTripMode = 'walk',
+    [ValidateRange(150,350)][int]$HomeTripDistance = 200,
+    [ValidateRange(1,600)][int]$HomeTripDutyTimeoutSeconds = 180,
+    [ValidateSet('north','east','south','west')][string]$HomeTripDirection = 'east',
     [switch]$CampReleaseProbe,
     [switch]$CampReleaseControlled,
     [switch]$PersonaDiscoveryStage,
@@ -1375,6 +1385,12 @@ if (-not (Test-Path -LiteralPath $gameExe -PathType Leaf) -or
     throw "Project Zomboid client was not found under $GameRoot"
 }
 $launcher = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFrom-Json
+if ($LowImpact) {
+    # Change this disposable direct launch only, never the installed launcher.
+    $launcher.vmArgs = @($launcher.vmArgs | Where-Object {
+        $_ -notmatch '^-Xm[sx]' -and $_ -notmatch '^-XX:ActiveProcessorCount='
+    }) + @('-Xms256m', '-Xmx3072m', '-XX:ActiveProcessorCount=4')
+}
 if ($launcher.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
     throw 'The native SCLauncher is not installed; run Install-Local.ps1 -NativeBridge first.'
 }
@@ -1644,7 +1660,7 @@ if ($IsolatedSourceBridge) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
-if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe) {
+if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or $HomeTripProbe) {
     # Keep view diagnostics focused. Unrelated large probes can exceed
     # Kahlua's debug-local limit when native stock-player diagnostics are enabled.
     $wallHarnessClient = [IO.Path]::GetFullPath((Join-Path $SandboxMods `
@@ -1654,7 +1670,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -2110,6 +2126,15 @@ $config = @(
     ('persona_readiness_probe=' + $PersonaReadinessProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_play_probe=' + $PersonaPlayProbe.IsPresent.ToString().ToLowerInvariant()),
     ('camp_release_controlled=' + $CampReleaseControlled.IsPresent.ToString().ToLowerInvariant()),
+    ('home_trip_probe=' + $HomeTripProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('home_trip_controlled=' + $HomeTripControlled.IsPresent.ToString().ToLowerInvariant()),
+    ('home_trip_members=' + $HomeTripMembers),
+    ('home_trip_transport=' + $HomeTripTransport),
+    ('home_trip_stop=' + $HomeTripStop),
+    ('home_trip_mode=' + $HomeTripMode),
+    ('home_trip_distance=' + $HomeTripDistance),
+    ('home_trip_duty_timeout_ms=' + ($HomeTripDutyTimeoutSeconds * 1000)),
+    ('home_trip_direction=' + $HomeTripDirection),
     ('camp_release_probe=' + $CampReleaseProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_discovery_probe=' + $PersonaDiscoveryProbe.IsPresent.ToString().ToLowerInvariant()),
     ('persona_discovery_stage=' + $PersonaDiscoveryStage.IsPresent.ToString().ToLowerInvariant()),
@@ -2177,6 +2202,13 @@ $manifest = [ordered]@{
     personaReadinessProbe = $PersonaReadinessProbe.IsPresent
     personaPlayProbe = $PersonaPlayProbe.IsPresent
     campReleaseControlled = $CampReleaseControlled.IsPresent
+    homeTripProbe = $HomeTripProbe.IsPresent
+    homeTripControlled = $HomeTripControlled.IsPresent
+    homeTripMembers = $HomeTripMembers
+    homeTripTransport = $HomeTripTransport
+    homeTripStop = $HomeTripStop
+    homeTripMode = $HomeTripMode
+    homeTripDutyTimeoutSeconds = $HomeTripDutyTimeoutSeconds
     campReleaseProbe = $CampReleaseProbe.IsPresent
     personaDiscoveryProbe = $PersonaDiscoveryProbe.IsPresent
     personaDiscoveryStage = $PersonaDiscoveryStage.IsPresent
@@ -2318,7 +2350,7 @@ if ($PrepareOnly) {
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($EngineSound) { $argumentLine = $argumentLine.Replace(' -nosound','') }
-if ($ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
+if ($HomeTripProbe -or $ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
     ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl
@@ -2441,7 +2473,21 @@ if ($SteamLaunch) {
         if ($ConvoyProbe) { $env:SC_LIVE_CONVOY_HARNESS = '1' }
         $process = Start-Process @startOptions
         if ($LowImpact) {
-            try { $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal }
+            try {
+                $process.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
+                $allowedAffinity = [Int64]$process.ProcessorAffinity
+                $chosenAffinity = [Int64]0
+                $chosenCpuCount = 0
+                for ($cpu = 0; $cpu -lt [IntPtr]::Size * 8 -and $chosenCpuCount -lt 4; $cpu++) {
+                    $bit = [Int64]1 -shl $cpu
+                    if (($allowedAffinity -band $bit) -ne 0) {
+                        $chosenAffinity = $chosenAffinity -bor $bit
+                        $chosenCpuCount++
+                    }
+                }
+                if ($chosenAffinity -eq 0) { throw 'No permitted processors for the owned client.' }
+                $process.ProcessorAffinity = [IntPtr]$chosenAffinity
+            }
             catch {
                 # This process was just created by this runner. Do not leave a
                 # full-priority client behind if the requested limit failed.

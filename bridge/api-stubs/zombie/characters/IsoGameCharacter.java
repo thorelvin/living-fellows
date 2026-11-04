@@ -72,6 +72,8 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     public boolean isSitting() { return false; }
     public boolean isResting() { return false; }
     public boolean isGodMod() { return false; }
+    public boolean isInvulnerable() { return false; }
+    public void setGodMod(boolean enabled, boolean forced) {}
     public ActionContext getActionContext() { return null; }
     public java.util.Stack<BaseAction> getCharacterActions() { return characterActions; }
     public void StartAction(BaseAction action) { characterActions.add(action); }

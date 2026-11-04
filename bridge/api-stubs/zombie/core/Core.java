@@ -7,6 +7,7 @@ public class Core {
     public static int height;
     public static Core getInstance() { return null; }
     public String getVersionNumber() { return null; }
+    public boolean isNoSave() { return false; }
     public boolean isZoomEnabled() { return false; }
     public int getOffscreenWidth(int playerIndex) { return 0; }
     public int getOffscreenHeight(int playerIndex) { return 0; }

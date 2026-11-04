@@ -34,13 +34,13 @@ local function expeditionReceipt(item)
         and SC.ExpeditionPrototype.receiptPending(item) == true
 end
 
-local function trunkFor(vehicle)
+local function trunkFor(vehicle, allowLocked)
     if not SC.Vehicle or type(SC.Vehicle.cargoPart) ~= "function" then
         return nil, nil, "car_cargo_unavailable"
     end
     local part, container, reason = SC.Vehicle.cargoPart(vehicle)
-    if not container then return nil, nil, reason or "car_trunk_missing" end
-    if call(vehicle, "isTrunkLocked") == true then
+    if not part or not container then return nil, nil, reason or "car_trunk_missing" end
+    if allowLocked ~= true and call(vehicle, "isTrunkLocked") == true then
         return nil, nil, "car_trunk_locked"
     end
     return part, container
@@ -57,7 +57,7 @@ local function parked(vehicle)
     return nil
 end
 
-function Unload.eligible(vehicle)
+function Unload.eligible(vehicle, options)
     if SC.TaxiCab and type(SC.TaxiCab.isOwned) == "function"
         and SC.TaxiCab.isOwned(vehicle) then
         return false, "service_cab_reserved"
@@ -68,7 +68,11 @@ function Unload.eligible(vehicle)
     end
     local zone = parked(vehicle)
     if not zone then return false, "car_not_parked_at_base" end
-    local part, trunk, reason = trunkFor(vehicle)
+    -- Exact Home receipts may retain their owner while the ordinary native
+    -- boarding/unlock transaction runs. General unload jobs still require an
+    -- already unlocked trunk, and this read-only check never changes a lock.
+    local part, trunk, reason = trunkFor(vehicle,
+        type(options) == "table" and options.allowLocked == true)
     if not trunk then return false, reason end
     return true, { id = id, zoneId = zone.id, part = part, trunk = trunk }
 end
@@ -226,7 +230,10 @@ function Unload.takeExact(actor, vehicleId, item, state, source)
     if not vehicle or not parked(vehicle) then
         return false, "car_not_parked_at_base"
     end
-    local locked = call(vehicle, "isTrunkLocked")
+    local locked, lockKnown = U().call(vehicle, "isTrunkLocked")
+    if not lockKnown or type(locked) ~= "boolean" then
+        return false, "car_trunk_lock_unavailable"
+    end
     if locked == true or state.receiptUnlock
         or call(actor, "getVehicle") == vehicle then
         if not SC.FieldWork or not SC.FieldWork.unlockTrunkFor then

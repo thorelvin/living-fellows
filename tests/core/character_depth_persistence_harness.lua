@@ -59,8 +59,11 @@ local function makeFluid(initial)
     return fluid
 end
 
+local nativeItemSerial = 1000000
 local function makeItem(itemType, options)
     local item = options or {}
+    nativeItemSerial = nativeItemSerial + 1
+    item.nativeId = item.nativeId or nativeItemSerial
     item.itemType = itemType
     item.modData = item.modData or {}
     item.condition = item.condition or 10
@@ -72,6 +75,9 @@ local function makeItem(itemType, options)
     function item:getConditionMax() return self.conditionMax or 10 end
     function item:setCondition(value) self.condition = value end
     function item:getModData() return self.modData end
+    function item:getID() return self.nativeId end
+    function item:setID(value) self.nativeId = value end
+    function item:getContainer() return self.container end
     function item:isFavorite() return self.favorite == true end
     function item:setFavorite(value) self.favorite = value == true end
     function item:getUses() return self.uses end
@@ -1270,6 +1276,106 @@ check(restoredMeal and restoredMeal.uses == 1
         and restoredMeal.removeNegativeWhenCooked == false,
     "partly consumed customized food retains raw portion, mood, thirst, nutrition, poison, cooking and boolean state")
 
+do
+    -- A Home receipt can leave the trunk before an ordinary save. Capture the
+    -- whole member inventory under one local identity context, validate it, and
+    -- reconstruct through the real restore transaction with the same native IDs.
+    local priorExpedition, priorInstance = SC.ExpeditionPrototype, instanceItem
+    local queries, pendingHome, failQuery = {}, true, false
+    SC.ExpeditionPrototype = { pendingHomeInventory = function(id)
+        queries[id] = (queries[id] or 0) + 1
+        if id == captured.id and failQuery then error("injected pending Home query failure") end
+        return id == captured.id and pendingHome
+    end }
+    local otherItem = makeItem("Base.OtherSaveItem")
+    function otherItem:getID() error("ordinary inventory must not read native IDs") end
+    local otherActor = makeActor(square, makeInventory({otherItem}))
+    local other = SC.Registry.register(otherActor, {id="sc-home-save-unrelated",recruited=true,
+        identity={forename="Other",surname="Fellow",gender="female"},state={order={current="stay"}}})
+    local function hasNative(nodes)
+        for _, node in ipairs(nodes or {}) do
+            if node.nativeId ~= nil or hasNative(node.children) or hasNative(node.weaponParts) then return true end
+        end
+        return false
+    end
+    local function nativeMap(nodes, result)
+        result = result or {}
+        for _, node in ipairs(nodes or {}) do
+            check(type(node.nativeId)=="number" and not result[node.nativeId],
+                "exact Home inventory has one native identity for every root, bag child and weapon part")
+            result[node.nativeId]=node.type
+            nativeMap(node.children,result) nativeMap(node.weaponParts,result)
+        end
+        return result
+    end
+    local memberRecord = SC.Registry.byId(captured.id)
+    local expectedCargoId = restoredKnife:getID()
+    local exact, why = SC.Persistence.captureRecord(memberRecord)
+    check(exact and exact.inventory.preserveNativeIds==true and queries[captured.id]==1,
+        "pending Home ownership is queried once per record, not per inventory node: "..tostring(why))
+    local expected = nativeMap(exact.inventory.roots)
+    check(expected[expectedCargoId]==restoredKnife:getFullType(),
+        "the already-carried Home receipt's exact native cargo ID enters the ordinary actor snapshot")
+    local ordinary = SC.Persistence.captureRecord(other)
+    check(ordinary and ordinary.inventory.preserveNativeIds==nil and not hasNative(ordinary.inventory.roots)
+            and queries[other.id]==1,
+        "a different actor's ordinary capture does not inherit the Home inventory context")
+    local getCargoId = restoredKnife.getID
+    restoredKnife.getID = function() error("injected exact native identity read failure") end
+    check(SC.Persistence.captureRecord(memberRecord)==nil,
+        "an unreadable carried Home cargo identity aborts capture instead of weakening exact restoration")
+    restoredKnife.getID = getCargoId
+    failQuery=true
+    check(SC.Persistence.captureRecord(memberRecord)==nil,
+        "a failed Home ownership query cannot silently create a legacy inventory snapshot")
+    failQuery=false
+    ordinary = SC.Persistence.captureRecord(other)
+    check(ordinary and not hasNative(ordinary.inventory.roots),
+        "identity read/query failures leave no exact-ID state behind for another actor")
+    local nestedCapture
+    restoredKnife.getID = function(item)
+        nestedCapture=SC.Persistence.captureRecord(other)
+        return getCargoId(item)
+    end
+    exact = SC.Persistence.captureRecord(memberRecord)
+    restoredKnife.getID = getCargoId
+    check(exact and exact.inventory.preserveNativeIds and nestedCapture
+            and not hasNative(nestedCapture.inventory.roots),
+        "a reentrant unrelated actor capture cannot inherit or erase the outer Home inventory identity context")
+    local originalId = restoredKnife.nativeId
+    restoredKnife.nativeId = restoredWeapon.nativeId
+    check(SC.Persistence.captureRecord(memberRecord)==nil,
+        "ambiguous duplicate native IDs abort the exact Home inventory capture")
+    restoredKnife.nativeId = originalId
+    SC.Commands.reset(restored)
+    SC.Registry.unregister(restored)
+    local retained, reason = SC.Persistence.retainForRecovery({id=exact.id,recruited=true,
+        runtime={lastStableSnapshot=exact}})
+    check(retained==true,"the real record validator accepts the complete ordinary Home delivery snapshot: "..tostring(reason))
+    local factory = makeInventory()
+    instanceItem = function(itemType)
+        local value=factory:AddItem(itemType)
+        factory:Remove(value)
+        return value
+    end
+    restored, reason=SC.Persistence.restoreAt(exact,square)
+    check(restored~=nil,"the real actor restore reconstructs a partially delivered Home inventory: "..tostring(reason))
+    local after=SC.Persistence.captureRecord(SC.Registry.byId(exact.id))
+    local actual=nativeMap(after.inventory.roots)
+    local same=true
+    for id,itemType in pairs(expected) do if actual[id]~=itemType then same=false end end
+    for id,itemType in pairs(actual) do if expected[id]~=itemType then same=false end end
+    check(same and findType(restored.inventory,"Base.HuntingKnife"):getID()==expectedCargoId,
+        "ordinary save/validate/restore during Home pickup retains exact inventory and carried-receipt native IDs")
+    pendingHome=false
+    local completed=SC.Persistence.captureRecord(SC.Registry.byId(exact.id))
+    check(completed and completed.inventory.preserveNativeIds==nil and not hasNative(completed.inventory.roots),
+        "a completed Home delivery returns to ordinary inventory capture without altering legacy save semantics")
+    SC.Commands.reset(otherActor)
+    SC.Registry.unregister(otherActor)
+    SC.ExpeditionPrototype,instanceItem=priorExpedition,priorInstance
+end
+
 SC.Commands.reset(restored)
 SC.Registry.unregister(restored)
 local compatibilityLocation = captured.inventory.equipment.worn[1].location
@@ -1332,6 +1438,86 @@ check(duplicateCount == 1 and duplicateDepth == 1,
 
 SC.Commands.reset(deduplicated)
 SC.Registry.unregister(deduplicated)
+do
+    -- Restoration may be followed by chunk unload before Runtime has observed
+    -- one healthy frame. Exercise the real committed spawn/registry path, not
+    -- a raw saved-coordinate fallback or an injected persistence anchor.
+    local priorValidate, priorReveal, priorRecover = provider.validate, provider.reveal, provider.recover
+    local priorGrid = SC.GameplayUtil.gridSquare
+    local function loadedSquare(x, y)
+        local value = { x = x, y = y, z = 0 }
+        function value:getX() return self.x end
+        function value:getY() return self.y end
+        function value:getZ() return self.z end
+        function value:getChunk() return self end
+        function value:isSolid() return false end
+        function value:isSolidTrans() return false end
+        function value:TreatAsSolidFloor() return true end
+        function value:isFree() return true end
+        function value:isSafeToSpawn() return true end
+        return value
+    end
+    function provider:validate(actor)
+        return actor.anchorUnhealthy ~= true, "injected native health failure"
+    end
+    local actualSquare = loadedSquare(35, 45)
+    local anchored, why = SC.Persistence.restoreAt(captured, actualSquare)
+    local committed = SC.Registry.byId(captured.id)
+    local anchor = committed and committed.runtime.lastStablePosition
+    check(anchored ~= nil and committed.actor == anchored and SC.Registry.isActive(anchored, captured.id)
+            and anchor and anchor.x == 35 and anchor.y == 45 and anchor.z == 0
+            and anchor.x ~= captured.position.x and committed.runtime.lastStableSnapshot == nil,
+        "committed restoration immediately anchors the actual healthy native square before a runtime/vitals pulse: " .. tostring(why))
+    local inventory, spawned = anchored.inventory, #provider.spawned
+    anchored.square = nil
+    SC.GameplayUtil.gridSquare = function() return nil end
+    local position, positionReason = SC.Persistence._capturePositionForTests(committed, anchored)
+    local missing, missingReason = SC.Persistence.loadedRecoverySquare(committed)
+    check(position and position.x == 35 and position.y == 45 and positionReason == "last_verified_position"
+            and missing == nil and missingReason == "saved_square_unloaded"
+            and SC.Registry.byId(captured.id).actor == anchored and anchored.inventory == inventory,
+        "immediate unload preserves the verified anchor and same native actor while its chunk remains unavailable")
+    local freshSquare = loadedSquare(35, 45)
+    SC.GameplayUtil.gridSquare = function(x, y, z)
+        if x == 35 and y == 45 and z == 0 then return freshSquare end
+    end
+    local recovery, recoveryReason = SC.Persistence.loadedRecoverySquare(committed)
+    function provider:recover(actor, target)
+        check(actor == anchored and target == freshSquare,
+            "posted recovery reattaches only the original native actor at its freshly loaded verified square")
+        actor.square = target
+        return true
+    end
+    local recovered = recovery and SC.Actor.recover(anchored, recovery)
+    check(recovered == true and recoveryReason == "last_verified_position" and anchored.square == freshSquare
+            and SC.Registry.byId(captured.id).actor == anchored and anchored.inventory == inventory
+            and #provider.spawned == spawned and SC.Registry.idOf(anchored) == captured.id,
+        "posted recovery retains exact actor, inventory and stable identity without spawning a replacement")
+    SC.Commands.reset(anchored)
+    SC.Registry.unregister(anchored)
+
+    function provider:reveal(actor) actor.anchorUnhealthy = true return true end
+    local unhealthy = SC.Persistence.restoreAt(captured, actualSquare)
+    local unhealthyRecord = SC.Registry.byId(captured.id)
+    check(unhealthy ~= nil and unhealthyRecord.actor == unhealthy
+            and unhealthyRecord.runtime.lastStablePosition == nil
+            and select(2, SC.Persistence.loadedRecoverySquare(unhealthyRecord)) == "no_verified_position",
+        "a native health failure after commit never promotes saved coordinates into a restoration anchor")
+    SC.Commands.reset(unhealthy)
+    SC.Registry.unregister(unhealthy)
+
+    function provider:reveal(actor) actor.square = nil return true end
+    local detached = SC.Persistence.restoreAt(captured, actualSquare)
+    local detachedRecord = SC.Registry.byId(captured.id)
+    check(detached ~= nil and detachedRecord.actor == detached
+            and detachedRecord.runtime.lastStablePosition == nil
+            and select(2, SC.Persistence.loadedRecoverySquare(detachedRecord)) == "no_verified_position",
+        "a null native square after commit never receives an anchor even when the provider health probe succeeds")
+    SC.Commands.reset(detached)
+    SC.Registry.unregister(detached)
+    provider.validate, provider.reveal, provider.recover = priorValidate, priorReveal, priorRecover
+    SC.GameplayUtil.gridSquare = priorGrid
+end
 local deferredProvider = { testOnly = true, polls = 0 }
 function deferredProvider:isActor(actor) return actor and actor.owned == true end
 function deferredProvider:requestSpawn(spawnSquare)
@@ -1359,6 +1545,35 @@ local completedRestore, completedRecord = SC.Actor.pollSpawn(deferredTicket)
 check(completedRestore ~= nil and completedRecord.id == captured.id
     and SC.Registry.byId(captured.id).actor == completedRestore,
     "persistence finalizes a deferred native actor through the normal restore transaction")
+do
+    -- A deferred native request commits on a later restorePulse, not in the
+    -- original restoreAt call. That production completion path must anchor too.
+    SC.Commands.reset(completedRestore)
+    SC.Registry.unregister(completedRestore)
+    check(SC.Persistence.reset() == true, "deferred anchor regression begins with no pending spawn ownership")
+    local priorCell = getCell
+    getCell = function()
+        return { getGridSquare = function(_, x, y, z)
+            if x == captured.position.x and y == captured.position.y and z == captured.position.z then return square end
+        end }
+    end
+    deferredProvider.polls = 0
+    local retained, why = SC.Persistence.retainForRecovery({ id = captured.id, recruited = true,
+        runtime = { lastStableSnapshot = captured } })
+    check(retained == true, "the exact validated snapshot enters the ordinary deferred restore queue: " .. tostring(why))
+    SC.Persistence.restorePulse()
+    check(SC.Persistence.pendingSnapshot()[captured.id].hasSpawnTicket == true
+            and SC.Registry.byId(captured.id) == nil,
+        "the first restore pulse retains its real uncommitted native request without seeding registry position")
+    SC.Persistence.restorePulse()
+    local committed = SC.Registry.byId(captured.id)
+    local at = committed and committed.runtime.lastStablePosition
+    check(committed and committed.actor and SC.Registry.isActive(committed.actor, captured.id)
+            and at and at.x == square.x and at.y == square.y and at.z == square.z
+            and not SC.Persistence.isPending(captured.id) and committed.runtime.lastStableSnapshot == nil,
+        "later native-ticket completion seeds a verified restoration anchor before the first runtime/vitals pulse")
+    getCell = priorCell
+end
 
 do
 -- R2-01: durable orders (base_duty/work/faction_duty) and the overload permission

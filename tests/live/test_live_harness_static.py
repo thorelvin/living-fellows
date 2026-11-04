@@ -39,6 +39,13 @@ for info in (root_info, version_info):
             "harness must use the same exact game-family gate")
 
 require("-cachedir=" in runner, "runner must redirect the complete user cache")
+debug_launch = re.search(
+    r"^if \(([^{}]+)\) \{\s*\$argumentLine \+= ' -debug'\s*\}",
+    runner, re.MULTILINE)
+require(debug_launch is not None and "$HomeTripProbe" in debug_launch.group(1),
+        "home observer fixture must use the genuine scoped debug launch for native invisibility capability")
+require(len(re.findall(r"\$argumentLine \+= ' -debug'", runner)) == 1,
+        "debug launch must remain in the existing probe condition rather than become a global setting")
 require("build\\live-sandbox-runs" in runner, "runs must stay under the project build tree")
 require("Copy-Item -LiteralPath $SeedSave -Destination $TargetSave -Recurse" in runner,
         "runner must clone, never open, the source save")

@@ -2,6 +2,26 @@
 
 # Changelog
 
+## 0.26.95 - Send companions home
+
+- Send up to four followers home on foot or by car from their quick orders or
+  the Squad tab. Review the crew, leader, route and parking before sending them.
+- Follow their trip in the companion view, with a trip card and a nearby recall.
+  At camp, preserve their exact supplies and queue normal base cleanup and restock.
+- Use equipped two-way radios to request Come back, Hold, Status or Push on.
+  Wait for the leader's received reply before the trip changes.
+- Save the whole crew before closing a distant companion view. Restore them
+  when camp enters your loaded area, keeping the solo player and rendering intact.
+- Stop and save the return car before closing its view. Unload verified trunk
+  cargo from marked parking; roadside cargo stays pending until the car is parked.
+- Preserve carried return cargo through saves during unloading, and keep workers
+  focused on their selected storage while checking access and available space.
+- Keep newly restored companions recoverable if their square unloads before
+  their first normal update.
+- Give recovering expedition routes time to finish searching before retrying.
+- Ship the matching Lua and rebuilt native bridge with protocol
+  `42.21-isocompanion-29` for Project Zomboid 42.21.0.
+
 ## 0.26.94 - Computer conversations and polish
 
 - Keep camp computer follow-ups tied to the conversation you actually had,

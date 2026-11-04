@@ -96,6 +96,8 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCLightingSlotRetirementTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCLightingSlotLifecycleTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCRemoteArrivalTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCVehicleSaveBarrierTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCViewpointCompatibilityTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCTerminalLogoRendererTest.java') `
@@ -163,6 +165,8 @@ try {
         (Join-Path $Client 'SCObjectives.lua'),
         (Join-Path $Client 'SCJournal.lua'),
         (Join-Path $Client 'SCCommands.lua'),
+        (Join-Path $Client 'SCHomeTrip.lua'),
+        (Join-Path $Client 'SCExpeditionIntegration.lua'),
         (Join-Path $Client 'SCPlayerCare.lua'),
         (Join-Path $Client 'SCCombatThreatModel.lua'),
         (Join-Path $Client 'SCCombatSquad.lua'),
@@ -318,6 +322,13 @@ try {
         )
         Add-ScJvmStep 'expedition-car' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionCarFiles 'Expedition car preflight, seat ownership and checked restart harness failed.'
 
+        $homeCarFiles = @(
+            (Join-Path $TestRoot 'expedition_car_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionCar.lua'),
+            (Join-Path $TestRoot 'home_car_harness.lua')
+        )
+        Add-ScJvmStep 'home-car' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $homeCarFiles 'Home field-car preflight, stop selection and safe return harness failed.'
+
         $hotwireFiles = @(
             (Join-Path $TestRoot 'vehicle_hotwire_fixture.lua'),
             (Join-Path $Client 'SCVehicleHotwire.lua'),
@@ -393,6 +404,16 @@ try {
             (Join-Path $TestRoot 'expedition_integration_harness.lua')
         )
         Add-ScJvmStep 'expedition-integration' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionIntegrationFiles 'Expedition exact receipt delivery and restock harness failed.'
+
+        $homeIntegrationReachFiles = @(
+            (Join-Path $TestRoot 'expedition_integration_fixture.lua'),
+            (Join-Path $Client 'SCHomeTrip.lua'),
+            (Join-Path $Client 'SCVehicleUnload.lua'),
+            (Join-Path $Client 'SCExpeditionIntegration.lua'),
+            (Join-Path $Client 'SCFieldWork.lua'),
+            (Join-Path $TestRoot 'home_integration_reach_harness.lua')
+        )
+        Add-ScJvmStep 'home-integration-reach' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $homeIntegrationReachFiles 'Home exact parked-cargo ownership across the camp reach gap failed.'
 
         $woodIntegrationFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
@@ -919,6 +940,8 @@ try {
         Add-ScJvmStep 'sc-lighting-slot-retirement-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCLightingSlotRetirementTest') @() 'Owned secondary lighting retirement transaction failed.'
         Add-ScJvmStep 'sc-lighting-slot-lifecycle-test' @("-XX:ErrorFile=$BuildRoot\hs_err_lighting_slot_%p.log", '-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCLightingSlotLifecycleTest') @() 'Isolated native lighting join/close protocol failed.'
         Add-ScJvmStep 'sc-native-cleanup-transaction-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCNativeCleanupTransactionTest') @() 'Native cleanup transaction control failed.'
+        Add-ScJvmStep 'sc-remote-arrival-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCRemoteArrivalTest') @() 'Remote arrival save/detachment barrier failed.'
+        Add-ScJvmStep 'sc-vehicle-save-barrier-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCVehicleSaveBarrierTest') @() 'Committed native vehicle save barrier failed.'
         Add-ScJvmStep 'sc-native-bridge-exposure-test' @('-cp', "$BuildRoot;$NativeJar;$Jar", 'survivorcompanion.bridge.SCNativeBridgeExposureTest') @() 'Production native bridge Kahlua exposure failed.'
         Add-ScJvmStep 'sc-launcher' @('-cp', "$NativeJar;$Jar", 'survivorcompanion.bridge.SCLauncher', '--sc-bridge-smoke-test') @() 'Native bridge launcher smoke test failed.'
     }

@@ -166,10 +166,27 @@ local function notifyDisabled(reason)
     return shown
 end
 
+-- A durably captured home crew cannot begin another inventory/needs/speech
+-- action while its exact native retirement is being retried. Keep the normal
+-- roster fast path and continue servicing everyone outside that transaction.
+local function serviceRoster()
+    local records = SC.Registry.snapshot()
+    local home = SC.HomeTrip
+    local trip = home and type(home.current) == "function" and home.current()
+    if not trip or not trip.homeRelease or type(home.handoverOwns) ~= "function" then
+        return records
+    end
+    local available = {}
+    for _, record in ipairs(records) do
+        if not home.handoverOwns(record.actor) then available[#available + 1] = record end
+    end
+    return available
+end
+
 local function nextRecord(cursor, snapshot)
     -- Reuse the versioned sorted roster across actor services and background
     -- pulses. A new table is published only when membership changes.
-    local records = type(snapshot) == "table" and snapshot or SC.Registry.snapshot()
+    local records = type(snapshot) == "table" and snapshot or serviceRoster()
     if #records == 0 then return nil, 1 end
     if cursor > #records then cursor = 1 end
     local record = records[cursor]
@@ -385,7 +402,7 @@ local function decisionTaskCore(current, budgetRemaining)
     if SC.ExpeditionPrototype then SC.ExpeditionPrototype.pulse() end
     if SC.BaseWatch then SC.BaseWatch.pulse() end
     local startedAt = preciseNowMs()
-    local records = SC.Registry.snapshot()
+    local records = serviceRoster()
     local total = #records
     if total == 0 then return end
     local currentPlayer = player()
@@ -675,7 +692,7 @@ runtime._repairNativeScheduleForTests = repairNativeSchedule
 
 local function vitalsTask(current)
     local record
-    record, vitalsCursor = nextRecord(vitalsCursor, SC.Registry.snapshot())
+    record, vitalsCursor = nextRecord(vitalsCursor, serviceRoster())
     if record == nil or record.actor == nil then return end
     if not SC.Scheduler.dueFor(record.id, "vitals", 1000, current) then return end
     if type(record.runtime) == "table" and record.runtime.inactive == true then
@@ -1165,24 +1182,24 @@ end
 -- Party banter: place remarks, idle jokes, first meetings and camp chats.
 local function banterTask(current)
     if SC.Banter ~= nil and type(SC.Banter.update) == "function" then
-        SC.Banter.update(player(), SC.Registry.snapshot(), current)
+        SC.Banter.update(player(), serviceRoster(), current)
     end
     -- Work and expedition talk keeps its own pacing; it only shares the lane.
     if SC.WorkVoice ~= nil and type(SC.WorkVoice.update) == "function" then
-        SC.WorkVoice.update(player(), SC.Registry.snapshot(), current)
+        SC.WorkVoice.update(player(), serviceRoster(), current)
     end
 end
 
 local function companionGiftTask(current)
     if SC.CompanionGifts and type(SC.CompanionGifts.pulse) == "function" then
-        SC.CompanionGifts.pulse(player(), SC.Registry.snapshot(), current)
+        SC.CompanionGifts.pulse(player(), serviceRoster(), current)
     end
 end
 
 -- Body language: yawns, stretches, sneezes and workout chatter. Animation only.
 local function gesturesTask(current)
     if SC.Gestures ~= nil and type(SC.Gestures.update) == "function" then
-        SC.Gestures.update(player(), SC.Registry.snapshot(), current)
+        SC.Gestures.update(player(), serviceRoster(), current)
     end
 end
 
@@ -1221,7 +1238,7 @@ end
 local function loopedEmoteTask(current)
     local visual = SC.NativeVisualActions
     if not visual or type(visual.releaseLoopedEmote) ~= "function" then return true end
-    for _, record in ipairs(SC.Registry.snapshot()) do
+    for _, record in ipairs(serviceRoster()) do
         if recordServiceable(record) then
             visual.releaseLoopedEmote(record.actor, current)
         end

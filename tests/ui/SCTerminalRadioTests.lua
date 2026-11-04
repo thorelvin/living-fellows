@@ -8,7 +8,7 @@ getSpecificPlayer=function(index) return index==0 and player or nil end
 SC.GameplayUtil.nowMs=function() return T.now end
 SC.BaseLife={active=function() return nil end,isInside=function() return false end}
 local trip
-SC.ExpeditionPrototype={TEAM_RADIO_CHANNEL=90000,active=function() return trip end}
+SC.ExpeditionPrototype={TEAM_RADIO_CHANNEL=90000,active=function() return trip end,current=function() return trip end}
 local flushes,nativeCalls=0,0
 local function list(rows) return {size=function() nativeCalls=nativeCalls+1 return #rows end,get=function(_,i) nativeCalls=nativeCalls+1 return rows[i+1] end} end
 local function device()
@@ -191,6 +191,26 @@ check(R.lastReport(pc)==nil,"another receiver's cached expedition report is not 
 R.acknowledged(pc,"local-ack",{kind="wood",collected=4,stored=2,at=T.hours,actor=player})
 check(R.lastReport(pc).collected==4 and R.lastReport(pc).actor==nil,"local acknowledgement saves only bounded report data without actor references")
 trip=nil
+do
+    local previousPage=w.radioPage
+    w.radioPage="team"
+    local function commands()
+        local count=0
+        local taxi,tune=false,false
+        for _,entry in ipairs(UI.options(w)) do
+            if type(entry.radioValue)=="table" and entry.radioValue.operation=="radio" then count=count+1 end
+            if type(entry.radioValue)=="table" and entry.radioValue.operation=="taxi" then taxi=true end
+            if entry.radioAction=="team" then tune=true end
+        end
+        return count,taxi,tune
+    end
+    trip={radioSession="home-ui",scout={kind="home"}}
+    local count,taxi,tune=commands()
+    check(count==0 and taxi and tune,"home trip hides unsupported radio-program orders while retaining tuning and taxi controls")
+    trip.scout.kind="search"
+    check(commands()==2,"ordinary expedition keeps both radio-program report and recall controls")
+    trip=nil w.radioPage=previousPage
+end
 local prepare,execute=SC.TerminalServices.prepare,SC.TerminalServices.execute
 local controls=0
 SC.TerminalServices.prepare=function(_,proposal)

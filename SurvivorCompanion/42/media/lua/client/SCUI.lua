@@ -15,6 +15,7 @@ require "SCMedicalUI"
 require "SCUIFormat"
 require "SCUIPixels"
 require "SCUIExpeditions"
+require "SCUIHomeTrip"
 require "SCInteraction"
 
 SurvivorCompanion = SurvivorCompanion or {}
@@ -372,6 +373,10 @@ end
 -- its existing fallback; internal reason codes remain available in logs.
 function UI.baseFailureReason(reason, knownOnly)
     if type(reason) ~= "string" then return not knownOnly and UI.humanize(tostring(reason)) or nil end
+    local homeReason = string.gsub(reason, "^group_prevalidation:", "")
+    if string.sub(homeReason, 1, 5) == "home_" and SC.HomeTrip and SC.HomeTrip.reasonText then
+        return SC.HomeTrip.reasonText(homeReason)
+    end
     local workReasons = {
         floor_pickup_animation_replaced = "work_pickup_interrupted",
         floor_pickup_animation_failed = "work_pickup_interrupted",
@@ -659,6 +664,11 @@ end
 local function detailStructureSignature(row, tab)
     if tab == "expeditions" then
         return SC.UIExpeditions.viewStructureSignature()
+            .. (SC.UIHomeTrip and (":" .. SC.UIHomeTrip.viewStructureSignature()) or "")
+    end
+    if (tab == "groups" or tab == "orders" or tab == "base") and SC.UIHomeTrip then
+        return detailRowSignature(row) .. ":" .. SC.UIHomeTrip.viewStructureSignature()
+            .. (tab == "groups" and (":" .. tostring(UI.homeTripOwnsSquadRow(row))) or "")
     end
     if tab == "talk" then
         local conversation = row and SC.Interaction.state(row.id) or nil
@@ -949,16 +959,42 @@ local function copySummary(row, summary)
     row.factionStanding = summary.factionStanding or row.factionStanding
 end
 
+-- Active travel and an exact unfinished home handover own this Squad row.
+function UI.homeTripOwnsSquadRow(row)
+    if type(row) ~= "table" or not row.id then return false end
+    if SC.HomeTrip and SC.HomeTrip.isMemberId and SC.HomeTrip.isMemberId(row.id) then return true end
+    local expedition = SC.ExpeditionPrototype
+    return expedition and expedition.pendingHomeMember
+        and expedition.pendingHomeMember(row.id) == true or false
+end
+
+-- A home trip's joined second view is an observation of its exact leader.
+-- This only controls roster facts; direct-order authority stays in canRecall.
+function UI.homeTripViewObserves(actor, id, player)
+    local home = SC.HomeTrip
+    local active = home and home.current and home.current()
+    return actor ~= nil and active ~= nil and active.leader ~= nil
+        and active.leader.id == id and active.leader.actor == actor
+        and SC.ViewSession and SC.ViewSession.owner and SC.ViewSession.owner() == "expedition"
+        and type(getSpecificPlayer) == "function" and getSpecificPlayer(0) == player
+        and getSpecificPlayer(1) == actor or false
+end
+
 function UI.projectExpeditionRow(row, player)
     local expedition = SC.ExpeditionPrototype
     if type(row) ~= "table" or expedition == nil
         or type(expedition.isMemberId) ~= "function"
         or not expedition.isMemberId(row.id) then return row end
     row.expeditionMember = true
+    local home = SC.HomeTrip and SC.HomeTrip.isMemberId and SC.HomeTrip.isMemberId(row.id)
+    local homeView = home and SC.HomeTrip.describe and SC.HomeTrip.describe(player)
+    local seenInView = home and UI.homeTripViewObserves(row.actor, row.id, player)
     if row.actor ~= nil
-        and type(expedition.playerCanObserve) == "function"
-        and expedition.playerCanObserve(row.actor, player) then
-        row.order = "expedition"
+        and (seenInView or type(expedition.playerCanObserve) == "function"
+            and expedition.playerCanObserve(row.actor, player)) then
+        row.order = home and "UI_SC_HomeTrip_GoingHome" or "expedition"
+        if home then row.activity = SC.UIHomeTrip and SC.UIHomeTrip.rosterActivity
+            and SC.UIHomeTrip.rosterActivity(homeView) or "UI_SC_HomeTrip_Walking" end
         return row
     end
     local name = type(expedition.memberName) == "function"
@@ -967,7 +1003,9 @@ function UI.projectExpeditionRow(row, player)
         id = row.id,
         name = UI.displayName(row, name) or UI.text("UI_SC_Value_UnknownCompanion"),
         group = row.group, recruited = true, available = false,
-        order = "expedition", activity = "away",
+        order = home and "UI_SC_HomeTrip_GoingHome" or "expedition",
+        activity = home and homeView and homeView.observed
+            and (seenInView and "UI_SC_HomeTrip_Walking" or "UI_SC_HomeTrip_WithGroup") or "away",
         expeditionAway = true, expeditionMember = true,
     }
 end
@@ -981,8 +1019,9 @@ function UI.describeEntry(entry, player)
     if id and expedition and type(expedition.isMemberId) == "function"
         and expedition.isMemberId(id)
         and (actor == nil
-            or type(expedition.playerCanObserve) ~= "function"
-            or not expedition.playerCanObserve(actor, player)) then
+            or not UI.homeTripViewObserves(actor, id, player)
+                and (type(expedition.playerCanObserve) ~= "function"
+                    or not expedition.playerCanObserve(actor, player))) then
         return UI.projectExpeditionRow({ id = id,
             group = type(entry) == "table" and entry.group or nil,
         }, player)
@@ -1041,6 +1080,10 @@ function UI.formatKnox(value)
 end
 
 function UI.healthText(value)
+    value = tonumber(value)
+    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+        return UI.text("UI_SC_Value_Unknown")
+    end
     return UI.text("UI_SC_Value_Health", numericText(value, 0))
 end
 
@@ -1053,6 +1096,10 @@ function UI.statPercentText(value)
 end
 
 function UI.distanceText(value)
+    value = tonumber(value)
+    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+        return UI.text("UI_SC_Value_Unknown")
+    end
     return UI.text("UI_SC_Value_Distance", numericText(value, 1))
 end
 
@@ -1197,7 +1244,9 @@ function SCUIRoster:doDrawItem(y, item, alternate)
         selected and 0.86 or away and 0.67 or 0.93,
         selected and 0.46 or away and 0.65 or 0.89, 1, UIFont.Small)
     lineY = lineY + metrics.lineHeight
-    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_HealthDistance", UI.healthText(row.health), UI.distanceText(row.distance)), maximumWidth), 8, lineY,
+    local summary = row.expeditionAway == true and UI.text("UI_FriendState_Away")
+        or UI.text("UI_SC_Roster_HealthDistance", UI.healthText(row.health), UI.distanceText(row.distance))
+    self:drawText(fitText(UIFont.Small, summary, maximumWidth), 8, lineY,
         away and 0.56 or 0.72, away and 0.60 or 0.77,
         away and 0.59 or 0.72, 1, UIFont.Small)
     lineY = lineY + metrics.lineHeight
@@ -1279,6 +1328,31 @@ local function usableGroup(group)
 end
 
 function UI.commandAvailability(row, command, payload)
+    if SC.HomeTrip and SC.HomeTrip.isMemberId then
+        if (command == "follow" or command == "regroup") and type(payload) == "table"
+            and payload.scope == "group" then
+            local group = payload.group or row and row.group
+            local hasHome, hasOthers = false, false
+            for _, entry in ipairs(UI.instance and UI.instance.roster and UI.instance.roster.items or {}) do
+                local member = entry.item
+                if member and member.recruited == true and member.group == group then
+                    if SC.HomeTrip.isMemberId(member.id) then hasHome = true else hasOthers = true end
+                end
+            end
+            if hasHome and hasOthers then return false, "UI_SC_HomeTrip_MixedGroup" end
+            if hasHome then
+                local allowed, reason = SC.HomeTrip.canRecall(playerForUI())
+                return allowed == true, allowed ~= true and SC.HomeTrip.reasonText(reason) or nil
+            end
+        end
+        if row and SC.HomeTrip.isMemberId(row.id) then
+            if command == "follow" or command == "regroup" then
+                local allowed, reason = SC.HomeTrip.canRecall(playerForUI())
+                return allowed == true, allowed ~= true and SC.HomeTrip.reasonText(reason, row.name) or nil
+            end
+            return false, "UI_SC_HomeTrip_RecallFirst"
+        end
+    end
     if SC.Interaction and SC.Interaction.descriptor(command)
         and type(payload) ~= "table" then
         return SC.Interaction.availability(row, command, playerForUI())
@@ -1495,11 +1569,14 @@ local function issueCommandButton(target, button, requestedRow)
             UI.text("UI_SC_CommandRejectedDetail", buttonFeedbackLabel(button)), false)
         if SC.Interaction and SC.Interaction.descriptor(button.scCommand) then
             setButtonFeedback(target, SC.Interaction.reasonText(reason, extra), false)
+        elseif type(reason) == "string" and string.find(reason, "home_", 1, true) then
+            setButtonFeedback(target, UI.baseFailureReason(reason), false)
         elseif type(reason) == "string" and string.sub(reason, 1, 6) == "UI_SC_" then
             setButtonFeedback(target, UI.text(reason), false)
         end
     else
         local resultText
+        if reason == "home_recall_staged" then resultText = UI.text("UI_SC_HomeTrip_CalledOff") end
         if button.scCommand == "set_weapon_priority" then
             local weaponName = type(extra) == "table" and extra.weaponName or nil
             if (reason == "weapon_equipped" or reason == "weapon_already_equipped") and weaponName then
@@ -2878,7 +2955,8 @@ local function selectedRowValue(detail, formatter)
 end
 
 function SCUIDetail:refreshValues()
-    if self.tab == "expeditions"
+    if (self.tab == "expeditions" or self.tab == "groups"
+            and SC.HomeTrip and SC.HomeTrip.current and SC.HomeTrip.current())
         and SC.UIExpeditions.refreshZoom(self) ~= true then
         return false
     end
@@ -3078,6 +3156,10 @@ local function onBaseWatchButton(target, button)
     local watch = SC.BaseWatch
     if watch == nil then return end
     local action = button.scBaseWatchAction
+    if action == "start" and SC.HomeTrip and SC.HomeTrip.current and SC.HomeTrip.current() then
+        setButtonFeedback(target, UI.text("UI_SC_HomeTrip_NoViewTrip"), false)
+        return
+    end
     local ok, accepted, reason = pcall(function()
         if action == "start" then
             return watch.start(target.baseWatchLeaderId)
@@ -3126,6 +3208,11 @@ function SCUIDetail:addBaseWatchAction(panel, y, labelKey, action, value)
     button.scBaseWatchAction = action
     button.scBaseWatchValue = value
     button.tooltip = label
+    if action == "start" and SC.HomeTrip and SC.HomeTrip.current and SC.HomeTrip.current() then
+        button.enable = false
+        if button.setEnable then button:setEnable(false) end
+        button.tooltip = UI.text("UI_SC_HomeTrip_NoViewTrip")
+    end
     panel:addChild(button)
     panel.scContentWidth = panel:getWidth()
     return y + metrics.buttonHeight + 4
@@ -3186,6 +3273,10 @@ function SCUIDetail:buildBaseWatch(panel, y)
                 UI.text("UI_SC_BaseWatch_RadioOnly"))
         end
         return y
+    end
+    if SC.HomeTrip and SC.HomeTrip.current and SC.HomeTrip.current() then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_HomeTrip_NoViewTrip"))
+        return self:addBaseWatchAction(panel, y, "UI_SC_BaseWatch_Start", "start")
     end
     local candidates = watch.candidates()
     if #candidates == 0 then
@@ -3598,6 +3689,10 @@ end
 function SCUIDetail:buildOrders(panel)
     local y = 7
     local row = self.root and self.root.selectedRow or nil
+    if SC.UIHomeTrip then
+        local bottom, handled = SC.UIHomeTrip.buildOrders(self, panel, y, row)
+        if handled then return bottom end
+    end
     y = self:addSection(panel, y, "UI_SC_Section_DirectOrders")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_MainOrder",
         row and row.order or nil, MAIN_ORDERS)
@@ -4272,7 +4367,9 @@ function SCUIDetail:buildJournal(panel, row)
 end
 
 function SCUIDetail:buildGroups(panel, row)
+    if SC.UIHomeTrip and self.homeTripSheet then return SC.UIHomeTrip.buildSheet(self, panel) end
     local y = 7
+    if SC.UIHomeTrip then y = SC.UIHomeTrip.buildCard(self, panel, y, "groups") end
     local cqbRole, column, fireteamSize
     if row and row.actor and SC.Positioning
         and type(SC.Positioning.cqbRole) == "function" then
@@ -4289,7 +4386,10 @@ function SCUIDetail:buildGroups(panel, row)
     y = self:addCommandSelector(panel, y, "UI_SC_Select_Group",
         row and (row.group or "") or "", GROUPS, "set_group", "group")
     y = self:addSection(panel, y + 4, "UI_SC_Section_GroupOrders")
-    local field = SC.FieldWork and SC.FieldWork.status and SC.FieldWork.status()
+    -- Field work reports one global job, without a selected-group owner.
+    -- A home traveller's Squad controls must not act on that unrelated job.
+    local homeOwned = UI.homeTripOwnsSquadRow(row)
+    local field = not homeOwned and SC.FieldWork and SC.FieldWork.status and SC.FieldWork.status()
     if field then
         local destination = field.carId and UI.text("UI_SC_Field_Car", field.carId)
             or UI.text("UI_SC_Field_Carry")
@@ -4316,6 +4416,7 @@ function SCUIDetail:buildGroups(panel, row)
     y = self:addCommand(panel, y, "UI_SC_Action_GroupGuard", "guard", { scope = "group", group = group })
     y = self:addCommand(panel, y, "UI_SC_Action_GroupRegroup", "regroup", { scope = "group", group = group })
     y = self:addCommand(panel, y, "UI_SC_Action_GroupRetreat", "retreat", { scope = "group", group = group })
+    if SC.UIHomeTrip then y = SC.UIHomeTrip.addGroupOrder(self, panel, y, group) end
     y = self:addSection(panel, y + 4, "UI_SC_Section_SquadMovementSignals")
     for _, descriptor in ipairs(UI.commandGroups.squadMovementSignals) do
         y = self:addSignal(panel, y, descriptor.key, descriptor.signal)
@@ -5172,6 +5273,7 @@ function SCUIDetail:buildSupport(panel)
 end
 
 function SCUIDetail:rebuild(preserveScroll)
+    if SC.UIHomeTrip then SC.UIHomeTrip.clearFooter(self) end
     local tracing = SC.Performance and type(SC.Performance.isTracing) == "function"
         and SC.Performance.isTracing() == true
     local rebuildStarted = tracing and detailRefreshClock() or nil
@@ -6273,6 +6375,7 @@ function UI.scheduledRefresh()
         or UI.instance.selectedTab == "factions"
     UI.instance.preparedRefreshEntries = job.entries
     UI.instance:refreshRoster(nil, nil, true, deferDetailRefresh)
+    if SC.UIHomeTrip then SC.UIHomeTrip.update(UI.instance.detail) end
     if SC.Performance and type(SC.Performance.isTracing) == "function"
         and SC.Performance.isTracing() == true then
         SC.Performance.record("ui.roster-refresh", nil,
@@ -6295,6 +6398,7 @@ function UI.close()
         return
     end
     UI.restoreInventory()
+    if SC.UIHomeTrip and UI.instance.detail then SC.UIHomeTrip.clearFooter(UI.instance.detail) end
     UI.instance:saveSettings()
     UI.instance:removeFromUIManager()
     UI.instance = nil

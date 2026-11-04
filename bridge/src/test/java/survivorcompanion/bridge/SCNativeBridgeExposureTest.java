@@ -143,6 +143,24 @@ public final class SCNativeBridgeExposureTest {
                 + "SC_TEST_VIEW_API = SCBridge.setViewOffset ~= nil and SCBridge.clearViewOffset ~= nil\n"
                 + "SC_TEST_VIEW_RESTORE_API = SCSplitScreenProbe ~= nil and SCSplitScreenProbe.pollPrimaryViewRestore ~= nil and SCSplitScreenProbe.debugSetPrimaryViewRestoreMode ~= nil and SCSplitScreenProbe.debugPrimaryCutawaySample ~= nil\n"
                 + "SC_TEST_VIEW_RESTORE_IDLE = SCSplitScreenProbe.pollPrimaryViewRestore()\n"
+                + "SC_TEST_REMOTE_ARRIVAL_API = SCSplitScreenProbe.remoteArrivalCapability ~= nil\n"
+                + "    and SCSplitScreenProbe.remoteArrivalCapability() == true\n"
+                + "    and SCSplitScreenProbe.prepareRemoteArrival ~= nil\n"
+                + "    and SCSplitScreenProbe.acknowledgeRemoteArrival ~= nil\n"
+                + "    and SCSplitScreenProbe.remoteArrivalSlotSqlId ~= nil\n"
+                + "    and SCSplitScreenProbe.primaryAreaContains ~= nil\n"
+                + "    and SCSplitScreenProbe.primaryRetainsHomeVehicle ~= nil\n"
+                + "    and not SCSplitScreenProbe.primaryRetainsHomeVehicle(nil, -1)\n"
+                + "    and not SCSplitScreenProbe.primaryAreaContains(500, 500, 0)\n"
+                + "    and SCSplitScreenProbe.releaseRemoteArrival ~= nil\n"
+                + "    and SCSplitScreenProbe.cancelRemoteArrival ~= nil\n"
+                + "    and not SCSplitScreenProbe.canReleaseRemoteArrival(1)\n"
+                + "SC_TEST_VEHICLE_SAVE_API = SCSplitScreenProbe.homeVehicleSaveCapability ~= nil\n"
+                + "    and SCSplitScreenProbe.requestHomeVehicleSave ~= nil and SCSplitScreenProbe.pollHomeVehicleSave ~= nil\n"
+                + "    and SCSplitScreenProbe.homeVehicleSaveFailure ~= nil and SCSplitScreenProbe.homeVehicleSaveReceipt ~= nil\n"
+                + "    and SCSplitScreenProbe.restoreHomeVehicleSave ~= nil and SCSplitScreenProbe.cancelHomeVehicleSave ~= nil\n"
+                + "    and SCSplitScreenProbe.attachRemoteArrivalVehicleSave ~= nil\n"
+                + "    and SCSplitScreenProbe.requestHomeVehicleSave(nil) == 0 and SCSplitScreenProbe.pollHomeVehicleSave(0) == 'failed'\n"
                 + "SC_TEST_VIEWPOINT_API = SCBridge.isViewpoint3DActive ~= nil and SCBridge.isViewpoint3DActive() == false\n"
                 + "SC_TEST_STOCK_COMPARATOR_API = SCSplitScreenProbe.debugReleaseStockObserver ~= nil and SCSplitScreenProbe.debugPlayerSqlId ~= nil and not SCSplitScreenProbe.debugReleaseStockObserver(nil)\n"
                 + "SC_TEST_BED_POSE_API = SCBridge.shiftOnBedPoseTowardPillow ~= nil\n"
@@ -159,6 +177,7 @@ public final class SCNativeBridgeExposureTest {
                 + "    and SCBridge.scanLane ~= nil and SCBridge.driveFollow ~= nil\n"
                 + "    and SCBridge.driveFollowTuned ~= nil\n"
                 + "    and SCBridge.driveApproach ~= nil\n"
+                + "    and SCBridge.driveAlign ~= nil\n"
                 + "    and SCBridge.driveTurnAround ~= nil\n"
                 + "SC_TEST_PASSENGER_DRIVE_API = SCBridge.driveStartWithPassenger ~= nil\n"
                 + "SC_TEST_PASSENGER_DRIVE_REJECTS_NIL = not SCBridge.driveStartWithPassenger(nil, nil, true)\n"
@@ -174,6 +193,7 @@ public final class SCNativeBridgeExposureTest {
                 + "    and not SCBridge.driveFollow(nil, '1,1,6;9,1,6', 10)\n"
                 + "    and not SCBridge.driveFollowTuned(nil, '1,1,6;9,1,6', 10, 2)\n"
                 + "    and not SCBridge.driveApproach(nil, '1,1,5;9,1,5', 5)\n"
+                + "    and not SCBridge.driveAlign(nil, 9, 1)\n"
                 + "    and not SCBridge.driveTurnAround(nil, true)\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
         Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
@@ -182,7 +202,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.21-isocompanion-27".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.21-isocompanion-29".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
@@ -237,6 +257,10 @@ public final class SCNativeBridgeExposureTest {
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_RESTORE_API"))
                         && "cancelled".equals(rawget.invoke(environment, "SC_TEST_VIEW_RESTORE_IDLE")),
                 "production Kahlua bridge omitted the additive deferred-view capability");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_REMOTE_ARRIVAL_API")),
+                "production Kahlua bridge omitted the guarded remote-arrival transaction");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VEHICLE_SAVE_API")),
+                "production Kahlua bridge omitted or opened the guarded committed-vehicle save API");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEWPOINT_API")),
                 "optional Viewpoint state was not safely exposed to Lua");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_BED_EXIT_API")),

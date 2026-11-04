@@ -258,6 +258,12 @@ local function snapshot(job)
     local roadGoal = job.roadGoal
     return { phase = job.phase, result = job.result, reason = job.reason,
         attempts = job.attempts or 0, circles = circles, parked = job.parked == true,
+        managed = job.managed == true,
+        owned = jobs[job.actor] == job and SC.ActionSupervisor ~= nil
+            and SC.ActionSupervisor.isCurrent(job.token) == true,
+        firstParkingRefusal = job.firstParkingRefusal,
+        parkingAlignmentReason = job.parkingAlignmentReason,
+        alignmentAttempts = job.alignmentAttempts or 0,
         roadGoal = roadGoal and { x = roadGoal.x, y = roadGoal.y, z = roadGoal.z } or nil }
 end
 
@@ -274,6 +280,7 @@ local function forget(actor, job, reason)
     job.phase, job.reason = "released", reason
     job.result = job.result or "interrupted"
     outcomes[actor] = snapshot(job)
+    outcomes[actor].owned = false
     jobs[actor] = nil
 end
 
@@ -390,6 +397,22 @@ function Driving.stop(actor, reason)
     return stopped, why
 end
 
+-- Internal car-lifecycle stop: an incomplete crew preflight may still need
+-- to brake its own job. Never fall back to stopping an unowned native driver.
+function Driving._stopOwnedVehicle(actor, vehicle, reason)
+    local job = jobs[actor]
+    local supervisor = SC.ActionSupervisor
+    if not job then return false, "drive_not_owned" end
+    if job.managed ~= true or job.vehicle ~= vehicle
+        or not supervisor or not supervisor.isCurrent(job.token)
+        or not SC.Actor or not SC.Actor.isCompanion(actor)
+        or vehicleOf(actor) ~= vehicle then return false, "drive_owner_mismatch" end
+    local driverOkay, driver = method(vehicle, "getDriver")
+    if not driverOkay or driver ~= actor or jobs[actor] ~= job
+        or not supervisor.isCurrent(job.token) then return false, "drive_owner_mismatch" end
+    return Driving.stop(actor, reason or "car_hold")
+end
+
 -- Kahlua keeps weak table keys. Retirement explicitly removes the outcome
 -- only after native cleanup succeeds, retaining retry authority on failure.
 function Driving.releaseActor(actor, reason)
@@ -424,7 +447,7 @@ function Driving.isDriving(actor)
         local stopped = Driving.stop(actor, "bridge_failure")
         return stopped ~= true and jobs[actor] == job and supervisor.isCurrent(job.token)
     end
-    if job.nativeStarted and status.active ~= true and not job.parked then
+    if job.nativeStarted and status.active ~= true and not job.parked and not job.pendingResult then
         local stopped = Driving.stop(actor, status.reason ~= "" and status.reason or "native_released")
         return stopped ~= true and jobs[actor] == job and supervisor.isCurrent(job.token)
     end
@@ -467,7 +490,7 @@ end
 -- The original managed lease remains owned while its arrived car is parked.
 -- Start a fresh native driver under that lease for one short, clear parking
 -- segment. The mission owner checks the entire footprint after arrival.
-function Driving.approach(actor, target, seconds, allowStoppedRoadFailure)
+function Driving.approach(actor, target, seconds, allowStoppedRoadFailure, allowAlignment)
     local job = jobs[actor]
     local recovered = job and allowStoppedRoadFailure == true
         and job.result == "failed" and job.precise ~= true
@@ -481,6 +504,9 @@ function Driving.approach(actor, target, seconds, allowStoppedRoadFailure)
         return false, "parking_requires_arrived_drive"
     end
     local vehicle = vehicleOf(actor)
+    if vehicle ~= job.vehicle or not Driving.isDriver(actor) then
+        return false, "parking_requires_arrived_drive"
+    end
     if recovered then
         local stopped = SC.Vehicle and SC.Vehicle.isStationary
             and SC.Vehicle.isStationary(vehicle)
@@ -513,8 +539,37 @@ function Driving.approach(actor, target, seconds, allowStoppedRoadFailure)
     if not started then return false, reason end
     local followed, followReason = call("driveApproach", actor, routeText, 5)
     if not followed then
-        Driving.stop(actor, "parking_approach_rejected")
-        return false, followReason
+        job.firstParkingRefusal = job.firstParkingRefusal
+            or tostring(followReason):sub(1, 128)
+        job.precise = true
+        local failure = "parking_approach_rejected"
+        if followReason == "parking bay requires a clear forward approach"
+            and allowAlignment == true and (job.alignmentAttempts or 0) < 1 then
+            local api = bridge()
+            local exposed, callback = pcall(function() return api and api.driveAlign end)
+            if exposed and callback ~= nil then
+                job.alignmentAttempts = (job.alignmentAttempts or 0) + 1
+                local aligned, alignReason = call("driveAlign", actor, tx, ty)
+                if aligned then
+                    job.goal = { x = tx, y = ty, z = 0 }
+                    job.phase, job.result, job.reason = "parking_aligning", nil, nil
+                    job.parked, job.parkingAligning = false, true
+                    job.alignmentDeadline = nowMs() + 22000
+                    job.parkingDuration = seconds
+                    return true, "parking_aligning"
+                end
+                job.detail = alignReason
+                job.parkingAlignmentReason = tostring(alignReason):sub(1, 128)
+                failure = "parking_alignment_failed"
+            else failure = "parking_alignment_unavailable" end
+        elseif followReason == "parking bay requires a clear forward approach"
+            and allowAlignment == true then
+            failure = "parking_alignment_limit"
+        end
+        -- A refused forward leg has not moved the car. Park native control but
+        -- keep the exact Lua lease and first refusal for safe mission cleanup.
+        parkResult(job, "failed", failure)
+        return false, failure
     end
     job.goal = { x = tx, y = ty, z = 0 }
     job.precise = true
@@ -711,7 +766,10 @@ function Driving.tick(current)
             if job.releaseReason then
                 Driving.stop(actor, job.releaseReason)
             elseif job.pendingResult then
-                parkResult(job, job.pendingResult, job.pendingReason)
+                if parkResult(job, job.pendingResult, job.pendingReason) and job.parkingRetry then
+                    job.parkingRetry = nil
+                    Driving.approach(actor, job.goal, job.parkingDuration, false, false)
+                end
             elseif not job.parked then
                 local status = job.nativeStatus
                 -- The actual bumper scan can brake a car while the route
@@ -739,7 +797,31 @@ function Driving.tick(current)
                 else
                     job.lastProgressAt = nil
                 end
-                if job.managed and status.state == "engine_failed" then
+                if job.parkingAligning then
+                    if state == "turned" then
+                        job.parkingAligning = nil
+                        job.parkingRetry = true
+                        if parkResult(job, "arrived", "parking_aligned") then
+                            job.parkingRetry = nil
+                            -- Rebuild the two-point leg from the actual post-turn
+                            -- pose; the unchanged native forward cone checks it.
+                            Driving.approach(actor, job.goal, job.parkingDuration, false, false)
+                        end
+                    elseif state == "turn_failed" or status.turnState == "failed"
+                        or status.state == "engine_failed" then
+                        job.parkingAligning = nil
+                        local why = type(status.turnReason) == "string"
+                            and status.turnReason:find("^parking_alignment_")
+                            and status.turnReason or "parking_alignment_failed"
+                        job.detail = status.turnReason
+                        job.parkingAlignmentReason = type(status.turnReason) == "string"
+                            and status.turnReason:sub(1, 128) or nil
+                        parkResult(job, "failed", why)
+                    elseif current >= (job.alignmentDeadline or current) then
+                        job.parkingAligning = nil
+                        parkResult(job, "failed", "parking_alignment_timeout")
+                    end
+                elseif job.managed and status.state == "engine_failed" then
                     parkResult(job, "failed", "engine_failed")
                 elseif state == "arrived" then
                     if job.managed then

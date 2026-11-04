@@ -306,7 +306,8 @@ local function snapshotState(actor, entry)
         lastEncouragedAt = tonumber(persistedPersonality.lastEncouragedAt) or 0,
         objectives = stableObjectives,
         possessions = stablePossessions,
-        commandSerial = tonumber(valueFrom(data, { "SC_CommandSerial" }, 0)) or 0,
+        commandSerial = tonumber(valueFrom(data, { "SC_CommandSerial" },
+            valueFrom(entry,{"commandSerial"},persistedOrder.commandSerial or 0))) or 0,
         lastDowntime = stableLastDowntime,
         returnOrder = valueFrom(data, { "SC_ReturnOrder" },
             valueFrom(entry, { "returnOrder" }, persistedOrder.returnOrder)),
@@ -554,6 +555,7 @@ local function writeStable(actor, entry, state)
         entry.state = {
             order = {
                 current = state.order,
+                commandSerial = state.commandSerial,
                 followDistance = state.followDistance,
                 scavenge = state.scavenge,
                 allowOverload = state.allowOverload,
@@ -2247,9 +2249,49 @@ local function preemptDrivingForOrder(actor, command)
     return true
 end
 
+-- A home recall is owned by the expedition until the complete crew assembles.
+-- Consume the order here; applying Follow to even one actor would split that
+-- ownership. Mixed target sets are refused before either transaction mutates.
+local function homeRecallForMembers(members, command, player, atomic)
+    local home = SC.HomeTrip
+    if not home or type(home.isMemberId) ~= "function" then return false end
+    local count = 0
+    for _, member in ipairs(members) do
+        if home.isMemberId(member.id) then count = count + 1 end
+    end
+    if count == 0 then return false end
+    local prefix = atomic and "group_prevalidation:" or ""
+    if command ~= "follow" and command ~= "regroup" then
+        return true, false, prefix .. "home_recall_first", {}
+    end
+    if count ~= #members then return true, false, prefix .. "home_mixed_group", {} end
+    -- Validate the entire fixed set before asking its owner to stage recall.
+    for _, member in ipairs(members) do
+        local actor, entry, reason = resolve(member.id)
+        if not actor then return true, false, prefix .. tostring(reason), {} end
+        local current = states[actor] or stateFor(actor, entry)
+        if current.recruited ~= true then return true, false, prefix .. "not_recruited", {} end
+    end
+    local allowed, reason = home.canRecall(player)
+    if allowed ~= true then return true, false, prefix .. tostring(reason or "home_out_of_earshot"), {} end
+    local accepted, issue = home.cancel(player)
+    local results = {}
+    for _, member in ipairs(members) do
+        results[#results + 1] = { id = member.id, ok = accepted == true, reason = issue }
+    end
+    if accepted == true and player then
+        local message = type(getText) == "function" and getText("UI_SC_HomeTrip_CalledOff")
+            or "UI_SC_HomeTrip_CalledOff"
+        U().call(player, "setHaloNote", message)
+    end
+    return true, accepted == true, issue, results
+end
+
 local function issueOne(companionId, command, payload, player)
     local actor, entry, reason = resolve(companionId)
     if not actor then return false, reason end
+    local handled, recalled, recallReason = homeRecallForMembers({ { id = companionId } }, command, player, false)
+    if handled then return recalled, recallReason end
     if SC.TaxiService and type(SC.TaxiService.isDriver) == "function"
         and SC.TaxiService.isDriver(actor) == true then
         return false, "taxi_driver_not_recruitable"
@@ -2444,6 +2486,8 @@ local function issueMemberSetAtomic(members, command, payload, player)
     local valid, validationReason = validatePayload(command, cleanPayload)
     if not valid then return false, validationReason, {} end
     if #members == 0 then return true, "issued", {} end
+    local handled, recalled, recallReason, recallResults = homeRecallForMembers(members, command, player, true)
+    if handled then return recalled, recallReason, recallResults end
 
     -- Resolve and validate the complete target set before changing any member.
     local plans = {}
@@ -2926,6 +2970,26 @@ function Commands.peek(actor)
     return states[actor] or stateFor(actor)
 end
 
+-- Spawn initialization runs before registration, so its factory-created cache
+-- cannot represent a player order. Once registered, a newer revision wins.
+function Commands.restoreCommandSerial(actor, serial)
+    if type(serial) ~= "number" or serial ~= math.floor(serial) or serial < 0 or serial > 10000000 then
+        return false,"invalid_saved_command_serial"
+    end
+    local state = states[actor]
+    local data = rawModData(actor)
+    if type(data) ~= "table" then return false,"command_moddata_unavailable" end
+    local id = SC.Registry and SC.Registry.idOf and SC.Registry.idOf(actor)
+    local record = id and SC.Registry.byId(id)
+    local current = state and tonumber(state.commandSerial) or tonumber(data.SC_CommandSerial) or 0
+    if record and record.actor == actor and current ~= 0 and current ~= serial then
+        return false,"restored_command_serial_conflict"
+    end
+    data.SC_CommandSerial = serial
+    if state then state.commandSerial = serial end
+    return true
+end
+
 -- Homecoming may restore an existing base role after essential restocking.
 -- A real player command increments this serial, so it always wins the race.
 function Commands.resumeBaseDutyIfUnchanged(companionId, expectedSerial, baseId)
@@ -3326,6 +3390,7 @@ function Commands.export(actor)
         factionId = detached.factionId,
         factionRole = detached.factionRole,
         order = detached.order,
+        commandSerial = detached.commandSerial,
         followDistance = detached.followDistance,
         scavenge = detached.scavenge,
         allowOverload = detached.allowOverload,

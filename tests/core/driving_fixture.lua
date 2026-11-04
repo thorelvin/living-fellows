@@ -98,7 +98,12 @@ SCBridge = {
         return true
     end,
     driveStop = function(actor)
-        if T.stopRejected then return false end
+        if T.stopRejected then
+            if T.stopDropsActive and T.native[actor] then
+                T.native[actor].active, T.native[actor].state, T.native[actor].mode = false, "idle", nil
+            end
+            return false
+        end
         local state = T.native[actor] or {}
         state.active, state.state, state.mode, state.reason = false, "idle", nil, "released"
         T.native[actor] = state
@@ -126,10 +131,24 @@ SCBridge = {
         T.convoyFollow = { actor = actor, leader = leader, route = route, speed = speed }
         return SCBridge.driveFollow(actor, route, speed)
     end,
-    driveApproach = function(actor)
+    driveApproach = function(actor, route)
+        T.lastApproachRoute = route
+        if (T.approachRejects or 0) > 0 then
+            T.approachRejects = T.approachRejects - 1
+            T.nativeFailure = "parking bay requires a clear forward approach"
+            return false
+        end
         T.approaches = (T.approaches or 0) + 1
         local state = T.native[actor]
         state.active, state.state, state.mode = true, "following", "follow"
+        return true
+    end,
+    driveAlign = function(actor, x, y)
+        T.alignments = (T.alignments or 0) + 1
+        T.lastAlignment = { actor = actor, x = x, y = y }
+        if T.alignReject then T.nativeFailure = T.alignReject return false end
+        local state = T.native[actor]
+        state.active, state.state, state.mode = true, "turning", "turning"
         return true
     end,
     planRoadRouteAvoidingAll = function(_, sx, sy, tx, ty, circles, out)
@@ -140,7 +159,7 @@ SCBridge = {
             .. tostring(T.planEnd and T.planEnd.y or ty) .. ",8,0,Test Street"
         return true
     end,
-    getLastFailure = function() return "native_stop_rejected" end,
+    getLastFailure = function() return T.nativeFailure or "native_stop_rejected" end,
 }
 function T.actor(id)
     local actor = { id = id, companion = true, x = 100, y = 100, z = 0,

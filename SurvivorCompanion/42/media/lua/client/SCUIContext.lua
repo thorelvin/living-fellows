@@ -188,7 +188,7 @@ local function executeFromContext(companionId, command, payload, player)
             and SC.UI.describeEntry(record, player) or nil
         local accepted, reason = SC.Interaction.issue(row, command, player)
         if player then safeMethod(player, "setHaloNote", accepted
-            and text("UI_SC_CommandAccepted")
+            and text(reason == "home_recall_staged" and "UI_SC_HomeTrip_CalledOff" or "UI_SC_CommandAccepted")
             or SC.Interaction.reasonText(reason)) end
         if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
         return
@@ -1352,6 +1352,10 @@ local function openOrdersFromContext(_, row)
 end
 
 local function addInteractionShortcut(menu, row, action, player)
+    if action == "send_home" then
+        if Context.addHomeTripShortcut then Context.addHomeTripShortcut(menu, row, player) end
+        return
+    end
     local descriptor = SC.Interaction.descriptor(action)
     if not descriptor then return end
     local label = text(descriptor.key)
@@ -1572,6 +1576,87 @@ local function disableWithReason(option, reason)
         tooltip.description = reasonSentence(reason)
         option.toolTip = tooltip
     end
+end
+
+function Context.openHomeTrip(_target, row)
+    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+    if SC.UIHomeTrip then return SC.UIHomeTrip.openSheet({ record = record or row }) end
+    return false
+end
+
+function Context.addHomeTripShortcut(menu, row, player)
+    local home = SC.HomeTrip
+    if not home or not home.eligibility or not row then return end
+    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+    local status = home.eligibility({ record = record or row })
+    if status.hidden then return end
+    local option = menu:addOption(text("UI_SC_HomeTrip_Menu"), nil, Context.openHomeTrip, row)
+    if not status.canStart then
+        disableWithReason(option, home.reasonText(status.blocker or status.reason, row.name))
+    end
+    return option
+end
+
+function Context.openHomeTripCar(_target, selection)
+    if SC.UIHomeTrip then return SC.UIHomeTrip.openSheet(selection) end
+    return false
+end
+
+function Context.addHomeTripCarMenu(context, vehicle, player)
+    local home = SC.HomeTrip
+    if not vehicle or not home or not home.eligibility or not SC.Registry or not SC.Registry.living then return end
+    local x, y = tonumber(safeMethod(vehicle, "getX")), tonumber(safeMethod(vehicle, "getY"))
+    if not x or not y then return end
+    local sqlId = safeMethod(vehicle, "getSqlId")
+    local carName = SC.ExpeditionCar and SC.ExpeditionCar.displayName and SC.ExpeditionCar.displayName(vehicle)
+    local choices, groups, near = {}, {}, false
+    for _, actor in ipairs(SC.Registry.living() or {}) do
+        local data = safeMethod(actor, "getModData")
+        local id = type(data) == "table" and data.SC_Id or nil
+        local record = id and SC.Registry.byId(id)
+        if record and record.recruited == true then
+            local state = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor) or {}
+            if state.group and state.group ~= "" then
+                groups[state.group] = groups[state.group] or {}
+                groups[state.group][#groups[state.group] + 1] = record
+            end
+            local ax, ay = tonumber(safeMethod(actor, "getX")), tonumber(safeMethod(actor, "getY"))
+            if (state.order == "follow" or state.order == "regroup") and ax and ay
+                and (ax - x)^2 + (ay - y)^2 <= 30 * 30 then
+                near = true
+                local selection = { record = record, travelMode = "drive", vehicle = vehicle,
+                    vehicleSqlId = sqlId, vehicleName = carName, leaderId = id }
+                local status = home.eligibility(selection)
+                if not status.hidden then
+                    local name = safeMethod(actor, "getFullName") or record.name or text("UI_SC_HomeTrip_Member")
+                    choices[#choices + 1] = { label = SC.UI and SC.UI.displayName and SC.UI.displayName(record, name) or name,
+                        selection = selection, status = status }
+                end
+            end
+        end
+    end
+    if not near then return end
+    for _, group in ipairs({ "alpha", "bravo", "charlie" }) do
+        if groups[group] then
+            local selection = { records = groups[group], travelMode = "drive", vehicle = vehicle, vehicleSqlId = sqlId }
+            local status = home.eligibility(selection)
+            if not status.hidden and #(status.records or {}) > 0 then
+                local label = text("UI_SC_Select_Group" .. string.upper(string.sub(group, 1, 1)) .. string.sub(group, 2))
+                choices[#choices + 1] = { label = text("UI_SC_HomeTrip_GroupCount", label, #status.records), status = status,
+                    selection = { group = group, travelMode = "drive", vehicle = vehicle, vehicleSqlId = sqlId,
+                        vehicleName = carName, leaderId = status.leaderId } }
+            end
+        end
+    end
+    if #choices == 0 then return end
+    local root = addCategory(context, "UI_SC_HomeTrip_CarMenu")
+    for _, choice in ipairs(choices) do
+        local option = root:addOption(choice.label, nil, Context.openHomeTripCar, choice.selection)
+        if not choice.status.canStart then
+            disableWithReason(option, home.reasonText(choice.status.blocker or choice.status.reason, choice.label))
+        end
+    end
+    return root
 end
 
 local function convoyFromContext(_target, row, vehicle, player, cancel)
@@ -1886,6 +1971,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     end
     addHotwireMenu(context, rows, clickedVehicle, player)
+    Context.addHomeTripCarMenu(context, clickedVehicle, player)
     addConvoyMenu(context, rows, clickedVehicle, player)
     if clickedVehicle and SC.VehicleUnload
         and type(SC.VehicleUnload.eligible) == "function"
@@ -2287,7 +2373,7 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
                 or item == safeMethod(player, "getClothingItem_Back"))
     end
     local function addRadioOptions()
-        if playerIndex == 0 and mission and mission.scout then
+        if playerIndex == 0 and mission and mission.scout and mission.scout.kind ~= "home" then
             if mission.scout.search then
                 context:addOptionOnTop(text("UI_SC_Expedition_AskProgress"),
                     nil, progressExpeditionFromRadio, player)

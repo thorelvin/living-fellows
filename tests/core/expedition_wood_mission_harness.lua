@@ -129,7 +129,7 @@ local normalScout, normalNavigation, normalClock = active.scout, SC.Navigation, 
 local routeProbe = {}
 for key, value in pairs(normalScout) do routeProbe[key] = value end
 active.scout = routeProbe
-local navigationStatus, routeCancels = { phase = "planning", action = "ordered_move", pathSearchAgeMs = 9000 }, 0
+local navigationStatus, routeCancels = { active = true, phase = "planning", action = "ordered_move", pathSearchAgeMs = 9000 }, 0
 SC.Navigation = {
     status = function() return navigationStatus end,
     cancel = function(a, reason)

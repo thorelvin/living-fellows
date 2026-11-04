@@ -57,6 +57,7 @@ try {
             (Join-Path $Client 'SCUI.lua'),
             (Join-Path $TestRoot 'SCUIBasePolicyTests.lua'),
             (Join-Path $TestRoot 'SCUIBaseRefreshTests.lua'),
+            (Join-Path $TestRoot 'SCHomeTripObservationTests.lua'),
             (Join-Path $Client 'SCExpeditionTargets.lua'),
             (Join-Path $Client 'SCExpeditionMap.lua'),
             (Join-Path $TestRoot 'SCExpeditionMapLayoutTests.lua')
@@ -72,6 +73,10 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalContextFiles
         if ($LASTEXITCODE -ne 0) { throw 'Medical context native-patient rebinding tests failed.' }
+        $homeContextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
+        $homeContextFiles += Join-Path $TestRoot 'SCHomeTripContextTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeContextFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Home-trip field-car context tests failed.' }
         $nicknameContextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
         $nicknameContextFiles += Join-Path $TestRoot 'SCNicknameContextTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @nicknameContextFiles
@@ -274,6 +279,19 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @expeditionZoomFiles
         if ($LASTEXITCODE -ne 0) { throw 'Expedition zoom UI tests failed.' }
+        $homeTripFiles = @(
+            (Join-Path $TestRoot 'SCHomeTripUITests.lua'),
+            (Join-Path $Client 'SCUIHomeTrip.lua'),
+            (Join-Path $TestRoot 'SCHomeTripUITests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeTripFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Home-trip sheet and card UI tests failed.' }
+        $homeTripReasonFiles = @(
+            (Join-Path $Client 'SCHomeTrip.lua'),
+            (Join-Path $TestRoot 'SCHomeTripReasonTests.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @homeTripReasonFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Home-trip readable failure reason tests failed.' }
         $nicknameFiles = @(
             (Join-Path $Client 'SCNames.lua'),
             (Join-Path $Client 'SCUIBridge.lua'),

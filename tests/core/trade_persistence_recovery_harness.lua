@@ -162,6 +162,32 @@ local function countType(inventory, itemType)
     return count, found
 end
 
+do
+    local root=makeItem("Base.LegacyDetachedWeapon",{condition=4,modData={legacy="root"}})
+    local part=makeItem("Base.Scope",{condition=3,modData={legacy="part"}})
+    root.parts[1]=part
+    function root:getID() error("ordinary detached capture must not request exact native identity") end
+    function part:getID() error("list availability true is not exact native identity permission") end
+    -- The actual NativeList.get(part,index) returns (part,true), which Lua
+    -- forwards to the new private context argument. Public extra arguments also
+    -- retain their historical ignored semantics rather than granting policy.
+    local snapshot,reason=Persistence.captureDetachedItem(root,true)
+    check(snapshot and snapshot.count==2 and snapshot.preserveNativeIds==nil
+            and snapshot.roots[1].nativeId==nil and snapshot.roots[1].condition==4
+            and snapshot.roots[1].weaponParts[1].nativeId==nil
+            and snapshot.roots[1].weaponParts[1].condition==3
+            and snapshot.roots[1].weaponParts[1].modData.legacy=="part",
+        "legacy detached root/weapon-part capture ignores availability and extra booleans without requesting exact IDs: "..tostring(reason))
+    local checked,why=Persistence.validateDetachedItem(snapshot)
+    check(checked and checked.preserveNativeIds==nil,
+        "legacy detached capture retains its existing validator contract: "..tostring(why))
+    local restored,restoreReason=Persistence.restoreDetachedItem(player,checked)
+    check(restored and restored:getID()~=root.nativeId and #restored.parts==1
+            and restored.parts[1]:getID()~=part.nativeId and restored.parts[1].condition==3,
+        "legacy detached reconstruction keeps factory-assigned root/part IDs rather than interpreting a Boolean as authority: "..tostring(restoreReason))
+    player.inventory:Remove(restored)
+end
+
 -- R1: reconstruction must journal the factory-created native object before an
 -- AddItem call can mutate and then throw or return a rejection result.
 for _, fault in ipairs({ "throwAfterAddType", "rejectAfterAddType" }) do

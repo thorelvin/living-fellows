@@ -250,6 +250,9 @@ require "SCTerminalServices"
 require "SCCompanionMap"
 require "ISUI/ISInventoryPage"
 require "SCRuntime"
+-- Runtime loads the expedition engine before its inbound-only home facade.
+require "SCHomeTrip"
+require "SCUIHomeTrip"
 
 local SC = SurvivorCompanion
 SC.Bootstrap = SC.Bootstrap or {}

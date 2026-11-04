@@ -9,6 +9,8 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
 import zombie.core.physics.CarController;
+import zombie.iso.IsoCell;
+import zombie.iso.IsoGridSquare;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.vehicles.BaseVehicle;
@@ -248,11 +250,63 @@ public final class SCCompanionDrivingTest {
     private static final class Vehicle extends BaseVehicle {
         final CarController controller = new CarController();
         IsoGameCharacter driver;
+        IsoCell cell;
 
         @Override public IsoGameCharacter getDriver() { return driver; }
+        @Override public IsoCell getCell() { return cell; }
         @Override public CarController getController() { return controller; }
         @Override public boolean isEngineRunning() { return true; }
         @Override public engineStateTypes getEngineState() { return engineStateTypes.Running; }
+    }
+
+    private static final class FloorSquare extends IsoGridSquare {
+        boolean floor;
+        FloorSquare(boolean floor) { super(null, null, 0, 0, 0); this.floor = floor; }
+        @Override public boolean TreatAsSolidFloor() { return floor; }
+    }
+
+    private static final class ParkingCell extends IsoCell {
+        final FloorSquare ground = new FloorSquare(true);
+        final FloorSquare selected = new FloorSquare(false);
+        boolean missing;
+        ParkingCell() { super(20, 20); }
+        @Override public IsoGridSquare getGridSquare(int x, int y, int z) {
+            return x == 55 && y == 100 ? missing ? null : selected : ground;
+        }
+    }
+
+    private static void parkingGround() throws Exception {
+        Vehicle vehicle = new Vehicle();
+        ParkingCell cell = new ParkingCell();
+        vehicle.cell = cell;
+        var constructor = Class.forName(SCCompanionDriver.class.getName() + "$WorldView")
+                .getDeclaredConstructor(BaseVehicle.class, boolean.class);
+        constructor.setAccessible(true);
+        SCLaneScan.World ordinary = (SCLaneScan.World) constructor.newInstance(vehicle, false);
+        SCLaneScan.World parking = (SCLaneScan.World) constructor.newInstance(vehicle, true);
+        require(ordinary.squareKind(55, 100, 0) == SCLaneScan.CLEAR
+                        && parking.squareKind(55, 100, 0) == SCLaneScan.SOLID,
+                "loaded floorless ground blocks only the new parking envelope, preserving ordinary road semantics");
+        SCRoadFollower refused = new SCRoadFollower(SCDrivePath.parse("50,100,5;50,85,5"),
+                4, false, true);
+        require(!refused.beginParkingAlignment(parking, 50, 100, 0, 1, 0, 0,
+                        0.95f, 2.4f, 0).isEmpty() && refused.turn() == null,
+                "a loaded void in possible parking room refuses before any physical manoeuvre");
+        cell.selected.floor = true;
+        SCRoadFollower changed = new SCRoadFollower(SCDrivePath.parse("50,100,5;50,85,5"),
+                4, false, true);
+        require(changed.beginParkingAlignment(parking, 50, 100, 0, 1, 0, 0,
+                        0.95f, 2.4f, 0).isEmpty(),
+                "actual loaded ground admits the same parking room");
+        cell.selected.floor = false;
+        SCRoadFollower.Command command = changed.update(parking, 50, 100, 0, 1, 0, 0,
+                0.95f, 2.4f, -1, -1, 100, null);
+        require(changed.mode() == SCRoadFollower.Mode.TURN_FAILED && command.targetKmh == 0
+                        && "parking_alignment_room_changed".equals(changed.turn().reason()),
+                "ground disappearing during alignment brakes through the native dynamic room check");
+        cell.missing = true;
+        require(parking.squareKind(55, 100, 0) == SCLaneScan.UNLOADED,
+                "an absent square remains an unloaded refusal rather than manufactured ground");
     }
 
     private static final class Table implements KahluaTable {
@@ -292,12 +346,24 @@ public final class SCCompanionDrivingTest {
             require(SCBridge.driveStart(actor, true) && SCBridge.driveSet(actor, 0.4, 10, false),
                     "a seated owned companion can start an ordinary single-player drive");
             SCCompanionDriver driver = actor.companionDriver();
+            require(!SCBridge.driveAlign(actor, Double.NaN, 10)
+                            && !SCBridge.driveAlign(actor, 10, Double.POSITIVE_INFINITY)
+                            && !SCBridge.driveAlign(actor, 30001, 10)
+                            && !SCBridge.driveAlign(actor, 100, 100)
+                            && driver.isActive() && driver.follower() == null,
+                    "invalid and distant parking targets preserve the existing native owner without a turn");
+            vehicle.driver = player;
+            require(!SCBridge.driveAlign(actor, 0, 10) && driver.isActive(),
+                    "parking alignment requires the exact current driver rather than a retained owner reference");
+            vehicle.driver = actor;
             driver.beforeVehicleUpdate(actor, vehicle);
             require(driver.isActive() && vehicle.controller.clientControls.forward,
                     "the driving frame still runs with only the promoted owned companion aboard");
 
             player.setVehicleForTests(vehicle);
             require(SCBridge.playerAboard(vehicle), "a real player in any passenger seat is aboard");
+            require(!SCBridge.driveAlign(actor, 0, 10) && driver.isActive(),
+                    "a parking correction never grants the companion control with the main player aboard");
             driver.beforeVehicleUpdate(actor, vehicle);
             require(!driver.isActive() && "player_aboard".equals(driver.reason())
                             && "idle".equals(driver.state()) && driver.vehicle() == null
@@ -334,6 +400,8 @@ public final class SCCompanionDrivingTest {
                             && status.rawget("blockedX") == null && status.rawget("blockedY") == null
                             && Boolean.FALSE.equals(status.rawget("active")),
                     "release clears route coordinates so the next job cannot reuse a stale block");
+            require(!SCBridge.driveAlign(actor, 0, 10),
+                    "an inactive native driver cannot start a parking alignment without its Lua owner reacquiring control");
         } finally {
             actor.companionDriver().stop(actor, "test_cleanup");
             owned.remove(actor);
@@ -348,6 +416,7 @@ public final class SCCompanionDrivingTest {
         laneScan();
         ramContact();
         hordeAvoidance();
+        parkingGround();
         playerBoardingAndStatus();
         System.out.println("COMPANION_DRIVING_PASS checks=" + checks);
     }

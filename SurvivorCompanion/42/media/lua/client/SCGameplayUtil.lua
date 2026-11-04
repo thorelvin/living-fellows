@@ -1665,6 +1665,12 @@ function U.transferItemVerified(source, destination, item)
         return false, "destination_already_contains_item"
     end
 
+    local home = SC.HomeTrip
+    if home and home.inventoryContainerFrozen
+        and (home.inventoryContainerFrozen(source) or home.inventoryContainerFrozen(destination)) then
+        return false, "home_finish_busy"
+    end
+
     local _, removeCalled = U.call(source, "Remove", item)
     local removed = removeCalled and not U.inventoryContains(source, item)
     if not removeCalled and type(source) == "table" and type(source.items) == "table" then
@@ -1711,6 +1717,9 @@ end
 function U.dropItem(source, square, item, xOffset, yOffset, zOffset)
     if not source or not square or not item or not U.inventoryContains(source, item) then
         return false, "invalid_drop"
+    end
+    if SC.HomeTrip and SC.HomeTrip.inventoryContainerFrozen and SC.HomeTrip.inventoryContainerFrozen(source) then
+        return false, "home_finish_busy"
     end
     local removeResult, removeCalled = U.call(source, "Remove", item)
     local removed = removeCalled and removeResult ~= false and not U.inventoryContains(source, item)
@@ -1999,6 +2008,9 @@ end
 -- delete it when a destination rejects the add.
 function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     if not worldItem or not destination then return false, "invalid_world_pickup" end
+    if SC.HomeTrip and SC.HomeTrip.inventoryContainerFrozen and SC.HomeTrip.inventoryContainerFrozen(destination) then
+        return false, "home_finish_busy"
+    end
     local item, itemOk = U.call(worldItem, "getItem")
     if not itemOk or item == nil then
         item = type(worldItem) == "table" and worldItem.item or expectedItem

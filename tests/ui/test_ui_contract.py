@@ -1578,13 +1578,52 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("UI_SC_State_defensive", en_keys)
         self.assertIn("UI_SC_State_steady", en_keys)
 
+    def test_home_drive_percentages_use_native_percent_escape(self) -> None:
+        # Installed Translator.formatFixer accepts %% or %1..%9 tokens before
+        # Java formatting. A bare percent triggers recovery that leaves "$s"
+        # fragments on already-converted numbered arguments.
+        en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
+        examples = {
+            "UI_SC_HomeTrip_CarChoice": (
+                ("Chevalier Nyala", 4, 100), "Chevalier Nyala: 4 seats, fuel 100%"),
+            "UI_SC_HomeTrip_FuelCheck": (
+                (100, 1), "Fuel 100%; about 1% needed."),
+            "UI_SC_HomeTrip_FuelKnown": ((100,), "Fuel 100%."),
+        }
+        token = re.compile(r"%%|%([1-9])")
+        for key, (arguments, expected) in examples.items():
+            with self.subTest(key=key):
+                template = en_data[key]
+                self.assertNotIn("%", token.sub("", template),
+                                 "literal percentages must use the native %% escape")
+                rendered = token.sub(
+                    lambda match: str(arguments[int(match.group(1)) - 1])
+                    if match.group(1) else "%", template)
+                self.assertEqual(rendered, expected)
+
     def test_every_observable_expedition_phase_has_a_phrase(self) -> None:
         # The planner shows "UI_SC_Expedition_Phase_<scout.phase>" when the
         # leader is in view. Collect every literal the expedition and car
         # modules can store there, following "scout.phase = trip.state" back
         # to the state assignment it copies.
         en_keys = set(json.loads(read(TRANSLATE / "EN" / "UI.json")))
-        value = re.compile(r'(?<!== )(?<!~= )"([a-z_]+)"')
+        value = re.compile(r'"([a-z_]+)"')
+
+        def phase_literals(expression: str) -> set[str]:
+            # Conditional operands (trip.leg=="home") are not values stored
+            # in scout.phase. Lua accepts comparison operators with any space.
+            return {
+                match.group(1) for match in value.finditer(expression)
+                if not re.search(r"(?:==|~=)\s*$", expression[:match.start()])
+            }
+
+        for comparison in ('trip.leg=="home"', 'trip.leg == "home"',
+                           'trip.leg~="out"', 'trip.leg ~= "out"'):
+            self.assertEqual(
+                phase_literals(f'{comparison} and "boarding_home" or "boarding_out"'),
+                {"boarding_home", "boarding_out"},
+                "phase extraction must distinguish comparison operands from assigned branches",
+            )
 
         def statements(source: str) -> list[str]:
             joined: list[str] = []
@@ -1622,12 +1661,12 @@ class UIStaticContractTests(unittest.TestCase):
                         for earlier in reversed(rows[max(0, position - 8):position]):
                             state = assigned(earlier, "trip.state")
                             if state is not None:
-                                phases.update(value.findall(" ".join(state)))
+                                phases.update(phase_literals(" ".join(state)))
                                 break
                         else:
                             self.fail(f"{name}: scout.phase copies an unknown trip.state")
                     else:
-                        phases.update(value.findall(" ".join(rhs)))
+                        phases.update(phase_literals(" ".join(rhs)))
         self.assertTrue({"outbound", "inbound", "driving_out", "boarding_home",
                          "unloading_site", "interrupted_by_load"} <= phases,
                         f"phase extraction lost known phases: {sorted(phases)}")

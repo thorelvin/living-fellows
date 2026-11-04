@@ -127,6 +127,8 @@ local function commandsFor(actor)
                 missionOrder.tacticalTarget = nil
                 missionOrder.pendingInteraction = nil
                 local waypoint = SC.ExpeditionPrototype.testWaypointFor(actor)
+                missionOrder.expeditionHomeApproach = SC.HomeTrip
+                    and SC.HomeTrip.finalApproachFor and SC.HomeTrip.finalApproachFor(actor) == true
                 local phase = expedition and expedition.scout
                     and expedition.scout.phase or nil
                 -- A route briefly has no staged waypoint while its leader
@@ -1977,6 +1979,9 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         end
         local ok, status = SC.Navigation.request(actor, target, commandMoveMode(commands, player), {
             action = "ordered_move", snapshot = snapshot,
+            arrivalDistance = commands.expeditionHomeApproach and 0.35 or nil,
+            requireSameSquare = commands.expeditionHomeApproach == true,
+            expeditionHomeApproach = commands.expeditionHomeApproach == true,
             doorBashAsLastResort = commands.doorBashAsLastResort == true,
             -- A follower in combat can request priority 80; the mission
             -- leader needs the right of way to get the whole team through.
