@@ -638,6 +638,21 @@ local definitions = {
             extras = { "Base.Glasses_Normal", "Base.Hat_BaseballCapKY" },
             dirt = 0.2, visualSeed = 3100240 },
         module = "OddballGunShop" },
+    { id = "forest_soldier_hatcher", name = "Garland Hatcher",
+        archetype = "oddball_resident", kind = "forest_soldier",
+        recruitment = true, firstEligibleOffsetDays = 5,
+        identity = { forename = "Garland", surname = "Hatcher", gender = "male",
+            outfit = "ArmyCamoGreen",
+            extras = { "Base.Hat_BonnieHat_CamoGreen", "Base.Vest_BulletArmy",
+                "Base.Necklace_DogTag", "Base.WristWatch_Left_ClassicMilitary" },
+            dirt = 0.45, visualSeed = 3100241 },
+        module = "OddballSoldier" },
+    { id = "hitchhiker_ruth_ann", name = "Ruth Ann Sizemore",
+        archetype = "oddball_roamer", kind = "roamer",
+        recruitment = false, firstEligibleOffsetDays = 3,
+        identity = { forename = "Ruth Ann", surname = "Sizemore", gender = "female",
+            outfit = "Backpacker", dirt = 0.15, visualSeed = 3100242 },
+        module = "OddballHitchhiker" },
 }
 -- Scene modules own their signature weapons and reward stock. These small
 -- personal kits fill the gaps without changing an encounter's combat script.
@@ -3194,6 +3209,20 @@ local function siteForRadioVan(square, player, allowSeen)
 end
 Oddballs._siteForRadioVanForTests = siteForRadioVan
 
+-- Hatcher shares Walt Reed's forest-clearing test (real trees, natural
+-- ground, unseen), but is saved as an ordinary resident: only Walt's own
+-- story is restored with the forest_camp site kind.
+local function siteForForestSoldier(square, player, allowSeen)
+    local camp = SC.OddballCampStoryteller
+    if not camp or type(camp.siteFor) ~= "function" then return nil end
+    local site = camp.siteFor(square, player, allowSeen)
+    if not site then return nil end
+    site.kind = "resident"
+    site.room = "woods"
+    return site
+end
+Oddballs._siteForForestSoldierForTests = siteForForestSoldier
+
 local function unresolvedCount()
     local count = 0
     local groups = SC.Factions and type(SC.Factions.list) == "function"
@@ -3714,6 +3743,8 @@ local function ambientSiteFor(square, player, definition, name, building, visite
         return siteForDefenseLeague(square, player)
     elseif definition.kind == "radio_van" then
         return siteForRadioVan(square, player, false)
+    elseif definition.kind == "forest_soldier" then
+        return siteForForestSoldier(square, player, false)
     elseif definition.kind == "knight" then
         return siteForKnight(square, player, 1, false)
     elseif definition.kind == "trickster" then
@@ -3732,7 +3763,9 @@ local function ambientSiteFor(square, player, definition, name, building, visite
         and type(SC.OddballCampStoryteller.siteFor) == "function" then
         return SC.OddballCampStoryteller.siteFor(square, player, false)
     elseif definition.kind == "roamer" then
-        if definition.id == "peddler_mister_ebb" then
+        if definition.id == "peddler_mister_ebb"
+            or definition.id == "hitchhiker_ruth_ann" then
+            -- Both keep to the roadside at dusk.
             return siteForEbb(square, player)
         elseif definition.id == "dewey_prentice_hollowell"
             or definition.id == "firecracker_bernice_hupp" then
@@ -4064,6 +4097,8 @@ function Oddballs.debugSpawnRandom(player)
                             site = siteForDefenseLeague(square, player, true)
                         elseif definition.kind == "radio_van" then
                             site = siteForRadioVan(square, player, true)
+                        elseif definition.kind == "forest_soldier" then
+                            site = siteForForestSoldier(square, player, true)
                         elseif definition.kind == "knight" then
                             site = siteForKnight(square, player, 1, true)
                         elseif definition.kind == "trickster" then
@@ -4090,7 +4125,8 @@ function Oddballs.debugSpawnRandom(player)
                         elseif definition.kind == "roamer" then
                             if definition.id == "peddler_mister_ebb"
                                 or definition.id == "dewey_prentice_hollowell"
-                                or definition.id == "firecracker_bernice_hupp" then
+                                or definition.id == "firecracker_bernice_hupp"
+                                or definition.id == "hitchhiker_ruth_ann" then
                                 site = siteForEbb(square, player, true, true)
                             else
                                 site = siteForRed(square, player, true)

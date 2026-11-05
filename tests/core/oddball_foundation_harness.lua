@@ -1050,6 +1050,8 @@ for _, pair in ipairs({
     { "dad_joke_feud", "OddballDads" },
     { "radio_preacher_dwayne", "OddballPreacher" },
     { "gunshop_bob_kenley", "OddballGunShop" },
+    { "forest_soldier_hatcher", "OddballSoldier" },
+    { "hitchhiker_ruth_ann", "OddballHitchhiker" },
 }) do
     local definition = SC.Oddballs.definition(pair[1])
     check(definition and definition.module == pair[2],
@@ -1060,6 +1062,23 @@ check(SC.Oddballs.definition("firecracker_bernice_hupp").kind == "roamer"
         and SC.Oddballs.definition("bitten_hershel_combs").kind == "resident"
         and SC.Oddballs.definition("bitten_hershel_combs").firstEligibleOffsetDays == 9,
     "Miss Liberty roams unrecruitable; Hershel waits until nine days can be true")
+do
+    local previousCamp = SC.OddballCampStoryteller
+    SC.OddballCampStoryteller = { siteFor = function(square, who, allowSeen)
+        if square.clearing ~= true then return nil end
+        return { kind = "forest_camp", room = "forest", anchor = { x = 1, y = 1, z = 0 },
+            spawn = { x = 3, y = 1, z = 0 }, house = { id = "forest-camp:1:1" } }
+    end }
+    local camp = SC.Oddballs._siteForForestSoldierForTests({ clearing = true }, player, false)
+    check(camp and camp.kind == "resident" and camp.room == "woods" and camp.spawn.x == 3,
+        "Hatcher takes Walt's kind of clearing but saves as an ordinary resident")
+    check(SC.Oddballs._siteForForestSoldierForTests({ clearing = false }, player, false) == nil,
+        "no clearing, no Hatcher")
+    SC.OddballCampStoryteller = previousCamp
+end
+check(SC.Oddballs.definition("hitchhiker_ruth_ann").kind == "roamer"
+        and SC.Oddballs.definition("hitchhiker_ruth_ann").identity.outfit == "Backpacker",
+    "Ruth Ann roams in the clothes her body is found in")
 
 -- A sealed horde may only seed behind one closed, reachable interior door.
 do
