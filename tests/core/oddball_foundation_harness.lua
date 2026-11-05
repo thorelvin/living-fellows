@@ -498,6 +498,75 @@ do
     SC.OddballBitten = previousBitten
     for key, room in pairs(savedRooms) do stationSquares[key] = room end
 end
+do
+    local oldGrid, oldSafe, oldClear = U.gridSquare, U.isSafeSpawnSquare,
+        U.isClearActorSpawnSquare
+    local blocked, interiorAt = {}, nil
+    local function tile(x, y, z)
+        local spriteName = interiorAt == x .. ":" .. y
+            and "floors_interior_tilesandwood_01_0" or "blends_street_01_16"
+        local sprite = { getName = function() return spriteName end }
+        local floor = { getSprite = function() return sprite end }
+        return { x = x, y = y, z = z or 0,
+            getFloor = function() return floor end,
+            getRoom = function() return nil end }
+    end
+    U.gridSquare = function(x, y, z) return tile(x, y, z) end
+    -- A wreck blocks the van's footprint (safe spawn) without making the
+    -- tile unfit for a person to stand on, so only the footprint check sees it.
+    U.isSafeSpawnSquare = function(square)
+        return square ~= nil and not blocked[square.x .. ":" .. square.y]
+    end
+    U.isClearActorSpawnSquare = function(square) return square ~= nil end
+    local vanSite = SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true)
+    check(vanSite and vanSite.kind == "resident" and vanSite.van.x == 100
+            and vanSite.spawn.x == 102 and vanSite.house.interior[1].x == 102,
+        "the station van takes a clear stretch of road with Dwayne beside it")
+    blocked["101:102"] = true
+    check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
+        "a wreck inside the van's footprint rules the spot out")
+    blocked, interiorAt = {}, "100:100"
+    check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
+        "the van parks on a road, never on a floor")
+    U.gridSquare, U.isSafeSpawnSquare, U.isClearActorSpawnSquare = oldGrid, oldSafe, oldClear
+end
+do
+    local oldGrid, oldSafe, oldInstanceOf = U.gridSquare, U.isSafeSpawnSquare, U.instanceOf
+    U.instanceOf = function(value, name)
+        return type(value) == "table" and value.__class == name
+    end
+    local shopRoom = { getName = function() return "gunstore" end }
+    local closet = { getName = function() return "storage" end }
+    local closetBehindGlass = false
+    local glass = { __class = "IsoWindow", getNorth = function() return false end,
+        getObjectIndex = function() return 0 end }
+    U.gridSquare = function(x, y, z)
+        local room
+        if x >= 200 and x <= 204 and y >= 200 and y <= 203 then room = shopRoom
+        elseif closetBehindGlass and x == 199 and y == 201 then room = closet end
+        local objects = (x == 200 and y == 201) and { glass } or {}
+        return { x = x, y = y, z = z or 0,
+            getRoom = function() return room end,
+            getObjects = function() return objects end,
+            getSpecialObjects = function() return {} end }
+    end
+    U.isSafeSpawnSquare = function(square) return square ~= nil end
+    local shop = { bounds = { x1 = 200, y1 = 200, x2 = 204, y2 = 203 } }
+    local front = SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 })
+    check(front and front.x == 200 and front.y == 201 and front.objectIndex == 0
+            and front.outX == 199 and front.stepX == -1 and front.stepY == 0,
+        "Bob's front glass is the window between his shop and the street")
+    local street = SC.Oddballs._streetPostsForTests(front)
+    local allOutside = #street >= 4
+    for _, post in ipairs(street) do
+        if post.x > 194 then allOutside = false end
+    end
+    check(allOutside, "the dead start at least five meters out past the glass")
+    closetBehindGlass = true
+    check(SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
+        "a window into a back room is not front glass")
+    U.gridSquare, U.isSafeSpawnSquare, U.instanceOf = oldGrid, oldSafe, oldInstanceOf
+end
 local originalOccupyingObject = U.squareOccupyingObject
 U.squareOccupyingObject = function(square)
     if square and (square.x == 20 or square.x == 21) then
@@ -978,6 +1047,9 @@ for _, pair in ipairs({
     { "grinder_berg", "OddballGrinder" },
     { "firecracker_bernice_hupp", "OddballFirecracker" },
     { "bitten_hershel_combs", "OddballBitten" },
+    { "dad_joke_feud", "OddballDads" },
+    { "radio_preacher_dwayne", "OddballPreacher" },
+    { "gunshop_bob_kenley", "OddballGunShop" },
 }) do
     local definition = SC.Oddballs.definition(pair[1])
     check(definition and definition.module == pair[2],

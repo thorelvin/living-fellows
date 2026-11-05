@@ -1817,6 +1817,7 @@ function Factions.createOddballGroup(site, definition, debugCreated)
         hordeSpawns = site.hordeSpawns
             and stableCopy(site.hordeSpawns, 3, { count = 128 }) or nil,
         vehicle = site.vehicle and stableCopy(site.vehicle, 3) or nil,
+        van = site.van and stableCopy(site.van, 2) or nil,
         fuelPosts = site.fuelPosts
             and stableCopy(site.fuelPosts, 3, { count = 32 }) or nil,
         bins = site.bins and stableCopy(site.bins, 3,

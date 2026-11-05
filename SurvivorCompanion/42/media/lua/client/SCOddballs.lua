@@ -609,6 +609,35 @@ local definitions = {
             dirt = 0.6, visualSeed = 3100236 },
         kit = { items = { "Base.WaterBottle", "Base.Pills" } },
         module = "OddballBitten" },
+    { id = "dad_joke_feud", name = "Gary and Ron",
+        archetype = "oddball_resident", kind = "resident",
+        memberCountMin = 2, memberCountMax = 2,
+        recruitment = false, firstEligibleOffsetDays = 4,
+        identity = { forename = "Gary", surname = "Ledford", gender = "male",
+            outfit = "Golfer", visualSeed = 3100237 },
+        memberIdentities = {
+            { forename = "Gary", surname = "Ledford", gender = "male",
+                outfit = "Golfer", visualSeed = 3100237 },
+            { forename = "Ron", surname = "Pettit", gender = "male",
+                outfit = "Bowling", visualSeed = 3100238 },
+        }, memberRoles = { "gary", "ron" },
+        module = "OddballDads" },
+    { id = "radio_preacher_dwayne", name = "Dwayne Stidham",
+        archetype = "oddball_resident", kind = "radio_van",
+        recruitment = true, firstEligibleOffsetDays = 3,
+        identity = { forename = "Dwayne", surname = "Stidham", gender = "male",
+            outfit = "OfficeWorker", extras = { "Base.Glasses_Reading" },
+            dirt = 0.3, visualSeed = 3100239 },
+        kit = { items = { "Base.Book_Bible", "Base.Torch" } },
+        module = "OddballPreacher" },
+    { id = "gunshop_bob_kenley", name = "Bob Kenley",
+        archetype = "oddball_resident", kind = "resident",
+        recruitment = true, firstEligibleOffsetDays = 3,
+        identity = { forename = "Bob", surname = "Kenley", gender = "male",
+            outfit = "Redneck",
+            extras = { "Base.Glasses_Normal", "Base.Hat_BaseballCapKY" },
+            dirt = 0.2, visualSeed = 3100240 },
+        module = "OddballGunShop" },
 }
 -- Scene modules own their signature weapons and reward stock. These small
 -- personal kits fill the gaps without changing an encounter's combat script.
@@ -920,6 +949,8 @@ local function isResidentRoom(id, name)
     end
     if id == "pyromaniac_earl_kessler" then return true end
     if id == "bitten_hershel_combs" then return name == "bathroom" end
+    if id == "dad_joke_feud" then return name == "livingroom" end
+    if id == "gunshop_bob_kenley" then return name == "gunstore" end
     return false
 end
 
@@ -1127,6 +1158,72 @@ local function partyOpening(house, spawn, kind)
     end
     return best
 end
+
+-- Bob's front glass: a window between his shop room and the outdoors. The
+-- outside tile and the step outward are kept so the dead come through it.
+local function shopWindowToOutside(house, spawn)
+    local room = select(1, U().call(
+        U().gridSquare(spawn.x, spawn.y, spawn.z or 0), "getRoom"))
+    if not room then return nil end
+    local best, bestDistance
+    local bounds = house.bounds
+    local floor = math.floor(tonumber(spawn.z) or 0)
+    for x = bounds.x1 - 1, bounds.x2 + 1 do
+        for y = bounds.y1 - 1, bounds.y2 + 1 do
+            local square = U().gridSquare(x, y, floor)
+            if square then
+                eachObject(square, function(object)
+                    if not U().instanceOf(object, "IsoWindow") then return false end
+                    local north = select(1, U().call(object, "getNorth"))
+                    if type(north) ~= "boolean" then return false end
+                    local ox, oy = x - (north and 0 or 1), y - (north and 1 or 0)
+                    local other = U().gridSquare(ox, oy, floor)
+                    local hereRoom = select(1, U().call(square, "getRoom"))
+                    local thereRoom = other and select(1, U().call(other, "getRoom"))
+                    local inX, inY, outX, outY
+                    if hereRoom == room and thereRoom == nil and other then
+                        inX, inY, outX, outY = x, y, ox, oy
+                    elseif thereRoom == room and hereRoom == nil then
+                        inX, inY, outX, outY = ox, oy, x, y
+                    else
+                        return false
+                    end
+                    local index = select(1, U().call(object, "getObjectIndex"))
+                    local distance = (x - spawn.x) ^ 2 + (y - spawn.y) ^ 2
+                    if type(index) == "number" and index >= 0
+                        and (not bestDistance or distance < bestDistance) then
+                        best = { x = x, y = y, z = floor, objectIndex = index,
+                            kind = "window", outX = outX, outY = outY,
+                            stepX = outX - inX, stepY = outY - inY }
+                        bestDistance = distance
+                    end
+                    return false
+                end)
+            end
+        end
+    end
+    return best
+end
+
+local function streetPostsBeyond(window)
+    local posts = {}
+    if not window then return posts end
+    local stepX, stepY = window.stepX or 0, window.stepY or 0
+    for distance = 5, 12, 2 do
+        for lateral = -3, 3, 2 do
+            local x = window.outX + stepX * distance + (stepX == 0 and lateral or 0)
+            local y = window.outY + stepY * distance + (stepY == 0 and lateral or 0)
+            local square = U().gridSquare(x, y, window.z or 0)
+            if square and roomName(square) == nil and U().isSafeSpawnSquare(square) then
+                posts[#posts + 1] = { x = x, y = y, z = window.z or 0 }
+                if #posts >= 12 then return posts end
+            end
+        end
+    end
+    return posts
+end
+Oddballs._shopWindowForTests = shopWindowToOutside
+Oddballs._streetPostsForTests = streetPostsBeyond
 
 -- Match the game's Get On Bed context menu: normalize the clicked bed segment
 -- using SeatingManager and its sprite-grid position, then approach the
@@ -2615,6 +2712,12 @@ local function siteForResident(square, player, definition, name, allowSeen)
     elseif definition.id == "ranger_june_whitlock" then
         site.animalSpawns = rabbitSpawns(house, spawn, player, allowSeen)
         if not site.animalSpawns then return nil end
+    elseif definition.id == "gunshop_bob_kenley" then
+        -- Bob's whole scene is his front glass giving way. No street-facing
+        -- window, or no clear street beyond it, means no Bob in this shop.
+        site.partyWindow = shopWindowToOutside(house, spawn)
+        site.hordeSpawns = streetPostsBeyond(site.partyWindow)
+        if not site.partyWindow or #site.hordeSpawns < 4 then return nil end
     end
     if definition.id == "mien_ward" then
         -- He first appears inside a matching shop, then uses the normal
@@ -3054,6 +3157,42 @@ local function siteForDefenseLeague(square, player, allowSeen)
     return { kind = "roamer", room = "road junction", house = house,
         anchor = center, spawn = center, memberSpawns = posts }
 end
+
+-- Dwayne's station van needs an unseen, clear stretch of road outdoors; he
+-- waits on a clear tile beside it. The van is spawned once by his module.
+local function siteForRadioVan(square, player, allowSeen)
+    if not candidateUnseen(square, player, allowSeen) or not roadSquare(square)
+        or roomName(square) ~= nil then return nil end
+    local center = point(square)
+    if not center or center.z ~= 0 then return nil end
+    for dx = -1, 1 do
+        for dy = -2, 2 do
+            local tile = U().gridSquare(center.x + dx, center.y + dy, 0)
+            if not tile or not U().isSafeSpawnSquare(tile)
+                or not candidateUnseen(tile, player, allowSeen) then
+                return nil
+            end
+        end
+    end
+    local spawn
+    for _, offset in ipairs({ { 2, 0 }, { -2, 0 }, { 2, 1 }, { -2, 1 } }) do
+        local tile = U().gridSquare(center.x + offset[1], center.y + offset[2], 0)
+        if tile and candidateUnseen(tile, player, allowSeen)
+            and roomName(tile) == nil then
+            spawn = point(tile)
+            break
+        end
+    end
+    if not spawn then return nil end
+    return { kind = "resident", room = "station van", anchor = spawn, spawn = spawn,
+        van = center,
+        house = { id = "station-van-" .. tostring(center.x) .. "-" .. tostring(center.y),
+            anchor = spawn,
+            bounds = { x1 = spawn.x - 1, y1 = spawn.y - 1,
+                x2 = spawn.x + 1, y2 = spawn.y + 1 },
+            interior = { spawn }, openings = {} } }
+end
+Oddballs._siteForRadioVanForTests = siteForRadioVan
 
 local function unresolvedCount()
     local count = 0
@@ -3573,6 +3712,8 @@ end
 local function ambientSiteFor(square, player, definition, name, building, visitedBuildings)
     if definition.kind == "patrol" then
         return siteForDefenseLeague(square, player)
+    elseif definition.kind == "radio_van" then
+        return siteForRadioVan(square, player, false)
     elseif definition.kind == "knight" then
         return siteForKnight(square, player, 1, false)
     elseif definition.kind == "trickster" then
@@ -3921,6 +4062,8 @@ function Oddballs.debugSpawnRandom(player)
                         local site
                         if definition.kind == "patrol" then
                             site = siteForDefenseLeague(square, player, true)
+                        elseif definition.kind == "radio_van" then
+                            site = siteForRadioVan(square, player, true)
                         elseif definition.kind == "knight" then
                             site = siteForKnight(square, player, 1, true)
                         elseif definition.kind == "trickster" then
