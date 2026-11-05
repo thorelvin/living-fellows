@@ -110,6 +110,44 @@ check(not worker.asleep and not SC.Downtime.peek(worker).active and not worker.o
     "danger wakes the sleeper and releases the native bed posture")
 SC.NativeActions, SC.GameplayUtil.directInteractionAccess, getGameTime = native, access, time
 
+-- Returned cargo must get a decision after a casual pause, without waking a
+-- sleeper or interrupting cleaning's owned item transfers.
+local downtime, expedition = SC.Downtime, SC.ExpeditionPrototype
+local supervisor = SC.ActionSupervisor
+SC.ExpeditionPrototype = { integrationFor = function(subject)
+    return subject == worker and { id = "returned-cargo" } or nil
+end }
+for _, kind in ipairs({ "sit", "read", "rest_bed", "clean_base" }) do
+    supervisor.reset(worker)
+    SC.Downtime = {
+        peek = function() return { active = { kind = kind } } end,
+        update = function() return true, "owned_pause" end,
+        cancel = function(subject, reason) return supervisor.cancel(subject, reason, nil, false) end,
+    }
+    local token = assert(supervisor.begin(worker, {
+        owner = "downtime", action = kind, priority = supervisor.Priority.WORK,
+        metadata = { commandSerial = 1 }, ignoreRetry = true,
+        onCancel = function() return true end,
+    }))
+    local held = SC.Decision._holdOwnedActivityOrPacingForTests(worker, player,
+        quiet, healthy, {}, { recruited = true, order = "base_duty", commandSerial = 1 },
+        {}, f.clock, {})
+    local casual = kind == "sit" or kind == "read"
+    check(casual and held == false and not supervisor.isCurrent(token)
+            or not casual and held == true and supervisor.isCurrent(token),
+        "ready expedition cargo releases only casual downtime: " .. kind)
+    if casual then
+        local delivery = false
+        for _, candidate in ipairs(SC.Decision._evaluateForTests(worker, player,
+                quiet, commands, healthy, {}, {}, f.clock)) do
+            if candidate.kind == "expedition_delivery" then delivery = true end
+        end
+        check(delivery, "released downtime exposes the returned-cargo decision")
+    end
+end
+supervisor.reset(worker)
+SC.Downtime, SC.ExpeditionPrototype = downtime, expedition
+
 local wound = f.bodyPart({ name = "ForeArm_R", isBleeding = true })
 local patient = f.actor("essential-bandage", 0, 2, { body = f.bodyDamage(70, { wound }) })
 local bandage = f.item("Base.Bandage", "Medical")

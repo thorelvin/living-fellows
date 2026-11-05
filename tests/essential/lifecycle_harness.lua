@@ -68,4 +68,39 @@ check(S.current(other) == foreign and playerQueue.current == originalPlayerActio
 S.cancel(other, "fixture_done", nil, true)
 SC.Registry.reset()
 check(S.leakedReservations() == 0, "the lifecycle leaves no orphaned reservations")
+
+-- Diagonal cars can overlap a tile that vanilla isFree still accepts.
+local exitCar, neighborCar = {}, {}
+local tiles = {}
+local function exitTile(x, y, vehicle)
+    local tile = { x = x, y = y, vehicle = vehicle }
+    function tile:getX() return self.x end
+    function tile:getY() return self.y end
+    function tile:getZ() return 0 end
+    function tile:isSolid() return false end
+    function tile:isSolidTrans() return false end
+    function tile:TreatAsSolidFloor() return true end
+    function tile:isFree() return true end
+    function tile:getVehicleContainer() return self.vehicle end
+    tiles[x .. ":" .. y] = tile
+    return tile
+end
+local insideCar = exitTile(10, 10, exitCar)
+local insideNeighbor = exitTile(11, 10, neighborCar)
+local clearExit = exitTile(10, 11)
+function exitCar:getX() return 10 end
+function exitCar:getY() return 10 end
+function exitCar:getZ() return 0 end
+function exitCar:getCell() return { getGridSquare = function(_, x, y) return tiles[x .. ":" .. y] end } end
+function exitCar:getEnterSeatDistance(_, x, y)
+    if math.floor(x) == 10 and math.floor(y) == 10 then return 0.1 end
+    if math.floor(x) == 11 and math.floor(y) == 10 then return 0.2 end
+    return 0.3
+end
+local exits = SC.Vehicle.safeExitSquares(exitCar, 0)
+check(exits and #exits == 1 and exits[1] == clearExit,
+    "native exit selection skips both its own and a neighboring vehicle footprint")
+clearExit.vehicle = neighborCar
+check(SC.Vehicle.safeExitSquares(exitCar, 0) == nil,
+    "a fully blocked passenger door waits instead of placing the companion inside a car")
 SC_TEST_REPORT = "Essential lifecycle: " .. checks .. " ownership/isolation checks passed"

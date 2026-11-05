@@ -2,6 +2,32 @@
 
 # Changelog
 
+## 0.26.98 - Expedition delivery and camp reliability
+
+- Spread camp sorting searches across bounded work ticks to reduce repeated
+  scans of marked storage, including when all menus are closed.
+- Keep departure packing ahead of routine scavenging while preserving medical
+  and survival priorities. Bound optional storage-route searches and retain
+  supplies that cannot be safely put away.
+- Improve expedition cargo-space checks, bag use and preparation feedback.
+  Preserve food priorities and exact item ownership throughout preparation.
+- Skip fully loaded woodland patches with no mature trees before departure.
+  Keep unloaded woodland provisional and verify native trees after arrival.
+- Let wood haulers finish the native trunk-unlock and exit sequence before
+  loading. Reject exit tiles inside either the crew's car or another vehicle.
+- Keep near-home vehicle detours small enough to retain the road destination,
+  without shrinking existing hazard areas or bypassing native collision checks.
+- Harden driving and parking clearance around slow terrain and roadside
+  obstacles. Retain safe stopping and bounded recovery attempts.
+- Resume ready expedition deliveries after casual sitting or reading; preserve
+  sleep and active inventory transactions. Keep roadside cargo subject to the
+  normal camp-reach, ownership and storage checks.
+- Record native collection, delivery, camp-performance and exit-angle results
+  separately from automated checks. Transition hitches and quiet firehouse
+  reunion/solo-view acceptance still have documented limits.
+- Retain bridge protocol `42.21-isocompanion-29` for Project Zomboid 42.21.0;
+  ship matching Lua and the rebuilt bridge with 0.26.98 release metadata.
+
 ## 0.26.97 - Reliable expedition preparation and parking access
 
 - Keep expedition packing moving when carried weight or carrying limits change

@@ -552,6 +552,8 @@ function Planner.departurePreparationSignature(summary)
             tostring(row.reason), tostring(row.ready), tostring(row.retrying),
             tostring(assessment.carryWeight), tostring(assessment.carryCapacity),
             tostring(assessment.rawFree), tostring(assessment.cargoReady),
+            tostring(assessment.cargoBagId), tostring(assessment.cargoBagName),
+            tostring(assessment.itemName),
             tostring(assessment.cargoDeficit and assessment.cargoDeficit.raw),
             tostring(assessment.cargoDeficit and assessment.cargoDeficit.effective) }, ",")
         for _, bag in ipairs(assessment.bags or {}) do
@@ -559,6 +561,10 @@ function Planner.departurePreparationSignature(summary)
                 tostring(bag.weight), tostring(bag.capacity), tostring(bag.free) }, ",")
         end
         for _, warning in ipairs(assessment.warnings or {}) do parts[#parts + 1] = tostring(warning) end
+        for _, category in ipairs({ "food", "water", "medicine" }) do
+            local supply = assessment.supplies and assessment.supplies[category] or {}
+            parts[#parts + 1] = tostring(supply.carried) .. "/" .. tostring(supply.required)
+        end
     end
     return table.concat(parts, ";")
 end
@@ -574,6 +580,12 @@ function Planner.buildDeparturePreparation(detail, panel, y, summary)
             supplies = "Supplies", topup = "Supplies", bag = "Bag", wear = "Bag", unwear = "Bag",
             ready = "Ready", blocked = "Blocked" }
         local key = keys[row.stage] or "Packing"
+        local reasons = { loadout_seeking_tool = "ToolSearch", loadout_tool_missing = "ToolMissing",
+            loadout_seeking_bag = "BagSearch", loadout_seeking_food = "FoodSearch",
+            loadout_seeking_water = "WaterSearch", loadout_seeking_medicine = "MedicineSearch",
+            loadout_inventory_pending = "InventoryWaiting", storage_route_pending = "StorageRoute",
+            loadout_capacity_unavailable = "CapacityUnknown", loadout_move_limit = "MoveLimit",
+            loadout_transfer_changed = "TransferChanged", loadout_action_cancelled = "ActionCancelled" }
         if row.stage == "blocked" then
             blocked = true
             local reason = tostring(row.reason or "")
@@ -585,9 +597,14 @@ function Planner.buildDeparturePreparation(detail, panel, y, summary)
             elseif string.find(reason, "scan_limit", 1, true) then key = "InventoryLimit"
             elseif string.find(reason, "unsafe", 1, true) then key = "SafetyWaiting" end
         end
+        key = reasons[row.reason] or key
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_PreparationMember", memberName(row), tr("UI_SC_Expedition_Preparation" .. key)))
         local assessment = row.assessment or {}
+        if readableName(assessment.itemName) then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_PreparationItem", readableName(assessment.itemName)))
+        end
         if type(assessment.carryWeight) == "number" and type(assessment.carryCapacity) == "number"
             and type(assessment.rawFree) == "number" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -608,13 +625,29 @@ function Planner.buildDeparturePreparation(detail, panel, y, summary)
                 end
             end
         end
+        if assessment.cargoBagId then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_PreparationCargoBag", assessment.cargoBagId == "inventory"
+                    and tr("UI_SC_Expedition_PreparationRootInventory")
+                    or readableName(assessment.cargoBagName) or tr("UI_SC_Expedition_PreparationBagName")))
+        end
+        for _, category in ipairs({ "food", "water", "medicine" }) do
+            local supply = assessment.supplies and assessment.supplies[category]
+            if supply and type(supply.carried) == "number" and type(supply.required) == "number"
+                and supply.carried < supply.required then
+                local labels = { food = "Food", water = "Water", medicine = "Medicine" }
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_PreparationStock" .. labels[category], supply.carried, supply.required))
+            end
+        end
         local deficit = assessment.cargoDeficit
         if type(deficit) == "table" and ((tonumber(deficit.raw) or 0) > 0 or (tonumber(deficit.effective) or 0) > 0) then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PreparationDeficit", string.format("%.1f", tonumber(deficit.raw) or 0),
                     string.format("%.1f", tonumber(deficit.effective) or 0)))
         end
-        local warnings = { loadout_storage_unavailable = "Storage", loadout_food_shortage = "Food",
+        local warnings = { loadout_storage_unavailable = "Storage", loadout_storage_unreachable = "StorageRoute",
+            loadout_food_shortage = "Food",
             loadout_water_shortage = "Water", loadout_medicine_shortage = "Medicine",
             loadout_reduced_cargo_room = "Cargo" }
         for _, warning in ipairs(assessment.warnings or {}) do
@@ -904,6 +937,9 @@ end
 local function addReturnReports(detail, panel, y, expedition)
     local debrief = expedition and expedition.lastDebrief
         and expedition.lastDebrief() or nil
+    if debrief and debrief.kind ~= "home" then
+        y = detail:addSection(panel, y + 4, "UI_SC_Expedition_Debrief")
+    end
     if debrief and debrief.endReason == "site_entry_blocked" then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_SiteEntryBlocked"))
@@ -920,8 +956,6 @@ local function addReturnReports(detail, panel, y, expedition)
     if latest and SC.ExpeditionIntegration then
         local summary = SC.ExpeditionIntegration.summary(latest)
         if summary then
-            y = detail:addSection(panel, y + 4,
-                "UI_SC_Expedition_Debrief")
             y = addDeliveryItems(detail, panel, y, summary)
         end
     end
@@ -1043,7 +1077,7 @@ function Planner.build(detail, panel)
                         math.floor(request.x), math.floor(request.y),
                         tr("UI_SC_Expedition_Help_" .. request.mode)))
             end
-        elseif view and view.observedPhase
+        elseif view and not view.departurePreparation and view.observedPhase
             and observedPhaseText(view.observedPhase) then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_NearbyStatus",

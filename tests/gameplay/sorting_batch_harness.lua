@@ -94,7 +94,12 @@ reset(35)
 local original={} for _,i in ipairs(source.items) do original[i.id]=i end
 check(update() and #source.items==35 and #job.target.stockBatch.ids==20,"selection reserves a bounded twenty-item native stack without moving it")
 local competing={id="other-worker",inventory=container(),x=1,y=1,z=0}
-local _,_,_,_,competingItem=SC.BaseWork.sortTransfer({type="sort",target={}},competing)
+local competingJob,competingItem={type="sort",target={}},nil
+for _=1,8 do
+    local _,_,_,_,candidate,why=SC.BaseWork.sortTransfer(competingJob,competing)
+    competingItem=candidate
+    if why~="haul_scan_pending" then break end
+end
 check(competingItem and not SC.BaseWork.choreReserved(competingItem),"another sorter skips claimed identities and may select only the remaining stack")
 phase="completed";check(update() and #root.items==20 and #source.items==15,"one pickup pose carries twenty distinct money identities")
 for _,i in ipairs(root.items) do check(SC.BaseWork.cargoReserved(actor,i) and SC.WorkTransport.isCargoProtected(i,actor),"every carried member is protected from packing and other work") end
@@ -135,7 +140,8 @@ SC.BaseLife.resolveContainer=resolveContainer
 reset(0)
 for _=1,80 do add(source,item("Base.Misc")) end
 for _=1,35 do add(source,item("Base.Money")) end
-update();update();finish()
+for _=1,20 do update();if job.target.stockBatch then break end end
+finish()
 check(#dest.items==20 and #source.items==95,
     "bounded rotating shelf search collects a full stack beyond the first eighty objects")
 reset(7);update();phase="completed";update()

@@ -151,6 +151,20 @@ T.accessBlocked = true
 check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
     == "road_access_blocked", "wall across driveway refuses dispatch")
 T.accessBlocked = nil
+T.accessTree = true
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination))
+    == "road_access_blocked", "trees in the driveway refuse dispatch before native driving")
+T.accessTree = nil
+T.accessPole = true
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination)) == "road_access_blocked",
+    "a StopCar pole blocks departure even without solid or tree flags")
+T.accessPole, T.accessShape = nil, "Tree"
+check(select(2, Car.preflight(T.team, T.zone.id, 44, destination)) == "road_access_blocked",
+    "tree-shaped fixture physics is included in departure checks")
+T.accessShape, T.accessPoleX, T.accessPoleY = nil, 98, 103
+check(Car.accessBetween(T.cars[1],{x=102,y=102,z=0},{x=90,y=110,z=0}) == false,
+    "the strip also inspects the diagonal tile skipped between the old centre and edge rays")
+T.accessPoleX, T.accessPoleY = nil, nil
 T.mappedAccess, T.parkedAccessBlocker, T.accessBlocker = true, true, {}
 local accessCalls = #T.routeCalls
 local alternative = Car.preflight(T.team, T.zone.id, 44, destination)
@@ -464,6 +478,16 @@ check(Car.pulse(T.mission, 82000)
         and nearRoadFailure.parkingRecovery == nil,
     "near-road recovery starts one checked parking segment")
 local farRoadFailure = freshTrip("driving_home", "home")
+local nearNoRoute = farRoadFailure
+T.cars[1].x, T.cars[1].y = 89, 102
+T.driveStatus = { result = "failed", reason = "no_route" }
+check(Car.pulse(T.mission, 82100) and nearNoRoute.state == "parking_home"
+        and nearNoRoute.parkingRecovery == true,
+    "a failed road detour beside the home entry still tries checked parking")
+local approachesAfterNoRoute = T.approaches
+check(Car.pulse(T.mission, 82200) and T.approaches == approachesAfterNoRoute + 1,
+    "no-route recovery retains the normal parking approach checks")
+farRoadFailure = freshTrip("driving_home", "home")
 T.cars[1].x = 50
 T.driveStatus = { result = "failed", reason = "route_blocked" }
 check(Car.pulse(T.mission, 83000)
@@ -549,6 +573,23 @@ check(Car.recoverDeadDriver(T.mission) == true
     "all-dead car trip advances to the ordinary corpse teardown")
 T.team[1].actor.isDead = previousDead
 T.team[2].actor.isDead = mateDead
+
+local movingParking = freshTrip("parking_home", "home")
+T.cars[1].x, T.cars[1].y = 96, 102
+T.driveStatus = { result = "arrived" }
+Car.pulse(T.mission, 166000)
+local movingApproaches = T.approaches
+T.ready = false
+T.driveStatus = { phase = "approaching", owned = true }
+Car.pulse(T.mission, 167000)
+Car.pulse(T.mission, 178000)
+check(movingParking.state == "parking_home" and movingParking.parkingSettleStartedAt == nil
+        and T.approaches == movingApproaches,
+    "an owned moving driveway leg does not spend the post-arrival settling deadline")
+T.ready, T.cars[1].x = true, 102
+T.driveStatus = { result = "arrived" }
+check(Car.pulse(T.mission, 179000) and movingParking.state == "unloading_home",
+    "the same driveway leg reaches a verified bay and unloads after settling")
 
 local longDriveway = freshTrip("parking_home", "home")
 T.cars[1].x, T.cars[1].y = 86, 102

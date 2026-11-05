@@ -7,7 +7,7 @@ $lifecycleOwnerFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua',
 $lifecycleOwnerFiles += @('SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua',
     'SCNativeCombatActions.lua', 'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua',
     'SCNativeActions.lua', 'SCActionSupervisor.lua', 'SCActor.lua', 'SCGameplayUtil.lua',
-    'SCLocomotion.lua') | ForEach-Object { Join-Path $Client $_ }
+    'SCLocomotion.lua', 'SCVehicle.lua') | ForEach-Object { Join-Path $Client $_ }
 @{ Name = 'actor-action-isolation'; Files = @($lifecycleOwnerFiles) + @(
     (Join-Path $Essential 'lifecycle_harness.lua')) }
 

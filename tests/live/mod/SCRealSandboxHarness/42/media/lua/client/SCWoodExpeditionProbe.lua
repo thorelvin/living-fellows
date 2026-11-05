@@ -278,7 +278,7 @@ local function observeSoloVisibility(H, fixture, result, current)
 end
 local KITCHEN = { x = 12035.5, y = 6746.5, z = 0 }
 local function kitchenRequested(H)
-    return tonumber(H.config.wood_expedition_crew_size) == 3
+    return H.config.reliability_pass == "true" or tonumber(H.config.wood_expedition_crew_size) == 3
 end
 local function kitchenPose(primary, kitchen)
     local at = point(primary)
@@ -363,6 +363,7 @@ local function startKitchenRoute(H, fixture, current, result)
     end
     action:setOnComplete(function() if kitchen.active then kitchen.pathComplete = true end end)
     action:setOnFail(function() if kitchen.active then kitchen.pathFailed = true end end)
+    if fixture.packingOpenedAt and SC.UI then SC.UI.close() end
     captureKitchen(H, fixture, "kitchen-before-walk", result)
     local queued, failure = pcall(ISTimedActionQueue.add, action)
     if not queued then cleanupKitchen(fixture, true) return false, "player path queue rejected: " .. tostring(failure) end
@@ -430,10 +431,14 @@ local function trace(H, fixture, label)
     local scout = mission and mission.scout
     local wood = scout and scout.wood
     local state = wood and SC.ExpeditionWood.status(wood) or {}
+    local packing = SC.Logistics and SC.Logistics.preparationStatus(fixture.crew[1].actor)
     local counts = wood and SC.ExpeditionWood.cargoCounts(wood, fixture.crew, nil,
         fixture.mode == "drive" and 46 or nil) or {}
     local current = tonumber(fixture.latestStepAt) or tonumber(fixture.startedAt) or 0
     local hold = mission and mission.cohesionHold
+    local driving = SC.Driving and SC.Driving.isDriving(fixture.crew[1].actor)
+        and SC.Driving.status(fixture.crew[1].actor) or {}
+    local driveJob = SC.Driving and SC.Driving.jobStatus(fixture.crew[1].actor) or {}
     local rows = { label, "elapsedMs=" .. math.max(0, current - fixture.startedAt),
         "mode=" .. fixture.mode, "phase=" .. tostring(scout and scout.phase or "idle"),
         "carState=" .. tostring(scout and scout.vehicle and scout.vehicle.state),
@@ -445,6 +450,8 @@ local function trace(H, fixture, label)
         "target=" .. tostring(scout and scout.destination and scout.destination.x)
             .. "," .. tostring(scout and scout.destination and scout.destination.y),
         "preparation=" .. tostring(wood and wood.preparationReason),
+        "packing=" .. tostring(packing and packing.stage) .. ":" .. tostring(packing and packing.reason),
+        "packingItem=" .. tostring(packing and packing.itemName),
         "doneReason=" .. tostring(state.reason), "collected=" .. tostring(state.collected),
         "carried=" .. tostring(counts.carried), "loaded=" .. tostring(counts.loaded),
         "groundSeen=" .. count(fixture.ground), "treeSeen=" .. count(fixture.trees),
@@ -452,6 +459,12 @@ local function trace(H, fixture, label)
         "quietRemoved=" .. tostring(fixture.quietRemoved or 0),
         "quietCalls=" .. tostring(fixture.quietCalls or 0),
         "engine=" .. tostring(call(fixture.car and fixture.car.vehicle, "isEngineRunning")),
+        "drive=" .. tostring(driving.mode) .. ":" .. tostring(driving.speedKmh)
+            .. ":along=" .. tostring(driving.along) .. ":lateral=" .. tostring(driving.lateral)
+            .. ":offset=" .. tostring(driving.offset) .. ":obstacle=" .. tostring(driving.obstacleKind),
+        "driveState=" .. tostring(driving.state),
+        "driveBlocked=" .. tostring(driving.blockedX) .. "," .. tostring(driving.blockedY),
+        "driveAttempts=" .. tostring(driveJob.attempts),
         "waypoint=" .. tracePoint(mission and mission.testWaypoint),
         "waypointBest=" .. tostring(scout and scout.bestDistanceToWaypoint),
         "waypointAgeMs=" .. tostring(scout and scout.waypointStagedAt and current - scout.waypointStagedAt),
@@ -461,7 +474,9 @@ local function trace(H, fixture, label)
             .. ":" .. tostring(hold and hold.maxGap) }
     for _, member in ipairs(fixture.crew) do
         local worker = wood and wood.workers and wood.workers[member.id]
+        local decision = SC.Decision and SC.Decision.peek(member.actor)
         rows[#rows + 1] = member.id .. "@" .. position(member.actor) .. ";worker=" .. tostring(worker and worker.phase)
+            .. ";intent=" .. tostring(decision and decision.intent)
             .. ";dead=" .. tostring(call(member.actor, "isDead"))
             .. ";health=" .. tostring(call(call(member.actor, "getBodyDamage"), "getOverallBodyHealth"))
             .. ";" .. traceNavigation(SC, member.actor, current)
@@ -471,6 +486,10 @@ local function trace(H, fixture, label)
     local writer = type(getFileWriter) == "function"
         and getFileWriter("SurvivorCompanionHarness/wood-expedition.log", true, true)
     if writer then writer:writeln(line); writer:close() end
+    if scout and scout.vehicle and scout.vehicle.lastFailure and not fixture.carFailureScreenshot then
+        fixture.carFailureScreenshot = true
+        screenshot(H, fixture, "car-failure")
+    end
     if fixture.mode == "drive" and scout and scout.phase == "outbound"
         and scout.vehicle and scout.vehicle.state == "parked_at_site" then
         fixture.approachObservedAt = fixture.approachObservedAt or current
@@ -596,9 +615,11 @@ local function maintainQuietSite(H, fixture, mission, current, result)
     end
     fixture.quietRemoved = (fixture.quietRemoved or 0) + removed
     fixture.quietCalls = (fixture.quietCalls or 0) + 1
+    if removed > 0 or fixture.quietCalls == 1 then
     result("PASS", "wood_probe_quiet_site_cleanup", "explicit clone fixture;phase=" .. tostring(scout.phase)
         .. ";carState=" .. tostring(carState) .. ";radius=60;removed=" .. removed
         .. ";total_removed=" .. fixture.quietRemoved .. ";calls=" .. fixture.quietCalls)
+    end
     return true
 end
 local function startObserver(H, fixture, result)
@@ -818,6 +839,11 @@ local function setup(H, current, check, result, setPhase)
     if not check("wood_probe_saved_crew", #fixture.crew == crewSize,
         "requested=" .. crewSize .. ";healthy recruited saved crew=" .. #fixture.crew
             .. ";three-person crew requires existing camp residents; no movement or AI overrides") then setPhase("finish", current) return end
+    if H.config.reliability_pass == "true" then
+        require "SCReliabilityProbe"
+        local okay, why = SCRealSandboxHarnessProbes.SCReliabilityProbe.parking(SC, result)
+        if not check("wood_reliability_parking_fixture", okay, tostring(why)) then setPhase("finish", current) return end
+    end
     for _, car in ipairs(SC.ExpeditionCar.parkedCars()) do if car.sqlId == 46 then fixture.car = car break end end
     if fixture.mode == "drive" and not check("wood_probe_saved_car46", fixture.car ~= nil,
         "requires existing parked SQL46; no vehicle spawning or fuel edits") then setPhase("finish", current) return end
@@ -878,6 +904,13 @@ function Probe.step(H, current, check, result, setPhase)
     end
     if H.phase == "wood_expedition_dispatch" then
         local car = fixture.car
+        if H.config.reliability_pass == "true" and not fixture.parkingAccepted then
+            require "SCReliabilityProbe"
+            local ready, why = SCRealSandboxHarnessProbes.SCReliabilityProbe.obstruct(H, fixture, check, result)
+            if ready == nil then return end
+            if not ready then setPhase("finish", current) return end
+            fixture.parkingAccepted = true
+        end
         local started, reason = SC.ExpeditionPrototype.startWoodCollection(fixture.crew, {
             request = { mode = "count", quantity = fixture.quantity },
             travelMode = fixture.mode == "drive" and "drive" or "road",
@@ -892,6 +925,17 @@ function Probe.step(H, current, check, result, setPhase)
         trace(H, fixture, "dispatched")
         setPhase("wood_expedition_mission", current)
     elseif H.phase == "wood_expedition_mission" then
+        if H.config.reliability_pass == "true" and not fixture.packingScreenshot then
+            local packing = SC.Logistics.preparationStatus(fixture.crew[1].actor)
+            if not fixture.packingOpenedAt and packing and packing.itemName then
+                SC.UI.open("expeditions", fixture.crew[1].id)
+                fixture.packingOpenedAt = current
+            elseif fixture.packingOpenedAt and current-fixture.packingOpenedAt >= 1000 then
+                -- Let the selected page refresh before queuing its render.
+                screenshot(H, fixture, "packing")
+                fixture.packingScreenshot = true
+            end
+        end
         local mission = SC.ExpeditionPrototype.current()
         if mission then
             maintainQuietSite(H, fixture, mission, current, result)
@@ -927,10 +971,14 @@ function Probe.step(H, current, check, result, setPhase)
         end
         local debrief = SC.ExpeditionPrototype.lastDebrief() or {}
         local integration = debrief.integration
-        local stored = 0
-        for _, row in ipairs(integration and integration.items or {}) do if row.stored then stored = stored + 1 end end
+        local stored, pendingReason = 0, nil
+        for _, row in ipairs(integration and integration.items or {}) do
+            if row.stored then stored = stored + 1
+            else pendingReason = pendingReason or row.reason end
+        end
         if stored < fixture.quantity then
-            if current >= fixture.nextTraceAt then fixture.nextTraceAt = current + 2000 trace(H, fixture, "storage_pending:" .. stored) end
+            if current >= fixture.nextTraceAt then fixture.nextTraceAt = current + 2000
+                trace(H, fixture, "storage_pending:" .. stored .. ":" .. tostring(pendingReason)) end
             return
         end
         local toolsPending = integration and integration.woodWork and count(integration.woodWork.loans) or 0

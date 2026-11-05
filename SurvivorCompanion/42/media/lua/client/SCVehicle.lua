@@ -1054,8 +1054,12 @@ local function safeSquare(square)
     local transOk, trans = invoke(square, "isSolidTrans")
     local floorOk, floor = invoke(square, "TreatAsSolidFloor")
     local freeOk, free = invoke(square, "isFree", true)
+    -- isFree accepts some tile centres covered by a diagonal car. Those tiles
+    -- are rejected by foot navigation and can strand a newly exited companion.
+    local vehicleOk, vehicle = invoke(square, "getVehicleContainer")
     return solidOk and solid ~= true and transOk and trans ~= true
         and floorOk and floor == true and freeOk and free == true
+        and vehicleOk and vehicle == nil
 end
 
 nearbyVehicleSquares = function(vehicle, seat, actor)

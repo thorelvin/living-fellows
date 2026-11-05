@@ -178,7 +178,7 @@ public final class SCRoadFollowerTest {
                 float frontDistance = front.blocked ? front.distance : -1.0f;
                 float rearDistance = rear.blocked ? rear.distance : -1.0f;
                 follower.update(world, car.x, car.y, 0, fx, fy, car.kmh(), Car.HALF_WIDTH,
-                        Car.HALF_LENGTH, frontDistance, rearDistance, nowMs, command);
+                        Car.HALF_LENGTH, frontDistance, rearDistance, front.kind, nowMs, command);
                 SCDriveControl.Input input = command.targetKmh < 0.0f
                         ? SCDriveControl.reverse(car.kmh(), -command.targetKmh, command.steering,
                                 rearDistance)
@@ -312,6 +312,27 @@ public final class SCRoadFollowerTest {
                         + drive.trace + " swerves=" + drive.follower.swerves());
     }
 
+    private static void stoppedBesidePassingLane() {
+        Road road = new Road().block(54, 58, 102, 104, SCLaneScan.VEHICLE);
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Drive drive = new Drive(road, new Car(49.5f, 103.0f, 0.0f), follower);
+        drive.run(60.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED
+                        && drive.minSpeedKmh < -0.5f,
+                "a stopped car with a clear passing lane backs away from its blocked bumper before passing: "
+                        + drive.trace + " x=" + drive.car.x + " y=" + drive.car.y
+                        + " collided=" + drive.collided + " min=" + drive.minSpeedKmh
+                        + " mode=" + follower.mode() + " backoffs=" + follower.backoffs());
+
+        Road trappedRoad = new Road().block(54, 58, 102, 104, SCLaneScan.VEHICLE)
+                .block(44, 45, 101, 105, SCLaneScan.VEHICLE);
+        SCRoadFollower trappedFollower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Drive trapped = new Drive(trappedRoad, new Car(49.5f, 103.0f, 0.0f), trappedFollower);
+        trapped.run(10.0f, () -> false);
+        require(!trapped.collided && trapped.minSpeedKmh > -0.1f && trappedFollower.backoffs() == 0,
+                "the same passing-lane recovery cannot reverse into a car behind");
+    }
+
     private static void blockedRoad() {
         Road road = new Road().block(30, 33, 95, 106, SCLaneScan.VEHICLE);
         SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
@@ -423,6 +444,50 @@ public final class SCRoadFollowerTest {
                 Car.HALF_WIDTH, Car.HALF_LENGTH, -1, -1, 0, null);
         require(ahead.mode() == SCRoadFollower.Mode.FOLLOW && ahead.turn() == null,
                 "a route already facing forward starts ordinary pursuit");
+    }
+
+    private static void returnBesideParkedCars() {
+        Road road = new Road().block(84, 90, 105, 106, SCLaneScan.VEHICLE);
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse("90,101,8;2,101,8"), 10, true);
+        Drive drive = new Drive(road, new Car(86,103,0), follower);
+        drive.run(.1f, () -> false);
+        require(drive.command.targetKmh < 0 && drive.command.steering == 0 && follower.backingOff(),
+                "a return route beside a parked car first reverses straight into the checked open strip");
+        drive.run(120, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED,
+                "after clearing the neighbouring car it turns and completes the return route: " + drive.trace);
+
+        SCLaneScan.World sideCar = new SCLaneScan.World() {
+            @Override public int squareKind(int x, int y, int z) {
+                return x >= 87 && x <= 90 && y >= 103 && y <= 104 ? SCLaneScan.VEHICLE : SCLaneScan.CLEAR;
+            }
+            @Override public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) { return false; }
+        };
+        SCRoadFollower angled = new SCRoadFollower(SCDrivePath.parse("90,98,8;2,98,8"),10,true);
+        Drive slanted = new Drive(null,new Car(86,100,(float)Math.toRadians(-70)),angled);
+        slanted.world = sideCar;
+        slanted.run(.1f, () -> false);
+        require(slanted.command.targetKmh < 0 && angled.backingOff(),
+                "a clear front bumper does not invite a large steering sweep beside a parked car");
+        slanted.run(120, () -> angled.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!slanted.collided && angled.mode() == SCRoadFollower.Mode.ARRIVED,
+                "an angled return clears the neighbouring car before following home: " + slanted.trace);
+
+        Road boxedRoad = new Road().block(84,90,105,106,SCLaneScan.VEHICLE)
+                .block(81,82,102,104,SCLaneScan.VEHICLE);
+        SCRoadFollower boxedFollower = new SCRoadFollower(SCDrivePath.parse("90,101,8;2,101,8"),10,true);
+        Drive boxed = new Drive(boxedRoad,new Car(86,103,0),boxedFollower);
+        boxed.run(.1f, () -> false);
+        require(boxed.command.targetKmh >= 0 && !boxedFollower.backingOff() && !boxed.collided,
+                "a nearby car behind prevents the initial straight backout");
+
+        Road longRow = new Road().block(40,110,105,106,SCLaneScan.VEHICLE);
+        SCRoadFollower bounded = new SCRoadFollower(SCDrivePath.parse("90,101,8;2,101,8"),10,true);
+        Drive limited = new Drive(longRow,new Car(86,103,0),bounded);
+        limited.run(18, () -> bounded.mode() == SCRoadFollower.Mode.TURNING);
+        require(!limited.collided && limited.minSpeedKmh < -.5f
+                && limited.car.x >= 77.2f && bounded.mode() == SCRoadFollower.Mode.TURNING && !bounded.backingOff(),
+                "a continuous parked row cannot cause an unbounded backout: x=" + limited.car.x);
     }
 
     private static Drive turnAndReturn(boolean reverseWheelWrong) {
@@ -785,11 +850,13 @@ public final class SCRoadFollowerTest {
         fastStraightAndEarlyBend();
         oneWreck();
         twoWrecks();
+        stoppedBesidePassingLane();
         blockedRoad();
         wedgedCarBacksOff();
         wedgedWithoutRoomBehind();
         wedgedForeverIsBounded();
         newRouteBehind();
+        returnBesideParkedCars();
         perpendicularParkedDeparture();
         turnRound();
         personInLane();

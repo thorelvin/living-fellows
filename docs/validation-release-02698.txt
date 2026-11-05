@@ -1,0 +1,47 @@
+Living Fellows 0.26.98: release verification
+Date: 2026-11-05
+Branch: living_fellows/0.26.98
+Base: ff2378ff7ac97fd8e911c7556e0fa86973d7947e (0.26.97 follow-up)
+
+Scope
+- Bound camp sorting scans and keep expedition preparation moving safely.
+- Improve bag/cargo checks, woodland selection and exact-item delivery.
+- Complete native trunk unlock/exit transactions before loading cargo.
+- Keep near-home vehicle detours from removing the road destination.
+- Reject exit squares inside the owned car or a neighboring vehicle.
+- Retain the native driving/parking clearance work and its rebuilt bridge.
+- Align all release metadata, changelog, payload and package manifests.
+
+Release verification
+- scripts/Test-Project.ps1 -Release: five checks PASS in 144.8 seconds.
+  Build 111.9s; Lifecycle 24.0s; Behaviour 1.4s; Cargo 2.6s; Interface 4.8s.
+  Evidence: build/test-results/20261105-141342-9d97a0/summary.json.
+- Normal and debug Lua compilation: PASS.
+- Installer essential boundaries: 11/11 PASS, including ownership, rollback
+  and exact restoration. Serial execution, 256 MB Java heap, two processors.
+- Workshop release archive and standalone Windows package: PASS, 0.26.98.
+- Packaged bridge matches its reproducible build and release manifest.
+- git diff --check: PASS.
+
+Native evidence and limits
+- docs/validation-reliability-pass.md records the earlier physical two-log
+  expedition, kitchen/vehicle/name return review, camp CPU and packing UI results.
+- docs/validation-firehouse-wood.md records the firehouse follow-up, including
+  failed attempts and their corrections. A later native trip parked, stopped
+  its engine and stored one real log in the marked log yard. Both crew were at
+  100 health. This is a partial-cargo result, not a full-quota acceptance pass.
+- The final native exit probe checked both front seats at eight measured
+  horizontal headings and found a valid 18-node path from a diagonal exit.
+- These native scenarios preceded the metadata-only release bump. Gameplay
+  source and native implementation are the validated implementations.
+- Quiet firehouse reunion/solo-view release remains unverified because the
+  return encountered a camp alert. The full trip preceded the last exit filter;
+  the filter has separate native coverage. A combined forced-roadside full
+  expedition has not been rerun. Transition hitches remain under investigation.
+
+Bridge
+Protocol: 42.21-isocompanion-29; game: 42.21.0; world save: SC_WorldV1/schema-3.
+SHA-256: 2a8f95b0c56b77defd7b86375a2e2ee21dfe8b49f87701d53114b992b6fccad5
+
+Publication scope: the requested Git branch. Local installation and Steam
+Workshop publication are separate actions.

@@ -1519,6 +1519,7 @@ function Batch.update(actor,state,job)
     end
     if not cargo then
         local source,container,destination,_,first,why=SC.BaseWork.sortTransfer(job,actor)
+        if why=="haul_scan_pending" then return true,why,false end
         if not source then return false,why,true end
         if tonumber(itemNativeId(first))==nil then return false,"haul_item_identity_missing",true end
         local items=batchCandidates(actor,job,source,container,destination,first)

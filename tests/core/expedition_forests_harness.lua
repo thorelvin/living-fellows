@@ -107,4 +107,37 @@ for _ = 1, 150 do result, reason = F.preview(actor, "road", { radius = 1000 }); 
 check(result == nil and reason == "no_suitable_forest", "out-of-radius forests and nonforest zones are rejected")
 check(F.preview(actor, "teleport", {}) == nil, "unsupported travel modes fail closed")
 check(not F.validSite({}), "malformed persisted forest descriptors fail closed")
+
+-- A biome strip beside the firehouse is mapped as forest but has no trees.
+-- Check loaded ground in bounded slices before spending a trip on that strip.
+F.reset()
+zones = { zone("Forest", 205, 205, 70, 70) }
+local inspected, peak = 0, 0
+SC.GameplayUtil.gridSquare = function(x)
+    inspected = inspected + 1
+    return { getTree = function()
+        if x >= 232 then
+            return { getObjectIndex = function() return 0 end, getSize = function() return 2 end }
+        end
+    end }
+end
+local wooded
+for _ = 1, 250 do
+    inspected = 0
+    wooded, reason = F.preview(actor, "drive", { radius = 1000, cacheKey = "loaded-woodland" })
+    peak = math.max(peak, inspected)
+    if wooded or reason ~= "forest_scan_pending" then break end
+end
+check(wooded and wooded.candidates[1].bounds.x2 >= 232,
+    "known-empty nearby patches yield to actual loaded mature timber before departure")
+check(peak > 0 and peak <= 48, "loaded discovery inspects at most 48 squares per call")
+F.reset()
+SC.GameplayUtil.gridSquare = function() return nil end
+local provisional
+for _ = 1, 150 do
+    provisional, reason = F.preview(actor, "drive", { radius = 1000, cacheKey = "unloaded-woodland" })
+    if provisional or reason ~= "forest_scan_pending" then break end
+end
+check(provisional and provisional.candidates[1].anchor.x == 205,
+    "unloaded woodland stays provisional instead of being rejected as empty")
 print("EXPEDITION_FORESTS_KAHLUA_PASS checks=" .. checks)

@@ -1219,7 +1219,7 @@ local function woodTakeExact(record, actor, item, source, state, row, storage)
         return false, "wood_cargo_transfer_unavailable"
     end
     local vehicle, trunk, why, handled = logging.cargo(actor, record.carId, state, nil,
-        { workCampOnly = true, workReach = true, movementPriority = 60 })
+        { action = "move_to_car_trunk", workCampOnly = true, workReach = true, movementPriority = 60 })
     if not vehicle then
         local moving = handled == true or why == "wood_approaching" or why == "wood_unlocking_trunk"
             or why == "pending" or why == "arrived"

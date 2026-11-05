@@ -1598,7 +1598,8 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
     for _, storageType in ipairs(categories) do
         choices = {}
         for _, storage in ipairs(SC.BaseLife.storageRows(storageType) or {}) do
-            if storage.deposits ~= false then
+            if storage.deposits ~= false and not (ownerState and ownerState.excludedStorages
+                and ownerState.excludedStorages[storage.id]) then
                 local container, owner = SC.BaseLife.resolveContainer(storage)
                 if container and container ~= U().inventory(actor)
                     and U().containerHasRoom(container, actor, item) == true then
@@ -1754,7 +1755,10 @@ local function beginTransaction(actor, state, transaction)
     if not service or type(service.begin) ~= "function" then return true, "started" end
     local token, reason = service.begin(actor, {
         owner = "logistics", action = "logistics_" .. tostring(transaction.kind),
-        priority = service.Priority and service.Priority.WORK or 150,
+        -- Preparing an ordered trip outranks routine scavenging and sorting.
+        -- Care, survival and external owners retain their higher priorities.
+        priority = service.Priority and (transaction.preparationKey
+            and service.Priority.TRAVEL or service.Priority.WORK) or 150,
         targetKey = transactionTargetKey(transaction),
         targetLabel = U().itemName(transaction.item), retryCategory = "*",
         requiresVisual = true,
@@ -2037,6 +2041,27 @@ local function approachTransaction(actor, state, snapshot)
         end
         return executeTransaction(actor, state)
     end
+    if transaction.preparationKey and transaction.kind == "deposit" then
+        local preparation = Preparation.actors[actor]
+        local x, y, z = U().position(actor)
+        local now, progress = U().nowMs(), transaction.approachProgress
+        if x ~= nil and (not progress or now < progress.at or math.abs((z or 0)-(progress.z or 0)) >= 0.25
+            or (x-progress.x)^2+(y-progress.y)^2 >= 0.0625) then
+            progress = { x = x, y = y, z = z, at = now }
+            transaction.approachProgress = progress
+        end
+        -- Surplus stashing is optional. Search expansions are not physical
+        -- progress: a stationary crowd must not pin departure indefinitely.
+        if preparation and progress and now-progress.at >= 15000 then
+            preparation.skipped[transaction.item] = true
+            preparation.unreachableStorages = preparation.unreachableStorages or {}
+            if transaction.storage and transaction.storage.id then preparation.unreachableStorages[transaction.storage.id] = true end
+            Preparation.warn(preparation, "loadout_storage_unreachable")
+            cancelTransaction(actor, state, "loadout_storage_unreachable")
+            preparation.destinationState = nil
+            return Preparation.pending(preparation, "assessing", "loadout_storage_unreachable")
+        end
+    end
     if accessReason == "no_interaction_targets" then
         return terminalTransaction(actor, state, false,
             accessReason, { kind = transaction.kind })
@@ -2288,7 +2313,7 @@ function Preparation.assess(actor, preparation, audit, tools)
         plannedCarryWeight = planned, carryCapacity = maximum,
         physicalCapacity = audit.capacity, rawFree = 0,
         rootFree = math.max(0, Preparation.free(audit.inventory, actor) - (delta or 0)),
-        bags = {}, warnings = preparation.warnings,
+        bags = {}, warnings = preparation.warnings, cargoWeight = raw,
         cargoDeficit = { raw = raw, effective = 0 }, capacityKnown = known }
     local deficitScore
     for _, bag in ipairs(bags) do
@@ -2313,7 +2338,14 @@ function Preparation.assess(actor, preparation, audit, tools)
         end
         if known and free + 0.000001 >= raw and maximum and maximum > 0
             and weight + (effective or raw * bag.factor) <= maximum + 0.000001
-            and weight + raw <= audit.capacity + 0.000001 then assessment.cargoReady = true end
+            and weight + raw <= audit.capacity + 0.000001 then
+            assessment.cargoReady = true
+            if raw > 0 and not assessment.cargoBagId then
+                assessment.cargoBagId = bag.item and (U().itemStableId(bag.item, false)
+                    or "bag:" .. tostring(bag.item)) or "inventory"
+                assessment.cargoBagName = bag.item and U().itemName(bag.item) or nil
+            end
+        end
     end
     preparation.assessment, preparation.rawReserve, preparation.allowHeld = assessment, raw, held
     preparation.lastAudit = audit
@@ -2493,6 +2525,7 @@ function Preparation.begin(actor, preparation, transaction, snapshot)
     preparation.stage = transaction.kind == "deposit" and "staging"
         or transaction.kind == "withdraw" and "supplies" or transaction.kind
     preparation.reason = "loadout_" .. preparation.stage
+    preparation.assessment.itemName = U().itemName(transaction.item)
     preparation.assessment.stage, preparation.assessment.reason = preparation.stage, preparation.reason
     local handled, why
     if transaction.phase == "approach" then handled, why = approachTransaction(actor, state, snapshot)
@@ -2633,6 +2666,7 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
     if preparation.ready and preparation.fingerprint ~= Preparation.fingerprint(actor, preparation) then
         preparation.ready, preparation.blocked, preparation.moves = nil, nil, 0
         preparation.requirements, preparation.completedSupplies, preparation.skipped = requirements, {}, {}
+        preparation.unreachableStorages = nil
         preparation.warnings, preparation.warningSet, preparation.stage = {}, {}, "assessing"
         preparation.auditData, preparation.inventoryScan = nil, nil
     end
@@ -2682,6 +2716,12 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
     local keep, tools, missing, counts, exact = Preparation.kit(actor, audit, requirements)
     preparation.exactKeep = exact
     local assessment = Preparation.assess(actor, preparation, audit, tools)
+    local minima = Logistics.roleMinimums(actor)
+    assessment.supplies = {}
+    for _, category in ipairs({ "food", "water", "medicine" }) do
+        assessment.supplies[category] = { carried = counts[category] or 0,
+            required = tonumber(minima[category]) or 0 }
+    end
     if not assessment.capacityKnown then return Preparation.finish(preparation, false, "loadout_capacity_unavailable") end
     local camp = Preparation.camp(actor, requirements)
     if camp then
@@ -2708,9 +2748,21 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
         for _, record in ipairs(audit.items) do
             if not keep[record.item] and not isProtected(actor, record.item)
                 and not preparation.skipped[record.item] then
-                preparation.destinationState = preparation.destinationState or {}
+                local now = U().nowMs()
+                if not preparation.destinationState or preparation.destinationState.item ~= record.item
+                    or now < preparation.destinationState.startedAt then
+                    preparation.destinationState = { item = record.item, startedAt = now,
+                        excludedStorages = preparation.unreachableStorages }
+                end
                 local destination, why = storageFor(actor, record.item, record.category, false, preparation.destinationState)
-                if why == "storage_route_pending" then return Preparation.pending(preparation, "staging", why) end
+                if why == "storage_route_pending" then
+                    if now - preparation.destinationState.startedAt < 15000 then
+                        return Preparation.pending(preparation, "staging", why)
+                    end
+                    -- Optional stashing includes its planning wait. Keep the
+                    -- exact item when a retained route survey cannot settle.
+                    destination, why = nil, "storage_route_unreachable"
+                end
                 if destination and destination.storage and destination.storage.kind ~= "log_yard" then
                     preparation.destinationState = nil
                     return Preparation.begin(actor, preparation, { kind = "deposit", item = record.item,
@@ -2718,7 +2770,8 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
                         storage = destination.storage, phase = "approach" }, snapshot)
                 end
                 preparation.skipped[record.item], preparation.destinationState = true, nil
-                Preparation.warn(preparation, "loadout_storage_unavailable")
+                Preparation.warn(preparation, why == "storage_route_unreachable"
+                    and "loadout_storage_unreachable" or "loadout_storage_unavailable")
             end
         end
     end

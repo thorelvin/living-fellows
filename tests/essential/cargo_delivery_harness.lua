@@ -50,4 +50,19 @@ check(not I.wants(receipt, worker) and I.retry(receipt) and I.wants(receipt, wor
     and select(2, I.update(receipt, worker)) == "expedition_supply_stored"
     and original.container == store.container,
     "manual retry uses newly permitted storage without recreating cargo")
+X.clear()
+original = X.log("essential:roadside")
+worker = T.actor("hauler", "Hauler", {})
+local car = X.carFor(original)
+store = T.storage("construction:home", "construction", {}, 1)
+receipt = X.create(worker, { original }, { car = car })
+I.refresh(receipt)
+check(select(2, I.update(receipt, worker)) == "car_trunk_looting"
+    and T.cargoOptions.action == "move_to_car_trunk"
+    and T.cargoOptions.workCampOnly == true and T.cargoOptions.workReach == true,
+    "roadside wood delivery uses the normal bounded camp-trunk route and its search lease")
+I.update(receipt, worker)
+check(select(2, I.update(receipt, worker)) == "expedition_supply_stored"
+    and original.container == store.container and #car.trunk.items == 0,
+    "roadside extraction and storage preserve the same physical log")
 SC_TEST_REPORT = "Essential cargo delivery: " .. X.checks() .. " checks passed"

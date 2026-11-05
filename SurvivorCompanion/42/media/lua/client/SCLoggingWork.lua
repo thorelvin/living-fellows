@@ -268,11 +268,13 @@ function Logging.cargo(actor, carId, state, snapshot, options)
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId and SC.Vehicle.loadedBySqlId(carId)
     if not vehicle then return nil, nil, "wood_car_unloaded" end
     if SC.Vehicle.isStationary(vehicle) ~= true then return nil, nil, "wood_car_moved" end
-    if call(vehicle, "isTrunkLocked") == true then
+    if call(vehicle, "isTrunkLocked") == true or state.unlock
+        or call(actor, "getVehicle") == vehicle then
         if not SC.FieldWork or not SC.FieldWork.unlockTrunkFor then return nil, nil, "wood_trunk_locked" end
         state.unlock = state.unlock or {}
         local handled, why = SC.FieldWork.unlockTrunkFor(actor, vehicle, state.unlock, snapshot)
-        return nil, nil, handled and (why or "wood_unlocking_trunk") or why, handled == true
+        if handled and why == "field_trunk_unlocked" then state.unlock = nil
+        else return nil, nil, handled and (why or "wood_unlocking_trunk") or why, handled == true end
     end
     state.unlock = nil
     local part, container, why = SC.Vehicle.cargoPart(vehicle)

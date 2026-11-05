@@ -433,7 +433,7 @@ final class SCCompanionDriver {
         float front = lastScan.blocked ? lastScan.distance : -1.0f;
         float rear = lastRearScan.blocked ? lastRearScan.distance : -1.0f;
         follower.update(world, x, y, z, headingX, headingY, speedKmh, body[0], body[1],
-                front, rear, now / 1_000_000L, command);
+                front, rear, lastScan.kind, now / 1_000_000L, command);
         if (convoyLead != null) {
             if (convoyLead == current || (convoyLead.getDriver() != null
                     && !(convoyLead.getDriver() instanceof IsoPlayer))
@@ -662,6 +662,9 @@ final class SCCompanionDriver {
             BaseVehicle other = square.getVehicleContainer();
             if (other != null && other != self) return SCLaneScan.VEHICLE;
             if (square.HasTree()) return SCLaneScan.TREE;
+            zombie.core.properties.PropertyContainer properties = square.getProperties();
+            if (properties != null && (properties.has("StopCar")
+                    || "Tree".equals(properties.get("PhysicsShape")))) return SCLaneScan.SOLID;
             if (square.isSolid() || square.isSolidTrans()) return SCLaneScan.SOLID;
             ArrayList<IsoMovingObject> movers = square.getMovingObjects();
             if (movers != null) {

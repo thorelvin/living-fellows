@@ -1733,6 +1733,7 @@ function Expedition._updateWoodWork(actor, snapshot)
         end
         return handled == true or ready ~= true, reason or "wood_preparing_axes"
     end
+    context.approachSource = Expedition.approachWoodSource
     return SC.ExpeditionWood.update(actor, context)
 end
 
@@ -3934,6 +3935,29 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
         end
     end
     return nil, "planning"
+end
+
+-- A distant stump can leave the promoted leader's loaded grid during a cargo
+-- shuttle. Reuse the bounded scout planner without changing the trip's route.
+function Expedition.approachWoodSource(actor, target, state)
+    if not mission or not mission.scout or mission.scout.phase ~= "wood_working"
+        or not Expedition.isMember(actor) or type(state) ~= "table" then
+        return false, "wood_work_unavailable"
+    end
+    local source = state.logStreamSource
+    if not source or source.x ~= target.x or source.y ~= target.y or source.z ~= target.z then
+        state.logStreamSource, state.logStreamLeg, state.logStreamPlan = copyPoint(target), nil, nil
+    end
+    if not state.logStreamLeg then
+        state.logStreamPlan = state.logStreamPlan or {}
+        local leg, why = nextScoutLeg(actor, target, nil, true, nil, state.logStreamPlan)
+        if not leg then return why == "planning", why end
+        state.logStreamLeg = leg
+    end
+    local accepted, reason = SC.Navigation.request(actor, state.logStreamLeg, "walk",
+        { action = "wood_collect_log" })
+    if not accepted or reason == "arrived" then state.logStreamLeg = nil end
+    return accepted, reason == "arrived" and "wood_ground_reloading" or reason
 end
 
 local function scoutFollowersNearLeader()

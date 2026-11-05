@@ -52,6 +52,13 @@ Planner.build(untranslatedDetail, newPanel(132))
 assert(untranslatedDetail.lines[#untranslatedDetail.lines - 1]
         == "UI_SC_Expedition_LeaderNearby",
     "a phase without its own phrase shows the plain nearby line, not a raw key")
+fixture.view.observedPhase = "searching"
+fixture.view.departurePreparation = {total=1,ready=0,members={}}
+local preparingDetail = newDetail()
+Planner.build(preparingDetail, newPanel(132))
+assert(not string.find(table.concat(preparingDetail.lines,"\n"),"searching for supplies",1,true),
+    "visible equipment preparation must not also claim the crew is searching at its destination")
+fixture.view.departurePreparation = nil
 fixture.view.leaderVisible = nil
 fixture.view.visibleMembers = nil
 fixture.view.observedPhase = nil
@@ -440,11 +447,34 @@ fixture.setPendingReports({ { tripId = "wood-cargo", summary = {
 delivery.lines = {}
 Planner.build(delivery, newPanel(400))
 local partialWoodText = table.concat(delivery.lines, "\n")
+assert(string.find(partialWoodText,"section:UI_SC_Expedition_Debrief",1,true)
+    < string.find(partialWoodText,"UI_SC_Expedition_WoodForestEmpty",1,true),
+    "the old trip heading precedes its outcome so it cannot read as the active mission's result")
 assert(string.find(partialWoodText, "UI_SC_Expedition_WoodForestEmpty", 1, true)
         and string.find(partialWoodText, "UI_SC_Expedition_WoodCargoPending", 1, true)
         and string.find(partialWoodText, "UI_SC_Expedition_WoodLog", 1, true)
         and string.find(partialWoodText, "UI_SC_Expedition_CarFailure", 1, true)
         and not string.find(partialWoodText, "Base.Log", 1, true),
     "partial wood debriefs explain empty woodland and pending cargo with readable log names")
+local preparation = { total = 1, ready = 0, members = { { name = "Tess Nolan", stage = "supplies",
+    reason = "loadout_seeking_food", assessment = { cargoBagId = "bag:test", cargoBagName = "Hiking Bag", itemName = "Fresh peach",
+        supplies = { food = { carried = 0, required = 2 } } } } } }
+local packing = newDetail()
+Planner.buildDeparturePreparation(packing, newPanel(400), 0, preparation)
+local packingText = table.concat(packing.lines, "\n")
+assert(string.find(packingText, "UI_SC_Expedition_PreparationFoodSearch", 1, true)
+    and string.find(packingText, "UI_SC_Expedition_PreparationCargoBag:Hiking Bag", 1, true)
+    and string.find(packingText, "UI_SC_Expedition_PreparationItem:Fresh peach", 1, true)
+    and string.find(packingText, "UI_SC_Expedition_PreparationStockFood:0|2", 1, true),
+    "preparation names the current search, selected cargo bag and actual ration shortfall")
+local priorPackingSignature = Planner.departurePreparationSignature(preparation)
+preparation.members[1].assessment.supplies.food.carried = 1
+assert(Planner.departurePreparationSignature(preparation) ~= priorPackingSignature,
+    "acquiring a ration refreshes preparation even when its stage stays the same")
+preparation.members[1].stage, preparation.members[1].reason = "blocked", "loadout_tool_missing"
+packing.lines = {}
+Planner.buildDeparturePreparation(packing, newPanel(400), 0, preparation)
+assert(string.find(table.concat(packing.lines, "\n"), "UI_SC_Expedition_PreparationToolMissing", 1, true),
+    "a completed unsuccessful tool search explains missing or broken equipment")
 SurvivorCompanion.UI.text = originalText
 print("SCUI expedition zoom, wood controls and companion-name tests passed")

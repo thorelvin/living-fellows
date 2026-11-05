@@ -158,12 +158,7 @@ local function candidate(scan, zone)
     end
 end
 
--- Admission may reject a mapped patch after a bounded road/car check. Resume
--- the distance-ordered scan rather than treating the first three as the world.
-function Forests.reject(actor, travelMode, siteId, cacheKey)
-    local bucket = scans[actor]
-    local scan = bucket and bucket[travelMode]
-    if not scan or scan.cacheKey ~= cacheKey or type(siteId) ~= "string" then return false end
+local function rejectSite(scan, siteId)
     if not scan.rejected[siteId] then
         if scan.rejectedCount >= MAX_REJECTED then return false end
         scan.rejected[siteId], scan.rejectedCount = true, scan.rejectedCount + 1
@@ -180,8 +175,48 @@ function Forests.reject(actor, travelMode, siteId, cacheKey)
     return true
 end
 
+-- Admission may reject a mapped patch after a bounded road/car check. Resume
+-- the distance-ordered scan rather than treating the first three as the world.
+function Forests.reject(actor, travelMode, siteId, cacheKey)
+    local bucket = scans[actor]
+    local scan = bucket and bucket[travelMode]
+    if not scan or scan.cacheKey ~= cacheKey or type(siteId) ~= "string" then return false end
+    return rejectSite(scan, siteId)
+end
+
+local function loadedTimber(scan, site, budget)
+    local utility = SC.GameplayUtil
+    if not utility or type(utility.gridSquare) ~= "function" then return "unknown", budget end
+    scan.treeChecks = scan.treeChecks or {}
+    local state = scan.treeChecks[site.id]
+    if type(state) == "string" then return state, budget end
+    if not state then
+        state = { x = site.bounds.x1, y = site.bounds.y1 }
+        scan.treeChecks[site.id] = state
+    end
+    while budget > 0 and state.y <= site.bounds.y2 do
+        local square = utility.gridSquare(state.x, state.y, 0)
+        budget = budget - 1
+        -- Partial streaming cannot prove a patch empty. Arrival still verifies it.
+        if not square then scan.treeChecks[site.id] = "unknown"; return "unknown", budget end
+        if outsideCamp(state.x, state.y) then
+            local tree = call(square, "getTree")
+            local index, size = tonumber(call(tree, "getObjectIndex")), tonumber(call(tree, "getSize"))
+            if tree and index and index >= 0 and size and size >= 2 then
+                scan.treeChecks[site.id] = "timber"
+                return "timber", budget
+            end
+        end
+        state.x = state.x + 1
+        if state.x > site.bounds.x2 then state.x, state.y = site.bounds.x1, state.y + 1 end
+    end
+    if state.y <= site.bounds.y2 then return "pending", budget end
+    scan.treeChecks[site.id] = "empty"
+    return "empty", budget
+end
+
 -- One small metadata cell and at most 48 zone records are examined per call.
--- Cache only the candidate list, never a promise about unstreamed trees.
+-- Loaded patches also get at most 48 square checks; unstreamed trees stay provisional.
 function Forests.preview(actor, travelMode, options)
     options = type(options) == "table" and options or {}
     local x, y, z = position(actor)
@@ -248,8 +283,16 @@ function Forests.preview(actor, travelMode, options)
         return a.id < b.id
     end)
     local result = { candidates = {}, provisional = true, radius = radius, mode = travelMode }
+    local treeBudget = 48
     for index = 1, math.min(limit, #scan.candidates) do
         local site = scan.candidates[index]
+        local timber
+        timber, treeBudget = loadedTimber(scan, site, treeBudget)
+        if timber == "pending" then return nil, "forest_scan_pending" end
+        if timber == "empty" then
+            if not rejectSite(scan, site.id) then return nil, "no_reachable_forest" end
+            return nil, "forest_scan_pending"
+        end
         site.label = site.label or label(site.anchor.x, site.anchor.y, scan.originX, scan.originY)
         result.candidates[index] = copySite(site)
     end

@@ -108,6 +108,8 @@ param(
     # Existing Scarlet/car46, real trees and axes, ordinary production task.
     # Run each mode in a fresh disposable clone: one walking or two driving logs.
     [switch]$WoodExpeditionProbe,
+    # Explicit clone fixtures: obstructed parking acceptance or timed two-floor camp UI.
+    [switch]$ReliabilityPass,
     [ValidateSet('walk', 'drive')][string]$WoodExpeditionTravelMode = 'walk',
     [ValidateSet(1, 3)][int]$WoodExpeditionCrewSize = 1,
     # Observation budget only; never changes the mission's own return timer.
@@ -434,6 +436,9 @@ if ($OddballCoreyProbe -and $OddballEarlProbe) {
 }
 if ($WoodExpeditionStockEquipment -and -not $WoodExpeditionProbe) {
     throw '-WoodExpeditionStockEquipment requires -WoodExpeditionProbe.'
+}
+if ($ReliabilityPass -and -not ($WoodExpeditionProbe -or $FirestationRestProbe)) {
+    throw '-ReliabilityPass requires -WoodExpeditionProbe or -FirestationRestProbe.'
 }
 if ($ViewCutawayQuickWatch -and -not $ViewCutawayProbe) {
     throw '-ViewCutawayQuickWatch requires -ViewCutawayProbe.'
@@ -1670,7 +1675,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCReliabilityProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -1908,6 +1913,7 @@ $config = @(
     ('expedition_compatibility_cycles=' + $ExpeditionCompatibilityCycles),
     ('normal_expedition_kitchen_crew_size=' + $NormalExpeditionKitchenCrewSize),
     ('wood_expedition_probe=' + $WoodExpeditionProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('reliability_pass=' + $ReliabilityPass.IsPresent.ToString().ToLowerInvariant()),
     ('wood_expedition_travel_mode=' + $WoodExpeditionTravelMode),
     ('wood_expedition_crew_size=' + $WoodExpeditionCrewSize),
     ('wood_expedition_deadline_seconds=' + $WoodExpeditionDeadlineSeconds),
@@ -2262,6 +2268,7 @@ $manifest = [ordered]@{
     normalExpeditionKitchenProbe = $NormalExpeditionKitchenProbe.IsPresent
     normalExpeditionKitchenCrewSize = $NormalExpeditionKitchenCrewSize
     woodExpeditionProbe = $WoodExpeditionProbe.IsPresent
+    reliabilityPass = $ReliabilityPass.IsPresent
     woodExpeditionTravelMode = $WoodExpeditionTravelMode
     woodExpeditionCrewSize = $WoodExpeditionCrewSize
     woodExpeditionDeadlineSeconds = $WoodExpeditionDeadlineSeconds

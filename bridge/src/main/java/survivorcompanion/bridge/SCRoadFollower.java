@@ -62,6 +62,8 @@ final class SCRoadFollower {
     /** Back-offs allowed before the route must make real progress again. */
     static final int MAX_BACKOFFS = 3;
     private static final float BACKOFF_RESET_TILES = 8.0f;
+    private static final float TURN_BACKOUT_TILES = 8.0f;
+    private static final long TURN_BACKOUT_LIMIT_MS = 12000L;
 
     /** One frame of driving: wheel, signed target speed, and which bumper to watch. */
     static final class Command {
@@ -97,12 +99,20 @@ final class SCRoadFollower {
     private boolean followBack;
     private boolean resumeAfterTurn;
     private boolean initialAlignmentPending = true;
+    private boolean turnBackoutTried;
+    private boolean turnBackoutSettling;
+    private long turnBackoutAt = -1L;
+    private long turnBackoutScanAt;
+    private float turnBackoutX, turnBackoutY;
+    private boolean turnNeighbour;
     private final SCTurnAround.Step turnStep = new SCTurnAround.Step();
     private long wedgedSince = -1L;
     private long backoffStartedAt = -1L;
     private float backoffX;
     private float backoffY;
     private float backoffSteering;
+    private float backoffDistance = BACKOFF_TILES;
+    private long backoffLimitMs = BACKOFF_LIMIT_MS;
     private float backoffAlong = -1.0f;
     private int backoffs;
     private boolean parkingAlignment;
@@ -189,7 +199,7 @@ final class SCRoadFollower {
 
     /** True while the car reverses away from something holding it. */
     boolean backingOff() {
-        return backoffStartedAt >= 0L;
+        return backoffStartedAt >= 0L || turnBackoutAt >= 0L || turnBackoutSettling;
     }
 
     float blockedAt() {
@@ -290,9 +300,65 @@ final class SCRoadFollower {
         mode = Mode.TURN_FAILED;
     }
 
+    private static boolean vehicleInTurnRoom(SCLaneScan.World world, float x, float y,
+                                             int z, float halfWidth, float halfLength) {
+        float radius = Math.min(6.0f, (float) Math.hypot(halfWidth, halfLength) + 0.75f);
+        for (int sx = (int) Math.floor(x-radius); sx <= (int) Math.ceil(x+radius); sx++) {
+            for (int sy = (int) Math.floor(y-radius); sy <= (int) Math.ceil(y+radius); sy++) {
+                float dx = Math.max(Math.abs(sx+0.5f-x)-0.5f, 0.0f);
+                float dy = Math.max(Math.abs(sy+0.5f-y)-0.5f, 0.0f);
+                if (dx*dx+dy*dy <= radius*radius && world.squareKind(sx,sy,z) == SCLaneScan.VEHICLE) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Clear a parked neighbour before turning back; never extend the original turn's legs. */
+    private boolean backOutForTurn(SCLaneScan.World world, float x, float y, int z,
+                                   float speed, float halfWidth, float halfLength,
+                                   float rearClear, long nowMs, Command command) {
+        if (turnBackoutSettling) {
+            if (Math.abs(speed) > SCDriveControl.STOPPED_KMH) return true;
+            turnBackoutSettling = false;
+        }
+        boolean rearClose = rearClear >= 0 && rearClear <= SCTurnAround.LEG_CLEARANCE;
+        if (!turnBackoutTried) {
+            turnBackoutTried = true;
+            if (rearClose || !vehicleInTurnRoom(world,x,y,z,halfWidth,halfLength)) return false;
+            turnBackoutAt = nowMs;
+            turnBackoutX = x;
+            turnBackoutY = y;
+            turnNeighbour = true;
+            turnBackoutScanAt = nowMs+200;
+        }
+        if (turnBackoutAt < 0) return false;
+        if (nowMs >= turnBackoutScanAt) {
+            turnBackoutScanAt = nowMs+200;
+            turnNeighbour = vehicleInTurnRoom(world,x,y,z,halfWidth,halfLength);
+        }
+        if (rearClose || !turnNeighbour || nowMs < turnBackoutAt
+                || nowMs-turnBackoutAt >= TURN_BACKOUT_LIMIT_MS
+                || Math.hypot(x-turnBackoutX,y-turnBackoutY) >= TURN_BACKOUT_TILES) {
+            turnBackoutAt = -1L;
+            turnBackoutSettling = Math.abs(speed) > SCDriveControl.STOPPED_KMH;
+            return turnBackoutSettling;
+        }
+        command.steering = 0;
+        command.targetKmh = -SCTurnAround.REVERSE_KMH;
+        command.maneuver = true;
+        return true;
+    }
+
     Command update(SCLaneScan.World world, float x, float y, int z, float headingX,
                    float headingY, float speedKmh, float halfWidth, float halfLength,
                    float frontClear, float rearClear, long nowMs, Command out) {
+        return update(world, x, y, z, headingX, headingY, speedKmh, halfWidth,
+                halfLength, frontClear, rearClear, SCLaneScan.CLEAR, nowMs, out);
+    }
+
+    Command update(SCLaneScan.World world, float x, float y, int z, float headingX,
+                   float headingY, float speedKmh, float halfWidth, float halfLength,
+                   float frontClear, float rearClear, int frontKind, long nowMs, Command out) {
         Command command = out == null ? new Command() : out;
         command.steering = 0.0f;
         command.targetKmh = 0.0f;
@@ -378,19 +444,21 @@ final class SCRoadFollower {
         along = projection.along;
         lateral = projection.lateral;
         if (initialAlignmentPending) {
+            if ((turnBackoutAt >= 0 || turnBackoutSettling)
+                    && backOutForTurn(world,x,y,z,speedKmh,halfWidth,halfLength,rearClear,nowMs,command)) return command;
             path.pointAt(along, 0.0f, point);
             float routeHeading = (float) Math.atan2(point[3], point[2]);
             float headingError = Math.abs(SCTurnAround.wrap(routeHeading - heading));
             // A parked roadside car can face almost across its return route.
-            // Normal pursuit first drives along that old heading and brakes
-            // forever at the solid verge before completing the turn. Reuse
-            // the bounded manoeuvre only while stopped, with a real front
-            // obstruction and verified room behind; moving-road steering and
-            // precise parking retain their existing behavior.
+            // Normal pursuit can drive into the verge or sweep towards a
+            // neighbouring parked car before completing that turn. Align
+            // while stopped, before spending the available turning space;
+            // moving-road steering and precise parking remain unchanged.
             boolean constrainedDeparture = !preciseArrival
                     && Math.abs(speedKmh) < TURN_FIRST_KMH
                     && headingError > DEPARTURE_ALIGN_ANGLE
-                    && frontClear >= 0.0f && frontClear <= DEPARTURE_FRONT_ROOM;
+                    && (frontClear >= 0.0f && frontClear <= DEPARTURE_FRONT_ROOM
+                        || vehicleInTurnRoom(world,x,y,z,halfWidth,halfLength));
             if (headingError > TURN_FIRST_ANGLE || constrainedDeparture) {
                 if (cruiseKmh <= 0.0f) return command;
                 if (constrainedDeparture && !(rearClear < 0.0f
@@ -398,6 +466,8 @@ final class SCRoadFollower {
                 // A replacement route can lead back from the block. Brake a
                 // rolling car before the slow turn, then keep this new path.
                 if (Math.abs(speedKmh) < TURN_FIRST_KMH) {
+                    if (!preciseArrival && backOutForTurn(world,x,y,z,speedKmh,
+                            halfWidth,halfLength,rearClear,nowMs,command)) return command;
                     turn = new SCTurnAround(routeHeading,
                             turnSide(world, x, y, z, heading));
                     followBack = false;
@@ -405,11 +475,13 @@ final class SCRoadFollower {
                     initialAlignmentPending = false;
                     mode = Mode.TURNING;
                     return update(world, x, y, z, headingX, headingY, speedKmh,
-                            halfWidth, halfLength, frontClear, rearClear, nowMs, command);
+                            halfWidth, halfLength, frontClear, rearClear, frontKind, nowMs, command);
                 }
                 return command;
             }
             initialAlignmentPending = false;
+            turnBackoutAt = -1L;
+            turnBackoutSettling = false;
         }
         float toEnd = path.length() - along;
         path.pointAt(path.length(), 0.0f, point);
@@ -450,8 +522,8 @@ final class SCRoadFollower {
         if (backoffStartedAt >= 0L) {
             float moved = (float) Math.hypot(x - backoffX, y - backoffY);
             boolean rearClose = rearClear >= 0.0f && rearClear <= SCTurnAround.LEG_CLEARANCE;
-            if (moved >= BACKOFF_TILES || rearClose
-                    || nowMs - backoffStartedAt >= BACKOFF_LIMIT_MS) {
+            if (moved >= backoffDistance || rearClose
+                    || nowMs - backoffStartedAt >= backoffLimitMs) {
                 backoffStartedAt = -1L;
                 wedgedSince = -1L;
             } else {
@@ -490,25 +562,27 @@ final class SCRoadFollower {
                 ? Math.max(2.0f, (path.length() - along) * 0.9f)
                 : Math.max(3.0f, (path.length() - along) * 1.5f));
         command.targetKmh = target;
-        noteWedge(x, y, speedKmh, frontClear, rearClear, nowMs, command);
+        noteWedge(x, y, speedKmh, frontClear, rearClear, frontKind, nowMs, command);
         return command;
     }
 
     /**
-     * Starts a short reverse when the car is pinned. A visible obstacle is not
-     * a wedge: the driver brakes for it and reports a block. Without room
-     * behind, or once the back-offs are used up, the car holds and the caller
-     * replans as before.
+     * Starts a short reverse when pinned, or when a clear passing strip was
+     * selected but the real bumper is too close to turn into it. A fully
+     * blocked road still holds. Rear scans and the existing attempt/distance
+     * limits govern both recoveries.
      */
     private void noteWedge(float x, float y, float speedKmh, float frontClear,
-                           float rearClear, long nowMs, Command command) {
+                           float rearClear, int frontKind, long nowMs, Command command) {
         if (backoffAlong >= 0.0f && along - backoffAlong >= BACKOFF_RESET_TILES) {
             backoffs = 0;
             backoffAlong = -1.0f;
         }
         boolean scanClear = frontClear < 0.0f
                 || frontClear > SCDriveControl.HOLD_GAP_TILES + 0.5f;
-        if (preciseArrival || command.targetKmh <= 0.0f || !scanClear
+        boolean passingBlocked = !scanClear && frontKind == SCLaneScan.VEHICLE
+                && Math.abs(offset - laneOffset) > 0.5f;
+        if (preciseArrival || command.targetKmh <= 0.0f || !(scanClear || passingBlocked)
                 || Math.abs(speedKmh) > SCDriveControl.STOPPED_KMH) {
             wedgedSince = -1L;
             return;
@@ -524,10 +598,15 @@ final class SCRoadFollower {
         backoffStartedAt = nowMs;
         backoffX = x;
         backoffY = y;
+        // Passing needs room to change lanes before the normal three-tile
+        // bumper hold intervenes again. Reverse straight; rotating away from
+        // the selected strip would spend that room undoing the previous turn.
+        backoffDistance = passingBlocked ? SCDriveControl.HOLD_GAP_TILES + 0.5f : BACKOFF_TILES;
+        backoffLimitMs = passingBlocked ? 6000L : BACKOFF_LIMIT_MS;
         // Reverse at the opposite lock, as a three-point turn does: the car
         // keeps rotating the way it was steering while it backs away, so the
         // next forward try meets the corner at a wider angle.
-        backoffSteering = Math.abs(command.steering) < 0.15f ? 0.0f : -command.steering;
+        backoffSteering = passingBlocked || Math.abs(command.steering) < 0.15f ? 0.0f : -command.steering;
         command.steering = backoffSteering;
         command.targetKmh = -SCTurnAround.REVERSE_KMH;
         command.maneuver = true;

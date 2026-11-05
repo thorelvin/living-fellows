@@ -353,7 +353,7 @@ function Probe.step(H, current, check, result, setPhase)
     local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
     if H.phase == "firestation_rest_setup" then
         if current - H.phaseStartedAt < 3000 then return end
-        SC.Scheduler.unregister("decision")
+        if H.config.reliability_pass ~= "true" then SC.Scheduler.unregister("decision") end
         if H.config.firestation_rest_group=="true" and SC.UI then SC.UI.close() end
         H.firestationRest = { bedrooms = {}, roomBeds = {}, doors = {}, ground = {},
             seenDoors = {}, seenBeds = {}, bedPieces = {}, rooms = {}, upperTiles = 0, rawBeds = 0,
@@ -364,6 +364,10 @@ function Probe.step(H, current, check, result, setPhase)
         setPhase("firestation_rest_load", current) return
     end
     local f = H.firestationRest
+    if H.config.reliability_pass == "true" and f and f.reliability then
+        require "SCReliabilityProbe"
+        return SCRealSandboxHarnessProbes.SCReliabilityProbe.camp(H, f, current, check, result, setPhase)
+    end
     if H.phase == "firestation_rest_load" then
         local building
         for dx = -6, 6 do for dy = -6, 6 do
@@ -490,6 +494,12 @@ function Probe.step(H, current, check, result, setPhase)
             f.bedrooms[1].bed:getSquare():getY()
         -- The old camp and its original companions exist only in the clone.
         -- Replace zone geometry in this fixture, leaving native walls intact.
+        if H.config.reliability_pass == "true" then
+            -- A replacement fixture must not save old work orders whose zones
+            -- it removed. Start a complete disposable camp at the station.
+            SC.BaseLife.reset()
+            SC.BaseLife.create({ x = f.x1 + 4, y = f.y1 + 4, z = 0 }, "Reliability station")
+        end
         local base = SC.BaseLife.active()
         base.zones = {}
         for z = 0, 1 do
@@ -509,6 +519,10 @@ function Probe.step(H, current, check, result, setPhase)
             end
         end
         screenshot(H, "layout")
+        if H.config.reliability_pass == "true" then
+            f.reliability = { x = f.x1, y = f.y1, z = 0, stores = {}, crew = {}, gaps = {} }
+            setPhase("firestation_rest_reliability", current) return
+        end
         setPhase("firestation_rest_catalogue", current) return
     end
     if H.phase == "firestation_rest_catalogue" then

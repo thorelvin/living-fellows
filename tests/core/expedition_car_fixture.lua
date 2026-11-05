@@ -154,6 +154,12 @@ function getCell()
             squares[key] = {
                 isSolid = function() return false end,
                 isSolidTrans = function() return false end,
+                HasTree = function() return T.accessTree == true end,
+                getProperties = function() return {
+                    has = function(_, name) return name == "StopCar" and (T.accessPole == true
+                        or T.accessPoleX == x and T.accessPoleY == y) end,
+                    get = function(_, name) return name == "PhysicsShape" and T.accessShape or nil end,
+                } end,
                 getVehicleContainer = function()
                     if T.parkedAccessBlocker and x == 95 and y >= 101 and y <= 103
                         or T.allAccessVehicleBlocked and x < 102 then return T.accessBlocker end

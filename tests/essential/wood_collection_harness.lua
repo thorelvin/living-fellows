@@ -59,4 +59,43 @@ retry.wood = W.copy(pending)
 X.pulse(recovering, retry)
 check(#retry.wood.acquisitions == 1 and retry.wood.acquisitions[1].id == log.id
     and #recovering.bag.items == 1, "reload reconciles that same native object exactly once")
+local shuttle, ground = X.actor("remote-shuttle", 30), X.square(20, 20, 0)
+local remoteLog = X.item("Base.Log")
+X.drop(ground, remoteLog)
+local remote = W.createState({ mode = "count", quantity = 1 })
+remote.pendingLogs = { { id = remoteLog.id, source = { x = 20, y = 20, z = 0 } } }
+local remoteContext, approached = X.context(remote, { { id = shuttle.id, actor = shuttle } }), 0
+remoteContext.approachSource = function(actor, point, transient)
+    check(actor == shuttle and point.x == 20 and point.y == 20 and type(transient) == "table",
+        "an unloaded pickup approaches its recorded source using transient travel state")
+    approached = approached+1
+    return true, "wood_ground_reloading"
+end
+local gridSquare = U.gridSquare
+U.gridSquare = function() return nil end
+X.pulse(shuttle, remoteContext)
+U.gridSquare = gridSquare
+check(approached == 1 and #remote.pendingLogs == 1 and #remote.acquisitions == 0
+    and #ground.world == 1, "streaming recovery neither loses nor recreates an unverified log")
+X.pulse(shuttle, remoteContext)
+check(#remote.acquisitions == 1 and remote.acquisitions[1].id == remoteLog.id
+    and remoteLog.owner == shuttle.bag and #ground.world == 0,
+    "after loading, pickup revalidates and acquires the exact original log")
+-- Unlocking has cleared the latch, but native exit still needs another pulse.
+local unlocker = X.actor("unlocker", 20, 20, 100)
+local cargoCar = SC.Vehicle.loadedBySqlId(42)
+local oldField, unlockPolls = SC.FieldWork, 0
+SC.FieldWork = { unlockTrunkFor = function(value, vehicle)
+    check(value == unlocker and vehicle == cargoCar, "cargo resumes only its exact actor and car")
+    unlockPolls = unlockPolls + 1
+    return true, unlockPolls == 1 and "field_trunk_exiting" or "field_trunk_unlocked"
+end }
+local unlockState = { unlock = {} }
+local vehicle, _, unlockReason = SC.LoggingWork.cargo(unlocker, 42, unlockState)
+check(not vehicle and unlockReason == "field_trunk_exiting" and unlockState.unlock,
+    "an open latch does not discard a pending safe-exit transaction")
+vehicle = SC.LoggingWork.cargo(unlocker, 42, unlockState)
+check(vehicle == cargoCar and unlockPolls == 2 and not unlockState.unlock,
+    "cargo access begins only after unlock and native exit both complete")
+SC.FieldWork = oldField
 SC_TEST_REPORT = "Essential wood collection: " .. X.checks() .. " checks passed"

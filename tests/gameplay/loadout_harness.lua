@@ -218,7 +218,30 @@ function SurvivorCompanion.__testPreparationPacking()
         end
         local request = { key = "packing-" .. placement, atCamp = false, allowHeldBag = true,
             cargoRaw = 8, haulRequired = true, requiredTools = { { itemType = "Base.HandAxe" } } }
+        local oldScavenge, handoffs
+        if placement == "worn" then
+            local careCancels = 0
+            local care = assert(sc.ActionSupervisor.begin(fellow, {
+                owner = "medical", action = "bandage", priority = sc.ActionSupervisor.Priority.COMBAT_RESCUE,
+                onCancel = function() careCancels = careCancels + 1 return true end,
+            }))
+            local careReady = prepare(fellow, request)
+            check(not careReady and careCancels == 0 and sc.ActionSupervisor.isCurrent(care)
+                    and fellow.inventory:contains(food) and not contents:contains(food),
+                "trip packing preserves higher-priority care and exact inventory ownership")
+            sc.ActionSupervisor.cancel(fellow, "care_finished", nil, false)
+            assert(sc.Logistics.resetPreparation(fellow, request.key))
+            handoffs = 0
+            oldScavenge = assert(sc.ActionSupervisor.begin(fellow, {
+                owner = "encounter", action = "scavenge", priority = sc.ActionSupervisor.Priority.WORK,
+                onCancel = function() handoffs = handoffs + 1 return true end,
+            }))
+        end
         local ready, assessment = prepare(fellow, request)
+        if oldScavenge then
+            check(ready and handoffs == 1 and not sc.ActionSupervisor.isCurrent(oldScavenge),
+                "trip packing safely takes over an old routine scavenge before moving exact gear")
+        end
         check(ready and assessment.cargoReady and contents:contains(food)
                 and fellow.primary == axe and fellow.inventory:contains(axe)
                 and fellow.inventory:contains(favorite) and favorite:isFavorite()
@@ -235,6 +258,9 @@ function SurvivorCompanion.__testPreparationPacking()
         end
         check(bags == 1 and sc.GameplayUtil.itemStableId(bag, false) == nil,
             "an unidentified " .. placement .. " bag is reported without assigning a persistent identity")
+        check(assessment.cargoBagId ~= "inventory" and assessment.cargoBagName == bag:getName()
+                and assessment.supplies.food.carried >= 1,
+            "the preparation report identifies its real cargo bag and carried supplies")
         request = { key = "raw-reserve-" .. placement, atCamp = false, allowHeldBag = true,
             cargoRaw = 28, cargoEffective = 1.6, haulRequired = true,
             requiredTools = { { itemType = "Base.HandAxe" } } }
@@ -312,9 +338,67 @@ function SurvivorCompanion.__testPreparationPacking()
             and string.find(table.concat(assessment.warnings, ":"), "loadout_storage_unavailable", 1, true),
         "full storage permits a reduced-room departure when the minimum haul still fits")
 
+    local priorSelection = sc.Navigation.selectInteraction
+    shelf.capacity = 50
+    sc.Navigation.selectInteraction = function(subject, ownerState, ...)
+        if subject == fellow then return nil, "pending" end
+        return priorSelection(subject, ownerState, ...)
+    end
+    local surveyRequest = request("pending-optional-storage-survey", 4)
+    ready, assessment = prepare(fellow, surveyRequest)
+    check(not ready and fellow.inventory:contains(surplus),
+        "optional route selection gets its bounded opportunity before being skipped")
+    f.clock = f.clock + 6000
+    ready, assessment = prepare(fellow, surveyRequest)
+    check(ready and assessment.cargoReady and fellow.inventory:contains(surplus)
+            and not shelf:contains(surplus) and sc.ActionSupervisor.reservationCount(fellow) == 0
+            and string.find(table.concat(assessment.warnings, ":"), "loadout_storage_unreachable", 1, true),
+        "optional destination planning cannot hold departure indefinitely; exact surplus remains carried")
+    sc.Logistics.resetPreparation(fellow)
+    sc.Navigation.selectInteraction = priorSelection
+
     -- A long walk/loot pose can change encumbrance without invalidating the
     -- chosen surplus. More than one scan slice must not replay that pose.
     shelf.capacity = 50
+    local priorAccess, priorRequest = sc.GameplayUtil.directInteractionAccess, sc.Navigation.requestAny
+    sc.GameplayUtil.directInteractionAccess = function(subject, object, ...)
+        if subject == fellow then return false, { fellow.square }, "interaction_route_pending" end
+        return priorAccess(subject, object, ...)
+    end
+    sc.Navigation.requestAny = function(subject, ...)
+        if subject == fellow then
+            local options = select(3, ...)
+            sc.ActionSupervisor.transition(options.supervisorToken, "approaching")
+            sc.ActionSupervisor.progress(options.supervisorToken, "search:" .. f.clock)
+            return true, "searching"
+        end
+        return priorRequest(subject, ...)
+    end
+    local stallRequest = request("crowded-storage", 4)
+    ready = prepare(fellow, stallRequest)
+    check(not ready and fellow.inventory:contains(surplus), "blocked optional stashing starts without moving its item")
+    ready, assessment = prepare(fellow, stallRequest)
+    check(ready and assessment.cargoReady and fellow.inventory:contains(surplus) and not shelf:contains(surplus)
+            and sc.ActionSupervisor.reservationCount(fellow) == 0
+            and string.find(table.concat(assessment.warnings, ":"), "loadout_storage_unreachable", 1, true),
+        "stationary storage search yields departure with exact surplus retained when cargo still fits"
+            .. ": ready=" .. tostring(ready) .. " reason=" .. tostring(assessment and assessment.reason)
+            .. " warnings=" .. table.concat(assessment and assessment.warnings or {}, ":")
+            .. " reservations=" .. sc.ActionSupervisor.reservationCount(fellow))
+    local priorX, movingX = fellow.getX, fellow:getX()
+    fellow.getX = function() return movingX end
+    local movingRequest = request("moving-storage", 4)
+    for _ = 1, 45 do
+        sc.Logistics.prepareLoadout(fellow, movingRequest, safe)
+        movingX, f.clock = movingX + .3, f.clock + 501
+    end
+    assessment = sc.Logistics.preparationStatus(fellow)
+    check(assessment and assessment.stage ~= "blocked" and #assessment.warnings == 0
+            and fellow.inventory:contains(surplus) and not shelf:contains(surplus),
+        "a long approach with real physical progress is not skipped")
+    sc.Logistics.resetPreparation(fellow)
+    fellow.getX = priorX
+    sc.GameplayUtil.directInteractionAccess, sc.Navigation.requestAny = priorAccess, priorRequest
     local fillers = {}
     for index = 1, 245 do
         fillers[index] = item("Base.KeptPreparation" .. tostring(index), "Item", { favorite = true, weight = 0 })

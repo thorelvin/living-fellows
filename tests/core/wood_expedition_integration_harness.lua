@@ -321,7 +321,8 @@ check(record.items[1].returned and I.wants(record, a),
 a.inside = false
 check(I.wants(record, a), "authorized roadside route remains active while hauler leaves camp boundary")
 check(select(2, I.update(record, a)) == "car_trunk_looting" and item.container == car.trunk
-    and T.cargoOptions.workReach == true and T.cargoOptions.workCampOnly == true,
+    and T.cargoOptions.workReach == true and T.cargoOptions.workCampOnly == true
+    and T.cargoOptions.action == "move_to_car_trunk",
     "roadside extraction approaches through bounded camp work navigation and plays native loot")
 check(select(2, I.update(record, a)) == "car_item_carried" and item.container == bag
     and T.moves == 1 and #a.inventory.items == 1,

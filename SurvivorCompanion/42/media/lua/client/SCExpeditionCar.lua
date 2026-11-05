@@ -234,7 +234,8 @@ function Car.accessBetween(vehicle, at, entry)
     local px, py = -dy / length, dx / length
     local ux, uy = dx / length, dy / length
     local steps = math.ceil(length * 2)
-    for _, offset in ipairs({ -1.25, 0, 1.25 }) do
+    -- The old three rays could skip a tile between the centre and edge rays.
+    for _, offset in ipairs({ -1.25, -0.625, 0, 0.625, 1.25 }) do
         local lastSquare
         for step = 0, steps do
             local along = math.min(length, step * 0.5)
@@ -247,7 +248,14 @@ function Car.accessBetween(vehicle, at, entry)
             end
             local solidOk, solid = call(square, "isSolid")
             local transOk, trans = call(square, "isSolidTrans")
-            if not solidOk or not transOk or solid or trans then
+            local treeOk, tree = call(square, "HasTree")
+            if not solidOk or not transOk or not treeOk or solid or trans or tree then
+                return false, "road_access_blocked"
+            end
+            local propsOk, props = call(square, "getProperties")
+            local stopOk, stop = call(props, "has", "StopCar")
+            local shapeOk, shape = call(props, "get", "PhysicsShape")
+            if not propsOk or not stopOk or not shapeOk or stop or shape == "Tree" then
                 return false, "road_access_blocked"
             end
             local vehicleOk, occupying = call(square, "getVehicleContainer")
@@ -1641,6 +1649,7 @@ function Car.pulse(mission, now, worldHour)
                 .. tostring(failedAt and failedAt.x) .. ","
                 .. tostring(failedAt and failedAt.y)
                 .. " attempts=" .. tostring(status.attempts)
+                .. " detail=" .. tostring(status.detail)
                 .. " native=" .. tostring(native and native.mode)
                 .. "/" .. tostring(native and native.state)
                 .. " obstacle=" .. tostring(native and native.obstacleKind))
@@ -1649,6 +1658,7 @@ function Car.pulse(mission, now, worldHour)
             elseif trip.leg == "home" and trip.homeRoadEntry
                 and (status.reason == "goal_not_reached"
                     or status.reason == "route_blocked"
+                    or status.reason == "no_route"
                     or status.reason == "turn_failed") then
                 local at = point(car)
                 local stopped = SC.Vehicle.isStationary(car)
@@ -1697,14 +1707,18 @@ function Car.pulse(mission, now, worldHour)
             hold(trip, "home_parking_changed")
         else
             local fit, reason = Car.fitsParking(car, zone, trip.seats)
+            local status = trip.approachStartedAt
+                and SC.Driving.jobStatus(mission.leader.actor) or nil
             -- A valid parking area accepts either car orientation. Road
             -- travel normally brings the car home facing the opposite way;
             -- requiring the departure heading would force an unnecessary
             -- turn inside the marked bay.
-            if reason == "parking_not_stationary" then
+            if reason == "parking_not_stationary" and (not trip.approachStartedAt
+                or status and status.result == "arrived") then
                 -- The road follower can report arrived one physics tick before
                 -- the vehicle has settled. Do not request a new parking drive
                 -- while the car is still coasting inside the marked bay.
+                -- An owned driveway leg is still approaching, not settling.
                 trip.parkingSettleStartedAt = trip.parkingSettleStartedAt or now
                 if now - trip.parkingSettleStartedAt > 10000 then
                     hold(trip, "parking_not_stationary")
@@ -1715,7 +1729,6 @@ function Car.pulse(mission, now, worldHour)
                 traceTrip(trip, "parking_verified")
             elseif trip.approachStartedAt then
                 trip.parkingSettleStartedAt = nil
-                local status = SC.Driving.jobStatus(mission.leader.actor)
                 if status and status.firstParkingRefusal then trip.parkingRefusal = trip.parkingRefusal or status.firstParkingRefusal end
                 if status and (status.result == "failed" or status.owned == false or status.phase == "released") then
                     Car.parkingFailed(mission, trip, car, status.reason or "parking_approach_failed", status)

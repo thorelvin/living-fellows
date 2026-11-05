@@ -183,6 +183,31 @@ check(select(2, D.update(actor, nil, runtime, 1800)) == "packing_mission_kit"
     "a preparation transfer advances without being cancelled on the stage change")
 token, packing, departure, commands.expeditionMember = nil, false, nil, nil
 
+-- A log hauler deliberately boards to release the trunk latch. Its cargo
+-- controller must keep running until the lock and safe exit have completed.
+local cargoCar = { getSqlId = function() return 42 end }
+actor.vehicle = cargoCar
+function actor:getVehicle() return self.vehicle end
+SC.ExpeditionCar = { ownsSeat = function() return true end, boardingOrderFor = function() return nil end }
+work, request.carId = request, 43
+request.wood.workers = { [actor.id] = { phase = "loading" } }
+local cargoPolls = 0
+SC.ExpeditionPrototype.updateWood = function(value, snapshot)
+    check(value == actor and snapshot == calm, "seated cargo uses its own actor and fresh snapshot")
+    cargoPolls = cargoPolls + 1
+    if cargoPolls == 2 then value.vehicle = nil end
+    return true, cargoPolls == 1 and "field_trunk_unlocking" or "field_trunk_exiting"
+end
+runtime = { snapshot = calm }
+D.update(actor, nil, runtime, 1900)
+check(cargoPolls == 0 and actor.vehicle == cargoCar,
+    "a different mission car cannot take over the current seat")
+request.carId = 42
+D.update(actor, nil, runtime, 2200)
+D.update(actor, nil, runtime, 3000)
+check(cargoPolls == 2 and actor.vehicle == nil,
+    "the seat guard allows the exact wood cargo controller to finish unlock and exit")
+
 local function marked(key)
     local item = { data = { [key] = { tripId = "wood:test", id = "native:1", memberId = actor.id } } }
     function item:getModData() return self.data end

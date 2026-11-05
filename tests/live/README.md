@@ -30,6 +30,32 @@ return timer. Optional `-WoodExpeditionStockEquipment` and
 be stocked, and zombies within 60 tiles of forest work may be removed. Neither
 flag clears the return road. Additions and removals are recorded in the results.
 
+`-ReliabilityPass` adds an explicit cloned parking fixture to the wood probe.
+It draws a fitting outline around the stopped saved car without moving it.
+A real parked car obstructs the nearest road connector. The probe verifies
+either a clear mapped alternative or a correct refusal with the saved car
+stationary and its engine off. In the refusal case, it removes only its own
+blocker and verifies normal access again; this is not reported as a detour.
+The saved vehicles remain untouched. The reliability flag also requires the
+normal player kitchen walk and south-wall check after solo restoration. Tree cutting,
+packing, driving, return and delivery continue through production code.
+
+With `-FirestationRestProbe -ReliabilityPass`, the same switch reuses the
+existing bounded Rosewood firestation survey for a performance comparison.
+It replaces only the clone's camp records, marks native containers on both
+floors and stocks small test supplies. It creates four ordinary recruited
+workers, reusing surviving fixture workers when resuming a retained clone.
+Saved fixture identities must finish restoring first; clones with excess test
+workers are rejected. Use a clean seed for the final comparison. A native
+outdoor generator and ordinary light switches power the building, and the
+observer starts in its largest retained ground-floor room.
+Normal decisions remain scheduled; saved distant companions are also retained.
+Four 45-second samples cover closed menus, Base, EMMA and closed menus again;
+the first eight seconds of each phase warm up. Reports include render gaps,
+AI timings and building-discovery calls. The cloned computer is powered and
+unlocked explicitly for this measurement. Screenshots and raw reports stay
+in the isolated run. Neither mode belongs to the routine five-check gate.
+
 This is a private in-game integration harness for the real Project Zomboid
 42.21.0 single-player client. It is deliberately outside `SurvivorCompanion`
 and is not copied into Workshop staging or release archives.

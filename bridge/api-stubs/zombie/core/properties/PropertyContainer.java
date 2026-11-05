@@ -6,6 +6,7 @@ import zombie.iso.SpriteDetails.IsoFlagType;
 /** Compile-only Project Zomboid API shape; excluded from the bridge JAR. */
 public class PropertyContainer {
     public boolean has(IsoFlagType flag) { return false; }
+    public boolean has(String name) { return false; }
     public String get(String name) { return null; }
     public int getSurface() { return 0; }
 }

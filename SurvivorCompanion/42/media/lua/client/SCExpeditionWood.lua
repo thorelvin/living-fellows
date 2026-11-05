@@ -562,7 +562,7 @@ local function recoverPending(ctx, pending)
     end
     return false, "wood_log_missing"
 end
-local function takeLog(actor, ctx, state, memberId)
+local function takeLog(actor, ctx, state, memberId, transient)
     local wood = ctx.wood
     for index, pending in ipairs(wood.pendingLogs) do
         if pending.workerId then
@@ -577,6 +577,14 @@ local function takeLog(actor, ctx, state, memberId)
             and not (pending.blocked and pending.blocked[memberId]) then
             local row, reason = L().groundLog(pending.source, pending.id)
             if not row then
+                if reason == "wood_ground_unloaded" and ctx.approachSource then
+                    -- A haul to the trunk can unload the stump. Travel toward
+                    -- its recorded position; only a later exact-ID lookup may
+                    -- take an item or create its acquisition receipt.
+                    local accepted, why = ctx.approachSource(actor, pending.source, transient)
+                    if accepted then pending.workerId = memberId end
+                    return accepted, why
+                end
                 if reason == "wood_log_missing" then
                     local recovered, why = recoverPending(ctx, pending)
                     if recovered then
@@ -589,6 +597,7 @@ local function takeLog(actor, ctx, state, memberId)
                 end
                 return false, reason
             end
+            transient.logStreamLeg, transient.logStreamPlan, transient.logStreamSource = nil, nil, nil
             local destination, why = carryDestination(actor, row.item, shortShuttle(actor, ctx.carId, row.source))
             if not destination then return false, why end
             pending.workerId = memberId
@@ -747,7 +756,7 @@ function Wood.update(actor, ctx)
         return handled, reason
     end
     if #wood.pendingLogs > 0 then
-        local handled, reason = takeLog(actor, ctx, state, memberId)
+        local handled, reason = takeLog(actor, ctx, state, memberId, transient)
         if handled then return handled, reason end
         if reason == "wood_carry_capacity" then
             if ctx.carId then

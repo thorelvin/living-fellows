@@ -261,8 +261,15 @@ public final class SCCompanionDrivingTest {
 
     private static final class FloorSquare extends IsoGridSquare {
         boolean floor;
+        boolean stopCar;
+        String physicsShape;
+        final zombie.core.properties.PropertyContainer properties = new zombie.core.properties.PropertyContainer() {
+            @Override public boolean has(String name) { return "StopCar".equals(name) && stopCar; }
+            @Override public String get(String name) { return "PhysicsShape".equals(name) ? physicsShape : null; }
+        };
         FloorSquare(boolean floor) { super(null, null, 0, 0, 0); this.floor = floor; }
         @Override public boolean TreatAsSolidFloor() { return floor; }
+        @Override public zombie.core.properties.PropertyContainer getProperties() { return properties; }
     }
 
     private static final class ParkingCell extends IsoCell {
@@ -307,6 +314,18 @@ public final class SCCompanionDrivingTest {
         cell.missing = true;
         require(parking.squareKind(55, 100, 0) == SCLaneScan.UNLOADED,
                 "an absent square remains an unloaded refusal rather than manufactured ground");
+        cell.missing = false;
+        cell.selected.floor = true;
+        cell.selected.stopCar = true;
+        require(ordinary.squareKind(55,100,0) == SCLaneScan.SOLID,
+                "vehicle-only StopCar fixtures block a road scan without solid or tree flags");
+        cell.selected.stopCar = false;
+        cell.selected.physicsShape = "Tree";
+        require(ordinary.squareKind(55,100,0) == SCLaneScan.SOLID,
+                "tree-shaped pole physics also blocks before the bumper reaches it");
+        cell.selected.physicsShape = null;
+        require(ordinary.squareKind(55,100,0) == SCLaneScan.CLEAR,
+                "removing the fixture restores ordinary drivable ground");
     }
 
     private static final class Table implements KahluaTable {

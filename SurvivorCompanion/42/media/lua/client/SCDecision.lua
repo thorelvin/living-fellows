@@ -1017,10 +1017,24 @@ local function selectWithHysteresis(state, candidates, now)
 end
 Decision._selectWithHysteresisForTests = selectWithHysteresis
 
-local function enforceVehicleExitPolicy(actor, player, commands)
+local function enforceVehicleExitPolicy(actor, player, commands, snapshot)
     local utility = U()
     local actorVehicle, actorVehicleOk = utility.call(actor, "getVehicle")
     if not actorVehicleOk or actorVehicle == nil then return nil end
+    local expedition = SC.ExpeditionPrototype
+    local wood = expedition and type(expedition.woodRequestFor) == "function"
+        and expedition.woodRequestFor(actor) or nil
+    local worker = wood and wood.wood and wood.wood.workers
+        and wood.wood.workers[utility.idOf(actor)]
+    local carId, carKnown = utility.call(actorVehicle, "getSqlId")
+    if worker and worker.phase == "loading" and carKnown
+        and tonumber(carId) == wood.carId and type(expedition.updateWood) == "function" then
+        -- Trunk access deliberately boards, unlocks and exits this car. The
+        -- generic owned-seat hold must not starve its next native unlock/exit step.
+        local safe, handled, reason = utility.safeSubsystem("wood-cargo", actor,
+            expedition.updateWood, actor, snapshot)
+        return safe and handled == true, reason or "wood_cargo_pending"
+    end
     if SC.ExpeditionCar and SC.ExpeditionCar.ownsSeat(actor, actorVehicle) then
         return true, "expedition_car_seat"
     end
@@ -3045,6 +3059,22 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                 local quiet = type(SC.Downtime.peek) == "function"
                     and SC.Downtime.peek(actor) or nil
                 local activity = quiet and quiet.active
+                if activity and (activity.kind == "sit" or activity.kind == "read")
+                    and commands.recruited and commands.temporaryStay ~= true
+                    and ((snapshot and snapshot.threatCount)
+                        or #(snapshot and snapshot.threats or {})) == 0
+                    and (tonumber(assessment and assessment.bleedingCount) or 0) == 0
+                    and SC.ExpeditionPrototype
+                    and type(SC.ExpeditionPrototype.integrationFor) == "function"
+                    and SC.ExpeditionPrototype.integrationFor(actor)
+                    and type(SC.Downtime.cancel) == "function" then
+                    local safe, cancelled = U().safeSubsystem("downtime", actor,
+                        SC.Downtime.cancel, actor, "expedition_delivery_ready")
+                    -- Re-enter ordinary selection so medicine and other urgent
+                    -- needs still outrank delivery. A pending cleanup keeps its
+                    -- controller until it can safely release the borrowed item.
+                    if safe and cancelled == true then return false end
+                end
                 local job = commands.order == "base_duty"
                     and activity and activity.kind ~= "rest_bed"
                     and SC.BaseLife and type(SC.BaseLife.jobFor) == "function"
@@ -3647,7 +3677,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return true, heldReason
     end
 
-    local vehicleHandled, vehicleReason = enforceVehicleExitPolicy(actor, player, commands)
+    local vehicleHandled, vehicleReason = enforceVehicleExitPolicy(actor, player, commands, snapshot)
     if vehicleHandled ~= nil then
         state.current = "vehicle"
         state.intent = vehicleReason or "vehicle_policy"

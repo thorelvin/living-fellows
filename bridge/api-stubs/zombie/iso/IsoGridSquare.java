@@ -13,6 +13,7 @@ import zombie.iso.areas.IsoRoom;
 import zombie.util.list.PZArrayList;
 
 public class IsoGridSquare {
+    public zombie.core.properties.PropertyContainer getProperties() { return null; }
     public IsoGridSquare(IsoCell cell, SliceY slice, int x, int y, int z) {}
     public boolean TreatAsSolidFloor() { return false; }
     public IsoCell getCell() { return null; }

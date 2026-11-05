@@ -78,7 +78,7 @@ do
     local plan = SCBridge.planRoadRouteAvoidingAll
     SCBridge.planRoadRouteAvoidingAll = function(_, _, _, tx, ty, _, out)
         out.status, out.fingerprint = "READY", "long-driveway"
-        out.geometry = "150,100,5,0,Road;" .. tostring(tx) .. ","
+        out.geometry = "150,100,12,0,Road;" .. tostring(tx) .. ","
             .. tostring(ty) .. ",8,0,Road"
         return true
     end
@@ -86,7 +86,7 @@ do
         roadAccessEntry = { x = 150, y = 100, z = 0 } })
     check(T.lastFollowRoute
             and T.lastFollowRoute:find("^100%.00,100%.00,5%.0;150%.00,100%.00,5%.0;") ~= nil,
-        "a verified long driveway becomes the route's first physical segment")
+        "a driveway adjoining a wide street keeps both connector endpoints centred")
     Driving.release(actor)
     local changed = managed("expedition-driveway-changed", {
         roadAccessEntry = { x = 160, y = 100, z = 0 } })
@@ -95,6 +95,53 @@ do
         "a different road attachment cannot reuse a previously checked driveway")
     Driving.release(changed)
     SCBridge.planRoadRouteAvoidingAll = plan
+end
+
+do
+    local actor = managed("roadside-tree-buffer")
+    T.native[actor].obstacleKind = "tree"
+    T.block(actor, 150, 100)
+    Driving.tick(60000)
+    Driving.tick(65000)
+    check(Driving.jobStatus(actor).circles[1].radius == 4,
+        "a single roadside tree uses a narrow buffer while retaining native collision checks")
+    T.block(actor, 151, 100)
+    Driving.tick(66000)
+    Driving.tick(71000)
+    check(Driving.jobStatus(actor).circles[1].radius == 6,
+        "a repeated tree obstruction grows its bounded clearance conservatively")
+    Driving.release(actor)
+end
+
+do
+    local actor = managed("near-home-parked-vehicle")
+    T.native[actor].obstacleKind = "vehicle"
+    for attempt = 1, 3 do
+        T.block(actor, 180, 100)
+        Driving.tick(160000 + attempt * 10000)
+        Driving.tick(165000 + attempt * 10000)
+        local status = Driving.jobStatus(actor)
+        check(status.circles[1].radius == 2 + attempt * 2 and status.result ~= "failed",
+            "near-destination parked-car detours retain the road instead of enclosing the destination")
+    end
+    T.block(actor, 180, 100)
+    Driving.tick(200000)
+    Driving.tick(205000)
+    check(Driving.jobStatus(actor).reason == "route_blocked",
+        "tighter near-home clearance retains the existing three-replan safety limit")
+    Driving.release(actor)
+end
+
+do
+    local actor = managed("preserve-existing-road-hazard", {
+        circles = { { x = 176, y = 100, radius = 16 } } })
+    T.native[actor].obstacleKind = "vehicle"
+    T.block(actor, 180, 100)
+    Driving.tick(210000)
+    Driving.tick(215000)
+    check(Driving.jobStatus(actor).circles[1].radius >= 16,
+        "a nearby vehicle cannot shrink an already established road avoidance area")
+    Driving.release(actor)
 end
 
 do
@@ -117,7 +164,7 @@ do
         return route
     end
     local into = homeRoute("expedition-home-driveway", { x = 200, y = 80, z = 0 })
-    check(into and into:find(";200%.00,100%.00,8%.0;200%.00,92%.00,5%.0$") ~= nil,
+    check(into and into:find(";200%.00,100%.00,5%.0;200%.00,92%.00,5%.0$") ~= nil,
         "the home route turns eight tiles into a long driveway: " .. tostring(into))
     local offset = homeRoute("expedition-home-offset-entry", { x = 203, y = 80, z = 0 },
         { x = 203, y = 100, z = 0 })
@@ -545,6 +592,17 @@ do
     local actor = managed("drive-no-route")
     check(Driving.jobStatus(actor).reason == "no_route" and not T.native[actor].active,
         "unavailable alternate route is reported with a parked car")
+    Driving.release(actor)
+    T.planStatus = "READY"
+    actor = managed("drive-late-no-route-parking")
+    actor.vehicle.x, actor.vehicle.y = goal.x - 2, goal.y
+    T.planStatus = "NO_ROUTE"
+    T.block(actor, goal.x, goal.y)
+    Driving.tick(80000)
+    Driving.tick(85000)
+    check(Driving.jobStatus(actor).reason == "no_route"
+        and Driving.approach(actor, { x = goal.x + 3, y = goal.y, z = 0 }, 30000, true),
+        "a stopped late route failure at the verified road end can attempt checked parking")
     Driving.release(actor)
     T.planStatus = "READY"
     actor = managed("drive-turn-failure")

@@ -25,6 +25,7 @@ local BaseWork = SC.BaseWork
 
 local states = setmetatable({}, { __mode = "k" })
 local storageItemCursors = setmetatable({}, { __mode = "k" })
+local transferScans = setmetatable({}, { __mode = "k" })
 local cleaningSourceCache = setmetatable({}, { __mode = "k" })
 local cleaningLoanCache = setmetatable({}, { __mode = "k" })
 local maintenanceCursor = 1
@@ -316,21 +317,22 @@ end
 
 -- Keep work scans bounded, but rotate their starting position so supplies
 -- beyond the first budgeted items are eventually considered too.
-local function storageItemSlice(container)
+local function storageItemSlice(container, maximum, offset)
     local items, readable = U().call(container, "getItems")
     if not readable then items = type(container) == "table" and container.items or nil end
     local size = U().listSize(items)
     if size == 0 then return {}, 0 end
     local budget = math.max(1, math.floor(tonumber(U().config("campStorageItemBudget")) or 80))
+    if maximum then budget = math.min(budget, math.max(1, maximum)) end
     local count = math.min(size, budget)
-    local start = (storageItemCursors[container] or 0) % size
+    local start = (offset or storageItemCursors[container] or 0) % size
     local result = {}
     for offset = 0, count - 1 do
         local item = U().listGet(items, (start + offset) % size)
         if item ~= nil then result[#result + 1] = item end
     end
     storageItemCursors[container] = (start + count) % size
-    return result, start
+    return result, start, size
 end
 
 local function sourceItemAvailable(storage, itemType)
@@ -1718,12 +1720,62 @@ local function findTransfer(job, actor)
     local sourceCategory = (type(job.target) == "table" and job.target.sourceCategory)
         or "general"
     if job.type == "sort" then sourceCategory = nil end
-    local matchingStoreFull = false
-    for _, source in ipairs(SC.BaseLife.storageRows(sourceCategory, true)) do
-        local container = SC.BaseLife.resolveContainer(source)
+    local scan = transferScans[job]
+    -- Registrations can change while this pass is yielded. Comparing the
+    -- bounded Lua rows is cheap and prevents later use of an unmarked source.
+    local rows, changed = SC.BaseLife.storageRows(sourceCategory, true), false
+    if scan then
+        changed = #rows ~= #scan.rows
+        if not changed then for index, row in ipairs(rows) do
+            if row ~= scan.rows[index] then changed = true break end
+        end end
+    end
+    if not scan or changed or scan.actor ~= actor or scan.sourceCategory ~= sourceCategory then
+        scan = { actor = actor, sourceCategory = sourceCategory, index = 1,
+            rows = rows }
+        transferScans[job] = scan
+    end
+    local inspected, opened = 0, 0
+    local performance = SC.Performance
+    local started = performance and performance.preciseNowMs and performance.preciseNowMs()
+    local function done(...)
+        if started and performance.record then
+            performance.record("base.sort-select", nil, performance.preciseNowMs()-started)
+            if performance.count then
+                performance.count("sort.scan.items", inspected)
+                performance.count("sort.scan.containers", opened)
+            end
+        end
+        return ...
+    end
+    local function exhausted()
+        return inspected >= 64 or opened >= 2
+            or started and performance.preciseNowMs()-started >= 0.75
+            or performance and performance.remainingBudgetMs and performance.remainingBudgetMs() == 0
+    end
+    local function pending()
+        return done(nil, nil, nil, nil, nil, "haul_scan_pending")
+    end
+    while scan.index <= #scan.rows do
+        if exhausted() then return pending() end
+        local source = scan.rows[scan.index]
+        local container = source.withdrawals ~= false and SC.BaseLife.resolveContainer(source) or nil
+        opened = opened+1
         if container then
-            local items, scanStart = storageItemSlice(container)
+            local items, scanStart, size = storageItemSlice(container, math.min(8,64-inspected), scan.offset)
+            size = size or 0
+            if scan.container ~= container or scan.size ~= size then
+                scan.container, scan.size, scan.checked = container, size, 0
+            end
+            local consumed = 0
             for _, item in ipairs(items) do
+                -- Retain the exact source cursor across slices. Other workers'
+                -- rotating scans cannot turn this partial pass into "empty".
+                if inspected >= 64 or inspected > 0 and started and performance.preciseNowMs()-started >= 0.75 then
+                    scan.offset, scan.checked = (scanStart+consumed)%math.max(1,size), scan.checked+consumed
+                    return pending()
+                end
+                inspected, consumed = inspected+1, consumed+1
                 local itemType = U().itemType(item)
                 if not BaseWork.choreReserved(item)
                     and not (SC.PersonalItems and SC.PersonalItems.isProtected
@@ -1739,7 +1791,8 @@ local function findTransfer(job, actor)
                         -- The audit also calls this selector. Leave its selected
                         -- window ready for the worker's first execution tick.
                         storageItemCursors[container] = scanStart
-                        return source, container, rows[1].destination, rows[1].container, item
+                        transferScans[job] = nil
+                        return done(source, container, rows[1].destination, rows[1].container, item)
                     elseif needsSorting and #rows == 0
                         and sourceItemAvailable(source, itemType) then
                         local category = type(job.target) == "table"
@@ -1749,21 +1802,26 @@ local function findTransfer(job, actor)
                         end
                         if itemType == "Base.Log" and category == "construction"
                             and SC.LogYard and SC.LogYard.hasZone
-                            and SC.LogYard.hasZone() then matchingStoreFull = true end
+                            and SC.LogYard.hasZone() then scan.matchingStoreFull = true end
                         for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
                             if destination.id ~= source.id
                                 and SC.BaseLife.resolveContainer(destination) then
-                                matchingStoreFull = true
+                                scan.matchingStoreFull = true
                                 break
                             end
                         end
                     end
                 end
             end
+            scan.checked = scan.checked+#items
+            scan.offset = (scanStart+#items)%math.max(1,size)
+            if scan.checked < size then return pending() end
         end
+        scan.index, scan.container, scan.size, scan.checked, scan.offset = scan.index+1, nil, nil, nil, nil
     end
-    return nil, nil, nil, nil, nil,
-        matchingStoreFull and "haul_destinations_full" or "no_sortable_supply"
+    transferScans[job] = nil
+    return done(nil, nil, nil, nil, nil,
+        scan.matchingStoreFull and "haul_destinations_full" or "no_sortable_supply")
 end
 
 -- The stack controller reuses the same selector and exact-item policy as
@@ -1923,6 +1981,7 @@ local function updateTransfer(actor, state, job)
     if state.transfer == nil then
         local source, sourceContainer, destination, destinationContainer, item,
             selectionReason = findTransfer(job, actor)
+        if selectionReason == "haul_scan_pending" then return true, selectionReason end
         if not source then return false, selectionReason, true end
         state.transfer = {
             source = source, sourceContainer = sourceContainer, destination = destination,
@@ -2959,17 +3018,19 @@ local function auditSorting(base, remainingBudget, scan)
     while scan.index <= #scan.rows do
         if not maintenanceBudget(remainingBudget) then return false, "sorting_audit_pending", true end
         local resident = scan.rows[scan.index]
-        scan.index = scan.index + 1
         if resident.duty == true then
             local record = SC.Registry and SC.Registry.byId
                 and SC.Registry.byId(resident.id) or nil
             if record and record.actor then
-                local source, _, _, _, _, reason = findTransfer(
-                    { type = "sort" }, record.actor)
+                scan.transferJob = scan.transferJob or { type = "sort" }
+                local source, _, _, _, _, reason = findTransfer(scan.transferJob, record.actor)
+                if reason == "haul_scan_pending" then return false, "sorting_audit_pending", true end
+                scan.transferJob = nil
                 if source ~= nil then actionable = true break end
                 if reason == "haul_destinations_full" then scan.matchingStoreFull = true end
             end
         end
+        scan.index = scan.index + 1
     end
     if not actionable and not scan.matchingStoreFull then
         return false, "no_sortable_supply"
@@ -3202,6 +3263,9 @@ function BaseWork.auditMaintenance(player, remainingBudget)
 end
 
 function BaseWork.cancel(actor, reason)
+    for job, scan in pairs(transferScans) do
+        if scan.actor == actor then transferScans[job] = nil end
+    end
     local state = states[actor]
     if SC.SortBatch then
         local batchJob=SC.SortBatch.savedForActor(actor)
@@ -3540,6 +3604,7 @@ function BaseWork.reset(actor)
     if actor then cleaningSourceCache[actor] = nil
     else
         storageItemCursors = setmetatable({}, { __mode = "k" })
+        transferScans = setmetatable({}, { __mode = "k" })
         cleaningSourceCache = setmetatable({}, { __mode = "k" })
         cleaningLoanCache = setmetatable({}, { __mode = "k" })
     end

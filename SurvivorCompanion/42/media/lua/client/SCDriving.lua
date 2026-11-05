@@ -257,6 +257,7 @@ local function snapshot(job)
     end
     local roadGoal = job.roadGoal
     return { phase = job.phase, result = job.result, reason = job.reason,
+        detail = job.detail,
         attempts = job.attempts or 0, circles = circles, parked = job.parked == true,
         managed = job.managed == true,
         owned = jobs[job.actor] == job and SC.ActionSupervisor ~= nil
@@ -496,6 +497,7 @@ function Driving.approach(actor, target, seconds, allowStoppedRoadFailure, allow
         and job.result == "failed" and job.precise ~= true
         and (job.reason == "goal_not_reached"
             or job.reason == "route_blocked"
+            or job.reason == "no_route"
             or job.reason == "turn_failed")
     if not job or job.managed ~= true or job.parked ~= true
         or (job.result ~= "arrived" and not recovered)
@@ -614,6 +616,10 @@ local function planJob(job)
             if entryGap > 1.5 or #route.points >= 512 then
                 return parkResult(job, "failed", "road_access_changed")
             end
+            -- The native follower takes the wider of both endpoint widths.
+            -- Keep both driveway endpoints narrow so it follows the verified
+            -- centre strip instead of adding the street's right-lane offset.
+            route.points[1] = { x = first.x, y = first.y, width = 5, street = first.street }
             table.insert(route.points, 1, { x = x, y = y, width = 5,
                 street = first.street })
         end
@@ -653,6 +659,8 @@ local function planJob(job)
             if endGap > 2.25 then
                 route.points[#route.points + 1] = { x = exit.entry.x,
                     y = exit.entry.y, width = 5, street = last.street }
+            else
+                route.points[#route.points] = { x = last.x, y = last.y, width = 5, street = last.street }
             end
             route.points[#route.points + 1] = {
                 x = exit.entry.x + dx / length * into,
@@ -834,6 +842,8 @@ function Driving.tick(current)
                         parkResult(job, reached and "arrived" or "failed", reached and "arrived" or reason)
                     else job.phase, job.result = "arrived", "arrived" end
                 elseif state == "turn_failed" or status.turnState == "failed" then
+                    job.detail = type(status.turnReason) == "string"
+                        and status.turnReason:sub(1, 128) or nil
                     parkResult(job, "failed", "turn_failed")
                 elseif job.precise and job.approachDeadline
                     and current >= job.approachDeadline then
@@ -894,12 +904,21 @@ function Driving.tick(current)
                                     break
                                 end
                             end
+                            local roadGoal = job.roadGoal
+                            local nearVehicle = status.obstacleKind == "vehicle" and roadGoal
+                                and (roadGoal.x - x)^2 + (roadGoal.y - y)^2 <= 32^2
+                            local narrow = status.obstacleKind == "tree" or nearVehicle
                             if repeated then
-                                repeated.radius = math.min(32,
-                                    repeated.radius + 8)
+                                -- A pre-existing broad road/horde avoidance
+                                -- remains authoritative; never shrink it for a car.
+                                repeated.radius = math.min(nearVehicle and math.max(8, repeated.radius) or 32,
+                                    repeated.radius + (narrow and 2 or 8))
                             else
                                 job.circles[#job.circles + 1] = {
-                                    x = x, y = y, radius = 12,
+                                    -- A tree or parked car near the destination
+                                    -- must not erase the destination's road attachment.
+                                    -- Native collision checks and retry limits still apply.
+                                    x = x, y = y, radius = narrow and 4 or 12,
                                 }
                             end
                             job.attempts, job.phase = job.attempts + 1, "replanning"
