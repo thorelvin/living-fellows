@@ -357,15 +357,38 @@ final class SCRoadRouter {
         return graph.nodes.size() > MAX_NODES ? null : graph;
     }
 
+    private static Segment attachedRoad(List<Segment> segments, Point point) {
+        double nearest = Double.POSITIVE_INFINITY;
+        Segment road = null;
+        for (Segment segment : segments) {
+            double gap = segmentDistance(point, segment.a, segment.b);
+            if (gap < nearest) {
+                nearest = gap;
+                road = segment;
+            }
+        }
+        // Passing may put the car on the checked verge. It still belongs to
+        // this street; that is not permission to cut across the next building.
+        return road != null && nearest <= road.width * 0.5 + SCRoadFollower.SHOULDER + EPSILON
+                ? road : null;
+    }
+
+    private static double attachmentLimit(Segment road, Point point) {
+        return road == null ? MAX_CONNECTOR : segmentDistance(point, road.a, road.b) + EPSILON;
+    }
+
     // An off-road connector is a straight line walked in local legs. Around an
     // observed horde it may be long, but it must not pass through the horde.
-    private static List<Attachment> attachments(Graph graph, Point point, boolean source) {
+    private static List<Attachment> attachments(Graph graph, Point point, boolean source,
+                                                 double maxConnector, Segment attachedRoad) {
         List<Attachment> all = new ArrayList<>();
         for (Edge edge : graph.edges) {
             Point a = graph.nodes.get(edge.from), b = graph.nodes.get(edge.to);
             double t = project(point, a, b);
             Point projected = new Point(a.x + (b.x - a.x) * t,
                     a.y + (b.y - a.y) * t);
+            if (attachedRoad != null
+                    && segmentDistance(projected, attachedRoad.a, attachedRoad.b) > EPSILON) continue;
             double connector = distance(point, projected);
             boolean safe = true;
             for (Avoidance avoidance : graph.avoidances) {
@@ -386,7 +409,7 @@ final class SCRoadRouter {
                     break;
                 }
             }
-            if (connector <= MAX_CONNECTOR && safe) {
+            if (connector <= maxConnector && safe) {
                 all.add(new Attachment(edge.id, t, projected, connector));
             }
         }
@@ -451,8 +474,18 @@ final class SCRoadRouter {
         if (graph == null) return Result.failure("BUDGET_EXCEEDED", "graph_limit");
         if (graph.edges.isEmpty() && !avoidances.isEmpty())
             return Result.failure("NO_SAFE_ROAD_DETOUR", "horde_avoidance_blocked");
-        List<Attachment> entries = attachments(graph, source, true);
-        List<Attachment> exits = attachments(graph, target, false);
+        // A car already on a mapped road must join that road, and an approved
+        // road stop must remain on its road. A cheaper walking connector to a
+        // different street is not a valid shortcut for either driving endpoint.
+        // Escape along the attached street when a stopped car is inside a new
+        // buffer. A longer escape connector must not jump to an unrelated road.
+        Segment sourceRoad = attachedRoad(raw, source), targetRoad = attachedRoad(raw, target);
+        boolean escaping = avoidances.stream().anyMatch(avoidance ->
+                distance(source, avoidance.center) <= avoidance.radius + EPSILON);
+        List<Attachment> entries = attachments(graph, source, true,
+                escaping ? MAX_CONNECTOR : attachmentLimit(sourceRoad, source), sourceRoad);
+        List<Attachment> exits = attachments(graph, target, false,
+                attachmentLimit(targetRoad, target), targetRoad);
         if (entries.isEmpty()) return Result.failure(avoidances.isEmpty()
                 ? "NO_ENTRY_CANDIDATE" : "NO_SAFE_ROAD_DETOUR", "road_too_far");
         if (exits.isEmpty()) return Result.failure(avoidances.isEmpty()

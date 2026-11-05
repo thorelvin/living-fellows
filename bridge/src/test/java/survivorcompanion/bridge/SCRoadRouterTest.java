@@ -33,6 +33,36 @@ public final class SCRoadRouterTest {
                 && straight.points().size() == 2,
                 "same-edge attachments must use the partial edge, not its endpoints");
 
+        var longLoop = List.of(line("Loop", 0, 0, 100, 0, 100, 40, 0, 40));
+        var roadStop = SCRoadRouter.routeLines(longLoop, 0, 0, 0, 40);
+        check("READY".equals(roadStop.status())
+                && Math.abs(roadStop.entryX()) < 0.001
+                && Math.abs(roadStop.entryY()) < 0.001
+                && Math.abs(roadStop.exitX()) < 0.001
+                && Math.abs(roadStop.exitY() - 40) < 0.001
+                && roadStop.roadLength() > 200,
+                "mapped road endpoints follow the connected loop rather than shortcutting between streets");
+        var laneStop = SCRoadRouter.routeLines(List.of(
+                wide("Loop", 8, 0, 0, 100, 0, 100, 40, 0, 40)), 0, 2, 0, 40);
+        check("READY".equals(laneStop.status()) && Math.abs(laneStop.entryY()) < 0.001
+                && Math.abs(laneStop.exitY() - 40) < 0.001 && laneStop.roadLength() > 200,
+                "a car offset within its lane still joins its own street");
+        var vergeStop = SCRoadRouter.routeLines(List.of(
+                wide("Loop", 8, 0, 0, 100, 0, 100, 40, 0, 40)), 0, 5, 0, 40);
+        check("READY".equals(vergeStop.status()) && Math.abs(vergeStop.entryY()) < 0.001
+                        && vergeStop.roadLength() > 200,
+                "a passing car on the checked verge still joins its own street");
+        var loopEscape = SCRoadRouter.routeLinesAvoidingAll(List.of(
+                wide("Loop", 8, 0, 0, 100, 0, 100, 40, 0, 40)),
+                10, 2, 0, 40, "8,2,4");
+        check("READY".equals(loopEscape.status()) && Math.abs(loopEscape.entryY()) < 0.001
+                        && loopEscape.entryX() > 10 && loopEscape.roadLength() > 200,
+                "escaping a parked-car buffer stays on the street instead of cutting across the block");
+        var blockedStop = SCRoadRouter.routeLinesAvoiding(longLoop,
+                0, 0, 0, 40, 0, 40, 8);
+        check("NO_SAFE_ROAD_DETOUR".equals(blockedStop.status()),
+                "an avoided road stop fails instead of silently moving the destination");
+
         var bend = SCRoadRouter.routeLines(List.of(
                 line("Bent", 10, 10, 60, 10, 60, 60),
                 line("Cross", 60, 40, 110, 40)), 10, 10, 110, 40);

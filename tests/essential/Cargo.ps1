@@ -43,6 +43,7 @@
     (Join-Path $Shared 'SCSpeechColors.lua'),
     (Join-Path $Client 'SCLoggingWork.lua'),
     (Join-Path $Client 'SCExpeditionWood.lua'),
+    (Join-Path $Client 'SCExpeditionTargets.lua'),
     (Join-Path $Core 'wood_collection_fixture.lua'),
     (Join-Path $Essential 'wood_collection_harness.lua')) }
 
@@ -59,6 +60,15 @@
     (Join-Path $Client 'SCExpeditionWood.lua'),
     (Join-Path $Client 'SCDecision.lua'),
     (Join-Path $Core 'wood_decision_harness.lua')) }
+
+@{ Name = 'logging-area-progress-and-reload'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Client 'SCExpeditionRoute.lua'),
+    (Join-Path $Client 'SCExpeditionForests.lua'),
+    (Join-Path $Client 'SCExpeditionWood.lua'),
+    (Join-Path $Client 'SCExpeditionTargets.lua'),
+    (Join-Path $Client 'SCExpeditionPrototype.lua'),
+    (Join-Path $Core 'expedition_wood_mission_harness.lua')) }
 
 @{ Name = 'cargo-return-storage-retry'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),

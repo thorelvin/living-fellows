@@ -114,15 +114,15 @@ do
 end
 
 do
-    local actor = managed("near-home-parked-vehicle")
+    local actor = managed("parked-vehicle-along-route")
     T.native[actor].obstacleKind = "vehicle"
     for attempt = 1, 3 do
-        T.block(actor, 180, 100)
+        T.block(actor, 140, 100)
         Driving.tick(160000 + attempt * 10000)
         Driving.tick(165000 + attempt * 10000)
         local status = Driving.jobStatus(actor)
         check(status.circles[1].radius == 2 + attempt * 2 and status.result ~= "failed",
-            "near-destination parked-car detours retain the road instead of enclosing the destination")
+            "parked-car detours far from the destination do not become whole-road closures")
     end
     T.block(actor, 180, 100)
     Driving.tick(200000)

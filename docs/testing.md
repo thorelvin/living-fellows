@@ -82,6 +82,13 @@ acceptance: two companions versus three zombies for combat, one relevant
 return/delivery for driving or actor lifecycle, and walls/cars/names after
 solo-view restoration for rendering. Record the outcome, relevant exact
 identities and necessary screenshots. Probe compilation is not live acceptance.
+Capture a game screenshot whenever a distinct blocker is encountered, pairing
+it with the actor, position, target, reason and log timestamp. Frame the blocked
+actor and nearby obstacle where possible; do not count a blank or obscured
+capture as visual evidence. Capture the recovery as well. Repeated samples of
+the same continuing block need not create duplicate images. Include the trip leg
+and a sequence or timestamp in filenames so a return block cannot overwrite an
+outbound capture.
 Test-infrastructure-only changes require no live run.
 
 ## Keeping the gate small

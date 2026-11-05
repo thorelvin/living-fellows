@@ -5,6 +5,7 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.ExpeditionCar = SC.ExpeditionCar or {}
 local Car = SC.ExpeditionCar
+local returnStreams = setmetatable({}, {__mode="k"})
 
 local function traceTrip(trip, action, detail, driveStatus)
     if type(print) ~= "function" then return end
@@ -1502,12 +1503,25 @@ function Car.pulse(mission, now, worldHour)
     end
     local car = carLoaded(trip)
     if car == nil then
+        if trip.state == "returning_to_car" and scout.wood and trip.sitePoint
+            and SC.ExpeditionPrototype and SC.ExpeditionPrototype.approachWoodSource then
+            local stream=returnStreams[trip]
+            if not stream then stream={startedAt=now} returnStreams[trip]=stream end
+            if now-stream.startedAt<90000 then
+                local p=trip.sitePoint
+                local moving,why=SC.ExpeditionPrototype.approachWoodSource(mission.leader.actor,
+                    {x=math.floor(p.x),y=math.floor(p.y),z=0},stream)
+                trip.blocker=why
+                if moving then return true end
+            end
+        end
         trip.missingSince = trip.missingSince or now
         if now - trip.missingSince > 30000 then
             hold(trip, "car_not_loaded")
         end
         return true
     end
+    returnStreams[trip]=nil
     trip.missingSince = nil
     if trip.state == "walking_to_car" then
         local transferred, why = Car.ensureDriverKey(mission.roster, car)
@@ -1599,7 +1613,10 @@ function Car.pulse(mission, now, worldHour)
             } or nil
         local started, reason = SC.Driving.drive(mission.leader.actor,
             goal, { speedKmh = 30,
-                stopShortTiles = trip.leg == "outbound" and 10 or 0,
+                -- A manual logging area is admitted against this exact stop's
+                -- hauling circle. The old ten-tile setback can move it outside.
+                stopShortTiles = trip.leg == "outbound"
+                    and not (scout.wood and scout.wood.version == 2) and 10 or 0,
                 roadAccessEntry = roadEntry, roadAccessExit = roadExit })
         if not started then
             if type(reason) == "string"

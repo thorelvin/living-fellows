@@ -84,7 +84,7 @@ function U.call(object, method, ...)
     if object and type(object[method]) == "function" then return object[method](object, ...), true end
     return nil, false
 end
-function U.position(value) return value.x, value.y, value.z end
+function U.position(value) if value then return value.x, value.y, value.z end end
 function U.inventory(value) return value.bag end
 function U.nowMs() return clock end
 function U.idOf(value) return value.id end

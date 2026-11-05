@@ -38,11 +38,135 @@ function T.known(at)
         or call(visited, "isVisited", at.x, at.y) == true
 end
 
+-- Manual logging geometry is shared by the picker, worker and save validator.
+-- A cell fits the existing 17-square native worker; no world scan happens here.
+function T.validWoodBounds(b)
+    return type(b) == "table" and b.z == 0 and tile(b.x1) and tile(b.y1)
+        and tile(b.x2) and tile(b.y2) and b.x2 >= b.x1 and b.y2 >= b.y1
+        and b.x2 - b.x1 < 128 and b.y2 - b.y1 < 128
+end
+
+local function areaId(b)
+    return "wood-area:" .. b.x1 .. ":" .. b.y1 .. ":" .. b.x2 .. ":" .. b.y2
+end
+
+function T.woodAreaReachable(b, stop)
+    if not T.validWoodBounds(b) or type(stop) ~= "table"
+        or type(stop.x) ~= "number" or type(stop.y) ~= "number" then return false end
+    local dx = math.max(math.abs(b.x1-stop.x), math.abs(b.x2-stop.x))
+    local dy = math.max(math.abs(b.y1-stop.y), math.abs(b.y2-stop.y))
+    return dx*dx + dy*dy <= 64*64
+end
+
+function T.woodAreaSites(b, origin)
+    if not T.validWoodBounds(b) then return nil end
+    local remaining, result = {}, {}
+    for y=b.y1,b.y2,17 do
+        for x=b.x1,b.x2,17 do
+            local bounds={x1=x,y1=y,x2=math.min(x+16,b.x2),y2=math.min(y+16,b.y2),z=0}
+            local at={x=math.floor((x+bounds.x2)/2),y=math.floor((y+bounds.y2)/2),z=0}
+            remaining[#remaining+1]={id=areaId(bounds),type="LoggingArea",label="Selected logging area",
+                anchor=at,bounds=bounds,distance=0,knowledge="trees_unconfirmed"}
+        end
+    end
+    local at=origin or {x=b.x1,y=b.y1}
+    while #remaining>0 do
+        local best, range=1,math.huge
+        for i,site in ipairs(remaining) do
+            local d=(site.anchor.x-at.x)^2+(site.anchor.y-at.y)^2
+            if d<range then best,range=i,d end
+        end
+        local site=table.remove(remaining,best)
+        result[#result+1],at=site,site.anchor
+    end
+    return result
+end
+
+function T.validWoodAreaSite(site)
+    if type(site)~="table" or site.type~="LoggingArea" or not T.validWoodBounds(site.bounds)
+        or not point(site.anchor) or type(site.label)~="string" or #site.label<1 or #site.label>80 then return false end
+    local b,a=site.bounds,site.anchor
+    return b.x2-b.x1<=16 and b.y2-b.y1<=16 and site.id==areaId(b)
+        and a.x==math.floor((b.x1+b.x2)/2) and a.y==math.floor((b.y1+b.y2)/2)
+        and type(site.distance)=="number" and site.distance>=0 and site.distance<=5100
+end
+
+function T.woodAreaMatches(b, sites)
+    if not T.validWoodBounds(b) or type(sites)~="table" then return false end
+    local expected=T.woodAreaSites(b)
+    if #sites~=#expected then return false end
+    local ids={}
+    for _,site in ipairs(expected) do ids[site.id]=true end
+    local count=0
+    for k,site in pairs(sites) do
+        count=count+1
+        if type(k)~="number" or k<1 or k>#sites or k~=math.floor(k)
+            or not T.validWoodAreaSite(site) or not ids[site.id] then return false end
+        ids[site.id]=nil
+    end
+    return count==#expected
+end
+
+function T.woodAreaProtected(b)
+    local base=SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    for _,zone in ipairs(base and base.zones or {}) do
+        if zone.z==0
+            and zone.x1<=b.x2 and zone.x2>=b.x1 and zone.y1<=b.y2 and zone.y2>=b.y1 then return true end
+    end
+    return false
+end
+
+function T.resolveWoodArea(bounds, context)
+    if not T.validWoodBounds(bounds) then return nil,"wood_area_size" end
+    if not context or (context.travelMode~="road" and context.travelMode~="straight"
+        and context.travelMode~="drive") then return nil,"invalid_travel_mode" end
+    local b={x1=bounds.x1,y1=bounds.y1,x2=bounds.x2,y2=bounds.y2,z=0}
+    local at={x=math.floor((b.x1+b.x2)/2),y=math.floor((b.y1+b.y2)/2),z=0}
+    for _,p in ipairs({{x=b.x1,y=b.y1},{x=b.x2,y=b.y1},{x=b.x1,y=b.y2},{x=b.x2,y=b.y2}}) do
+        local d=T.distance(p,context)
+        if not d then return nil,"leader_unavailable" end
+        if d>T.limit(context.travelMode) then return nil,"map_target_out_of_range" end
+    end
+    -- 42.21's exploration bitmap uses 32x32-square units. Query their centres
+    -- (at most 25), accepting the union of map-known and physically visited.
+    local allKnown=true
+    for y=math.floor(b.y1/32),math.floor(b.y2/32) do
+        for x=math.floor(b.x1/32),math.floor(b.x2/32) do
+            local known=T.known({x=x*32+16,y=y*32+16,z=0})
+            allKnown=allKnown and known
+            if not known then
+                local x1,x2=math.max(b.x1,x*32),math.min(b.x2,x*32+31)
+                local y1,y2=math.max(b.y1,y*32),math.min(b.y2,y*32+31)
+                for _,p in ipairs({{x=x1,y=y1},{x=x1,y=y2},{x=x2,y=y1},{x=x2,y=y2}}) do
+                    if T.distance(p,context)>200 then return nil,"map_target_unexplored" end
+                end
+            end
+        end
+    end
+    if T.woodAreaProtected(b) then return nil,"wood_area_protected" end
+    local actor=context.actor
+    local ox,oy=call(actor,"getX"),call(actor,"getY")
+    local sites=T.woodAreaSites(b,{x=ox,y=oy})
+    for _,site in ipairs(sites) do site.distance=math.ceil(T.distance(site.anchor,context)) end
+    local label="Logging area"
+    local location=SC.Factions and SC.Factions.describeLocation and SC.Factions.describeLocation(at)
+    local street=location and location.nearestStreet and location.nearestStreet.name
+    if type(street)=="string" and street~="" then label=label.." near "..street end
+    return {version=2,kind="wood",id=areaId(b),anchor=at,workBounds=b,
+        label=string.sub(label,1,64),distance=math.ceil(T.distance(at,context)),
+        mapKnown=allKnown,sites=sites,place=sites[1]}
+end
+
 function T.valid(target)
-    if type(target) ~= "table" or target.version ~= 1 or not kinds[target.kind]
+    if type(target) ~= "table" or (target.version ~= 1 and target.version ~= 2) or not kinds[target.kind]
         or not point(target.anchor) or type(target.id) ~= "string"
         or #target.id < 1 or #target.id > 128 or type(target.label) ~= "string"
         or #target.label < 1 or #target.label > 80 then return false end
+    if target.version == 2 then
+        local b,a=target.workBounds,target.anchor
+        return target.kind=="wood" and T.validWoodBounds(b) and target.id==areaId(b)
+            and a.x==math.floor((b.x1+b.x2)/2) and a.y==math.floor((b.y1+b.y2)/2)
+    end
     if target.kind == "wood" then
         local b, a = target.workBounds, target.anchor
         return target.id == "wood:"..a.x..":"..a.y
@@ -63,7 +187,7 @@ end
 
 function T.copy(target)
     if not T.valid(target) then return nil end
-    local copy = { version = 1, kind = target.kind, id = target.id,
+    local copy = { version = target.version, kind = target.kind, id = target.id,
         label = target.label, anchor = { x = target.anchor.x, y = target.anchor.y, z = 0 } }
     if target.workBounds then
         local b = target.workBounds
@@ -75,7 +199,7 @@ end
 function T.fingerprint(target)
     if not T.valid(target) then return "none" end
     local a, b = target.anchor, target.workBounds
-    return table.concat({ target.kind, target.id, a.x, a.y,
+    return table.concat({ target.version, target.kind, target.id, a.x, a.y,
         b and b.x1 or "", b and b.y1 or "", b and b.x2 or "", b and b.y2 or "" }, ":")
 end
 
@@ -208,7 +332,9 @@ end
 
 function T.validate(target, context)
     if not T.valid(target) then return nil, "map_target_invalid" end
-    local fresh, reason = T.resolveAtPoint(target.kind, target.anchor, context)
+    local fresh, reason
+    if target.version==2 then fresh,reason=T.resolveWoodArea(target.workBounds,context)
+    else fresh,reason=T.resolveAtPoint(target.kind,target.anchor,context) end
     if not fresh then return nil, reason end
     if fresh.id ~= target.id or T.fingerprint(fresh) ~= T.fingerprint(target) then
         return nil, "map_target_changed"
@@ -221,6 +347,10 @@ function T.reset() T.mapData = nil end
 function T.matchesMission(target, scout)
     if not T.valid(target) or type(scout) ~= "table" then return false end
     if target.kind == "wood" then
+        if target.version==2 then
+            return scout.kind=="wood" and type(scout.wood)=="table" and scout.wood.version==2
+                and T.woodAreaMatches(target.workBounds,scout.wood.sites)
+        end
         if scout.kind ~= "wood" or type(scout.wood) ~= "table"
             or type(scout.wood.sites) ~= "table" or #scout.wood.sites < 1 or #scout.wood.sites > 3 then return false end
         local b = target.workBounds

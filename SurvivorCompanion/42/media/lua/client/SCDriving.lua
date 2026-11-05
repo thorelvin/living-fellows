@@ -904,14 +904,15 @@ function Driving.tick(current)
                                     break
                                 end
                             end
-                            local roadGoal = job.roadGoal
-                            local nearVehicle = status.obstacleKind == "vehicle" and roadGoal
-                                and (roadGoal.x - x)^2 + (roadGoal.y - y)^2 <= 32^2
-                            local narrow = status.obstacleKind == "tree" or nearVehicle
+                            -- A parked car occupies a lane, not a 28-tile road
+                            -- closure. Keep the local buffer narrow on the whole
+                            -- trip; the follower still verifies physical clearance.
+                            local vehicleBlock = status.obstacleKind == "vehicle"
+                            local narrow = status.obstacleKind == "tree" or vehicleBlock
                             if repeated then
                                 -- A pre-existing broad road/horde avoidance
                                 -- remains authoritative; never shrink it for a car.
-                                repeated.radius = math.min(nearVehicle and math.max(8, repeated.radius) or 32,
+                                repeated.radius = math.min(vehicleBlock and math.max(8, repeated.radius) or 32,
                                     repeated.radius + (narrow and 2 or 8))
                             else
                                 job.circles[#job.circles + 1] = {

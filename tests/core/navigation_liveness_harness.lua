@@ -351,6 +351,13 @@ do
     check(not N._pathSearchOverdue(boundedPending,boundedPending.startedAt+75000)
         and N._pathSearchOverdue(boundedPending,boundedPending.startedAt+75001),
         "the extended camp trunk hard limit is exactly75s while recent edge work remains productive")
+    check(not N._pathSearchOverdue({action="expedition_wood_storage",workCampOnly=true,workReach=true,
+        startedAt=0,progressAt=44000},45000)
+        and N._pathSearchOverdue({action="expedition_wood_storage",workCampOnly=true,workReach=true,
+            startedAt=0,progressAt=75000},75001)
+        and N._pathSearchOverdue({action="expedition_wood_storage",workCampOnly=true,workReach=false,
+            startedAt=0,progressAt=30000},30001),
+        "wood delivery shares the finite storage allowance only with both camp-work proofs")
     accepted,reason=requestAt(bounded,boundedGoal,intent,boundedPending.startedAt+75001)
     check(not accepted and reason=="path_blocked:budget_exhausted"
         and boundedState.pathSearch==nil and boundedState.pathFailure.failureClass=="budget_exhausted"

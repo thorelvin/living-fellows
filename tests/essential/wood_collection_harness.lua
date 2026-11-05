@@ -98,4 +98,47 @@ vehicle = SC.LoggingWork.cargo(unlocker, 42, unlockState)
 check(vehicle == cargoCar and unlockPolls == 2 and not unlockState.unlock,
     "cargo access begins only after unlock and native exit both complete")
 SC.FieldWork = oldField
+do
+    local carrier=X.actor("streamed-car-hauler",30)
+    local nativeLog=X.item("Base.Log")
+    X.drop(X.square(0,0,0),nativeLog)
+    local state=W.createState({mode="count",quantity=1})
+    state.pendingLogs={{id=nativeLog.id,source={x=0,y=0,z=0}}}
+    local ctx=X.context(state,{{id=carrier.id,actor=carrier}},42)
+    ctx.carStop={x=20.5,y=20.5,z=0}
+    local loaded,approaches,expected=SC.Vehicle.loadedBySqlId,0,carrier
+    SC.Vehicle.loadedBySqlId=function()return nil end
+    ctx.approachSource=function(actor,target)
+        check(actor==expected and target.x==20 and target.y==20 and target.z==0 and nativeLog.owner==carrier.bag,
+            "streamed-out car approach retains the exact carried log")
+        approaches=approaches+1 return true,"moving"
+    end
+    X.pulse(carrier,ctx,3)
+    check(approaches>0 and not state.acquisitions[1].carrierKind,
+        "no trunk receipt is recorded before the real car reloads")
+    local leader=X.actor("streaming-escort",30)
+    table.insert(ctx.roster,1,{id=leader.id,actor=leader}) ctx.leaderId=leader.id expected=leader
+    X.pulse(leader,ctx)
+    check(state.workers[leader.id].phase=="approach" and nativeLog.owner==carrier.bag,
+        "the view-owning leader escorts the final hauler without taking or duplicating cargo")
+    SC.Vehicle.loadedBySqlId=loaded
+    X.pulse(carrier,ctx,3)
+    check(nativeLog.owner==X.car.cargo and state.acquisitions[1].carrierKind=="trunk",
+        "only the verified physical transfer after reload records trunk cargo")
+end
+do
+    local loaded=SC.Vehicle.loadedBySqlId
+    SC.Vehicle.loadedBySqlId=function()return nil end
+    for _,stop in ipairs({{x=200,y=200,z=0},false}) do
+        local state=W.createState({mode="count",quantity=1})
+        local ctx=X.context(state,crew,42)
+        ctx.areaBounds={x1=0,y1=0,x2=16,y2=16,z=0}
+        ctx.carStop=stop or nil
+        local before=X.chops()
+        local _,reason=W.update(cutter,ctx)
+        check(reason=="wood_area_car_reach" and X.chops()==before and #state.acquisitions==0,
+            "an unloaded car needs an actual in-range parked receipt before new cutting")
+    end
+    SC.Vehicle.loadedBySqlId=loaded
+end
 SC_TEST_REPORT = "Essential wood collection: " .. X.checks() .. " checks passed"

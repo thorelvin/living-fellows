@@ -358,6 +358,9 @@ local function woodOptions(draft)
 end
 
 local function woodReason(reason)
+    if type(reason)=="string" and reason:match("^wood_area_") and SC.ExpeditionMap then
+        return SC.ExpeditionMap.reason(reason)
+    end
     local keys = {
         forest_scan_pending = "UI_SC_Expedition_WoodFindingForest",
         forest_not_found = "UI_SC_Expedition_WoodNoForest",
@@ -387,9 +390,9 @@ local function woodReason(reason)
         wood_worker_dead = "UI_SC_Expedition_WoodUnsafeReturn",
         wood_exhausted = "UI_SC_Expedition_WoodExhaustedReturn",
         wood_forest_empty = "UI_SC_Expedition_WoodForestEmpty",
-        wood_forest_unloaded = "UI_SC_Expedition_WoodForestEmpty",
+        wood_forest_unloaded = "UI_SC_Expedition_WoodGroundUnloaded",
         forest_no_mature_trees = "UI_SC_Expedition_WoodForestEmpty",
-        forest_unloaded = "UI_SC_Expedition_WoodForestEmpty",
+        forest_unloaded = "UI_SC_Expedition_WoodGroundUnloaded",
         wood_logs_unreachable = "UI_SC_Expedition_WoodLogsUnreachable",
         wood_target_met = "UI_SC_Expedition_WoodTargetMet",
         wood_quota_met = "UI_SC_Expedition_WoodTargetMet",
@@ -417,7 +420,7 @@ function Planner.refreshForestPreview(detail)
     else reason = teamReason end
     draft.preview, draft.previewError = preview, reason
     draft.forestSite = preview and preview.site or nil
-    draft.woodPreviewComplete = preview ~= nil or reason ~= "forest_scan_pending"
+    draft.woodPreviewComplete = preview ~= nil or (reason ~= "forest_scan_pending" and reason ~= "wood_area_route_pending")
     return previous ~= tostring(reason) .. ":" .. tostring(draft.forestSite and draft.forestSite.id)
 end
 
@@ -666,7 +669,9 @@ end
 
 local function mapContext(detail)
     local draft=detail.expeditionDraft
-    return SC.ExpeditionTargets.context(draft.leaderId,draft.travelMode)
+    local ctx=SC.ExpeditionTargets.context(draft.leaderId,draft.travelMode)
+    ctx.records=currentTeam(detail)
+    return ctx
 end
 
 local function tripOptions(draft)
@@ -1279,7 +1284,12 @@ function Planner.build(detail, panel)
             y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",
                 tr("UI_SC_Map_Selected",draft.mapTarget.label,distance and math.ceil(distance) or "?"))
         end
-        y=addButton(detail,panel,y,"UI_SC_Map_Choose","choose_map")
+        if draft.mapTarget and draft.mapTarget.version==2 then
+            local b=draft.mapTarget.workBounds
+            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Map_WoodDimensions",b.x2-b.x1+1,b.y2-b.y1+1))
+            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Map_WoodTreesHint"))
+        end
+        y=addButton(detail,panel,y,draft.kind=="wood" and "UI_SC_Map_WoodChoose" or "UI_SC_Map_Choose","choose_map")
         y=addButton(detail,panel,y,draft.kind=="wood" and "UI_SC_Map_AutomaticWood" or "UI_SC_Map_Browse",
             draft.kind=="wood" and "automatic_wood" or "browse_places")
     end

@@ -1,0 +1,58 @@
+Living Fellows 0.26.99: release verification
+Date: 2026-11-05
+Branch: living_fellows/0.26.99
+Base: 6c2e66f4095979aa31ec3aae1bf53dfdef30f466 (0.26.98)
+
+Scope
+- Map-selected logging areas with bounded discovery and hauling reach.
+- Persist selected areas and preserve exact cargo during delivery and reload.
+- Approach streamed-out expedition cars and bound recall recovery.
+- Apply the existing verified camp-storage navigation allowance to wood delivery.
+- Keep road attachments and blocker escapes on their current street.
+- Permit slow, collision-checked passing on a wider verge.
+- Align actual blocker coordinates and obstacle kind for replanning.
+- Update release metadata, changelog and packaged bridge together.
+
+Release verification
+- scripts/Test-Project.ps1 -Release -Serial: all five checks PASS in 144.6s.
+  Build 112.0s; Lifecycle 23.8s; Behaviour 1.4s; Cargo 2.6s; Interface 4.9s.
+  Evidence: build/test-results/20261105-202031-ace8f2/summary.json and
+  build/driving-reliability/release-02699-gate.log.
+- Normal and debug Lua compilation: PASS.
+- Installer essential boundaries: 11/11 PASS, serial, 256 MB Java heap,
+  two processors; ownership, rollback and exact restoration checked.
+- Workshop release and Windows standalone archives: PASS, version 0.26.99.
+- Release metadata synchronization and git diff --check: PASS.
+- Native road-router specialist: 50 checks PASS. Road follower: 91 checks PASS.
+  Existing fixtures cover street-constrained escapes, staggered roadside
+  obstacles and matching blocker coordinates/type. No new test runner added.
+
+Native acceptance
+- Detailed outcomes, identities and historical failures are preserved in
+  docs/validation-logging-areas.md.
+- Walking: the same native log was stored after reload.
+- Driving: two complete west-road deliveries and the original south firehouse
+  town route completed physical tree-to-trunk-to-home-storage transfers.
+- Town acceptance: SC-Harness-20261105-195723-053447af. The crew detoured through
+  the connected town loop in both directions without abandoning the car.
+  Exact log: lf-item:1793905461850:3:1355282410. Both crew returned at 100%
+  health; engine stopped; secondary slot and view owner released.
+- The player then walked into the upstairs kitchen without reloading. The
+  inspected native screenshot showed normal wall cutaways.
+- One low-priority native client ran at a time. Existing parked cars remained;
+  zombies were cleared to isolate driving. This does not certify all traffic,
+  combat or general performance conditions. No new game run was needed for
+  the final version-metadata change.
+
+Bridge identity
+- Protocol retained: 42.21-isocompanion-29. Game: 42.21.0.
+- Packaged bridge SHA-256:
+  259cf4a121d9d43bfa38b884612be6d40330a7840d067ff10b7a4b5e811e62be
+- Compared every archive entry against the live-accepted town-run bridge:
+  only META-INF/MANIFEST.MF differs; executable classes are identical.
+
+Distribution
+- Release archives are under build/release/ and are not committed binaries.
+- Matching Lua and the rebuilt native bridge are included in the commit.
+- No local installation, Steam upload or Field Guide publication was requested.
+- No native test client or temporary acceptance module remains.

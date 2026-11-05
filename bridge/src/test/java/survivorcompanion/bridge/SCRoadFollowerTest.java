@@ -333,6 +333,20 @@ public final class SCRoadFollowerTest {
                 "the same passing-lane recovery cannot reverse into a car behind");
     }
 
+    private static void staggeredRoadsideObstacles() {
+        Road road = new Road().block(24, 27, 100, 102, SCLaneScan.VEHICLE)
+                .block(35, 36, 97, 97, SCLaneScan.SOLID);
+        SCRoadFollower follower = new SCRoadFollower(
+                SCDrivePath.parse("2,101,6;90,101,6"), 30.0f, true);
+        Drive drive = new Drive(road, new Car(4, 102.5f, 0), follower);
+        drive.run(90, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.ARRIVED,
+                "a parked car followed by a roadside obstacle permits a slow staggered pass: "
+                        + drive.trace + " mode=" + follower.mode() + " at=" + drive.car.x + "," + drive.car.y
+                        + " offset=" + follower.offset() + " lateral=" + follower.lateral()
+                        + " backoffs=" + follower.backoffs());
+    }
+
     private static void blockedRoad() {
         Road road = new Road().block(30, 33, 95, 106, SCLaneScan.VEHICLE);
         SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
@@ -345,8 +359,9 @@ public final class SCRoadFollowerTest {
         require(drive.minSpeedKmh > -0.1f && follower.backoffs() == 0,
                 "a block the bumper scan sees is held, never backed away from: min="
                         + drive.minSpeedKmh + " backoffs=" + follower.backoffs());
-        require(follower.blockedX() >= 29.5f && follower.blockedX() <= 30.5f
-                        && Math.abs(follower.blockedY() - 103.0f) < 0.01f,
+        require(follower.blockedX() >= 30 && follower.blockedX() < 31
+                        && follower.blockedY() >= 95 && follower.blockedY() < 107
+                        && follower.blockedKind() == SCLaneScan.VEHICLE,
                 "a blocked route exposes the obstruction in world coordinates, not its distance: "
                         + follower.blockedX() + "," + follower.blockedY());
         road.clear(30, 33, 95, 106);
@@ -850,6 +865,7 @@ public final class SCRoadFollowerTest {
         fastStraightAndEarlyBend();
         oneWreck();
         twoWrecks();
+        staggeredRoadsideObstacles();
         stoppedBesidePassingLane();
         blockedRoad();
         wedgedCarBacksOff();

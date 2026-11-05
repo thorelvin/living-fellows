@@ -269,14 +269,23 @@ function S.review(window)
         if draft.travelMode=="drive" then preview,reason=expedition.previewDrive(records,place,draft.kind=="fish")
         else preview,reason=fn(records[1],place,draft.travelMode) end
     end
-    if not preview then return false,U().error(reason) end
+    if not preview then
+        return false,type(reason)=="string" and reason:match("^wood_area_")
+            and SC.ExpeditionMap.reason(reason) or U().error(reason)
+    end
     window.stationReviewed={kind=draft.kind,travelMode=draft.travelMode,quantity=draft.quantity,category=draft.category,hours=draft.hours,placeId=draft.placeId,crew=table.concat(draft.crew,"|")}
     window.stationReviewed.mapFingerprint=SC.ExpeditionTargets and SC.ExpeditionTargets.fingerprint(draft.mapTarget) or "none"
     window.stationReviewed.carSqlId=preview.carSqlId
     local lines={"Mission: "..draft.kind.."; "..(draft.travelMode=="drive" and "driving" or "walking").."; target "..tostring(draft.quantity)..".",
         "Crew: "..#records..". Leader: "..tostring(records[1].name or SC.GameplayUtil.nameOf(records[1].actor)),"Return limit: "..draft.hours.." hours. Close-defence combat policy; restock and resume camp duty."}
     if draft.mapTarget then lines[#lines+1]="Destination: "..draft.mapTarget.label..". Travel counts toward the turn-home time; equipment preparation pauses departure." end
-    if draft.kind=="wood" then lines[#lines+1]="Raw logs only. One trip; full load is limited to 256 verified log receipts. Storage delivery remains required." end
+    if draft.kind=="wood" then
+        if draft.mapTarget and draft.mapTarget.version==2 then
+            local b=draft.mapTarget.workBounds
+            lines[#lines+1]="Logging area: "..(b.x2-b.x1+1).." x "..(b.y2-b.y1+1).." tiles. Trees checked on arrival; cutting stays inside the outline."
+        end
+        lines[#lines+1]="Raw logs only. One trip; full load is limited to 256 verified log receipts. Storage delivery remains required."
+    end
     if preview.carSqlId then lines[#lines+1]="Car: "..tostring(preview.carName)..". Fuel "..tostring(preview.fuel).."; planned reserve "..tostring(preview.fuelRequired).."." end
     return true,lines
 end
@@ -624,7 +633,9 @@ function S.input(window,raw,chosen)
         local draft=window.stationDraft
         local function context()
             local records=rowsForDraft(window)
-            return SC.ExpeditionTargets.context(records and records[1] and records[1].actor,draft.travelMode)
+            local ctx=SC.ExpeditionTargets.context(records and records[1] and records[1].actor,draft.travelMode)
+            ctx.records=records
+            return ctx
         end
         local opened,why=SC.ExpeditionMap.begin(window,draft,context,function(target)
             if not campComputer(window) then stationUnavailable(window) return end

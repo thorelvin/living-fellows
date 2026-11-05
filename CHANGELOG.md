@@ -2,6 +2,27 @@
 
 # Changelog
 
+## 0.26.99 - Map-selected logging and town driving
+
+- Select a logging rectangle on the explored world map for walking or driving
+  expeditions. Review its bounds, route and hauling reach before departure;
+  nearby automatic woodland selection remains available.
+- Keep logging inside the selected area and within reach of the actual stopped
+  car. Preserve selected areas and work progress across reloads.
+- Keep road endpoints and blocker escapes attached to their current street,
+  preventing detour shortcuts across buildings. Allow a wider checked verge
+  for slow passing around staggered parked cars and roadside obstacles.
+- Report obstacle positions and types from the same scan so replanning avoids
+  the actual obstruction. Retain collision checks and bounded recovery.
+- Let wood haulers approach a streamed-out car, with the leader escorting the
+  final hauler when needed. Bound recall recovery and preserve exact cargo.
+- Give verified camp wood deliveries the existing storage-navigation allowance.
+  Keep collection, carried cargo and final storage delivery separate.
+- Verify physical walking and driving deliveries in cloned worlds, including
+  the firehouse town detour, stopped engine and return to solo kitchen view.
+- Retain bridge protocol `42.21-isocompanion-29` for Project Zomboid 42.21.0;
+  ship matching Lua and the rebuilt bridge with 0.26.99 release metadata.
+
 ## 0.26.98 - Expedition delivery and camp reliability
 
 - Spread camp sorting searches across bounded work ticks to reduce repeated

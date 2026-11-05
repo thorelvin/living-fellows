@@ -466,8 +466,8 @@ final class SCCompanionDriver {
                 // The route strip may be clear while the real bumper is not.
                 // Report this brake as a block even though the follower is in FOLLOW.
                 state = "safety_blocked";
-                safetyBlockedX = x + headingX * (body[1] + front);
-                safetyBlockedY = y + headingY * (body[1] + front);
+                safetyBlockedX = lastScan.hitX + 0.5f;
+                safetyBlockedY = lastScan.hitY + 0.5f;
             } else if (follower.backingOff()) {
                 state = "backing_off";
             } else {

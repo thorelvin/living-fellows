@@ -1683,6 +1683,9 @@ public final class SCBridge {
             if (follower.mode() == SCRoadFollower.Mode.BLOCKED) {
                 put(out, "blockedX", follower.blockedX());
                 put(out, "blockedY", follower.blockedY());
+                // Kind and position must describe the same route-strip hit,
+                // rather than borrowing the actual bumper's unrelated scan.
+                put(out, "obstacleKind", SCLaneScan.kindName(follower.blockedKind()));
             } else if ("safety_blocked".equals(driver.state())) {
                 put(out, "blockedX", driver.safetyBlockedX());
                 put(out, "blockedY", driver.safetyBlockedY());

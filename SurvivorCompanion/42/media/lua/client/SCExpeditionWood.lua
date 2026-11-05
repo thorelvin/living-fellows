@@ -76,6 +76,16 @@ function Wood.valid(wood)
     if not array(wood.acquisitions, MAX_LOGS)
         or wood.pendingLogs ~= nil and not array(wood.pendingLogs, MAX_LOGS) then return false end
     if wood.cutterId ~= nil and not id(wood.cutterId) then return false end
+    if wood.cellResults~=nil then
+        if wood.version~=2 or type(wood.cellResults)~="table" then return false end
+        local sites={}
+        for _,site in ipairs(wood.sites or {}) do sites[site.id]=true end
+        local n=0
+        for key,reason in pairs(wood.cellResults) do
+            n=n+1
+            if n>64 or not sites[key] or type(reason)~="string" or #reason>64 then return false end
+        end
+    end
     local seen = {}
     for _, row in ipairs(wood.acquisitions) do
         if type(row) ~= "table" or not id(row.id) or seen[row.id]
@@ -484,13 +494,26 @@ function Wood.cargoCounts(wood, roster, visibleMemberIds, carId)
     end
     return result
 end
+local function approachParkedCar(actor, ctx, state)
+    state.carStream = state.carStream or {}
+    local stop = {x=math.floor(ctx.carStop.x),y=math.floor(ctx.carStop.y),z=math.floor(ctx.carStop.z or 0)}
+    local moving, why = ctx.approachSource(actor, stop, state.carStream)
+    return moving, moving and "wood_approaching" or why, false
+end
 local function flushCargo(actor, ctx, state)
     if not ctx.carId then return false, "wood_no_car" end
     local cargo, why = carriedCargo(actor, ctx.wood)
     if not cargo then return false, why end
     if #cargo == 0 then return true, "wood_cargo_empty", true end
     local _, container, reason = L().cargo(actor, ctx.carId, state, ctx.snapshot)
+    if not container and reason == "wood_car_unloaded" and ctx.carStop and ctx.approachSource then
+        -- A valid 64-tile haul can leave the car outside the loaded cells.
+        -- Walk back toward its recorded actual stop, then resolve the real car
+        -- and trunk again. Never transfer against a saved or invented container.
+        return approachParkedCar(actor, ctx, state)
+    end
     if not container then return true, reason or "wood_trunk_approaching", false end
+    state.carStream = nil
     for index = 1, math.min(8, #cargo) do
         local entry = cargo[index]
         local moved, failure = L().transfer(entry.source, container, actor, entry.item)
@@ -690,6 +713,23 @@ function Wood.update(actor, ctx)
     local state, transient, memberId = worker(wood, actor)
     local cutterId = electCutter(wood, ctx.roster)
     local danger = unsafe(actor, ctx)
+    if not danger and ctx.areaBounds and state.point then
+        local p,b=state.point,ctx.bounds
+        if p.x<b.x1 or p.x>b.x2 or p.y<b.y1 or p.y>b.y2 or p.z~=0
+            or SC.ExpeditionTargets.woodAreaProtected({x1=p.x,x2=p.x,y1=p.y,y2=p.y,z=0}) then
+            danger="wood_tree_protected"
+        end
+    end
+    if not danger and ctx.areaBounds and ctx.carId then
+        local vehicle=SC.Vehicle.loadedBySqlId(ctx.carId)
+        local x,y=U().position(vehicle)
+        local stop=x and y and {x=x,y=y} or ctx.carStop
+        -- The actual parked point survives streaming. Losing the car's loaded
+        -- object must not turn a too-distant stop into permission to cut.
+        if not stop or not SC.ExpeditionTargets.woodAreaReachable(ctx.areaBounds,stop) then
+            danger="wood_area_car_reach"
+        end
+    end
     if danger then
         if state.phase == "chopping" and SC.NativeActions.workKind(actor) == "chop_tree" then
             local stopped, why = SC.NativeActions.cancelWork(actor, danger)
@@ -726,6 +766,19 @@ function Wood.update(actor, ctx)
             and wood.doneReason ~= "wood_injured" then
             local cargo = carriedCargo(actor, wood)
             if cargo and #cargo > 0 then state.phase = "loading" return flushCargo(actor, ctx, transient) end
+            if memberId == ctx.leaderId and ctx.carStop and ctx.approachSource
+                and not SC.Vehicle.loadedBySqlId(ctx.carId) then
+                for _, member in ipairs(ctx.roster or {}) do
+                    local carried = member.actor and carriedCargo(member.actor, wood)
+                    if carried and #carried > 0 then
+                        -- The leader owns the streamed view. Escort the final
+                        -- hauler so the car's cells can load, rather than staying
+                        -- at the stump while the hauler reaches that view's edge.
+                        state.phase = "approach"
+                        return approachParkedCar(actor, ctx, transient)
+                    end
+                end
+            end
         end
         state.phase = "done"
         return true, wood.doneReason, Wood.status(wood).done
@@ -798,14 +851,14 @@ function Wood.update(actor, ctx)
             state.scan, scanned = state.scan + 1, scanned + 1
             local p = { x = ctx.destination.x - RADIUS + index % width,
                 y = ctx.destination.y - RADIUS + math.floor(index / width), z = ctx.destination.z }
-            local square = U().gridSquare(p.x, p.y, p.z)
             local bounds = ctx.bounds
             local inForest = not bounds or p.x >= bounds.x1 and p.x <= bounds.x2
                 and p.y >= bounds.y1 and p.y <= bounds.y2
-            if not square then state.unloaded = true end
+            local square = inForest and U().gridSquare(p.x, p.y, p.z) or nil
+            if inForest and not square then state.unloaded = true end
             local owned = square and SC.BaseLife and SC.BaseLife.isInside
                 and (SC.BaseLife.isInside(square, "area") or SC.BaseLife.isInside(square, "farm")
-                    or SC.BaseLife.isInside(square, "lumber"))
+                    or SC.BaseLife.isInside(square, "lumber") or SC.BaseLife.isInside(square,"parking"))
             if square and inForest and not owned and L().tree(square)
                 and L().claimTree(ctx.missionId, memberId, square, actor) then
                 state.point, state.phase = p, "approach"
@@ -825,6 +878,12 @@ function Wood.update(actor, ctx)
     end
     local square = U().gridSquare(state.point.x, state.point.y, state.point.z)
     if not square then return false, "wood_tree_unloaded" end
+    if SC.BaseLife and SC.BaseLife.isInside and (SC.BaseLife.isInside(square,"area")
+        or SC.BaseLife.isInside(square,"farm") or SC.BaseLife.isInside(square,"lumber")
+        or SC.BaseLife.isInside(square,"parking")) then
+        releaseTarget(ctx,state,memberId)
+        return true,"wood_tree_protected"
+    end
     if not L().tree(square) then releaseTarget(ctx, state, memberId) return true, "wood_tree_gone" end
     if not rosterCanCarry(ctx.roster, ctx.carId, state.point) then
         releaseTarget(ctx, state, memberId)
@@ -869,7 +928,8 @@ function Wood.status(wood)
         collected = #(wood.acquisitions or {}), loaded = loaded }
 end
 function Wood.nextSite(wood)
-    Wood.stop(wood, "wood_next_forest")
+    if #(wood.pendingLogs or {})>0 then return false end
+    if not Wood.stop(wood, "wood_next_forest") or #(wood.pendingLogs or {})>0 then return false end
     wood.workers, wood.pendingLogs, wood.complete, wood.doneReason, wood.capacityFull = {}, {}, nil, nil, nil
     return true
 end

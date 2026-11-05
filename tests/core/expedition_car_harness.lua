@@ -464,6 +464,26 @@ local function freshTrip(state, leg)
     return trip
 end
 
+do
+    local loaded,prototype=SC.Vehicle.loadedBySqlId,SC.ExpeditionPrototype
+    SC.Vehicle.loadedBySqlId=function()return nil end
+    local trip=freshTrip("returning_to_car","home")
+    trip.sitePoint={x=96.5,y=99.5,z=0} T.mission.scout.wood={}
+    local approaches=0
+    SC.ExpeditionPrototype={approachWoodSource=function(actor,target)
+        check(actor==T.mission.leader.actor and target.x==96 and target.y==99,
+            "wood recall reloads the car by walking its view owner toward the actual stop")
+        approaches=approaches+1 return true,"moving"
+    end}
+    check(Car.pulse(T.mission,1000) and approaches==1 and trip.state=="returning_to_car",
+        "a streamed-out parked car is approached before declaring it missing")
+    Car.pulse(T.mission,92000) Car.pulse(T.mission,123000)
+    check(approaches==1 and trip.state=="held" and trip.blocker=="car_not_loaded",
+        "car streaming recovery remains bounded when no real vehicle appears")
+    SC.Vehicle.loadedBySqlId,SC.ExpeditionPrototype=loaded,prototype
+    T.mission.scout.wood=nil
+end
+
 local nearRoadFailure = freshTrip("driving_home", "home")
 T.cars[1].x, T.cars[1].y = 89, 102
 T.driveStatus = { result = "failed", reason = "route_blocked",
@@ -522,8 +542,12 @@ T.deferDrive = true
 check(Car.pulse(T.mission, 85000) and deferred.state == "boarding_out"
     and deferred.blocker == "deferred:urgent_action_pending",
     "temporary supervisor deferral keeps the team aboard")
+T.mission.scout.wood = {version=2}
 check(Car.pulse(T.mission, 86000) and deferred.state == "driving_out",
     "deferred car drive retries successfully")
+check(T.lastDriveOptions.stopShortTiles == 0,
+    "manual logging reaches the approved hauling stop without the legacy setback")
+T.mission.scout.wood = nil
 local expiredDeferral = freshTrip("boarding_out")
 expiredDeferral.boardStartedAt = 1000
 T.deferDrive = true

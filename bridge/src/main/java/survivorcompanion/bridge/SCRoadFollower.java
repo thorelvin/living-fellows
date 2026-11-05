@@ -25,7 +25,7 @@ final class SCRoadFollower {
     /** Slide back into the lane only when this much of it is clear ahead. */
     static final float RETURN_CLEAR = 16.0f;
     /** How far off the road edge a car may put its outer side to get past. */
-    static final float SHOULDER = 1.0f;
+    static final float SHOULDER = 2.0f;
     static final float OFFSET_STEP = 0.5f;
     static final float AVOID_KMH = 8.0f;
     static final float ARRIVE_TILES = 1.5f;
@@ -81,6 +81,7 @@ final class SCRoadFollower {
     private final SCDrivePath.Projection projection = new SCDrivePath.Projection();
     private final float[] point = new float[5];
     private final HashMap<Long, Integer> scanCache = new HashMap<>();
+    private final SCLaneScan.Result stripHit = new SCLaneScan.Result();
     private Mode mode = Mode.FOLLOW;
     private int segment = -1;
     private float along;
@@ -94,6 +95,7 @@ final class SCRoadFollower {
     private float blockedAt = -1.0f;
     private float blockedX;
     private float blockedY;
+    private int blockedKind = SCLaneScan.CLEAR;
     private long stoppedSince = -1L;
     private SCTurnAround turn;
     private boolean followBack;
@@ -212,6 +214,10 @@ final class SCRoadFollower {
 
     float blockedY() {
         return blockedY;
+    }
+
+    int blockedKind() {
+        return blockedKind;
     }
 
     SCTurnAround turn() {
@@ -620,6 +626,8 @@ final class SCRoadFollower {
      */
     private float stripObstacle(SCLaneScan.World world, int z, float startAlong, float lineOffset,
                                 float reach, float halfWidth) {
+        stripHit.blocked = false;
+        stripHit.kind = SCLaneScan.CLEAR;
         // Nothing past the end of the route matters: the car stops there.
         float toEnd = path.length() + ARRIVE_TILES - startAlong;
         reach = Math.min(reach, toEnd);
@@ -632,7 +640,10 @@ final class SCRoadFollower {
             path.pointAt(at, lineOffset, point);
             SCLaneScan.Result hit = SCLaneScan.scan(world, point[0], point[1], z, point[2],
                     point[3], halfWidth, 0.0f, piece, scanCache);
-            if (hit.blocked) return covered + hit.distance;
+            if (hit.blocked) {
+                stripHit.copyFrom(hit);
+                return covered + hit.distance;
+            }
             covered += piece;
             at += piece;
         }
@@ -653,9 +664,9 @@ final class SCRoadFollower {
             mode = ahead < 0.0f ? Mode.FOLLOW : Mode.BLOCKED;
             blockedAt = ahead;
             if (ahead >= 0.0f) {
-                path.pointAt(front + ahead, 0.0f, point);
-                blockedX = point[0];
-                blockedY = point[1];
+                blockedX = stripHit.hitX + 0.5f;
+                blockedY = stripHit.hitY + 0.5f;
+                blockedKind = stripHit.kind;
             }
             return;
         }
@@ -672,6 +683,7 @@ final class SCRoadFollower {
         }
         float front = along + halfLength;
         float ahead = stripObstacle(world, z, front, offset, avoidRange, halfWidth);
+        int hitX = stripHit.hitX, hitY = stripHit.hitY, hitKind = stripHit.kind;
         if (ahead < 0.0f) {
             mode = Mode.FOLLOW;
             blockedAt = -1.0f;
@@ -702,9 +714,9 @@ final class SCRoadFollower {
         } else {
             mode = Mode.BLOCKED;
             blockedAt = ahead;
-            path.pointAt(front + ahead, offset, point);
-            blockedX = point[0];
-            blockedY = point[1];
+            blockedX = hitX + 0.5f;
+            blockedY = hitY + 0.5f;
+            blockedKind = hitKind;
         }
     }
 

@@ -17,6 +17,7 @@ local worldMapRenderWrapper = nil
 local originalWorldMapClose, worldMapCloseWrapper
 local originalWorldMapRightMouseUp = nil
 local worldMapRightMouseUpWrapper = nil
+local originalWorldMapMouseUp,worldMapMouseUpWrapper
 local factionHouseTexture = nil
 
 local function U()
@@ -246,6 +247,17 @@ function CompanionMap.install()
         end
     end
     originalWorldMapRightMouseUp = ISWorldMap.onRightMouseUp
+    originalWorldMapMouseUp=ISWorldMap.onMouseUp
+    worldMapMouseUpWrapper=function(self,x,y)
+        local tool=self.symbolsUI and self.symbolsUI.currentTool
+        local child=type(self.isMouseOverChild)=="function" and self:isMouseOverChild()
+        if self.dragging and not self.dragMoved and not tool and not child
+            and SC.ExpeditionMap and SC.ExpeditionMap.click(self,x,y) then
+            self.dragging=false
+            return true
+        end
+        if originalWorldMapMouseUp then return originalWorldMapMouseUp(self,x,y) end
+    end
     worldMapRightMouseUpWrapper = function(self, x, y)
         local symbolTool = self.symbolsUI and self.symbolsUI.currentTool
         local consumed = type(originalWorldMapRightMouseUp) == "function"
@@ -304,6 +316,7 @@ function CompanionMap.install()
     ISMiniMapInner.render = miniMapRenderWrapper
     ISWorldMap.render = worldMapRenderWrapper
     ISWorldMap.onRightMouseUp = worldMapRightMouseUpWrapper
+    ISWorldMap.onMouseUp=worldMapMouseUpWrapper
     installed = true
     return true, "installed"
 end
@@ -313,6 +326,7 @@ function CompanionMap.remove()
     if type(ISMiniMapInner) ~= "table" or ISMiniMapInner.render ~= miniMapRenderWrapper
         or type(ISWorldMap) ~= "table" or ISWorldMap.render ~= worldMapRenderWrapper
         or ISWorldMap.onRightMouseUp ~= worldMapRightMouseUpWrapper
+        or ISWorldMap.onMouseUp ~= worldMapMouseUpWrapper
         or ISWorldMap.close ~= worldMapCloseWrapper then
         if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
             SC.Diagnostics.report("companion-map", nil,
@@ -323,6 +337,8 @@ function CompanionMap.remove()
     ISMiniMapInner.render = originalMiniMapRender
     ISWorldMap.render = originalWorldMapRender
     ISWorldMap.onRightMouseUp = originalWorldMapRightMouseUp
+    ISWorldMap.onMouseUp=originalWorldMapMouseUp
+    originalWorldMapMouseUp,worldMapMouseUpWrapper=nil,nil
     ISWorldMap.close = originalWorldMapClose
     originalWorldMapClose, worldMapCloseWrapper = nil, nil
     originalMiniMapRender, miniMapRenderWrapper = nil, nil

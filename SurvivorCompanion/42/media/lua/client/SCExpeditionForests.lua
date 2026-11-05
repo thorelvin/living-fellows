@@ -54,10 +54,13 @@ local function copySite(site)
         anchor = { x = site.anchor.x, y = site.anchor.y, z = 0 },
         bounds = { x1 = site.bounds.x1, y1 = site.bounds.y1,
             x2 = site.bounds.x2, y2 = site.bounds.y2, z = 0 },
-        distance = site.distance, knowledge = "forest_metadata_unconfirmed" }
+        distance = site.distance, knowledge = site.type == "LoggingArea" and "trees_unconfirmed" or "forest_metadata_unconfirmed" }
 end
 
 function Forests.validSite(site)
+    if type(site)=="table" and site.type=="LoggingArea" then
+        return SC.ExpeditionTargets and SC.ExpeditionTargets.validWoodAreaSite(site) == true
+    end
     return type(site) == "table" and type(site.id) == "string" and #site.id <= 128
         and #site.id > 0 and type(site.label) == "string" and #site.label > 0 and #site.label <= 80
         and (site.type == "Forest" or site.type == "DeepForest")
@@ -316,7 +319,8 @@ function Forests.verify(site, actor)
     if not Forests.validSite(site) then return false, "invalid_forest_site" end
     local state = checks[actor]
     if not state or state.id ~= site.id then
-        state = { id = site.id, x = site.bounds.x1, y = site.bounds.y1, trees = 0, loaded = 0, scanned = 0 }
+        state = { id = site.id, x = site.bounds.x1, y = site.bounds.y1, trees = 0, loaded = 0, scanned = 0,
+            startedAt=SC.GameplayUtil and SC.GameplayUtil.nowMs and SC.GameplayUtil.nowMs() or 0 }
         checks[actor] = state
     end
     local utility = SC.GameplayUtil
@@ -332,11 +336,20 @@ function Forests.verify(site, actor)
     end
     for _ = 1, 48 do
         if state.y > site.bounds.y2 then
+            if site.type=="LoggingArea" and state.unloaded then
+                local now=utility and utility.nowMs and utility.nowMs() or 0
+                if now-state.startedAt<10000 then
+                    state.x,state.y,state.unloaded=site.bounds.x1,site.bounds.y1,nil
+                    return nil,"forest_verify_pending"
+                end
+                return terminal(false,"forest_unloaded")
+            end
             return terminal(false, state.loaded == 0 and "forest_unloaded" or "forest_no_mature_trees")
         end
         state.scanned = state.scanned + 1
         local square = utility and utility.gridSquare(state.x, state.y, 0)
         if square then state.loaded = state.loaded + 1 end
+        if not square then state.unloaded=true end
         if square and outsideCamp(state.x, state.y) then
             local tree = call(square, "getTree")
             local index, size = tonumber(call(tree, "getObjectIndex")), tonumber(call(tree, "getSize"))

@@ -100,6 +100,38 @@ for _,bad in ipairs({true,12,"bad",{},{kind="wood",wood=true},{kind="wood",wood=
 end
 
 -- Real picker lifecycle with lightweight UI/native surfaces.
+do
+    local b={x1=500,y1=1000,x2=627,y2=1127,z=0}
+    local area=T.resolveWoodArea(b,T.context(actor,"drive"))
+    check(area and area.version==2 and #area.sites==64,"128-square area covers every cell without a forest query")
+    local coverage={}
+    for _,site in ipairs(area.sites) do
+        check(T.validWoodAreaSite(site),"each manual cell fits the existing worker")
+        for y=site.bounds.y1,site.bounds.y2 do for x=site.bounds.x1,site.bounds.x2 do
+            local key=x..":"..y
+            assert(not coverage[key],"manual cells overlap") coverage[key]=true
+        end end
+    end
+    local n=0 for _ in pairs(coverage) do n=n+1 end
+    check(n==128*128 and T.woodAreaMatches(b,area.sites),"cell union covers the exact rectangle")
+    check(T.matchesMission(area,{kind="wood",wood={version=2,sites=area.sites}}),"area save validates exact coverage")
+    table.remove(area.sites)
+    check(not T.matchesMission(area,{kind="wood",wood={version=2,sites=area.sites}}),"reload rejects a missing cell")
+    check(not T.resolveWoodArea({x1=500,y1=1000,x2=628,y2=1127,z=0},T.context(actor,"drive")),"oversize area is refused")
+    check(not T.resolveWoodArea({x1=1099,y1=1000,x2=1101,y2=1000,z=0},T.context(actor,"road")),"farthest corner enforces travel range")
+    local oldKnown=T.known
+    T.known=function(p)return p.x~=560 or p.y~=1040 end
+    check(not T.resolveWoodArea(b,T.context(actor,"drive")),"unknown interior exploration unit is not hidden by known corners")
+    T.known=oldKnown
+    local oldActive=SC.BaseLife.active
+    SC.BaseLife.active=function()return {zones={{kind="parking",z=0,x1=550,y1=1050,x2=551,y2=1051}}}end
+    check(not T.resolveWoodArea(b,T.context(actor,"drive")),"camp overlap is detected inside the rectangle")
+    SC.BaseLife.active=oldActive
+    check(T.woodAreaReachable({x1=100,y1=100,x2=120,y2=120,z=0},{x=90,y=90}),"car can serve a nearby rectangle")
+    check(not T.woodAreaReachable(b,{x=564,y=1064}),"large rectangle cannot fit one 64-tile hauling circle")
+end
+
+-- Real picker lifecycle with lightweight UI/native surfaces.
 local M=SC.ExpeditionMap
 SC.UI={text=function(key,...)return key end,wrapText=function(_,text)return{text}end}
 local visible,accepted,resumed=true,0,0
@@ -141,5 +173,15 @@ check(begin(),"picker opens before owner disposal")
 valid=false
 map:close()
 check(M.session==nil and not visible,"disposed owners are not resurrected on map closure")
+valid=true
+draft.kind,draft.mapTarget="wood",nil
+map.mapAPI.uiToWorldX=function(_,x)return x end
+map.mapAPI.uiToWorldY=function(_,_,y)return y end
+check(begin(),"logging picker opens")
+M.click(map,627,1127) M.click(map,500,1000)
+check(M.session.highlight and #M.session.highlight.sites==64,"two reversed corners normalize to a full area")
+local previousAccepted=accepted
+map:close()
+check(accepted==previousAccepted and draft.mapTarget==nil,"closing a drawn area never commits it")
 print("EXPEDITION_MAP_TARGETS_PASS checks="..checks)
 SC_TEST_REPORT="EXPEDITION_MAP_TARGETS_PASS checks="..checks

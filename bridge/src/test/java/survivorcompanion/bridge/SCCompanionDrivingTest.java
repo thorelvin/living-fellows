@@ -413,8 +413,10 @@ public final class SCCompanionDrivingTest {
                             && SCBridge.driveStatus(actor, status)
                             && status.rawget("blockedX") instanceof Double
                             && Math.abs((Double) status.rawget("blockedX") - 30) < 0.6
-                            && Math.abs((Double) status.rawget("blockedY") - 103) < 0.01,
-                    "the Kahlua driver status carries numeric world coordinates of the block");
+                            && (Double) status.rawget("blockedY") >= 95
+                            && (Double) status.rawget("blockedY") < 107
+                            && SCLaneScan.kindName(SCLaneScan.VEHICLE).equals(status.rawget("obstacleKind")),
+                    "the Kahlua driver status carries the actual blocked cell and matching obstacle kind");
             require(SCBridge.driveStop(actor) && SCBridge.driveStatus(actor, status)
                             && status.rawget("blockedX") == null && status.rawget("blockedY") == null
                             && Boolean.FALSE.equals(status.rawget("active")),

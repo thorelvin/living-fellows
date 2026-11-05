@@ -11,7 +11,8 @@ SC.UI.text=function(key,...)
 end
 ISButton={new=function(_,x,y,w,h)
     return {x=x,y=y,width=w,height=h,initialise=function()end,
-        setX=function(self,value)self.x=value end,setY=function(self,value)self.y=value end}
+        setX=function(self,value)self.x=value end,setY=function(self,value)self.y=value end,
+        getY=function(self)return self.y end,setEnable=function(self,v)self.enabled=v end}
 end}
 local checks=0
 for _,size in ipairs({{1280,720},{1366,768},{1920,1080},{2560,1440}}) do
@@ -43,7 +44,7 @@ for _,size in ipairs({{1280,720},{1366,768},{1920,1080},{2560,1440}}) do
         assert(card.x>=0 and card.x+card.width<=map.width and card.y+card.height<=back.y,
             "wrapped selection card fits above the controls")
         M.render(map)
-        assert(#children==1,"redraw reuses its control tree")
+        assert(#children==3,"redraw reuses the logging picker controls")
         M.reset()
         checks=checks+1
     end

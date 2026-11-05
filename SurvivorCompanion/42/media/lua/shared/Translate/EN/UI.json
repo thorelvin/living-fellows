@@ -2045,5 +2045,21 @@
     "UI_SC_Expedition_PreparationItem": "Handling: %1.",
     "UI_SC_Expedition_PreparationStockFood": "Safe food carried: %1 / %2 preferred.",
     "UI_SC_Expedition_PreparationStockWater": "Drinking water carried: %1 / %2 preferred.",
-    "UI_SC_Expedition_PreparationStockMedicine": "Clean bandages carried: %1 / %2 preferred."
+    "UI_SC_Expedition_PreparationStockMedicine": "Clean bandages carried: %1 / %2 preferred.",
+    "UI_SC_Map_WoodChoose": "Choose logging area on map",
+    "UI_SC_Map_WoodInstructions": "Logging area: click two opposite corners. Drag to pan; scroll to zoom. Maximum 128 x 128 tiles. Range: %2 tiles; beyond 200 tiles, the area must be visited or revealed on your map.",
+    "UI_SC_Map_WoodFirstCorner": "Click the first corner of the logging area.",
+    "UI_SC_Map_WoodSecondCorner": "Click the opposite corner. Drag to pan; scroll to zoom.",
+    "UI_SC_Map_WoodDimensions": "Logging area: %1 x %2 tiles",
+    "UI_SC_Map_WoodDistance": "%1 tiles to centre",
+    "UI_SC_Map_WoodUse": "Use area",
+    "UI_SC_Map_WoodRedraw": "Redraw",
+    "UI_SC_Map_WoodCancel": "Cancel",
+    "UI_SC_Map_WoodTreesHint": "Trees checked on arrival. Cut only inside this area; return when the log target or carrying limit is reached.",
+    "UI_SC_Map_WoodCarHint": "Blue marker: proposed car stop. Circle: 64-tile hauling range. Trees and ground checked on arrival.",
+    "UI_SC_Map_Reason_wood_area_size": "Select an area no larger than 128 x 128 tiles.",
+    "UI_SC_Map_Reason_wood_area_protected": "This area overlaps protected camp ground. Move or reduce the selection.",
+    "UI_SC_Map_Reason_wood_area_car_reach": "Area is beyond car hauling range. Move or reduce it, or choose walking.",
+    "UI_SC_Map_Reason_wood_area_route_pending": "Checking road access and car hauling range...",
+    "UI_SC_Expedition_WoodGroundUnloaded": "Some ground could not be loaded and checked. Returning available logs; the area is not confirmed empty."
 }

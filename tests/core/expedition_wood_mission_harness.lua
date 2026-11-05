@@ -497,4 +497,60 @@ do
     SC.Logistics, SC.Actor, F.preview = previousLogistics, previousActor, previousPreview
     W.departureGear, W.departureReady, SC_TEST_CLOCK = previousGear, previousReady, previousClock
 end
+do
+    local T=SC.ExpeditionTargets
+    local oldKnown,oldVerify,oldStatus=T.known,F.verify,W.status
+    local oldX,oldY=leader.x,leader.y
+    T.known=function()return true end
+    local target=T.resolveWoodArea({x1=132,y1=92,x2=199,y2=125,z=0},T.context(leader,"straight"))
+    local carService=SC.ExpeditionCar
+    local routeCalls=0
+    SC.ExpeditionCar={preflight=function()
+        routeCalls=routeCalls+1
+        return {exit=routeCalls==1 and {x=220,y=100,z=0} or {x=165,y=100,z=0}}
+    end}
+    local tripPlan,why=E.previewWoodAreaStop(roster,target,{})
+    check(not tripPlan and why=="wood_area_route_pending" and routeCalls==1,"one failed hauling stop consumes only one route attempt")
+    tripPlan=E.previewWoodAreaStop(roster,target,{})
+    check(tripPlan and routeCalls==2 and T.woodAreaReachable(target.workBounds,tripPlan.exit),"another approach can serve the entire rectangle")
+    E.previewWoodAreaStop(roster,target,{})
+    check(routeCalls==2,"unchanged road preview reuses its bounded plan")
+    SC.ExpeditionCar=carService
+    prepared=true
+    local okay,trip=E.startWoodCollection(roster,{travelMode="straight",mapTarget=target})
+    check(okay and trip.scout.wood.version==2 and #trip.scout.wood.sites==8,"area mission retains every cell")
+    E.updateWood(leader)
+    F.verify=function()return false,"forest_no_mature_trees"end
+    for i=1,4 do
+        local cell=trip.scout.wood.sites[trip.scout.wood.siteIndex]
+        leader.x,leader.y=cell.anchor.x,cell.anchor.y
+        follower.x,follower.y=leader.x+1,leader.y
+        SC_TEST_CLOCK=SC_TEST_CLOCK+1000
+        trip.scout.roadRoute,trip.testWaypoint,trip.cohesionHold=nil,nil,nil
+        E.pulse()
+    end
+    check(trip.scout.wood.siteIndex==5 and trip.scout.phase=="outbound","empty cells advance beyond the old three-patch limit: "
+        ..tostring(trip.scout.wood.siteIndex).."/"..tostring(trip.scout.phase).."/"..tostring(trip.scout.wood.preparationReason))
+    F.verify=function()return true,"forest_verified"end
+    local cell=trip.scout.wood.sites[5]
+    leader.x,leader.y=cell.anchor.x,cell.anchor.y
+    follower.x,follower.y=leader.x+1,leader.y
+    SC_TEST_CLOCK=SC_TEST_CLOCK+1000
+    trip.testWaypoint=nil
+    E.pulse()
+    check(trip.scout.phase=="wood_working" and E.woodRequestFor(leader).bounds.x1==cell.bounds.x1,"later cell supplies its exact bounds to the native worker")
+    local saved=E.export()
+    check(E.prepareReset() and E.reset(),"area session can close before reload")
+    local cleanWorkers=saved.scout.wood.workers
+    saved.scout.wood.workers={[leader.id]={phase="approach",scan=0,point={x=1,y=1,z=0}}}
+    check(not E.restore(saved),"reload rejects a held tree outside the active selected cell")
+    saved.scout.wood.workers=cleanWorkers
+    check(E.restore(saved),"reload accepts full area state through schema 8")
+    local restored=E.export()
+    check(restored.scout.wood.siteIndex==5 and restored.scout.wood.cellResults[target.sites[1].id]
+        and restored.scout.mapTarget.version==2,"reload preserves checked cells and selected rectangle")
+    check(E.prepareReset() and E.reset(),"area mission releases owned session")
+    T.known,F.verify,W.status=oldKnown,oldVerify,oldStatus
+    leader.x,leader.y=oldX,oldY
+end
 print("EXPEDITION_WOOD_MISSION_KAHLUA_PASS checks=" .. checks)

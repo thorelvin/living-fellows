@@ -3,7 +3,7 @@
 # Choose an expedition destination on the map
 
 Choose a squad, leader and mission in **Expeditions**, then select **Choose on
-map**. Right-click a building, shoreline or woodland and choose **Select**.
+map**. Right-click a building or shoreline and choose **Select**.
 The highlighted footprint or marker shows the actual destination. Selection
 returns to the mission review; **Launch expedition** sends the crew.
 
@@ -30,12 +30,23 @@ For fishing, the picker searches within 32 tiles of the click for a plausible
 bank. Check the highlighted landing point before selecting it. The crew checks
 actual water and access on arrival. The minimap may be disabled.
 
-For wood, the highlight marks a work area extending up to 32 tiles around the
-selected point. The crew tries up to three forest patches within that area,
-checks mature trees and returns partial cargo if it cannot continue. It does
-not relocate to a different forest. Driving crews retain the existing limit
-on hauling distance from their stopped car. Log quantities, the 256-log full
-load ceiling and storage-delivery requirements are unchanged.
+For wood, choose **Choose logging area on map**, then click two opposite
+corners. Drag to pan and scroll to zoom. The outline shows the exact cutting
+area, up to **128 × 128 tiles**; choose **Use area**, **Redraw** or **Cancel**.
+The entire area must meet range and exploration limits and avoid protected
+camp ground. Mature native trees qualify even without Forest map metadata.
+
+The crew works through the whole rectangle in small cells, checking actual
+trees on arrival. It stops at the requested quantity, carrying limit, return
+time or a safety interruption. It never cuts outside the outline or switches
+forests, and returns partial cargo if the remaining cells are empty or
+inaccessible. Tree counts are not promised for unloaded ground.
+
+Driving shows a proposed roadside stop and its **64-tile hauling circle**.
+The entire rectangle must fit inside it. If it cannot, move or shrink the
+selection, or choose walking. Stops remain provisional until the ground loads;
+crews do not move the car to expand the work area. Existing log quantities,
+the 256-log full-load ceiling and storage-delivery requirements remain in use.
 
 Escape, Back or closing the map leaves your previous destination intact.
 Editing the crew, travel mode or vehicle keeps the pin and requires a fresh
@@ -45,5 +56,7 @@ The turn-home choices are **1, 2, 4, 8, 12 or 24 game hours**. Travel counts
 toward this allowance, so leave time for work. Existing equipment-preparation
 waits pause departure; the timer does not start when work begins at the site.
 
-Manual missions use expedition save schema 8. Existing mission saves remain
-readable, and reloading preserves the selected work area and exact cargo.
+Manual missions retain expedition save schema 8, with version 2 descriptors
+for new logging rectangles and their work progress. Existing point targets
+and three-patch missions retain their original bounds and behaviour. Reloading
+preserves checked cells, borrowed axes, pending pickups and exact cargo.

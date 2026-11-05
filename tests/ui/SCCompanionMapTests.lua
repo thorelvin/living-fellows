@@ -113,6 +113,9 @@ assert(factionRows[3].name == "The Ash Creek Jackals"
         and factionRows[3].archetype == "bandit_camp",
     "discovered bandit camps retain their archetype in map rendering data")
 
+local previousUp=ISWorldMap.onMouseUp
+local stockUps=0
+ISWorldMap.onMouseUp=function()stockUps=stockUps+1 return false end
 local installed, installReason = Map.install()
 assert(installed == true and installReason == "installed")
 ISMiniMapInner.render(map)
@@ -140,7 +143,26 @@ assert(#fixture.reports == 0, "the world-map overlay must render without diagnos
 assert(Map.lastFactionDrawCount == 3,
     "the live harness must be able to confirm the actual world-map draw count")
 
+local previousPicker=SurvivorCompanion.ExpeditionMap
+local clicks=0
+SurvivorCompanion.ExpeditionMap={click=function()clicks=clicks+1 return true end}
+map.dragging,map.dragMoved=true,false
+ISWorldMap.onMouseUp(map,20,20)
+assert(clicks==1 and not map.dragging and stockUps==0,"a stationary map click selects an area corner")
+map.dragging,map.dragMoved=true,true
+ISWorldMap.onMouseUp(map,30,30)
+assert(clicks==1 and stockUps==1,"a map pan reaches the stock handler without selecting a corner")
+map.dragging,map.dragMoved=true,false
+map.symbolsUI={currentTool={}}
+ISWorldMap.onMouseUp(map,30,30)
+assert(clicks==1 and stockUps==2,"native symbol editing keeps its mouse event")
+map.symbolsUI=nil
+map.isMouseOverChild=function()return true end
+ISWorldMap.onMouseUp(map,30,30)
+assert(clicks==1 and stockUps==3,"clicking map controls cannot select a corner behind them")
+SurvivorCompanion.ExpeditionMap=previousPicker
 local removed, removeReason = Map.remove()
 assert(removed == true and removeReason == "removed")
 assert(ISMiniMapInner.render ~= nil)
 assert(ISWorldMap.render ~= nil)
+ISWorldMap.onMouseUp=previousUp

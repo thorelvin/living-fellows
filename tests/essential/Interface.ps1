@@ -9,7 +9,10 @@ $interfacePanelFiles = @(
     (Join-Path $Client 'SCUI.lua'),
     (Join-Path $Essential 'interface_commands.lua'),
     (Join-Path $UI 'SCUIBaseRefreshTests.lua'),
-    (Join-Path $UI 'SCHomeTripObservationTests.lua')
+    (Join-Path $UI 'SCHomeTripObservationTests.lua'),
+    (Join-Path $Client 'SCExpeditionTargets.lua'),
+    (Join-Path $Client 'SCExpeditionMap.lua'),
+    (Join-Path $UI 'SCExpeditionMapLayoutTests.lua')
 )
 @{ Name = 'interface-selected-and-cached'; Files = $interfacePanelFiles }
 

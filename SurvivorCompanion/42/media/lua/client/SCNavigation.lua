@@ -4335,6 +4335,8 @@ local function pathSearchBounds(pending)
     local hardMs = tonumber(U().config("navigationPathSearchHardMs")) or 30000
     if type(pending) == "table" and (pending.action == "move_to_base_storage"
         or pending.action == "move_to_car_trunk" and pending.workCampOnly == true
+            and pending.workReach == true
+        or pending.action == "expedition_wood_storage" and pending.workCampOnly == true
             and pending.workReach == true) then
         -- A marked container can be only a few tiles away across a room wall;
         -- reaching its door, or leaving it for a marked camp car, can need more
