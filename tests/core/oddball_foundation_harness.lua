@@ -473,6 +473,31 @@ check(deputySite and deputySite.spawn.x == 20
     and #deputySite.captiveSpawns >= 1
     and deputySite.captiveSpawns[1].x ~= deputySite.spawn.x,
     "deputy stands at the checkpoint while captives begin in distinct cells")
+do
+    local bathroom = { getName = function() return "bathroom" end }
+    local savedRooms = {}
+    for key, room in pairs(stationSquares) do
+        savedRooms[key] = room
+        stationSquares[key] = bathroom
+    end
+    local hershel = SC.Oddballs.definition("bitten_hershel_combs")
+    local previousBitten = SC.OddballBitten
+    SC.OddballBitten = { bitesInfect = function() return false end }
+    check(SC.Oddballs._siteForResidentForTests(U.gridSquare(20, 20, 0),
+            player, hershel, "bathroom", true) == nil,
+        "Hershel is never seeded where the sandbox makes a bite harmless or instant")
+    SC.OddballBitten.bitesInfect = function() return true end
+    local hershelSite = SC.Oddballs._siteForResidentForTests(
+        U.gridSquare(20, 20, 0), player, hershel, "bathroom", true)
+    check(hershelSite and hershelSite.kind == "resident"
+            and hershelSite.spawn.x == 20,
+        "Hershel sits in a real bathroom where a bite is fatal")
+    check(SC.Oddballs._siteForResidentForTests(U.gridSquare(20, 20, 0),
+            player, hershel, "kitchen", true) == nil,
+        "Hershel's lines name a bathroom, so no other room may hold him")
+    SC.OddballBitten = previousBitten
+    for key, room in pairs(savedRooms) do stationSquares[key] = room end
+end
 local originalOccupyingObject = U.squareOccupyingObject
 U.squareOccupyingObject = function(square)
     if square and (square.x == 20 or square.x == 21) then
@@ -951,11 +976,18 @@ for _, pair in ipairs({
     { "morton_buster", "OddballMorton" },
     { "mien_ward", "OddballMien" },
     { "grinder_berg", "OddballGrinder" },
+    { "firecracker_bernice_hupp", "OddballFirecracker" },
+    { "bitten_hershel_combs", "OddballBitten" },
 }) do
     local definition = SC.Oddballs.definition(pair[1])
     check(definition and definition.module == pair[2],
         "last encounters registered with native behavior modules")
 end
+check(SC.Oddballs.definition("firecracker_bernice_hupp").kind == "roamer"
+        and SC.Oddballs.definition("firecracker_bernice_hupp").recruitment == false
+        and SC.Oddballs.definition("bitten_hershel_combs").kind == "resident"
+        and SC.Oddballs.definition("bitten_hershel_combs").firstEligibleOffsetDays == 9,
+    "Miss Liberty roams unrecruitable; Hershel waits until nine days can be true")
 
 -- A sealed horde may only seed behind one closed, reachable interior door.
 do

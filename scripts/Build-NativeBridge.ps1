@@ -37,8 +37,17 @@ if (-not $javac) {
     if ($command) { $javac = $command.Source }
 }
 if (-not $javac) { throw 'A Java 17 JDK with javac.exe is required to build the native bridge.' }
-$compilerOutput = @(& $javac -version 2>&1)
-$compilerExit = $LASTEXITCODE
+# Windows PowerShell 5.1 turns a redirected native stderr line into a
+# terminating error under 'Stop'. The gate's JAVA_TOOL_OPTIONS makes javac
+# print "Picked up ..." on stderr, so read the version with 'Continue'.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $compilerOutput = @(& $javac -version 2>&1)
+    $compilerExit = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousPreference
+}
 $compilerVersion = @($compilerOutput | ForEach-Object { [string]$_ } |
     Where-Object { $_ -match '^javac\s+' } | Select-Object -First 1) -join ''
 if ($compilerExit -ne 0 -or $compilerVersion -notmatch '^javac\s+17(?:\.|$)') {

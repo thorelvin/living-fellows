@@ -592,6 +592,23 @@ local definitions = {
                 outfit = "Spiffo", visualSeed = 3100233 },
         }, memberRoles = { "leader", "scout", "storyteller", "watcher" },
         module = "OddballFurryPack" },
+    { id = "firecracker_bernice_hupp", name = "Bernice \"Miss Liberty\" Hupp",
+        archetype = "oddball_roamer", kind = "roamer",
+        recruitment = false, firstEligibleOffsetDays = 2,
+        identity = { forename = "Bernice", surname = "Hupp",
+            gender = "female", outfit = "ShellSuit_Pink",
+            extras = { "Base.Hat_Stovepipe_UncleSam" }, dirt = 0.4,
+            visualSeed = 3100235 },
+        kit = { items = { "Base.Lighter" } },
+        module = "OddballFirecracker" },
+    { id = "bitten_hershel_combs", name = "Hershel Combs",
+        archetype = "oddball_resident", kind = "resident",
+        recruitment = false, firstEligibleOffsetDays = 9,
+        identity = { forename = "Hershel", surname = "Combs",
+            gender = "male", outfit = "Generic02", gore = 0.35,
+            dirt = 0.6, visualSeed = 3100236 },
+        kit = { items = { "Base.WaterBottle", "Base.Pills" } },
+        module = "OddballBitten" },
 }
 -- Scene modules own their signature weapons and reward stock. These small
 -- personal kits fill the gaps without changing an encounter's combat script.
@@ -902,6 +919,7 @@ local function isResidentRoom(id, name)
         return true
     end
     if id == "pyromaniac_earl_kessler" then return true end
+    if id == "bitten_hershel_combs" then return name == "bathroom" end
     return false
 end
 
@@ -2536,6 +2554,11 @@ local function siteForResident(square, player, definition, name, allowSeen)
     end
     if definition.id == "preacher_reverend_amos"
         and not churchUnderSiege(square) then return nil end
+    -- Hershel's whole story is a fatal bite. Where the sandbox makes bites
+    -- harmless or instantly fatal, his request would be false; skip him.
+    if definition.id == "bitten_hershel_combs" and not (SC.OddballBitten
+        and type(SC.OddballBitten.bitesInfect) == "function"
+        and SC.OddballBitten.bitesInfect()) then return nil end
     local building = select(1, U().call(square, "getBuilding"))
     local spawn
     local captiveSpawns, distinctCells = {}, {}
@@ -3570,7 +3593,8 @@ local function ambientSiteFor(square, player, definition, name, building, visite
     elseif definition.kind == "roamer" then
         if definition.id == "peddler_mister_ebb" then
             return siteForEbb(square, player)
-        elseif definition.id == "dewey_prentice_hollowell" then
+        elseif definition.id == "dewey_prentice_hollowell"
+            or definition.id == "firecracker_bernice_hupp" then
             return siteForEbb(square, player, false, true)
         end
         return siteForRed(square, player)
@@ -3922,7 +3946,8 @@ function Oddballs.debugSpawnRandom(player)
                             site = siteForFan(square, player, true)
                         elseif definition.kind == "roamer" then
                             if definition.id == "peddler_mister_ebb"
-                                or definition.id == "dewey_prentice_hollowell" then
+                                or definition.id == "dewey_prentice_hollowell"
+                                or definition.id == "firecracker_bernice_hupp" then
                                 site = siteForEbb(square, player, true, true)
                             else
                                 site = siteForRed(square, player, true)
