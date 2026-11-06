@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.26.94 — First Edition, Twenty-Sixth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.27.1 — First Edition, Twenty-Seventh Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -334,7 +334,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma-locks"><strong>Break into a locked computer.</strong></a> Undelete the owner's files, turn the Larchfield code wheel or argue your case with EMMA, then open the drawer beside it.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.26.94</strong>, with <a href="#emma-locks">locked computers and their drawers</a>, <a href="#ch8_meals">proper meals and stamina that comes back</a>, <a href="#ch5c_board">followers who run for the car</a> and <a href="#ch11_floor">sorting in stacks of up to twenty</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.1</strong>, with <a href="#ch18c_new">seven new Strange Folk</a>, <a href="#ch17_home">sending someone home on foot or by car</a>, <a href="#ch17_prep">expedition kits packed before they leave</a>, <a href="#ch17_wood">logging areas picked on the map</a> and <a href="#emma-locks">locked computers and their drawers</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -390,6 +390,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
     <li><a href="#part4">Part IV — Beyond the Fence</a> <span class="toc-stage">Journeys &amp; Strangers</span>
       <ol>
         <li><a href="#ch17">Ch 17: Expeditions</a></li>
+        <li><a href="#ch17_home">Sending someone home</a></li>
+        <li><a href="#ch17_prep">Getting ready to leave</a></li>
         <li><a href="#ch18">Ch 18: Households, Trade and Bandits</a></li>
         <li><a href="#ch18b">Ch 18b: Contracts, Quests and Recruitment</a></li>
         <li><a href="#ch18c">Ch 18c: Strange Folk</a></li>
@@ -575,7 +577,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3>Loadout</h3>
 <table>
   <tr><th>Section</th><th>What's there</th></tr>
-  <tr><td><strong>Gear</strong></td><td>Equipped weapon and weapon preference; supplies (bandages or rags, food, water); rounds of ammunition; carry load, and whether overload is allowed</td></tr>
+  <tr><td><strong>Gear</strong></td><td>Equipped weapon and weapon preference; supplies (bandages or rags, food, water); rounds of ammunition; carry load against its Strength carrying limit, and whether overload is allowed</td></tr>
   <tr><td><strong>Weapon priority</strong></td><td>Best available, prefer melee, prefer firearms, or quiet weapons</td></tr>
   <tr><td><strong>Carry policy</strong></td><td>Allow or prevent overload</td></tr>
   <tr><td><strong>Vehicle</strong></td><td>On foot, approaching a vehicle, in a vehicle, or waiting for a safe exit, with their assigned seat (<a href="#ch5c">Chapter 5c</a>)</td></tr>
@@ -589,7 +591,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p><span class="menu">Medical Check</span> on the game's right-click menu runs the game's own timed examination when you stand within about two tiles, then opens the companion's body-part panel. Treat what you find with your own bandages, splints and disinfectant. The companion holds still while the panel is open, and the check ends if you walk away or a zombie comes within a couple of tiles of them.</p>
 
-<p>Give a companion a weapon, clothing or a bag through its backpack and it looks the gift over once it is safe, favourites included, taking up a usable weapon or better clothing or bag. A gifted weapon may earn a thank-you. To choose for it, right-click an item in its backpack, even one inside a bag, and pick <span class="menu">Equip on <em>name</em></span> or <span class="menu">Wear on <em>name</em></span>. That exact item goes on the companion, not on you, and stays there while it is usable.</p>
+<p>Give a companion a weapon, clothing or a bag through its backpack and it looks the gift over once it is safe, favourites included, taking up a usable weapon or better clothing or bag. A gifted weapon may earn a thank-you. To choose for it, right-click an item in its backpack, even one inside a bag, and pick <span class="menu">Equip on <em>name</em></span> or <span class="menu">Wear on <em>name</em></span>. That exact item goes on the companion, not on you, and stays there while it is usable. Gas masks and respirators, improvised ones included, are only ever put on this way: a worn mask uses up its filter, so a companion never puts one on by itself.</p>
 
 <table>
   <tr><th></th><th>Wound state</th><th>What to do</th></tr>
@@ -700,7 +702,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Rear guard</strong></td><td>Behind the group</td><td>A cautious survivor who watches the way you came</td></tr>
 </table>
 
-<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. They strongly prefer a nearby open door to breaking an intact window. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
+<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. They take doors and stairs for ordinary travel. A window latched on their side is opened, not smashed; they break glass only when something is attacking them or about to reach them. They climb out of an upper window only onto solid ground or a roof with a checked way on, and a companion that keeps going back and forth through the same window gives that route a two-minute rest. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
 
 <h3>What They Can See</h3>
 <p>In clear conditions a companion spots zombies up to <strong>24 tiles</strong> away, but each one has to see the target for itself. Walls, closed doors and other floors block sight. Noise behind a wall produces only an uncertain warning, never a confident callout.</p>
@@ -2304,12 +2306,49 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <figcaption><span class="plate-no">Plate 8</span> A paper map of Muldraugh. Choose a destination on your map or browse nearby places; this is the kind of town it sends them into. <span class="credit">Image: PZwiki</span></figcaption>
 </figure>
 
+<h3 id="ch17_home">Sending Someone Home</h3>
+<p>You can send nearby recruited followers back to camp while you carry on. They travel there themselves, with the leader in the companion view. Mark a camp and its core first; departure and the core must be on the ground floor. One to four companions can go, with routes up to <strong>1,000 meters on foot</strong> or <strong>5,000 meters by car</strong>.</p>
+<ol class="steps">
+  <li><span class="step-n">1</span>Choose <span class="menu">Send home…</span> in a companion's quick orders, or <span class="menu">Group: go home…</span> on the Squad tab.</li>
+  <li><span class="step-n">2</span>Check <strong>Who</strong>, the leader and the named travellers. Choose <strong>Walk</strong> or <strong>Drive</strong>, then read the route, arrival plan and any exclusions.</li>
+  <li><span class="step-n">3</span>Select <span class="menu">Send home</span>. The trip card follows their journey and keeps the reason visible if they have to stop.</li>
+</ol>
+<figure class="plate terminal-shot">
+  <a href="assets/lf_home_review.png" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_home_review.png" alt="The Send home review for two companions, showing Drive, the chosen car, fuel, key holder, road distance and expected parking."></a>
+  <figcaption><span class="plate-no">Homeward</span> Check the travellers, car, key and expected parking before sending them. An expected bay is checked for clearance when they arrive. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+<h4>Walking or Taking the Car</h4>
+<p>Walk follows the reviewed road or direct route. Drive lists cars within <strong>30 meters of the leader</strong>. Your own car is allowed when you are outside it. It must be stopped, have enough installed seats for the whole crew, usable wheels and engine, enough fuel and a real key held by a traveller. Unrelated occupants block departure. You can also right-click a car and choose <span class="menu">Send home in this car</span>.</p>
+<p>The crew aims for a fitting marked parking area. If none is suitable, the plan can use a roadside stop outside camp, within 40 meters of its core. They stop the engine, get out safely and walk the rest. If driving fails, the card explains the stop and walking fallback; nobody is moved straight to camp.</p>
+<h4>Arrival and Supplies</h4>
+<p>Every surviving traveller must reach camp before the trip finishes. The companion view then closes, even while you are elsewhere. Their supplies stay with the real car or carrier. Camp cleanup and restocking can wait until you return and the camp is loaded.</p>
+<p><strong>Home does not mean everything is stored.</strong> A car in marked parking can be unloaded into permitted camp storage. Roadside cargo stays in the trunk until the car is moved into marked parking. Full, locked or unreachable storage leaves work pending. The debrief separates arrival, stored cargo, restocking shortages and base duty. Saving during unloading keeps carried items with their companions.</p>
+<figure class="plate terminal-shot">
+  <a href="assets/lf_home_delivered.png" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_home_delivered.png" alt="The Home debrief at camp showing the parked car, four cargo items stored, restocked supplies and individual shortages."></a>
+  <figcaption><span class="plate-no">Back at Camp</span> Four cargo items have reached storage. Restocked supplies and shortages are reported separately, while the returned companions resume camp work. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+<h4>Changing Their Orders</h4>
+<p>When your character is near the leader on the same floor and can see them, <span class="menu">Call off trip</span> brings the crew back to you. Everyone must gather before the view closes and Follow resumes. Seeing them through the companion view does not put your character within earshot.</p>
+<p>From farther away, equip a powered, working <strong>two-way radio on you and on the leader</strong>. Both must be on the same channel and within two-way range. The trip card offers these calls:</p>
+<table>
+  <tr><th>Call</th><th>What they do</th></tr>
+  <tr><td><strong>Come back</strong></td><td>Turn back to the place you called from. Meet them there; the call does not track your later movement.</td></tr>
+  <tr><td><strong>Hold</strong></td><td>Stop safely and wait.</td></tr>
+  <tr><td><strong>Status</strong></td><td>Reply with their situation and location. A distant report is dated information, not a live view.</td></tr>
+  <tr><td><strong>Push on</strong></td><td>Continue from a hold or make another attempt after a blocked report, when the route allows it.</td></tr>
+</table>
+<p>A call waits for the leader's received reply before changing the trip. Only one call can be pending; the other radio controls wait until it finishes. If the radios cannot reach each other, the card explains what is missing.</p>
+<figure class="plate terminal-shot">
+  <a href="assets/lf_home_radio.png" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_home_radio.png" alt="The companion view remains open while the trip card reports Holding, with Radio: Hold disabled, Radio: Push on available and a received report dated 15:05."></a>
+  <figcaption><span class="plate-no">Radio Hold</span> The companion view stays open while the crew waits. Hold is disabled; Push on is available. The card dates the received report at 15:05. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+</figure>
+<p>For a driving trip, <strong>Hold keeps the chosen car and cargo while the crew stops safely</strong>; Push on resumes the journey. Come back instead stops the car, gets everyone out safely and brings the crew back on foot. The car and its trunk cargo stay at that stop.</p>
 <h3>Planning a Trip</h3>
 <ol class="steps">
   <li><span class="step-n">1</span>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
   <li><span class="step-n">2</span>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
   <li><span class="step-n">3</span>Choose the mission: <strong>Scout</strong>, <strong>Search</strong>, <strong>Fish nearby water</strong> or <strong>Collect wood</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
-  <li><span class="step-n">4</span>Choose <span class="menu">Choose on map</span>, right-click a building, shoreline or woodland, then select the highlighted destination. You can also browse nearby places or let Collect wood find woodland automatically.</li>
+  <li><span class="step-n">4</span>Choose <span class="menu">Choose on map</span>, right-click a building or shoreline, then select the highlighted destination. For wood, choose <span class="menu">Choose logging area on map</span> and click two opposite corners. You can also browse nearby places or let Collect wood find woodland automatically.</li>
   <li><span class="step-n">5</span>Choose how to travel, how long before they turn home, and the combat style.</li>
   <li><span class="step-n">6</span>Review the plan and select <span class="menu">Send squad</span>.</li>
 </ol>
@@ -2330,6 +2369,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Time before turning home</strong></td><td>1, 2, 4, 8, 12 or 24 game hours</td></tr>
   <tr><td><strong>Combat style</strong></td><td>Stealth, Close Defense, or Aggressive (weapons free)</td></tr>
 </table>
+<h3 id="ch17_prep">Getting Ready to Leave</h3>
+<p>Before anyone sets off, each member packs for the trip. They put spare camp stock back into permitted storage, look there for a better bag, keep their tools, food, water and bandages, and leave room for what they are being sent to bring home. Food goes in fresh first, then ordinary, then emergency rations. The Expeditions tab shows each member's step, such as <em>packing carried gear</em>, <em>storing camp surplus</em>, <em>fitting a bag</em> or <em>ready</em>, with their carry load against their real carrying limit, the largest free space, usable bags and any shortage of food, water or medicine. Blocked preparation retries after three minutes, and <span class="menu">Retry preparation</span> tries again at once. The turn-home timer starts only when they depart.</p>
 <p>A place marked <em>Map location; the building has not been confirmed from inside</em> comes from map data rather than a visit. The sandbox option <strong>Expedition destination choices</strong> can limit the list to locations visited or revealed by reading maps (<a href="#appB">Appendix B</a>). The review shows the route length and which roads it takes, and warns about any long stretch off-road at the start or end. Street junctions stay provisional until the leader sees the ground.</p>
 
 <h3 id="ch17_map">Choosing on the Map</h3>
@@ -2350,7 +2391,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Set how many fish to bring home, and the planner lists <strong>fishing banks</strong> instead of buildings: confirmed shores in the loaded world, and possible shores from the map's water up to 1,000 tiles away, which the leader checks on arrival. A remote shore is only a suggestion until the squad reaches it. Paging through the list reuses one scan; <span class="menu">Refresh</span> looks again. Before departure, the leader collects a usable rod and bait from permitted camp storage. Missing supplies pause preparation and retry automatically, without spending the trip's relative return timer. Other members with their own gear fish too, and the rest stand guard. Only fish caught near the chosen bank count. The squad heads home with the catch, after about two hours at the water, or at the turn-home time, and earlier if the bank has no usable water or the bait runs out.</p>
 
 <h4 id="ch17_wood"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Collect wood</h4>
-<p>Send the crew on foot or by car. Choose <strong>1, 2, 4, 8, 12 or 24 logs</strong> (12 by default), or <strong>Full load</strong>, limited by real carrying space and a ceiling of 256 logs per trip. Automatic discovery finds woodland within 1,000 tiles. Or choose a woodland work area on the map, up to 1,000 tiles walking or 5,000 driving on known terrain. A manually assigned crew tries up to three patches inside the highlighted area and returns partial cargo if it cannot continue, rather than switching forests. The crew checks mature trees on arrival.</p>
+<p>Send the crew on foot or by car. Choose <strong>1, 2, 4, 8, 12 or 24 logs</strong> (12 by default), or <strong>Full load</strong>, limited by real carrying space and a ceiling of 256 logs per trip. Automatic discovery finds woodland within 1,000 tiles. Or choose <span class="menu">Choose logging area on map</span> and click two opposite corners, up to <strong>128 × 128 tiles</strong>. Drag to pan, scroll to zoom, then choose <strong>Use area</strong>. Redraw starts over; Cancel keeps your previous destination. The whole area must be within 1,000 tiles walking or 5,000 driving; ground beyond 200 tiles must be visited or revealed by reading maps. Protected camp ground cannot be included. The crew checks actual mature trees on arrival and works through the rectangle, even on maps without Forest tags. It cuts only inside the outline, stops at the requested log count or carrying limit, and returns partial cargo if it runs out of usable trees.</p>
+<figure class="plate">
+  <img loading="lazy" decoding="async" src="assets/lf_logging_area.webp" width="1280" height="720" alt="The in-game map shows a selected logging rectangle near Rosewood fire station, its dimensions, and Use area, Redraw and Cancel buttons.">
+  <figcaption>A logging area selected on the real game map. Click opposite corners, check the outline, then choose Use area. The crew checks actual trees when it arrives.</figcaption>
+</figure>
+<p>Driving uses one stop. The map shows the proposed car stop and a <strong>64-tile hauling circle</strong>; the entire rectangle must fit inside it. If it does not, move or shrink the area, or choose walking. The crew confirms loaded ground on arrival and returns if the stop cannot safely serve the area.</p>
 <p>Preparation borrows a usable axe from permitted camp storage, waiting and retrying if none is available. One companion cuts while the others haul and protect them; a lone worker does both. Walkers need room for logs as well as tools and essentials. Driving crews shuttle logs to the trunk. A full load, the requested amount, danger, a broken last axe or the return timer sends them home with what they have. Unless <strong>Work outside at night</strong> is enabled, preparation waits until 06:00 and outdoor wood work ends at 21:00.</p>
 <p><strong>Collected, carried and stored are separate counts.</strong> Home delivery prefers permitted Log Yard, Construction, then General storage. Logs form four-log stacks in rows in a yard. Full or unreachable storage keeps the cargo pending and retries every three minutes; <strong>Retry</strong> is there if you have just made room. Borrowed axes go back too, even from a bag. Delivery is required whether or not <strong>Restock and resume base duty</strong> is enabled.</p>
 
@@ -2368,7 +2414,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </div>
 
 <h4>Drive car</h4>
-<p>Mark a ground-floor <strong>Parking area</strong> at camp or on a driveway within 20 tiles of its boundary, then park the car completely inside it. Choose <strong>Drive car</strong> under Travel route and select the area and car. The review checks physical seats, working engine and wheels, fuel for both car legs plus reserve, and a clear exit to the road. A straight driveway up to 100 tiles long counts as an exit, and its length is part of the fuel plan. The leader needs the car key, a squadmate who can pass it over, a key left in the ignition, or a car that is already hotwired. A key only in your pockets will not travel with them. The squad walks to its doors, boards, drives to a roadside stop, continues to the site on foot, then drives back to the marked area and gets out. Driving uses normal 1x game speed. Six or more zombies ahead trigger an avoidance scan; if there is no safe way around, the car stops instead of ploughing into the horde. Squad members don't stop to shelve gear on an expedition; one caught shelving when the car leaves stops and boards.</p>
+<p>Mark a ground-floor <strong>Parking area</strong> at camp or on a driveway within 20 tiles of its boundary, then park the car completely inside it. Choose <strong>Drive car</strong> under Travel route and select the area and car. The review checks physical seats, working engine and wheels, fuel for both car legs plus reserve, and a clear exit to the road. A straight driveway up to 100 tiles long counts as an exit, and its length is part of the fuel plan. The leader needs the car key, a squadmate who can pass it over, a key left in the ignition, or a car that is already hotwired. A key only in your pockets will not travel with them. Each member gets an installed passenger seat whose door they can reach, and the seats are checked again at departure. If parked cars block the nearest way onto the road, the planner tries up to six nearby road connections and checks each whole route; a refusal says whether the parking outline or the road access is the problem. The squad walks to its doors, boards, drives to a roadside stop, continues to the site on foot, then drives back to the marked area and gets out. Driving uses normal 1x game speed. Six or more zombies ahead trigger an avoidance scan; if there is no safe way around, the car stops instead of ploughing into the horde. Squad members don't stop to shelve gear on an expedition; one caught shelving when the car leaves stops and boards.</p>
 <p><strong>Parking fit:</strong> The whole car, not just its centre, must fit within one marked Parking area. A car straddling two areas will not be listed, even when the two areas together cover it. You can mark several Parking areas and park several cars in each one. Choose a particular area and car in the expedition planner, or leave them on <span class="menu">Any marked parking area</span> and <span class="menu">Any usable parked car</span> to use an eligible vehicle. Leave room to reach the doors and for the squad to park when it returns.</p>
 
 <p>If a parked car needs hotwiring, bring a recruited companion with the Burglar trait or at least Electrical 1 and Mechanics 2. Right-click the car and choose <span class="menu">Command hotwire → <em>companion name</em></span>. They must be nearby and able to reach the driver door. They enter the driver's seat, try the game's hotwire action, get out, and report success or failure. A hotwired car needs no key for companion driving. Boarding first tries to open the door; a driver who cannot unlock it may break the driver window to reach the lock. The engine can reject a hotwire attempt, so check the result before planning the trip.</p>
@@ -2581,17 +2627,17 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.26.94 uses native bridge protocol <code>42.21-isocompanion-27</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.1 uses native bridge protocol <code>42.21-isocompanion-30</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
-<p>Not every stranger is a household looking for supplies. Sixty-five hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
+<p>Not every stranger is a household looking for supplies. Seventy-two hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
 <h3>How They Turn Up</h3>
 <ul>
   <li><strong>One at a time, now and then.</strong> From the second day, after 24 game hours, every few days (three by default) a randomly chosen eligible stranger may settle into a fitting building 35 to 90 tiles from you, somewhere you can't see at that moment. Without a suitable place the meeting waits. At most two stories run at once; Doctor Pest and the Bluegrass Bolt arrive together and take both places.</li>
   <li><strong>Each appears once per save.</strong> When a story ends, that character is done.</li>
-  <li><strong>Some hold back.</strong> Most can turn up in the first week. The Knox Defense League, Doctor Pest and the Bolt, the Bledsoe brothers, Dalton Reese, Renfro, Gordon, Morton and Elmer wait about two weeks; the Trestle Goatman and the Tolliver siege wait into the third.</li>
+  <li><strong>Some hold back.</strong> Most can turn up in the first week; Hershel Combs waits nine days. The Knox Defense League, Doctor Pest and the Bolt, the Bledsoe brothers, Dalton Reese, Renfro, Gordon, Morton and Elmer wait about two weeks; the Trestle Goatman and the Tolliver siege wait into the third.</li>
   <li><strong>They live around you.</strong> A stranger sleeps while you are more than about 120 tiles away and wakes when you come back within about 100. Expeditions don't meet them: a squad passing a sleeping stranger's house finds it empty, and no story starts or ends without you.</li>
-  <li><strong>Their rooms keep for a while.</strong> For the first few minutes, zombies won't break through the doors and windows of a resident's room, so you find the scene and not its aftermath. A few rooms stay shut until the story opens them.</li>
+  <li><strong>Their rooms keep for a while.</strong> For the first few minutes, zombies won't break through the doors and windows of a resident's room, so you find the scene and not its aftermath. A few rooms stay shut until the story opens them. Some scenes start quiet: walkers nobody can see are cleared from around them, and some buildings have their outside doors pulled shut.</li>
   <li><strong>Sandbox switches.</strong> <span class="menu">Strange Folk encounters</span> turns new strangers off (anyone already met stays), and <span class="menu">Days between Strange Folk encounters</span> sets the gap from 1 to 14 days (<a href="#appB">Appendix B</a>).</li>
 </ul>
 
@@ -2603,8 +2649,23 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3 id="ch18c_calls">Calls for Help</h3>
 <p>Two of them radio for rescue on <strong>90 MHz</strong>: Eli Rourke and Nate Duvall. Hold or wear a powered portable radio tuned to 90 MHz with the volume up, and you'll hear them while their area is loaded, as long as you are more than three tiles away and well inside their radio's range. Eli calls every 90 seconds and Nate a little less often; storm static can garble a call, and the next one gets through. To answer, you need a working two-way radio: right-click it in your inventory and choose <span class="menu">Reply to <em>name</em> on 90 MHz</span>. The rescue location goes on your map.</p>
 
+<h3 id="ch18c_air">On the Air</h3>
+<p>Two more are heard before they are met. <strong>Dwayne Stidham</strong> reads the Gospel Hour on <strong>FM 103.4</strong> at 08:00, 13:00 and 19:00 from a station van, and any radio tuned and in range picks it up. <strong>Garland Hatcher</strong> sends sitreps on <strong>146.6 MHz</strong> at 06:00 and 20:00: the walkers he can count around his camp and tomorrow's weather from the game's own forecast. To talk back, hold or wear a powered two-way radio set to 146.6 with the microphone on, within range of his set both ways, then right-click it in your inventory and choose a <span class="menu">146.6: …</span> call. Start by asking who is broadcasting. He trusts you one step more for each day you call, and more than three calls in an hour sends him quiet until 06:00 the next day.</p>
+
 <h3>The Cast</h3>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span><strong>Spoilers.</strong> The tables below give away each stranger's hook. Skip them if you'd rather meet everyone cold. <strong>✚</strong> marks someone who can join you once the story and trust allow.</div>
+
+<p class="tbl-note" id="ch18c_new">New in 0.27.1</p>
+<table>
+  <tr><th>Person</th><th>Where</th><th>What to know</th></tr>
+  <tr><td><strong>Bernice “Miss Liberty” Hupp</strong></td><td>On a road near a butcher's, barn or farm store</td><td>It is the Fourth of July for her, every day. She follows you and throws her ten real firecrackers at your feet, and the dead come to the bang. Ask her to stop and she won't. She runs when the box is empty, when the dead get close or when she is hit.</td></tr>
+  <tr><td><strong>Hershel Combs</strong></td><td>A bathroom floor</td><td>Bitten nine days ago and counting. Sit with him, ask about the bite, refuse him, or do what he asks. However it ends, he stays down. He only turns up where bites infect.</td></tr>
+  <tr><td><strong>Gary and Ron</strong></td><td>Living room</td><td>They put their families on the evacuation buses and stayed behind to settle a dad-joke feud, tied at forty-one. Judge a best of five; the winner hands you his beer.</td></tr>
+  <tr><td><strong>Dwayne Stidham</strong> ✚</td><td>A radio van on a clear road</td><td>He ran the board for the Gospel Hour and keeps reading the late Reverend's last twelve sermons on air (above). Give him a book, magazine or comic and he reads that on air too. When the reading runs out he signs off and may come along.</td></tr>
+  <tr><td><strong>Bob Kenley</strong> ✚</td><td>Gun store</td><td>Kenley's Guns. He nearly shoots you at the door, then brags about his new front glass or, in a store without it, about the deadbolts he has locked himself in behind. The dead come anyway, through the glass or the door. If he lives, he hands over an M1911, two magazines and a box of .45 rounds.</td></tr>
+  <tr><td><strong>Garland Hatcher</strong> ✚</td><td>A forest clearing</td><td>A retired sergeant who walked into the woods when the order came to fire on the fence. Talk to him on 146.6 (above): his trust buys a stocked supply cache, then directions to his camp. Meet him there and he may join.</td></tr>
+  <tr><td><strong>Ruth Ann Sizemore</strong></td><td>On a road at dusk, near a butcher's, barn or farm store</td><td>She thumbs a ride. Stop your car beside her and she gets in and names her house, which goes on your map. Drive her home and let her go in. Visit later.</td></tr>
+</table>
 
 <p class="tbl-note">Shops, bars and stages</p>
 <table>
@@ -2767,6 +2828,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Ordinary colds</td><td>on / off</td><td>on</td><td>Off clears a companion's cold and stops new ones; Knox infection and infected wounds are untouched. A cold caught in the moment before can still make one sound.</td></tr>
   <tr><td>Protect recruited companions from player attacks</td><td>on / off</td><td>off</td><td>Your swings, shoves, stomps and shots do nothing to a recruited ally, and your explosives' blast does it no damage (<a href="#ch9d_hits">Ch 9d</a>). Fire, burns and car hits still hurt.</td></tr>
   <tr><td>Terminal movement lamp</td><td>Flash, Steady, Off</td><td>Flash</td><td>Shows approaching threats while you recover a locked computer. Flash is capped at three flashes a second, Steady changes brightness, and Off hides the lamp and its ticks.</td></tr>
+  <tr><td>PZOptimizer combat compatibility</td><td>on / off</td><td>on</td><td>With a supported PZOptimizer build installed, zombies keep making the game's own attacks on Living Fellows people; other attacks keep the optimizer's handling. Its status is in the Support report. Without PZOptimizer it does nothing.</td></tr>
 </table>
 
 <p class="appendix-label">Appendix C</p>
@@ -2827,7 +2889,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.26.94</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.1</td></tr>
   <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -3067,7 +3129,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.26.94 &nbsp;·&nbsp; First Edition, Twenty-Sixth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.27.1 &nbsp;·&nbsp; First Edition, Twenty-Seventh Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
