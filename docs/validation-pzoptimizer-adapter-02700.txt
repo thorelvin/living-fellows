@@ -87,15 +87,61 @@ and changed class resources are explicit negative cases. No game client ran.
 Evidence: build/combat-tester-20261106/headless/*.log.
 Headless hook verification does not establish animation or injury outcomes.
 
-Live verification still required
+Live native-impact confirmation, 2026-11-06
 
-Run one isolated two-companion/three-zombie passive encounter with the adapter
-active, optimizer defaults retained and a normal ZombieBuddy installation.
-Require completed attack clips and native damage receipts; capture a block and
-recovery if encountered. Do not count this scenario as passed from the older
-global-setting controls or from the new headless hook test.
+Run: SC-Harness-20261106-180219-4e32ca12, fresh cloned world with suffix -combat.
+Committed bridge 6bf1fd05, the exact optimizer release above, and actual
+ZombieBuddy 2.3.3 premain/PatchEngine. Adapter active throughout both encounters.
+Optimizer actionEvalParallel, animatorParallel, animatorPipeline and
+actionSnapshotFilter remained true. No global parallelism switch was changed.
+Resource caps: one client, 2560 MB heap, four logical CPUs, two optimizer workers,
+BelowNormal priority, 60 FPS, memory/deadline watchdog. Game exited normally.
 
-The installed game launcher remained byte-identical during headless checks:
-E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307
-This validation did not perform a local install. Live combat acceptance remains
-pending; the automated results above must not be presented as a live pass.
+Two LF companions and three native zombies, natural acquisition, 45 seconds:
+- Passive incoming-attack control: both companions survived; three wounds;
+  18.60 combined health loss; lowest companion health 81.4. The last sample
+  recorded 25 attack starts, eight success outcomes and four rising native
+  attackDidDamage events. Thus attacks reached the native impact/damage path,
+  rather than repeating starts indefinitely. Native screenshot shows the bite.
+- Ordinary Stay/crowbar combat: both companions survived at 100 health; nine
+  offensive actions, eight landed hit receipts and two actual zombie corpses.
+  One zombie remained after 45 seconds; this is not a claim of a complete wipe.
+- Zero scripted fallback damage applications in either trial. The adapter's
+  inline counter rose from zero to 6814, proving the live advice was exercised.
+- Observer endurance stayed exactly 1.0 in every two-second sample; identity
+  remained the real player in slot zero and isCompanion(player) stayed false.
+  Observer health recovered from 97.63 to 99.78 with no combat loss. The cloned
+  observer initially had excessive inventory load; the fixture physically
+  dropped unequipped items before combat, without changing health or stats.
+- Existing harness summary: PASS, 37 checks, zero failures, zero skipped.
+
+Evidence under build/live-sandbox-runs/SC-Harness-20261106-180219-4e32ca12:
+cache/console.txt (SC_OPT_COMBAT receipts and samples)
+cache/Lua/SurvivorCompanionHarness/{events.log,summary.txt,squad-combat-results.txt}
+cache/Screenshots/*-optimizer-2-native-hit (native unmodified PNG, no extension)
+acceptance-launch.json (command, classpath, hashes and resource settings)
+Convenient screenshot copy: build/combat-tester-20261106/live-confirmation/native-impact.png.
+
+Measurement limits: ZombieBiteDone was not observed in the Lua samples, so this
+run confirms native impact, wounds and health loss, not a measured count of
+full animation endings. The existing fixture's pooled-zombie tracking reported
+the optimizer's living zombies as removed; its aggregate zombie-health totals
+are unsuitable here. Corpse counts and direct landed-hit receipts are used
+instead. The captured desktop window was white; native game screenshots render
+correctly and are the visual evidence. No broad animation-smoothness or other
+optimizer-build compatibility claim follows from these two short encounters.
+
+Launch qualifications: SCLauncher supplied LF's committed bridge on the JVM
+classpath; javaJarFile/javaPkgName were removed only from the private LF copy
+to avoid a second Java-mod load. ZombieBuddy approval-policy behavior was not
+tested. A first launch using a junction-based game directory failed font-path
+resolution before world load. A temporary logging bug stopped the next attempt
+before combat; neither attempt counts as acceptance. Both logs were retained.
+The successful run used the real game resource directory and a read-only file
+handle protecting the installed launcher JSON from optimizer auto-tuning. Its
+expected file-in-use warning affects launcher tuning, not combat evaluation.
+
+No local install was performed. Installed launcher and game JAR remained
+byte-identical after the live run, and no game client remained running:
+launcher E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307
+game JAR E1A69EB743EDE60B213A0FE7F8B83D4FCAB773036D256CC4543A336F3B058A33
