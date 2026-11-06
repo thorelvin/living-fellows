@@ -1749,9 +1749,14 @@ local function findTransfer(job, actor)
         return ...
     end
     local function exhausted()
+        -- The runtime already admitted this worker's fair turn. Decision
+        -- evaluation may have spent the frame allowance before we get here;
+        -- rejecting the first source in that case starves the retained scan.
+        -- Admit one small window (or one unavailable/empty source), then yield
+        -- to the same local deadline, item and container limits as usual.
         return inspected >= 64 or opened >= 2
-            or started and performance.preciseNowMs()-started >= 0.75
-            or performance and performance.remainingBudgetMs and performance.remainingBudgetMs() == 0
+            or opened > 0 and (started and performance.preciseNowMs()-started >= 0.75
+                or performance and performance.remainingBudgetMs and performance.remainingBudgetMs() == 0)
     end
     local function pending()
         return done(nil, nil, nil, nil, nil, "haul_scan_pending")

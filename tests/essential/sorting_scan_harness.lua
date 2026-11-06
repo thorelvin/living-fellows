@@ -22,7 +22,7 @@ base.storageRows = function() return sources end
 base.depositStorageRows = function(category) return category == "valuables" and { destination } or {} end
 base.resolveContainer = function(row)
     if row ~= destination then resolved = resolved+1 end
-    return row.container, row.container.owner
+    return row.container, row.container and row.container.owner
 end
 base.storageAcceptsDeposit = function() return true end
 local jobs, found, pending = { { type = "sort" }, { type = "sort" } }, {}, 0
@@ -49,6 +49,75 @@ f.check(found[1] and found[1] == found[2] and pending > 0,
     "workers keep independent cursors despite shared rotating storage windows")
 f.check(#sources[3].container.items == 66 and #destination.container.items == 0,
     "discovery preserves every exact item and performs no transfer")
+
+-- Decision evaluation can consume the frame before an admitted worker reaches
+-- this selector. Both workers must still advance their own retained windows.
+local originalPerformance = SC.Performance
+local performance = originalPerformance or {}
+SC.Performance = performance
+local originalClock, originalBudget = performance.preciseNowMs, performance.remainingBudgetMs
+performance.preciseNowMs = function() return 0 end
+performance.remainingBudgetMs = function() return 0 end
+local starvedJobs, starvedFound = { { type = "sort" }, { type = "sort" } }, {}
+for _ = 1, 100 do
+    for index, job in ipairs(starvedJobs) do
+        if not starvedFound[index] then
+            touched, resolved = {}, 0
+            local source, _, to, _, item, why = SC.BaseWork.sortTransfer(job, actor)
+            local count = 0 for _ in pairs(touched) do count = count+1 end
+            f.check(count > 0 and count <= 8 and resolved == 1,
+                "an exhausted frame admits one bounded source window instead of starving")
+            if source then
+                starvedFound[index] = item
+                f.check(source == sources[3] and to == destination and item == found[index],
+                    "late workers retain independent cursors and select the exact item")
+            else
+                f.check(why == "haul_scan_pending", "late incomplete discovery stays pending")
+            end
+        end
+    end
+    if starvedFound[1] and starvedFound[2] then break end
+end
+f.check(starvedFound[1] and starvedFound[1] == starvedFound[2],
+    "both workers finish despite every frame having no remaining allowance")
+
+local retainedRows = base.storageRows
+local lateMoney = f.item("Base.Money", "Item", { weight = .01 })
+local lateSource = { id = "storage:late-source", category = "general", withdrawals = true,
+    container = f.containerObject(actor.square, { lateMoney }) }
+local unavailableRows = {
+    { id = "storage:denied", category = "general", withdrawals = false, container = sources[3].container },
+    { id = "storage:missing", category = "general", withdrawals = true },
+    { id = "storage:empty", category = "general", withdrawals = true, container = f.containerObject(actor.square, {}) },
+    lateSource,
+}
+base.storageRows = function() return unavailableRows end
+local availabilityJob = { type = "sort" }
+for _ = 1, 3 do
+    local source, _, _, _, _, why = SC.BaseWork.sortTransfer(availabilityJob, actor)
+    f.check(source == nil and why == "haul_scan_pending",
+        "late scans advance past denied, missing and empty sources without claiming empty storage")
+end
+local availableSource, _, _, _, availableItem = SC.BaseWork.sortTransfer(availabilityJob, actor)
+f.check(availableSource == lateSource and availableItem == lateMoney,
+    "a source behind unavailable containers remains discoverable under exhausted budgets")
+base.storageRows = retainedRows
+
+-- A slow source lookup can use the local allowance before the first item.
+-- Admit one item, then preserve the exact cursor and yield.
+local clock = 0
+performance.preciseNowMs = function() clock = clock+1 return clock end
+performance.remainingBudgetMs = function() return 3 end
+touched, resolved = {}, 0
+local _, _, _, _, _, slowReason = SC.BaseWork.sortTransfer({ type = "sort" }, actor)
+local slowCount = 0 for _ in pairs(touched) do slowCount = slowCount+1 end
+f.check(slowReason == "haul_scan_pending" and slowCount == 1 and resolved == 1,
+    "a slow lookup permits one item without replaying or overrunning the window")
+f.check(#sources[3].container.items == 66 and #destination.container.items == 0,
+    "late and slow scans never withdraw, duplicate or deposit their candidates")
+performance.preciseNowMs, performance.remainingBudgetMs = originalClock, originalBudget
+SC.Performance = originalPerformance
+
 local withdrawnJob = { type = "sort" }
 SC.BaseWork.sortTransfer(withdrawnJob, actor)
 local removed = table.remove(sources, 3)

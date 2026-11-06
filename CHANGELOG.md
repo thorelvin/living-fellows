@@ -13,6 +13,8 @@
 - Rejoin the same street around a parked-car obstruction instead of declaring
   no route when only the nearest road entry is blocked. Retain the exact
   blocker and routing failure in expedition diagnostics.
+- Keep base hauling and sorting scans moving when earlier AI work has spent
+  the frame allowance, while retaining small scan windows and item protections.
 - Keep live combat evidence tied to each zombie's actual lifetime and retain
   native damage, defence, armour and miss outcomes.
 - Ship matching Lua and native bridge protocol `42.21-isocompanion-30` for

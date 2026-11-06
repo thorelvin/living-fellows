@@ -1,0 +1,35 @@
+Living Fellows: base haul scan starvation fix
+Date: 2026-11-06
+Branch: living_fellows/0.27.0
+
+Cause
+- Decision evaluation can spend the frame allowance before an admitted worker
+  reaches findTransfer. Its first-source budget check then returns pending
+  without advancing the retained cursor, on every subsequent overloaded turn.
+
+Change
+- Each admitted call may inspect its first small source window, or advance
+  past one denied, unavailable or empty source, before testing the frame limit.
+- The existing 0.75 ms local slice, eight-item source window, item/container
+  ceilings and retained cursors remain. A slow first lookup permits one item
+  before yielding; this is a bounded minimum operation, not a hard wall-clock
+  guarantee for an indivisible native call. The global AI budget is unchanged.
+- Source permissions, reservations, item identity and physical transfers are
+  unchanged. Discovery does not withdraw or deposit items.
+
+Verification
+- Added the regression to the existing essential sorting scan harness.
+- Before fix: failed at the first exhausted-frame admission assertion.
+- After fix: two interleaved workers reach the exact late item while every
+  turn starts with zero remaining frame allowance; each call opens one source
+  and inspects at most eight items. Slow lookup, unavailable sources, source
+  unmarking and unchanged inventories also pass.
+- Five routine project checks PASS in 71.6 seconds, serial, 256 MB Java heap
+  and two processors. No live game client was launched.
+- Evidence: build/haul-starvation-02700/{before,after,project-gate}.log and
+  build/test-results/20261106-161117-2b0c90.
+
+Scope
+- Fixes the reproduced haul_scan_pending starvation. Separate storage route
+  selection delays and costly decision evaluation still need investigation.
+- Verification did not install locally or rebuild release archives.
