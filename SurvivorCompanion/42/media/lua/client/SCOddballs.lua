@@ -1179,12 +1179,23 @@ local function partyOpening(house, spawn, kind)
     return best
 end
 
--- Bob's front glass: a window between his shop room and the outdoors. The
--- outside tile and the step outward are kept so the dead come through it.
-local function shopWindowToOutside(house, spawn)
-    local room = select(1, U().call(
-        U().gridSquare(spawn.x, spawn.y, spawn.z or 0), "getRoom"))
+-- Bob's way in from the street: his front glass (a window between his shop
+-- room and the outdoors), or the shop's street door. The outside tile and
+-- the step outward are kept so the dead come at it.
+local function shopOpeningToOutside(house, spawn, kind)
+    local origin = U().gridSquare(spawn.x, spawn.y, spawn.z or 0)
+    local room = select(1, U().call(origin, "getRoom"))
+    local building = select(1, U().call(origin, "getBuilding"))
     if not room then return nil end
+    local className = kind == "door" and "IsoDoor" or "IsoWindow"
+    -- Glass must be his own room's; a door may open from any room of the shop.
+    local function indoors(square, squareRoom)
+        if squareRoom == nil then return false end
+        if kind == "door" then
+            return building ~= nil and select(1, U().call(square, "getBuilding")) == building
+        end
+        return squareRoom == room
+    end
     local best, bestDistance
     local bounds = house.bounds
     local floor = math.floor(tonumber(spawn.z) or 0)
@@ -1193,11 +1204,11 @@ local function shopWindowToOutside(house, spawn)
             local square = U().gridSquare(x, y, floor)
             if square then
                 eachObject(square, function(object)
-                    if not U().instanceOf(object, "IsoWindow") then return false end
+                    if not U().instanceOf(object, className) then return false end
                     -- Gun stores come boarded up; boarded or broken glass
                     -- cannot give way in front of him (live, Rosewood, 42.21).
-                    if select(1, U().call(object, "isBarricaded")) == true
-                        or select(1, U().call(object, "isSmashed")) == true then
+                    if kind ~= "door" and (select(1, U().call(object, "isBarricaded")) == true
+                        or select(1, U().call(object, "isSmashed")) == true) then
                         return false
                     end
                     local north = select(1, U().call(object, "getNorth"))
@@ -1207,9 +1218,9 @@ local function shopWindowToOutside(house, spawn)
                     local hereRoom = select(1, U().call(square, "getRoom"))
                     local thereRoom = other and select(1, U().call(other, "getRoom"))
                     local inX, inY, outX, outY
-                    if hereRoom == room and thereRoom == nil and other then
+                    if indoors(square, hereRoom) and thereRoom == nil and other then
                         inX, inY, outX, outY = x, y, ox, oy
-                    elseif thereRoom == room and hereRoom == nil then
+                    elseif other and indoors(other, thereRoom) and hereRoom == nil then
                         inX, inY, outX, outY = ox, oy, x, y
                     else
                         return false
@@ -1219,7 +1230,8 @@ local function shopWindowToOutside(house, spawn)
                     if type(index) == "number" and index >= 0
                         and (not bestDistance or distance < bestDistance) then
                         best = { x = x, y = y, z = floor, objectIndex = index,
-                            kind = "window", outX = outX, outY = outY,
+                            kind = kind == "door" and "door" or "window",
+                            outX = outX, outY = outY,
                             stepX = outX - inX, stepY = outY - inY }
                         bestDistance = distance
                     end
@@ -1229,6 +1241,14 @@ local function shopWindowToOutside(house, spawn)
         end
     end
     return best
+end
+
+local function shopWindowToOutside(house, spawn)
+    return shopOpeningToOutside(house, spawn, "window")
+end
+
+local function shopDoorToOutside(house, spawn)
+    return shopOpeningToOutside(house, spawn, "door")
 end
 
 local function streetPostsBeyond(window)
@@ -1249,6 +1269,7 @@ local function streetPostsBeyond(window)
     return posts
 end
 Oddballs._shopWindowForTests = shopWindowToOutside
+Oddballs._shopDoorForTests = shopDoorToOutside
 Oddballs._streetPostsForTests = streetPostsBeyond
 
 -- Match the game's Get On Bed context menu: normalize the clicked bed segment
@@ -2763,11 +2784,21 @@ local function siteForResident(square, player, definition, name, allowSeen)
         site.animalSpawns = rabbitSpawns(house, spawn, player, allowSeen)
         if not site.animalSpawns then return nil end
     elseif definition.id == "gunshop_bob_kenley" then
-        -- Bob's whole scene is his front glass giving way. No street-facing
-        -- window, or no clear street beyond it, means no Bob in this shop.
+        -- With sound front glass, the dead come through it. Most gun stores
+        -- have none, or have it boarded: there Bob has locked himself in and
+        -- the dead come at his street door.
         site.partyWindow = shopWindowToOutside(house, spawn)
-        site.hordeSpawns = streetPostsBeyond(site.partyWindow)
-        if not site.partyWindow or #site.hordeSpawns < 4 then return nil end
+        site.partyDoor = shopDoorToOutside(house, spawn)
+        local glassPosts = streetPostsBeyond(site.partyWindow)
+        if #glassPosts >= 4 then
+            site.hordeSpawns = glassPosts
+        else
+            site.partyWindow = nil
+            site.hordeSpawns = streetPostsBeyond(site.partyDoor)
+        end
+        if not site.partyDoor and not site.partyWindow or #site.hordeSpawns < 4 then
+            return nil
+        end
     elseif definition.id == "dad_joke_feud" then
         site.memberSpawns = feudPositions(house, player, allowSeen, spawn)
         if not site.memberSpawns then return nil end

@@ -596,6 +596,7 @@ do
         elseif closetBehindGlass and x == 199 and y == 201 then room = closet end
         local objects = (x == 200 and y == 201) and { glass } or {}
         return { x = x, y = y, z = z or 0,
+            getBuilding = function() return room and shopRoom or nil end,
             getRoom = function() return room end,
             getObjects = function() return objects end,
             getSpecialObjects = function() return {} end }
@@ -612,6 +613,14 @@ do
         if post.x > 194 then allOutside = false end
     end
     check(allOutside, "the dead start at least five meters out past the glass")
+    check(SC.Oddballs._shopDoorForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
+        "a window is not a door")
+    glass.__class = "IsoDoor"
+    local street = SC.Oddballs._shopDoorForTests(shop, { x = 202, y = 201, z = 0 })
+    check(street and street.kind == "door" and street.x == 200 and street.outX == 199
+            and street.stepX == -1,
+        "a shop with no glass still has its street door for the dead to come at")
+    glass.__class = "IsoWindow"
     glass.isBarricaded = function() return true end
     check(SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
         "boarded front glass cannot give way, so it is not his glass")

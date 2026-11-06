@@ -1311,21 +1311,28 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
     if F.step == "setup" then
         if value.rewardSeeded ~= true and current - F.stepAt < 15000 then return end
         local reward = tagged(actor, "lfGunShopGroupId", F.group.id)
-        local post = value.site.partyWindow
-        local objects = call(sq(post.x, post.y, post.z), "getObjects")
-        local window = objects and SC.NativeList.get(objects, post.objectIndex) or nil
+        local function objectAt(post)
+            local objects = post and call(sq(post.x, post.y, post.z), "getObjects")
+            return objects and SC.NativeList.get(objects, post.objectIndex) or nil
+        end
+        local window = objectAt(value.site.partyWindow)
+        local door = objectAt(value.site.partyDoor)
+        F.locked = value.site.partyWindow == nil
         if not need("gunshop_bob_armed_and_stocked",
-                itemType(call(actor, "getPrimaryHandItem")) == "Base.Shotgun"
-                    and #reward == 4 and window ~= nil and U().instanceOf(window, "IsoWindow")
-                    and call(window, "isSmashed") ~= true,
+                itemType(call(actor, "getPrimaryHandItem")) == "Base.Shotgun" and #reward == 4,
                 "primary=" .. tostring(itemType(call(actor, "getPrimaryHandItem")))
-                    .. " reward=" .. #reward .. " window=" .. tostring(window)
-                    .. " barricaded=" .. tostring(call(window, "isBarricaded"))) then return end
-        trace("BOB", "window " .. post.x .. "," .. post.y .. " index=" .. tostring(post.objectIndex)
-            .. " barricaded=" .. tostring(call(window, "isBarricaded"))
-            .. " locked=" .. tostring(call(window, "isLocked"))
-            .. " open=" .. tostring(call(window, "IsOpen")))
-        F.window = window
+                    .. " reward=" .. #reward) then return end
+        if F.locked then
+            -- No sound glass in this store: he has locked himself in.
+            if not need("gunshop_locked_himself_in", value.lockedIn == true
+                    and door ~= nil and call(door, "isLocked") == true and call(door, "IsOpen") ~= true,
+                "door=" .. tostring(door) .. " locked=" .. tostring(call(door, "isLocked"))
+                    .. " doorsLocked=" .. tostring(value.doorsLocked)) then return end
+        elseif not need("gunshop_front_glass", window ~= nil and U().instanceOf(window, "IsoWindow")
+                and call(window, "isSmashed") ~= true, "window=" .. tostring(window)) then
+            return
+        end
+        F.window, F.door = window, door
         local ax, ay, az = U().position(actor)
         local room = call(U().squareOf(actor), "getRoom")
         local stand = ring(ax, ay, az, 2, 6, function(square)
@@ -1335,6 +1342,12 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
         end)
         if not need("gunshop_observer_walks_in", teleport(H.player, stand),
             "square in the shop within 6 m of Bob") then return end
+        if F.locked and F.door then
+            -- The player forced his street door to get in and left it open.
+            call(F.door, "setLockedByKey", false)
+            call(F.door, "setLocked", false)
+            if call(F.door, "IsOpen") ~= true then call(F.door, "ToggleDoorSilent") end
+        end
         call(H.player, "faceThisObject", actor)
         F.speechMark = #F.speech + 1
         F.step, F.stepAt = "greet", current
@@ -1350,19 +1363,28 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
         end
         if value.stage == "siege" then
             local horde = taggedZombies(F.group.id)
-            check("gunshop_glass_gives_way", call(F.window, "isSmashed") == true
-                    and value.spawned == 5 and #horde == 5
-                    and said(F, module.LINES.smash, F.speechMark, actor) ~= nil
-                    and said(F, module.LINES.safe, F.speechMark, actor) ~= nil,
-                "smashed=" .. tostring(call(F.window, "isSmashed")) .. " spawned="
-                    .. tostring(value.spawned) .. " live=" .. #horde)
+            if F.locked then
+                check("gunshop_dead_come_through_his_door", value.siegeVia == "door"
+                        and value.spawned == 5 and #horde == 5
+                        and said(F, module.LINES.safeLocked, F.speechMark, actor) ~= nil
+                        and said(F, module.LINES.doorOpen, F.speechMark, actor) ~= nil,
+                    "via=" .. tostring(value.siegeVia) .. " spawned=" .. tostring(value.spawned)
+                        .. " live=" .. #horde)
+            else
+                check("gunshop_glass_gives_way", call(F.window, "isSmashed") == true
+                        and value.spawned == 5 and #horde == 5
+                        and said(F, module.LINES.smash, F.speechMark, actor) ~= nil
+                        and said(F, module.LINES.safe, F.speechMark, actor) ~= nil,
+                    "smashed=" .. tostring(call(F.window, "isSmashed")) .. " spawned="
+                        .. tostring(value.spawned) .. " live=" .. #horde)
+            end
             F.step, F.stepAt = "siege", current
             return
         end
         if value.stage == "quiet" then
             local seen, unseen = shopPosts(value, H.player)
-            local post = value.site.partyWindow
-            local objects = call(sq(post.x, post.y, post.z), "getObjects")
+            local post = value.site.partyWindow or value.site.partyDoor
+            local objects = post and call(sq(post.x, post.y, post.z), "getObjects")
             local now = objects and SC.NativeList.get(objects, post.objectIndex) or nil
             need("gunshop_glass_gives_way", false, "stage went quiet after "
                 .. tostring(value.smashAttempts) .. " attempts; posts seen=" .. seen
@@ -1422,12 +1444,18 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
             end
             return
         end
-        check("gunshop_reward_handed_over", countType(H.player, "Base.Pistol2") == 1
-                and countType(H.player, "Base.45Clip") == 2
-                and countType(H.player, "Base.Bullets45Box") == 1
+        -- A lived-in save's player may carry .45 already; count Bob's own stock.
+        local given = tagged(H.player, "lfGunShopGroupId", F.group.id)
+        local kinds = {}
+        for _, item in ipairs(given) do
+            local kind = tostring(itemType(item))
+            kinds[kind] = (kinds[kind] or 0) + 1
+        end
+        check("gunshop_reward_handed_over", #given == 4 and kinds["Base.Pistol2"] == 1
+                and kinds["Base.45Clip"] == 2 and kinds["Base.Bullets45Box"] == 1
                 and #tagged(actor, "lfGunShopGroupId", F.group.id) == 0,
-            "pistol=" .. countType(H.player, "Base.Pistol2") .. " clips="
-                .. countType(H.player, "Base.45Clip"))
+            "given=" .. #given .. " pistol=" .. tostring(kinds["Base.Pistol2"])
+                .. " clips=" .. tostring(kinds["Base.45Clip"]) .. " box=" .. tostring(kinds["Base.Bullets45Box"]))
         check("gunshop_bob_can_join_after", SC.Oddballs.canRecruit(F.group) == true,
             "stage=" .. tostring(value.stage))
         setPhase("folk_batch_done", current)

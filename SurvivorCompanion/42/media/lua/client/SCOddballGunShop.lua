@@ -2,8 +2,10 @@
 -- Bob Kenley of Kenley's Guns nearly shoots the player at the door, then
 -- swears his new front glass is rated for anything. A few seconds later the
 -- shop's real exterior window is smashed and real zombies, spawned out of
--- sight beyond it and drawn by the noise, come through. Bob fights with his
--- own shotgun. If he lives, he hands over the good stuff from the back.
+-- sight beyond it and drawn by the noise, come through. Most gun stores have
+-- no sound glass; there he has locked himself in, brags about his deadbolts,
+-- and the dead come at his door. Bob fights with his own shotgun. If he
+-- lives, he hands over the good stuff from the back.
 
 local SC = SurvivorCompanion
 SC.OddballGunShop = SC.OddballGunShop or {}
@@ -34,9 +36,20 @@ local LINES = {
     greet2 = { "You're breathing. Sorry. Nearly blew your head clean off." },
     intro = { "Bob Kenley. Kenley's Guns. Since nineteen seventy-one." },
     safe = { "Relax. Front glass is brand new. Rated for anything." },
+    safeLocked = { "Relax. Steel door, two deadbolts. I locked myself in. Nothing gets in." },
     smash = {
         "That is not supposed to happen.",
         { "Son of a bitch! That glass was rated!", clean = "Son of a gun! That glass was rated!" },
+    },
+    door = {
+        "Hear that? That's my door. That's them, knocking wrong.",
+        { "Son of a bitch. Two deadbolts and they still come knocking.",
+            clean = "Son of a gun. Two deadbolts and they still come knocking." },
+    },
+    doorOpen = {
+        "You came in my door. So will they.",
+        { "Who left my door open? Who the hell left it open?",
+            clean = "Who left my door open? Who the heck left it open?" },
     },
     bark = {
         "Get behind the counter! Behind the counter!",
@@ -46,13 +59,11 @@ local LINES = {
             clean = "Get out of my store, you ugly so-and-sos!" },
         "Watch the display case! That's walnut!",
     },
-    survived = {
-        "Okay. Okay. We're okay.",
-        "Glass was rated for anything. Anything alive, I guess.",
-    },
+    survived = { "Okay. Okay. We're okay." },
+    survivedGlass = { "Glass was rated for anything. Anything alive, I guess." },
+    survivedDoor = { "Two deadbolts. Should've bought three." },
     reward = { "Take this. From the back. The good stuff. Least I can do." },
     quiet = { "Quiet out there today. I don't like quiet." },
-    noGlass = { "Front glass is gone already? Well. So much for rated." },
     shop = {
         "Sporting goods, mostly. Deer rifles. Duck guns. A fella bought every shell I had on the eighth.",
         "Don't touch the long guns. Look all you want. Don't touch.",
@@ -64,6 +75,10 @@ local LINES = {
     fellow = {
         "He said the glass was rated.",
         "Remind me never to buy a window from that man.",
+    },
+    fellowDoor = {
+        "So much for two deadbolts.",
+        "Remind me never to buy a lock from that man.",
     },
 }
 GunShop.LINES = LINES
@@ -142,7 +157,7 @@ local function fellowLine(group, player, value)
             local id = U().idOf(fellow)
             local record = id and SC.Registry.byId(id) or nil
             if record and record.recruited == true then
-                U().say(fellow, nextLine(value, "fellow"))
+                U().say(fellow, nextLine(value, value.siegeVia == "door" and "fellowDoor" or "fellow"))
                 value.fellowSpoke = true
                 return true
             end
@@ -197,15 +212,54 @@ function GunShop.onSpawn(group, actor)
         end
         value.rewardSeeded = true
     end
+    -- Without front glass he has locked himself in: the player gets in the
+    -- way anyone gets into a locked gun store.
+    if not (value.site and value.site.partyWindow) and value.lockedIn ~= true then
+        value.lockedIn = true
+        value.doorsLocked = GunShop.lockUp(group, value)
+    end
     return true, "bob_behind_the_counter"
+end
+
+local function openingAt(post, className)
+    local square = post and U().gridSquare(post.x, post.y, post.z or 0)
+    local objects = square and select(1, U().call(square, "getObjects"))
+    local object = objects and SC.NativeList and SC.NativeList.get(objects, post.objectIndex)
+    return object and U().instanceOf(object, className) and object or nil
 end
 
 local function shopWindow(value)
     local post = value.site and value.site.partyWindow
-    local square = post and U().gridSquare(post.x, post.y, post.z or 0)
-    local objects = square and select(1, U().call(square, "getObjects"))
-    local window = objects and SC.NativeList and SC.NativeList.get(objects, post.objectIndex)
-    return window and U().instanceOf(window, "IsoWindow") and window or nil, post
+    return openingAt(post, "IsoWindow"), post
+end
+
+local function shopDoor(value)
+    local post = value.site and value.site.partyDoor
+    return openingAt(post, "IsoDoor"), post
+end
+
+-- Every outside door of the shop, shut and locked from the inside.
+function GunShop.lockUp(group, value)
+    local posts = {}
+    local house = group and group.house
+    for _, opening in ipairs(house and house.openings or {}) do
+        if opening.kind == "door" then posts[#posts + 1] = opening end
+    end
+    if value.site and value.site.partyDoor then posts[#posts + 1] = value.site.partyDoor end
+    local locked, seen = 0, {}
+    for _, post in ipairs(posts) do
+        local door = openingAt(post, "IsoDoor")
+        if door and not seen[door] then
+            seen[door] = true
+            if select(1, U().call(door, "IsOpen")) == true then
+                U().call(door, "ToggleDoorSilent")
+            end
+            U().call(door, "setLocked", true)
+            U().call(door, "setLockedByKey", true)
+            if select(1, U().call(door, "isLocked")) == true then locked = locked + 1 end
+        end
+    end
+    return locked
 end
 
 local function unseenPosts(value, player)
@@ -225,19 +279,34 @@ end
 
 -- The window goes, then the dead come. Spawned out of sight, drawn by the
 -- glass and a shout of noise at the frame, they arrive through the hole.
+-- With no glass left to give way, they come at his door instead: through
+-- it, if the player left the way in open, or hammering on it if not.
 local function breakIn(group, value, player, current)
-    local window, post = shopWindow(value)
-    if not window or select(1, U().call(window, "isSmashed")) == true
-        or select(1, U().call(window, "isBarricaded")) == true then
+    local window, windowPost = shopWindow(value)
+    local glass = window ~= nil and select(1, U().call(window, "isSmashed")) ~= true
+        and select(1, U().call(window, "isBarricaded")) ~= true
+    local door, doorPost = shopDoor(value)
+    local post = glass and windowPost or doorPost or windowPost
+    local source = glass and window or door or window
+    if not post then
         value.stage = "quiet"
-        return false, "bob_window_unavailable", "noGlass"
+        return false, "bob_no_way_in", "quiet"
     end
     local posts = unseenPosts(value, player)
     if #posts < MIN_UNSEEN_POSTS or type(addZombiesInOutfit) ~= "function"
         or not SC.NativeList then
         return false, "bob_no_unseen_approach"
     end
-    U().call(window, "smashWindow")
+    local pool
+    if glass then
+        U().call(window, "smashWindow")
+        pool = "smash"
+    else
+        local open = door ~= nil and (select(1, U().call(door, "IsOpen")) == true
+            or select(1, U().call(door, "isLocked")) ~= true)
+        pool = open and "doorOpen" or "door"
+    end
+    value.siegeVia = glass and "glass" or "door"
     for index = value.spawned + 1, HORDE_SIZE do
         local spot = posts[((index - 1) % #posts) + 1]
         local okay, list = pcall(addZombiesInOutfit, spot.x, spot.y, spot.z or 0,
@@ -250,11 +319,11 @@ local function breakIn(group, value, player, current)
         end
     end
     if type(addSound) == "function" then
-        pcall(addSound, window, post.x, post.y, post.z or 0, NOISE_RADIUS, NOISE_RADIUS)
+        pcall(addSound, source, post.x, post.y, post.z or 0, NOISE_RADIUS, NOISE_RADIUS)
     end
     value.stage = "siege"
     value.siegeStartedAt = current
-    return true, "bob_window_smashed", "smash"
+    return true, glass and "bob_window_smashed" or "bob_door_besieged", pool
 end
 
 function GunShop.pulse(group, player, current)
@@ -277,7 +346,8 @@ function GunShop.pulse(group, player, current)
             U().say(actor, nextLine(value, "greet"))
             queue(group, nextLine(value, "greet2"), current + LINE_GAP_MS)
             queue(group, nextLine(value, "intro"), current)
-            local safeAt = queue(group, nextLine(value, "safe"), current)
+            local safeAt = queue(group, nextLine(value,
+                value.site and value.site.partyWindow and "safe" or "safeLocked"), current)
             value.smashAt = safeAt + SMASH_DELAY_MS
             value.smashAttempts = 0
         end
@@ -310,7 +380,8 @@ function GunShop.pulse(group, player, current)
         if cleared or expired then
             value.stage = "survived"
             U().say(actor, LINES.survived[1])
-            queue(group, LINES.survived[2], current + LINE_GAP_MS)
+            queue(group, lineText((value.siegeVia == "door" and LINES.survivedDoor
+                or LINES.survivedGlass)[1]), current + LINE_GAP_MS)
             fellowLine(group, player, value)
             return true, "bob_survived"
         end

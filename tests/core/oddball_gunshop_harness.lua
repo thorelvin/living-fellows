@@ -7,6 +7,9 @@ local fellow = { id = "fellow", x = 1, y = 1, z = 0 }
 player.inv.owner, bob.inv.owner = player, bob
 local glass = { __class = "IsoWindow", smashed = false, barricaded = false, smashCalls = 0 }
 local windowSquare = { x = -2, y = 0, z = 0, objects = { glass } }
+-- The shop's street door, as the world leaves it: shut but not locked.
+local door = { __class = "IsoDoor", open = false, locked = false }
+local doorSquare = { x = -2, y = 2, z = 0, objects = { door } }
 local visible, profanityEnabled = true, true
 local seenPosts = {}
 local spawned, sounds, emotes = {}, {}, {}
@@ -48,6 +51,7 @@ SC.GameplayUtil = {
     end,
     gridSquare = function(x, y, z)
         if x == windowSquare.x and y == windowSquare.y then return windowSquare end
+        if x == doorSquare.x and y == doorSquare.y then return doorSquare end
         return { x = x, y = y, z = z or 0, post = true, key = x .. ":" .. y }
     end,
     isSafeSpawnSquare = function(square) return square ~= nil end,
@@ -83,6 +87,13 @@ SC.GameplayUtil = {
             end
         end
         if value == windowSquare and method == "getObjects" then return windowSquare.objects, true end
+        if value == doorSquare and method == "getObjects" then return doorSquare.objects, true end
+        if value == door then
+            if method == "IsOpen" then return door.open, true end
+            if method == "ToggleDoorSilent" then door.open = not door.open return nil, true end
+            if method == "setLocked" or method == "setLockedByKey" then door.locked = a return nil, true end
+            if method == "isLocked" then return door.locked, true end
+        end
         if value == player and method == "getPlayerNum" then return 0, true end
         if type(value) == "table" and value.post and method == "isCanSee" then
             return seenPosts[value.key] == true, true
@@ -257,20 +268,82 @@ assert(#G.menuOptions(group, player) == 2)
 assert(G.action(group, "ask_bob_family", player) and said() == LINES.family[1])
 assert(G.action(group, "ask_bob_shop", player) and said() == LINES.shop[1])
 
--- A shop whose glass is already gone: no scene, an honest line.
+-- Glass already gone by the time it should break: the dead come at his door.
 G._resetForTests()
 group = newGroup()
+group.oddball.site.partyDoor = { x = -2, y = 2, z = 0, objectIndex = 0, kind = "door" }
 glass.smashed, glass.smashCalls = true, 0
+door.open, door.locked = false, true
+spawned, sounds = {}, {}
+group.oddball.stage = "greeted"
+group.oddball.smashAt = now
+G.pulse(group, player, now)
+assert(group.oddball.stage == "siege" and group.oddball.siegeVia == "door"
+        and contains("door", said()) and #spawned == 5 and glass.smashCalls == 0
+        and sounds[1].y == 2,
+    "no glass to break, so they come hammering on his locked door")
+
+-- A gun store with no sound glass: he has locked himself in.
+G._resetForTests()
+local function lockedGroup()
+    local locked = newGroup()
+    locked.oddball.site.partyWindow = nil
+    locked.oddball.site.partyDoor = { x = -2, y = 2, z = 0, objectIndex = 0, kind = "door" }
+    locked.house = { openings = { { kind = "door", x = -2, y = 2, z = 0, objectIndex = 0 } } }
+    return locked
+end
+group = lockedGroup()
+door.open, door.locked = true, false
+bob.inv.items, bob.lastLine = {}, nil
+assert(G.onSpawn(group, bob))
+assert(door.open == false and door.locked == true and group.oddball.lockedIn == true
+        and group.oddball.doorsLocked == 1,
+    "his street door is shut and locked from the inside")
+spawned, sounds, emotes = {}, {}, {}
+glass.smashCalls = 0
+group.oddball.stage = "waiting"
+G.pulse(group, player, now)
+order = {}
+for _ = 1, 3 do
+    now = now + 2700
+    G.pulse(group, player, now)
+    order[#order + 1] = said()
+end
+assert(order[3] == LINES.safeLocked[1], "no glass to brag about: he brags about the deadbolts")
+for _ = 1, 4 do
+    now = now + 2700
+    G.pulse(group, player, now)
+end
+assert(group.oddball.stage == "siege" and group.oddball.siegeVia == "door"
+        and contains("door", said()) and glass.smashCalls == 0 and #spawned == 5,
+    "the dead come knocking at the locked door")
+for _, zombie in ipairs(spawned) do G.onZombieDead(group, zombie) end
+fellow.lastLine = nil
+now = now + 1000
+G.pulse(group, player, now)
+now = now + 2700
+G.pulse(group, player, now)
+assert(group.oddball.stage == "survived" and said() == LINES.survivedDoor[1]
+        and contains("fellowDoor", fellow.lastLine),
+    "after a siege at the door, the lines are about the door")
+
+-- The player broke in through that door and left it open: so will they.
+G._resetForTests()
+group = lockedGroup()
+group.oddball.lockedIn = true
+door.open, door.locked = true, false
 spawned = {}
 group.oddball.stage = "greeted"
 group.oddball.smashAt = now
 G.pulse(group, player, now)
-assert(group.oddball.stage == "quiet" and said() == LINES.noGlass[1] and #spawned == 0)
+assert(group.oddball.stage == "siege" and contains("doorOpen", said()),
+    "an open door is how they come in")
 
 -- Every approach in view: no pop-in. Six tries, then a quiet day.
 G._resetForTests()
 group = newGroup()
 glass.smashed, glass.smashCalls = false, 0
+spawned = {}
 for _, post in ipairs(group.oddball.site.hordeSpawns) do
     seenPosts[post.x .. ":" .. post.y] = true
 end
