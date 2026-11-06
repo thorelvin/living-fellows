@@ -14,6 +14,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Velma test runner compilation failed.' }
     $Files = @(
         (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared\SCNamespace.lua'),
+        (Join-Path $Client 'SCOddballForecast.lua'),
         (Join-Path $Client 'SCOddballVelma.lua'),
         (Join-Path $PSScriptRoot 'oddball_velma_harness.lua')
     )

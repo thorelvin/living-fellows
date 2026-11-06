@@ -212,6 +212,21 @@ do
         squares[key(300, 300, 0)], player, true)
     check(noExterior == nil and noExteriorReason == "house_has_no_exterior_openings",
         "interior and unresolvable openings cannot qualify a building")
+    -- A street door in the south wall sits on the north edge of the square
+    -- outside the building; it is still the building's front door.
+    local southDoor = opening("IsoDoor", true)
+    square(302, 305, false).objects = { southDoor }
+    local strayDoor = opening("IsoDoor", true)
+    square(299, 306, false).objects = { strayDoor }
+    local shopFront, shopReason = SC.Factions.oddballHouseAt(
+        squares[key(300, 300, 0)], player, true)
+    local front = {}
+    for _, entry in ipairs(shopFront and shopFront.openings or {}) do
+        front[entry.x .. ":" .. entry.y] = true
+    end
+    check(shopFront ~= nil and front["302:305"] and not front["299:306"],
+        "a door in the south wall, held by the outside square, qualifies the building: "
+            .. tostring(shopReason))
     U.gridSquare, U.squareOf, instanceof = originalGridSquare,
         originalSquareOf, originalInstanceof
 end
@@ -473,6 +488,152 @@ check(deputySite and deputySite.spawn.x == 20
     and #deputySite.captiveSpawns >= 1
     and deputySite.captiveSpawns[1].x ~= deputySite.spawn.x,
     "deputy stands at the checkpoint while captives begin in distinct cells")
+do
+    local bathroom = { getName = function() return "bathroom" end }
+    local savedRooms = {}
+    for key, room in pairs(stationSquares) do
+        savedRooms[key] = room
+        stationSquares[key] = bathroom
+    end
+    local hershel = SC.Oddballs.definition("bitten_hershel_combs")
+    local previousBitten = SC.OddballBitten
+    SC.OddballBitten = { bitesInfect = function() return false end }
+    check(SC.Oddballs._siteForResidentForTests(U.gridSquare(20, 20, 0),
+            player, hershel, "bathroom", true) == nil,
+        "Hershel is never seeded where the sandbox makes a bite harmless or instant")
+    SC.OddballBitten.bitesInfect = function() return true end
+    local hershelSite = SC.Oddballs._siteForResidentForTests(
+        U.gridSquare(20, 20, 0), player, hershel, "bathroom", true)
+    check(hershelSite and hershelSite.kind == "resident"
+            and hershelSite.spawn.x == 20,
+        "Hershel sits in a real bathroom where a bite is fatal")
+    check(SC.Oddballs._siteForResidentForTests(U.gridSquare(20, 20, 0),
+            player, hershel, "kitchen", true) == nil,
+        "Hershel's lines name a bathroom, so no other room may hold him")
+    SC.OddballBitten = previousBitten
+    for key, room in pairs(savedRooms) do stationSquares[key] = room end
+end
+do
+    -- A two-man household cannot spawn without a post for each man.
+    local living = { getName = function() return "livingroom" end }
+    local savedRooms = {}
+    for key, room in pairs(stationSquares) do
+        savedRooms[key] = room
+        stationSquares[key] = living
+    end
+    local dads = SC.Oddballs.definition("dad_joke_feud")
+    local feud = SC.Oddballs._siteForResidentForTests(
+        U.gridSquare(20, 20, 0), player, dads, "livingroom", true)
+    check(feud and type(feud.memberSpawns) == "table" and #feud.memberSpawns == 2
+            and feud.memberSpawns[1].x == feud.spawn.x
+            and feud.memberSpawns[1].y == feud.spawn.y
+            and feud.memberSpawns[2].x == 22 and feud.memberSpawns[2].y == 20,
+        "Gary and Ron get two posts two meters apart in one living room")
+    local otherRoom = { getName = function() return "livingroom" end }
+    stationSquares["22:20"], stationSquares["23:20"], stationSquares["24:20"] =
+        otherRoom, otherRoom, otherRoom
+    check(SC.Oddballs._siteForResidentForTests(U.gridSquare(20, 20, 0),
+            player, dads, "livingroom", true) == nil,
+        "with no second spot in the same room there is no feud")
+    for key, room in pairs(savedRooms) do stationSquares[key] = room end
+end
+do
+    local oldGrid, oldSafe, oldClear = U.gridSquare, U.isSafeSpawnSquare,
+        U.isClearActorSpawnSquare
+    local blocked, interiorAt = {}, nil
+    local function tile(x, y, z)
+        local spriteName = interiorAt == x .. ":" .. y
+            and "floors_interior_tilesandwood_01_0" or "blends_street_01_16"
+        local sprite = { getName = function() return spriteName end }
+        local floor = { getSprite = function() return sprite end }
+        return { x = x, y = y, z = z or 0,
+            getFloor = function() return floor end,
+            getRoom = function() return nil end }
+    end
+    U.gridSquare = function(x, y, z) return tile(x, y, z) end
+    -- A wreck blocks the van's footprint (safe spawn) without making the
+    -- tile unfit for a person to stand on, so only the footprint check sees it.
+    U.isSafeSpawnSquare = function(square)
+        return square ~= nil and not blocked[square.x .. ":" .. square.y]
+    end
+    U.isClearActorSpawnSquare = function(square) return square ~= nil end
+    local vanSite = SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true)
+    check(vanSite and vanSite.kind == "resident" and vanSite.van.x == 100
+            and vanSite.spawn.x == 102 and vanSite.house.interior[1].x == 102,
+        "the station van takes a clear stretch of road with Dwayne beside it")
+    blocked["101:102"] = true
+    check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
+        "a wreck inside the van's footprint rules the spot out")
+    blocked, interiorAt = {}, "100:100"
+    check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
+        "the van parks on a road, never on a floor")
+    interiorAt = nil
+    local previousBaseLife = SC.BaseLife
+    SC.BaseLife = { isInside = function(square) return square ~= nil and square.y >= 101 end }
+    check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
+        "the van never parks on the player's camp ground")
+    SC.BaseLife = { isInside = function(square)
+        return square ~= nil and square.x == 102 and square.y == 100 end }
+    local besideCamp = SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true)
+    check(besideCamp and besideCamp.spawn.x == 98,
+        "Dwayne waits on the side of the van away from the camp")
+    SC.BaseLife = previousBaseLife
+    U.gridSquare, U.isSafeSpawnSquare, U.isClearActorSpawnSquare = oldGrid, oldSafe, oldClear
+end
+do
+    local oldGrid, oldSafe, oldInstanceOf = U.gridSquare, U.isSafeSpawnSquare, U.instanceOf
+    U.instanceOf = function(value, name)
+        return type(value) == "table" and value.__class == name
+    end
+    local shopRoom = { getName = function() return "gunstore" end }
+    local closet = { getName = function() return "storage" end }
+    local closetBehindGlass = false
+    local glass = { __class = "IsoWindow", getNorth = function() return false end,
+        getObjectIndex = function() return 0 end }
+    U.gridSquare = function(x, y, z)
+        local room
+        if x >= 200 and x <= 204 and y >= 200 and y <= 203 then room = shopRoom
+        elseif closetBehindGlass and x == 199 and y == 201 then room = closet end
+        local objects = (x == 200 and y == 201) and { glass } or {}
+        return { x = x, y = y, z = z or 0,
+            getBuilding = function() return room and shopRoom or nil end,
+            getRoom = function() return room end,
+            getObjects = function() return objects end,
+            getSpecialObjects = function() return {} end }
+    end
+    U.isSafeSpawnSquare = function(square) return square ~= nil end
+    local shop = { bounds = { x1 = 200, y1 = 200, x2 = 204, y2 = 203 } }
+    local front = SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 })
+    check(front and front.x == 200 and front.y == 201 and front.objectIndex == 0
+            and front.outX == 199 and front.stepX == -1 and front.stepY == 0,
+        "Bob's front glass is the window between his shop and the street")
+    local street = SC.Oddballs._streetPostsForTests(front)
+    local allOutside = #street >= 4
+    for _, post in ipairs(street) do
+        if post.x > 194 then allOutside = false end
+    end
+    check(allOutside, "the dead start at least five meters out past the glass")
+    check(SC.Oddballs._shopDoorForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
+        "a window is not a door")
+    glass.__class = "IsoDoor"
+    local street = SC.Oddballs._shopDoorForTests(shop, { x = 202, y = 201, z = 0 })
+    check(street and street.kind == "door" and street.x == 200 and street.outX == 199
+            and street.stepX == -1,
+        "a shop with no glass still has its street door for the dead to come at")
+    glass.__class = "IsoWindow"
+    glass.isBarricaded = function() return true end
+    check(SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
+        "boarded front glass cannot give way, so it is not his glass")
+    glass.isBarricaded = nil
+    glass.isSmashed = function() return true end
+    check(SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
+        "glass that is already broken cannot break in front of him")
+    glass.isSmashed = nil
+    closetBehindGlass = true
+    check(SC.Oddballs._shopWindowForTests(shop, { x = 202, y = 201, z = 0 }) == nil,
+        "a window into a back room is not front glass")
+    U.gridSquare, U.isSafeSpawnSquare, U.instanceOf = oldGrid, oldSafe, oldInstanceOf
+end
 local originalOccupyingObject = U.squareOccupyingObject
 U.squareOccupyingObject = function(square)
     if square and (square.x == 20 or square.x == 21) then
@@ -951,11 +1112,45 @@ for _, pair in ipairs({
     { "morton_buster", "OddballMorton" },
     { "mien_ward", "OddballMien" },
     { "grinder_berg", "OddballGrinder" },
+    { "firecracker_bernice_hupp", "OddballFirecracker" },
+    { "bitten_hershel_combs", "OddballBitten" },
+    { "dad_joke_feud", "OddballDads" },
+    { "radio_preacher_dwayne", "OddballPreacher" },
+    { "gunshop_bob_kenley", "OddballGunShop" },
+    { "forest_soldier_hatcher", "OddballSoldier" },
+    { "hitchhiker_ruth_ann", "OddballHitchhiker" },
 }) do
     local definition = SC.Oddballs.definition(pair[1])
     check(definition and definition.module == pair[2],
         "last encounters registered with native behavior modules")
 end
+check(SC.Oddballs.definition("firecracker_bernice_hupp").kind == "roamer"
+        and SC.Oddballs.definition("firecracker_bernice_hupp").recruitment == false
+        and SC.Oddballs.definition("bitten_hershel_combs").kind == "resident"
+        and SC.Oddballs.definition("bitten_hershel_combs").firstEligibleOffsetDays == 9,
+    "Miss Liberty roams unrecruitable; Hershel waits until nine days can be true")
+do
+    local previousCamp = SC.OddballCampStoryteller
+    SC.OddballCampStoryteller = { siteFor = function(square, who, allowSeen)
+        if square.clearing ~= true then return nil end
+        return { kind = "forest_camp", room = "forest", anchor = { x = 1, y = 1, z = 0 },
+            spawn = { x = 3, y = 1, z = 0 }, house = { id = "forest-camp:1:1" } }
+    end }
+    local camp = SC.Oddballs._siteForForestSoldierForTests({ clearing = true }, player, false)
+    check(camp and camp.kind == "resident" and camp.room == "woods" and camp.spawn.x == 3,
+        "Hatcher takes Walt's kind of clearing but saves as an ordinary resident")
+    check(SC.Oddballs._siteForForestSoldierForTests({ clearing = false }, player, false) == nil,
+        "no clearing, no Hatcher")
+    local previousBaseLife = SC.BaseLife
+    SC.BaseLife = { isInside = function(square) return square ~= nil and square.clearing == true end }
+    check(SC.Oddballs._siteForForestSoldierForTests({ clearing = true }, player, false) == nil,
+        "Hatcher never digs in on the player's camp ground")
+    SC.BaseLife = previousBaseLife
+    SC.OddballCampStoryteller = previousCamp
+end
+check(SC.Oddballs.definition("hitchhiker_ruth_ann").kind == "roamer"
+        and SC.Oddballs.definition("hitchhiker_ruth_ann").identity.outfit == "Backpacker",
+    "Ruth Ann roams in the clothes her body is found in")
 
 -- A sealed horde may only seed behind one closed, reachable interior door.
 do
@@ -1747,4 +1942,68 @@ do
     SC.Actor.beginSpawn = previousBegin
     U.gridSquare, U.squareOccupyingObject = previousGrid, previousOccupying
 end
+
+-- A scene starts quiet and shut: unseen walkers in the house or close by
+-- leave the world, seen ones stay, and open outside doors are closed.
+do
+    local previousCell, previousCanSee, previousGrid = getCell, U.canSee, U.gridSquare
+    local previousPosition, previousDead, previousSquareOf = U.position, U.isDead, U.squareOf
+    U.position = function(value)
+        if type(value) == "table" and type(value.x) == "number" then
+            return value.x, value.y, value.z or 0
+        end
+        return nil
+    end
+    U.isDead = function(value) return value == nil or value:isDead() == true end
+    U.squareOf = function(value) return type(value) == "table" and value.square or nil end
+    local function walker(x, y, options)
+        options = options or {}
+        local zombie = { x = x, y = y, z = 0, visible = options.visible == true,
+            square = { isCanSee = function() return options.lit == true end } }
+        function zombie:isDead() return options.dead == true end
+        function zombie:removeFromWorld() self.removed = true end
+        function zombie:removeFromSquare() self.offSquare = true end
+        return zombie
+    end
+    local inHouse = walker(502, 502)
+    local seenInHouse = walker(503, 502, { visible = true })
+    local litInHouse = walker(504, 503, { lit = true })
+    local nearby = walker(515, 500)
+    local farAway = walker(540, 500)
+    local corpse = walker(501, 501, { dead = true })
+    local list = { inHouse, seenInHouse, litInHouse, nearby, farAway, corpse }
+    getCell = function() return { getZombieList = function() return list end } end
+    U.canSee = function(_, target) return type(target) == "table" and target.visible == true end
+    local door = { open = true }
+    function door:IsOpen() return self.open end
+    function door:ToggleDoorSilent() self.open = not self.open end
+    local shut = { open = false, toggled = 0 }
+    function shut:IsOpen() return self.open end
+    function shut:ToggleDoorSilent() self.toggled = self.toggled + 1 end
+    U.gridSquare = function(x, y, z)
+        local objects = (x == 500 and y == 503) and { door } or (x == 505 and y == 500) and { shut } or {}
+        return { x = x, y = y, z = z or 0, getObjects = function() return objects end }
+    end
+    local viewer = { getPlayerNum = function() return 0 end }
+    local scene = { oddball = { site = { spawn = { x = 502, y = 501, z = 0 } } },
+        house = { bounds = { x1 = 500, y1 = 500, x2 = 506, y2 = 505 },
+            openings = { { kind = "door", x = 500, y = 503, z = 0, objectIndex = 0 },
+                { kind = "door", x = 505, y = 500, z = 0, objectIndex = 0 },
+                { kind = "window", x = 506, y = 502, z = 0, objectIndex = 0 } } } }
+    local removed, closed = SC.Oddballs.secureScene(scene, viewer, { radius = 15, closeDoors = true })
+    check(removed == 2 and inHouse.removed and nearby.removed and not farAway.removed
+            and not seenInHouse.removed and not litInHouse.removed and not corpse.removed,
+        "unseen walkers in the house or within reach leave; seen, lit, far and dead ones stay")
+    check(closed == 1 and door.open == false and shut.toggled == 0,
+        "an open outside door is pulled shut; a shut one is left alone, never locked")
+    getCell, U.canSee, U.gridSquare = previousCell, previousCanSee, previousGrid
+    U.position, U.isDead, U.squareOf = previousPosition, previousDead, previousSquareOf
+end
+check(SC.Oddballs.definition("bitten_hershel_combs").scene.closeDoors == true
+        and SC.Oddballs.definition("dad_joke_feud").scene.closeDoors == true
+        and SC.Oddballs.definition("gunshop_bob_kenley").scene.closeDoors == true
+        and SC.Oddballs.definition("radio_preacher_dwayne").scene.radius == 15
+        and SC.Oddballs.definition("forest_soldier_hatcher").scene.radius == 15
+        and SC.Oddballs.definition("firecracker_bernice_hupp").scene == nil,
+    "building scenes are cleared and shut, outdoor camps cleared, Miss Liberty left to draw them")
 SC_TEST_REPORT = "Oddball foundation PASS: " .. checks .. " checks"

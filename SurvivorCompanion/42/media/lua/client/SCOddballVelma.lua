@@ -43,19 +43,12 @@ local function paymentFor(player)
     return nil
 end
 
+-- Tomorrow's sky in words. The forecast's own name is only its date.
 local function weatherForecast()
-    if type(getClimateManager) ~= "function" then return nil end
-    local okay, climate = pcall(getClimateManager)
-    if not okay or not climate then return nil end
-    local forecaster = select(1, U().call(climate, "getClimateForecaster"))
-    local forecasts = select(1, U().call(forecaster, "getForecasts"))
-    local rawCount = forecasts and select(1, U().call(forecasts,
-        "size")) or nil
-    local count = tonumber(rawCount) or 0
-    if count < 2 then return nil end
-    local nextDay = select(1, U().call(forecasts, "get", 1))
-    local name = nextDay and select(1, U().call(nextDay, "getName"))
-    return type(name) == "string" and name or nil
+    local reader = SC.OddballForecast
+    local words = reader and type(reader.tomorrow) == "function" and reader.tomorrow() or nil
+    if type(words) ~= "string" then return nil end
+    return (string.gsub(words, "^%l", string.upper))
 end
 
 local function cacheContainer(player, group)

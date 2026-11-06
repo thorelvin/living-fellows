@@ -2184,6 +2184,17 @@ local function answerDistressFromRadio(_target, player, groupId)
     return okay and accepted == true, reason
 end
 
+local function callSoldierFromRadio(_target, player, groupId, topic)
+    local soldier = SC.OddballSoldier
+    if not soldier or type(soldier.call) ~= "function" then return end
+    local okay, accepted, reason = pcall(soldier.call, groupId, topic, player)
+    if not okay or accepted ~= true then
+        safeMethod(player, "setHaloNote",
+            "Radio call failed: " .. tostring(okay and reason or accepted))
+    end
+    return okay and accepted == true, reason
+end
+
 local function stopTaxiCallAudio()
     local sound = Context._taxiCallAudio
     Context._taxiCallAudio = nil
@@ -2395,6 +2406,14 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
             for _, option in ipairs(distress.replyOptions(player)) do
                 context:addOptionOnTop(option.label, nil,
                     answerDistressFromRadio, player, option.groupId)
+            end
+        end
+        local soldier = SC.OddballSoldier
+        if soldier and type(soldier.radioOptions) == "function" then
+            local okay, options = pcall(soldier.radioOptions, player)
+            for _, option in ipairs(okay and type(options) == "table" and options or {}) do
+                context:addOptionOnTop(option.label, nil,
+                    callSoldierFromRadio, player, option.groupId, option.topic)
             end
         end
     end

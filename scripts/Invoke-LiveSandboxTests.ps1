@@ -130,6 +130,10 @@ param(
     [switch]$OddballArthurPlayerBaseline,
     [switch]$OddballPackProbe,
     [switch]$OddballSmokerProbe,
+    # One of the seven Strange Folk added together, driven through its scene.
+    [switch]$StrangeFolkBatchProbe,
+    [ValidateSet('firecracker', 'bitten', 'dads', 'preacher', 'gunshop', 'soldier', 'hitchhiker', 'throwlab', 'bittenkill')]
+    [string]$StrangeFolkBatchTarget = 'firecracker',
     [ValidateRange(0, 20000)][int]$OddballSiteX = 0,
     [ValidateRange(0, 20000)][int]$OddballSiteY = 0,
     [ValidateRange(0, 20000)][int]$OddballBedX = 0,
@@ -447,13 +451,15 @@ if ($WoodExpeditionQuietSite -and -not $WoodExpeditionProbe) {
     throw '-WoodExpeditionQuietSite requires -WoodExpeditionProbe.'
 }
 if ((@($OddballCoreyProbe, $OddballEarlProbe, $OddballArthurProbe,
-    $OddballPackProbe, $OddballSmokerProbe, $MilliProbe) | Where-Object { $_ }).Count -gt 1) {
+    $OddballPackProbe, $OddballSmokerProbe, $MilliProbe,
+    $StrangeFolkBatchProbe) | Where-Object { $_ }).Count -gt 1) {
     throw 'Choose one focused oddball probe per cloned-save run.'
 }
 if (($OddballSiteX -gt 0) -ne ($OddballSiteY -gt 0) -or
     (($OddballSiteX -gt 0 -or $OddballSiteY -gt 0) -and
-        -not ($OddballArthurProbe -or $OddballPackProbe -or $OddballSmokerProbe))) {
-    throw '-OddballSiteX and -OddballSiteY must be positive together and require an Arthur, Pack, or Smoker probe.'
+        -not ($OddballArthurProbe -or $OddballPackProbe -or $OddballSmokerProbe -or
+            $StrangeFolkBatchProbe))) {
+    throw '-OddballSiteX and -OddballSiteY must be positive together and require an Arthur, Pack, Smoker, or Strange Folk batch probe.'
 }
 if (($OddballBedX -gt 0) -ne ($OddballBedY -gt 0) -or
     (($OddballBedX -gt 0 -or $OddballBedY -gt 0) -and -not $OddballArthurProbe)) {
@@ -1928,6 +1934,8 @@ $config = @(
     ('oddball_arthur_player_baseline=' + $OddballArthurPlayerBaseline.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_pack_probe=' + $OddballPackProbe.IsPresent.ToString().ToLowerInvariant()),
     ('oddball_smoker_probe=' + $OddballSmokerProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('strange_folk_batch_probe=' + $StrangeFolkBatchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('strange_folk_batch_target=' + $StrangeFolkBatchTarget),
     ('oddball_site_x=' + $OddballSiteX),
     ('oddball_site_y=' + $OddballSiteY),
     ('oddball_bed_x=' + $OddballBedX),

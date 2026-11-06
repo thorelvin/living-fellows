@@ -19,6 +19,7 @@ $OddballProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\clien
 $ArthurPackProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballArthurPackProbe.lua'
 $SmokerProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCOddballSmokerProbe.lua'
 $MilliProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCMilliLiveProbe.lua'
+$StrangeFolkBatchProbe = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCStrangeFolkBatchProbe.lua'
 $DrivingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCDrivingProbe.lua'
 $FollowRoadLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFollowRoadProbe.lua'
 $FacingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFacingProbe.lua'
@@ -98,6 +99,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Smoker live probe Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $MilliProbe
         if ($LASTEXITCODE -ne 0) { throw 'Milli live probe Kahlua compilation failed.' }
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $StrangeFolkBatchProbe
+        if ($LASTEXITCODE -ne 0) { throw 'Strange Folk batch live probe Kahlua compilation failed.' }
 
         # Execute the live harness's landing selection in a clean Kahlua VM.
         # No game process is started and no save is read or changed.

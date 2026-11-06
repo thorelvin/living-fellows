@@ -698,11 +698,30 @@ local function descriptorFor(building, bounds, allowSeen, collectQuestContainer)
     local questContainers = {}
     local budget = 0
     local roomGroup
+    -- A south or east wall is the north or west edge of the square outside
+    -- it, so a shop's street door or window belongs to that outside square.
+    -- Scan one row and column past the bounds for openings into the building.
+    local function outsideOpenings(square, x, y, z)
+        local objectsOk, objects = invoke(square, "getObjects")
+        if not objectsOk or objects == nil then return end
+        for index = 0, listSize(objects) - 1 do
+            local object = listGet(objects, index)
+            local kind = objectKind(object)
+            if kind and openingExterior(object, square, building, x, y, z) then
+                openings[#openings + 1] = { x = x, y = y, z = z,
+                    objectIndex = objectIndex(square, object) or index, kind = kind }
+            end
+        end
+    end
     for z = 0, 2 do
-        for x = bounds.x1, bounds.x2 do
-            for y = bounds.y1, bounds.y2 do
+        for x = bounds.x1, bounds.x2 + 1 do
+            for y = bounds.y1, bounds.y2 + 1 do
                 local square = U().gridSquare(x, y, z)
-                if square ~= nil and sameBuilding(square, building) then
+                local inside = square ~= nil and sameBuilding(square, building)
+                if square ~= nil and not inside then
+                    outsideOpenings(square, x, y, z)
+                end
+                if inside then
                     budget = budget + 1
                     if roomGroup == nil then
                         local room, roomOk = U().call(square, "getRoom")
@@ -1817,6 +1836,7 @@ function Factions.createOddballGroup(site, definition, debugCreated)
         hordeSpawns = site.hordeSpawns
             and stableCopy(site.hordeSpawns, 3, { count = 128 }) or nil,
         vehicle = site.vehicle and stableCopy(site.vehicle, 3) or nil,
+        van = site.van and stableCopy(site.van, 2) or nil,
         fuelPosts = site.fuelPosts
             and stableCopy(site.fuelPosts, 3, { count = 32 }) or nil,
         bins = site.bins and stableCopy(site.bins, 3,

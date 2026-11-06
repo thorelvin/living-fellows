@@ -27,7 +27,7 @@ Living Fellows adds companions, survivor households and working bases to Project
 - **Build a crew worth knowing.** Up to 16 companions with professions, personalities, relationships and memories. They fight in formation, look after their needs, treat wounds and retreat when they're outmatched. Some keep private diaries. Death is permanent, and the book stays behind.
 - **Make a home that works.** Mark storage and work areas, assign jobs, grow food, build, fell trees, saw planks and bury the dead. Wood goes into neat four-log stacks. Blocked jobs pause and retry automatically; manual Retry stays available.
 - **Ask EMMA.** Check camp supplies, people and jobs, recover locked computers, or reconnect substations to restore grid power. EMMA remembers notes and confirms actions with you. Browse 568 entries left by previous owners and 151 county and EMMA files. Everything runs offline on a full-screen 1993 terminal. [More](docs/camp-computer.md).
-- **Meet the people still out there.** Households trade, offer work and remember how you treat them. Sixty-five Strange Folk bring their own stories, requests and bad habits. Encounters can begin on the second day, with a random eligible character each time.
+- **Meet the people still out there.** Households trade, offer work and remember how you treat them. Seventy-two Strange Folk bring their own stories, requests and bad habits. Encounters can begin on the second day, with a random eligible character each time.
 
 The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, camp jobs, equipment, travel and the people you'll meet.
 
