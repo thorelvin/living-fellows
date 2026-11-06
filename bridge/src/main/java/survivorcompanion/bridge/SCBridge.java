@@ -75,6 +75,11 @@ import zombie.worldMap.WorldMap;
 public final class SCBridge {
     public static final String PROTOCOL = "42.21-isocompanion-30";
 
+    public static boolean configurePZOptimizerAdapter(boolean enabled) { return SCPZOptimizerCompatibility.configure(enabled); }
+    public static String getPZOptimizerAdapterState() { return SCPZOptimizerCompatibility.state(); }
+    public static String getPZOptimizerAdapterReason() { return SCPZOptimizerCompatibility.reason(); }
+    public static long getPZOptimizerInlineCalls() { return SCPZOptimizerCompatibility.inlineCalls(); }
+
     /** True only while the optional Viewpoint renderer reports active 3D. */
     public static boolean isViewpoint3DActive() {
         return SCViewpointCompatibility.active();

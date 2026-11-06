@@ -14,6 +14,53 @@ public final class SCNativeBridgeExposureTest {
         if (!value) throw new AssertionError(message);
     }
 
+    private static void testOptionalOptimizerBoundary() throws Exception {
+        require(!SCBridge.configurePZOptimizerAdapter(true)
+                        && "absent".equals(SCBridge.getPZOptimizerAdapterState()),
+                "vanilla runtime must not activate the optimizer adapter");
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field singleton = unsafeClass.getDeclaredField("theUnsafe");
+        singleton.setAccessible(true);
+        Object unsafe = singleton.get(null);
+        Method allocate = unsafeClass.getMethod("allocateInstance", Class.class);
+        SCNativeCompanion actor = (SCNativeCompanion) allocate.invoke(unsafe, SCNativeCompanion.class);
+        zombie.characters.IsoPlayer player = (zombie.characters.IsoPlayer) allocate.invoke(unsafe,
+                zombie.characters.IsoPlayer.class);
+        zombie.characters.IsoZombie attacker = (zombie.characters.IsoZombie) allocate.invoke(unsafe,
+                zombie.characters.IsoZombie.class);
+        Field owners = SCBridge.class.getDeclaredField("OWNED");
+        owners.setAccessible(true);
+        @SuppressWarnings("unchecked") java.util.Set<SCNativeCompanion> owned =
+                (java.util.Set<SCNativeCompanion>) owners.get(null);
+        Field enabled = SCPZOptimizerCompatibility.class.getDeclaredField("enabled");
+        enabled.setAccessible(true);
+        Field target = zombie.characters.IsoZombie.class.getField("target");
+        long priorCalls = SCBridge.getPZOptimizerInlineCalls();
+        try {
+            enabled.setBoolean(null, true);
+            target.set(attacker, player);
+            require(!SCPZOptimizerCompatibility.beforeSubmit(attacker), "real player attack was intercepted");
+            require(!SCPZOptimizerCompatibility.beforeSubmit(actor), "non-zombie evaluator was intercepted");
+            target.set(attacker, actor);
+            require(!SCPZOptimizerCompatibility.beforeSubmit(attacker), "unowned NPC attack was intercepted");
+            owned.add(actor);
+            require(SCPZOptimizerCompatibility.beforeSubmit(attacker), "owned LF target was still deferred");
+            owned.remove(actor);
+            require(!SCPZOptimizerCompatibility.beforeSubmit(attacker), "released actor retained the inline exception");
+            owned.add(actor);
+            SCBridge.configurePZOptimizerAdapter(false);
+            require(!SCPZOptimizerCompatibility.beforeSubmit(attacker)
+                            && "disabled".equals(SCBridge.getPZOptimizerAdapterState()),
+                    "turning compatibility off must immediately delegate normally");
+            require(SCBridge.getPZOptimizerInlineCalls() == priorCalls + 1,
+                    "inline metrics included unrelated actors");
+        } finally {
+            enabled.setBoolean(null, false);
+            owned.remove(actor);
+            SCBridge.configurePZOptimizerAdapter(true);
+        }
+    }
+
     private static void testWindowPermissionIsolation() throws Exception {
         Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
         Field field = unsafeClass.getDeclaredField("theUnsafe");
@@ -112,6 +159,7 @@ public final class SCNativeBridgeExposureTest {
     }
 
     public static void main(String[] args) throws Exception {
+        testOptionalOptimizerBoundary();
         Class<?> randomClass = Class.forName("zombie.core.random.RandStandard");
         Object random = randomClass.getField("INSTANCE").get(null);
         randomClass.getMethod("init").invoke(random);

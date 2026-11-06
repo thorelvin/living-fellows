@@ -1,0 +1,101 @@
+PZOptimizer optional adapter — 0.27.0 development
+2026-11-06
+
+Implementation
+
+SCPZOptimizerAdapter.lua activates at successful world startup and when the
+player applies Options > Mods > PZOptimizer combat compatibility. It detects
+native optimizer classes, not a Lua mod ID: loose overrides can be installed
+without an enabled Workshop Lua entry. There is no polling or background scan.
+World teardown disables the exception. The installed advice remains inert
+when Off, and subsequent worlds reuse it without installing another hook.
+
+SCPZOptimizerCompatibility validates the original class resources once, then
+uses ZombieBuddy's public PatchEngine.applyPatches API. The patch package is
+outside LF's automatically scanned bridge package and is installed only for
+the validated optimizer build. Both submit overloads are probed before the
+adapter reports active. Unvalidated bytes or a missing patch host produce an
+unsupported diagnostic, not a global optimizer configuration change.
+
+The advice returns false from ActionEval.submit only for a zombie targeting
+an exact, currently owned SCNativeCompanion. This selects the caller's existing
+inline postupdate path. Real players, other NPC mods, targetless zombies and
+unowned/retired LF actors retain PZOptimizer's original method body. Nothing
+changes native attack timing, wounds, health, visibility/player slots or saves.
+The implementation neither adds damage nor modifies PZOptimizer's files.
+
+Support includes adapter state, reason and cumulative intercepted submissions.
+This is an optional bridge API extension; protocol 42.21-isocompanion-30 and
+existing save schemas are retained. A mismatched older bridge is diagnosed.
+
+Cause and earlier live controls
+
+In the inspected optimizer, IsoGameCharacter.postUpdateAnimating defers action
+evaluation through ActionEval.submit. IsoZombie.postUpdateInternal subsequently
+recomputes canSeeTarget and clears targetSeenTime before the deferred graph
+evaluates. Detached LF people are not normal visibility-slot players. Those
+values are classified as pure callbacks, so the worker reads the cleared live
+values. This can repeatedly restart the attack before its impact frame.
+
+Earlier isolated 0.26.99, two-companion/three-zombie, 45-second passive controls:
+- Defaults: 17 attack starts, zero successes/failures, zero completed clips,
+  zero damage events and zero health loss. Run 20261106-155510-3ac5ec66.
+- Animator parallelism Off alone: 23 starts, no completed attacks or damage.
+  Run 20261106-154851-50311f38.
+- Action evaluation parallelism Off alone: 27 successes, 18 damage events,
+  7 completed clips, 160.67 combined health loss and one companion death.
+  Run 20261106-155153-84aada31.
+These controls establish the faulty pipeline; they predate the new adapter.
+
+Inspected third-party build (not bundled)
+
+Official release: b42.21-20261102-2253-154126d0, PZ 42.21.0 revision 4a0e9546ec.
+https://github.com/xD3I/PZ_Optimization/releases/tag/b42.21-20261102-2253-154126d0
+Archive SHA-256:
+d56882cc812900ca1e535eb33e9e55e9b3e004f68f46293adf54bb58b53a1ebc
+Validated class SHA-256:
+pzopt/ActionEval.class
+3a0f78587aaee1ee238360a361e30cb7ec629d5890331b647bd076240eb8d15d
+zombie/characters/action/ActionContext.class
+38e082c0c7721c1b2bb2dfad75e675c97df52cb5f7eed56325e6558c9d2d2e39
+zombie/characters/IsoZombie.class
+9d37dfa616438b9b6eaf7cec763976047fd3552939e61be86b5f297d35bbff8b
+Patch host tested: official ZombieBuddy 2.3.3.
+API reference:
+https://github.com/zed-0xff/ZombieBuddy/blob/v2.3.3/doc/ModdingGuide.md
+Other optimizer builds require validation; they are not silently assumed safe.
+The standalone SCLauncher without a ZombieBuddy patch host reports unsupported.
+
+Automated verification
+
+Five essential project checks: PASS, 49.3 seconds, serial 256 MB JVMs / 2 CPUs.
+Final evidence: build/test-results/20261106-164339-4124a8.
+Reproducible build and payload bridge SHA-256 both match:
+892123f65570f37a1ba1b472c29d9f3bad9da6aab94d7fdb297736f4205f2de9
+Native ownership checks cover absent optimizer, real player, unrelated actor,
+owned LF target, released ownership, immediate Off and isolated call counters.
+Lua checks cover absent/active/unsupported, teardown, old bridge, quiet repeated
+diagnostics and status reads that perform no initialization.
+Existing ModOptions persistence/live-Apply test: PASS, including saved Off.
+
+A separate small headless JVM loaded the real optimizer bytecode and the actual
+ZombieBuddy PatchEngine using a temporary instrumentation provider. Both the
+previously unloaded and already loaded ActionEval cases passed. It verified
+both real submit overloads, one interception per call after repeated init,
+real-player/unowned/targetless delegation, Off and world restart. Missing host
+and changed class resources are explicit negative cases. No game client ran.
+Evidence: build/combat-tester-20261106/headless/*.log.
+Headless hook verification does not establish animation or injury outcomes.
+
+Live verification still required
+
+Run one isolated two-companion/three-zombie passive encounter with the adapter
+active, optimizer defaults retained and a normal ZombieBuddy installation.
+Require completed attack clips and native damage receipts; capture a block and
+recovery if encountered. Do not count this scenario as passed from the older
+global-setting controls or from the new headless hook test.
+
+The installed game launcher remained byte-identical during headless checks:
+E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307
+This validation did not perform a local install. Live combat acceptance remains
+pending; the automated results above must not be presented as a live pass.

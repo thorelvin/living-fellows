@@ -24,6 +24,7 @@ local values = {
     protectRecruitedCompanions = false,
     banditsCompatibility = true,
     alifeCompatibility = true,
+    pzOptimizerCompatibility = true,
     speechColors = "speaker",
     terminalLamp = "flash",
 }
@@ -66,6 +67,8 @@ local banditsOption = tickBox("banditsCompatibility", "UI_SC_ModOptions_BanditsC
     true, "UI_SC_ModOptions_BanditsCompatibility_Tooltip")
 local alifeOption = tickBox("alifeCompatibility", "UI_SC_ModOptions_ALifeCompatibility",
     true, "UI_SC_ModOptions_ALifeCompatibility_Tooltip")
+local optimizerOption = tickBox("pzOptimizerCompatibility", "UI_SC_ModOptions_PZOptimizerCompatibility",
+    true, "UI_SC_ModOptions_PZOptimizerCompatibility_Tooltip")
 local speechColorsOption = combo("speechColors", "UI_SC_ModOptions_SpeechColors",
     "UI_SC_ModOptions_SpeechColors_Tooltip", SPEECH_COLORS, {
         "UI_SC_ModOptions_SpeakerColors", "UI_SC_ModOptions_WhiteText",
@@ -108,10 +111,12 @@ function UserOptions.apply()
     values.protectRecruitedCompanions = protectionOption:getValue() == true
     values.banditsCompatibility = banditsOption:getValue() == true
     values.alifeCompatibility = alifeOption:getValue() == true
+    values.pzOptimizerCompatibility = optimizerOption:getValue() == true
     values.speechColors = selectedChoice(speechColorsOption, SPEECH_COLORS)
     values.terminalLamp = selectedChoice(lampOption,LAMP)
     if SC.State and SC.State.active and SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
     if SC.State and SC.State.active and SC.ALifeAdapter then SC.ALifeAdapter.initialize() end
+    if SC.State and SC.State.active and SC.PZOptimizerAdapter then SC.PZOptimizerAdapter.initialize() end
     UserOptions.syncNative()
     if (priorCoughSneezes ~= values.coughSneezes
             or priorOrdinaryColds ~= values.ordinaryColds)

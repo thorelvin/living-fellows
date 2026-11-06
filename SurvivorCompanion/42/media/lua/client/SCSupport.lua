@@ -245,6 +245,8 @@ function support.snapshot(force)
             { state = "absent", reason = "Adapter unavailable" }),
         alife = safeCall(function() return SC.ALifeAdapter.status() end,
             { state = "absent", reason = "Adapter unavailable" }),
+        pzoptimizer = safeCall(function() return SC.PZOptimizerAdapter.status() end,
+            { state = "absent", reason = "Adapter unavailable" }),
         actionSupervisor = actionHealth,
         actionLeaks = actionLeaks,
         actionQuarantine = actionQuarantine,
@@ -296,6 +298,9 @@ function support.summary(force)
             .. " | " .. tostring(data.bandits and data.bandits.reason or "unavailable"),
         "A-Life adapter: " .. tostring(data.alife and data.alife.state or "absent")
             .. " | " .. tostring(data.alife and data.alife.reason or "unavailable"),
+        "PZOptimizer adapter: " .. tostring(data.pzoptimizer and data.pzoptimizer.state or "absent")
+            .. " | " .. tostring(data.pzoptimizer and data.pzoptimizer.reason or "unavailable")
+            .. " | inline calls=" .. tostring(data.pzoptimizer and data.pzoptimizer.inlineCalls or 0),
         "Known households: " .. tostring(data.factions),
         "Scheduler: " .. tostring(scheduler.taskCount or 0) .. " tasks, "
             .. tostring(scheduler.exceptions or 0) .. " exceptions, "

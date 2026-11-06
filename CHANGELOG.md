@@ -4,6 +4,9 @@
 
 ## 0.27.0 - Safe windows and navigation recovery
 
+- Automatically enable an optional PZOptimizer adapter for the tested build,
+  preserving native zombie attacks against LF people without changing global
+  optimizer settings. Includes an Off setting and Support diagnostics.
 - Prefer doors and stairs for routine travel. Open ordinary latched windows
   from indoors, and reserve automatic smashing for verified immediate danger.
 - Require safe landings and verified onward and return routes for elevated

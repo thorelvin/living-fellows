@@ -7,6 +7,7 @@ require "SCDiagnostics"
 require "SCRegistry"
 require "SCBanditsAdapter"
 require "SCALifeAdapter"
+require "SCPZOptimizerAdapter"
 require "SCScheduler"
 require "SCPerformance"
 require "SCActor"
@@ -1881,6 +1882,7 @@ function runtime.start()
     running = true
     if SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
     if SC.ALifeAdapter then SC.ALifeAdapter.initialize() end
+    if SC.PZOptimizerAdapter and ready then SC.PZOptimizerAdapter.initialize() end
     lastStartReady = ready == true
     lastStartReason = reason
     startupFailureReason = nil
@@ -2140,6 +2142,7 @@ function runtime.reset(detach)
         if #resetFailures == 0 then
             resetModule("Bandits adapter", SC.BanditsAdapter, "reset")
             resetModule("A-Life adapter", SC.ALifeAdapter, "reset")
+            resetModule("PZOptimizer adapter", SC.PZOptimizerAdapter, "reset")
             resetModule("registry", SC.Registry, "reset")
         end
         -- Diagnostics is deliberately last. If any earlier cleanup rejects,

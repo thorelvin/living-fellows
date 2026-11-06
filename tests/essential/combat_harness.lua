@@ -64,4 +64,36 @@ check(fallback.applied == 1 and part.isScratched and not part.infectionRollReach
         .. " repeatedReceipt=" .. tostring(repeated.receipts.processing_omitted))
 check(player.body.health == playerHealth and not player.lastIntent,
     "companion damage resolution leaves the local player untouched")
+
+-- The optional boundary has no polling service and survives world/reset cycles.
+local originalBridge, originalOptions, originalDiagnostics = SCBridge, SC.UserOptions, SC.Diagnostics
+local requested, configCalls, diagnosticCalls = true, 0, 0
+local nativeState = "absent"
+SCBridge = {
+    configurePZOptimizerAdapter = function(value)
+        configCalls = configCalls + 1
+        requested = value
+    end,
+    getPZOptimizerAdapterState = function() return nativeState end,
+    getPZOptimizerAdapterReason = function() return "test " .. nativeState end,
+    getPZOptimizerInlineCalls = function() return 7 end,
+}
+SC.UserOptions = { get = function() return requested end }
+SC.Diagnostics = { report = function() diagnosticCalls = diagnosticCalls + 1 end }
+check(not SC.PZOptimizerAdapter.initialize() and SC.PZOptimizerAdapter.status().state == "absent",
+    "optimizer absent stays inactive")
+nativeState = "active"
+check(SC.PZOptimizerAdapter.initialize() and SC.PZOptimizerAdapter.status().inlineCalls == 7,
+    "validated native adapter activates and exposes counters")
+SC.PZOptimizerAdapter.status()
+check(configCalls == 2, "reading Support does not reinstall or rescan the adapter")
+SC.PZOptimizerAdapter.reset()
+check(requested == false and SC.PZOptimizerAdapter.status().state == "disabled", "world reset disables the hook")
+requested, nativeState = true, "unsupported"
+SC.PZOptimizerAdapter.initialize()
+SC.PZOptimizerAdapter.initialize()
+check(diagnosticCalls == 1, "unsupported optimizer produces one readable diagnostic")
+SCBridge = {}
+check(not SC.PZOptimizerAdapter.initialize(), "older native bridges fail safely")
+SCBridge, SC.UserOptions, SC.Diagnostics = originalBridge, originalOptions, originalDiagnostics
 print("BEHAVIOUR_COMBAT_PASS checks=" .. tostring(f.checks()))
