@@ -26,7 +26,14 @@ tile(101, 50, 0).room = { getName = function() return "LivingRoom" end }
 tile(104, 52, 0).room = { getName = function() return "Bedroom" end }
 
 local house = { anchor = { x = 100, y = 50, z = 0 }, primaryEntry = { x = 99, y = 50, z = 0 },
-    interior = { { x = 101, y = 50, z = 0 }, { x = 104, y = 52, z = 0 } } }
+    interior = { { x = 101, y = 50, z = 0 }, { x = 104, y = 52, z = 0 } },
+    openings = { { kind = "door", x = 99, y = 50, z = 0, objectIndex = 0 },
+        { kind = "window", x = 99, y = 52, z = 0, objectIndex = 0 } },
+    bounds = { x1 = 99, y1 = 48, x2 = 106, y2 = 54 } }
+-- Her front door comes locked, as most doors in the county do.
+local frontDoor = { door = true, locked = true, lockedByKey = true }
+tile(99, 50, 0).objects = { frontDoor }
+local secured = {}
 
 addZombiesInOutfit = function(x, y, z, count, outfit, female)
     local zombie = { x = x, y = y, z = z, outfit = outfit, female = female, data = {}, killed = false }
@@ -60,8 +67,17 @@ SC.GameplayUtil = {
         return item
     end,
     say = function(actor, line) actor.lastLine = line return true end,
+    stop = function(actor) actor.stopped = (actor.stopped or 0) + 1 return true end,
     call = function(value, method, a, b)
         if method == "getWorldAgeHours" then return hours, true end
+        if type(value) == "table" and value.objects and method == "getObjects" then
+            return value.objects, true
+        end
+        if type(value) == "table" and value.door == true then
+            if method == "setLockedByKey" then value.lockedByKey = a return nil, true end
+            if method == "setLocked" then value.locked = a return nil, true end
+            if method == "isLocked" then return value.locked or value.lockedByKey, true end
+        end
         if value == ruth then
             if method == "isZombiesDontAttack" then return ruth.shelter, true end
             if method == "getVehicle" then return ruth.vehicle, true end
@@ -103,6 +119,10 @@ SC.Registry = {
 SC.Oddballs = {
     setZombieShelter = function(actor, wanted) actor.shelter = wanted return true end,
     retire = function(group, reason) retiredReason = reason return true end,
+    secureScene = function(group, player, options)
+        secured[#secured + 1] = options
+        return 0, 1
+    end,
 }
 SC.Relationship = { playEmote = function(actor, emote)
     emotes[#emotes + 1] = emote
@@ -111,14 +131,35 @@ end }
 SC.Navigation = { request = function(actor, square, gait, options)
     routes[#routes + 1] = { square = square, gait = gait, action = options.action }
     return true, "moving"
+end, requestAny = function(actor, squares, gait, options)
+    routes[#routes + 1] = { square = squares[1], gait = gait, action = options.action,
+        token = options.supervisorToken, arrival = options.arrivalDistance }
+    return true, "moving"
 end }
+-- Like SCVehicle: a transaction per boarding, and the door preflight passes
+-- within 1.6 m of the door itself.
+local transaction
 SC.Vehicle = {
     isStationary = function(vehicle) return vehicle.stationary == true end,
     boardingSquare = function(actor, vehicle) return doorSquare, 2 end,
+    boardingSquares = function(actor, vehicle, seat) return { doorSquare }, seat end,
+    beginBoarding = function(actor, vehicle, seat)
+        transaction = transaction or { supervisorToken = "board-token", seat = seat }
+        return transaction, "already_active"
+    end,
+    failTransaction = function() transaction = nil return true end,
+    preflightBoard = function(actor, vehicle, seat)
+        local reach = math.sqrt((actor.x - doorSquare.x) ^ 2 + (actor.y - doorSquare.y) ^ 2)
+        if reach > 1.6 then return nil, "companion is not at the passenger door" end
+        return { seat = seat, token = transaction and transaction.supervisorToken }
+    end,
     board = function(actor, vehicle, seat, intent)
         assert(intent.allowVirtualSeat == false, "never a virtual seat")
+        assert(intent.preflight and intent.supervisorToken == "board-token",
+            "boards through its own preflight and transaction")
         boards[#boards + 1] = { seat = seat }
         actor.vehicle = vehicle
+        transaction = nil
         return true
     end,
     exit = function(actor, vehicle, seat)
@@ -132,9 +173,11 @@ SC.Factions = {
         assert(options.purpose == "oddball" and options.minimumDistance == 60)
         return houseFound and house or nil
     end,
+    -- The real describer's shape: every point is a "House ... of Street".
     describeLocation = function(position)
         assert(position == house.anchor)
-        return { address = "27 Locust Street" }
+        return { address = "House 40 meters N of Locust Street", distance = 40,
+            direction = "N", nearestStreet = { name = "Locust Street" } }
     end,
     hibernateOddballRoamer = function()
         if visibleRuth then return false end
@@ -219,12 +262,14 @@ assert(group.oddball.stage == "boarding" and said() == LINES.board[1])
 -- She walks to the passenger door, then really boards.
 assert(tick())
 assert(routes[#routes].square.x == doorSquare.x and routes[#routes].square.y == doorSquare.y
-        and #boards == 0, "first the walk to the door")
-ruth.x, ruth.y = 5, 2
+        and routes[#routes].action == "approach_vehicle" and routes[#routes].token == "board-token"
+        and #boards == 0, "first the walk to the door, inside the boarding transaction")
+-- Live she stopped 1.4 m short of the door square; the door's own reach decides.
+ruth.x, ruth.y = 5, 3.4
 assert(tick())
 assert(#boards == 1 and boards[1].seat == 2 and group.oddball.stage == "riding"
         and ruth.vehicle == car, "a real passenger seat")
-assert(said() == "It's 27 Locust Street. I'll show you.", "a real address")
+assert(said() == "It's the house 40 meters N of Locust Street. I'll show you.", "a real address")
 assert(marks[1].text == "[LF] Ruth Ann's house" and marks[1].x == 100)
 assert(group.oddball.home.floor.x == 104 and group.oddball.home.floor.y == 52,
     "what waits inside waits in the bedroom")
@@ -252,6 +297,9 @@ car.x, car.y = 95, 52
 H.pulse(group, player, now)
 assert(group.oddball.stage == "walking_home" and #exits == 1 and exits[1].seat == 2
         and said() == LINES.arrive[1], "at the house she gets out")
+assert(frontDoor.locked == false and frontDoor.lockedByKey == false
+        and group.oddball.doorsUnlocked == 1,
+    "her own front door: she has the key, so a locked door never strands her outside")
 
 -- She walks in to the bedroom, and goes when nobody is looking.
 assert(tick())
@@ -271,6 +319,12 @@ floorSeen = true
 now = now + 1000
 H.pulse(group, player, now)
 assert(#spawned == 0, "no body appears in view")
+assert(#secured == 1 and secured[1].closeDoors == true
+        and secured[1].center.x == 104 and secured[1].center.y == 52
+        and secured[1].house.openings[1].x == 99 and secured[1].house.bounds.x2 == 106,
+    "behind her the house is cleared of the dead and its doors pulled shut")
+H.pulse(group, player, now)
+assert(#secured == 1, "once")
 floorSeen = false
 H.pulse(group, player, now)
 assert(#spawned == 1 and spawned[1].outfit == "Backpacker" and spawned[1].female == 100
@@ -344,7 +398,7 @@ assert(group.oddball.stage == "riding" and group.oddball.home == nil, "she gets 
 houseFound = true
 now = now + 31000
 H.pulse(group, player, now)
-assert(group.oddball.home and said() == "It's 27 Locust Street. I'll show you.")
+assert(group.oddball.home and said() == "It's the house 40 meters N of Locust Street. I'll show you.")
 
 -- Taking too long to stop for her ends it.
 H._resetForTests()

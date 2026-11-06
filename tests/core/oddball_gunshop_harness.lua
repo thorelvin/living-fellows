@@ -88,6 +88,8 @@ SC.GameplayUtil = {
             return seenPosts[value.key] == true, true
         end
         if method == "setPrimaryHandItem" then value.primary = a return nil, true end
+        if method == "setSecondaryHandItem" then value.secondary = a return nil, true end
+        if method == "setCurrentAmmoCount" then value.ammo = a return nil, true end
         if method == "getContainer" then return value.container, true end
         return nil, false
     end,
@@ -163,6 +165,9 @@ assert(G.onSpawn(group, bob))
 assert(bob.primary and bob.primary.kind == "Base.Shotgun"
         and count(bob.inv, "Base.ShotgunShellsBox") == 2,
     "Bob holds his own shotgun with shells to feed it")
+assert(bob.primary.ammo == 6 and bob.secondary == bob.primary
+        and count(bob.inv, "Base.ShotgunShells") == 12,
+    "the shotgun is loaded, held in both hands, with loose shells to reload")
 assert(count(bob.inv, "Base.Pistol2") == 1 and count(bob.inv, "Base.45Clip") == 2
         and count(bob.inv, "Base.Bullets45Box") == 1, "the good stuff is stocked in back")
 local items = #bob.inv.items

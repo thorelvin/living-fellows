@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 -- Bernice "Miss Liberty" Hupp follows the player at a distance and throws
--- her ten real firecrackers through vanilla IsoGameCharacter.Throw, the same
--- call the stock swing makes at its impact frame. The landing trap makes the
--- game's own noise, so the dead come for whoever stands under it. She runs
+-- her ten real firecrackers. Each lands as the vanilla thrown-object code
+-- lands one, as the game's own IsoTrap at the player's feet, so the noise
+-- brings the dead to whoever stands under it. She runs
 -- when the box is empty, when the dead get close or when she is struck, and
 -- leaves through roamer hibernation once nobody can see her.
 
@@ -21,6 +21,7 @@ local THROW_MIN_DISTANCE = 3
 local THROW_MAX_DISTANCE = 9.5
 local ZOMBIE_FLEE_DISTANCE = 12
 local WINDUP_MS = 600
+local FLIGHT_MS = 600
 local THROW_COOLDOWN_MS = 6500
 local THROW_SPREAD_MS = 4000
 local RAMBLE_COOLDOWN_MS = 9000
@@ -327,22 +328,51 @@ local function awaySquare(actor, fromX, fromY, span)
     return nil
 end
 
-local function throwAt(actor, player, item)
+-- A firecracker lobbed over a fence or past a wall corner clears it. The
+-- engine's thrown-object physics does not: live on 42.21, her throws along a
+-- house front hit the wall and went off at her own feet. So her firecracker
+-- lands the way IsoMolotovCocktail.Explode lands one, on the square she aimed
+-- at: the same IsoTrap, placed and set off the same way, with the
+-- firecracker's own noise and bang. She throws only where a lob could go:
+-- both outdoors, or both in one room, never through a window or a doorway.
+local function sameSpace(actor, player)
+    local from, to = U().squareOf(actor), U().squareOf(player)
+    if not from or not to then return false end
+    local fromRoom = select(1, U().call(from, "getRoom"))
+    local toRoom = select(1, U().call(to, "getRoom"))
+    if fromRoom == nil and toRoom == nil then return true end
+    return fromRoom ~= nil and fromRoom == toRoom
+end
+
+local function throwAt(actor, player, item, entry, current)
     local square = U().squareOf(player)
-    if not square then return false, "bernice_target_square_unavailable" end
-    local previous = select(1, U().call(actor, "getAttackTargetSquare"))
-    local _, aimed = U().call(actor, "setAttackTargetSquare", square)
-    if not aimed then return false, "bernice_aim_unavailable" end
+    local x, y, z = U().position(square)
+    if not x then return false, "bernice_target_square_unavailable" end
+    if IsoTrap == nil then return false, "bernice_native_trap_unavailable" end
     U().call(actor, "faceThisObject", player)
-    -- IsoGameCharacter.Throw builds the vanilla IsoMolotovCocktail from the
-    -- held weapon. Its IsoTrap carries the firecracker's own noise and sound.
-    local _, thrown = U().call(actor, "Throw", item)
-    U().call(actor, "setAttackTargetSquare", previous)
-    if not thrown then return false, "bernice_native_throw_failed" end
     U().call(actor, "playSound", "FireCrackerThrow")
-    -- The stock swing spends a UseSelf throwable right after Throw.
+    -- The stock swing spends a UseSelf throwable as it leaves the hand.
     U().consumeItem(U().inventory(actor), item)
+    entry.landing = { actor = actor, item = item, x = x, y = y, z = z,
+        at = current + FLIGHT_MS }
     return true, "bernice_threw"
+end
+
+local function land(entry, current)
+    local landing = entry.landing
+    if not landing or current < landing.at then return false end
+    entry.landing = nil
+    local square = U().gridSquare(landing.x, landing.y, landing.z)
+    if not square or IsoTrap == nil then return false end
+    local okay, trap = pcall(IsoTrap.new, landing.actor, landing.item, U().cell(), square)
+    if not okay or not trap then return false end
+    if select(1, U().call(trap, "shouldPlaceInWorldAfterThrowing")) == true then
+        U().call(square, "AddTileObject", trap)
+    end
+    if select(1, U().call(trap, "isInstantExplosion")) == true then
+        U().call(trap, "triggerExplosion")
+    end
+    return true
 end
 
 local function harass(actor, player, value, group)
@@ -355,12 +385,14 @@ local function harass(actor, player, value, group)
     end
     local distance = U().distance(actor, player)
     local hasSight = U().sameFloor(actor, player) and U().canSee(actor, player) == true
+    -- Seeing through a window is not throwing through it; she keeps coming.
+    local canThrow = hasSight and sameSpace(actor, player)
     if entry.windupAt then
-        if not hasSight or distance > THROW_MAX_DISTANCE then
+        if not canThrow or distance > THROW_MAX_DISTANCE then
             entry.windupAt = nil
         elseif current - entry.windupAt >= WINDUP_MS then
             entry.windupAt = nil
-            local thrown, reason = throwAt(actor, player, supply[1])
+            local thrown, reason = throwAt(actor, player, supply[1], entry, current)
             if not thrown then
                 entry.nextThrowAt = current + THROW_COOLDOWN_MS
                 return true, reason
@@ -382,7 +414,7 @@ local function harass(actor, player, value, group)
             return true, "bernice_lighting_fuse"
         end
     end
-    if hasSight and distance >= THROW_MIN_DISTANCE and distance <= THROW_MAX_DISTANCE
+    if canThrow and distance >= THROW_MIN_DISTANCE and distance <= THROW_MAX_DISTANCE
         and current >= (tonumber(entry.nextThrowAt) or 0) then
         cancelFollow(actor, "bernice_lighting_fuse")
         U().stop(actor)
@@ -404,10 +436,10 @@ local function harass(actor, player, value, group)
         end
         return true, "bernice_cornered"
     end
-    if hasSight and distance <= HOLD_DISTANCE then
+    if canThrow and distance <= HOLD_DISTANCE then
         cancelFollow(actor, "bernice_holding_distance")
     else
-        local followed, reason = follow(actor, player, distance, hasSight, 7)
+        local followed, reason = follow(actor, player, distance, canThrow, 7)
         if not followed then return followed, reason end
     end
     if hasSight and current >= (tonumber(entry.nextRambleAt) or 0) then
@@ -464,6 +496,8 @@ end
 function Firecracker.update(actor, player, runtime, intent, group)
     local value = story(group)
     if not value or not intent or not player then return false end
+    -- A firecracker already in the air lands whatever she does next.
+    land(runtimeFor(actor), U().nowMs())
     if intent.mode == "firecracker_flee" then return flee(actor, player, value) end
     if intent.mode == "firecracker_harass" then return harass(actor, player, value, group) end
     if intent.mode ~= "firecracker_approach" then return false end

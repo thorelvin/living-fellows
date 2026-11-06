@@ -67,7 +67,7 @@ local LINES = {
     supplies = { "Write this down. %s. Inside. Take what you need, not all of it. Out." },
     suppliesAgain = { "Same place as before. I don't run a store. Out." },
     noCache = { "Nothing close enough to stash it. Ask me tomorrow. Out." },
-    meet = { "My camp's in the woods off %s. Come slow. Hands empty. Out." },
+    meet = { "My camp's in the woods, %s. Come slow. Hands empty. Out." },
     meetAgain = { "You know where I am. Out." },
     notYet = { "Not yet. Call me tomorrow. Out." },
     silent = { "Radio discipline. Going quiet till tomorrow. Out." },
@@ -177,15 +177,10 @@ local function transmit(group, value, text, code, channel)
     return send(x, y, channel or CHANNEL, text, code, Soldier.transmitRange(group))
 end
 
--- The game's own forecast for tomorrow, as Aunt Velma reads it.
+-- The game's own forecast for tomorrow, in words.
 local function forecast()
-    if type(getClimateManager) ~= "function" then return nil end
-    local okay, climate = pcall(getClimateManager)
-    if not okay or not climate then return nil end
-    local forecasts = call(call(climate, "getClimateForecaster"), "getForecasts")
-    if (number(call(forecasts, "size")) or 0) < 2 then return nil end
-    local name = call(call(forecasts, "get", 1), "getName")
-    return type(name) == "string" and name or nil
+    local reader = SC.OddballForecast
+    return reader and type(reader.tomorrow) == "function" and reader.tomorrow() or nil
 end
 
 -- Walkers he can count from camp: a bounded walk of the loaded zombie list.
@@ -393,9 +388,12 @@ local function stockCache(group, value, player)
         or type(SC.Factions.resolveQuestContainer) ~= "function" then
         return nil, "house_search_unavailable"
     end
+    -- A stash is a stash in a house the player already knows. Near a
+    -- lived-in base every house is explored; live, an unexplored-only search
+    -- from the edge of West Point found none. Never the player's base house.
     local house = SC.Factions.findHouse(player, { purpose = "quest",
         sourceFactionId = group.id, minimumDistance = 30, maximumDistance = 120,
-        sampleBudget = 48 })
+        sampleBudget = 48, allowSeen = true })
     if not house or not house.questContainer then return nil, "no_cache_house" end
     local container = SC.Factions.resolveQuestContainer(house.questContainer,
         house.bounds, house.anchor)
@@ -445,7 +443,12 @@ local function replyFor(group, value, topic, player)
         local location = post and SC.Factions and SC.Factions.describeLocation
             and SC.Factions.describeLocation(post)
         if post then mark("[LF] Hatcher's camp", post.x, post.y) end
-        return string.format(LINES.meet[1], location and location.address or "the treeline")
+        -- The describer names every point a "House"; a camp is not one.
+        local street = location and location.nearestStreet
+        local where = street and location.direction and string.format("%d meters %s of %s",
+            number(location.distance) or 0, location.direction, tostring(street.name))
+            or "past the treeline"
+        return string.format(LINES.meet[1], where)
     end
     return nil
 end
@@ -498,16 +501,21 @@ function Soldier.onSpawn(group, actor)
     if value.kitSeeded ~= true then
         local rifle = U().addItem(inventory, "Base.AssaultRifle")
         if not rifle then return false, "hatcher_rifle_unavailable" end
+        -- New guns come empty. A sergeant's rifle does not.
+        U().call(rifle, "setCurrentAmmoCount", 20)
         U().call(actor, "setPrimaryHandItem", rifle)
+        U().call(actor, "setSecondaryHandItem", rifle)
         for _, kind in ipairs({ "Base.556Clip", "Base.556Clip", "Base.556Clip", "Base.556Box",
             "Base.Pistol", "Base.9mmClip", "Base.9mmClip", "Base.EntrenchingTool",
             "Base.WalkieTalkie5", "Base.Battery", "Base.Battery",
             "Base.CanteenMilitaryFull", "Base.FirstAidKit_Military",
             "Base.FlashLight_AngleHead_Army", "Base.CompassDirectional", "Base.Map",
             "Base.Matches", "Base.CigarettePack", "Base.MilitaryMedal", "Base.Hat_GasMask" }) do
-            if not U().addItem(inventory, kind) then
+            local item = U().addItem(inventory, kind)
+            if not item then
                 return false, "hatcher_kit_unavailable:" .. kind
             end
+            if kind == "Base.Pistol" then U().call(item, "setCurrentAmmoCount", 15) end
         end
         value.kitSeeded = true
     end

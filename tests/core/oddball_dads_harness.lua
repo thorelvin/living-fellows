@@ -157,6 +157,9 @@ assert(notebook and notebook.name == "The Standings"
     "Ron keeps the real standings, tied at forty-one")
 assert(D.onSpawn(group, gary) and D.onSpawn(group, ron))
 assert(#gary.inv.items == 2 and #ron.inv.items == 3, "a repeated setup adds nothing")
+-- A beer of his own sits ahead of the prize in his inventory.
+local ownBeer = { kind = "Base.BeerCan", data = {}, pages = {}, container = gary.inv }
+table.insert(gary.inv.items, 1, ownBeer)
 assert(D.intentFor(gary, player, {}, group).mode == "dads_living_room")
 
 -- No audience, no show.
@@ -267,8 +270,10 @@ playRound()
 assert(D.action(group, "verdict_gary", player))
 assert(group.oddball.stage == "exhibition" and group.oddball.champion == "gary",
     "three round wins make a champion")
-assert(count(gary.inv, "Base.BeerCan") == 0 and count(player.inv, "Base.BeerCan") == 1
-        and group.oddball.prizeGiven == true, "the judge gets a real beer from the winner")
+assert(count(gary.inv, "Base.BeerCan") == 1 and count(player.inv, "Base.BeerCan") == 1
+        and player.inv.items[#player.inv.items].data.lfDadsBeerGroupId == group.id
+        and gary.inv.items[1] == ownBeer and group.oddball.prizeGiven == true,
+    "the judge gets the winner's tagged beer, not whatever beer he had on him")
 local heard = {}
 for _ = 1, 6 do
     step(2600)

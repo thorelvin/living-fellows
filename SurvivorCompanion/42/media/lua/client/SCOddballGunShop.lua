@@ -171,7 +171,12 @@ function GunShop.onSpawn(group, actor)
     if value.gunSeeded ~= true then
         local gun = U().addItem(inventory, "Base.Shotgun")
         if not gun then return false, "bob_shotgun_unavailable" end
+        -- A new shotgun comes empty; live, he stood through a siege unable
+        -- to fire. Load it, hold it in both hands, keep loose shells to reload.
+        U().call(gun, "setCurrentAmmoCount", 6)
         U().call(actor, "setPrimaryHandItem", gun)
+        U().call(actor, "setSecondaryHandItem", gun)
+        for _ = 1, 12 do U().addItem(inventory, "Base.ShotgunShells") end
         for _ = 1, 2 do U().addItem(inventory, "Base.ShotgunShellsBox") end
         value.gunSeeded = true
     end

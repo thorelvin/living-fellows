@@ -39,7 +39,7 @@ local LINES = {
         "Every time I nod off, I wake up checking if I'm still me.",
         "Fixed televisions thirty years. Never fixed one by hitting it. Try anyway.",
         "Ain't asking you to like it. Asking you to do it.",
-        "You leave, I'm the next thing that tries to bite you. That's a schedule.",
+        "You leave, I finish this alone on a bathroom floor. That's a schedule.",
         "Folks used to do each other favors. Help move a couch. This is the couch.",
         "Close your eyes if you want. I'll keep mine open.",
         { "Hurts like hell. Not the arm. The waiting.",
@@ -79,7 +79,7 @@ local LINES = {
         "Still no? Then quit standing in my light.",
     },
     mercy = {
-        "Thank you. When I get back up, it ain't me. Don't talk to it.",
+        "Thank you. Do it right, so I stay down.",
     },
     hurt = {
         "There it is. Don't stop halfway, that's worse.",
@@ -95,7 +95,7 @@ local LINES = {
         "Don't look at me. I'm not saying no, either.",
     },
     fellowMercy = {
-        "That was the decent thing. He'll still get back up. Be ready.",
+        "That was the decent thing. He's staying down. Nine days was enough.",
     },
 }
 Bitten.LINES = LINES
@@ -208,8 +208,10 @@ local function applyBite(actor, value)
     -- The same call a zombie's bite makes. BodyDamage.Update sees the
     -- infected part and starts the infection on the engine's own clock.
     U().call(part, "SetBitten", true)
-    U().call(part, "setBandaged", true, BANDAGE_LIFE, false, "Base.RippedSheetsDirty")
     if select(1, U().call(part, "bitten")) ~= true then return false end
+    -- Read the bite back first: a dressing hides the bitten flag (42.21
+    -- setBandaged clears it), while the bite time and infection stay.
+    U().call(part, "setBandaged", true, BANDAGE_LIFE, false, "Base.RippedSheetsDirty")
     value.biteApplied = true
     return true
 end
@@ -235,6 +237,30 @@ local function seedNotebook(group, actor, value)
     if type(data) == "table" then data.lfHershelGroupId = group.id end
     value.notebookSeeded = true
     return true
+end
+
+-- He stays down. A bitten body rises only while its ZOMBIE_INFECTION stat
+-- reads 0.001 or more as it dies (42.21 shouldBecomeZombieAfterDeath, asked
+-- after OnCharacterDeath fires). Clearing the infection as he dies, by mercy
+-- or by anything else, lays him to rest for good.
+function Bitten.layToRest(actor)
+    if not actor then return false end
+    local stats = select(1, U().call(actor, "getStats"))
+    local stat = CharacterStat and CharacterStat.ZOMBIE_INFECTION or nil
+    if stats and stat ~= nil then U().call(stats, "set", stat, 0) end
+    local body = select(1, U().call(actor, "getBodyDamage"))
+    U().call(body, "setInfected", false)
+    local left = stats and stat ~= nil and tonumber((U().call(stats, "get", stat))) or nil
+    return left ~= nil and left < 0.001
+end
+
+-- Any death of his, whatever caused it.
+function Bitten.onMemberDeath(group, actor)
+    local value = story(group)
+    if not value then return false end
+    value.stage = "dying"
+    value.laidToRest = Bitten.layToRest(actor) == true
+    return value.laidToRest
 end
 
 -- The engine's own progress, (now - infectionTime) / duration, measured
@@ -418,6 +444,7 @@ function Bitten.action(group, action, player)
             return false, "native_life_end_unavailable"
         end
         speak(actor, value, "mercy")
+        Bitten.layToRest(actor)
         local ended, reason = SC.Actor.endLife(actor)
         if ended ~= true then return false, reason or "native_life_end_refused" end
         value.stage = "dying"

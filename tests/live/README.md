@@ -296,6 +296,48 @@ captures the bed scene or the four costumes before the Pack reveal:
     -OddballSceneScreenshot .\build\spiffo-pack-live.png
 ```
 
+The Strange Folk batch probe tests one of the seven folk added together per
+cloned-save run. It finds a real site near the observer, or near
+`-OddballSiteX`/`-OddballSiteY`, and keeps the ordinary decision loop and
+faction pulse running. The probe only plays the player's part: walking up,
+choosing menu lines, working a radio through the real context menu, and
+finishing off walkers. Only the ambient stranger spawner is paused.
+
+- `firecracker`: ten tagged firecrackers, native throws that leave real traps,
+  her refusal to stop, flight from a walker, and running off once unseen.
+- `bitten`: the native bite and notebook, sitting on the floor, his greeting
+  and menu, infection progress on the engine clock, mercy, and a body that
+  stays down for two minutes.
+- `dads`: kit in hand, setup/punchline beats, three verdicts, and the beer and
+  standings page.
+- `preacher`: the radio van and its range, a sermon heard on a real radio
+  tuned to 103.4, the in-person greeting, and handing over a book.
+- `gunshop`: Bob's shotgun and stock, the real window smash with five spawned
+  walkers, his fight, counted kills, and the reward.
+- `soldier`: the kit, calls made from the real radio context menu, replies and
+  a sitrep heard on 146.6, trust by day, the cache address, the meeting, and
+  radio discipline.
+- `hitchhiker`: boarding the player's stopped car into a real seat, her
+  address, and the arrival. The drive itself is the player's, so the probe
+  moves her destination to a house beside the car, a bedroom house when one
+  is near. It then checks that she unlocks her door and walks in, vanishes,
+  the house is cleared and shut behind her, and the aged body in her clothes
+  with the letter is found.
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -StrangeFolkBatchProbe -StrangeFolkBatchTarget gunshop `
+    -OddballSiteX 12093 -OddballSiteY 6787 -LivingFellowsOnly -NoSteam `
+    -IsolatedSourceBridge -HiddenWindow -TimeoutSeconds 600
+```
+
+`SC_REAL_SANDBOX|FOLK|SAY` and `|RADIO` lines record every line spoken and
+every radio line heard. Per-folk trace lines record stage, distance and sight.
+
+Two variants are diagnostics rather than folk. `bittenkill` kills Hershel
+outright instead of granting mercy, so only his death hook keeps the body
+down. `throwlab` has the player and Bernice throw the same native firecracker
+across open ground and around walls, logging every landing square.
+
 For a targeted Arthur bed pose diagnostic, pair `-OddballBedX` and
 `-OddballBedY` with `-OddballPoseOnly`. The probe records native on-bed flags,
 physical bed occupancy, entry geometry, and the fallback reason, then captures

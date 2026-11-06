@@ -140,6 +140,17 @@ local function roomOf(square)
     return type(name) == "string" and string.lower(name) or nil
 end
 
+-- The describer's address reads "House 18 meters N of Mulberry St.", which
+-- comes out wrong in her mouth. She names the house the way a person would.
+local function spokenAddress(location)
+    local street = type(location) == "table" and location.nearestStreet or nil
+    if type(street) == "table" and street.name and location.direction then
+        return string.format("the house %d meters %s of %s",
+            number(location.distance) or 0, location.direction, tostring(street.name))
+    end
+    return "the house just up the road"
+end
+
 -- Her house: a real, unclaimed house in loaded range, with a floor tile
 -- for what waits inside (a bedroom when there is one).
 local function chooseHome(player, value)
@@ -158,15 +169,47 @@ local function chooseHome(player, value)
     end
     floor = floor or fallback
     if not floor then return nil end
+    local doors = {}
+    for _, opening in ipairs(house.openings or {}) do
+        if opening.kind == "door" and #doors < 6 then
+            doors[#doors + 1] = { x = opening.x, y = opening.y, z = opening.z or 0,
+                objectIndex = opening.objectIndex, kind = "door" }
+        end
+    end
+    local bounds = house.bounds
     local location = SC.Factions.describeLocation and SC.Factions.describeLocation(house.anchor)
     value.home = { anchor = { x = house.anchor.x, y = house.anchor.y, z = house.anchor.z or 0 },
+        doors = doors,
+        bounds = type(bounds) == "table" and { x1 = bounds.x1, y1 = bounds.y1,
+            x2 = bounds.x2, y2 = bounds.y2 } or nil,
         entry = house.primaryEntry and { x = house.primaryEntry.x, y = house.primaryEntry.y,
             z = house.primaryEntry.z or 0 } or nil,
         floor = { x = floor.x, y = floor.y, z = floor.z or 0 },
-        address = location and location.address
-            or (tostring(house.anchor.x) .. ", " .. tostring(house.anchor.y)) }
+        address = spokenAddress(location) }
     return value.home
 end
+
+local function doorAt(post)
+    local square = post and U().gridSquare(post.x, post.y, post.z or 0)
+    local objects = square and call(square, "getObjects")
+    return objects and SC.NativeList and SC.NativeList.get(objects, post.objectIndex) or nil
+end
+
+-- Her own house: she has the key. A locked front door would leave her
+-- standing on the step in plain view, never gone.
+local function unlockHome(home)
+    local unlocked = 0
+    for _, post in ipairs(home and home.doors or {}) do
+        local door = doorAt(post)
+        if door then
+            U().call(door, "setLockedByKey", false)
+            U().call(door, "setLocked", false)
+            if call(door, "isLocked") ~= true then unlocked = unlocked + 1 end
+        end
+    end
+    return unlocked
+end
+Hitchhiker._unlockHomeForTests = unlockHome
 
 local function navigate(actor, point, gait, action)
     local square = point and U().gridSquare(point.x, point.y, point.z or 0)
@@ -305,6 +348,7 @@ function Hitchhiker.pulse(group, player, current)
                 local exited = SC.Vehicle.exit(actor, car, value.seat)
                 if exited == true then
                     value.stage = "walking_home"
+                    value.doorsUnlocked = unlockHome(value.home)
                     U().say(actor, LINES.arrive[1])
                 end
             end
@@ -322,6 +366,15 @@ function Hitchhiker.pulse(group, player, current)
         end
         return true, value.stage
     elseif value.stage == "gone_inside" then
+        if value.homeSecured ~= true and SC.Oddballs
+            and type(SC.Oddballs.secureScene) == "function" then
+            -- What she left is waiting for the player alone: the dead are
+            -- cleared out of the house and the doors pulled shut behind her.
+            value.homeSecured = true
+            SC.Oddballs.secureScene(group, player, { center = value.home.floor,
+                house = { bounds = value.home.bounds, openings = value.home.doors },
+                closeDoors = true })
+        end
         if value.bodyPlaced ~= true then
             value.bodySince = number(value.bodySince) or current
             leaveBody(group, value, player)
@@ -379,11 +432,31 @@ local function board(group, value, actor, player, current)
         U().say(actor, LINES.walkOff[1])
         return true, "ruth_no_seat"
     end
-    if U().distance(actor, square) > 1.2 then
-        local x, y, z = U().position(square)
-        return navigate(actor, { x = x, y = y, z = z }, "walk", "faction_follow")
+    -- The convoy's proven boarding: one transaction, the door preflight
+    -- decides when she is close enough, and the approach walks the door
+    -- squares right up to it. Live, a fixed 1.2 m rule left her short.
+    local transaction, reason = SC.Vehicle.beginBoarding(actor, car, seat, {})
+    if not transaction then return true, reason or "ruth_board_retry" end
+    local prepared, why = SC.Vehicle.preflightBoard(actor, car, seat, false)
+    if not prepared then
+        if why ~= "companion is not at the passenger door" then
+            SC.Vehicle.failTransaction(actor, "ruth_board_failed", { reason = why })
+            return true, "ruth_board_retry"
+        end
+        local squares, _, squareReason = SC.Vehicle.boardingSquares(actor, car, seat, false)
+        if not squares or not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+            SC.Vehicle.failTransaction(actor, "ruth_no_door", { reason = squareReason })
+            return true, "ruth_board_retry"
+        end
+        return SC.Navigation.requestAny(actor, squares, "walk", {
+            action = "approach_vehicle", vehicle = car, seat = seat,
+            desiredDistance = 0, arrivalDistance = 0.15, continuousApproach = true,
+            movementPriority = 30, supervisorToken = transaction.supervisorToken,
+        })
     end
-    local boarded = SC.Vehicle.board(actor, car, seat, { allowVirtualSeat = false })
+    U().stop(actor)
+    local boarded = SC.Vehicle.board(actor, car, seat, { preflight = prepared,
+        allowVirtualSeat = false, supervisorToken = transaction.supervisorToken })
     if boarded ~= true then return true, "ruth_board_retry" end
     value.stage = "riding"
     value.seat = seat

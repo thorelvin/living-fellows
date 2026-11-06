@@ -17,6 +17,8 @@ local biteWorks = true
 local moves = {}
 
 BodyPartType = { ForeArm_L = "ForeArm_L" }
+CharacterStat = { ZOMBIE_INFECTION = "ZOMBIE_INFECTION" }
+local stats = { values = { ZOMBIE_INFECTION = 0.4 } }
 SandboxVars = { ZombieLore = { Transmission = 1, Mortality = 5 } }
 
 local function said(actor)
@@ -58,7 +60,12 @@ SC.GameplayUtil = {
             if method == "isSitOnGround" then return hershel.seated, true end
             if method == "getHoursSurvived" then return hershel.hours, true end
             if method == "isZombiesDontAttack" then return hershel.shelter, true end
+            if method == "getStats" then return stats, true end
+        elseif value == stats then
+            if method == "set" then stats.values[a] = b return true, true end
+            if method == "get" then return stats.values[a], true end
         elseif value == body then
+            if method == "setInfected" then body.infected = a return nil, true end
             if method == "getBodyPart" then
                 assert(a == "ForeArm_L", "the bite goes on the left forearm")
                 return forearm, true
@@ -74,6 +81,10 @@ SC.GameplayUtil = {
             end
             if method == "setBandaged" then
                 forearm.bandage = { on = a, life = b, alcohol = c, kind = d }
+                -- Like BodyPart.setBandaged on 42.21: a dressing hides the
+                -- bite flag; the bite time and infection remain underneath.
+                forearm.dressedOverBite = forearm.bittenFlag == true
+                if a == true then forearm.bittenFlag = false end
                 return nil, true
             end
             if method == "bitten" then return forearm.bittenFlag, true end
@@ -188,7 +199,7 @@ biteWorks = true
 -- The bite is the vanilla call, bandaged with a dirty rag, and his notebook
 -- carries nine real pages.
 assert(B.onSpawn(group, hershel))
-assert(forearm.bittenFlag == true and forearm.bandage.on == true
+assert(forearm.dressedOverBite == true and forearm.bandage.on == true
         and forearm.bandage.kind == "Base.RippedSheetsDirty",
     "a real bitten forearm under a dirty rag")
 assert(#hershel.inv.items == 1 and hershel.inv.items[1].kind == "Base.Notebook"
@@ -307,15 +318,26 @@ assert(struck == true and struckWhy == "hershel_does_not_fight_back"
 
 -- Mercy: his last line, the native fatal injury, and a companion who knows
 -- what comes next.
+body.infected, stats.values.ZOMBIE_INFECTION = true, 0.4
 assert(B.action(group, "mercy_hershel", player))
 assert(said(hershel) == LINES.mercy[1] and hershel.ended == 1
         and group.oddball.stage == "dying" and group.oddball.outcome == "mercy")
+assert(stats.values.ZOMBIE_INFECTION == 0 and body.infected == false,
+    "mercy lays him to rest: no infection left to raise his body")
 assert(contains("fellowMercy", said(fellow)))
 assert(#B.menuOptions(group, player) == 0, "nothing left to ask")
 assert(select(1, B.action(group, "mercy_hershel", player)) == false and hershel.ended == 1,
     "mercy cannot be applied twice")
 assert(B.intentFor(hershel, player, {}, group).mode == "oddball_idle")
 assert(B.zombiesIgnore(hershel, group) == false, "the shelter ends with him")
+-- Any other death, by the player's hand or the infection itself, too.
+body.infected, stats.values.ZOMBIE_INFECTION = true, 0.9
+local otherDeath = { id = "hershel-group", members = group.members,
+    oddball = { id = "bitten_hershel_combs", stage = "pleading" } }
+assert(B.onMemberDeath(otherDeath, hershel) == true and otherDeath.oddball.laidToRest == true
+        and stats.values.ZOMBIE_INFECTION == 0 and body.infected == false
+        and otherDeath.oddball.stage == "dying",
+    "whatever kills him, he stays down")
 hershel.dead = true
 assert(select(2, B.pulse(group, player, now)) == "hershel_dead")
 assert(B.avoidsZombieCombat() == true and select(1, B.canRecruit()) == false)

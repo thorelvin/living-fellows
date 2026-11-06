@@ -608,6 +608,7 @@ local definitions = {
             gender = "male", outfit = "Generic02", gore = 0.35,
             dirt = 0.6, visualSeed = 3100236 },
         kit = { items = { "Base.WaterBottle", "Base.Pills" } },
+        scene = { radius = 12, closeDoors = true },
         module = "OddballBitten" },
     { id = "dad_joke_feud", name = "Gary and Ron",
         archetype = "oddball_resident", kind = "resident",
@@ -621,6 +622,7 @@ local definitions = {
             { forename = "Ron", surname = "Pettit", gender = "male",
                 outfit = "Bowling", visualSeed = 3100238 },
         }, memberRoles = { "gary", "ron" },
+        scene = { radius = 12, closeDoors = true },
         module = "OddballDads" },
     { id = "radio_preacher_dwayne", name = "Dwayne Stidham",
         archetype = "oddball_resident", kind = "radio_van",
@@ -629,6 +631,7 @@ local definitions = {
             outfit = "OfficeWorker", extras = { "Base.Glasses_Reading" },
             dirt = 0.3, visualSeed = 3100239 },
         kit = { items = { "Base.Book_Bible", "Base.Torch" } },
+        scene = { radius = 15 },
         module = "OddballPreacher" },
     { id = "gunshop_bob_kenley", name = "Bob Kenley",
         archetype = "oddball_resident", kind = "resident",
@@ -637,6 +640,7 @@ local definitions = {
             outfit = "Redneck",
             extras = { "Base.Glasses_Normal", "Base.Hat_BaseballCapKY" },
             dirt = 0.2, visualSeed = 3100240 },
+        scene = { radius = 12, closeDoors = true },
         module = "OddballGunShop" },
     { id = "forest_soldier_hatcher", name = "Garland Hatcher",
         archetype = "oddball_resident", kind = "forest_soldier",
@@ -646,6 +650,7 @@ local definitions = {
             extras = { "Base.Hat_BonnieHat_CamoGreen", "Base.Vest_BulletArmy",
                 "Base.Necklace_DogTag", "Base.WristWatch_Left_ClassicMilitary" },
             dirt = 0.45, visualSeed = 3100241 },
+        scene = { radius = 15 },
         module = "OddballSoldier" },
     { id = "hitchhiker_ruth_ann", name = "Ruth Ann Sizemore",
         archetype = "oddball_roamer", kind = "roamer",
@@ -1189,6 +1194,12 @@ local function shopWindowToOutside(house, spawn)
             if square then
                 eachObject(square, function(object)
                     if not U().instanceOf(object, "IsoWindow") then return false end
+                    -- Gun stores come boarded up; boarded or broken glass
+                    -- cannot give way in front of him (live, Rosewood, 42.21).
+                    if select(1, U().call(object, "isBarricaded")) == true
+                        or select(1, U().call(object, "isSmashed")) == true then
+                        return false
+                    end
                     local north = select(1, U().call(object, "getNorth"))
                     if type(north) ~= "boolean" then return false end
                     local ox, oy = x - (north and 0 or 1), y - (north and 1 or 0)
@@ -1629,6 +1640,30 @@ local function cultPositions(house, player, allowSeen, spawn, count,
         end
     end
     return #positions >= count and positions or nil
+end
+
+-- Gary's spot and Ron's: the nearest free floor two to four meters from
+-- Gary in the same living room, close enough to trade jokes face to face.
+-- A two-man household needs both posts before the group can spawn.
+local function feudPositions(house, player, allowSeen, spawn)
+    local floor = spawn.z or 0
+    local origin = U().gridSquare(spawn.x, spawn.y, floor)
+    local room = origin and select(1, U().call(origin, "getRoom"))
+    if not room then return nil end
+    local best, bestDistance
+    for index = 1, math.min(#(house.interior or {}), 256) do
+        local position = house.interior[index]
+        local distance = (position.x - spawn.x) ^ 2 + (position.y - spawn.y) ^ 2
+        if (position.z or 0) == floor and distance >= 4 and distance <= 16
+            and (bestDistance == nil or distance < bestDistance) then
+            local square = U().gridSquare(position.x, position.y, floor)
+            if square and select(1, U().call(square, "getRoom")) == room
+                and candidateUnseen(square, player, allowSeen) then
+                best, bestDistance = point(square), distance
+            end
+        end
+    end
+    return best and { spawn, best } or nil
 end
 
 local function livingRoomPackPositions(house, player, allowSeen, spawn)
@@ -2733,6 +2768,9 @@ local function siteForResident(square, player, definition, name, allowSeen)
         site.partyWindow = shopWindowToOutside(house, spawn)
         site.hordeSpawns = streetPostsBeyond(site.partyWindow)
         if not site.partyWindow or #site.hordeSpawns < 4 then return nil end
+    elseif definition.id == "dad_joke_feud" then
+        site.memberSpawns = feudPositions(house, player, allowSeen, spawn)
+        if not site.memberSpawns then return nil end
     end
     if definition.id == "mien_ward" then
         -- He first appears inside a matching shop, then uses the normal
@@ -2883,6 +2921,7 @@ local function siteForEbb(square, player, allowSeen, ignoreClock)
     return { kind = "roamer", room = room, house = house,
         anchor = start, spawn = start }
 end
+Oddballs._siteForEbbForTests = siteForEbb
 
 local function siteForBigChris(square, player, allowSeen)
     local name = roomName(square)
@@ -3173,6 +3212,13 @@ local function siteForDefenseLeague(square, player, allowSeen)
         anchor = center, spawn = center, memberSpawns = posts }
 end
 
+-- Strangers who set up outdoors never set up on the player's camp ground.
+local function onCampGround(square)
+    return square ~= nil and SC.BaseLife ~= nil
+        and type(SC.BaseLife.isInside) == "function"
+        and SC.BaseLife.isInside(square) == true
+end
+
 -- Dwayne's station van needs an unseen, clear stretch of road outdoors; he
 -- waits on a clear tile beside it. The van is spawned once by his module.
 local function siteForRadioVan(square, player, allowSeen)
@@ -3184,7 +3230,8 @@ local function siteForRadioVan(square, player, allowSeen)
         for dy = -2, 2 do
             local tile = U().gridSquare(center.x + dx, center.y + dy, 0)
             if not tile or not U().isSafeSpawnSquare(tile)
-                or not candidateUnseen(tile, player, allowSeen) then
+                or not candidateUnseen(tile, player, allowSeen)
+                or onCampGround(tile) then
                 return nil
             end
         end
@@ -3193,7 +3240,7 @@ local function siteForRadioVan(square, player, allowSeen)
     for _, offset in ipairs({ { 2, 0 }, { -2, 0 }, { 2, 1 }, { -2, 1 } }) do
         local tile = U().gridSquare(center.x + offset[1], center.y + offset[2], 0)
         if tile and candidateUnseen(tile, player, allowSeen)
-            and roomName(tile) == nil then
+            and roomName(tile) == nil and not onCampGround(tile) then
             spawn = point(tile)
             break
         end
@@ -3216,7 +3263,10 @@ local function siteForForestSoldier(square, player, allowSeen)
     local camp = SC.OddballCampStoryteller
     if not camp or type(camp.siteFor) ~= "function" then return nil end
     local site = camp.siteFor(square, player, allowSeen)
-    if not site then return nil end
+    if not site or onCampGround(square)
+        or onCampGround(U().gridSquare(site.spawn.x, site.spawn.y, site.spawn.z or 0)) then
+        return nil
+    end
     site.kind = "resident"
     site.room = "woods"
     return site
@@ -3488,6 +3538,13 @@ end
 function Oddballs.onCharacterDeath(actor)
     if actor and not U().instanceOf(actor, "IsoAnimal")
         and not U().instanceOf(actor, "IsoZombie") then
+        -- A member's own death hook runs before the engine decides whether
+        -- the body rises (OnCharacterDeath fires first in IsoPlayer.OnDeath).
+        local own = Oddballs.groupForActor(actor)
+        local ownModule = own and moduleFor(own)
+        if type(ownModule) == "table" and type(ownModule.onMemberDeath) == "function" then
+            callModule(own, "onMemberDeath", own, actor)
+        end
         local arthurSeed = state.seeded.bedridden_arthur_hale
         local arthur = arthurSeed and SC.Factions
             and SC.Factions.group(arthurSeed.groupId) or nil
@@ -3617,6 +3674,68 @@ seedPersonalKit = function(group, actor)
 end
 Oddballs._seedPersonalKitForTests = seedPersonalKit
 
+-- A scene starts quiet and shut. Walkers inside the building, or within
+-- `radius` of the stranger, leave the world before the scene sets up, and
+-- with `closeDoors` its outside doors are pulled shut. Only walkers the
+-- player cannot see go, and doors are closed, never locked, so the player
+-- can still walk in. Bounded to one pass over the loaded zombie list.
+function Oddballs.secureScene(group, player, options)
+    options = type(options) == "table" and options or {}
+    local story = group and group.oddball
+    local site = story and story.site
+    local house = options.house or group and group.house or site and site.house
+    local center = options.center or site and (site.spawn or site.anchor)
+    if not center then return 0, 0 end
+    local radius = tonumber(options.radius) or 0
+    local bounds = house and house.bounds
+    local floor = math.floor(tonumber(center.z) or 0)
+    local playerNum = player and tonumber((U().call(player, "getPlayerNum")))
+    local cell = type(getCell) == "function" and getCell() or nil
+    local zombies = cell and select(1, U().call(cell, "getZombieList"))
+    local doomed = {}
+    for index = 0, math.min(zombies and SC.NativeList.size(zombies) or 0, 1024) - 1 do
+        local zombie = SC.NativeList.get(zombies, index)
+        local x, y, z = U().position(zombie)
+        if x and not U().isDead(zombie) and math.floor(z or 0) == floor then
+            local inside = bounds ~= nil and x >= bounds.x1 - 1 and x <= bounds.x2 + 1
+                and y >= bounds.y1 - 1 and y <= bounds.y2 + 1
+            local near = radius > 0 and (x - center.x) ^ 2 + (y - center.y) ^ 2 <= radius * radius
+            if inside or near then
+                local square = U().squareOf(zombie)
+                local seen = player ~= nil and (U().canSee(player, zombie) == true
+                    or playerNum ~= nil and select(1, U().call(square, "isCanSee",
+                        math.floor(playerNum))) == true)
+                if not seen then doomed[#doomed + 1] = zombie end
+            end
+        end
+    end
+    for _, zombie in ipairs(doomed) do
+        U().call(zombie, "removeFromWorld")
+        U().call(zombie, "removeFromSquare")
+    end
+    local closed = 0
+    if options.closeDoors == true and house then
+        for _, opening in ipairs(house.openings or {}) do
+            if opening.kind == "door" then
+                local square = U().gridSquare(opening.x, opening.y, opening.z or 0)
+                local objects = square and select(1, U().call(square, "getObjects"))
+                local door = objects and SC.NativeList.get(objects, opening.objectIndex) or nil
+                if door and select(1, U().call(door, "IsOpen")) == true then
+                    U().call(door, "ToggleDoorSilent")
+                    if select(1, U().call(door, "IsOpen")) ~= true then closed = closed + 1 end
+                end
+            end
+        end
+    end
+    return #doomed, closed
+end
+
+local function localPlayer()
+    if type(getSpecificPlayer) ~= "function" then return nil end
+    local okay, player = pcall(getSpecificPlayer, 0)
+    return okay and player or nil
+end
+
 function Oddballs.spawned(group, actor)
     local story = Oddballs.state(group)
     if not story or not byId[story.id] then return false, "unknown_oddball" end
@@ -3655,6 +3774,11 @@ function Oddballs.spawned(group, actor)
     end
     if pendingSetups[group.id] then
         pendingSetups[group.id][U().idOf(actor)] = nil
+    end
+    local scene = byId[story.id] and byId[story.id].scene
+    if type(scene) == "table" and story.sceneSecured ~= true then
+        story.sceneSecured = true
+        Oddballs.secureScene(group, localPlayer(), scene)
     end
     return true, story.id
 end

@@ -15954,6 +15954,9 @@ end
 Harness.probeOddballSmoker = function(...)
     return externalProbe("SCOddballSmokerProbe", ...)
 end
+Harness.probeStrangeFolkBatch = function(...)
+    return externalProbe("SCStrangeFolkBatchProbe", ...)
+end
 Harness.encounterSignals = { write = writeSignal, exists = fileExists }
 
 Harness.probeBaseSecondFloor = function(...)
@@ -16397,6 +16400,9 @@ local function tick()
 
     if string.sub(tostring(Harness.phase), 1, 7) == "smoker_" then
         Harness.probeOddballSmoker(Harness, current, check, result,
+            setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 11) == "folk_batch_" then
+        Harness.probeStrangeFolkBatch(Harness, current, check, result,
             setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 10) == "encounter_" then
         Harness.probeOddballArthurPack(Harness, current, check, result,
@@ -17448,6 +17454,8 @@ local function onGameStart()
         setPhase("squad_combat_setup", Harness.startedAt)
     elseif Harness.config.oddball_smoker_probe == "true" then
         setPhase("smoker_prepare", Harness.startedAt)
+    elseif Harness.config.strange_folk_batch_probe == "true" then
+        setPhase("folk_batch_prepare", Harness.startedAt)
     elseif Harness.config.oddball_arthur_probe == "true"
         or Harness.config.oddball_pack_probe == "true" then
         setPhase("encounter_prepare", Harness.startedAt)

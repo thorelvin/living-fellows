@@ -15,8 +15,7 @@ local visibleToBernice, visibleToPlayer = true, true
 local profanityEnabled = true
 local requests, cancels, stops = {}, 0, 0
 local activeRoute
-local thrownItems, aimedAt = {}, {}
-local throwWorks = true
+local thrownItems = {}
 local hibernated, retiredReason = false, nil
 local spoken = {}
 
@@ -61,8 +60,11 @@ SC.GameplayUtil = {
         return false
     end,
     modData = function(item) return item.data end,
-    squareOf = function(value) return value.square end,
+    squareOf = function(value)
+        return value.square or { x = math.floor(value.x), y = math.floor(value.y), z = value.z }
+    end,
     gridSquare = function(x, y, z) return { x = x, y = y, z = z } end,
+    cell = function() return "cell" end,
     isSafeSpawnSquare = function(square) return square ~= nil end,
     stop = function() stops = stops + 1 return true end,
     say = function(value, line)
@@ -73,20 +75,15 @@ SC.GameplayUtil = {
     call = function(value, method, ...)
         local a = ...
         if method == "getWorldAgeHours" then return hour, true end
+        if method == "getRoom" then return value.room, true end
+        if type(value) == "table" and value.trap == true then
+            if method == "shouldPlaceInWorldAfterThrowing" then return false, true end
+            if method == "isInstantExplosion" then return true, true end
+            if method == "triggerExplosion" then value.exploded = true return nil, true end
+        end
         if value == bernice then
-            if method == "getAttackTargetSquare" then return value.aim, true end
-            if method == "setAttackTargetSquare" then
-                value.aim = a
-                aimedAt[#aimedAt + 1] = a or "cleared"
-                return nil, true
-            end
             if method == "faceThisObject" then value.faced = value.faced + 1 return nil, true end
             if method == "playSound" then value.sounds[#value.sounds + 1] = a return 1, true end
-            if method == "Throw" then
-                if not throwWorks then return nil, false end
-                thrownItems[#thrownItems + 1] = { item = a, aim = value.aim }
-                return nil, true
-            end
         end
         return nil, false
     end,
@@ -126,6 +123,14 @@ SC.Oddballs = { retire = function(value, reason)
     return true
 end }
 getGameTime = function() return {} end
+-- The game's own trap class, as vanilla thrown-object code builds it.
+local trapClass = { new = function(actor, item, cell, square)
+    assert(cell == "cell", "the trap is built in the live cell")
+    local trap = { trap = true, actor = actor, item = item, square = square }
+    thrownItems[#thrownItems + 1] = trap
+    return trap
+end }
+IsoTrap = trapClass
 
 local F = SC.OddballFirecracker
 local LINES = F.LINES
@@ -222,20 +227,26 @@ assert(select(2, tick()) == "bernice_lighting_fuse" and #thrownItems == before,
     "the fuse burns for the full windup")
 now = now + 400
 handled, reason = tick()
-assert(handled and reason == "bernice_threw" and #thrownItems == before + 1,
-    "the throw goes through the native Throw call")
-local first = thrownItems[#thrownItems]
-assert(first.item.kind == "Base.Firecracker"
-        and first.item.data.lfFirecrackerGroupId == group.id
-        and first.aim == player.square,
-    "she throws one of her own tagged firecrackers at the player's square")
-assert(aimedAt[#aimedAt] == "cleared", "her attack target is restored after the throw")
+assert(handled and reason == "bernice_threw" and #thrownItems == before,
+    "the firecracker leaves her hand and is still in the air")
 assert(bernice.sounds[#bernice.sounds] == "FireCrackerThrow", "the stock throw sound plays")
 assert(count("Base.Firecracker") == 9 and group.oddball.thrown == 1,
     "the thrown firecracker leaves her inventory")
 assert(contains("throw", said(bernice)), "she yells as she throws")
 assert(fellow.lastLine and contains("fellowThrow", said(fellow)),
     "a nearby companion reacts once to the first firecracker")
+now = now + 300
+tick()
+assert(#thrownItems == before, "it does not land before its flight time")
+now = now + 300
+tick()
+assert(#thrownItems == before + 1, "it lands once its flight is over")
+local first = thrownItems[#thrownItems]
+assert(first.item.kind == "Base.Firecracker"
+        and first.item.data.lfFirecrackerGroupId == group.id and first.actor == bernice
+        and first.square.x == player.square.x and first.square.y == player.square.y,
+    "her own tagged firecracker lands on the player's square as the game's own trap")
+assert(first.exploded == true, "a firecracker goes off the moment it lands")
 
 -- The cooldown keeps her from emptying the box in one breath.
 now = now + 1000
@@ -262,16 +273,39 @@ assert(#thrownItems == before + 1
         and requests[#requests].options.arrivalDistance == 7,
     "beyond the throw band she closes in to a seven meter hold")
 
--- A failed native throw keeps the firecracker.
+-- Without the game's trap class she spends nothing.
 bernice.x = 8
-throwWorks = false
+IsoTrap = nil
 now = now + 20000
 tick()
 now = now + 700
 handled, reason = tick()
-assert(reason == "bernice_native_throw_failed" and count("Base.Firecracker") == 9,
-    "a refused native throw spends nothing")
-throwWorks = true
+assert(reason == "bernice_native_trap_unavailable" and count("Base.Firecracker") == 9,
+    "no throw spends a firecracker that could not land")
+IsoTrap = trapClass
+
+-- Seeing the player through a window is not a throw. She never lobs one into
+-- a house from outside; she keeps coming instead.
+now = now + 20000
+local windowed = #thrownItems
+player.square.room = "kitchen"
+handled, reason = tick()
+assert(handled and reason ~= "bernice_lighting_fuse"
+        and requests[#requests].options.action == "faction_follow"
+        and requests[#requests].options.arrivalDistance == 0.85,
+    "a player indoors is followed, not bombarded through the glass")
+now = now + 700
+tick()
+assert(#thrownItems == windowed, "no firecracker goes through a window")
+-- Inside one room the lob is fair.
+bernice.square = { x = 8, y = 0, z = 0, room = "kitchen" }
+tick()
+now = now + 700
+tick()
+now = now + 700
+tick()
+assert(#thrownItems == windowed + 1, "in the same room she throws")
+bernice.square, player.square.room = nil, nil
 
 -- The tell-her-to-stop choice gets an answer and changes nothing.
 local options = F.menuOptions(group, player)

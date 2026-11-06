@@ -31,12 +31,33 @@ getZomboidRadio = function()
     end }
 end
 getGameTime = function() return {} end
+-- Like 42.21: a day forecast's name is only its date. The weather is in
+-- its flags, cloud cover and temperature.
+local tomorrowWeather = { rain = true, high = 24 }
+local function dayForecast(date, weather)
+    return {
+        getName = function() return "Day: " .. date end,
+        isWeatherStarts = function() return weather.rain == true end,
+        isChanceOnSnow = function() return weather.snow == true end,
+        isHasFog = function() return weather.fog == true end,
+        isHasStorm = function() return weather.storm == true end,
+        isHasHeavyRain = function() return weather.heavy == true end,
+        isHasBlizzard = function() return weather.blizzard == true end,
+        getCloudiness = function()
+            return { getDayMean = function() return weather.clouds or 0 end }
+        end,
+        getTemperature = function()
+            return { getDayMax = function() return weather.high or 20 end }
+        end,
+    }
+end
+local forecastDays = 2
 getClimateManager = function()
-    local today, tomorrow = { name = "Clear" }, { name = "Light Rain" }
-    local forecasts = { today, tomorrow }
+    local forecasts = { dayForecast("1993 - 7 - 4", {}),
+        dayForecast("1993 - 7 - 5", tomorrowWeather) }
     return { getClimateForecaster = function()
         return { getForecasts = function()
-            return { size = function() return #forecasts end,
+            return { size = function() return math.min(#forecasts, forecastDays) end,
                 get = function(_, index) return forecasts[index + 1] end }
         end }
     end }
@@ -96,6 +117,8 @@ SC.GameplayUtil = {
         end
         if type(value) == "table" and method == "getName" then return value.name, true end
         if method == "setPrimaryHandItem" then value.primary = a return nil, true end
+        if method == "setSecondaryHandItem" then value.secondary = a return nil, true end
+        if method == "setCurrentAmmoCount" then value.ammo = a return nil, true end
         return nil, false
     end,
 }
@@ -120,15 +143,19 @@ SC.Factions = {
     list = function() return { group } end,
     findHouse = function(_, options)
         assert(options.purpose == "quest" and options.sourceFactionId == group.id)
+        -- Near a lived-in base every house has been explored.
+        assert(options.allowSeen == true, "his stash may go in a house the player knows")
         return houseAvailable and cacheHouse or nil
     end,
     resolveQuestContainer = function(locator)
         assert(locator == cacheHouse.questContainer)
         return cacheContainer
     end,
+    -- Like the real describer: every point is addressed as a "House".
     describeLocation = function(position)
         if position == cacheHouse.anchor then return { address = "114 Dogwood Lane" } end
-        return { address = "the Tanner Road" }
+        return { address = "House 45 meters E of Tanner Road", distance = 45,
+            direction = "E", nearestStreet = { name = "Tanner Road" } }
     end,
 }
 SC.FactionLife = { addMapAnnotation = function(text, x, y)
@@ -177,6 +204,13 @@ for _, item in ipairs(hatcher.inv.items) do kinds[item.kind] = (kinds[item.kind]
 assert(kinds["Base.556Clip"] == 3 and kinds["Base.WalkieTalkie5"] == 1
         and kinds["Base.EntrenchingTool"] == 1 and kinds["Base.MilitaryMedal"] == 1,
     "magazines, walkie, shovel and the medal he won't talk about")
+local sidearm
+for _, item in ipairs(hatcher.inv.items) do
+    if item.kind == "Base.Pistol" then sidearm = item end
+end
+assert(hatcher.primary.ammo == 20 and hatcher.secondary == hatcher.primary
+        and sidearm and sidearm.ammo == 15,
+    "his rifle is loaded and two-handed, his pistol loaded too")
 local carried = #hatcher.inv.items
 assert(S.onSpawn(group, hatcher) and #hatcher.inv.items == carried, "no second kit on reload")
 assert(S.transmitRange(group) == 16000, "his range is the army walkie's")
@@ -193,7 +227,33 @@ assert(sent[1].channel == 90000 and sent[1].text == LINES.cutIn[1],
 assert(sent[2].channel == 146600 and sent[2].text == LINES.morning[1], "then the morning sitrep")
 assert(sent[3].text == "Walkers in sight of my position: 3.",
     "only the living within forty meters are counted: " .. sent[3].text)
-assert(sent[4].text == "Tomorrow looks like Light Rain.", "the game's forecast for tomorrow")
+assert(sent[4].text == "Tomorrow looks like rain.", "the game's forecast for tomorrow")
+do
+    -- The forecast in words, never the forecast's date.
+    local read = SC.OddballForecast.tomorrow
+    local saved = {}
+    for key, value in pairs(tomorrowWeather) do saved[key] = value end
+    local function weather(values)
+        for key in pairs(tomorrowWeather) do tomorrowWeather[key] = nil end
+        for key, value in pairs(values) do tomorrowWeather[key] = value end
+        return read()
+    end
+    assert(weather({ clouds = 0.1, high = 33 }) == "clear skies, and hot",
+        "a clear hot day reads as clear skies, and hot")
+    assert(weather({ clouds = 0.7, high = 15 }) == "clouds", "a grey day reads as clouds")
+    assert(weather({ clouds = 0.4 }) == "a few clouds", "a broken sky reads as a few clouds")
+    assert(weather({ fog = true }) == "fog", "fog")
+    assert(weather({ storm = true, rain = true }) == "a thunderstorm", "a storm outranks rain")
+    assert(weather({ rain = true, snow = true, high = -3 }) == "snow, and freezing",
+        "cold weather that starts is snow")
+    assert(weather({ blizzard = true }) == "a blizzard", "a blizzard")
+    forecastDays = 1
+    assert(read() == nil, "no forecast for tomorrow, no words")
+    forecastDays = 2
+    for key in pairs(tomorrowWeather) do tomorrowWeather[key] = nil end
+    for key, value in pairs(saved) do tomorrowWeather[key] = value end
+    assert(not string.find(read(), "Day", 1, true), "the date never stands in for the sky")
+end
 assert(sent[5] and sent[5].range == 16000 and sent[5].x == 500 and #sent == 5,
     "a closing line, all from his position with his range")
 local count = #sent
@@ -263,7 +323,7 @@ drain()
 assert(S.call(group.id, "sitrep", player))
 drain()
 assert(group.oddball.trust == 2
-        and sent[#sent].text == "Walkers in sight: 3. Tomorrow looks like Light Rain. Out.",
+        and sent[#sent].text == "Walkers in sight: 3. Tomorrow looks like rain. Out.",
     "a live sitrep on request")
 houseAvailable = false
 assert(S.call(group.id, "supplies", player))
@@ -297,7 +357,7 @@ assert(options[#options].topic == "meet")
 assert(select(1, S.canRecruit(group)) == false, "not before he has met you")
 assert(S.call(group.id, "meet", player))
 drain()
-assert(lastSent().text == "My camp's in the woods off the Tanner Road. Come slow. Hands empty. Out."
+assert(lastSent().text == "My camp's in the woods, 45 meters E of Tanner Road. Come slow. Hands empty. Out."
         and group.oddball.invited == true and marks[2].text == "[LF] Hatcher's camp",
     "the camp, with the nearest road")
 

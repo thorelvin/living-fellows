@@ -473,13 +473,14 @@ local function crown(group, value, winner, player, current)
     queue(group, winner, nextLine(value, winner .. "Champion"), current, QUEUED_LINE_GAP_MS)
     queue(group, loser, nextLine(value, loser .. "Loser"), current, 0)
     queue(group, winner, nextLine(value, winner .. "Prize"), current, 0)
-    if value.prizeGiven ~= true and SC.OddballExchange
-        and type(SC.OddballExchange.take) == "function" then
-        local giver = memberActor(group, winner)
-        local beer = tagged(giver, "lfDadsBeerGroupId", group.id)
-        if beer then
-            local moved = SC.OddballExchange.take(giver, player, { [U().itemType(beer)] = 1 })
-            value.prizeGiven = moved == true
+    if value.prizeGiven ~= true then
+        -- The exact tagged can, moved and verified. A by-type exchange would
+        -- hand over whichever beer he happens to carry first.
+        local beer = tagged(memberActor(group, winner), "lfDadsBeerGroupId", group.id)
+        local source = beer and select(1, U().call(beer, "getContainer"))
+        local destination = player and U().inventory(player)
+        if source and destination then
+            value.prizeGiven = U().transferItemVerified(source, destination, beer) == true
         end
     end
     return true
