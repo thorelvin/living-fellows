@@ -4285,14 +4285,21 @@ do
     function square:haveStains() return self.stained end
     local originalDowntime = SC.Downtime
     SC.Downtime = { canCleanAt = function() return true end }
-    local queued
-    for _ = 1, 5 do
-        local accepted, job = SC.BaseWork.auditMaintenance()
+    -- A family may yield and resume (sorting scans storage in bounded
+    -- slices), so count family turns, not calls. Cleaning must get its turn
+    -- within one rotation of the ten families, whatever the others do.
+    local queued, turns
+    local completed = 0
+    for _ = 1, 40 do
+        local accepted, job, pending = SC.BaseWork.auditMaintenance()
+        if pending ~= true then completed = completed + 1 end
         if accepted and type(job) == "table" and job.type == "clean" then
-            queued = job
+            queued, turns = job, completed
+            break
         end
     end
-    check(queued and queued.target.x == -12 and queued.target.y == -12,
+    check(queued and queued.target.x == -12 and queued.target.y == -12
+            and turns and turns <= 10,
         "automatic maintenance queues a stained camp tile despite other job families")
     SC.Downtime = originalDowntime
 end
