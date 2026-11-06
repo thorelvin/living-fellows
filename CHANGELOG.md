@@ -2,6 +2,27 @@
 
 # Changelog
 
+## 0.27.1 - Seven new Strange Folk
+
+- Meet seven new Strange Folk: Miss Liberty and her firecrackers, Hershel on
+  his ninth day bitten, Gary and Ron's dad-joke feud, Dwayne's Gospel Hour on
+  the radio, Bob Kenley in his gun store, Hatcher in the woods on 146.6 and
+  Ruth Ann thumbing a ride home.
+- Keep Hershel dead after any death, including a mercy; his body never rises.
+- Start building encounters quiet: walkers out of sight are cleared and outside
+  doors are closed, never locked, before anyone arrives.
+- Let Bob take any gun store. Without sound front glass he has locked himself
+  in, and the dead come at his door instead of the window.
+- Walk Ruth Ann home from the car straight away instead of letting her stand
+  beside it for up to a minute while a busy camp slows route planning.
+- Read tomorrow's actual forecast for Hatcher and Velma instead of the date.
+- Recognize doors and windows on the south and east walls of encounter houses.
+- Verify all seven in cloned worlds with a live Strange Folk probe. The full
+  core suite passes again after a maintenance test learned to count turns.
+- Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
+  ship the rebuilt bridge with 0.27.1 release metadata. Existing save schemas
+  are unchanged.
+
 ## 0.27.0 - Safe windows and navigation recovery
 
 - Automatically enable an optional PZOptimizer adapter for the tested build,
