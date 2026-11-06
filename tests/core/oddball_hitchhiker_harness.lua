@@ -129,7 +129,8 @@ SC.Relationship = { playEmote = function(actor, emote)
     return true
 end }
 SC.Navigation = { request = function(actor, square, gait, options)
-    routes[#routes + 1] = { square = square, gait = gait, action = options.action }
+    routes[#routes + 1] = { square = square, gait = gait, action = options.action,
+        engine = options.engineRoute }
     return true, "moving"
 end, requestAny = function(actor, squares, gait, options)
     routes[#routes + 1] = { square = squares[1], gait = gait, action = options.action,
@@ -303,7 +304,9 @@ assert(frontDoor.locked == false and frontDoor.lockedByKey == false
 
 -- She walks in to the bedroom, and goes when nobody is looking.
 assert(tick())
-assert(routes[#routes].square.x == 104 and routes[#routes].square.y == 52)
+assert(routes[#routes].square.x == 104 and routes[#routes].square.y == 52
+        and routes[#routes].engine == true,
+    "the engine routes her round the car, not a planner that keeps her standing by it")
 ruth.x, ruth.y = 104, 52
 H.pulse(group, player, now)
 assert(not hibernated, "in plain sight she is still there")
@@ -377,7 +380,7 @@ assert(group.oddball.stage == "boarding")
 player.vehicle = nil
 tick()
 assert(group.oddball.stage == "walking_off" and said() == LINES.walkOff[1])
-assert(tick() and routes[#routes].action == "faction_retreat")
+assert(tick() and routes[#routes].action == "faction_retreat" and routes[#routes].engine == nil)
 visibleRuth = false
 H.pulse(group, player, now)
 now = now + 2100

@@ -211,13 +211,14 @@ local function unlockHome(home)
 end
 Hitchhiker._unlockHomeForTests = unlockHome
 
-local function navigate(actor, point, gait, action)
+local function navigate(actor, point, gait, action, engineRoute)
     local square = point and U().gridSquare(point.x, point.y, point.z or 0)
     if not square or not SC.Navigation or type(SC.Navigation.request) ~= "function" then
         return false, "hitchhiker_route_unavailable"
     end
     return SC.Navigation.request(actor, square, gait or "walk", {
-        action = action or "faction_home", arrivalDistance = 1.2 })
+        action = action or "faction_home", arrivalDistance = 1.2,
+        engineRoute = engineRoute == true or nil })
 end
 
 local function departUnseen(group, value, player, current, nextStage)
@@ -478,8 +479,10 @@ function Hitchhiker.update(actor, player, runtime, intent, group)
     local current = U().nowMs()
     if intent.mode == "ruth_boarding" then return board(group, value, actor, player, current) end
     if intent.mode == "ruth_home" then
-        -- She goes all the way in, to the spot where she will be found.
-        return navigate(actor, value.home and value.home.floor, "walk", "faction_home")
+        -- She goes all the way in, to the spot where she will be found. The
+        -- engine routes her round the car she just left; live, the sliced
+        -- planner kept her standing beside it, in view, for half a minute.
+        return navigate(actor, value.home and value.home.floor, "walk", "faction_home", true)
     end
     if intent.mode == "ruth_walking_off" then
         local x, y, z = U().position(actor)

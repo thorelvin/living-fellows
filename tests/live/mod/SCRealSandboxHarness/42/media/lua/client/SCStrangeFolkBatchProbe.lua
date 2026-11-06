@@ -1937,6 +1937,25 @@ function Flows.hitchhiker(H, F, current, check, result, setPhase, need)
                 .. "," .. round(select(2, U().position(F.car)))
                 .. " vehicleTx=" .. tostring(SC.Vehicle.transactionStatus and SC.Vehicle.transactionStatus(actor)
                     and SC.Vehicle.transactionStatus(actor).action))
+            local navState = SC.Navigation.peek and SC.Navigation.peek(actor) or nil
+            if navState then
+                local search = navState.pathSearch
+                local route = search and search.route
+                trace("RUTHNAV", "reason=" .. tostring(navState.pathReason)
+                    .. " yield=" .. tostring(navState.pathSearchYieldReason)
+                    .. " expanded=" .. tostring(navState.expandedNodes)
+                    .. " searchAge=" .. tostring(search and search.startedAt and current - search.startedAt)
+                    .. " progressAge=" .. tostring(search and search.progressAt and current - search.progressAt)
+                    .. " slice=" .. tostring(route and route.lastSliceBudgetMs) .. "/"
+                    .. tostring(route and route.lastSliceBudgetReason)
+                    .. " failure=" .. tostring(navState.pathFailure and navState.pathFailure.failureClass)
+                    .. " plannedMs=" .. tostring(navState.lastPlanDurationMs)
+                    .. " path=" .. tostring(navState.path and #navState.path)
+                    .. " goal=" .. tostring(navState.goalSquare and (call(navState.goalSquare, "getX") .. ","
+                        .. call(navState.goalSquare, "getY")))
+                    .. " lease=" .. tostring(navState.nativeLease ~= nil)
+                    .. " moveReason=" .. tostring(navState.lastMovementReason))
+            end
         end
         if not F.decisionTraced and value.stage == "walking_home" and F.exitedAt and current - F.exitedAt > 5000 then
             F.decisionTraced = true

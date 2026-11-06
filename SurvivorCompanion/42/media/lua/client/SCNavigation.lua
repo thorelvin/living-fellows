@@ -4444,10 +4444,15 @@ end
 -- search keeps the companion still while it runs and cannot finish a long,
 -- winding route inside its follow budget.
 function Navigation._followUsesEngine(intent, sourceSquare, goalSquare, followRouting)
-    if followRouting ~= true or type(intent) ~= "table" or intent.workCampOnly == true
+    if type(intent) ~= "table" or intent.workCampOnly == true
         or intent.draggingBody == true or intent.stealthAvoidance then
         return false
     end
+    -- A short scripted walk may ask for the engine outright. Under camp load
+    -- the search is sliced to a few nodes a second; live, a hitchhiker stood
+    -- beside the car for the whole thirty seconds before walking twelve metres.
+    if intent.engineRoute == true then return true end
+    if followRouting ~= true then return false end
     -- Immediately outside a verified passenger door the polygon pathfinder
     -- understands the parked car better than the tile planner. Do not spend
     -- its five-second search allowance standing beside that same car. Keep
@@ -7671,9 +7676,9 @@ function Navigation.request(actor, target, movementMode, intent)
                 SC.Navigation._resetRouteProjection(state)
             end
         end
-        -- Distant Follow and verified outdoor car exits use the engine without
-        -- spending a stationary Lua search first. The native lease below still
-        -- owns live door, hazard, crowd and progress checks.
+        -- Distant Follow, verified outdoor car exits and engineRoute walks use
+        -- the engine without spending a stationary Lua search first. The native
+        -- lease below still owns live door, hazard, crowd and progress checks.
         local longRangeEngine = not knownLockedRoom
             and not state.path and state.pathSearch == nil
             and SC.Navigation._followUsesEngine(requestIntent, sourceSquare, goalSquare,

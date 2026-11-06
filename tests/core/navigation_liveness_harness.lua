@@ -567,4 +567,44 @@ do
     for _, value in ipairs(created) do N.cancel(value, "home_search_fixture_complete") end
     SC.HomeTrip, SC.Topology.classifyEdge, SC.BaseLife = priorHome, priorTopology, savedBase
 end
+
+-- A scripted walk that asks for the engine gets it on the first request,
+-- through the same native lease; without the flag the sliced search runs.
+-- Live, a hitchhiker stood thirty seconds beside the car she had just left.
+do
+    local priorTopology = SC.Topology.classifyEdge
+    SC.Topology.classifyEdge = function()
+        current = current + 4
+        return {traversable=true,cost=1,affordance="open"}
+    end
+    local function requestAt(value, goal, intent)
+        current = current + 100
+        Perf.beginFrame(3, current)
+        local accepted, reason = N.request(value, goal, "walk", intent)
+        Perf.endFrame(4)
+        return accepted, reason
+    end
+    local walker, walkerGoal = actor("sc-engine-route", 0, 2), square(12, 2)
+    local accepted, reason = requestAt(walker, walkerGoal,
+        {action="faction_home",arrivalDistance=1.2,engineRoute=true})
+    local state = N.peek(walker)
+    check(accepted and reason == "engine_path" and state.pathSearch == nil
+            and state.nativeLease and state.nativeLease.ultimateGoal == walkerGoal
+            and walker.lastIntent and walker.lastIntent.enginePath == true,
+        "an engineRoute walk starts on the engine at once, without a stationary search")
+    local plain, plainGoal = actor("sc-engine-route-plain", 0, 3), square(12, 3)
+    accepted, reason = requestAt(plain, plainGoal, {action="faction_home",arrivalDistance=1.2})
+    check(accepted and reason == "path_searching" and N.peek(plain).pathSearch ~= nil
+            and N.peek(plain).nativeLease == nil and plain.lastIntent == nil,
+        "the same walk without the flag still begins with the sliced search")
+    check(N._followUsesEngine({engineRoute=true}, walker.square, walkerGoal, false)
+            and not N._followUsesEngine({engineRoute=true,workCampOnly=true}, walker.square, walkerGoal, false)
+            and not N._followUsesEngine({engineRoute=true,stealthAvoidance=true}, walker.square, walkerGoal, false)
+            and not N._followUsesEngine({engineRoute=true,draggingBody=true}, walker.square, walkerGoal, false)
+            and not N._followUsesEngine({}, walker.square, walkerGoal, false),
+        "engineRoute never overrides camp-work, stealth or body-dragging routes")
+    N.cancel(walker, "engine_route_fixture_complete")
+    N.cancel(plain, "engine_route_fixture_complete")
+    SC.Topology.classifyEdge = priorTopology
+end
 SC_TEST_REPORT = "NAVIGATION_LIVENESS_PASS checks=" .. checks
