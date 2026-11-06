@@ -258,6 +258,9 @@ local function snapshot(job)
     local roadGoal = job.roadGoal
     return { phase = job.phase, result = job.result, reason = job.reason,
         detail = job.detail,
+        routeFailureReason = job.routeFailureReason,
+        routeSourceX = job.routeSourceX, routeSourceY = job.routeSourceY,
+        blockedX = job.blockedX, blockedY = job.blockedY, blockedKind = job.blockedKind,
         attempts = job.attempts or 0, circles = circles, parked = job.parked == true,
         managed = job.managed == true,
         owned = jobs[job.actor] == job and SC.ActionSupervisor ~= nil
@@ -583,7 +586,7 @@ function Driving.approach(actor, target, seconds, allowStoppedRoadFailure, allow
 end
 
 local function planJob(job)
-    local route, reason
+    local route, reason, result
     if not SC.ExpeditionRoute or not SC.ExpeditionRoute.planAvoidingAll then
         return parkResult(job, "failed", "no_route")
     end
@@ -592,9 +595,13 @@ local function planJob(job)
     -- inserted below as the start of that already checked access corridor.
     local origin = job.roadAccessEntry and {
         x = job.roadAccessEntry.x, y = job.roadAccessEntry.y, z = 0 } or nil
-    route, reason = SC.ExpeditionRoute.planAvoidingAll(job.actor, job.goal, job.circles, origin)
+    local sourceX, sourceY = SC.GameplayUtil.position(job.actor)
+    job.routeSourceX = origin and origin.x or finite(sourceX)
+    job.routeSourceY = origin and origin.y or finite(sourceY)
+    route, reason, result = SC.ExpeditionRoute.planAvoidingAll(job.actor, job.goal, job.circles, origin)
     if not route then
         job.detail = reason
+        job.routeFailureReason = type(result) == "table" and result.reason or nil
         return parkResult(job, "failed", "no_route")
     end
     if job.roadAccessEntry then
@@ -865,6 +872,8 @@ function Driving.tick(current)
                     job.blockedSince = job.blockedSince or current
                     if current - job.blockedSince >= job.blockWaitMs then
                         local x, y = finite(status.blockedX), finite(status.blockedY)
+                        job.blockedX, job.blockedY = x, y
+                        job.blockedKind = status.obstacleKind
                         if not x or not y or x < 0 or x > 30000 or y < 0 or y > 30000 then
                             parkResult(job, "failed", "invalid_blocked_position")
                         elseif job.attempts >= 3 or #job.circles >= 8 then

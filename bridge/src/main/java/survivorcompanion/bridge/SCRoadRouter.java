@@ -36,6 +36,9 @@ final class SCRoadRouter {
     private static final double MAX_JUNCTION_GAP = 12.0;
     private static final double MAX_STREET_WIDTH = 64.0;
     private static final double EPSILON = 0.0001;
+    private static final double MAX_LOCAL_REENTRY = 12.0;
+    private static final double[] REENTRY_OFFSETS = { 0.5, 1, 2, 4, 6, 8, 12 };
+    private static final int MAX_REENTRY_PROBES = 64;
     static final int MAX_AVOIDANCES = 8;
     private static final int MAX_AVOIDANCE_TEXT = 1024;
 
@@ -61,7 +64,8 @@ final class SCRoadRouter {
     private record Edge(int id, int from, int to, double length, String name,
                         double width, boolean inferred) {}
     private record Link(int to, int edgeId, double length) {}
-    private record Attachment(int edgeId, double t, Point point, double connector) {}
+    private record Attachment(int edgeId, double t, Point point, double connector,
+                              boolean localReentry) {}
     private record Intersection(double firstT, double secondT, Point point,
                                 boolean inferred) {}
     private record QueueEntry(int node, double cost) {}
@@ -390,31 +394,56 @@ final class SCRoadRouter {
             if (attachedRoad != null
                     && segmentDistance(projected, attachedRoad.a, attachedRoad.b) > EPSILON) continue;
             double connector = distance(point, projected);
-            boolean safe = true;
-            for (Avoidance avoidance : graph.avoidances) {
-                double fromCenter = distance(avoidance.center, point);
-                if (source && fromCenter <= avoidance.radius + EPSILON) {
-                    // A car may stop within the buffer around the block. Its
-                    // first leg may leave that buffer, but may never approach
-                    // the block or remain inside it at the road attachment.
-                    double outward = (point.x - avoidance.center.x) * (projected.x - point.x)
-                            + (point.y - avoidance.center.y) * (projected.y - point.y);
-                    if (outward < -EPSILON
-                            || distance(avoidance.center, projected) < avoidance.radius - EPSILON) {
-                        safe = false;
-                        break;
-                    }
-                } else if (segmentDistance(avoidance.center, point, projected) <= avoidance.radius) {
-                    safe = false;
-                    break;
-                }
-            }
-            if (connector <= maxConnector && safe) {
-                all.add(new Attachment(edge.id, t, projected, connector));
+            if (connector <= maxConnector && connectorSafe(graph, point, projected, source)) {
+                all.add(new Attachment(edge.id, t, projected, connector, false));
             }
         }
+        // A parked vehicle can cover the nearest projection while a short
+        // connection farther along this very street remains clear. Only retry
+        // source admission; never relocate a destination or join another road.
+        if (all.isEmpty() && source && attachedRoad != null && !graph.avoidances.isEmpty())
+            localReentries(graph, point, attachedRoad, all);
         all.sort(Comparator.comparingDouble(Attachment::connector));
         return all.size() <= 8 ? all : new ArrayList<>(all.subList(0, 8));
+    }
+
+    private static boolean connectorSafe(Graph graph, Point point, Point projected, boolean source) {
+        for (Avoidance avoidance : graph.avoidances) {
+            double fromCenter = distance(avoidance.center, point);
+            if (source && fromCenter <= avoidance.radius + EPSILON) {
+                // Preserve the stopped-inside-buffer escape rule: travel must
+                // start outward and finish outside this circle.
+                double outward = (point.x - avoidance.center.x) * (projected.x - point.x)
+                        + (point.y - avoidance.center.y) * (projected.y - point.y);
+                if (outward < -EPSILON
+                        || distance(avoidance.center, projected) < avoidance.radius - EPSILON)
+                    return false;
+            } else if (segmentDistance(avoidance.center, point, projected) <= avoidance.radius)
+                return false;
+        }
+        return true;
+    }
+
+    private static void localReentries(Graph graph, Point source, Segment road, List<Attachment> out) {
+        int probes = 0;
+        for (Edge edge : graph.edges) {
+            Point a = graph.nodes.get(edge.from), b = graph.nodes.get(edge.to);
+            if (segmentDistance(source, a, b) > MAX_LOCAL_REENTRY
+                    || segmentDistance(a, road.a, road.b) > EPSILON
+                    || segmentDistance(b, road.a, road.b) > EPSILON) continue;
+            double nearest = project(source, a, b);
+            for (double offset : REENTRY_OFFSETS) {
+                for (int direction = -1; direction <= 1; direction += 2) {
+                    if (++probes > MAX_REENTRY_PROBES) return;
+                    double t = Math.max(0, Math.min(1, nearest + direction * offset / edge.length));
+                    if (Math.abs(t - nearest) <= EPSILON) continue;
+                    Point candidate = new Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+                    double connector = distance(source, candidate);
+                    if (connector <= MAX_LOCAL_REENTRY && connectorSafe(graph, source, candidate, true))
+                        out.add(new Attachment(edge.id, t, candidate, connector, true));
+                }
+            }
+        }
     }
 
     private static boolean likelyMissingConnector(List<Segment> segments) {
@@ -569,14 +598,14 @@ final class SCRoadRouter {
         Attachment start = entries.get(bestEntry), finish = exits.get(bestExit);
         List<Step> path = new ArrayList<>();
         Edge startEdge = graph.edges.get(start.edgeId);
-        boolean sourceEgress = start.connector > EPSILON && avoidances.stream()
-                .anyMatch(circle -> distance(source, circle.center) <= circle.radius + EPSILON);
+        boolean sourceEgress = start.localReentry || (start.connector > EPSILON && avoidances.stream()
+                .anyMatch(circle -> distance(source, circle.center) <= circle.radius + EPSILON));
         if (sourceEgress) {
             // Keep the approved escape direction explicit in the driving path.
-            path.add(new Step(source.x, source.y, startEdge.name, startEdge.width, false));
+            path.add(new Step(source.x, source.y, startEdge.name, start.localReentry ? 5 : startEdge.width, false));
         }
         path.add(new Step(start.point.x, start.point.y,
-                startEdge.name, startEdge.width, false));
+                startEdge.name, start.localReentry ? 5 : startEdge.width, false));
         if (!direct) {
             List<Integer> reversed = new ArrayList<>();
             int cursor = bestNode;

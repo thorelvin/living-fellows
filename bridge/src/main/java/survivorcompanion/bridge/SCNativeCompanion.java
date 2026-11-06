@@ -37,8 +37,11 @@ import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.IsoObject;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoWindow;
+import zombie.iso.objects.IsoWindowFrame;
+import zombie.iso.objects.IsoThumpable;
 import zombie.inventory.types.HandWeapon;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.network.fields.hit.HitInfo;
@@ -61,6 +64,68 @@ import zombie.ui.UIFont;
 
 /** A non-local human actor backed by Build 42's complete player character runtime. */
 public final class SCNativeCompanion extends IsoPlayer {
+    private final SCWindowActionGuard bridgeWindowGuard = new SCWindowActionGuard();
+    private IsoObject bridgeWindowDelegation;
+    private String bridgeWindowOperation;
+    private int bridgeWindowDepth;
+
+    boolean approveWindowAction(IsoObject object, String operation, IsoGridSquare from, IsoGridSquare to) {
+        if (bridgeWindowGuard == null) return false;
+        bridgeWindowGuard.clear();
+        if (bridgeDisabled || isDead() || isAsleep() || getVehicle() != null || object == null
+                || object.getObjectIndex() < 0 || from == null || to == null || getCurrentSquare() != from
+                || from.getCell() == null || from.getCell() != to.getCell() || from.getZ() != to.getZ()
+                || Math.abs(from.getX() - to.getX()) + Math.abs(from.getY() - to.getY()) != 1
+                || !from.TreatAsSolidFloor() || !to.TreatAsSolidFloor()
+                || to.isSolid() || to.isSolidTrans() || to.haveFire() || to.getVehicleContainer() != null) return false;
+        if (from.getWindowTo(to) != object && from.getWindowThumpableTo(to) != object
+                && from.getWindowFrameTo(to) != object) return false;
+        return bridgeWindowGuard.approve(object, operation, from, System.nanoTime());
+    }
+
+    public void clearCompanionWindowApproval() {
+        if (bridgeWindowGuard != null) bridgeWindowGuard.clear();
+    }
+    public IsoObject getCompanionBlockedWindow() { return bridgeWindowGuard == null ? null : bridgeWindowGuard.blocked(); }
+    public String getCompanionWindowBlockReason() {
+        return bridgeWindowGuard == null ? "" : bridgeWindowGuard.blockedOperation();
+    }
+
+    private void checkedWindowAction(IsoObject object, String operation, Runnable action) {
+        boolean delegated = bridgeWindowDepth > 0 && bridgeWindowDelegation == object
+                && operation.equals(bridgeWindowOperation);
+        if (!delegated && (bridgeWindowGuard == null || bridgeDisabled || isDead() || isAsleep() || getVehicle() != null
+                || !bridgeWindowGuard.consume(object, operation, getCurrentSquare(), System.nanoTime()))) return;
+        IsoObject previous = bridgeWindowDelegation;
+        String previousOperation = bridgeWindowOperation;
+        bridgeWindowDelegation = object;
+        bridgeWindowOperation = operation;
+        bridgeWindowDepth++;
+        try { action.run(); }
+        finally { bridgeWindowDepth--; bridgeWindowDelegation = previous; bridgeWindowOperation = previousOperation; }
+    }
+
+    @Override public void smashWindow(IsoWindow window) {
+        checkedWindowAction(window, "smash", () -> super.smashWindow(window));
+    }
+    @Override public void climbThroughWindow(IsoWindow window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window));
+    }
+    @Override public void climbThroughWindow(IsoWindow window, Integer flags) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window, flags));
+    }
+    @Override public void climbThroughWindow(IsoThumpable window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window));
+    }
+    @Override public void climbThroughWindow(IsoThumpable window, Integer flags) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window, flags));
+    }
+    @Override public void climbThroughWindowFrame(IsoWindowFrame window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindowFrame(window));
+    }
+    @Override public void climbThroughWindow(IsoObject window) {
+        checkedWindowAction(window, "climb", () -> super.climbThroughWindow(window));
+    }
     public static final int RESERVED_NON_LOCAL_PLAYER_INDEX = 3;
     private volatile boolean bridgeCoopLeaderForProbe;
     private volatile boolean coldBootstrapHiddenForProbe;
@@ -2029,6 +2094,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (!genericUpdateActive) {
             bridgeMoving = moving && getVehicle() == null;
             if (!bridgeMoving) {
+                clearCompanionWindowApproval();
                 bridgeMoveRequested = false;
                 bridgeMoveHasTarget = false;
                 bridgeMoveExpiresNanos = 0L;
@@ -2059,6 +2125,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      * ends naturally instead of leaving the movement flags pinned.
      */
     private void beginBridgePath(boolean active) {
+        clearCompanionWindowApproval();
         bridgePathActive = active;
         bridgePathRouteReady = false;
         bridgePathStopping = false;
@@ -2788,6 +2855,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     @Override
     public void OnDeath() {
         if (bridgeDeathStarted) return;
+        clearCompanionWindowApproval();
         bridgeDeathStarted = true;
         // A dead driver's last pedal stays in Bullet until someone parks the car.
         bridgeDriver.stop(this, "driver_dead");

@@ -81,6 +81,21 @@ T.configure({
     useProvider = function() return nil end,
     stopDirect = function(value) value.stopped = true return true end,
 })
+-- Native action tests still enter through the real route-admission policy.
+-- Only the bridge invocation is represented by a headless exact-actor receipt.
+local fixtureBridge, nativeWindow = SCBridge, T.window
+SCBridge = { approveWindowAction = function(value, object, action, from, to)
+    return value:getSquare()==from and object~=nil and to~=nil
+        and (action=="climb" or action=="smash")
+end }
+T.window = function(value, action, intent, provider)
+    intent.fromSquare=intent.fromSquare or value.square
+    intent.toSquare=intent.toSquare or square(1,0)
+    intent.windowGoal=intent.toSquare
+    SC.NavTraversal.admitWindow(value,nil,intent.object,intent.fromSquare,
+        intent.toSquare,current,intent)
+    return nativeWindow(value,action,intent,provider)
+end
 local counterWindowSide, counterEscapeWindow
 do
     local worker = actor()
@@ -1676,7 +1691,108 @@ local recovering = N._recoverFromStuckForTests(crowdedWalker, yieldState,
 check(recovering == false and yieldState.yieldSince ~= nil,
     "generic recovery gives a known crowd blocker its detour deadline")
 U.gridSquare = oldGrid
+do
+    local V,topology=SC.NavTraversal,SC.Topology
+    local worker,inside,outside=actor(),square(0,0,1),square(1,0,1)
+    local room={}
+    function inside:getRoom() return room end
+    function inside:isOutside() return false end
+    function outside:isOutside() return true end
+    worker.x,worker.y,worker.z,worker.square=0.5,0.5,1,inside
+    local window={__class="IsoWindow",locked=true,open=false}
+    function window:isLocked() return self.locked end
+    function window:isPermaLocked() return self.permanent end
+    function window:IsOpen() return self.open end
+    function window:getSquare() return inside end
+    function window:getX() return inside.x end
+    function window:getY() return inside.y end
+    function window:getZ() return inside.z end
+    function window:getModData() return self.data or {} end
+    function window:canClimbThrough() return true end
+    function window:isBarricaded() return self.barricaded end
+    check(topology.windowOpensFromSide(window,inside)
+        and not topology.windowOpensFromSide(window,outside),"ordinary latch opens only from the inside")
+    window.permanent=true
+    check(not topology.windowOpensFromSide(window,inside),"permanent locks remain protected indoors")
+    window.permanent=false window.data={CustomLock=true}
+    check(not topology.windowAdmission(worker,window,inside,outside,{}),"custom locks cannot be bypassed")
+    window.data=nil
+    local context={
+        objectOpen=function(o)return o.open end, windowSmashed=function()return false end,
+        windowGlassRemoved=function()return false end,
+    }
+    check(V.chooseWindowAction(window,math.huge,context,worker,outside,{})==nil,
+        "a routine exterior latch never requests smashing")
+    local threat=actor()
+    threat.__class,threat.x,threat.y,threat.z="IsoZombie",-0.5,0.5,1
+    threat.square=square(-1,0,1)
+    local danger={snapshot={threats={{actor=threat}}}}
+    check(V.chooseWindowAction(window,0,context,worker,outside,danger)=="smash_window",
+        "a verified reachable imminent zombie permits emergency smashing")
+    local oldBarrier=topology.strikeBarrier
+    topology.strikeBarrier=function()return true end
+    check(not topology.windowImmediateDanger(worker,danger),
+        "a nearby hostile behind a wall does not permit smashing")
+    topology.strikeBarrier=oldBarrier
+    window.permanent=true
+    check(not topology.windowAdmission(worker,window,inside,outside,danger),
+        "an emergency cannot bypass a protected lock")
+    window.permanent=false
+    local floor=outside.TreatAsSolidFloor
+    outside.TreatAsSolidFloor=function()return false end
+    check(not topology.windowAdmission(worker,window,inside,outside,{}),
+        "an elevated window without a supported landing is rejected")
+    outside.TreatAsSolidFloor=floor
+    local unapproved=actor()
+    check(nativeWindow(unapproved,"climb_window",{object=window,fromSquare=unapproved.square,
+        toSquare=square(1,0)},{directNative=true})==false,
+        "native submission requires an admission for that exact actor")
+    local before=U.gridSquare
+    local grid={}
+    for x=-2,3 do grid[x]=x==0 and inside or x==1 and outside or square(x,0,1) end
+    U.gridSquare=function(x,y,z) if y==0 and z==1 then return grid[x] end end
+    function inside:getWindowTo(to) if to==outside then return window end end
+    function outside:getWindowTo(to) if to==inside then return window end end
+    local function admission(goal)
+        for attempt=1,20 do
+            local ok,why=V.admitWindow(worker,nil,window,inside,outside,current,
+                {action="window_policy_test",windowGoal=goal})
+            if ok~=nil then return ok,why end
+            current=current+50
+        end
+    end
+    local approved,why=admission(grid[-2])
+    check(approved==false and why=="window_exit_unverified","roof leading only back through its window is rejected")
+    V.releaseActor(worker)
+    approved,why=admission(grid[3])
+    check(approved==true,"supported elevated route with a genuine onward destination remains usable: "..tostring(why))
+    window.open=true
+    local record={object=window,action="climb_window",fromSquare=inside,toSquare=outside}
+    local back={object=window,action="climb_window",fromSquare=outside,toSquare=inside}
+    V.noteWindowCrossing(worker,record,current)
+    V.noteWindowCrossing(worker,back,current+1000)
+    V.noteWindowCrossing(worker,record,current+2000)
+    V.noteWindowCrossing(worker,back,current+3000)
+    check(V.windowEdgeHeld(worker,window,inside,current+3000)
+        and not V.windowEdgeHeld(worker,window,outside,current+3000),"two cycles hold outward travel while preserving inward recovery")
+    check(not V.windowEdgeHeld(worker,window,inside,current+123001),"outward hold expires after two minutes")
+    approved=V.admitWindow(worker,nil,window,inside,outside,current+123001,
+        {action="window_policy_test",windowGoal=grid[3]})
+    check(approved==true,"expired hold gives a verified outward route a real retry window")
+    V.releaseActor(worker)
+    approved=admission(grid[3])
+    worker.x,worker.square=1.5,outside
+    check(V.windowRecoveryTarget(worker,grid[3],{action="window_policy_test"},current+31000)==inside,
+        "no onward progress requests return to the known interior landing")
+    approved=V.admitWindow(worker,nil,window,outside,inside,current+31001,
+        {action="window_policy_test",windowGoal=inside,windowJourneyGoal=grid[3]})
+    check(approved==true and V.windowEdgeHeld(worker,window,inside,current+31001),
+        "inward recovery verifies its safe interior destination while retaining the outward hold")
+    V.releaseActor(worker)
+    U.gridSquare=before
+end
 getTimestampMs = oldClock
+T.window,SCBridge = nativeWindow,fixtureBridge
 T.reset()
 SC_TEST_REPORT = "NAVIGATION_TRAVERSAL_REGRESSION_PASS checks=" .. checks
     .. " haulHeuristic=" .. tostring(SC_TEST_HAUL_HEURISTIC)

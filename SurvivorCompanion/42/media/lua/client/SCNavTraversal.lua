@@ -7,6 +7,7 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 SC.NavTraversal = SC.NavTraversal or {}
 local Traversal = SC.NavTraversal
 local reservations = setmetatable({}, { __mode = "k" })
+local windowTravel = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -32,6 +33,196 @@ end
 function Traversal.release(object, actor)
     local existing = object and reservations[object]
     if existing and existing.actor == actor then reservations[object] = nil end
+end
+
+local function windowJourney(actor, goal, intent)
+    local commands = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor) or {}
+    goal = intent and intent.windowJourneyGoal or goal
+    local x, y, z = U().position(goal)
+    local action = intent and (intent.followRecovery and "follow" or intent.action) or "move"
+    local key = tostring(commands.commandSerial or 0) .. ":" .. tostring(action)
+    local journey = windowTravel[actor]
+    if not journey or journey.key ~= key or x and journey.x
+        and ((journey.x-x)^2+(journey.y-y)^2 > 144 or journey.z ~= math.floor(z or 0)) then
+        journey = { key=key, x=x, y=y, z=math.floor(z or 0), portals={} }
+        windowTravel[actor] = journey
+    end
+    return journey
+end
+
+function Traversal.windowEdgeHeld(actor, object, fromSquare, now)
+    local journey = windowTravel[actor]
+    local entry = journey and journey.portals[object]
+    return entry ~= nil and entry.blockedFrom == U().squareKey(fromSquare)
+        and (tonumber(now) or U().nowMs()) < (entry.blockedUntil or 0)
+end
+
+local function refreshWindowHold(entry, now)
+    if entry.blockedUntil and now>=entry.blockedUntil then
+        entry.blockedFrom,entry.blockedUntil=nil,nil
+        entry.progressAt,entry.beganAt,entry.returns=now,now,0
+        entry.proof=nil
+    end
+end
+
+local function windowPortal(actor, object, fromSquare, toSquare, goal, intent, now)
+    local journey = windowJourney(actor, goal, intent)
+    local entry = journey.portals[object]
+    if not entry then
+        local count, oldest, time = 0, nil, math.huge
+        for candidate, prior in pairs(journey.portals) do
+            count=count+1
+            if prior.seenAt < time then oldest,time=candidate,prior.seenAt end
+        end
+        if count >= 16 then journey.portals[oldest]=nil end
+        local inside=select(1,U().call(fromSquare,"getRoom")) and fromSquare
+            or select(1,U().call(toSquare,"getRoom")) and toSquare or fromSquare
+        entry = { object=object, beganAt=now, progressAt=now, returns=0,
+            originalFrom=U().squareKey(inside), homeSquare=inside,
+            goalDistance=U().distance(actor,goal) }
+        journey.portals[object]=entry
+    end
+    entry.seenAt=now
+    refreshWindowHold(entry,now)
+    if now-entry.progressAt >= 30000 and now>=(entry.blockedUntil or 0)
+        and U().distance(actor, object) <= 4 then
+        entry.blockedFrom,entry.blockedUntil=entry.originalFrom,now+120000
+        entry.progressAt=now entry.proof=nil
+        U().diagnostic("navigation-window-blocked",actor,"reason=window_cycle target="..tostring(U().squareKey(goal)))
+    end
+    entry.intent, entry.goal = intent or {}, goal
+    return entry
+end
+
+function Traversal.noteWindowCrossing(actor, record, now)
+    if not record or record.effectOnly or not tostring(record.action):find("climb_window",1,true) then return end
+    local journey=windowTravel[actor]
+    local entry=journey and journey.portals[record.object]
+    if not entry then return end
+    local from,to=U().squareKey(record.fromSquare),U().squareKey(record.toSquare)
+    if entry.lastFrom==to and entry.lastTo==from and to==entry.originalFrom then
+        entry.returns=entry.returns+1
+        if entry.returns>=2 and now-entry.beganAt<=30000 then
+            entry.blockedFrom,entry.blockedUntil=entry.originalFrom,now+120000
+            U().diagnostic("navigation-window-blocked",actor,"reason=window_cycle crossings="..entry.returns)
+        end
+    end
+    if now-entry.beganAt>30000 then entry.beganAt,entry.returns=now,0 end
+    entry.lastFrom,entry.lastTo=from,to
+    entry.proof=nil
+end
+
+function Traversal.windowRecoveryTarget(actor, goal, intent, now)
+    local journey=windowTravel[actor]
+    if not journey then return nil end
+    journey=windowJourney(actor,goal,intent)
+    for object,entry in pairs(journey.portals) do
+        refreshWindowHold(entry,now)
+        local distance=U().distance(actor,goal)
+        local portalDistance=U().distance(actor,object)
+        -- Moving within the threshold or crossing back and forth cannot renew
+        -- progress. Reaching the onward route can; a legitimate later return
+        -- must not inherit a stale stall timer.
+        if portalDistance>4 and distance+1<(entry.goalDistance or math.huge) then
+            entry.progressAt,entry.beganAt,entry.returns=now,now,0
+            entry.goalDistance=distance
+        elseif portalDistance<=4 and now-entry.progressAt>=30000
+            and now>=(entry.blockedUntil or 0) then
+            entry.blockedFrom,entry.blockedUntil=entry.originalFrom,now+120000
+            entry.proof=nil
+            U().diagnostic("navigation-window-blocked",actor,"reason=window_no_onward_progress")
+        end
+        local room=select(1,U().call(entry.homeSquare,"getRoom"))
+        if room and now<(entry.blockedUntil or 0) and portalDistance<=4
+            and select(1,U().call(U().squareOf(actor),"getRoom"))==nil then
+            return entry.homeSquare
+        end
+    end
+end
+
+-- Proof searches share the normal retained navigation budget. The crossed
+-- window is forbidden, so "go straight back through it" is not onward progress.
+function Traversal.admitWindow(actor, state, object, fromSquare, toSquare, now, intent)
+    local topology, navigation=SC.Topology,SC.Navigation
+    local allowed,why=topology.windowAdmission(actor,object,fromSquare,toSquare,intent)
+    if not allowed then return false,why end
+    local goal=intent and intent.windowGoal or state and state.goalSquare
+        or intent and intent.targetSquare
+    if not goal then return false,"window_goal_unknown" end
+    local entry=windowPortal(actor,object,fromSquare,toSquare,goal,intent,now)
+    if Traversal.windowEdgeHeld(actor,object,fromSquare,now) then return false,"window_cycle" end
+    local _,_,z=U().position(fromSquare)
+    entry.fromSquare,entry.toSquare=fromSquare,toSquare
+    if (z or 0)<=0 then entry.validatedAt=now return true end
+    -- A window which opens from this side will be open by the time we cross.
+    -- Its return landing must nevertheless remain supported and unobstructed.
+    local reverseAllowed,reverseWhy=topology.windowAdmission(actor,object,toSquare,fromSquare,intent)
+    if reverseAllowed~=true and reverseWhy~="window_smash_not_emergency" then
+        return false,"window_return_unverified:"..tostring(reverseWhy)
+    end
+    local signature=topology.objectStateSignature(object)..":"..tostring(U().squareKey(fromSquare))
+        ..">"..tostring(U().squareKey(toSquare))..":"..tostring(U().squareKey(goal))
+    local proof=entry.proof
+    if not proof or proof.signature~=signature then
+        proof={signature=signature,startedAt=now,stairPlan={}} entry.proof=proof
+    end
+    if not proof.path and now-proof.startedAt>6500 then return false,"window_exit_unverified" end
+    if proof.validatedAt and now-proof.validatedAt<=500 then entry.validatedAt=now return true end
+    if not proof.target then
+        local gx,gy,gz=U().position(goal)
+        if gx==nil then return false,"window_goal_unknown" end
+        if math.floor(gz or 0)~=math.floor(z or 0) then
+            if not SC.StairTransition then return false,"window_exit_unverified" end
+            local point,reason=SC.StairTransition.target(proof.stairPlan,toSquare,{x=gx,y=gy,z=math.floor(gz)},now)
+            if not point then return nil,"window_route_verifying" end
+            if point.z~=math.floor(z) or not proof.stairPlan.descent then return false,"window_exit_unverified" end
+            proof.target=U().gridSquare(point.x,point.y,point.z)
+        else proof.target=goal end
+        if not proof.target then return false,"window_exit_unverified" end
+        proof.options={actor=actor,forbiddenWindow=object,snapshot=intent and intent.snapshot,
+            nodeBudget=U().config("navigationNodeBudgetMaximum") or 1200,alternatives=false}
+        if intent and intent.workCampOnly then
+            proof.options.squareAdmission=function(square)return navigation._workSquareAdmitted(square,intent)end
+        end
+        proof.job=navigation.beginPathSearch(toSquare,proof.target,nil,proof.options)
+    end
+    if not proof.path then
+        local status,path=navigation.resumePathSearch(proof.job,24)
+        if status=="pending" then return nil,"window_route_verifying" end
+        if status~="complete" or type(path)~="table" or path[#path]~=proof.target then
+            return false,"window_exit_unverified"
+        end
+        proof.path,proof.index=path,2
+    end
+    -- Revalidate in slices, including mutable doors and furniture, before a
+    -- deferred animation may consume its one-use native permission.
+    local used=0
+    proof.index=proof.index or 2
+    while proof.index<=#proof.path and used<16 do
+        local edge=topology.classifyEdge(actor,proof.path[proof.index-1],proof.path[proof.index],proof.options)
+        if not edge.traversable then entry.proof=nil return nil,"window_route_verifying" end
+        proof.index=proof.index+1 used=used+1
+    end
+    if proof.index<=#proof.path then return nil,"window_route_verifying" end
+    proof.index,proof.validatedAt=2,now
+    entry.validatedAt=now
+    return true
+end
+
+function Traversal.authorizeWindowSubmission(actor, action, intent)
+    local journey=windowTravel[actor]
+    local entry=journey and journey.portals[intent.object]
+    if not entry then return false,"window_approval_missing" end
+    local admitted,why=Traversal.admitWindow(actor,nil,intent.object,intent.fromSquare,
+        intent.toSquare,U().nowMs(),entry.intent)
+    if admitted~=true then return false,admitted==nil and "window_verification_pending" or why end
+    if action=="smash_window" and not SC.Topology.windowImmediateDanger(actor,entry.intent) then
+        return false,"window_smash_not_emergency"
+    end
+    if SCBridge==nil or type(SCBridge.approveWindowAction)~="function" then return false,"window_bridge_unavailable" end
+    local called,approved=pcall(SCBridge.approveWindowAction,actor,intent.object,
+        action=="smash_window" and "smash" or "climb",intent.fromSquare,intent.toSquare)
+    return called and approved==true,called and approved==true and "window_approved" or "window_approval_refused"
 end
 
 local function beginInteraction(actor, state, object, action, now, extra, executorOwned, context)
@@ -176,7 +367,7 @@ end
 -- branch unreachable -- a companion climbed through the window it had just
 -- smashed, still full of shards, while the player beside it cleared theirs by
 -- hand. Only a real threat close enough to arrive first buys the injury.
-function Traversal.chooseWindowAction(window, arrival, context)
+function Traversal.chooseWindowAction(window, arrival, context, actor, fromSquare, intent)
     local utility = U()
     local smashed = invoke(context, "windowSmashed", window) == true
     local glassRemoved = invoke(context, "windowGlassRemoved", window) == true
@@ -190,15 +381,19 @@ function Traversal.chooseWindowAction(window, arrival, context)
         return "climb_window_emergency", smashed, glassRemoved, open
     end
     if open or smashed then return "climb_window", smashed, glassRemoved, open end
-    if not invoke(context, "objectLocked", window)
+    local canOpen=SC.Topology.windowOpensFromSide(window,fromSquare)
+    if canOpen
         and arrival > (utility.config("windowOpenMs") or 1300) + climbMs then
         return "open_window", smashed, glassRemoved, open
     end
-    return "smash_window", smashed, glassRemoved, open
+    if SC.Topology.windowImmediateDanger(actor,intent) then return "smash_window", smashed, glassRemoved, open end
+    return canOpen and "open_window" or nil, smashed, glassRemoved, open
 end
 
 function Traversal.handleWindow(actor, state, window, fromSquare, toSquare, now, intent, context)
     local utility = U()
+    local admitted,why=Traversal.admitWindow(actor,state,window,fromSquare,toSquare,now,intent)
+    if admitted~=true then return admitted,why end
     local pending = state.pendingInteraction
     if pending and pending.object == window then
         local complete, status = completeWindowAction(actor, state, window, pending.action, now, context)
@@ -209,7 +404,8 @@ function Traversal.handleWindow(actor, state, window, fromSquare, toSquare, now,
         and not invoke(context, "objectOpen", window) then return false, "invincible_window" end
     local arrival = invoke(context, "threatArrivalMs", intent, fromSquare) or math.huge
     local action, smashed, glassRemoved, open =
-        Traversal.chooseWindowAction(window, arrival, context)
+        Traversal.chooseWindowAction(window, arrival, context, actor, fromSquare, intent)
+    if action==nil then return false,"window_smash_not_emergency" end
 
     utility.diagnostic("window", actor, "action=" .. tostring(action)
         .. " smashed=" .. tostring(smashed) .. " glass=" .. tostring(glassRemoved)
@@ -252,6 +448,8 @@ end
 
 function Traversal.handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent, context)
     local utility = U()
+    local admitted,why=Traversal.admitWindow(actor,nil,frame,fromSquare,toSquare,now,intent)
+    if admitted~=true then return admitted,why end
     if not invoke(context, "canClimbThrough", frame, actor) then
         return false, "blocked_window_frame"
     end
@@ -745,10 +943,12 @@ end
 
 function Traversal.reset()
     reservations = setmetatable({}, { __mode = "k" })
+    windowTravel = setmetatable({}, { __mode = "k" })
 end
 
 function Traversal.releaseActor(actor)
     if actor == nil then return false end
+    windowTravel[actor]=nil
     for object, reservation in pairs(reservations) do
         if reservation and reservation.actor == actor then reservations[object] = nil end
     end

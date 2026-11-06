@@ -2,14 +2,12 @@
 
 -- Applies the wound a zombie's attack should inflict on a companion.
 --
--- Build 42 resolves a zombie swing (AttackState reaches "success" and sets
--- AttackDidDamage) and marks the victim via testDefense -- but the actual bite
--- or scratch is written by the victim's own local-player/animation-gated
--- processing, which never runs for a non-local companion. The engine therefore
--- reports the hit as landed while the companion's BodyDamage stays untouched, so
--- zombies visibly swarm a companion yet cannot hurt it. This module closes that
--- gap: when a real zombie is adjacent, locked onto the companion and attacking,
--- it applies the wound directly, bounded to one wound per attacker per cooldown.
+-- Native AttackState can wound non-local companions. Observe each attack
+-- episode before considering fallback: native injury is retained, and processed
+-- defence, armour and miss results are terminal. Only an eligible completed
+-- episode whose victim processing was omitted can receive a scripted wound.
+-- The receipt and per-attacker cooldown prevent replaying either native damage
+-- or an already resolved fallback.
 --
 -- Wound model (deliberate, single-player): bites carry the zombie infection and
 -- can turn the companion; scratches and lacerations wound and bleed but never

@@ -265,6 +265,24 @@ local function findOpenCombatArena(player)
     return best, bestScore, bestPaved
 end
 
+-- A Java IsoZombie is pooled. Terminal observations belong to the spawned
+-- lifetime, never to whichever population actor later reuses that object.
+local function trackedZombie(H, zombie)
+    local receipt=H.squadCombatLifetimes and H.squadCombatLifetimes[zombie]
+    if not receipt or receipt.terminal then return false,receipt end
+    local dead=call(zombie,"isDead")==true
+    local member=call(call(getCell(),"getZombieList"),"contains",zombie)
+    local outfit=call(zombie,"getPersistentOutfitID")
+    if dead then receipt.dead,receipt.health,receipt.terminal=true,0,true
+    elseif member==false or receipt.outfit~=nil and outfit~=receipt.outfit then
+        receipt.removed,receipt.terminal=true,true
+    else
+        receipt.health=number(call(zombie,"getHealth"),receipt.health)
+        receipt.x,receipt.y=SurvivorCompanion.GameplayUtil.position(zombie)
+    end
+    return not receipt.terminal,receipt
+end
+
 local function removeZombie(zombie)
     if not zombie then return end
     pcall(function() zombie:setTarget(nil) end)
@@ -300,7 +318,14 @@ local function cleanup(H)
         end)
         H.squadCombatPhotoOriginal = nil
     end
-    for _, zombie in ipairs(H.squadCombatZombies or {}) do removeZombie(zombie) end
+    if H.squadCombatDeathObserver then
+        Events.OnZombieDead.Remove(H.squadCombatDeathObserver)
+        H.squadCombatDeathObserver=nil
+    end
+    for _, zombie in ipairs(H.squadCombatZombies or {}) do
+        local receipt=H.squadCombatLifetimes and H.squadCombatLifetimes[zombie]
+        if not receipt or not receipt.terminal then removeZombie(zombie) end
+    end
     for _, actor in ipairs(H.squadCombatActors or {}) do
         if alive(actor) then pcall(SC.Actor.remove, actor)
         else pcall(SC.Actor.retireDead, actor) end
@@ -508,19 +533,21 @@ local function finishTrial(H, current, check, result, setPhase)
             index, number(x, -1), number(y, -1))
     end
     for index, zombie in ipairs(H.squadCombatZombies or {}) do
-        local zx, zy = SC.GameplayUtil.position(zombie)
+        local active,receipt=trackedZombie(H,zombie)
+        local zx,zy=receipt and receipt.x,receipt and receipt.y
         finalPositions[#finalPositions + 1] = string.format("z%d:%.1f:%.1f",
             index, number(zx, -1), number(zy, -1))
-        if call(zombie, "isDead") == true then kills = kills + 1 end
+        if receipt and receipt.dead then kills = kills + 1 end
         if H.squadCombatEngaged[zombie] == true then engaged = engaged + 1 end
         local initial = H.squadCombatInitialHealth[zombie]
-        local final = number(call(zombie, "getHealth"), nil)
+        local final = receipt and receipt.health
         zombieDetails[#zombieDetails + 1] = string.format("%d:%.2f:%.2f:%.2f:%d:%s",
             index, H.squadCombatInitialHealth[zombie] or -1,
             H.squadCombatSettledHealth[zombie] or -1,
             final or -1, H.squadCombatHitsByZombie[zombie] or 0,
-            tostring(call(zombie, "isOnFloor") == true))
-        local dead = call(zombie, "isDead") == true
+            receipt and receipt.terminal and (receipt.dead and "dead" or "removed")
+                or tostring(call(zombie, "isOnFloor") == true))
+        local dead = receipt and receipt.dead
         if initial and (dead or final and final > 0) then
             damage = damage + math.max(0, initial - (dead and 0 or final))
             if not dead and final and final < initial - 0.001 then
@@ -529,18 +556,18 @@ local function finishTrial(H, current, check, result, setPhase)
                     final / math.max(initial, 0.001))
             end
         end
-        local target = call(zombie, "getTarget")
+        local target = active and call(zombie, "getTarget") or nil
         if target == H.player then
             zombiesTargetingPlayer = zombiesTargetingPlayer + 1
         end
-        if call(zombie, "getSquare") ~= nil then
+        if active and call(zombie, "getSquare") ~= nil then
             zombiesWithSquare = zombiesWithSquare + 1
         end
         for _, actor in ipairs(H.squadCombatActors or {}) do
             if target == actor then zombiesTargeting = zombiesTargeting + 1; break end
         end
         for _, actor in ipairs(H.squadCombatActors or {}) do
-            if alive(actor) and SC.GameplayUtil.distanceSq(actor, zombie) <= 25 then
+            if active and alive(actor) and SC.GameplayUtil.distanceSq(actor, zombie) <= 25 then
                 zombiesNear = zombiesNear + 1; break
             end
         end
@@ -619,14 +646,16 @@ local function finishTrial(H, current, check, result, setPhase)
         postSwingBackstep = H.squadCombatPostSwingBackstep or 0 }
     H.squadCombatResults[#H.squadCombatResults + 1] = row
     writeResults(H)
-    local incomingWounds=0
+    local incomingWounds,incomingHealthLoss=0,0
     for _,actor in ipairs(H.squadCombatActors) do
         local body=call(actor,"getBodyDamage")
         incomingWounds=incomingWounds+number(call(body,"getNumPartsBitten"),0)
             +number(call(body,"getNumPartsScratched"),0)+number(call(body,"getNumPartsBleeding"),0)
+        incomingHealthLoss=incomingHealthLoss+math.max(0,
+            (H.squadCombatInitialCompanionHealth[actor] or 0)-number(SC.GameplayUtil.nativeHealth(actor),0))
     end
     local passive=H.config.squad_combat_passive_control=="true"
-    local measured=passive and (incomingWounds>0 or tonumber(row.lowestCompanionHealth)<100)
+    local measured=passive and (incomingWounds>(H.squadCombatInitialWounds or 0) or incomingHealthLoss>0.01)
         or not passive and row.offensive>0 and row.actions>0
     check("squad_combat_trial_" .. row.scenario .. "_" .. tostring(row.trial),
         measured,
@@ -637,6 +666,7 @@ local function finishTrial(H, current, check, result, setPhase)
             .. " offensive=" .. row.offensive .. " engaged=" .. engaged
             .. " damage=" .. row.damage .. " retreat=" .. row.retreat
             .. " passive="..tostring(passive).." incoming_wounds="..incomingWounds
+            .. " incoming_health_loss="..string.format("%.2f",incomingHealthLoss)
             .. " elapsed_ms=" .. elapsed)
     result("PASS", "squad_combat_late_bystanders_removed",
         "count=" .. tostring(H.squadCombatLateBystandersRemoved or 0))
@@ -953,6 +983,15 @@ function Probe.step(H, current, check, result, setPhase)
         H.squadCombatTargetValidAfterRetargetSamples = 0
         H.squadCombatRetargetSuccesses = 0
         H.squadCombatInitialHealth = setmetatable({}, { __mode = "k" })
+        H.squadCombatInitialCompanionHealth,H.squadCombatInitialWounds={},0
+        for _,actor in ipairs(H.squadCombatActors) do
+            H.squadCombatInitialCompanionHealth[actor]=U.nativeHealth(actor)
+            local body=call(actor,"getBodyDamage")
+            H.squadCombatInitialWounds=H.squadCombatInitialWounds
+                +number(call(body,"getNumPartsBitten"),0)+number(call(body,"getNumPartsScratched"),0)
+                +number(call(body,"getNumPartsBleeding"),0)
+        end
+        H.squadCombatLifetimes = {}
         H.squadCombatLastHealth = setmetatable({}, { __mode = "k" })
         H.squadCombatSettledHealth = setmetatable({}, { __mode = "k" })
         H.squadCombatHitsByZombie = setmetatable({}, { __mode = "k" })
@@ -967,9 +1006,19 @@ function Probe.step(H, current, check, result, setPhase)
         H.squadCombatEngaged = setmetatable({}, { __mode = "k" })
         for _, zombie in ipairs(H.squadCombatZombies) do
             local health = number(call(zombie, "getHealth"), nil)
+            H.squadCombatLifetimes[zombie]={health=health,outfit=call(zombie,"getPersistentOutfitID")}
+            trackedZombie(H,zombie)
             H.squadCombatInitialHealth[zombie] = health
             H.squadCombatLastHealth[zombie] = health
         end
+        H.squadCombatDeathObserver=function(zombie)
+            local receipt=H.squadCombatLifetimes[zombie]
+            if receipt and not receipt.terminal then
+                receipt.x,receipt.y=U.position(zombie)
+                receipt.dead,receipt.health,receipt.terminal=true,0,true
+            end
+        end
+        Events.OnZombieDead.Add(H.squadCombatDeathObserver)
         H.squadCombatActionAt = setmetatable({}, { __mode = "k" })
         if H.config.squad_combat_photo == "true"
             or H.config.squad_combat_near_observer == "true"
@@ -1131,7 +1180,7 @@ function Probe.step(H, current, check, result, setPhase)
             for _, actor in ipairs(H.squadCombatActors or {}) do
                 if alive(actor) then
                     for _, zombie in ipairs(H.squadCombatZombies or {}) do
-                        if call(zombie, "isDead") ~= true then
+                        if trackedZombie(H,zombie) then
                             local squared = tonumber(U.distanceSq(actor, zombie))
                             if squared and squared >= 0 then
                                 local distance = math.sqrt(squared)
@@ -1156,8 +1205,8 @@ function Probe.step(H, current, check, result, setPhase)
                 call(actor, "getCompanionAttackReceiptSerial"), -1) or -1
             local prone = 0
             for _, zombie in ipairs(H.squadCombatZombies or {}) do
-                if call(zombie, "isOnFloor") == true
-                    or call(zombie, "isProne") == true then prone = prone + 1 end
+                if trackedZombie(H,zombie) and (call(zombie, "isOnFloor") == true
+                    or call(zombie, "isProne") == true) then prone = prone + 1 end
             end
             local actionState = actor and tostring(
                 call(actor, "getCompanionActionStateName") or "-") or "-"
@@ -1194,7 +1243,7 @@ function Probe.step(H, current, check, result, setPhase)
         if current >= (H.squadCombatRetargetAt or 0) then
             H.squadCombatRetargetAt = current + 1000
             for index, zombie in ipairs(H.squadCombatZombies) do
-                if call(zombie, "isDead") ~= true then
+                if trackedZombie(H,zombie) then
                     if call(zombie, "getEatBodyTarget") ~= nil then
                         H.squadCombatEatingSamples = H.squadCombatEatingSamples + 1
                     end
@@ -1394,8 +1443,9 @@ function Probe.step(H, current, check, result, setPhase)
             end
         end
         for _, zombie in ipairs(H.squadCombatZombies) do
-            if call(zombie, "isDead") == true then deadZombies = deadZombies + 1 end
-            if H.squadCombatEngaged[zombie] ~= true then
+            local active,receipt=trackedZombie(H,zombie)
+            if receipt and receipt.dead then deadZombies = deadZombies + 1 end
+            if active and H.squadCombatEngaged[zombie] ~= true then
                 for _, actor in ipairs(H.squadCombatActors) do
                     if alive(actor) and U.distanceSq(actor, zombie) <= 2.25 * 2.25 then
                         H.squadCombatEngaged[zombie] = true

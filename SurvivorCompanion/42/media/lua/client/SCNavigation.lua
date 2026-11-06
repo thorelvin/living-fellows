@@ -3247,7 +3247,8 @@ local function threatArrivalMs(intent, square)
         local distance = utility.distance(square, threat.actor or threat.square)
         if distance ~= nil and distance < nearest then nearest = distance end
     end
-    for _, threat in ipairs(type(snapshot.immediate) == "table" and snapshot.immediate or {}) do
+    for _, threat in ipairs(type(snapshot.immediateAttackers) == "table" and snapshot.immediateAttackers
+        or type(snapshot.immediate) == "table" and snapshot.immediate or {}) do
         local distance = utility.distance(square, threat.actor or threat.square)
         if distance ~= nil and distance < nearest then nearest = distance end
     end
@@ -3350,6 +3351,11 @@ function Navigation._beginDoorBashForRequest(actor, state, door, fromSquare, now
 end
 
 local function handleWindow(actor, state, window, fromSquare, toSquare, now, intent)
+    local admitted,why=V().admitWindow(actor,state,window,fromSquare,toSquare,now,intent)
+    if admitted~=true then
+        if SC.NativeActions then SC.NativeActions.stopDirect(actor,{preservePosture=true}) end
+        return admitted,why
+    end
     local aligned, status = V().alignWindowApproach(
         actor, fromSquare, toSquare, intent, traversalContext)
     if aligned ~= true then return aligned, status end
@@ -3358,6 +3364,11 @@ local function handleWindow(actor, state, window, fromSquare, toSquare, now, int
 end
 
 local function handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent)
+    local admitted,why=V().admitWindow(actor,nil,frame,fromSquare,toSquare,now,intent)
+    if admitted~=true then
+        if SC.NativeActions then SC.NativeActions.stopDirect(actor,{preservePosture=true}) end
+        return admitted,why
+    end
     local aligned, status = V().alignWindowApproach(
         actor, fromSquare, toSquare, intent, traversalContext)
     if aligned ~= true then return aligned, status end
@@ -3368,6 +3379,64 @@ end
 local function alignDoorApproach(actor, fromSquare, toSquare, intent, affordance, state)
     return V().alignDoorApproach(
         actor, fromSquare, toSquare, intent, affordance, traversalContext, state)
+end
+
+-- Native PFB may start an open-window climb without a Lua edge. Its actor-only
+-- gate refuses that call; take ownership of this exact portal before resuming.
+function Navigation._windowForNativeLease(actor,state,lease,now)
+    local step=lease.windowStep
+    if not step then
+        local denied=select(1,U().call(actor,"getCompanionBlockedWindow"))
+        local from=U().squareOf(actor)
+        local ax,ay,az=U().position(actor)
+        local nx,ny=U().position(lease.nativeNextSquare or lease.toSquare)
+        local offsets
+        if denied then offsets={{1,0},{-1,0},{0,1},{0,-1}}
+        elseif ax and nx then
+            local dx,dy=math.floor(nx)-math.floor(ax),math.floor(ny)-math.floor(ay)
+            if math.abs(dx)+math.abs(dy)==1 then offsets={{dx,dy}} end
+        end
+        if not offsets then return nil end
+        if from and ax then
+            for _,offset in ipairs(offsets) do
+                local to=U().gridSquare(math.floor(ax)+offset[1],math.floor(ay)+offset[2],az or 0)
+                local object,kind=barrierBetween(from,to)
+                -- Only intercept the actual next cardinal edge. A diagonal
+                -- waypoint may pass a nearby window without crossing it.
+                local ahead=nx and math.floor(nx)==math.floor(ax)+offset[1]
+                    and math.floor(ny)==math.floor(ay)+offset[2]
+                if object and (kind=="window" or kind=="window_frame") and (denied==object or not denied and ahead) then
+                    step={object=object,kind=kind,from=from,to=to}
+                    lease.windowStep=step
+                    if SC.NativeActions then SC.NativeActions.stopDirect(actor,{preservePosture=true}) end
+                    break
+                end
+            end
+        end
+    end
+    if not step then return nil end
+    local intent=U().copyShallow(lease.windowIntent)
+    intent.windowGoal,intent.targetSquare=lease.ultimateGoal,lease.ultimateGoal
+    local admitted,why=V().admitWindow(actor,state,step.object,step.from,step.to,now,intent)
+    if admitted==nil then return "active",why end
+    if not admitted then
+        state.nativeLease=nil
+        state.lastAttemptFrom,state.lastAttemptTo=step.from,step.to
+        return "failed",why
+    end
+    local accepted,status
+    if step.kind=="window" then
+        accepted,status=handleWindow(actor,state,step.object,step.from,step.to,now,intent)
+    else accepted,status=handleWindowFrame(actor,step.object,step.from,step.to,now,intent) end
+    if accepted==false then
+        state.nativeLease=nil
+        state.lastAttemptFrom,state.lastAttemptTo=step.from,step.to
+        return "failed",status
+    end
+    if SC.NativeTraversalActions and SC.NativeTraversalActions.activityStatus(actor)~="none" then
+        state.nativeLease=nil
+    end
+    return "active",status or "window_crossing"
 end
 
 local function handleFence(actor, object, fromSquare, toSquare, intent)
@@ -5054,6 +5123,7 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         draggingBody = intent and intent.draggingBody == true,
         arrivalDistance = intent and tonumber(intent.arrivalDistance) or nil,
         supervisorToken = intent and intent.supervisorToken,
+        windowIntent = U().copyShallow(intent),
     }
     -- A changing follow goal can cancel and restart the native path before
     -- its own stall timer fires. Count fresh leases from one unchanged actor
@@ -5461,6 +5531,8 @@ local function maintainNativeLease(actor, state, goalSquare, now)
             end
         end
     end
+    local windowPhase,windowReason=Navigation._windowForNativeLease(actor,state,lease,now)
+    if windowPhase then return windowPhase,windowReason end
     -- The engine pathfinder plans straight through closed doors, and a
     -- companion does not collide with them on its route, so it walked through
     -- locked doors that never opened. Open a closed door just ahead the normal
@@ -5876,7 +5948,8 @@ local function addBlockerEvidence(blocker)
     elseif kind == "full_square_thumpable" or kind == "full_square_object"
         or (kind == "thumpable" and blockAll) then
         blocker.evidenceClass, blocker.confidence = "static_square", "high"
-    elseif kind == "door" or kind == "fence" or kind == "stairs" or kind == "slope"
+    elseif kind == "door" or kind == "window" or kind == "window_frame"
+        or kind == "fence" or kind == "stairs" or kind == "slope"
         or kind == "stairs_or_slope" or kind == "thumpable"
         or kind == "vegetation" then
         blocker.evidenceClass, blocker.confidence = "static_edge", "high"
@@ -6721,6 +6794,7 @@ function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now
                 state.lastProgressAt = now
                 state.firstMotionRequestedAt = now
             elseif not traversal.effectOnly then
+                V().noteWindowCrossing(actor,traversal,now)
                 -- The route was already validated across this affordance. Keep
                 -- its remaining suffix so the actor walks on immediately instead
                 -- of standing still for a second A-star search after every climb.
@@ -6956,7 +7030,7 @@ function Navigation.noteMultiLevelFailure(state, goalSquare, reason)
     -- An observed locked portal already proves that retrying the opaque
     -- engine route cannot work. Survey a stair approach through the ordinary
     -- portal-aware planner without waiting for a second identical collision.
-    if reason == "path_blocked:door_locked" then
+    if reason == "path_blocked:door_locked" or type(reason)=="string" and reason:find("window_",1,true) then
         state.multiLevelFailureCount = math.max(2, state.multiLevelFailureCount)
     end
 end
@@ -7053,6 +7127,8 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local now = utility.nowMs()
     local state = stateFor(actor)
+    local windowRecovery=SC.NavTraversal.windowRecoveryTarget(actor,requestedGoalSquare,intent,now)
+    if windowRecovery then goalSquare,goalAdjusted=windowRecovery,true end
     local crossingAccepted, crossingReason =
         SC.Navigation._retainStairCrossingForRequest(
             actor, state, goalSquare, movementMode, intent, now)
@@ -7099,6 +7175,8 @@ function Navigation.request(actor, target, movementMode, intent)
     sweepBlockedEdges(state, now)
     observeSquare(state, sourceSquare)
     local requestIntent = utility.copyShallow(intent)
+    requestIntent.windowGoal=windowRecovery or requestedGoalSquare
+    requestIntent.windowJourneyGoal=requestedGoalSquare
     local multipleGoals = requestIntent.multiGoalFallback == true
         and type(requestIntent.goalCandidates) == "table"
         and #requestIntent.goalCandidates > 1 and not goalAdjusted
@@ -7349,7 +7427,8 @@ function Navigation.request(actor, target, movementMode, intent)
     if leaseState == "failed" then
         if failedMultiLevel then
             SC.Navigation.noteMultiLevelFailure(state, goalSquare, leaseStatus)
-            if leaseStatus == "path_blocked:door_locked" then
+            if leaseStatus == "path_blocked:door_locked"
+                or tostring(leaseStatus):find("window_",1,true) then
                 return true, "planning_stair_transition"
             end
         end
@@ -7457,6 +7536,7 @@ function Navigation.request(actor, target, movementMode, intent)
             urgent = requestIntent.urgent == true,
             emergency = requestIntent.emergency == true,
             survivalCritical = requestIntent.survivalCritical == true,
+            snapshot = requestIntent.snapshot,
             blockedEdges = state.blockedEdges,
             blockedSquares = state.blockedSquares,
             routeMemory = state.routeMemory,
@@ -8878,7 +8958,8 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             state.nativeMultiUnavailableUntil = now + 5000
             if failedMultiLevel then
                 SC.Navigation.noteMultiLevelFailure(state, nativeGoal, leaseStatus)
-                if leaseStatus == "path_blocked:door_locked" then
+                if leaseStatus == "path_blocked:door_locked"
+                    or tostring(leaseStatus):find("window_",1,true) then
                     return true, "planning_stair_transition"
                 end
             end
@@ -9202,6 +9283,7 @@ function Navigation.cancel(actor, reason)
         state.pendingDoorBash = nil
     end
     V().releaseState(actor, state)
+    V().releaseActor(actor)
     states[actor] = nil
     utility.stop(actor)
     return true, reason or "cancelled"

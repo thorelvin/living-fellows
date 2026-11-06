@@ -2,6 +2,22 @@
 
 # Changelog
 
+## 0.27.0 - Safe windows and navigation recovery
+
+- Prefer doors and stairs for routine travel. Open ordinary latched windows
+  from indoors, and reserve automatic smashing for verified immediate danger.
+- Require safe landings and verified onward and return routes for elevated
+  window crossings, including crossings requested by native pathfinding.
+- Recover from repeated window crossings without treating small shuffles as
+  useful route progress. Preserve a checked inward retreat from a roof.
+- Rejoin the same street around a parked-car obstruction instead of declaring
+  no route when only the nearest road entry is blocked. Retain the exact
+  blocker and routing failure in expedition diagnostics.
+- Keep live combat evidence tied to each zombie's actual lifetime and retain
+  native damage, defence, armour and miss outcomes.
+- Ship matching Lua and native bridge protocol `42.21-isocompanion-30` for
+  Project Zomboid 42.21.0. Existing save schemas are unchanged.
+
 ## 0.26.99 - Map-selected logging and town driving
 
 - Select a logging rectangle on the explored world map for walking or driving

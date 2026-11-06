@@ -228,6 +228,10 @@ local function submitDeferred(actor, record, current)
     record.deferredSubmit, record.deferredState = nil, nil
     local submitted, failure, outcome = submit()
     if not submitted then
+        if failure=="window_verification_pending" and current<record.startDeadline then
+            record.deferredSubmit=submit
+            return "starting",failure
+        end
         record.phase, record.finishedAt = "failed", current
         record.reason = tostring(failure or ("native " .. record.action .. " submission failed"))
         return record.phase, record.reason
@@ -395,6 +399,7 @@ end
 
 function Traversal.reset(actor)
     if actor then pending[actor] = nil
+        invoke(actor,"clearCompanionWindowApproval")
     else
         pending = setmetatable({}, { __mode = "k" })
         lastWallClimbReactionAt = -math.huge
@@ -456,7 +461,14 @@ local function submitOrDefer(actor, action, intent, submit, startedReason)
         return true, record.reason
     end
     local submitted, failure, outcome = submit()
-    if not submitted then return false, failure end
+    if not submitted then
+        if failure=="window_verification_pending" then
+            local retained,why=retainRequest(actor,action,intent,startedReason)
+            if retained then pending[actor].deferredSubmit=submit end
+            return retained,why
+        end
+        return false, failure
+    end
     local retained, retainReason = retainRequest(actor, action, intent, startedReason)
     if retained and pending[actor] then pending[actor].wallClimbOutcome = outcome end
     return retained, retainReason
@@ -477,10 +489,13 @@ function Traversal.window(actor, action, intent, provider)
     if context.stopDirect(actor) ~= true then return false, "window action could not acquire stationary actor" end
 
     if action == "open_window" then
+        if not SC.Topology.windowOpensFromSide(object,intent.fromSquare) then return false,"window_open_not_permitted" end
         local started, failure = invoke(actor, "openWindow", object)
         if not started or failure == false then return false, failure or "native window open rejected" end
         return retainRequest(actor, action, intent, "window_opened", true)
     elseif action == "smash_window" then
+        local approved,why=SC.NavTraversal.authorizeWindowSubmission(actor,action,intent)
+        if not approved then return false,why end
         local started, failure = invoke(actor, "smashWindow", object)
         if not started or failure == false then return false, failure or "native window smash rejected" end
         return retainRequest(actor, action, intent, "window_smashed", true)
@@ -501,6 +516,8 @@ function Traversal.window(actor, action, intent, provider)
     local methodName = intent.emptyFrame == true
         and "climbThroughWindowFrame" or "climbThroughWindow"
     return submitOrDefer(actor, action, intent, function()
+        local approved,why=SC.NavTraversal.authorizeWindowSubmission(actor,action,intent)
+        if not approved then return false,why end
         local started, failure = invoke(actor, methodName, object)
         if not started or failure == false then
             return false, failure or "native window climb rejected"

@@ -589,10 +589,15 @@ end
 
 do
     T.planStatus = "NO_ROUTE"
+    T.planReason = "road_too_far"
     local actor = managed("drive-no-route")
     check(Driving.jobStatus(actor).reason == "no_route" and not T.native[actor].active,
         "unavailable alternate route is reported with a parked car")
+    local failure = Driving.jobStatus(actor)
+    check(failure.routeFailureReason == "road_too_far" and failure.routeSourceX == 100
+        and failure.routeSourceY == 100, "route failure retains its specific reason and actual source")
     Driving.release(actor)
+    T.planReason = nil
     T.planStatus = "READY"
     actor = managed("drive-late-no-route-parking")
     actor.vehicle.x, actor.vehicle.y = goal.x - 2, goal.y

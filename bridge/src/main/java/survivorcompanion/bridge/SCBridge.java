@@ -73,7 +73,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-29";
+    public static final String PROTOCOL = "42.21-isocompanion-30";
 
     /** True only while the optional Viewpoint renderer reports active 3D. */
     public static boolean isViewpoint3DActive() {
@@ -1129,11 +1129,22 @@ public final class SCBridge {
         }
     }
 
-    /**
-     * Reads edge geometry into a caller-reused table. This helper publishes
-     * facts only; Lua remains authoritative for keys, hazards, safehouses,
-     * costs, reservations and companion capability.
-     */
+    /** Issue one short-lived permission after Lua has verified the route. */
+    public static boolean approveWindowAction(SCNativeCompanion actor, IsoObject object,
+            String operation, IsoGridSquare from, IsoGridSquare to) {
+        lastFailure = "";
+        if (!onGameThread() || !isOwned(actor)) return failBoolean("window approval requires an owned companion on the game thread");
+        if (!actor.approveWindowAction(object, operation, from, to)) return failBoolean("window approval refused changed actor or landing geometry");
+        return true;
+    }
+
+    public static boolean clearWindowApproval(SCNativeCompanion actor) {
+        if (!onGameThread() || !isOwned(actor)) return false;
+        actor.clearCompanionWindowApproval();
+        return true;
+    }
+
+    /** Read geometry only; Lua retains policy, costs and reservations. */
     public static boolean fillEdgeFacts(IsoGameCharacter actor, IsoGridSquare from,
             IsoGridSquare to, KahluaTable out) {
         lastFailure = "";

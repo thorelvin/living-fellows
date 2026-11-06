@@ -14,6 +14,44 @@ public final class SCNativeBridgeExposureTest {
         if (!value) throw new AssertionError(message);
     }
 
+    private static void testWindowPermissionIsolation() throws Exception {
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field field = unsafeClass.getDeclaredField("theUnsafe");
+        field.setAccessible(true);
+        Object unsafe = field.get(null);
+        Method allocate = unsafeClass.getMethod("allocateInstance", Class.class);
+        zombie.iso.IsoObject window = (zombie.iso.IsoObject) allocate.invoke(unsafe, zombie.iso.IsoObject.class);
+        zombie.iso.IsoObject other = (zombie.iso.IsoObject) allocate.invoke(unsafe, zombie.iso.IsoObject.class);
+        zombie.iso.IsoGridSquare inside = (zombie.iso.IsoGridSquare) allocate.invoke(unsafe, zombie.iso.IsoGridSquare.class);
+        zombie.iso.IsoGridSquare outside = (zombie.iso.IsoGridSquare) allocate.invoke(unsafe, zombie.iso.IsoGridSquare.class);
+        SCWindowActionGuard guard = new SCWindowActionGuard(), neighbour = new SCWindowActionGuard();
+        require(guard.approve(window, "climb", inside, 1), "window permission rejected");
+        require(!neighbour.consume(window, "climb", inside, 2), "permission leaked to another actor");
+        require(guard.consume(window, "climb", inside, 2), "exact window permission not accepted");
+        require(!guard.consume(window, "climb", inside, 3), "window permission replayed");
+        guard.approve(window, "climb", inside, 10);
+        require(!guard.consume(other, "climb", inside, 11), "permission accepted a different window");
+        require(!guard.consume(window, "climb", inside, 12), "failed match retained permission");
+        guard.approve(window, "climb", inside, 20);
+        require(!guard.consume(window, "climb", outside, 21), "window permission crossed from the wrong side");
+        guard.approve(window, "climb", inside, 30);
+        require(!guard.consume(window, "smash", inside, 31), "climb permission allowed smashing");
+        guard.approve(window, "smash", inside, 40);
+        require(!guard.consume(window, "smash", inside, 500_000_040L), "expired permission survived");
+        guard.approve(window, "climb", inside, 50); guard.clear();
+        require(!guard.consume(window, "climb", inside, 51), "cancel retained window permission");
+        for (Class<?> type : new Class<?>[]{zombie.iso.objects.IsoWindow.class, zombie.iso.objects.IsoThumpable.class}) {
+            require(SCNativeCompanion.class.getMethod("climbThroughWindow", type).getDeclaringClass() == SCNativeCompanion.class,
+                    "native window overload bypassed approval: " + type);
+            require(SCNativeCompanion.class.getMethod("climbThroughWindow", type, Integer.class).getDeclaringClass() == SCNativeCompanion.class,
+                    "native window flags overload bypassed approval: " + type);
+        }
+        require(SCNativeCompanion.class.getMethod("climbThroughWindow", zombie.iso.IsoObject.class).getDeclaringClass() == SCNativeCompanion.class
+                && SCNativeCompanion.class.getMethod("climbThroughWindowFrame", zombie.iso.objects.IsoWindowFrame.class).getDeclaringClass() == SCNativeCompanion.class
+                && SCNativeCompanion.class.getMethod("smashWindow", zombie.iso.objects.IsoWindow.class).getDeclaringClass() == SCNativeCompanion.class,
+                "native generic/frame/smash path bypassed approval");
+    }
+
     private static void testOnBedRenderLiftIsolation() throws Exception {
         Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
         Field singleton = unsafeClass.getDeclaredField("theUnsafe");
@@ -202,7 +240,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.21-isocompanion-29".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.21-isocompanion-30".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
@@ -246,6 +284,7 @@ public final class SCNativeBridgeExposureTest {
                         && SCBridge.getLastFailure().contains("null"),
                 "bed render lift admitted a missing actor");
         testOnBedRenderLiftIsolation();
+        testWindowPermissionIsolation();
         require(SCBridge.class.getMethod("alignSleepingBedModel", SCNativeCompanion.class,
                         zombie.iso.IsoObject.class).getReturnType() == boolean.class
                         && !SCBridge.alignSleepingBedModel(null, null),

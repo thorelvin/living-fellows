@@ -154,6 +154,7 @@ SCBridge = {
     planRoadRouteAvoidingAll = function(_, sx, sy, tx, ty, circles, out)
         T.plans[#T.plans + 1] = { sx = sx, sy = sy, tx = tx, ty = ty, circles = circles }
         out.status, out.fingerprint = T.planStatus, "test-road"
+        out.reason = T.planReason
         out.geometry = tostring(sx) .. "," .. tostring(sy) .. ",8,0,Test Street;"
             .. tostring(T.planEnd and T.planEnd.x or tx) .. ","
             .. tostring(T.planEnd and T.planEnd.y or ty) .. ",8,0,Test Street"

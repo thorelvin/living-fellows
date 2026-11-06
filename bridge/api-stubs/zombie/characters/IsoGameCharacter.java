@@ -85,6 +85,13 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     public void triggerContextualAction(String action, Object first, Object second,
             Object third, Object fourth) {}
     public IsoGridSquare getCurrentSquare() { return null; }
+    public void smashWindow(zombie.iso.objects.IsoWindow window) {}
+    public void climbThroughWindow(zombie.iso.objects.IsoWindow window) {}
+    public void climbThroughWindow(zombie.iso.objects.IsoWindow window, Integer flags) {}
+    public void climbThroughWindow(zombie.iso.objects.IsoThumpable window) {}
+    public void climbThroughWindow(zombie.iso.objects.IsoThumpable window, Integer flags) {}
+    public void climbThroughWindowFrame(zombie.iso.objects.IsoWindowFrame window) {}
+    public void climbThroughWindow(zombie.iso.IsoObject window) {}
     public boolean isInTrees() { return false; }
     public boolean isInTreesNoBush() { return false; }
     public BaseCharacterSoundEmitter getEmitter() { return null; }

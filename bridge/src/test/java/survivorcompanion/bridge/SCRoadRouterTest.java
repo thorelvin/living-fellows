@@ -257,6 +257,38 @@ public final class SCRoadRouterTest {
                         && escapeBlocked.points().get(1).y() == 10,
                 "source escape cannot enter another circle outside its starting position");
 
+        var firehouse = List.of(wide("North Main St", 8, 8106, 11656, 8106, 11774),
+                wide("South Main St", 6, 8106, 11777, 8211, 11777));
+        var reentry = SCRoadRouter.routeLinesAvoidingAll(firehouse,
+                8109.5, 11706.1171875, 8134, 11777, "8104.5,11704.5,4");
+        check("READY".equals(reentry.status()) && reentry.points().size() >= 4,
+                "the actual firehouse blocked pose can rejoin its own street");
+        var start = reentry.points().get(0);
+        var join = reentry.points().get(1);
+        check(start.x() == 8109.5 && start.y() == 11706.1171875
+                        && join.x() == 8106 && join.y() > 11708.208
+                        && Math.hypot(join.x()-start.x(),join.y()-start.y()) <= 12
+                        && start.width() == 5 && join.width() == 5,
+                "local re-entry has an explicit bounded narrow source connector");
+        double minimumClearance = Double.POSITIVE_INFINITY;
+        for (int sample = 0; sample <= 100; sample++) {
+            double t = sample / 100.0;
+            minimumClearance = Math.min(minimumClearance,
+                    Math.hypot(start.x()+(join.x()-start.x())*t-8104.5,
+                            start.y()+(join.y()-start.y())*t-11704.5));
+        }
+        check(minimumClearance > 4, "the entire local re-entry connector avoids the parked-car buffer");
+        var nearbyPose = SCRoadRouter.routeLinesAvoidingAll(firehouse,
+                8109.05517578125, 11705.40625, 8134, 11777, "8104.5,11704.5,4");
+        check("READY".equals(nearbyPose.status()), "the earlier braking pose also has local re-entry");
+        var closedReentry = SCRoadRouter.routeLinesAvoidingAll(firehouse,
+                8109.5, 11706.1171875, 8134, 11777, "8104.5,11704.5,4;8106,11712,12");
+        check(!"READY".equals(closedReentry.status()),
+                "another avoidance cannot be bypassed by local re-entry");
+        check(!"READY".equals(SCRoadRouter.routeLinesAvoidingAll(firehouse,
+                        8134,11777,8106,11704.5,"8104.5,11704.5,4").status()),
+                "re-entry does not move a destination out of an avoided area");
+
         System.out.println("SC_ROAD_ROUTER_PASS checks=" + checks);
     }
 }

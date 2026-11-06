@@ -1,0 +1,145 @@
+Living Fellows 0.27.0: window safety, combat and routing verification
+Date: 2026-11-06
+Branch: living_fellows/0.27.0
+Base: 78e7c6c83e896547163e5c45d3d6f9ace6515f52 (0.26.99)
+
+Implementation
+- Shared side-aware window policy for planning, traversal and native submission.
+- Ordinary inside latches open normally; protected locks remain protected.
+- Automatic smashing requires an active attack or a reachable imminent hostile.
+- Elevated crossings require supported clear landings and an onward route
+  excluding the crossed window, ending at a verified stair approach where needed.
+- Retained proof uses normal bounded searches, 24 expansion nodes and 16
+  revalidation edges per call. No background scan or additional service.
+- Two out-and-back cycles in 30 seconds, or 30 seconds without onward progress,
+  hold outward travel for 120 seconds. Checked inward recovery remains available.
+- Companion-only native single-use approval covers all seven climb/frame/smash
+  overloads, including native pathfinding. Players and camera slots are unchanged.
+- Existing combat probe freezes dead/removed zombie lifetimes rather than
+  sampling population-pool replacements. Passive controls compare initial
+  wounds and health; pre-existing injuries alone cannot pass them.
+- Native injury, defence, armour and miss outcomes remain authoritative.
+  No new production damage deductions were added.
+- Save schemas remain unchanged. Matching protocol: 42.21-isocompanion-30.
+
+Automated checks
+- Existing traversal specialist: 275 checks PASS, including latch sides,
+  permanent/custom locks, imminent danger, walls, unsupported landings,
+  dead-end roofs, valid onward paths, loop holds, expiry retries and inward
+  recovery without discarding the outward hold.
+  Evidence: build/window-02700/fixture.log.
+- Native permission checks are in the existing real-JAR bridge exposure test.
+  They cover actor isolation, exact object/side/operation, single use, expiry,
+  cancellation and coverage of every native overload. No new test runner.
+- Initial routine project gate: all five checks PASS in 45.4 seconds.
+  Evidence: build/test-results/20261106-122358-e8f197.
+- Pre-routing scripts/Test-Project.ps1 -Release -Serial: all five checks PASS in
+  142.6 seconds. Build 110.0s, Lifecycle 23.9s, Behaviour 1.4s, Cargo 2.5s,
+  Interface 4.9s. Normal/debug Lua compilation, 11 installer boundaries and
+  both distribution archives passed.
+  Evidence: build/test-results/20261106-130702-252d15 and
+  build/window-02700/release-gate-final.log.
+
+Live window acceptance
+- Original Rosewood firehouse save was input only. Disposable clones ran with
+  Living Fellows alone, one low-priority native client at a time.
+- SC-Harness-20261106-123200-d3382c41: supported roof without an onward route
+  rejected; unapproved native climb refused; inside latch opened natively
+  without smashing; native inward climb completed.
+- SC-Harness-20261106-124017-7f0610a4: same checks plus ordinary stair descent
+  from the rejected elevated route in about 14 seconds; inward recovery walked
+  clear and reached ordinary navigation arrival.
+- Each refusal/recovery has a uniquely numbered native screenshot with
+  actor, position, goal, reason and timestamp in SC_WINDOW_ACCEPT console lines.
+  Images: each run's cache/Screenshots/*window-*.
+- Recovery coordinates/native arrival are evidence; the recovery screenshot's
+  exterior camera obscures the body and is not treated as visual proof.
+- Earlier SC-Harness-20261106-122840-00e09ba8 had invalid fixture placement and
+  is excluded. The 123524 run's final distance assertion used a tile corner;
+  its stair/opening checks passed, but its overall fixture did not.
+- Final inward-hold and expiry refinements were checked by the focused
+  regressions; the native window scenes predate those final Lua refinements.
+
+Live combat acceptance
+- Baseline unchanged 0.26.99: active 2v3 trials included real native wounds;
+  a passive control also took damage and one companion died.
+- SC-Harness-20261106-124425-5e16f9fd, natural zombie acquisition:
+  restored pair, 45-second passive control: 114.60 combined health loss,
+  21 wound indicators, one death.
+  fresh pair, 45-second passive control: 22.92 combined health loss,
+  seven wound indicators.
+  fresh active pair: three zombies killed, both companions survived,
+  5.46 combined incoming health loss. Zombie lifetime damage: 3.00.
+- Wound indicators are bitten/scratched/bleeding part flags, not hit counts.
+- Passive controls hold companion actions and call the existing production
+  targeting/damage episode resolver. Active trials use normal combat decisions.
+  Arena bystanders are cleared; the real observer stands 13 tiles away.
+- Evidence: build/window-02700/combat-lifecycle.log and that run's
+  cache/Lua/SurvivorCompanionHarness/squad-combat-results.txt.
+- SC-Harness-20261106-125624-cf9d0a23: resumed the saved partial wood trip
+  without repositioning crew or altering its mission/cargo. Crew returned on
+  foot after roadside fallback. Secondary slot and view owner were released;
+  both companions were at 100% health before the control.
+  The same returned pair then took 49.50 combined health loss and ten wound
+  indicators in a 45-second passive 2v3 control. Both survived.
+  Evidence: build/window-02700/return-resume-combat.log and the run's console,
+  results and numbered block/recovery screenshots.
+  This is a partial-trip return after a mid-trip reload, not a successful
+  freshly completed wood delivery or a general driving certification.
+
+Separate driving failure
+- SC-Harness-20261106-124842-32ebe7aa: full driving/delivery acceptance FAILED.
+  The selected work site was inaccessible on foot. The return drive then
+  selected roadside fallback with no_route. No logs were delivered.
+- Screenshots and exact blocker details were retained by leg/sequence.
+  Some composite views have the existing expedition panel over the road;
+  those are not claimed as visual proof of collision clearance.
+- The saved partial trip was resumed for the separate post-return combat
+  control. This is not successful driving or wood delivery acceptance.
+
+
+Routing follow-up
+- Fixed the specific road_too_far admission failure at car position
+  8109.5,11706.1171875. A parked-car buffer covered the perpendicular road
+  projection even though a short diagonal re-entry to the same street was clear.
+- Only source admission changes: at most 64 probes, connectors no longer than
+  12 tiles, on the originally attached street. All avoidance checks remain;
+  destinations and native bumper scans are unchanged. The source connector is
+  explicit and narrow, preventing a lane-offset jump during re-entry.
+- Existing router suite: 56 checks PASS, including both recorded braking poses,
+  full-connector clearance, overlapping buffers and an unchanged blocked goal.
+  Actual installed streets.xml replay: all 1,098 polylines; both poses now READY
+  with about 100.7 tiles of route instead of zero expanded nodes/road_too_far.
+  Evidence: build/routing-02700/router.log and actual-streets.log.
+- Native SC-Harness-20261106-140542-ea73052e: exact saved car105 position and
+  orientation; all eight other loaded vehicles retained; no car/NPC relocation.
+  Normal restored leader/view handoff completed before the replay held mission
+  work. The van physically cleared the original blocker and traversed the next
+  junction under ordinary SC.Driving control, without a route replan.
+- This full return leg still FAILED at a different parked wreck near
+  8116.5,11778.5. It stopped safely and later reported horde_avoidance_blocked.
+  This verifies recovery from the original source-admission bug, not a complete
+  return, wood delivery, or clearance of every town obstruction.
+- Numbered native recovery/block screenshots and timestamp/actor/car/goal/reason
+  records are in that run's cache/Screenshots and console.txt (SC_ROUTE_REPLAY).
+  The re-entry and subsequent vehicle block are visible in the right-hand view.
+- Earlier replay 134709 had an observer in the turning area. Replay 135640 held
+  restoration before native view ownership, then drove beyond streamed physics.
+  Both are excluded from full-leg acceptance. Their original-block traversal
+  is corroborated by the corrected 140542 run, not used to claim a return pass.
+- Lua driving outcomes now retain the exact source, blocker and native routing
+  reason after controls are released, distinguishing these separate failures.
+- Final scripts/Test-Project.ps1 -Release -Serial: all five checks PASS in
+  144.9 seconds (Build 112.2s, Lifecycle 23.8s, Behaviour 1.4s, Cargo 2.5s,
+  Interface 5.0s), including 11 installer boundaries and both archives.
+  Evidence: build/test-results/20261106-140959-dc9a37 and
+  build/routing-02700/release-gate.log.
+
+Distribution
+- No local installation or publication was requested for this task.
+- Packaged bridge SHA-256:
+  b41ff1da4c1b60cf7727531209f3eaa65f67eea1b9860dc4fd2b42e408e1b966
+- Both 0.27.0 archives are under build/release/. Lua and native payload match.
+- Temporary acceptance modules were removed, the shared combat fixture was
+  restored with only its intended telemetry fixes, and no native game client
+  remains running.

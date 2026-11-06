@@ -46,7 +46,7 @@ Topology.OBSTACLE_CATALOG = {
     { id = "obstructed_door_or_gate", passage = "detour" },
     { id = "open_window", passage = "native_climb" },
     { id = "closed_unlocked_window", passage = "open_then_native_climb" },
-    { id = "locked_window", passage = "smash_clear_climb" },
+    { id = "locked_window", passage = "inside_open_or_emergency_only" },
     { id = "smashed_window_with_glass", passage = "clear_then_native_climb" },
     { id = "smashed_window_clear", passage = "native_climb" },
     { id = "barricaded_window", passage = "detour" },
@@ -421,6 +421,88 @@ end
 
 function Topology.canClimbThrough(object, actor)
     return verifiedClimbability(object, actor)
+end
+
+-- A normal window latch stops opening from outside, not from the room side.
+-- Permanent and custom locks remain authoritative on either side.
+function Topology.windowProtected(object)
+    if callBoolean(object, "isPermaLocked") then return true end
+    local data = U().modData(object)
+    if type(data) == "table" and data.CustomLock == true then return true end
+    for _, method in ipairs({ "isLockedByKey", "isLockedByPadlock", "isLockedByCode" }) do
+        if callBoolean(object, method) then return true end
+    end
+    local code = select(1, U().call(object, "getLockedByCode"))
+    local properties = select(1, U().call(object, "getProperties"))
+    return (tonumber(code) or 0) > 0 or callBoolean(properties, "has", "forceLocked")
+end
+
+function Topology.windowOpensFromSide(object, fromSquare)
+    if object == nil or Topology.objectBarricaded(object)
+        or Topology.windowInvincible(object) or Topology.windowProtected(object) then return false end
+    if not Topology.objectLocked(object) then return true end
+    local outside, known = U().call(fromSquare, "isOutside")
+    if known then return outside == false end
+    local room, roomKnown = U().call(fromSquare, "getRoom")
+    return roomKnown and room ~= nil
+end
+
+function Topology.windowImmediateDanger(actor, intent)
+    local now = U().nowMs()
+    if SC.ZombieAttack and type(SC.ZombieAttack.underAttack) == "function"
+        and SC.ZombieAttack.underAttack(actor, now) == true then return true end
+    local snapshot = type(intent) == "table" and intent.snapshot or nil
+    if type(snapshot) ~= "table" then return false end
+    local checked = 0
+    for _, list in ipairs({
+        snapshot.humanThreat and {snapshot.humanThreat} or {},
+        type(snapshot.immediateAttackers)=="table" and snapshot.immediateAttackers
+            or type(snapshot.immediate)=="table" and snapshot.immediate or {},
+        type(snapshot.threats)=="table" and snapshot.threats or {} }) do
+        for _, entry in ipairs(list) do
+            checked = checked + 1
+            if checked > 128 then return false end
+            local target = type(entry) == "table" and entry.actor or entry
+            local hostile = U().isZombie(target) == true
+                or entry==snapshot.humanThreat or type(entry) == "table" and entry.hostile == true
+            if target and hostile and U().squareOf(target)~=nil and not U().isDead(target)
+                and U().distance(actor, target) <= 3.95
+                and Topology.strikeBarrier(actor, target, "melee", nil, {}) ~= true then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Local, side-aware admission. Elevated onward proof is retained by NavTraversal
+-- and is required again at the final native action boundary.
+function Topology.windowAdmission(actor, object, fromSquare, toSquare, intent)
+    if object == nil or fromSquare == nil or toSquare == nil then return false, "window_geometry_unknown" end
+    local fx, fy, fz = U().position(fromSquare)
+    local tx, ty, tz = U().position(toSquare)
+    if fx == nil or tx == nil or math.floor(fz or 0) ~= math.floor(tz or 0)
+        or math.abs(fx - tx) + math.abs(fy - ty) ~= 1 then return false, "window_invalid_edge" end
+    for _, square in ipairs({ fromSquare, toSquare }) do
+        local floor, known = U().call(square, "TreatAsSolidFloor")
+        if not known or floor ~= true then return false, "window_missing_landing" end
+        if not U().isSquareFree(square)
+            or (square==toSquare or (fz or 0)>0) and occupyingFurniture(square)
+            or Topology.squareIsWater(square) then return false, "window_landing_blocked" end
+        local hazards = Topology.squareHazards(square)
+        if hazards.fire or hazards.explosiveTrap then return false, "window_landing_hazard" end
+    end
+    if Topology.objectBarricaded(object) then return false, "window_barricaded" end
+    if select(1,U().movingBlocker(toSquare,actor))~=nil then return false,"window_landing_occupied" end
+    if Topology.windowInvincible(object) and not Topology.objectOpen(object) then return false, "window_invincible" end
+    if not Topology.objectOpen(object) and not Topology.windowSmashed(object)
+        and Topology.windowProtected(object) then return false, "window_protected_lock" end
+    if not Topology.objectOpen(object) and not Topology.windowSmashed(object)
+        and not Topology.windowOpensFromSide(object, fromSquare)
+        and not Topology.windowImmediateDanger(actor, intent) then
+        return false, "window_smash_not_emergency"
+    end
+    return true
 end
 
 function Topology.objectStateSignature(object)
@@ -1044,6 +1126,12 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         result.requiresNative = not Topology.objectOpen(object)
     elseif kind == "window" then
         if object == nil then result.reason = "window_object_missing" return result end
+        if SC.NavTraversal and SC.NavTraversal.windowEdgeHeld(actor,object,fromSquare,options.now) then
+            result.reason="window_cycle" return result
+        end
+        if options.forbiddenWindow == object then result.reason = "window_return_shortcut" return result end
+        local admitted, why = Topology.windowAdmission(actor, object, fromSquare, toSquare, options)
+        if not admitted then result.reason = why return result end
         if Topology.objectBarricaded(object) then result.reason = "window_barricaded" return result end
         if Topology.windowInvincible(object) and not Topology.objectOpen(object) then
             result.reason = "window_invincible" return result
@@ -1067,6 +1155,12 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         result.requiresNative = true
     elseif kind == "window_frame" then
         if object == nil then result.reason = "window_frame_blocked" return result end
+        if SC.NavTraversal and SC.NavTraversal.windowEdgeHeld(actor,object,fromSquare,options.now) then
+            result.reason="window_cycle" return result
+        end
+        if options.forbiddenWindow == object then result.reason = "window_return_shortcut" return result end
+        local admitted, why = Topology.windowAdmission(actor, object, fromSquare, toSquare, options)
+        if not admitted then result.reason = why return result end
         local climbable, verified = verifiedClimbability(object, actor)
         if not verified then result.reason = "window_frame_climbability_unknown" return result end
         if not climbable then result.reason = "window_frame_blocked" return result end
@@ -1138,6 +1232,7 @@ local function classifyEdgeCached(actor, fromSquare, toSquare, options)
     options = type(options) == "table" and options or {}
     local policy = (options.allowHazards == true and "hazards:" or "safe:")
         .. (options.ignoreSafehouse == true and "public" or "permission")
+        .. ":window:" .. tostring(options.forbiddenWindow) .. ":snapshot:" .. tostring(options.snapshot)
         .. (options.allowDoorBash == true
             and ":bash:" .. tostring(options.doorBashTool)
                 .. ":room:" .. tostring(options.doorBashTargetRoom)
