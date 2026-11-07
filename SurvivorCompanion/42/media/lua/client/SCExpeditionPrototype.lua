@@ -1406,6 +1406,7 @@ function Expedition.start(records, plan)
     if not scout or (not scout.departurePreparation and not scout.fishingPreparation and not (scout.wood and scout.wood.preparation)) then
         announceDeparture(mission)
     end
+    if SC.Guidance then SC.Guidance.report(plan.kind=="home" and "send_home_used" or "expedition_used") end
     return true, mission
 end
 

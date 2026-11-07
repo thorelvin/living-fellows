@@ -2693,6 +2693,10 @@ local function issueMemberSetAtomic(members, command, payload, player)
             end
         end
     end
+    if SC.Guidance and (command=="follow" or command=="stay" or command=="retreat"
+        or command=="regroup" or command=="guard") then
+        SC.Guidance.report("ordered")
+    end
     return true, "issued", results
 end
 

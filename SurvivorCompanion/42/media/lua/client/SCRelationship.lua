@@ -547,6 +547,7 @@ local function backgroundResponse(state)
 end
 
 local doingLabels = {
+    approach_player_cautiously = "approaching someone cautiously",
     move_to_generator_service = "approaching a generator",
     generator_service = "servicing a generator",
     wood = "cutting and hauling logs",

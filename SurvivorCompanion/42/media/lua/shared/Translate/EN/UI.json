@@ -2124,9 +2124,13 @@
     "UI_SC_Guide_camp_jobs_text": "With storage marked, give a resident a Base job in More > Base. Their role and supplies decide what they can do.",
     "UI_SC_Guide_first_notice_title": "Open Living Fellows",
     "UI_SC_Guide_first_notice_text": "Press Home for Living Fellows.",
-    "UI_SC_Guide_SeenTips": "Tips shown on this computer",
+    "UI_SC_Guide_SeenTips": "Tips you've seen",
     "UI_SC_Guide_recruit_hint_title": "Following you",
     "UI_SC_Guide_recruit_hint_text": "New companions start on Follow. You can ask them to stay or retreat.",
     "UI_SC_Guide_storage_hint_title": "A place for supplies",
-    "UI_SC_Guide_storage_hint_text": "Mark a container inside your camp so companions know where supplies belong."
+    "UI_SC_Guide_storage_hint_text": "Mark a container inside your camp so companions know where supplies belong.",
+    "UI_SC_Guide_nudge_jobs_title": "Camp jobs",
+    "UI_SC_Guide_nudge_jobs_text": "Residents can help with daily work. Select one, open More > Base, and choose their Base job.",
+    "UI_SC_Guide_nudge_expeditions_title": "Expeditions",
+    "UI_SC_Guide_nudge_expeditions_text": "Your camp has a crew now. Expeditions can send them scouting, looting, fishing or collecting wood."
 }

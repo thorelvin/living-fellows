@@ -1,0 +1,68 @@
+Living Fellows: first-hour guidance
+2026-11-07; feature/first-hour-guidance; based on 0.27.2 at 1d6dae6d
+Runtime: Project Zomboid 42.21.0, single player. Release constants unchanged.
+
+Implemented
+First steps lives on Status, with a compact collapsed-launcher reminder. Real
+recruitment, orders, camp, storage, job and computer events advance it. Talk now
+offers Invite to join. Tips can be dismissed, disabled, reset and reread under
+More > Support. Tip history is a bounded install-level file, not world save data.
+Existing worlds skip the introductory checklist. Unused-feature hints remain
+available, with danger suppression, grace periods and fifteen-minute spacing.
+EMMA's first session offers a short introduction using commands that are valid
+at that computer. No background building discovery or network service was added.
+
+Fresh LF worlds get bounded retries for an independent survivor. The visitor
+starts off-screen outdoors, approaches through normal navigation and calls once.
+An additive, normalized firstMeeting bucket retains progress in schema 3. Missing
+or invalid state cannot create endless retries. First arrivals get one sliced
+30-metre clearing of hidden, idle ordinary zombies; later independent arrivals
+get 8 metres. Visible enemies, active fights, foreign humans and corpse proxies
+are excluded. There is no persistent clearing service or immunity.
+
+Automated verification
+- Five essential checks passed: Build, Lifecycle, Behaviour, Cargo and Interface.
+  Evidence: build/guidance-checks/final-essential.log and its test-results receipt.
+- Extended core: 98/98 harnesses passed; normal source, action-label and release
+  synchronization checks passed. Installer transactions: 46/46 passed.
+  Evidence: build/guidance-checks/final-core.log.
+- Focused guidance covers progress, install-file reload, skip/reset, pointers,
+  danger, delayed teaching lines, first-use hints, nudge timing and tab visits.
+- First-meeting cases cover real production-spawn admission, sliced clearance,
+  protected actors, counters, rearming, expiry, malformed receipts and switches.
+- EMMA cases cover first-session Y/N, local/camp boundaries and optional hardware.
+- Negative controls failed for the original stale menu text, a disabled guidance
+  evaluator, omitted safety clearing and the missing committed-group milestone.
+  The final group fix passes the existing 65-check follow-order handoff fixture;
+  rejected/rolled-back groups do not advance guidance. The five essential checks
+  were rerun after that adjustment. No installer changes were made.
+
+Live verification (separate from automated checks)
+SC-Harness-20261107-223346-9b6a4834: 18 passed, 0 failed.
+A disposable real-map clone had only its LF history/actors reset. Six ordinary
+native zombies were seeded near a validated off-screen candidate, then removed
+by production preparation before the survivor spawned. The survivor retained
+normal vulnerability, crossed the real map, reached the indoor observer and
+called out. The observer turned toward the visitor; no companion teleport or
+forced sight/AI snapshot was used. Contact required approaching closer than the
+usual outdoor stopping distance because the observer was behind interior walls.
+Recruitment used the real Talk button. A checked Stay order, a real camp core,
+real container registration and a checked base-role command completed steps 1-6.
+The complete walkthrough took about four minutes. Native screenshots of Status,
+the expanded checklist, collapsed reminder and arrival were visually inspected.
+Logs and PNGs are retained in that run's cache directory under build/live-sandbox-runs.
+
+Earlier runs 221720-e620e493 and 222712-e5c28ca6 were retained as failures, with
+block screenshots. They exposed the unsuitable initial window approach and an
+overly short observation deadline. Placement and blind approach goals were fixed;
+the final run also exercised ordinary navigation recovery. This is not proof of
+fast arrival at every building. Final file-handle, tooltip/dot and group-progress
+polish was verified automatically, without another game launch.
+
+Limits and delivery
+This was a scripted fresh-LF fixture on an existing map save, not a novice-player
+usability study. The twenty-minute recruitment goal and whether hints feel useful
+still need human feedback. No telemetry was introduced. The native bridge, game
+launcher and original save were left unchanged. No test client remains running.
+Field Guide sources were updated locally (20_part1, 40_part3 and 50_part4);
+publication, installation, a release bump and pushing were not part of this pass.

@@ -93,6 +93,16 @@ function F.approach(actor,player,snapshot)
         if okay then state.called=true;state.phase="done" end
     end
     if distance<=13 and seen then U().stop(actor);return true,"first_meeting_waiting" end
+    -- A point on a twelve-metre circle can sit behind the same opaque wall
+    -- forever. Until contact, route toward the actual player; stop short as
+    -- soon as sight is established, using the normal door/window safeguards.
+    if not seen and SC.Navigation then
+        local square=U().squareOf(player)
+        if square then
+            return SC.Navigation.request(actor,square,"sneak",{
+                action="approach_player_cautiously",neutral=true,snapshot=snapshot})
+        end
+    end
     local ax,ay,az=U().position(actor);local px,py=U().position(player)
     if not ax or not px or distance<=1 then return nil end
     for _,radius in ipairs({12,13,14}) do

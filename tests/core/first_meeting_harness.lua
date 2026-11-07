@@ -4,7 +4,7 @@ local checks=0
 local function check(v,message) checks=checks+1;assert(v,message) end
 local clock,hour,age=0,10,0
 local rows,zombies,squares={}, {}, {}
-local spawned,moved,said=0,0,0
+local spawned,moved,said,lastGoal=0,0,0,nil
 local function list(items)
     return {size=function() return #items end,get=function(_,i) return items[i+1] end}
 end
@@ -54,7 +54,7 @@ local history=false
 SC.Persistence={hasWorldHistory=function() return history end}
 SC.Vehicle={storedCount=function() return 0 end}
 SC.Encounter={chooseSpawnSquare=function() return square(60,0,0) end}
-SC.Navigation={request=function(_,_,mode,options) moved=moved+1;check(mode=="sneak" and options.action=="approach_player_cautiously","first meeting uses native cautious pathing");return true,"path" end}
+SC.Navigation={request=function(_,goal,mode,options) moved=moved+1;lastGoal=goal;check(mode=="sneak" and options.action=="approach_player_cautiously","first meeting uses native cautious pathing");return true,"path" end}
 SC.Dialogue={say=function(_,topic) check(topic=="guidance.first_meeting","call-out uses a dialogue pool");said=said+1;return true end}
 getGameTime=function() return {getTimeOfDay=function() return hour end,getWorldAgeHours=function() return age end} end
 local actor=character(60,0,0,"companion");actor.id="sc-first"
@@ -62,6 +62,13 @@ SC.Actor={checkBridge=function() return true end,isCompanion=function(a) return 
     beginSpawn=function() spawned=spawned+1;return "ticket" end,
     pollSpawn=function() rows={{id=actor.id,actor=actor,recruited=false}};return actor end}
 local F,S=SC.FirstMeeting,SC.SpawnSafety
+local indoor=square(60,1,0);indoor.getRoom=function() return {} end
+SC.Navigation.spawnAccessible=function() return true end
+SC.Encounter.chooseSpawnSquare=function() return indoor end
+check(SC.Spawn.chooseSquare(player,{},true)==indoor,"ordinary encounters retain accessible indoor placements")
+local outdoor=SC.Spawn.chooseSquare(player,{},true,true)
+check(outdoor and outdoor~=indoor and outdoor:getRoom()==nil,"first arrivals choose outside an unfamiliar house")
+SC.Encounter.chooseSpawnSquare=function() return square(60,0,0) end
 SC.Spawn.reset();F.reset()
 SC.Spawn.productionPulse(player,{active=true},0)
 zombies={character(61,0,0,"zombie"),character(85,0,0,"zombie"),character(91,0,0,"zombie"),character(61,0,1,"zombie")}
@@ -74,6 +81,7 @@ check(zombies[1].removed and zombies[2].removed and not zombies[3].removed and n
 check(F.export().attempts==1 and F.export().phase=="approaching","first meeting retains its attempt and actor identity")
 F.approach(actor,player,{threatCount=1});check(moved==0,"a threat keeps normal survival AI in charge")
 F.approach(actor,player,{});check(moved==1,"first survivor approaches rather than wandering away")
+check(lastGoal==player:getCurrentSquare(),"opaque walls do not strand the visitor at a blind twelve-metre circle")
 actor.x=12;actor.visible=true;F.approach(actor,player,{})
 F.approach(actor,player,{})
 check(said==1 and F.export().phase=="done","call-out plays once even without the guidance module")

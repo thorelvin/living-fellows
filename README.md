@@ -57,9 +57,11 @@ This edition includes its own bridge and does not need ZombieBuddy. Keep the ext
 ## Your first few minutes
 
 1. Press **Home** to open the companion panel, or click the small **LF** launcher.
-2. Meet a survivor, select them and choose **Recruit** when offered. Use **Talk** to get to know them.
+2. Meet a survivor, right-click them and choose **Talk to (name) → Invite to join**. Use **Talk** to get to know them.
 3. Set orders and combat style in **Orders**; put companions into groups in **Squad**.
-4. Right-click the ground and choose **Living Fellows → Base life → Set camp core here**. Mark storage, then assign jobs at the top of **More → Base**. To remove a storage marking, right-click its container and choose **Base life → Unmark storage**.
+4. Right-click the ground and choose **Living Fellows → Set camp core here**. Mark storage, then assign jobs at the top of **More → Base**. To remove a storage marking, right-click its container and choose **Living Fellows → Unmark storage**.
+
+The **First steps** card on Status follows your progress, with a short reminder beside the collapsed launcher. New worlds get an early independent survivor who approaches cautiously; the first arrival gets a one-time clearing of hidden, idle zombies nearby. They remain vulnerable. Dismiss the card or turn **Show tips** off in Mod Options; **Show tips again** brings it back. **More → Support → Tips** keeps the instructions you've seen.
 
 Hold **keypad 1** to Peek, press **keypad 2** to toggle Watch, or hold **keypad 3** to steer the selected companion toward the cursor. All three keys can be rebound. Companions, households and camp work are saved with the world, even if your character dies.
 

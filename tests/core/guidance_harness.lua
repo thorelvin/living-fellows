@@ -103,5 +103,27 @@ SC.Terminal.powered=function() return true end
 G.report("locked_closed",{object=computer,system={locked=true}})
 clock=108000;G.pulse(player,clock);check(#spoken==2,"a different nudge waits fifteen real minutes")
 clock=1007001;G.pulse(player,clock);check(spoken[3]=="guidance.locked_computer","the waiting nudge can speak when spacing expires")
+G.reset();clock=1008000;G.pulse(player,clock)
+check(not G.notice(),"the first-load notice is not repeated after a runtime reload")
+local base={storage={one={}}}
+SC.BaseLife.active=function() return base end
+G.resetTips();G.report("met");G.report("recruited");G.report("ordered");G.report("camp");G.report("storage");G.report("job")
+records[2]={id="sc-two",actor=actor,recruited=true,runtime={lastDecision="idle"}}
+clock=2000000;G.pulse(player,clock)
+clock=2059999;G.pulse(player,clock);check(not G.dot("expeditions"),"feature nudges wait a minute")
+clock=2060000;G.pulse(player,clock);check(G.dot("expeditions"),"a settled two-person camp gets one expedition nudge")
+G.report("tab",{tab="expeditions"});clock=2061000;G.pulse(player,clock)
+check(not G.dot("expeditions"),"visiting the actual tab clears its dot")
+clock=3000000;G.pulse(player,clock);check(not G.dot("expeditions"),"visited features never nudge again")
+G.resetTips();G.report("recruited");G.report("ordered");G.report("camp");G.report("storage");G.report("job")
+records[1].runtime={lastDecision="idle"};SC.BaseLife.isInside=function() return true end
+local hours=10;getGameTime=function() return {getWorldAgeHours=function() return hours end} end
+clock=4000000;G.pulse(player,clock)
+check(not G.dot("more"),"idle camp guidance waits an in-game hour")
+hours=11;clock=4003000;G.pulse(player,clock)
+check(spoken[#spoken]=="guidance.camp_jobs" and G.dot("more"),"one camp-job nudge combines the line and More dot")
+G.report("tab",{tab="more"});clock=4004000;G.pulse(player,clock)
+check(not G.dot("more"),"the More dot clears on its first visit")
+G.dismiss();G.resetTips();G.report("recruited");G.report("storage")
 guidanceReload=true
 print("GUIDANCE_KAHLUA_PASS checks="..checks)

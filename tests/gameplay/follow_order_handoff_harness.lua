@@ -189,6 +189,8 @@ end
 -- verify ordinary group Follow still stages every command before release.
 local first, second = guard(false), guard(false)
 C.peek(first).group, C.peek(second).group = "Staging", "Staging"
+local savedGuidance,guidedOrders=SC.Guidance,0
+SC.Guidance={report=function(event) if event=="ordered" then guidedOrders=guidedOrders+1 end end}
 local releasedBefore = dutyReleased
 second.proxy = setmetatable({}, { __index = second.data,
     __newindex = function() error("injected stable write failure") end })
@@ -197,16 +199,18 @@ second.proxy = nil
 check(not accepted and string.find(tostring(reason), "rollback", 1, true)
     and C.peek(first).order == "base_duty" and C.peek(second).order == "base_duty"
     and dutyReleased == releasedBefore and residents[first.id].duty and residents[second.id].duty
-    and routes[first] and routes[second], "failed group persistence releases no real duty, job or guard route")
+    and routes[first] and routes[second] and guidedOrders==0,
+    "failed group persistence releases no real duty, job, guard route or guidance milestone")
 check(C.issue(first.id, "follow", { scope = "group", group = "Staging" }, nil)
     and C.peek(first).order == "follow" and C.peek(second).order == "follow"
     and residents[first.id].duty == false and residents[second.id].duty == false
-    and routes[first] == nil and routes[second] == nil,
-    "ordinary group Follow commits all commands then releases both old base owners")
+    and routes[first] == nil and routes[second] == nil and guidedOrders==1,
+    "ordinary group Follow commits all commands, releases both old base owners and counts one accepted order")
 local countBefore = activated
 check(C.issue(first.id, "cautious_follow", { scope = "group", group = "Staging" }, nil) == false
     and C.issue(first.id, "assign_follow_car", { scope = "group", group = "Staging", vehicle = car }, nil) == false
     and activated == countBefore, "special variants preserve existing non-groupable staging boundary")
+SC.Guidance=savedGuidance
 
 -- The real trial return replaces Commands' state table. Convoy cleanup must
 -- persist that new faction state, never the handler's old recruited snapshot.

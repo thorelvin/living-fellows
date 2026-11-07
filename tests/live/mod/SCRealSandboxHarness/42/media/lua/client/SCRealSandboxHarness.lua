@@ -15901,6 +15901,9 @@ end
 Harness.probeNormalExpeditionKitchen = function(...)
     return externalProbe("SCNormalExpeditionKitchenProbe", ...)
 end
+Harness.probeFirstHour = function(...)
+    return externalProbe("SCFirstHourProbe", ...)
+end
 Harness.probeExpeditionCompatibility = function(...)
     return externalProbe("SCExpeditionCompatibilityProbe", ...)
 end
@@ -16538,6 +16541,8 @@ local function tick()
         Harness.probeExpeditionCompatibility(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "normal_kitchen_", 1, true) == 1 then
         Harness.probeNormalExpeditionKitchen(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "first_hour_", 1, true) == 1 then
+        Harness.probeFirstHour(Harness, current, check, result, setPhase)
     elseif Harness.phase == "companion_facing_probe" then
         Harness.probeCompanionFacing(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "bandits_adapter_", 1, true) == 1
@@ -17428,7 +17433,9 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.companion_facing_probe == "true" then
+    if Harness.config.first_hour_probe == "true" then
+        setPhase("first_hour_prepare", Harness.startedAt)
+    elseif Harness.config.companion_facing_probe == "true" then
         setPhase("companion_facing_probe", Harness.startedAt)
     elseif Harness.config.companion_firearms_probe == "true" then
         setPhase("companion_firearms_probe", Harness.startedAt)

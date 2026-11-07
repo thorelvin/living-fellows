@@ -691,7 +691,7 @@ local function roomGroupNear(square)
     return nil
 end
 
-local function safeSquare(square, player, requireUnseen, preparingSafety)
+local function safeSquare(square, player, requireUnseen, preparingSafety, outdoorsOnly)
     if square == nil then return false end
     local zOk, z = invoke(square, "getZ")
     -- The native floor check also accepts detached roof tiles. Ambient and
@@ -745,6 +745,9 @@ local function safeSquare(square, player, requireUnseen, preparingSafety)
     end
     local roomOk, room = invoke(square, "getRoom")
     if not roomOk then return false end
+    -- The introductory visitor must not first escape an unfamiliar locked
+    -- house. Ordinary encounters retain their existing indoor placements.
+    if outdoorsOnly and room ~= nil then return false end
     if room ~= nil then
         if not SC.Navigation or type(SC.Navigation.spawnAccessible) ~= "function"
             or SC.Navigation.spawnAccessible(square, player) ~= true then return false end
@@ -752,7 +755,7 @@ local function safeSquare(square, player, requireUnseen, preparingSafety)
     return true
 end
 
-local function fallbackSquare(player, minimum, maximum, requireUnseen, preparingSafety)
+local function fallbackSquare(player, minimum, maximum, requireUnseen, preparingSafety, outdoorsOnly)
     local xOk, playerX = invoke(player, "getX")
     local yOk, playerY = invoke(player, "getY")
     local cellOk, cell = invoke(player, "getCell")
@@ -780,18 +783,18 @@ local function fallbackSquare(player, minimum, maximum, requireUnseen, preparing
                 eligible = indoorProbes <= 8
             end
         end
-        if eligible and safeSquare(square, player, requireUnseen, preparingSafety) then return square end
+        if eligible and safeSquare(square, player, requireUnseen, preparingSafety, outdoorsOnly) then return square end
     end
     return nil
 end
 
-function spawn.chooseSquare(player, runtime, preparingSafety)
+function spawn.chooseSquare(player, runtime, preparingSafety, outdoorsOnly)
     if player == nil then return nil, "player is unavailable" end
     if SC.Encounter ~= nil and type(SC.Encounter.chooseSpawnSquare) == "function" then
         local ok, square = pcall(SC.Encounter.chooseSpawnSquare, player, runtime or {})
-        if ok and square ~= nil and safeSquare(square, player, nil, preparingSafety) then return square end
+        if ok and square ~= nil and safeSquare(square, player, nil, preparingSafety, outdoorsOnly) then return square end
     end
-    local square = fallbackSquare(player, nil, nil, true, preparingSafety)
+    local square = fallbackSquare(player, nil, nil, true, preparingSafety, outdoorsOnly)
     return square, (not square) and "no valid loaded unseen spawn square" or nil
 end
 
@@ -892,12 +895,13 @@ function spawn.attempt(player, profile, runtime, source)
         return nil, "companion cap reached"
     end
     local spawnSource = tostring(source or "encounter")
+    local first = spawnSource=="production" and SC.FirstMeeting and SC.FirstMeeting.wants() or false
     local privateDebug = spawnSource == "debug" and SC.Config.get("debugSpawnEnabled") == true
     local square, reason
     if privateDebug then
         square, reason = spawn.chooseDebugSquare(player)
     else
-        square, reason = spawn.chooseSquare(player, runtime, spawnSource=="production" and SC.SpawnSafety~=nil)
+        square, reason = spawn.chooseSquare(player, runtime, spawnSource=="production" and SC.SpawnSafety~=nil, first)
     end
     if square == nil then return nil, reason end
     profile = type(profile) == "table" and profile or {
@@ -910,7 +914,6 @@ function spawn.attempt(player, profile, runtime, source)
         profile.debugDiscovered = false
     end
     if spawnSource=="production" and SC.SpawnSafety then
-        local first=SC.FirstMeeting and SC.FirstMeeting.wants() or false
         local safety,why=SC.SpawnSafety.begin(square,player,first and 30 or 8)
         if not safety then return nil,why end
         pendingSpawn={source=spawnSource,player=player,square=square,profile=profile,

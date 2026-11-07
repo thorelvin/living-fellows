@@ -6,23 +6,44 @@ SC.UIGuidance=SC.UIGuidance or {}
 local UI=SC.UIGuidance
 local tracker,closePointer,noticeAt
 local function label(key,fallback) return SC.GameplayUtil.text(key,fallback) end
+local function fit(text,width,font)
+    local manager=getTextManager()
+    if manager:MeasureStringX(font,text)<=width then return text end
+    local short=text
+    while #short>0 and manager:MeasureStringX(font,short.."...")>width do short=short:sub(1,-2) end
+    return short.."..."
+end
 local function action(_,button)
     local G=SC.Guidance
     if button.scGuideAction=="expand" then G.expanded=not G.expanded
     elseif button.scGuideAction=="tips" then G.tipsExpanded=not G.tipsExpanded
     elseif button.scGuideAction=="dismiss" then G.dismiss()
     elseif button.scGuideAction=="skip" then G.skip()
-    elseif button.scGuideAction=="close_pointer" then G.clearPointer()
+    elseif button.scGuideAction=="close_pointer" then G.dismissPointer()
     elseif button.scGuideAction=="guide" and type(openUrl)=="function" then openUrl("https://thorelvin.github.io/living-fellows/") end
 end
 local function button(panel,x,y,width,height,title,kind)
     local b=ISButton:new(x,y,width,height,title,nil,action)
     b:initialise();b.scGuideAction=kind;panel:addChild(b)
+    b:setTitle(fit(title,width-12,b.font or UIFont.Small));b.tooltip=title
     return b
 end
 function UI.build(detail,panel,y)
     local G=SC.Guidance;local v=G.view()
     if not v then return y end
+    local parent,top=panel,y
+    local card=ISPanel:new(6,y,math.max(100,panel:getWidth()-12),100)
+    card:initialise();card.backgroundColor={r=.11,g=.13,b=.10,a=.5}
+    card.borderColor={r=.5,g=.5,b=.32,a=.5};parent:addChild(card)
+    panel,y=card,4
+    if UI.lastStep~=v.id then
+        UI.lastStep=v.id;card.scSlideAt=SC.GameplayUtil.nowMs()
+        card.prerender=function(self)
+            ISPanel.prerender(self)
+            local fraction=math.min(1,(SC.GameplayUtil.nowMs()-self.scSlideAt)/180)
+            self:setY(top+6*(1-fraction))
+        end
+    end
     local metrics=detail.metrics or SC.UI.layoutMetrics()
     y=detail:addSection(panel,y,"UI_SC_Guide_FirstSteps")
     y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",v.title)
@@ -40,12 +61,13 @@ function UI.build(detail,panel,y)
     y=y+h+4
     button(panel,8,y,math.max(100,panel:getWidth()-20),h,
         label("UI_SC_Guide_Veteran","I've done this before - turn tips off"),"skip")
-    return y+h+12
+    card:setHeight(y+h+6)
+    return top+card:getHeight()+12
 end
 function UI.buildTips(detail,panel,y)
     y=detail:addSection(panel,y,"UI_SC_Guide_Tips")
     local h=(detail.metrics or SC.UI.layoutMetrics()).buttonHeight
-    button(panel,8,y,math.max(100,panel:getWidth()-20),h,label("UI_SC_Guide_SeenTips","Tips shown on this computer"),"tips")
+    button(panel,8,y,math.max(100,panel:getWidth()-20),h,label("UI_SC_Guide_SeenTips","Tips you've seen"),"tips")
     y=y+h+4
     for _,tip in ipairs(SC.Guidance.tipsExpanded and SC.Guidance.list() or {}) do
         y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tip.title..": "..tip.text)
@@ -78,9 +100,7 @@ function UI.launcher(launcher)
     tracker:setX(math.max(0,math.min(screen-width,x)));tracker:setY(launcher:getY())
     if tracker.scText~=message then
         tracker.scText=message
-        local manager=getTextManager();local display=message
-        while #display>0 and manager:MeasureStringX(UIFont.Small,display)>width-20 do display=display:sub(1,-2) end
-        tracker:setTitle(display~=message and display.."..." or display)
+        tracker:setTitle(fit(message,width-20,tracker.font or UIFont.Small))
         tracker.tooltip=message
     end
     tracker:setVisible(true)
@@ -93,11 +113,16 @@ function UI.launcher(launcher)
 end
 function UI.draw(root)
     if tracker then tracker:setVisible(false) end
+    for _,b in ipairs(root.tabButtons or {}) do
+        if SC.Guidance.dot(b.scTab) then root:drawRect(b:getX()+b:getWidth()-10,b:getY()+4,5,5,.9,1,.83,.3) end
+    end
     local p=SC.Guidance.pointer()
     if not p or p.menu then if closePointer then closePointer:setVisible(false) end;return end
     local c=p.control
     local x=c:getAbsoluteX()-root:getAbsoluteX();local y=c:getAbsoluteY()-root:getAbsoluteY()
-    if x<0 or y<0 or x+c:getWidth()>root:getWidth() or y+c:getHeight()>root:getHeight() then return end
+    if x<0 or y<0 or x+c:getWidth()>root:getWidth() or y+c:getHeight()>root:getHeight() then
+        if closePointer then closePointer:setVisible(false) end;return
+    end
     root:drawRectBorder(x-1,y-1,c:getWidth()+2,c:getHeight()+2,.95,1,.83,.3)
     if not closePointer or closePointer.parent~=root then
         closePointer=button(root,0,0,18,18,"x","close_pointer")
@@ -107,6 +132,6 @@ end
 function UI.reset()
     if tracker then tracker:removeFromUIManager() end
     if closePointer and closePointer.parent then closePointer.parent:removeChild(closePointer) end
-    tracker,closePointer,noticeAt=nil,nil,nil
+    tracker,closePointer,noticeAt,UI.lastStep=nil,nil,nil,nil
 end
 return UI

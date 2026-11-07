@@ -101,6 +101,8 @@ param(
     # Use a saved crew/car and the ordinary expedition controller, then capture
     # the kitchen after the crew returns naturally.
     [switch]$NormalExpeditionKitchenProbe,
+    # Fresh LF state in the disposable clone: real arrival, recruitment and camp UI.
+    [switch]$FirstHourProbe,
     [switch]$ExpeditionCompatibilityProbe,
     [ValidateSet('manual', 'search')][string]$ExpeditionCompatibilityScenario = 'search',
     [ValidateRange(1, 6)][int]$ExpeditionCompatibilityCycles = 2,
@@ -1671,7 +1673,7 @@ if ($IsolatedSourceBridge) {
 }
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
-if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or $HomeTripProbe) {
+if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $FirstHourProbe -or $WoodExpeditionProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or $HomeTripProbe) {
     # Keep view diagnostics focused. Unrelated large probes can exceed
     # Kahlua's debug-local limit when native stock-player diagnostics are enabled.
     $wallHarnessClient = [IO.Path]::GetFullPath((Join-Path $SandboxMods `
@@ -1681,7 +1683,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $WoodExpeditionProbe
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCReliabilityProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCFirstHourProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCReliabilityProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -1914,6 +1916,7 @@ $config = @(
     ('view_cutaway_restore_mode=' + $ViewCutawayRestoreMode),
     ('view_cutaway_cycles=' + $ViewCutawayCycles),
     ('normal_expedition_kitchen_probe=' + $NormalExpeditionKitchenProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('first_hour_probe=' + $FirstHourProbe.IsPresent.ToString().ToLowerInvariant()),
     ('expedition_compatibility_probe=' + $ExpeditionCompatibilityProbe.IsPresent.ToString().ToLowerInvariant()),
     ('expedition_compatibility_scenario=' + $ExpeditionCompatibilityScenario),
     ('expedition_compatibility_cycles=' + $ExpeditionCompatibilityCycles),
