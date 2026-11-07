@@ -279,6 +279,7 @@ function support.summary(force)
     local view = data.view or {}
     local lines = {
         "Living Fellows support report",
+        "First-hour guidance: " .. (SC.Guidance and SC.Guidance.summary() or "unavailable"),
         "Release: " .. data.release,
         "Game build: " .. data.gameVersion .. " (target " .. data.expectedGameVersion .. ")",
         "Save schema: " .. tostring(data.saveSchema),

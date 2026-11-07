@@ -1276,6 +1276,10 @@ local function registerTasks()
         { "spawn-completion", 100, 32, spawnCompletionTask, "normal" },
         { "encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"), 31,
             productionSpawnTask, "background" },
+        { "first-hour-guidance", 1000, 10, function(current)
+            if SC.Guidance then return SC.Guidance.pulse(player(),current) end
+            return true
+        end, "background" },
         { "factions", SC.Config.get("factionPulseIntervalMs"), 30, factionTask, "normal" },
         -- A larger roster needs several small panel slices. Admit each due
         -- slice promptly so a complete pass stays responsive at 16 members.
@@ -2111,6 +2115,8 @@ function runtime.reset(detach)
     resetModule("infection crisis", SC.InfectionCrisis, "reset")
     resetModule("autonomy", SC.Autonomy, "reset")
     resetModule("dialogue", SC.Dialogue, "reset")
+    resetModule("guidance UI", SC.UIGuidance, "reset")
+    resetModule("guidance", SC.Guidance, "reset")
     resetModule("vitals trace", SC.VitalsTrace, "reset")
     resetModule("community", SC.Community, "reset")
     resetModule("diary", SC.Diary, "reset")

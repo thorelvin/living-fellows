@@ -18,6 +18,7 @@ local COUGH_SNEEZES = { "normal", "rare", "off" }
 local SPEECH_COLORS = { "speaker", "white" }
 local LAMP = { "flash", "steady", "off" }
 local values = {
+    showTips = true,
     chatter = "normal",
     coughSneezes = "normal",
     ordinaryColds = true,
@@ -75,6 +76,22 @@ local speechColorsOption = combo("speechColors", "UI_SC_ModOptions_SpeechColors"
     })
 local lampOption=combo("terminalLamp","UI_SC_ModOptions_TerminalLamp","UI_SC_ModOptions_TerminalLamp_Tooltip",LAMP,{
     "UI_SC_ModOptions_LampFlash","UI_SC_ModOptions_LampSteady","UI_SC_ModOptions_LampOff"})
+local tipsOption=tickBox("showTips","UI_SC_ModOptions_ShowTips",true,"UI_SC_ModOptions_ShowTips_Tooltip")
+local resetTipsOption
+if type(options.addButton)=="function" then
+    if not options:getOption("resetTips") then
+        options:addButton("resetTips","UI_SC_ModOptions_ResetTips","UI_SC_ModOptions_ResetTips_Tooltip",function()
+            if SC.Guidance then SC.Guidance.resetTips() end
+            UserOptions.setShowTips(true)
+        end)
+    end
+else
+    resetTipsOption=tickBox("resetTips","UI_SC_ModOptions_ResetTips",false,"UI_SC_ModOptions_ResetTips_Tooltip")
+end
+function UserOptions.setShowTips(value)
+    tipsOption:setValue(value==true);values.showTips=value==true
+    if type(api.save)=="function" then pcall(api.save,api) end
+end
 
 local function selectedChoice(option, choices)
     local index = tonumber(option.selected)
@@ -103,6 +120,12 @@ function UserOptions.syncNative()
 end
 
 function UserOptions.apply()
+    values.showTips=tipsOption:getValue()==true
+    if resetTipsOption and resetTipsOption:getValue()==true then
+        resetTipsOption:setValue(false)
+        if SC.Guidance then SC.Guidance.resetTips() end
+        tipsOption:setValue(true);values.showTips=true
+    end
     local priorCoughSneezes = values.coughSneezes
     local priorOrdinaryColds = values.ordinaryColds
     values.chatter = selectedChoice(chatterOption, CHATTER)

@@ -17,6 +17,7 @@ require "SCUIPixels"
 require "SCUIExpeditions"
 require "SCUIHomeTrip"
 require "SCInteraction"
+require "SCUIGuidance"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -667,6 +668,7 @@ end
 -- text and selector values must not tear that tree down (especially while a
 -- combo is open); only branches that add/remove controls are structural.
 local function detailStructureSignature(row, tab)
+    if tab=="support" and SC.Guidance then return "support:"..SC.Guidance.signature() end
     if tab == "expeditions" then
         return SC.UIExpeditions.viewStructureSignature()
             .. (SC.UIHomeTrip and (":" .. SC.UIHomeTrip.viewStructureSignature()) or "")
@@ -683,6 +685,7 @@ local function detailStructureSignature(row, tab)
             activity = row and row.activity or nil,
             need = row and row.currentNeed or nil,
             relationship = row and row.relationshipTier or nil,
+            recruited = row and row.recruited == true,
             serial = conversation and conversation.serial or 0,
         }, 2, { count = 24 }, {})
     end
@@ -690,6 +693,7 @@ local function detailStructureSignature(row, tab)
         local actionFailure = UI.actionFailureText(row and row.actionSummary or nil)
         return stableSignatureValue({
             row = row ~= nil,
+            guidance = SC.Guidance and SC.Guidance.signature() or "",
             recruit = row ~= nil and row.recruited ~= true,
             request = row and type(row.pendingRequest) == "table"
                 and row.pendingRequest.kind or nil,
@@ -2843,6 +2847,11 @@ function SCUIDetail:addCommand(panel, y, labelKey, command, payload)
         button.tooltip = fullLabel
     end
     panel:addChild(button)
+    if SC.Guidance then
+        local tip = command=="recruit" and "invite"
+            or (command=="follow" or command=="stay" or command=="retreat") and "order"
+        if tip then SC.Guidance.control(button,tip,panel) end
+    end
     panel.scContentWidth = panel:getWidth()
     return y + metrics.buttonHeight + 4
 end
@@ -2948,6 +2957,7 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
     combo.tooltip = enabled and UI.text(tooltipKey or labelKey)
         or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument) or UI.text(reasonKey))
     panel:addChild(combo)
+    if SC.Guidance and command=="set_base_role" then SC.Guidance.control(combo,"job",panel) end
     panel.scContentWidth = panel:getWidth()
     return y + metrics.buttonHeight + 4
 end
@@ -3531,6 +3541,9 @@ function SCUIDetail:buildTalk(panel, row)
         y = y + metrics.infoLineHeight
     end
     y = math.max(7 + portraitHeight, y) + 6
+    if row.recruited ~= true then
+        y=self:addCommand(panel,y,"UI_SC_Action_Recruit","recruit",nil)
+    end
     y = self:addSection(panel, y, "UI_SC_Section_Talk")
     local topic = self.talkTopic or "check_in"
     local topicWidth = math.floor((panel:getWidth() - 16) / #SC.Interaction.categories)
@@ -3594,6 +3607,7 @@ end
 
 function SCUIDetail:buildStatus(panel, row)
     local y = 7
+    if SC.UIGuidance then y=SC.UIGuidance.build(self,panel,y) end
     if row and row.recruited ~= true then
         y = self:addCommand(panel, y, "UI_SC_Action_Recruit", "recruit", nil)
         y = y + 4
@@ -5224,6 +5238,7 @@ end
 
 function SCUIDetail:buildSupport(panel)
     local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Support")
+    if SC.UIGuidance then y=SC.UIGuidance.buildTips(self,panel,y) end
     y = self:addSection(panel, y, "UI_SC_Support_Health")
     if not SC.Support or type(SC.Support.snapshot) ~= "function" then
         return self:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -5529,6 +5544,10 @@ function SCUIRoot:createChildren()
         button.scTab = tab
         self:addChild(button)
         self.tabButtons[#self.tabButtons + 1] = button
+        if SC.Guidance then
+            if tab=="expeditions" then SC.Guidance.control(button,"expeditions",self)
+            elseif tab=="more" then SC.Guidance.control(button,"job",self) end
+        end
     end
     self.detail = SCUIDetail:new(170, metrics.headerHeight + (2 * metrics.tabHeight) + 4, provisionalWidth - 176, provisionalHeight - metrics.headerHeight - (2 * metrics.tabHeight) - 11, self)
     self.detail:initialise()
@@ -5661,6 +5680,7 @@ end
 function SCUIRoot:setSelectedTab(tab)
     local previous = self.selectedTab
     self.selectedTab = UI.normalizeTab(tab) or "status"
+    if SC.Guidance then SC.Guidance.report("tab",{tab=self.selectedTab}) end
     -- Leaving the Loadout tab (where the companion inventory is opened): hand the
     -- player's loot pane back the way it was if we borrowed it.
     if previous == "loadout" and self.selectedTab ~= "loadout" then
@@ -6038,6 +6058,7 @@ end
 
 function SCUIRoot:render()
     ISPanel.render(self)
+    if SC.UIGuidance then SC.UIGuidance.draw(self) end
     local metrics = self.metrics or UI.layoutMetrics()
     local titleX = self.titleX or 202
     local maximumTitleWidth = math.max(1, self:getWidth() - titleX - 72)
@@ -6136,6 +6157,7 @@ function SCUICollapsedLauncher:prerender()
         self:applyScreenBounds()
     end
     ISPanel.prerender(self)
+    if SC.UIGuidance then SC.UIGuidance.launcher(self) end
     self:drawRectBorder(0, 0, self:getWidth(), self:getHeight(), 0.9, 0.52, 0.56, 0.43)
     local centreX = math.floor(self:getWidth() / 2)
     self:drawTextCentre("LF", centreX, 8, 0.94, 0.91, 0.69, 1, UIFont.Small)
@@ -6221,6 +6243,7 @@ function UI.ensureControl()
 end
 
 function UI.open(tab, companionId, description)
+    if SC.Guidance then SC.Guidance.report("panel") end
     local root = UI.ensureControl()
     root:setVisible(true)
     root:bringToTop()

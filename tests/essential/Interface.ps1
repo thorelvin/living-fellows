@@ -1,5 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Ordered production files and observable cases; the shared runner owns execution.
+@{ Name = 'interface.first-hour-guidance'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCGuidance.lua'),
+    (Join-Path $Core 'guidance_harness.lua'),
+    (Join-Path $Client 'SCGuidance.lua'),
+    (Join-Path $Core 'guidance_harness.lua')
+) }
 $interfacePanelFiles = @(
     (Join-Path $UI 'SCUIBasePolicyFixture.lua'),
     (Join-Path $Client 'SCContextMenu.lua'),

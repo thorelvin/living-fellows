@@ -2365,6 +2365,14 @@ local function issueOne(companionId, command, payload, player)
         and type(SC.VehicleHotwire.cancel) == "function" then
         SC.VehicleHotwire.cancel(actor, "new_player_order")
     end
+    if SC.Guidance then
+        if command=="recruit" and before.recruited~=true then
+            SC.Guidance.report("recruited",{actor=actor,player=player})
+        elseif before.recruited==true and (command=="follow" or command=="stay"
+            or command=="retreat" or command=="regroup" or command=="guard") then
+            SC.Guidance.report("ordered",{actor=actor})
+        end
+    end
     return a, b, c
 end
 

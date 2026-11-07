@@ -1158,8 +1158,13 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
     -- storage marking needlessly deep, especially with native cascading menus.
     local menu = context
     if not SC.BaseLife.active() then
-        menu:addOption(text("UI_SC_Base_SetCamp"), nil, baseAction, "create",
+        local option=menu:addOption(text("UI_SC_Base_SetCamp"), nil, baseAction, "create",
             { square = square }, player)
+        if SC.Guidance then
+            SC.Guidance.control(option,"camp",menu,true)
+            local hint=SC.Guidance.tip("camp")
+            if hint then SC.ContextMenu.hint(option,hint) end
+        end
         return true
     end
     addCleanStainOption(menu, square, player)
@@ -1593,6 +1598,11 @@ function Context.addHomeTripShortcut(menu, row, player, popupFacts)
     local status = home.eligibility({ record = record or row }, popupFacts)
     if status.hidden then return end
     local option = menu:addOption(text("UI_SC_HomeTrip_Menu"), nil, Context.openHomeTrip, row)
+    if SC.Guidance then
+        SC.Guidance.control(option,"send_home",menu,true)
+        local hint=SC.Guidance.tip("send_home")
+        if hint then SC.ContextMenu.hint(option,hint) end
+    end
     if not status.canStart then
         disableWithReason(option, home.reasonText(status.blocker or status.reason, row.name))
     end

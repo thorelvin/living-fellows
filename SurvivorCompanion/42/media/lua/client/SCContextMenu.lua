@@ -15,6 +15,7 @@ local function tooltip(option, description)
     end
     if option.toolTip then option.toolTip.description = tostring(description) end
 end
+function M.hint(option,description) tooltip(option,description) end
 
 local function fit(menu, label)
     label = tostring(label or "")
@@ -43,6 +44,14 @@ local function decorate(menu, option, key, label)
     option.scLFContext, option.scMenuKey = true, key
     option.scFullLabel = tostring(label)
     if option.name ~= option.scFullLabel then tooltip(option, option.scFullLabel) end
+    if SC.Guidance then
+        local id=key=="camp.storage" and "storage" or nil
+        if id then
+            SC.Guidance.control(option,id,menu,true)
+            local hint=SC.Guidance.tip(id)
+            if hint then tooltip(option,hint) end
+        end
+    end
     return option
 end
 

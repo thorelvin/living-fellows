@@ -25,6 +25,7 @@ require "SCActor"
 require "SCPersistence"
 require "SCVehicle"
 require "SCSpawn"
+require "SCGuidance"
 
 require "SCGameplayUtil"
 require "SCBanditsAdapter"
