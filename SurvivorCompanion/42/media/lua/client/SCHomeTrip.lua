@@ -206,14 +206,17 @@ function Home.memberSeated(actor)
     end
     return false
 end
-function Home.recordEligibility(record, viewer, selection)
+function Home.recordEligibility(record, viewer, selection, popupFacts)
     if type(record)~="table" or not validId(record.id) or not record.actor then return false,"home_member_unavailable" end
     local registered=SC.Registry and SC.Registry.byId(record.id)
     if not registered or registered.actor~=record.actor or registered.recruited~=true then return false,"home_not_recruited" end
     if not SC.Registry.isActive(record.actor,record.id) or U().isDead(record.actor) then return false,"home_member_unavailable" end
     if E() and E().isMemberId(record.id) then return false,"home_member_away" end
     if SC.BaseLife and SC.BaseLife.isInside(record.actor) then return false,"home_already_home" end
-    local command=SC.Commands and SC.Commands.peek(record.actor)
+    local command
+    if popupFacts then
+        command=SC.Commands and SC.Commands.peekExisting and SC.Commands.peekExisting(record.actor)
+    else command=SC.Commands and SC.Commands.peek(record.actor) end
     if not command or (command.order~="follow" and command.order~="regroup") then return false,"home_not_following" end
     local at=point(record.actor)
     if not at or at.z~=0 or math.abs(select(3,U().position(record.actor)))>0.2 then return false,"home_ground_floor_only" end
@@ -262,14 +265,14 @@ function Home.validateStart(records,plan)
     plan.home.departureHour=tonumber(hour)
     return true
 end
-function Home.roster(selection)
+function Home.roster(selection, popupFacts)
     selection=type(selection)=="table" and selection or {}
     local records=selection.records or (selection.record and {selection.record}) or (selection.id and {selection}) or {}
     local result={records={},eligibleRecords={},exclusions={},memberNames={},leaderId=selection.leaderId}
     local seen={}
     for _,record in ipairs(records) do
         record=type(record)=="table" and record or {}
-        local okay,reason=Home.recordEligibility(record,selection.player,selection)
+        local okay,reason=Home.recordEligibility(record,selection.player,selection,popupFacts)
         local name=record and record.actor and U().nameOf(record.actor) or record and record.id or "?"
         if record.id and seen[record.id] then okay,reason=false,"home_duplicate_member" result.blocker=reason end
         if record.id then seen[record.id]=true end
@@ -296,9 +299,20 @@ function Home.roster(selection)
     end
     return result
 end
-function Home.eligibility(selection)
-    local result=Home.roster(selection)
+-- These facts belong to one popup fill only. Draft/start and the Home sheet
+-- continue to capture and validate the current camp through normal callers.
+function Home.popupFacts()
     local base=SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+    return {base=base,camp=Home.captureCamp(base)}
+end
+function Home.eligibility(selection, popupFacts)
+    local result=Home.roster(selection,popupFacts)
+    local base,camp
+    if popupFacts then base,camp=popupFacts.base,popupFacts.camp
+    else
+        base=SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+        camp=Home.captureCamp(base)
+    end
     result.hidden=base==nil or (#result.records==0 and #result.exclusions==1
         and (result.exclusions[1].reason=="home_not_recruited" or result.exclusions[1].reason=="home_already_home"))
     local active=E() and E().current()
@@ -307,7 +321,6 @@ function Home.eligibility(selection)
         or SC.ViewSession and SC.ViewSession.owner and SC.ViewSession.owner()~=nil and "home_view_expedition"
         or not Home.remoteAvailable() and "home_safe_handover_unavailable"
         or not base and "home_no_camp"
-    local camp=Home.captureCamp(base)
     blocker=blocker or (not camp and "home_camp_ground_area_required") or result.blocker
     if blocker==nil and E() and E().homeDeliveryAvailable and not E().homeDeliveryAvailable() then blocker="home_delivery_queue_full" end
     result.camp=camp

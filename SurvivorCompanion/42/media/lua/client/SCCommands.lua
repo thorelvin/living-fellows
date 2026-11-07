@@ -2971,6 +2971,12 @@ function Commands.peek(actor)
     return states[actor] or stateFor(actor)
 end
 
+-- UI discovery may inspect an initialized actor without creating command
+-- state, restoring storage, or refreshing player attack protection.
+function Commands.peekExisting(actor)
+    return actor and states[actor] or nil
+end
+
 -- Spawn initialization runs before registration, so its factory-created cache
 -- cannot represent a player order. Once registered, a newer revision wins.
 function Commands.restoreCommandSerial(actor, serial)

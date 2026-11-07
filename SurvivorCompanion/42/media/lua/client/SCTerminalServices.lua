@@ -2,6 +2,7 @@
 -- Terminal presentation delegates effects to checked building/hardware/radio
 -- services. Menu entries never hold permission to toggle arbitrary objects.
 require "SCExpeditionMap"
+require "SCContextMenu"
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion
 SC.TerminalServices=SC.TerminalServices or {}
@@ -724,25 +725,47 @@ function S.menu(window)
     if isBack then result[#result+1]=option("Back","page",back.serviceValue) end
     return result
 end
+-- Keep the existing radio-first menu order while surveying carried hardware
+-- once. Only the twelve candidates that can become menu rows are retained.
+local function contextCandidates(player,hardware,skill)
+    local radios,backups={},{}
+    local radioAllowed=not (hardware and hardware.radio) and skill>=2
+    local backupAllowed=not (hardware and hardware.ups) and skill>=4
+    if not radioAllowed and not backupAllowed then return radios,backups end
+    for _,item in ipairs(U().items(player)) do
+        if radioAllowed and #radios<12 and U().kind(item,"Radio")
+            and U().call(U().call(item,"getDeviceData"),"getIsTwoWay")==true then
+            radios[#radios+1]=item
+            if #radios+#backups>12 then backups[#backups]=nil end
+        elseif backupAllowed and #radios+#backups<12
+            and tostring(U().call(item,"getFullType")):match("^Base%.CarBattery") then
+            backups[#backups+1]=item
+        end
+    end
+    return radios,backups
+end
 function S.context(context,player,computer)
     if SC.GridControl and SC.GridControl.pinned(computer) then return end
     if not U().near(player,computer,3) then return end
     if not U().hasTool(player,"Base.Screwdriver") then return end
-    local offered=0
     local hardware=SC.TerminalHardware.state(computer,false)
+    local radios,backups=contextCandidates(player,hardware,U().skill(player))
+    local maintenance
+    local function menu()
+        maintenance=maintenance or SC.ContextMenu.group(context,"terminal.maintenance",getText("UI_SC_Context_ComputerMaintenance"))
+        return maintenance
+    end
     for _,kind in ipairs({"radio","ups"}) do
-        local level=kind=="radio" and 2 or 4
         if hardware and hardware[kind] then
             local selectedKind=kind
-            context:addOption("Computer: remove "..(kind=="radio" and "mounted radio" or "backup battery"),player,
+            SC.ContextMenu.action(menu(),"terminal.hardware.remove:"..kind,"Remove "..(kind=="radio" and "mounted radio" or "backup battery"),player,
                 function(actor) S.install(actor,computer,function() return SC.TerminalHardware.remove(actor,computer,selectedKind) end) end)
-        elseif U().skill(player)>=level then
-            for _,item in ipairs(candidates({player=player},kind)) do
-                if offered>=12 then break end
+        else
+            for index,item in ipairs(kind=="radio" and radios or backups) do
                 local selectedKind,selectedItem=kind,item
-                context:addOption("Computer: install "..(kind=="radio" and "walkie-talkie" or "battery backup").." - "..tostring(U().call(item,"getDisplayName")),player,
+                SC.ContextMenu.action(menu(),"terminal.hardware.install:"..kind..":"..index,
+                    "Install "..(kind=="radio" and "walkie-talkie" or "battery backup").." - "..tostring(U().call(item,"getDisplayName")),player,
                     function(actor) S.install(actor,computer,function() return SC.TerminalHardware.install(actor,computer,selectedKind,selectedItem) end) end)
-                offered=offered+1
             end
         end
     end

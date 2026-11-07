@@ -20,6 +20,46 @@ local function managed(id, options)
 end
 
 do
+    local actor, other = T.actor("popup-driver"), T.actor("popup-other")
+    local oldProtection = SC.Actor.setPlayerAttackProtected
+    local oldLiving = SC.Registry.living
+    local oldScanLane = SCBridge.scanLane
+    local writes, scans = 0, 0
+    SC.Actor.setPlayerAttackProtected = function() writes = writes + 1; return true end
+    SCBridge.scanLane = function() return true end
+    SC.Registry.living = function() scans = scans + 1; return { actor, other } end
+    check(SC.Commands.peekExisting(actor) == nil and SC.Commands.peekExisting(nil) == nil,
+        "a cold popup command read does not initialize actor state")
+    local cold = SC.Convoy.popupFacts({ actor, other })
+    check(cold.commands[actor] == nil and writes == 0 and scans == 0,
+        "popup convoy facts do not initialize cold state or rescan the roster")
+    local command = SC.Commands.peek(actor)
+    check(SC.Commands.peekExisting(actor) == command,
+        "existing command reads return the initialized actor state")
+    writes = 0
+    local states = { [actor] = command, [other] = { recruited = true, order = "follow" } }
+    local facts = SC.Convoy.popupFacts({ actor, other }, states)
+    states[other].followCarSqlId = 999
+    local car = actor.vehicle
+    actor.vehicle, car.driver = nil, nil
+    function car:getSqlId() return 909 end
+    check(SC.Convoy.preflight(actor, car, player, facts) == 909
+        and SC.Convoy.preflight(other, car, player, facts) == 909
+        and scans == 0 and writes == 0 and SC.Commands.peekExisting(other) == nil,
+        "many popup preflights reuse captured facts without state writes or nested roster scans")
+    local assigned = SC.Convoy.popupFacts({ actor, other }, states)
+    check(select(2, SC.Convoy.preflight(actor, car, player, assigned)) == "one_follow_car_at_a_time",
+        "one popup snapshot records the other follow-car assignment")
+    other.data.SC_FollowCarSqlId = 999
+    check(select(2, SC.Convoy.preflight(actor, car, player)) == "one_follow_car_at_a_time"
+        and scans == 1,
+        "ordinary command preflight revalidates a fresh assignment after popup capture")
+    SC.Actor.setPlayerAttackProtected, SC.Registry.living = oldProtection, oldLiving
+    SCBridge.scanLane = oldScanLane
+    T.records[actor.id], T.records[other.id] = nil, nil
+end
+
+do
     local actor = managed("car-hold-owned-stop")
     local vehicle, token = actor.vehicle, Supervisor.current(actor)
     local parks = T.parks

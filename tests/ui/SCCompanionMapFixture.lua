@@ -1,7 +1,9 @@
 -- SPDX-License-Identifier: MIT
 
 require = function(name)
-    assert(name == "ISUI/Maps/ISMiniMap" or name == "ISUI/Maps/ISWorldMap" or name == "SCExpeditionMap")
+    assert(name == "ISUI/Maps/ISMiniMap" or name == "ISUI/Maps/ISWorldMap"
+        or name == "SCExpeditionMap" or name == "SCContextMenu"
+        or name == "ISUI/ISContextMenu")
     return true
 end
 

@@ -59,9 +59,31 @@ local function runtime(actor)
     return session
 end
 
-function Convoy.preflight(actor, car, player)
+-- One popup can test several candidates. Snapshot its command facts once;
+-- ordinary command preflight still reads the live roster and command state.
+function Convoy.popupFacts(living, commandStates)
+    local facts = { commands = {}, assigned = {}, assignedCount = 0 }
+    for _, actor in ipairs(living or {}) do
+        local command
+        if commandStates then command = commandStates[actor]
+        elseif SC.Commands and SC.Commands.peekExisting then command = SC.Commands.peekExisting(actor) end
+        if command then
+            facts.commands[actor] = { recruited = command.recruited, order = command.order,
+                followCarSqlId = command.followCarSqlId }
+            if command.recruited == true and command.order == "follow"
+                and tonumber(command.followCarSqlId) then
+                facts.assigned[actor] = true
+                facts.assignedCount = facts.assignedCount + 1
+            end
+        end
+    end
+    return facts
+end
+
+function Convoy.preflight(actor, car, player, popupFacts)
     if not actor or not car or not player then return nil, "actor_or_car_missing" end
-    local order = state(actor)
+    local order
+    if popupFacts then order = popupFacts.commands[actor] else order = state(actor) end
     if not order or order.recruited ~= true then return nil, "not_recruited" end
     if not SC.Driving or not SC.Driving.available() then
         return nil, "driving_bridge_unavailable"
@@ -84,9 +106,15 @@ function Convoy.preflight(actor, car, player)
         and value(car, "isKeysInIgnition") ~= true then
         return nil, "car_needs_key_or_hotwire"
     end
-    for _, other in ipairs(SC.Registry.living()) do
-        if other ~= actor and selected(other) then
+    if popupFacts then
+        if popupFacts.assignedCount > (popupFacts.assigned[actor] and 1 or 0) then
             return nil, "one_follow_car_at_a_time"
+        end
+    else
+        for _, other in ipairs(SC.Registry.living()) do
+            if other ~= actor and selected(other) then
+                return nil, "one_follow_car_at_a_time"
+            end
         end
     end
     return id

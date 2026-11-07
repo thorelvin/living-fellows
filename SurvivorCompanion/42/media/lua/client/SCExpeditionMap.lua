@@ -2,6 +2,7 @@
 require "ISUI/Maps/ISWorldMap"
 require "ISUI/ISButton"
 require "SCExpeditionTargets"
+require "SCContextMenu"
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.ExpeditionMap = SC.ExpeditionMap or {}
@@ -131,13 +132,9 @@ end
 function M.fillContext(map, context, at)
     -- Stock may reuse a still-open menu at the same point. Replace only our
     -- options, retaining other mods' and vanilla entries.
-    for index=#(context.options or {}),1,-1 do
-        local option=context.options[index]
-        if option.scExpeditionMapAction or option.scTaxiMapAction then
-            if type(context.removeOptionByName)=="function" then context:removeOptionByName(option.name)
-            else table.remove(context.options,index) end
-        end
-    end
+    SC.ContextMenu.removeOwned(context,function(option)
+        return option.scLFContext and (option.scExpeditionMapAction or option.scTaxiMapAction)
+    end)
     if SCBridge and SCBridge.loadedWorldMap and map.javaObject then
         SC.ExpeditionTargets.mapData=SCBridge.loadedWorldMap(map.javaObject) or SC.ExpeditionTargets.mapData
     end
@@ -145,17 +142,19 @@ function M.fillContext(map, context, at)
     if session and session.map == map then
         if not usable(session) then M.closed(map) return false end
         if session.kind=="wood" then
-            local option=context:addOption(tr("UI_SC_Map_WoodRedraw"),nil,function() M.redraw(map) end)
+            local option=SC.ContextMenu.action(context,"map.redraw",tr("UI_SC_Map_WoodRedraw"),nil,function()
+                if M.session==session and usable(session) then M.redraw(map) end
+            end)
             option.scExpeditionMapAction=true
             return true
         end
         local target,reason = SC.ExpeditionTargets.resolveAtPoint(session.kind,at,session.context())
         session.highlight,session.error=target,reason
         if target then
-            local option=context:addOption(tr("UI_SC_Map_Select",target.label),nil,function() choose(session,target) end)
+            local option=SC.ContextMenu.action(context,"map.select",tr("UI_SC_Map_Select",target.label),nil,function() choose(session,target) end)
             option.scExpeditionMapAction=true
         else
-            local option=context:addOption(M.reason(reason),nil,nil)
+            local option=SC.ContextMenu.action(context,"map.unavailable",M.reason(reason),nil,nil)
             option.notAvailable=true
             option.scExpeditionMapAction=true
         end
@@ -167,6 +166,7 @@ function M.fillContext(map, context, at)
     local row=root and root.selectedRow
     local actor=row and row.actor or getSpecificPlayer(0)
     local count=0
+    local planning
     for _,kind in ipairs({"scout","search","fish","wood"}) do
         local ctx=SC.ExpeditionTargets.context(actor,"drive")
         local target
@@ -176,7 +176,13 @@ function M.fillContext(map, context, at)
         else target=SC.ExpeditionTargets.resolveAtPoint(kind,at,ctx) end
         if target then
             local chosen=SC.ExpeditionTargets.copy(target)
-            local option=context:addOption(tr("UI_SC_Map_Plan_"..kind,target.label),nil,function()
+            if not planning then
+                planning=SC.ContextMenu.group(context,"map.plan",tr("UI_SC_Context_PlanExpedition"))
+                for _,option in ipairs(context.options or {}) do
+                    if option.scMenuKey=="map.plan" then option.scExpeditionMapAction=true break end
+                end
+            end
+            local option=SC.ContextMenu.action(planning,"map.plan:"..kind,tr("UI_SC_Map_Plan_"..kind,target.label),nil,function()
                 map:close()
                 local window=SC.UI.open("expeditions")
                 if window and window.detail then

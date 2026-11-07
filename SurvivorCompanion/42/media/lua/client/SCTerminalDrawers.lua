@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCContextMenu"
 -- A UI interlock over ordinary furniture. Rewards do not exist until release.
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local D={} SC.TerminalDrawers=D
@@ -212,6 +213,9 @@ function D.open(player,object,state,forced,granted)
     return true,message
 end
 function D.context(context,player,objects)
+    SC.ContextMenu.removeOwned(context,function(option)
+        return option.scLFContext and option.scMenuKey=="drawer.force"
+    end)
     local targets={}
     for _,object in ipairs(U().list(objects,64)) do
         local container=U().call(object,"getContainer")
@@ -220,7 +224,7 @@ function D.context(context,player,objects)
     for _,container in ipairs(targets) do
         local _,computer,state=D.claimFor(container)
         if computer and U().near(player,computer,3) and U().hasTool(player,"Base.Crowbar") then
-            context:addOption("Force the drawer",player,function(actor)
+            SC.ContextMenu.action(context,"drawer.force","Force the drawer",player,function(actor)
                 SC.TerminalServices.install(actor,computer,function()
                     local current=SC.Terminal.peekState(computer)
                     if not current or current.identity~=state.identity then return false,"The original computer is gone." end

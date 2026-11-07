@@ -18,7 +18,8 @@ end
 local vehicle = { getX = function() return 0 end, getY = function() return 0 end,
     getSqlId = function() return 777 end }
 SC.Registry = { living = function() return actors end, byId = function(id) return records[id] end }
-SC.Commands = { peek = function(actor) return actor.state end }
+SC.Commands = { peek = function(actor) return actor.state end,
+    peekExisting = function(actor) return actor.state end }
 SC.UI.text = function(key, name, count)
     if key == "UI_SC_HomeTrip_GroupCount" then return name .. " (" .. count .. ")" end
     if key == "UI_SC_Select_GroupAlpha" then return "Alpha" end
@@ -63,7 +64,7 @@ assert(opened and opened.group == "alpha" and opened.travelMode == "drive"
 opened, blocker = nil, "player_car"
 root = menu()
 submenu = SC.UIContext.addHomeTripCarMenu(root, vehicle, T.doctor)
-assert(submenu.options[1].notAvailable and submenu.options[1].toolTip
+assert((submenu.options[1].notAvailable or submenu.options[1].isDisabled) and submenu.options[1].toolTip
     and submenu.options[1].toolTip.description == "You are in this car. Get out first." and opened == nil,
     "a blocked clicked car remains visible with its readable reason and never opens a sheet during construction")
 for _, actor in ipairs(actors) do actor.square.x = 31 end

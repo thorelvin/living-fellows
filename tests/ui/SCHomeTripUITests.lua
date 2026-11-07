@@ -196,9 +196,11 @@ if SCHomeTripUITestFixture == nil then
             local selectedParked = selection.travelMode == "drive" and selectedCar
                 and selectedCar.stationary ~= false
             for _, record in ipairs(selection.records or {}) do
+                local registered = f.records[record.id]
+                local eligible = registered and registered.actor == record.actor and registered.eligible
                 local seatedCar = record.actor and record.actor.vehicle
                 local seatedEligible = not seatedCar or selectedParked and seatedCar == selectedCar
-                if record.eligible and seatedEligible then result.records[#result.records + 1] = record
+                if eligible and seatedEligible then result.records[#result.records + 1] = record
                 else result.exclusions[#result.exclusions + 1] = { record = record,
                     name = record.name, reason = seatedEligible and "not_following" or "home_member_seated" } end
             end
@@ -231,7 +233,7 @@ if SCHomeTripUITestFixture == nil then
             return result
         end,
         start = function(selection, reviewedDraft)
-            f.starts, f.startedIds = f.starts + 1, {}
+            f.starts, f.startedIds, f.startedActors = f.starts + 1, {}, {}
             f.startedVehicle, f.startedReview = selection.vehicle, reviewedDraft
             if f.startReject then return false, f.startReject end
             if reviewedDraft and reviewedDraft.reviewKey ~= SurvivorCompanion.HomeTrip.reviewKey(selection) then
@@ -240,6 +242,7 @@ if SCHomeTripUITestFixture == nil then
             f.startedTravelMode = reviewedDraft and reviewedDraft.travelMode
             for _, record in ipairs(SurvivorCompanion.HomeTrip.roster(selection).records) do
                 f.startedIds[#f.startedIds + 1] = record.id
+                f.startedActors[#f.startedActors + 1] = record.actor
             end
             return true
         end,
@@ -406,6 +409,70 @@ for _, change in ipairs({
     HomeUI.update(detail)
     assert(f.starts == starts + 1 and table.concat(f.startedIds, ",") == change.ids,
         "only the newly reviewed eligible roster dispatches: " .. change.name)
+end
+
+-- A context menu owns the identities its group row displayed, including when
+-- the Registry reuses an ID before the Home sheet can be opened or confirmed.
+do
+    detail = f.detail(3)
+    local captured = { f.records["member-1"], f.records["member-2"] }
+    HomeUI.openSheet({ group = "alpha", records = captured, leaderId = "member-1" })
+    assert(#detail.homeTripSheet.selection.records == 2,
+        "opening a captured group does not immediately substitute the current group")
+    local starts, plans = f.starts, f.plans
+    HomeUI.update(detail)
+    assert(f.starts == starts and f.plans == plans + 1
+        and #detail.homeTripSheet.selection.records == 3,
+        "the scheduled preview refreshes changed group membership without dispatching")
+    panel = build(detail)
+    assert(string.find(joinedText(panel), "Crew 3", 1, true) and footer(detail, "send").enable)
+end
+
+for _, replaceInPlace in ipairs({ false, true }) do
+    detail = f.detail(2)
+    HomeUI.openSheet({ group = "alpha", leaderId = "member-1" })
+    HomeUI.update(detail)
+    panel = build(detail)
+    local original = f.records["member-2"]
+    local originalActor, replacement = original.actor, {}
+    local starts, plans = f.starts, f.plans
+    if replaceInPlace then original.actor = replacement
+    else
+        f.records[original.id] = { id = original.id, name = original.name,
+            actor = replacement, recruited = true, group = "alpha", eligible = true }
+    end
+    assert(detail.homeTripSheet.selection.records[2].actor == originalActor,
+        "the reviewed actor identity survives Registry record mutation")
+    HomeUI.onButton(detail, footer(detail, "send"))
+    assert(f.starts == starts and f.plans == plans and detail.homeTripSheet.pending,
+        "a same-ID actor replacement refreshes the review before sending")
+    HomeUI.update(detail)
+    panel = build(detail)
+    assert(f.starts == starts and f.plans == plans + 1
+        and detail.homeTripSheet.selection.records[2].actor == replacement)
+    HomeUI.onButton(detail, footer(detail, "send"))
+    HomeUI.update(detail)
+    assert(f.starts == starts + 1 and f.startedActors[2] == replacement,
+        "the replacement actor leaves only after the refreshed roster is confirmed")
+end
+
+do
+    detail = f.detail(2)
+    HomeUI.openSheet({ group = "alpha", leaderId = "member-1" })
+    HomeUI.update(detail)
+    panel = build(detail)
+    local starts = f.starts
+    HomeUI.onButton(detail, footer(detail, "send"))
+    local departed = f.records["member-2"].actor
+    local oldCommands = SurvivorCompanion.Commands
+    SurvivorCompanion.Commands = { peekExisting = function(actor)
+        return { recruited = true, group = actor == departed and "bravo" or "alpha" }
+    end }
+    HomeUI.update(detail)
+    assert(f.starts == starts and not detail.homeTripSheet.sendPending
+        and #detail.homeTripSheet.selection.records == 1,
+        "a fresh command group change cancels queued departure even before roster rows refresh")
+    SurvivorCompanion.Commands = oldCommands
 end
 
 detail = f.detail(1)

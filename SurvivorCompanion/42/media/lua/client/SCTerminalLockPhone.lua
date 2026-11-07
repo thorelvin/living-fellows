@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCContextMenu"
 -- An explicit internal callback. Only an active call survives a closed CRT.
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local P={} SC.TerminalLockPhone=P
@@ -134,13 +135,18 @@ function P.answer(player,phone)
     return true
 end
 function P.context(index,context,objects,test)
+    if not test and context then
+        SC.ContextMenu.removeOwned(context,function(option)
+            return option.scLFContext and option.scMenuKey=="phone.answer"
+        end)
+    end
     local c=P.answerable() if not c then return end
     local player=type(getSpecificPlayer)=="function" and getSpecificPlayer(index)
     if not player or not U().near(player,c.phone,1.5) then return end
     for _,object in ipairs(type(objects)=="table" and objects or {}) do
         if object==c.phone or U().square(object)==U().square(c.phone) then
             if test then return true end
-            context:addOption("Answer the telephone",player,function(actor)
+            SC.ContextMenu.action(context,"phone.answer","Answer the telephone",player,function(actor)
                 if P.answerable()~=c then return end
                 SC.TerminalServices.install(actor,c.phone,function()
                     if P.answerable()==c and P.answer(actor,c.phone) then return true,"Internal call answered." end

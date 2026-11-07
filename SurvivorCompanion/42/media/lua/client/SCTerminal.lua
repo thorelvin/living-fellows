@@ -16,6 +16,7 @@ require "ISUI/ISButton"
 require "ISUI/ISTextEntryBox"
 require "TimedActions/ISBaseTimedAction"
 require "Moveables/ISMoveableSpriteProps"
+require "SCContextMenu"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -2310,6 +2311,10 @@ end
 -- single-player game sits at a terminal.
 function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects, player)
     if context == nil or player == nil or playerIndex ~= 0 then return false end
+    SC.ContextMenu.removeOwned(context,function(option)
+        return option.scLFContext and type(option.scMenuKey)=="string"
+            and string.sub(option.scMenuKey,1,9)=="terminal."
+    end)
     if SC.TerminalDrawers then SC.TerminalDrawers.context(context,player,worldObjects) end
     local computer = Terminal.findComputer(worldObjects)
     if not computer or not Terminal.near(player, computer) then return false end
@@ -2321,12 +2326,16 @@ function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects,
     if not Terminal.powered(computer) then
         if SC.GridControl and SC.GridControl.visible() and SC.GridControl.siteFor(computer) then
             local why=SC.GridControl.connectBlocker(computer)
-            local entry=context:addOption("Connect to grid - "..tostring(why or "Power this computer with a generator first."),nil,nil)
-            if entry then entry.notAvailable=true end
+            local maintenance=SC.ContextMenu.group(context,"terminal.maintenance",text("UI_SC_Context_ComputerMaintenance", "Computer maintenance"))
+            local entry=SC.ContextMenu.action(maintenance,"terminal.grid.connect","Connect to grid",nil,nil)
+            if entry then
+                entry.notAvailable=true
+                SC.ContextMenu.reason(entry,tostring(why or "Power this computer with a generator first."))
+            end
         end
         return false
     end
-    context:addOption(text("UI_SC_Terminal_Use", "Use computer"), player,
+    SC.ContextMenu.action(context,"terminal.use",text("UI_SC_Terminal_Use", "Use computer"), player,
         Terminal.onUseOption, computer)
     return true
 end

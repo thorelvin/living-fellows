@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCContextMenu"
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local C={} SC.TerminalLockCase=C
 function C.risk(state,skill,battery)
@@ -41,13 +42,21 @@ function C.complete(player,object,battery)
     local unlocked=SC.TerminalLocks.finishUnlock(w,slip and "slip" or "case")
     return unlocked,slip and "Reset complete. The owner's files were erased; a small hand burn needs attention." or "Hardware reset complete. The files survived."
 end
-function C.queue(player,object,battery)
+function C.queue(player,object,battery,expectedState)
+    if expectedState and not SC.Terminal.ownsState(object,expectedState) then
+        return false,"The original computer recovery is no longer available."
+    end
     local clock=type(getGameTime)=="function" and getGameTime()
     local minutes=tonumber(SC.ControlUtil.call(clock,"getMinutesPerDay")) or 60
     local duration=300+(battery and 5*minutes*2.5 or 0)
     -- Native duration is captured when the queue creates its first action.
     -- Set it before add(), rather than editing the Lua object afterwards.
-    return SC.TerminalServices.install(player,object,function() return C.complete(player,object,battery) end,duration)
+    return SC.TerminalServices.install(player,object,function()
+        if expectedState and not SC.Terminal.ownsState(object,expectedState) then
+            return false,"The original computer recovery is no longer available."
+        end
+        return C.complete(player,object,battery)
+    end,duration)
 end
 function C.lines(w)
     local skill=SC.ControlUtil.skill(w.player)
@@ -79,10 +88,14 @@ function C.context(context,player,object)
     local state=active and active.object==object and active.system or SC.Terminal.peekState(object)
     if not state or not state.locked or type(state.lock)~="table" or not state.lock.bypass then return end
     if not SC.ControlUtil.hasTool(player,"Base.Screwdriver") then return end
-    local option=context:addOption("Computer: open the case",nil,nil)
-    local submenu=ISContextMenu:getNew(context) context:addSubMenu(option,submenu)
+    local maintenance=SC.ContextMenu.group(context,"terminal.maintenance",getText("UI_SC_Context_ComputerMaintenance"))
+    local submenu=SC.ContextMenu.group(maintenance,"terminal.case","Open the case")
     local skill=SC.ControlUtil.skill(player)
-    submenu:addOption("Move CLR CMOS jumper ("..C.risk(state,skill,false).."% slip risk)",player,function(actor) C.queue(actor,object,false) end)
-    if not C.soldered(state) then submenu:addOption("Remove CMOS battery ("..C.risk(state,skill,true).."% risk; +5 min)",player,function(actor) C.queue(actor,object,true) end) end
+    SC.ContextMenu.action(submenu,"terminal.case.reset","Move CLR CMOS jumper ("..C.risk(state,skill,false).."% slip risk)",player,
+        function(actor) C.queue(actor,object,false,state) end)
+    if not C.soldered(state) then
+        SC.ContextMenu.action(submenu,"terminal.case.cmos","Remove CMOS battery ("..C.risk(state,skill,true).."% risk; +5 min)",player,
+            function(actor) C.queue(actor,object,true,state) end)
+    end
 end
 return C

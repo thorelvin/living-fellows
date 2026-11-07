@@ -1504,7 +1504,9 @@ end
 -- opening passable" test reads as open, so the glass branch was unreachable.
 do
     local pane = {}
+    function pane:isLocked() return self.locked == true end
     local function windowContext(smashed, glassRemoved, open, locked)
+        pane.locked = locked == true
         return {
             windowSmashed = function() return smashed end,
             windowGlassRemoved = function() return glassRemoved end,
@@ -1530,12 +1532,28 @@ do
     check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
             windowContext(false, false, false)) == "open_window",
         "a closed unlocked window is opened when there is time")
-    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
-            windowContext(false, false, false, true)) == "smash_window",
-        "a locked window is smashed")
+    local outside, inside = square(0, 0), square(1, 0)
+    local oldWindowTo, oldOutside = outside.getWindowTo, outside.isOutside
+    local oldNative, oldX, oldY = SC.NativeActions, actor.x, actor.y
+    local stopped = 0
+    function outside:getWindowTo(to) if to == inside then return pane end end
+    function outside:isOutside() return true end
+    actor.x, actor.y = .5, .5
+    SC.NativeActions = { stopDirect = function() stopped = stopped + 1; return true end }
+    local action = SC.NavTraversal.chooseWindowAction(pane, math.huge,
+        windowContext(false, false, false, true), actor, outside, {})
+    local lease = { affordance = "multi_level", nativeNextSquare = inside,
+        ultimateGoal = square(1, 0, 1), windowIntent = { action = "follow_formation" } }
+    local state = { nativeLease = lease }
+    local phase, reason = N._windowForNativeLease(actor, state, lease, 1000)
+    check(action == nil and phase == "failed" and reason == "window_smash_not_emergency"
+            and state.nativeLease == nil and stopped == 1,
+        "a routine exterior latch refuses smashing and stops its native lease with the precise policy reason")
+    outside.getWindowTo, outside.isOutside, SC.NativeActions, actor.x, actor.y =
+        oldWindowTo, oldOutside, oldNative, oldX, oldY
     check(SC.NavTraversal.chooseWindowAction(pane, 200,
-            windowContext(false, false, false)) == "smash_window",
-        "a closed window with a threat inbound is smashed rather than opened")
+            windowContext(false, false, false)) == "open_window",
+        "a short arrival estimate without a verified immediate hostile still opens an unlocked window")
 end
 
 -- Planning holds the companion still, which is invisible on open ground and

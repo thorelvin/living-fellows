@@ -113,11 +113,17 @@ local function carNear(center, id, kind)
     local part, container, reason = trunk(vehicle)
     return vehicle, part, container, reason
 end
-local function followers(player, kind)
+local function followers(player, kind, popup)
     local result = {}
     local range = kind and leash(kind) or math.max(HARVEST_LEASH, CHOP_LEASH)
-    for _, actor in ipairs(U().registryLiving(U().config("maxCompanions") or 16)) do
-        local state = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor)
+    local maximum = U().config("maxCompanions") or 16
+    local living
+    if popup then living = popup.living or {} else living = U().registryLiving(maximum) end
+    for index, actor in ipairs(living) do
+        if index > maximum then break end
+        local state
+        if popup then state = popup.states and popup.states[actor]
+        else state = SC.Commands and SC.Commands.peek and SC.Commands.peek(actor) end
         local id = U().idOf(actor)
         if id and state and state.recruited and state.order == "follow"
             and call(actor, "getVehicle") == nil
@@ -966,8 +972,8 @@ function Field.status()
         center = active.center, note = active.note }
     return result
 end
-function Field.available(player, kind)
-    return player ~= nil and #followers(player, kind) > 0
+function Field.available(player, kind, popup)
+    return player ~= nil and #followers(player, kind, popup) > 0
 end
 function Field.start(kind, square, player)
     if active and (active.phase == "working" or active.phase == "unlocking"

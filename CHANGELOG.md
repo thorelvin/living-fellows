@@ -2,7 +2,19 @@
 
 # Changelog
 
-## 0.27.1 - Seven new Strange Folk
+## 0.27.1 - Seven new Strange Folk and clearer orders
+
+- Give clicked companions direct Talk, Follow, Stay and Retreat choices, with
+  other actions grouped by person, squad or the object you clicked.
+- Put Mark storage as... first when you right-click a container, with categories
+  one level down and Unmark storage beside it for an existing marking.
+- Group routine radio services, computer maintenance and map expedition planning.
+  Keep pending radio replies and active map choices easy to reach.
+- Keep native stair crossings moving instead of interrupting them for a window
+  projected onto the wrong floor. Verify an ordinary companion walking both
+  directions through the Rosewood firehouse stairs.
+- Retain the exact actor, item and reviewed crew when a menu action is chosen,
+  and keep popup construction lightweight without rebuilding full status panels.
 
 - Meet seven new Strange Folk: Miss Liberty and her firecrackers, Hershel on
   his ninth day bitten, Gary and Ron's dad-joke feud, Dwayne's Gospel Hour on

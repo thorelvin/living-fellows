@@ -1,0 +1,99 @@
+Living Fellows right-click menu rebuild
+6 November 2026
+
+Historical first layout. The 7 November shallow-menu revision supersedes its
+Camp/Storage nesting; see validation-stairs-storage-20261107.txt for current
+storage placement and the separate stair-crossing fix.
+
+Source: living_fellows/0.27.0, working changes over 272a3e54.
+No version bump, installation, commit, push or Field Guide publication performed.
+
+Implemented
+
+Clicked companions have direct Talk, Follow, Stay and Retreat. Remaining person
+actions, nearby companions, Squad, Camp, vehicles, generators, Households and
+Strange Folk use separate native submenu branches. Camp Storage is last.
+Routine radio services, computer maintenance and ordinary map planning are
+grouped; pending radio replies and active map choices remain direct.
+
+Callbacks retain the displayed actor/item/object identity and revalidate it.
+Basic orders and Watch preserve the panel selection. Send Home preserves the
+reviewed group membership and requires renewed review when membership changes.
+Native Medical Check is retained without a duplicate LF health entry.
+
+Popup facts avoid full panel descriptions, repeated roster enumeration and cold
+command-state initialization. Probes do not discover cleaning supplies or routes.
+No background service was added. Native submenu slots are reused without moving
+foreign entries. LF background styling is scoped to rendering, so pooled foreign
+menus retain their own appearance. World targets use the original requestX/Y,
+even when native placement shifts a menu away from the edge of the screen.
+
+Automated results
+
+scripts/Test-Project.ps1 -Serial: all five essential checks passed in 61.97s,
+23 serial JVM starts, 256 MB heap and two processors per JVM.
+Evidence: build/test-results/20261106-222216-31ab61/summary.json
+
+After wiring the new context cases into the existing Interface check:
+scripts/Test-Project.ps1 -Check Interface -Serial: passed in 8.7s.
+Evidence: build/test-results/20261106-222555-991680/
+Includes 938 structural/native-lifecycle checks, 14 radio-context checks,
+selected-command/cache, map layout, terminal access and radio lifecycle cases.
+Specialist medical, nickname, storage, computer-context, Home Trip, driving,
+field-work and production suites also passed during implementation.
+Counts describe assertions, not hundreds of separate gameplay scenarios.
+
+Native game evidence
+
+One cloned world was reused; no original save was opened or modified.
+Build 42.21.0, 1280x720, stock game jar, rebuilt source Lua/private bridge payload.
+One game process at a time, BelowNormal priority, four processors, 2560 MB heap,
+six-minute/resource watchdog. The final process exited normally; none remains.
+
+Run: build/live-sandbox-runs/SC-Harness-20261106-215029-dd984a6c/
+Latest console.txt contains SC_CONTEXT_LIVE lines. The append-only evidence log
+is cache/Lua/SurvivorCompanionHarness/context-menu-live.log.
+Screenshots are cache/Screenshots/*-context-*.png, native framebuffer captures.
+
+Reviewed: clicked-person quick/root menu and nested actions; Camp/Storage;
+Large font at a screen edge; native single-context-menu navigation; vehicle
+actions; map expedition planning; radio services and a blocked vehicle tooltip.
+All fit the native viewport. Fifteen screenshots include three blocked reasons.
+
+An actual Follow callback changed clicked actor A's command serial from 5 to 6;
+selected actor B's serial and panel selection remained unchanged. A retained
+radio callback rejected its device after it was removed from the equipped slot.
+No production Lua exception was observed in the final run.
+
+Ten LF-only fills took 5,4,4,5,5,3,4,4,5,5 ms. Full native menu fills took
+35,15,16,12,15,13,16,21,13,13 ms. These are integer-clock samples from this camp,
+not a baseline comparison or a guarantee for every mod combination.
+
+Acceptance limits and setup corrections
+
+The native probe deliberately reports partial visual acceptance rather than a
+complete gameplay pass. Physical mouse/controller use, companion movement,
+pending mission decisions, every household and every Strange Folk story were
+not exercised live. Relevant ownership/structure paths have automated coverage.
+
+Computer maintenance appeared in the first successful native capture. In the
+final run the relocated observer was too far from that computer, so its missing
+maintenance branch is recorded rather than counted as a live pass. Automated
+computer-context checks pass. The map opens through native ShowWorldMap for this
+component capture; it does not prove the timed map-reading action.
+
+Two setup failures were retained: an unavailable item factory/early actor check,
+then a missing local in optional timing instrumentation. Both stopped safely;
+their logs and a blocked-error screenshot remain in the same run. An earlier
+native pass missed the map because it did not await map reading, and exposed the
+mutable-click-coordinate bug subsequently fixed and regression tested.
+
+Installed launcher JSON and game jar hashes matched before/after:
+JSON E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307
+JAR  E1A69EB743EDE60B213A0FE7F8B83D4FCAB773036D256CC4543A336F3B058A33
+SCContextMenu.lua 91C41CCC907C9C57998F72B780000AC15C0033FF6D592FECFCF6F14B8B610965
+SCUIContext.lua   56208AE53E7A4EBD53E4F84D344277CA84A378F1E5470B6EAECED8AAC2FD8FE0
+
+Local Field Guide: C:/ZOMBOID/work/field-guide-02647/
+Updated index.html, quick-reference.html and two original native PNG captures.
+Existing remote guide changes were fast-forwarded and preserved. Unpublished.

@@ -1,0 +1,107 @@
+Stair crossings and shallow storage menus — 7 November 2026
+
+Acceptance source: working changes over 272a3e54 on living_fellows/0.27.0.
+Release integration below carries the same tested Lua into 0.27.1.
+
+Stair regression
+
+The confirmed code regression entered in 6b274fb7, 6 November 2026 at
+14:22:34 CET, as part of 0.27.0's window hardening. It is separate from
+the uncommitted context-menu rebuild.
+
+Native path telemetry supplies planar next-waypoint coordinates. The new
+window check projected these onto the companion's current floor and could
+take over a retained stair crossing for a window below its intended landing.
+That takeover stopped native movement. A new case in the existing traversal
+harness reproduced this before the fix (check 260).
+
+SCNavigation._windowForNativeLease now defers planar window interception
+while the companion is between floor heights or on a stair tread. Once on
+a level landing, the existing checked-window policy still applies. This
+does not enable routine window smashing or bypass landing safety checks.
+
+The tester confirmed 0.27.0 and Rosewood. No new tester console was supplied,
+so the exact reported route is not identified. The recorded 0.27.0 release
+acceptance included one successful descent in about 14 seconds; that did
+not establish reliability for every firehouse stair route or a group.
+
+Storage/menu revision
+
+A container click now puts Mark storage as... first in the native main menu.
+Its categories are one submenu down. A marked container has Unmark storage
+immediately beside it, retaining exact-object guards and confirmation.
+Unrelated native/foreign options retain their relative order.
+Storage editing remains restricted by the existing camp/local-view guards.
+
+The Camp and Storage wrapper levels are removed. Other relevant camp actions
+sit under Living Fellows, with Areas and Construction as their own groups.
+The Base panel's storage-management section remains at the bottom.
+
+Automated checks
+
+- Existing navigation traversal specialist: PASS, 278 checks. Includes
+  fractional-height and actual stair-tread leases, plus the level-landing
+  control that must still stop for a refused window.
+- Existing navigation stability specialist: PASS, 1,085 checks. Two old
+  window expectations were updated to the intended 0.27.0 safety policy;
+  pristine HEAD failed the same obsolete smash expectation before any fix.
+  Revised assertions check exact refusal, stopped movement and cleared lease.
+- Existing ContextOnly UI suite: PASS, including 929 structural/lifecycle
+  checks, 18 storage checks and exact top-of-menu/category-depth assertions.
+- Full five essential checks: PASS, 66.43 seconds, serial 256 MB JVM heaps,
+  two processors; 23 direct JVM starts. No game launched by this gate.
+  Evidence: build/test-results/20261107-011104-e21c46/summary.json
+
+Native acceptance
+
+One short run reused the existing cloned Rosewood firehouse world:
+build/live-sandbox-runs/SC-Harness-20261106-215029-dd984a6c/
+No original save was opened. One BelowNormal client, four processors,
+2560 MB heap and the existing six-minute/resource watchdog were used.
+
+Ordinary Commands.issue(move_to) was sent once for each leg, with normal
+Decision scheduling active. The same registered companion walked from
+8132,11743,0 to the upstairs kitchen at 8132,11739,1 in 21.029 seconds,
+then back downstairs in 21.589 seconds. Both legs sampled actual stair
+treads and fractional Z positions and finished on the correct level.
+The companion was never teleported. Only the observer was relocated for
+arrival/menu photographs; each such relocation is logged separately.
+
+The actual native container popup confirmed Mark storage as... at row 1,
+Unmark storage at row 2, all categories directly below Mark storage as...,
+and every category bound to that exact container. The clicked-person
+menu still addressed that actor while another remained selected.
+
+SC_CONTEXT_STAIRS: 9 checks passed, 0 failures, 5 original native screenshots.
+Harness summary: PASS, 16 passes, 0 failures, 0 skipped. No native block or
+gameplay exception occurred during this run; the probe captured no block
+because none was encountered. All five images were visually reviewed.
+
+Evidence: cache/Lua/SurvivorCompanionHarness/context-stairs-live.log and
+cache/console.txt. Images: cache/Screenshots/*-stairs-menu-*.png.
+The previous menu-run console remains at the run root as
+context-menu-final-20261106-console.txt.
+
+Scope is one ordinary companion up/down route, not the tester's unidentified
+failing route, group traffic, combat interruptions or every stair layout.
+The run exited normally and no game process remains. Installed launcher JSON
+and game JAR hashes matched before/after in context-launch.json.
+
+Tested source SHA256:
+SCNavigation.lua 43333DB6642EBC832C30A664435E64B05AA909BF66B3192B73E2A682DFA43C8D
+SCUIContext.lua  3179D63951B659604C0C30BF7F7D5A02D78E4E5FCEB9E86FD7E26BFE2DFC329C
+
+Release integration
+
+Integrated over 0b78eb6e, the existing 0.27.1 Strange Folk release, preserving
+its version metadata and rebuilt native JAR. The tested Navigation/UIContext
+Lua hashes above are unchanged. No save-schema or bridge-protocol change.
+
+All five essential checks passed again on the combined 0.27.1 build in
+62.1 seconds, serial with 23 direct JVM starts. Release metadata, packaged
+bridge exposure and content validation passed within that gate.
+Evidence: build/test-results/20261107-013805-8be4e5/summary.json
+
+Local Field Guide paths and both menu photos describe the shallow layout.
+Those gh-pages working changes remain unpublished; no local game installation
+or website publication was performed by this release-integration task.

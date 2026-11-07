@@ -4050,7 +4050,7 @@ function BaseLife.enqueueJob(spec)
     return true, job
 end
 
-function BaseLife.canRequestCleaning(square, remainingBudget)
+function BaseLife.canRequestCleaning(square, remainingBudget, contextOnly)
     local base = activeBase()
     if not base then return false, "base_missing" end
     local target = position(square)
@@ -4075,18 +4075,25 @@ function BaseLife.canRequestCleaning(square, remainingBudget)
         local actor = record and record.actor
         if actor and record.recruited == true and not U().isDead(actor)
             and not BaseLife.RESTRICTIONS[ensure().restrictions[id]] then
-            local eligible, why
-            if SC.Downtime and type(SC.Downtime.canCleanAt) == "function" then
-                eligible, why = SC.Downtime.canCleanAt(actor, loaded, nil, remainingBudget)
+            if contextOnly then
+                -- Opening a popup must not start supply discovery or routes.
+                -- The actual cleaning request checks both before enqueueing.
+                if BaseLife.isInside(actor) == true then return true, target end
+                reason = "cleaning_worker_away"
+            else
+                local eligible, why
+                if SC.Downtime and type(SC.Downtime.canCleanAt) == "function" then
+                    eligible, why = SC.Downtime.canCleanAt(actor, loaded, nil, remainingBudget)
+                end
+                if not eligible and why == "cleaning_supplies_missing"
+                    and SC.BaseWork and SC.BaseWork.cleaningSuppliesAvailable then
+                    local supplies, supplyReason = SC.BaseWork.cleaningSuppliesAvailable(actor, nil, remainingBudget)
+                    if supplies then eligible, why = SC.Downtime.canCleanAt(actor, loaded, true)
+                    elseif supplyReason then why = supplyReason end
+                end
+                if eligible then return true, target end
+                if why and reason == "cleaning_worker_missing" then reason = why end
             end
-            if not eligible and why == "cleaning_supplies_missing"
-                and SC.BaseWork and SC.BaseWork.cleaningSuppliesAvailable then
-                local supplies, supplyReason = SC.BaseWork.cleaningSuppliesAvailable(actor, nil, remainingBudget)
-                if supplies then eligible, why = SC.Downtime.canCleanAt(actor, loaded, true)
-                elseif supplyReason then why = supplyReason end
-            end
-            if eligible then return true, target end
-            if why and reason == "cleaning_worker_missing" then reason = why end
         end
     end
     return false, reason

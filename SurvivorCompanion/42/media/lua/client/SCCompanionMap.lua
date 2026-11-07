@@ -3,6 +3,7 @@
 require "ISUI/Maps/ISMiniMap"
 require "ISUI/Maps/ISWorldMap"
 require "SCExpeditionMap"
+require "SCContextMenu"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -281,7 +282,7 @@ function CompanionMap.install()
             and type(service.previewPoint)=="function" then
             local selected=service.previewPoint(player,target)
             if selected then
-                local option=context:addOption(taxiText("UI_SC_Taxi_MapDrive",
+                local option=SC.ContextMenu.action(context,"taxi.map",taxiText("UI_SC_Taxi_MapDrive",
                     tostring(selected.required)),
                     nil, function()
                         local okay, reason, detail = service.departToPoint(player,

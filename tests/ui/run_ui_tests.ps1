@@ -2,7 +2,8 @@
 
 [CmdletBinding()]
 param([string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
-    [switch]$TerminalOnly)
+    [switch]$TerminalOnly,
+    [switch]$ContextOnly)
 
 $ErrorActionPreference = 'Stop'
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -32,6 +33,7 @@ try {
         (Join-Path $Client 'SCBaseWork.lua'),
         (Join-Path $TestRoot 'SCBuildRecipeTests.lua'),
         (Join-Path $TestRoot 'SCCompanionMapFixture.lua'),
+        (Join-Path $Client 'SCContextMenu.lua'),
         (Join-Path $Client 'SCCompanionMap.lua'),
         (Join-Path $TestRoot 'SCCompanionMapTests.lua'),
         (Join-Path $TestRoot 'SCInteractionFixture.lua'),
@@ -40,6 +42,7 @@ try {
     )
     Push-Location -LiteralPath $GameRoot
     try {
+        if (-not $ContextOnly) {
         $userOptionsFiles = @(
             (Join-Path $TestRoot 'SCUserOptionsFixture.lua'),
             (Join-Path $GameRoot 'media\lua\client\PZAPI\ModOptions.lua'),
@@ -50,6 +53,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'User options Kahlua tests failed.' }
         $basePolicyFiles = @(
             (Join-Path $TestRoot 'SCUIBasePolicyFixture.lua'),
+            (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
             (Join-Path $GameRoot 'media\lua\client\ISUI\ISUIElement.lua'),
             (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
@@ -64,9 +68,11 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @basePolicyFiles
         if ($LASTEXITCODE -ne 0) { throw 'Base policy checkbox UI tests failed.' }
+        }
         $medicalContextFiles = @(
             (Join-Path $TestRoot 'SCMedicalContextFixture.lua'),
             (Join-Path $GameRoot 'media\lua\client\ISUI\ISContextMenu.lua'),
+            (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCMedicalUI.lua'),
             (Join-Path $Client 'SCUIContext.lua'),
             (Join-Path $TestRoot 'SCMedicalContextTests.lua')
@@ -93,8 +99,14 @@ try {
         $gridRadioContextFiles += Join-Path $TestRoot 'SCGridRadioContextTests.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @gridRadioContextFiles
         if ($LASTEXITCODE -ne 0) { throw 'Grid radio inventory context tests failed.' }
+        $contextFiles = @($medicalContextFiles | Select-Object -SkipLast 1)
+        $contextFiles += Join-Path $TestRoot 'SCContextMenuTests.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @contextFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Living Fellows structural context-menu tests failed.' }
+        if ($ContextOnly) { Write-Output 'CONTEXT_UI_PASS'; return }
         $terminalFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
+            (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCTerminalLines.lua'),
             (Join-Path $Client 'SCTerminalKnowledge.lua'),
             (Join-Path $Client 'SCTerminalConversation.lua'),

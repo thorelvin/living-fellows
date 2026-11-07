@@ -35,8 +35,28 @@ local function nameOf(record)
 end
 local function recordFor(value)
     if type(value) ~= "table" then return nil end
+    if value.actor ~= nil then return value end
     return SC.Registry and type(SC.Registry.byId) == "function" and value.id
         and SC.Registry.byId(value.id) or value
+end
+local function captureRecords(records)
+    local result = {}
+    for _, record in ipairs(records or {}) do
+        local captured = {}
+        for key, value in pairs(record) do captured[key] = value end
+        result[#result + 1] = captured
+    end
+    return result
+end
+local function sameMembers(left, right)
+    if #left ~= #right then return false end
+    local members = {}
+    for _, record in ipairs(left) do members[record.id] = record end
+    for _, record in ipairs(right) do
+        local previous = members[record.id]
+        if not previous or previous.actor ~= record.actor then return false end
+    end
+    return true
 end
 local function displayName(value)
     if type(value) == "table" then return nameOf(value) end
@@ -81,18 +101,24 @@ end
 HomeUI.reasonText = reasonText
 
 local function selectionRecords(detail, selection)
+    if selection.records then return selection.records end
     if selection.group then
         local records = {}
         for _, entry in ipairs(detail.root and detail.root.roster
                 and detail.root.roster.items or {}) do
             local row = entry.item
-            if row and row.group == selection.group and row.recruited == true then
-                records[#records + 1] = recordFor(row)
+            if row then
+                local registered = SC.Registry and SC.Registry.byId and SC.Registry.byId(row.id)
+                local record = registered or recordFor(row)
+                local command = record and record.actor and SC.Commands and SC.Commands.peekExisting
+                    and SC.Commands.peekExisting(record.actor)
+                local group, recruited = row.group, row.recruited
+                if command then group, recruited = command.group, command.recruited end
+                if group == selection.group and recruited == true then records[#records + 1] = record end
             end
         end
         return records
     end
-    if selection.records then return selection.records end
     local record = recordFor(selection.record or selection.row)
     return record and { record } or {}
 end
@@ -144,6 +170,20 @@ local function invalidate(detail)
     sheet.revision = (sheet.revision or 0) + 1
 end
 
+-- Keep the roster shown when the action was chosen until an explicit update
+-- can replace its preview. A queued departure cannot inherit new group members.
+local function refreshGroupSelection(detail)
+    local sheet = detail.homeTripSheet
+    if not sheet.selection.group then return false end
+    local current = selectionRecords(detail, { group = sheet.selection.group })
+    if sameMembers(sheet.selection.records or {}, current) then return false end
+    sheet.selection.records = captureRecords(current)
+    invalidate(detail)
+    sheet.availabilityKey = nil
+    sheet.reviewNotice = reasonText("home_review_changed")
+    return true
+end
+
 local function availabilityKey(selection, status)
     local home = SC.HomeTrip
     local carKey = selection.travelMode == "drive" and home and home.reviewKey and home.reviewKey(selection) or nil
@@ -153,7 +193,7 @@ local function availabilityKey(selection, status)
         tostring(selection.vehicleSqlId), tostring(carKey) }
     local members, exclusions = {}, {}
     for _, record in ipairs(status and status.records or selection.records or {}) do
-        members[#members + 1] = tostring(record.id)
+        members[#members + 1] = tostring(record.id) .. "=" .. tostring(record.actor)
     end
     for _, exclusion in ipairs(status and status.exclusions or {}) do
         exclusions[#exclusions + 1] = tostring(exclusion.id or exclusion.record and exclusion.record.id)
@@ -187,6 +227,9 @@ function HomeUI.openSheet(selection)
     if not chosen.record and not chosen.records and not chosen.group then
         chosen.record = recordFor(root.selectedRow)
     end
+    if chosen.group then chosen.records = captureRecords(selectionRecords(detail, chosen))
+    elseif chosen.records then chosen.records = captureRecords(chosen.records)
+    elseif chosen.record then chosen.record = captureRecords({ chosen.record })[1] end
     local crew = roster(detail, chosen)
     if chosen.leaderId == nil and crew.records[1] then
         chosen.leaderId = crew.records[1].id
@@ -213,6 +256,7 @@ function HomeUI.update(detail)
     if not sheet then return false end
     if detail.tab ~= "groups" then sheet.sendPending = nil; return false end
     local home = SC.HomeTrip
+    refreshGroupSelection(detail)
     local selection = currentSelection(detail)
     if sheet.pending and selection.travelMode == "drive" then
         local car = SC.ExpeditionCar
@@ -285,6 +329,7 @@ function HomeUI.whoOptions(detail)
             local blocked = #result.records > 4 and tr("UI_SC_HomeTrip_TooMany")
                 or #result.records == 0 and tr("UI_SC_HomeTrip_Nobody") or nil
             options[#options + 1] = { value = group, group = group,
+                records = captureRecords(selectionRecords(detail, { group = group })),
                 label = tr("UI_SC_HomeTrip_GroupCrew", label, #result.records, displayNames(result.records)),
                 disabled = blocked ~= nil, reason = blocked }
         end
@@ -305,7 +350,7 @@ function HomeUI.onSelect(detail, combo)
     if combo.scHomeField == "who" then
         sheet.selection.group = option.group
         sheet.selection.record = option.record
-        sheet.selection.records = nil
+        sheet.selection.records = option.records and captureRecords(option.records) or nil
         if not sheet.leaderExplicit then
             local crew = roster(detail, sheet.selection)
             sheet.selection.leaderId = crew.records[1] and crew.records[1].id
@@ -596,6 +641,7 @@ function HomeUI.onButton(detail, button)
     elseif action == "send" then
         local sheet = detail.homeTripSheet
         if not sheet or sheet.pending or sheet.sendPending then return end
+        if refreshGroupSelection(detail) then detail:rebuild(true); return end
         local selection = currentSelection(detail)
         local status = home and home.eligibility and home.eligibility(selection)
         -- A group can change between the scheduled preview and this click.
@@ -619,7 +665,7 @@ function HomeUI.onButton(detail, button)
         local accepted = home.cancel(viewer())
         if accepted == true then note("UI_SC_HomeTrip_CalledOff") end
     elseif action == "group" then
-        return HomeUI.openSheet({ group = button.scHomeGroup })
+        return HomeUI.openSheet({ group = button.scHomeGroup, records = button.scHomeRecords })
     end
     detail:rebuild(true)
 end
@@ -634,6 +680,7 @@ function HomeUI.addGroupOrder(detail, panel, y, group)
     local button = addButton(detail, panel, 8, y, math.max(72, panel:getWidth() - 28),
         "UI_SC_HomeTrip_GroupOrder", "group", reason == nil, reason)
     button.scHomeGroup = group
+    button.scHomeRecords = captureRecords(selectionRecords(detail, { group = group }))
     return y + metrics(detail).buttonHeight + 4
 end
 

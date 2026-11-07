@@ -2,6 +2,7 @@
 # Ordered production files and observable cases; the shared runner owns execution.
 $interfacePanelFiles = @(
     (Join-Path $UI 'SCUIBasePolicyFixture.lua'),
+    (Join-Path $Client 'SCContextMenu.lua'),
     (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
     (Join-Path $GameRoot 'media\lua\client\ISUI\ISUIElement.lua'),
     (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
@@ -16,7 +17,22 @@ $interfacePanelFiles = @(
 )
 @{ Name = 'interface-selected-and-cached'; Files = $interfacePanelFiles }
 
-$interfaceTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'))
+$interfaceContextFiles = @(
+    (Join-Path $UI 'SCMedicalContextFixture.lua'),
+    (Join-Path $GameRoot 'media\lua\client\ISUI\ISContextMenu.lua'),
+    (Join-Path $Client 'SCContextMenu.lua'),
+    (Join-Path $Client 'SCMedicalUI.lua'),
+    (Join-Path $Client 'SCUIContext.lua')
+)
+@{ Name = 'interface-context-menu-lifecycle'; Files = $interfaceContextFiles + @(
+    (Join-Path $UI 'SCContextMenuTests.lua')
+) }
+@{ Name = 'interface-grid-radio-context'; Files = $interfaceContextFiles + @(
+    (Join-Path $UI 'SCGridRadioContextTests.lua')
+) }
+
+$interfaceTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'),
+    (Join-Path $Client 'SCContextMenu.lua'))
 foreach ($module in @(
     'SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation', 'SCTerminalBrain',
     'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',

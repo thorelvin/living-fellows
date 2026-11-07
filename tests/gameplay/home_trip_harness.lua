@@ -5,6 +5,23 @@ local E,H,I=SC.ExpeditionPrototype,SC.HomeTrip,SC.ExpeditionIntegration
 local F=assert(SC.HomeTestFixture)
 local at,actor,reset,blocked=F.at,F.actor,F.reset,F.blocked
 local call,distance=F.call,F.distance
+do
+    local capture,peek,peekExisting=H.captureCamp,SC.Commands.peek,SC.Commands.peekExisting
+    local captures,reads=0,0
+    H.captureCamp=function(base) captures=captures+1 return capture(base) end
+    SC.Commands.peek=function() error("popup eligibility cannot initialize command state") end
+    SC.Commands.peekExisting=function(a) reads=reads+1 return F.orders[a] end
+    local facts=H.popupFacts()
+    for _=1,3 do assert(H.eligibility(F.selection,facts).canStart) end
+    assert(captures==1 and reads==6,"popup home rows share one camp capture and only read existing command state")
+    SC.Commands.peekExisting=function() return nil end
+    assert(not H.eligibility(F.selection,facts).canStart,
+        "a cold popup actor is unavailable without initializing its commands")
+    SC.Commands.peek,SC.Commands.peekExisting=peek,peekExisting
+    assert(H.eligibility(F.selection).canStart and captures==2,
+        "normal Home eligibility always captures current camp facts")
+    H.captureCamp=capture
+end
 F.available=false blocked("home_safe_handover_unavailable") F.available=true
 SC.BaseWatch.current=function() return {} end blocked("home_view_base_watch") SC.BaseWatch.current=function() end
 local savedBase=F.base F.base=nil blocked("home_no_camp") F.base=savedBase

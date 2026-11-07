@@ -3384,10 +3384,14 @@ end
 -- Native PFB may start an open-window climb without a Lua edge. Its actor-only
 -- gate refuses that call; take ownership of this exact portal before resuming.
 function Navigation._windowForNativeLease(actor,state,lease,now)
+    local from=U().squareOf(actor)
+    -- Native next-waypoint telemetry is planar. On a stair it can project an
+    -- upper landing onto a window below; stopping there cancels the crossing.
+    -- Keep the engine's stair ownership until the actor reaches a level tile.
+    if Navigation._betweenFloorHeights(actor) or squareHasStairs(from) then return nil end
     local step=lease.windowStep
     if not step then
         local denied=select(1,U().call(actor,"getCompanionBlockedWindow"))
-        local from=U().squareOf(actor)
         local ax,ay,az=U().position(actor)
         local nx,ny=U().position(lease.nativeNextSquare or lease.toSquare)
         local offsets

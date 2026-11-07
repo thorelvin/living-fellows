@@ -4214,6 +4214,36 @@ do
     square.stained = true
     function square:haveStains() return self.stained end
     local originalDowntime = SC.Downtime
+    local originalSupplies, originalPeek = SC.BaseWork.cleaningSuppliesAvailable, SC.Commands.peek
+    local cleaningChecks, supplyChecks = 0, 0
+    SC.Downtime = { canCleanAt = function()
+        cleaningChecks = cleaningChecks + 1
+        return false, "cleaning_supplies_missing"
+    end }
+    SC.BaseWork.cleaningSuppliesAvailable = function()
+        supplyChecks = supplyChecks + 1
+        return false, "cleaning_supplies_missing"
+    end
+    SC.Commands.peek = function() error("cleaning popup cannot initialize command state") end
+    local advertised, target = SC.BaseLife.canRequestCleaning(square, nil, true)
+    check(advertised == true and target.x == -12 and cleaningChecks == 0 and supplyChecks == 0,
+        "a cold cleaning popup advertises a present duty worker without discovering supplies or routes")
+    ctx.actor.x = 40
+    local away, awayReason = SC.BaseLife.canRequestCleaning(square, nil, true)
+    check(away == false and awayReason == "cleaning_worker_away",
+        "cleaning popup does not advertise an absent duty worker")
+    ctx.actor.x = 0
+    SC.BaseLife.setRestriction(ctx.id, "quarantine")
+    local restricted, restrictedReason = SC.BaseLife.canRequestCleaning(square, nil, true)
+    check(restricted == false and restrictedReason == "cleaning_worker_missing",
+        "cleaning popup does not advertise a restricted duty worker")
+    SC.BaseLife.setRestriction(ctx.id, nil)
+    SC.Commands.peek = originalPeek
+    local refused, refusal = SC.BaseLife.requestCleaning(square)
+    check(refused == false and refusal == "cleaning_supplies_missing"
+            and cleaningChecks == 1 and supplyChecks == 1,
+        "cleaning activation still performs full validation and refuses missing supplies")
+    SC.BaseWork.cleaningSuppliesAvailable = originalSupplies
     SC.Downtime = { canCleanAt = function() return true end }
     local available = SC.BaseLife.canRequestCleaning(square)
     local queued, job = SC.BaseLife.requestCleaning(square)

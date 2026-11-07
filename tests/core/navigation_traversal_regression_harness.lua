@@ -1692,6 +1692,48 @@ check(recovering == false and yieldState.yieldSince ~= nil,
     "generic recovery gives a known crowd blocker its detour deadline")
 U.gridSquare = oldGrid
 do
+    local walker, tread, planarNext = actor(), square(0, 0), square(1, 0)
+    local upperLanding = square(1, 0, 1)
+    local window = { __class = "IsoWindow" }
+    function tread:HasStairs() return self.stairs == true end
+    function tread:getWindowTo(to) if to == planarNext then return window end end
+    walker.square = tread
+    local oldGridSquare, oldStop, oldAdmission = U.gridSquare,
+        SC.NativeActions.stopDirect, SC.NavTraversal.admitWindow
+    local stops, admissions = 0, 0
+    U.gridSquare = function(x, y, z)
+        if x == 1 and y == 0 and math.floor(z or 0) == 0 then return planarNext end
+    end
+    SC.NativeActions.stopDirect = function() stops = stops + 1; return true end
+    SC.NavTraversal.admitWindow = function()
+        admissions = admissions + 1
+        return false, "window_landing_blocked"
+    end
+    local function lease()
+        return { affordance = "multi_level", nativeNextSquare = planarNext,
+            ultimateGoal = upperLanding, windowIntent = { action = "follow_formation" } }
+    end
+    for _, crossing in ipairs({ { z = .5, stairs = false }, { z = 0, stairs = true } }) do
+        walker.z, tread.stairs = crossing.z, crossing.stairs
+        local retained = lease()
+        local state = { nativeLease = retained }
+        local phase = N._windowForNativeLease(walker, state, retained, current)
+        check(phase == nil and state.nativeLease == retained and retained.windowStep == nil
+                and stops == 0 and admissions == 0,
+            "a retained stair crossing cannot be replaced by its projected lower-floor window at height "
+                .. tostring(crossing.z) .. " stairs=" .. tostring(crossing.stairs))
+    end
+    walker.z, tread.stairs = 0, false
+    local retained = lease()
+    local state = { nativeLease = retained }
+    local phase, reason = N._windowForNativeLease(walker, state, retained, current)
+    check(phase == "failed" and reason == "window_landing_blocked"
+            and stops == 1 and admissions == 1 and state.nativeLease == nil,
+        "a level landing still intercepts the actual window edge and honors portal refusal")
+    U.gridSquare, SC.NativeActions.stopDirect, SC.NavTraversal.admitWindow =
+        oldGridSquare, oldStop, oldAdmission
+end
+do
     local V,topology=SC.NavTraversal,SC.Topology
     local worker,inside,outside=actor(),square(0,0,1),square(1,0,1)
     local room={}

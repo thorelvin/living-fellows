@@ -67,6 +67,66 @@ function T.menu()
     end
     return menu
 end
+-- Structural menu tests keep the game's option allocation, pooling, IDs and
+-- subOption lookup. Only Java window geometry and submenu-window allocation
+-- are replaced. The older medical tests retain their narrow T.menu seam.
+function T.nativeMenu(parent)
+    local menu = setmetatable({ options = {}, optionPool = {}, numOptions = 1,
+        player = 0, parent = parent, subOptionNums = 0, mouseOver = -1,
+        instanceMap = {}, width = 1, height = 0, padY = 6, padTopBottom = 0,
+        fontHgt = 16, itemHgt = 28 }, { __index = ISContextMenu })
+    function menu:calcHeight() self.height = #self.options end
+    function menu:calcWidth() return 100 end
+    function menu:setWidth(value) self.width = value end
+    function menu:setHeight(value) self.height = value end
+    function menu:getX() return self.x or 0 end
+    function menu:getY() return self.y or 0 end
+    function menu:setX(value) self.x = value end
+    function menu:setY(value) self.y = value end
+    function menu:setVisible(value) self.visible = value end
+    function menu:hideAndChildren() self.hidden = true end
+    function menu:addToUIManager()
+        if not self.inUI then T.nativeUiCount = (T.nativeUiCount or 0) + 1 end
+        self.inUI = true
+    end
+    function menu:removeFromUIManager()
+        if self.inUI then T.nativeUiCount = T.nativeUiCount - 1 end
+        self.inUI = false
+    end
+    return menu
+end
+function T.installNativeMenus()
+    local original = { getNew = ISContextMenu.getNew, context = getPlayerContextMenu,
+        core = getCore, textManager = getTextManager, fonts = UIFont }
+    function getCore() return { getGameMode = function() return "Sandbox" end,
+        getOptionContextMenuFont = function() return "Medium" end } end
+    UIFont = UIFont or { Small = "Small", Medium = "Medium", Large = "Large" }
+    function getTextManager()
+        return { getFontHeight = function() return 16 end,
+            MeasureStringX = function(_, _, value) return #tostring(value or "") * 6 end }
+    end
+    table.wipe = table.wipe or function(value)
+        for key in pairs(value) do value[key] = nil end
+    end
+    function getPlayerContextMenu() return T.nativeRoot end
+    ISContextMenu.getNew = function(_, parent)
+        local root = T.nativeRoot
+        assert(root, "native root must be set before allocating a submenu")
+        root.subOptionNums = root.subOptionNums + 1
+        local child = T.nativeMenu(parent)
+        child.subOptionNums = root.subOptionNums
+        root.instanceMap[child.subOptionNums] = child
+        T.nativeCreations = (T.nativeCreations or 0) + 1
+        child:addToUIManager()
+        return child
+    end
+    return function()
+        ISContextMenu.getNew, getPlayerContextMenu, getCore = original.getNew,
+            original.context, original.core
+        getTextManager, UIFont = original.textManager, original.fonts
+        T.nativeRoot = nil
+    end
+end
 local function originalMedical(worldObjects, requester, patient)
     T.originalCalls[#T.originalCalls + 1] = { worldObjects, requester, patient }
     return true, "vanilla_medical"
