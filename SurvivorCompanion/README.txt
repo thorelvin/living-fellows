@@ -1,4 +1,4 @@
-Living Fellows 0.27.2 - release
+Living Fellows 0.27.3 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -35,9 +35,11 @@ Use one edition at a time.
 
 GETTING STARTED
 - Press Home or click LF to open the companion panel.
-- Meet a survivor, select them and choose Recruit when offered. Use Talk to
-  start a conversation, Orders for behavior and Squad for groups.
-- Right-click the ground: Living Fellows > Base life > Set camp core here.
+- Meet a survivor: right-click them, choose Talk to (name), then Invite to join.
+  Use Orders for behavior and Squad for groups.
+- First steps on Status follows your progress. A short reminder stays beside
+  the collapsed launcher. Dismiss it or change Show tips in Mod Options.
+- Right-click the ground: Living Fellows > Set camp core here.
   Mark storage and assign jobs at the top of More > Base.
 - Hold keypad 1 to Peek, press keypad 2 for Watch and hold keypad 3 to Steer.
   These keys can be rebound.

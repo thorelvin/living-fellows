@@ -2,6 +2,28 @@
 
 # Changelog
 
+## 0.27.3 - First steps and safer survivor arrivals
+
+- Follow a small First steps checklist on Status, with the current task beside
+  the collapsed LF launcher. Steps follow actual recruitment, orders, camp,
+  storage and job assignments; using a computer is an optional final step.
+- Invite independent survivors from Talk. Count successful squad orders too,
+  while rejected orders leave the checklist unchanged.
+- Dismiss the card, turn Show tips off or use Show tips again in Mod Options.
+  Reread tips under More > Support. Tip history follows the installation;
+  existing camps skip the introductory checklist.
+- Arrange an early independent survivor in fresh worlds, with bounded retries,
+  cautious approach and a call-out. Clear hidden, idle zombies once within
+  30 metres of the first arrival and 8 metres of later independent arrivals.
+  Preserve visible enemies and active fights; survivors remain vulnerable.
+- Offer a short introduction on the first EMMA session, with commands suited
+  to that computer. Space contextual hints apart and hold them during danger.
+- Correct old camp-menu directions in the quick-start text and Field Guide
+  sources. Verify the first six steps in a cloned world with real zombies.
+- Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
+  ship the rebuilt bridge with 0.27.3 release metadata. Existing save schemas
+  are unchanged; first-meeting progress uses an optional world-save bucket.
+
 ## 0.27.2 - PZO compatibility and Strange Folk fixes
 
 - Keep Ruth Ann gone after her departure, recover an interrupted ride, and
