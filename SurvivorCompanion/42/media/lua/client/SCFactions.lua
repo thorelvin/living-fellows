@@ -1423,7 +1423,17 @@ end
 
 Factions._chooseMemberSquareForTests = chooseMemberSquare
 
+local function authoredMemberDeparted(group)
+    local story = group and group.oddball
+    local departed = type(story) == "table" and story.id == "hitchhiker_ruth_ann"
+        and (story.departed == true or story.stage == "gone_inside"
+            or story.stage == "waiting_to_be_found")
+    if departed then story.departed = true end
+    return departed == true
+end
+
 local function queueMemberSpawn(group, member, square, snapshot, debugCreated)
+    if authoredMemberDeparted(group) then return false, "member_departed" end
     local safe, safeReason = U().isClearActorSpawnSquare(square)
     if not safe then return false, "member_square_" .. tostring(safeReason) end
     local x, y, z = U().position(square)
@@ -1891,7 +1901,8 @@ local function beginNextSpawn()
     for _, candidate in ipairs(group.members or {}) do
         if candidate.key == entry.memberKey then member = candidate break end
     end
-    if member == nil or member.alive == false or member.away ~= nil or member.departed == true then
+    if member == nil or member.alive == false or member.away ~= nil or member.departed == true
+        or authoredMemberDeparted(group) then
         if member then member.spawnQueued, member.waking = false, false end
         return false, "member_unavailable"
     end
@@ -1961,6 +1972,19 @@ end
 Factions._beginNextSpawnForTests = beginNextSpawn
 
 local function pollSpawn()
+    local departingGroup = spawnEntry and groups[spawnEntry.groupId]
+    if spawnTicket ~= nil and authoredMemberDeparted(departingGroup) then
+        local cancelled, reason = SC.Actor.cancelSpawn(spawnTicket)
+        if cancelled ~= true then return false, reason or "departed_spawn_cleanup_pending" end
+        for _, member in ipairs(departingGroup.members or {}) do
+            if member.key == spawnEntry.memberKey then
+                member.spawnQueued, member.waking = false, false
+                break
+            end
+        end
+        spawnTicket, spawnEntry = nil, nil
+        return false, "member_departed"
+    end
     if spawnTicket == nil then return beginNextSpawn() end
     local actor, reason = SC.Actor.pollSpawn(spawnTicket)
     if actor == nil and reason == "spawn_pending" then return false, reason end
@@ -3366,6 +3390,9 @@ end
 
 local function lifecyclePulse(group, player, remainingBudget, cursor)
     if group.lifecycle == "destroyed" or player == nil or not group.house then return end
+    local departed = authoredMemberDeparted(group)
+    -- Old saves already in the body scene have no departure flag. Keep their
+    -- story pulsing, but never recreate the living passenger beside her body.
     cursor = cursor or {}
     local reference = group.house.anchor
     if type(group.oddball) == "table" and group.oddball.site
@@ -3383,7 +3410,7 @@ local function lifecyclePulse(group, player, remainingBudget, cursor)
     local distance = U().distance(player, reference)
     local hibernateDistance = tonumber(SC.Config.get("factionHibernationDistance")) or 120
     local wakeDistance = tonumber(SC.Config.get("factionWakeDistance")) or 100
-    if distance > hibernateDistance then
+    if distance > hibernateDistance or departed then
         cursor.memberIndex = cursor.memberIndex or 1
         while cursor.memberIndex <= #(group.members or {}) do
             if not budgetAvailable(remainingBudget) then return false, "faction_lifecycle_pending", true end
@@ -3395,6 +3422,7 @@ local function lifecyclePulse(group, player, remainingBudget, cursor)
             end
         end
     elseif distance < wakeDistance
+        and not departed
         and not (group.oddball and group.oddball.awaitingStageSite == true) then
         cursor.memberIndex = cursor.memberIndex or 1
         while cursor.memberIndex <= #(group.members or {}) do
@@ -4336,6 +4364,14 @@ local function validGroup(source, id, path)
                 and type(member.oddballKitPending) ~= "boolean")
             or (member.oddballScenePending ~= nil
                 and type(member.oddballScenePending) ~= "boolean")
+            or (member.oddballSetupFailures ~= nil
+                and (not finiteNumber(member.oddballSetupFailures)
+                    or member.oddballSetupFailures < 0 or member.oddballSetupFailures > 5
+                    or member.oddballSetupFailures ~= math.floor(member.oddballSetupFailures)))
+            or (member.oddballSetupStopped ~= nil
+                and type(member.oddballSetupStopped) ~= "boolean")
+            or (member.oddballSetupModuleReady ~= nil
+                and type(member.oddballSetupModuleReady) ~= "boolean")
             or (member.hibernated == true and type(member.snapshot) ~= "table") then
             return restoreFailure(memberPath, "invalid or duplicate member")
         end

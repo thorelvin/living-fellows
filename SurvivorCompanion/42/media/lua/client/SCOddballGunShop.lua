@@ -87,6 +87,11 @@ local runtimeByGroup = setmetatable({}, { __mode = "k" })
 
 local function U() return SC.GameplayUtil end
 
+local function hostile(group)
+    return group.standing == "Hostile" or group.lifecycle == "hostile"
+        or group.permanentHostility == true
+end
+
 local function story(group)
     local value = type(group) == "table" and group.oddball or nil
     if type(value) ~= "table" or value.id ~= ID then return nil end
@@ -392,7 +397,7 @@ function GunShop.pulse(group, player, current)
         end
         return true, "bob_under_siege"
     end
-    if value.stage == "survived" and value.rewardGiven ~= true and player
+    if value.stage == "survived" and value.rewardGiven ~= true and not hostile(group) and player
         and U().sameFloor(actor, player) and U().distance(actor, player) <= MENU_DISTANCE + 2 then
         local requirements = {}
         for _, item in ipairs(REWARD) do requirements[item.kind] = item.count end
@@ -422,6 +427,7 @@ end
 
 function GunShop.intentFor(actor, player, snapshot, group)
     if not story(group) then return nil end
+    if hostile(group) then return { mode = "hostile", priority = 110 } end
     return { mode = "gunshop_counter", priority = 30 }
 end
 
@@ -463,6 +469,7 @@ end
 
 function GunShop.canRecruit(group)
     local value = story(group)
+    if value and hostile(group) then return false, "faction_hostile" end
     if value and (value.stage == "survived" or value.stage == "quiet") then return true end
     return false, "bob_minding_the_store"
 end

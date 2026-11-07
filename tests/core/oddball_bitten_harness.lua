@@ -179,9 +179,13 @@ for _, transmission in ipairs({ 3, 4 }) do
     assert(B.bitesInfect() == false, "transmission " .. transmission .. " leaves a bite harmless to his story")
 end
 SandboxVars.ZombieLore.Transmission = 1
-for _, mortality in ipairs({ 1, 7 }) do
+for _, mortality in ipairs({ 0, 1, 2, 3, 4, 7, 8 }) do
     SandboxVars.ZombieLore.Mortality = mortality
-    assert(B.bitesInfect() == false, "mortality " .. mortality .. " is instant or never")
+    assert(B.bitesInfect() == false, "mortality " .. mortality .. " cannot support finding him alive")
+end
+for _, mortality in ipairs({ 5, 6 }) do
+    SandboxVars.ZombieLore.Mortality = mortality
+    assert(B.bitesInfect() == true, "mortality " .. mortality .. " leaves days to find him")
 end
 SandboxVars.ZombieLore.Mortality = 5
 local saved = SandboxVars

@@ -134,10 +134,25 @@ assert(P.bookCategory("Base.Book_Bible") == "bible"
     and P.bookCategory("Base.Paperback_Bible") == "bible"
     and P.bookCategory("Base.Book_Cooking") == "cooking"
     and P.bookCategory("Base.Book_Farming") == "growing"
-    and P.bookCategory("Base.Magazine_Mechanic") == "engines"
+    and P.bookCategory("Base.Magazine_Car") == "engines"
+    and P.bookCategory("Base.Magazine_Car_New") == "engines"
     and P.bookCategory("Base.Book_Military") == "soldiering"
     and P.bookCategory("Base.Book_Fiction") == "other",
     "the book decides what kind of reading goes on air")
+for index = 1, 5 do
+    assert(P.bookCategory("Base.BookMechanic" .. index) == "engines",
+        "actual mechanics skill books receive engine readings")
+    assert(P.bookCategory("Base.BookCarpentry" .. index) == "other"
+            and P.bookCategory("Base.BookCarving" .. index) == "other",
+        "carpentry and carving are not car manuals")
+end
+for index = 1, 3 do
+    assert(P.bookCategory("Base.MechanicMag" .. index) == "engines",
+        "actual mechanics recipe magazines receive engine readings")
+end
+assert(P.bookCategory("Base.Paperback_Scary") == "other"
+        and P.bookCategory("Base.Book_Caravan") == "other",
+    "the letters car in unrelated titles do not make them engine books")
 
 local group = newGroup()
 assert(P.onSpawn(group, dwayne))
@@ -151,6 +166,14 @@ assert(binder and binder.kind == "Base.Notebook" and binder.name == "Reverend Ma
     "the Reverend's twelve sermons are readable in a real binder")
 assert(P.onSpawn(group, dwayne))
 assert(#spawnedVans == 1 and #dwayne.inv.items == 1, "a setup retry never adds a second van or binder")
+for _, hostility in ipairs({ "standing", "lifecycle", "permanentHostility" }) do
+    group[hostility] = hostility == "standing" and "Hostile"
+        or hostility == "lifecycle" and "hostile" or true
+    local intent = P.intentFor(dwayne, player, {}, group)
+    assert(intent.mode == "hostile" and intent.priority == 110,
+        "hostile Dwayne delegates to human combat: " .. hostility)
+    group.standing, group.lifecycle, group.permanentHostility = "Neutral", nil, nil
+end
 
 -- The first slot he sees has already passed: nothing until the next one.
 assert(P.pulse(group, player, now))
@@ -286,9 +309,21 @@ assert(sent[#sent].text == P.LINES.signOff[1] and quiet.oddball.stage == "silent
     "no book: sermon fifty-two ends with the sign-off")
 assert(#sent == 6, "intro, the title, three lines of the farewell note, and the sign-off: " .. #sent)
 
+-- Native recipe-magazine names do not start with Book or Magazine.
+local manualGroup = newGroup()
+local manual = SC.GameplayUtil.addItem(player.inv, "Base.MechanicMag1")
+assert(P.action(manualGroup, "give_dwayne_book", player)
+        and manual.container == dwayne.inv and manualGroup.oddball.bookCategory == "engines",
+    "a real mechanics recipe magazine is accepted and transferred as engine literature")
+local carpentryGroup = newGroup()
+local carpentry = SC.GameplayUtil.addItem(player.inv, "Base.BookCarpentry1")
+assert(P.action(carpentryGroup, "give_dwayne_book", player)
+        and carpentry.container == dwayne.inv and carpentryGroup.oddball.bookCategory == "other",
+    "a carpentry book is still accepted without promising engine readings")
+
 -- No native radio: nothing crashes, nothing is claimed.
 getZomboidRadio = nil
 local ok, reason = P.transmit(quiet.oddball, "test", "T")
 assert(ok == false and reason == "native_radio_unavailable")
 
-print("Preacher PASS: one van, binder, schedule, native transmissions with van range, fallback, meeting, menu, real book, readings, sign-off")
+print("Preacher PASS: one van, binder, hostile combat, schedule, native transmissions with van range, fallback, meeting, menu, exact book categories, real books, readings, sign-off")

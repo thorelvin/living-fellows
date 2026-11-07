@@ -5,20 +5,27 @@
 require = function() return true end
 
 local function menu()
-    local result = { options = {} }
+    local result = { options = {}, subMenus = {} }
     function result:addOption(label, target, callback, ...)
-        local option = { label = label, target = target, callback = callback,
+        local option = { label = label, name = label, target = target, callback = callback,
             args = { ... } }
         self.options[#self.options + 1] = option
         return option
     end
     result.addOptionOnTop = result.addOption
-    function result:addSubMenu(option, subMenu) option.subMenu = subMenu end
+    function result:addSubMenu(option, subMenu)
+        self.subMenus[#self.subMenus + 1] = subMenu
+        option.subMenu, option.subOption = subMenu, #self.subMenus
+        subMenu.parent = self
+    end
+    function result:getSubMenu(index) return self.subMenus[index] end
     return result
 end
 local function option(items, label)
     for _, entry in ipairs(items.options) do
         if entry.label == label then return entry end
+        local nested = entry.subMenu and option(entry.subMenu, label)
+        if nested then return nested end
     end
     return nil
 end
@@ -47,6 +54,8 @@ function square:getGenerator() return self.generator end
 T.car, T.generator, T.square = car, generator, square
 local player = { note = nil }
 function player:getVehicle() return nil end
+function player:getX() return 0 end
+function player:getY() return 0 end
 function player:setHaloNote(note) self.note = note end
 T.player = player
 getSpecificPlayer = function(index) return index == 0 and player or nil end
@@ -67,10 +76,11 @@ SurvivorCompanion = {
         baseFailureReason = function(reason) return "Sentence for " .. tostring(reason) end,
     },
     Registry = {
+        idOf = function(actor) return actor.id end,
         living = function() return T.living end,
         byId = function(id)
             for _, actor in ipairs(T.living) do
-                if actor.id == id then return { actor = actor, recruited = true } end
+                if actor.id == id then return { actor = actor, name = actor.name, recruited = true } end
             end
             return nil
         end,

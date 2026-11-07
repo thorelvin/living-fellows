@@ -392,6 +392,7 @@ try {
 
         $vehicleContextFiles = @(
             (Join-Path $TestRoot 'vehicle_context_harness.lua'),
+            (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCUIContext.lua'),
             (Join-Path $TestRoot 'vehicle_context_run.lua')
         )
@@ -467,6 +468,7 @@ try {
             (Join-Path $Shared 'SCNativeList.lua'), (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $TestRoot 'expedition_places_fixture.lua'),
             (Join-Path $Client 'SCExpeditionPlaces.lua'), (Join-Path $Client 'SCExpeditionTargets.lua'),
+            (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCFishing.lua'), (Join-Path $Client 'SCExpeditionMap.lua'),
             (Join-Path $TestRoot 'expedition_map_targets_harness.lua')
         )

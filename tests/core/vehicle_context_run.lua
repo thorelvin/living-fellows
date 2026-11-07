@@ -27,11 +27,11 @@ local camp = open()
 local refuel = option(camp, "UI_SC_Base_RefuelFromBase")
 local tires = option(camp, "UI_SC_Base_InflateTires")
 local wash = option(camp, "UI_SC_Base_WashCar")
-check(refuel and refuel.notAvailable and refuel.toolTip
+check(refuel and refuel.isDisabled and refuel.toolTip
         and refuel.toolTip.description == "Sentence for car_tank_full",
     "a closed chore on a camp car is greyed out with a sentence")
-check(tires and not tires.notAvailable, "an open chore on a camp car is offered")
-check(wash and wash.notAvailable
+check(tires and not tires.isDisabled, "an open chore on a camp car is offered")
+check(wash and wash.isDisabled
         and wash.toolTip.description == "Sentence for car_clean",
     "each closed chore explains its own reason")
 refuel.callback(refuel.target, unpack(refuel.args))
@@ -45,17 +45,19 @@ check(not option(open(), "UI_SC_Base_RefuelGeneratorFromBase"),
     "a generator outside the camp lists no camp refuel")
 T.generatorAnswer = { false, "generator_full" }
 local fueled = option(open(), "UI_SC_Base_RefuelGeneratorFromBase")
-check(fueled and fueled.notAvailable
+check(fueled and fueled.isDisabled
         and fueled.toolTip.description == "Sentence for generator_full",
     "a full camp generator explains why it cannot be refueled")
 
 -- A recruited companion nearby can be offered the wheel.
 T.square.car, T.square.generator = T.car, nil
 local ann = { id = "sc-ann", name = "Ann" }
+function ann:getX() return 2 end
+function ann:getY() return 0 end
 T.living = { ann }
 local follow = option(open(), "UI_SC_Vehicle_CommandFollowCar")
 local driver = follow and follow.subMenu and option(follow.subMenu, "Ann")
-check(driver and driver.notAvailable
+check(driver and driver.isDisabled
         and driver.toolTip.description == "Sentence for car_has_no_fuel",
     "a companion who cannot take this car is shown with a sentence")
 
@@ -70,9 +72,9 @@ SurvivorCompanion.GameplayUtil.instanceOf = function(item, kind)
     return item == radio and kind == "Radio"
 end
 local acknowledged
+local mission = { scout = { phase = "searching", search = {} } }
 SurvivorCompanion.ExpeditionPrototype = {
-    current = function() return { scout = {
-        phase = "searching", search = {} } } end,
+    current = function() return mission end,
     sendRadioOrder = function(_, command, payload)
         acknowledged = command == "progress_report" and payload == "status"
         return true, "progress_acknowledged"

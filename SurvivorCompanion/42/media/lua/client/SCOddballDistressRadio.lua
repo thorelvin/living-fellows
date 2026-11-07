@@ -34,7 +34,7 @@ local function actorFor(group)
     return record and record.actor or nil
 end
 
-local function equippedRadio(actor, transmit)
+local function equippedRadio(actor, transmit, channel)
     if not actor then return nil end
     local inventory = call(actor, "getInventory")
     local radio = call(actor, "getEquipedRadio")
@@ -51,7 +51,7 @@ local function equippedRadio(actor, transmit)
         or call(data, "getIsTurnedOn") ~= true
         or call(data, "getHasBattery") ~= true
         or (number(call(data, "getPower")) or 0) <= 0
-        or number(call(data, "getChannel")) ~= CHANNEL
+        or number(call(data, "getChannel")) ~= (channel or CHANNEL)
         or not transmit and ((number(call(data, "getDeviceVolume")) or 0) <= 0
             or call(data, "isPlayingMedia") == true
             or call(data, "isNoTransmit") == true)
@@ -63,6 +63,8 @@ local function equippedRadio(actor, transmit)
     end
     return radio, data
 end
+-- Shared eligibility for authored calls; receiving stays distinct from transmitting.
+Radio.equippedRadio = equippedRadio
 
 local function inRange(a, b, range)
     local ax, ay = U().position(a)

@@ -250,6 +250,22 @@ now = now + 2700
 G.pulse(group, player, now)
 assert(count(player.inv, "Base.Pistol2") == 0 and group.oddball.rewardGiven ~= true)
 player.x = 0
+for _, hostility in ipairs({ "standing", "lifecycle", "permanentHostility" }) do
+    group.standing, group.lifecycle, group.permanentHostility = "Neutral", nil, nil
+    group[hostility] = hostility == "standing" and "Hostile"
+        or hostility == "lifecycle" and "hostile" or true
+    local intent = G.intentFor(bob, player, {}, group)
+    assert(intent.mode == "hostile" and intent.priority == 110,
+        "hostile Bob delegates to human combat: " .. hostility)
+    now = now + 100
+    G.pulse(group, player, now)
+    assert(count(player.inv, "Base.Pistol2") == 0 and count(bob.inv, "Base.Pistol2") == 1
+            and group.oddball.rewardGiven ~= true,
+        "Bob keeps his reward while hostile: " .. hostility)
+    assert(select(1, G.canRecruit(group)) == false,
+        "the story recruitment check also rejects hostile Bob")
+end
+group.standing, group.lifecycle, group.permanentHostility = "Neutral", nil, nil
 now = now + 100
 G.pulse(group, player, now)
 assert(count(player.inv, "Base.Pistol2") == 1 and count(player.inv, "Base.45Clip") == 2
@@ -373,4 +389,4 @@ now = now + 600001
 G.pulse(group, player, now)
 assert(group.oddball.stage == "survived", "ten quiet minutes end the siege")
 
-print("GunShop PASS: kit, greeting order, smash and spawn out of sight, barks, kill count, reward, quiet fallbacks, siege limit")
+print("GunShop PASS: kit, greeting order, smash and spawn out of sight, barks, kill count, hostile combat and reward guards, quiet fallbacks, siege limit")

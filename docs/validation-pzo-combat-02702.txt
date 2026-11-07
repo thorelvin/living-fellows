@@ -1,0 +1,111 @@
+PZO inventory diagnostics and incoming damage - 7 November 2026
+
+Base: living_fellows/0.27.2, d9d16d47. Rebuilt LF JAR SHA256
+7fde1d912e8c63e001574f8b66c332d4ea9b0efec971ccc2c3fb640378562c5c.
+PZO engine/native/frontend 1.9.3, Workshop manifest 6457199287850172211;
+the exact engine and frontend hashes are retained in validation-pzo-launcher-02702.txt.
+
+Matched inventory investigation
+
+Two fresh copies of the same firehouse seed used the same LF payload, corrected
+combat probe, two companions/three zombies, Follow, natural acquisition, one
+45-second trial, graphics limits and temporary duplicate-warning trace agent.
+Only the second enabled PZO's actual main, agent/native library and Lua mod.
+Each verified its expected PZO mode and the diagnostic hook at runtime. This is
+a comparison of a scenario, not identical random combat outcomes or a benchmark.
+
+Baseline: SC-Harness-20261107-033922-0f37c4ed, 29 checks passed, no skips.
+Zero duplicate-item warnings. Three original zombie lifetimes tracked, zero
+verified deaths, 1.09 zombie health damage; one of two companions survived.
+Incoming companion wounds/health loss were recorded. Offensive activity is
+what the existing normal-combat assertion requires; PASS does not mean victory.
+
+PZO: SC-Harness-20261107-033957-29329d53, 29 checks passed, no skips.
+Five duplicate-item warnings. Three original zombie lifetimes tracked, zero
+verified deaths, 0.65 zombie health damage; both companions remained at 100.
+
+All five warnings rejected re-adding the identical native Clothing object to
+the same synthetic floor container (id -1, no parent). The incoming and existing
+references and IDs matched, donor was receiver, and the receiver contained
+exactly one matching item. The item was Base.Wound_LHand_Laceration_Male; the
+other floor-view item was a bandana. The Java stack was Lua UI rendering, not
+an LF packing/loan/physical transfer. No distinct same-ID objects were observed.
+
+The trace instruments only the native duplicate-warning branch, retaining its
+original log and rejection/return. It does not change IDs, ownership, normal
+AddItem paths or health. The engine rejects the repeated add before donor
+removal/insertion. This evidence does not establish a general inventory audit.
+The inspected vanilla floor-loot refresh builds this synthetic container and
+adds nearby world items at ISInventoryPage.lua:1697. Attribution of the repeated
+input to PZO, world wrappers or a reentrant UI refresh requires further evidence.
+
+Existing probe correction
+
+All three zombies changed outfit IDs four frames after their initial admission
+in BOTH runs, while remaining alive and in the native zombie list. The old
+outfit-ID lifetime check incorrectly retired their receipts. This confirms an
+existing measurement defect, rather than evidence of PZO removing the zombies.
+
+SCSquadCombatLiveProbe.lua now tags each owned spawn with a private ModData
+token. Native resetForReuse clears ModData; dressing/outfit changes do not.
+It allows up to three seconds for initial live list admission, checks the token
+before damage/death attribution, and logs admission/retirement reasons. Death
+after list detachment can count only for the admitted matching token. Arena
+corpses remain an independent observation and no longer inflate kill counts.
+An explicit lifetime-coverage assertion rejects silently lost tracking.
+The change extends the existing probe; no new permanent test framework was added.
+
+Incoming damage with PZO
+
+SC-Harness-20261107-034401-976d3cd8 used one companion/one zombie for 45.025
+seconds, Stay, the existing passive control, and the observer away from the
+arena. The fixture held outgoing actions; normal LF ZombieTargeting/ZombieAttack
+handling continued. It neither deducted health nor injected wounds.
+
+PZO 1.9.3 engine and frontend were active. All 23 checks passed, no skips.
+The companion had one new wound and lost 1.36 health, ending at 98.6, with zero
+outgoing/offensive actions. The original zombie lifetime remained tracked.
+This verifies incoming damage through normal LF handling with PZO; it does not
+separate vanilla victim processing from LF's supported completed-episode
+fallback or certify every possible attack. No PZO exemption/health override
+was added in response to this passing control.
+
+Evidence and containment
+
+Each named run is under build/live-sandbox-runs/. Inspect cache/console.txt,
+cache/Lua/SurvivorCompanionHarness/squad-combat-results.txt, item-trace.log and
+native screenshots from the two normal fights. Private failure capture was
+enabled. The diagnostic agent/source/smoke evidence is ignored under
+build/pzo-item-trace/; it is not part of the release payload.
+
+Only one live JVM ran at a time, capped at 2560 MB/four CPUs, BelowNormal,
+with an outer deadline and free-memory guards. Installed launcher/JAR locks,
+post-run hashes and exact restoration of the enumerated PZO telemetry files
+were retained. PZO power/GPU preference/FSR and additional Java-mod scanning
+were off in private settings; ordinary combat/LOD features remained enabled.
+Original saves and user presets were not used as writable test targets.
+
+Optional UI re-entry limitation
+
+SC-Harness-20261107-035758-76d323db copied the completed PZO comparison world
+for a further 15-second, UI-only inspection with bounded Lua/world-wrapper
+diagnostics. It stopped at the new-character spawn screen before world entry.
+The copied database marks local player row 1 dead; this was not a successful
+UI replay, did not exercise the added observer setup and yields no new warning
+provenance evidence. A native MainThread screenshot records the block at
+cache/Screenshots/block-ui-reentry-mainmenu.png, with MainScreenState recorded
+in block-capture-state.txt. Only this owned process was stopped; the runner's
+finally path restored telemetry and released installed-file locks. Its expected
+non-PASS result is retained separately from the three completed controls.
+
+The warning's immediate source is a repeated same-object add in floor-loot UI
+rendering. Why the virtual view encountered that world item twice is still
+unproven. No global AddItem wrapper, warning suppression or new production
+inventory/optimizer adapter was added to mask it.
+
+The modified probe compiled with the installed Kahlua compiler, passed the two
+matched live runs and passive run, and passed a separate read-only review.
+Final source checks and git diff --check passed. All owned test clients/JVMs
+are closed. This investigation changed only the existing probe and validation documents;
+diagnostic agents, clone hooks and run orchestration remain ignored in build/.
+Subsequent Strange Folk fixes are documented in validation-strange-folk-review-fixes.txt.

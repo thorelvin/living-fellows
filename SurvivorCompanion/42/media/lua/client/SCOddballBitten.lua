@@ -175,13 +175,14 @@ local function fellowLine(group, player, pool, flag)
 end
 
 -- Only seed him where a bite is fatal: transmission by blood and saliva or
--- saliva only, and a mortality that is neither instant nor never.
+-- saliva only, and enough time for the player to find him alive. In 42.21,
+-- mortality 5 is two-to-three days and 6 is one-to-two weeks.
 function Bitten.bitesInfect()
     local lore = type(SandboxVars) == "table" and SandboxVars.ZombieLore or nil
     local transmission = tonumber(type(lore) == "table" and lore.Transmission or nil)
     local mortality = tonumber(type(lore) == "table" and lore.Mortality or nil)
     return (transmission == 1 or transmission == 2)
-        and mortality ~= nil and mortality ~= 1 and mortality ~= 7
+        and (mortality == 5 or mortality == 6)
 end
 
 local function syncShelter(actor, wanted)

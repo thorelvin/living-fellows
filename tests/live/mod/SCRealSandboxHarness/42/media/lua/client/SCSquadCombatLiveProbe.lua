@@ -265,22 +265,85 @@ local function findOpenCombatArena(player)
     return best, bestScore, bestPaved
 end
 
--- A Java IsoZombie is pooled. Terminal observations belong to the spawned
--- lifetime, never to whichever population actor later reuses that object.
-local function trackedZombie(H, zombie)
-    local receipt=H.squadCombatLifetimes and H.squadCombatLifetimes[zombie]
-    if not receipt or receipt.terminal then return false,receipt end
-    local dead=call(zombie,"isDead")==true
-    local member=call(call(getCell(),"getZombieList"),"contains",zombie)
-    local outfit=call(zombie,"getPersistentOutfitID")
-    if dead then receipt.dead,receipt.health,receipt.terminal=true,0,true
-    elseif member==false or receipt.outfit~=nil and outfit~=receipt.outfit then
-        receipt.removed,receipt.terminal=true,true
-    else
-        receipt.health=number(call(zombie,"getHealth"),receipt.health)
-        receipt.x,receipt.y=SurvivorCompanion.GameplayUtil.position(zombie)
+-- resetForReuse wipes ModData; dressing can change an outfit ID during the
+-- same life. A private token distinguishes this spawn from a pooled reuse.
+local LIFETIME_KEY = "_SCRealSquadCombatLifetime"
+local function sameZombieLifetime(zombie, receipt)
+    local data = call(zombie, "getModData")
+    return receipt ~= nil and type(data) == "table"
+        and rawget(data, LIFETIME_KEY) == receipt.token
+end
+
+local function lifetimeReason(H, zombie, receipt, reason, member)
+    print("SC_COMBAT_ZOMBIE_LIFETIME|case=" .. caseName(H.squadCombatCase)
+        .. " trial=" .. tostring(H.squadCombatRepeat) .. " zombie=" .. receipt.index
+        .. " reason=" .. reason .. " member=" .. tostring(member)
+        .. " outfit=" .. tostring(call(zombie, "getPersistentOutfitID"))
+        .. " health=" .. tostring(receipt.health))
+end
+
+local function endZombieLifetime(H, zombie, receipt, reason, member, dead)
+    receipt.terminal, receipt.reason = true, reason
+    receipt.dead, receipt.removed = dead == true, dead ~= true
+    if dead then
+        receipt.health = 0
+        receipt.x, receipt.y = SurvivorCompanion.GameplayUtil.position(zombie)
     end
-    return not receipt.terminal,receipt
+    lifetimeReason(H, zombie, receipt, reason, member)
+end
+
+local function trackedZombie(H, zombie, deathEvent)
+    local receipt = H.squadCombatLifetimes and H.squadCombatLifetimes[zombie]
+    if not receipt or receipt.dead then return false, receipt end
+    local member = call(call(getCell(), "getZombieList"), "contains", zombie)
+    if not sameZombieLifetime(zombie, receipt) then
+        if receipt.reason ~= "token_lost" then
+            endZombieLifetime(H, zombie, receipt, "token_lost", member)
+        end
+        return false, receipt
+    end
+    -- Death may be notified after list detachment. The admitted spawn's token
+    -- must still match; a recycled object cannot donate its death to this trial.
+    if deathEvent then
+        endZombieLifetime(H, zombie, receipt,
+            receipt.joined and "death_event" or "death_before_join", member, receipt.joined)
+        return false, receipt
+    end
+    if receipt.terminal then return false, receipt end
+    local dead = call(zombie, "isDead") == true
+    if not receipt.joined then
+        if member == true and not dead then
+            receipt.joined = true
+            receipt.health = number(call(zombie, "getHealth"), receipt.health)
+            H.squadCombatInitialHealth[zombie] = receipt.health
+            H.squadCombatLastHealth[zombie] = receipt.health
+            lifetimeReason(H, zombie, receipt, "joined", member)
+        elseif (H.squadCombatNow or receipt.createdAt) - receipt.createdAt >= 3000 then
+            endZombieLifetime(H, zombie, receipt, "spawn_not_admitted", member)
+            return false, receipt
+        else
+            if not receipt.pendingLogged then
+                receipt.pendingLogged = true
+                lifetimeReason(H, zombie, receipt, "spawn_pending", member)
+            end
+            return false, receipt
+        end
+    end
+    local outfit = call(zombie, "getPersistentOutfitID")
+    if outfit ~= receipt.outfit then
+        receipt.outfit = outfit
+        lifetimeReason(H, zombie, receipt, "outfit_changed", member)
+    end
+    if dead then
+        endZombieLifetime(H, zombie, receipt, "death_poll", member, true)
+    elseif member ~= true then
+        endZombieLifetime(H, zombie, receipt,
+            member == false and "membership_lost" or "membership_unavailable", member)
+    else
+        receipt.health = number(call(zombie, "getHealth"), receipt.health)
+        receipt.x, receipt.y = SurvivorCompanion.GameplayUtil.position(zombie)
+    end
+    return not receipt.terminal, receipt
 end
 
 local function removeZombie(zombie)
@@ -324,7 +387,9 @@ local function cleanup(H)
     end
     for _, zombie in ipairs(H.squadCombatZombies or {}) do
         local receipt=H.squadCombatLifetimes and H.squadCombatLifetimes[zombie]
-        if not receipt or not receipt.terminal then removeZombie(zombie) end
+        if not receipt or not receipt.dead and sameZombieLifetime(zombie, receipt) then
+            removeZombie(zombie)
+        end
     end
     for _, actor in ipairs(H.squadCombatActors or {}) do
         if alive(actor) then pcall(SC.Actor.remove, actor)
@@ -525,7 +590,7 @@ local function finishTrial(H, current, check, result, setPhase)
         lowestCompanionHealth = math.min(lowestCompanionHealth,
             number(SC.GameplayUtil.nativeHealth(actor), 0))
     end
-    local zombieDetails = {}
+    local zombieDetails, trackedLifetimes = {}, 0
     local finalPositions = {}
     for index, actor in ipairs(H.squadCombatActors or {}) do
         local x, y = SC.GameplayUtil.position(actor)
@@ -538,6 +603,9 @@ local function finishTrial(H, current, check, result, setPhase)
         finalPositions[#finalPositions + 1] = string.format("z%d:%.1f:%.1f",
             index, number(zx, -1), number(zy, -1))
         if receipt and receipt.dead then kills = kills + 1 end
+        if receipt and receipt.joined and (receipt.dead or active) then
+            trackedLifetimes = trackedLifetimes + 1
+        end
         if H.squadCombatEngaged[zombie] == true then engaged = engaged + 1 end
         local initial = H.squadCombatInitialHealth[zombie]
         local final = receipt and receipt.health
@@ -573,12 +641,12 @@ local function finishTrial(H, current, check, result, setPhase)
         end
     end
     local team, zombies = H.squadCombatCase[1], H.squadCombatCase[2]
-    -- A killed IsoZombie may be returned to the engine's population pool and
-    -- reused before this trial ends. Its later isDead/health/position readings
-    -- no longer describe the corpse the fighter made. The arena was cleared
-    -- before spawning, so count the actual new IsoDeadBody objects instead.
+    -- Corpses are an independent arena observation, not proof that a particular
+    -- spawned lifetime died. Only the token-checked receipts contribute kills.
     local corpseCount = #corpsesNear(H.squadCombatArena, 20)
-    kills = math.min(zombies, math.max(kills, corpseCount))
+    check("squad_combat_lifetime_tracking", trackedLifetimes == zombies,
+        "tracked=" .. trackedLifetimes .. "/" .. zombies .. " verified_deaths=" .. kills
+            .. " arena_corpses=" .. corpseCount)
     local elapsed = current - H.squadCombatStartedAt
     local actionKinds = {}
     for kind, count in pairs(H.squadCombatActionKinds or {}) do
@@ -718,6 +786,7 @@ end
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
+    H.squadCombatNow = current
     if H.phase == "squad_combat_setup" then
         if current - H.phaseStartedAt < 4000 then return end
         if H.config.squad_combat_multihit ~= nil
@@ -939,6 +1008,7 @@ function Probe.step(H, current, check, result, setPhase)
     end
     if H.phase == "squad_combat_spawn_zombies" then
         local count = H.squadCombatCase[2]
+        H.squadCombatLifetimes = {}
         H.squadCombatSpottedAttempts, H.squadCombatSpottedSuccesses = 0, 0
         H.squadCombatSetTargetFallbacks = 0
         for index = 1, count do
@@ -951,6 +1021,19 @@ function Probe.step(H, current, check, result, setPhase)
                     "index=" .. index .. " count=" .. #H.squadCombatZombies)
                 cleanup(H); setPhase("finish", current) return
             end
+            local data = call(zombie, "getModData")
+            if type(data) ~= "table" or H.squadCombatLifetimes[zombie] ~= nil then
+                result("FAIL", "squad_combat_zombie_lifetime",
+                    "index=" .. index .. " reason="
+                        .. (type(data) ~= "table" and "mod_data_unavailable" or "duplicate_spawn_object"))
+                if H.squadCombatLifetimes[zombie] == nil then removeZombie(zombie) end
+                cleanup(H); setPhase("finish", current) return
+            end
+            local receipt = { token = {}, index = index, createdAt = current,
+                health = number(call(zombie, "getHealth"), nil),
+                outfit = call(zombie, "getPersistentOutfitID") }
+            data[LIFETIME_KEY] = receipt.token
+            H.squadCombatLifetimes[zombie] = receipt
             H.squadCombatZombies[#H.squadCombatZombies + 1] = zombie
             local target = H.squadCombatActors[(index - 1)
                 % #H.squadCombatActors + 1]
@@ -991,7 +1074,6 @@ function Probe.step(H, current, check, result, setPhase)
                 +number(call(body,"getNumPartsBitten"),0)+number(call(body,"getNumPartsScratched"),0)
                 +number(call(body,"getNumPartsBleeding"),0)
         end
-        H.squadCombatLifetimes = {}
         H.squadCombatLastHealth = setmetatable({}, { __mode = "k" })
         H.squadCombatSettledHealth = setmetatable({}, { __mode = "k" })
         H.squadCombatHitsByZombie = setmetatable({}, { __mode = "k" })
@@ -1006,17 +1088,12 @@ function Probe.step(H, current, check, result, setPhase)
         H.squadCombatEngaged = setmetatable({}, { __mode = "k" })
         for _, zombie in ipairs(H.squadCombatZombies) do
             local health = number(call(zombie, "getHealth"), nil)
-            H.squadCombatLifetimes[zombie]={health=health,outfit=call(zombie,"getPersistentOutfitID")}
-            trackedZombie(H,zombie)
             H.squadCombatInitialHealth[zombie] = health
             H.squadCombatLastHealth[zombie] = health
+            trackedZombie(H,zombie)
         end
         H.squadCombatDeathObserver=function(zombie)
-            local receipt=H.squadCombatLifetimes[zombie]
-            if receipt and not receipt.terminal then
-                receipt.x,receipt.y=U.position(zombie)
-                receipt.dead,receipt.health,receipt.terminal=true,0,true
-            end
+            trackedZombie(H,zombie,true)
         end
         Events.OnZombieDead.Add(H.squadCombatDeathObserver)
         H.squadCombatActionAt = setmetatable({}, { __mode = "k" })
@@ -1360,7 +1437,10 @@ function Probe.step(H, current, check, result, setPhase)
                 if evidence.action == "attack_melee" then
                     if evidence.result == "landed" then
                         H.squadCombatMeleeLanded = H.squadCombatMeleeLanded + 1
-                        if evidence.target then
+                        local targetReceipt = evidence.target and H.squadCombatLifetimes[evidence.target]
+                        local originalTarget = targetReceipt and targetReceipt.joined
+                            and sameZombieLifetime(evidence.target, targetReceipt)
+                        if originalTarget then
                             H.squadCombatHitsByZombie[evidence.target] =
                                 (H.squadCombatHitsByZombie[evidence.target] or 0) + 1
                         end
@@ -1369,12 +1449,7 @@ function Probe.step(H, current, check, result, setPhase)
                         local damage = before and after
                             and math.max(0, before - after) or 0
                         if #H.squadCombatHitTimeline < 100 then
-                            local targetIndex = 0
-                            for index, zombie in ipairs(H.squadCombatZombies) do
-                                if evidence.target == zombie then
-                                    targetIndex = index; break
-                                end
-                            end
+                            local targetIndex = originalTarget and targetReceipt.index or 0
                             H.squadCombatHitTimeline[#H.squadCombatHitTimeline + 1] =
                                 string.format("%d:%d:%.3f>%.3f:%s",
                                     math.floor((current - H.squadCombatStartedAt) / 1000),

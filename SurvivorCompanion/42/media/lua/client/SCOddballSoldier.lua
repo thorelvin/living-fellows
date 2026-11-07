@@ -31,6 +31,17 @@ local CACHE_ITEMS = {
 }
 Soldier.CACHE_ITEMS = CACHE_ITEMS
 
+local PERSONAL_KIT = {
+    "Base.AssaultRifle", "Base.556Clip", "Base.556Clip", "Base.556Clip", "Base.556Box",
+    "Base.Pistol", "Base.9mmClip", "Base.9mmClip", "Base.EntrenchingTool",
+    "Base.WalkieTalkie5", "Base.Battery", "Base.Battery",
+    "Base.CanteenMilitaryFull", "Base.FirstAidKit_Military",
+    "Base.FlashLight_AngleHead_Army", "Base.CompassDirectional", "Base.Map",
+    "Base.Matches", "Base.CigarettePack", "Base.MilitaryMedal", "Base.Hat_GasMask",
+}
+local KIT_COUNTS = {}
+for _, kind in ipairs(PERSONAL_KIT) do KIT_COUNTS[kind] = (KIT_COUNTS[kind] or 0) + 1 end
+
 local PLAYER_LINES = {
     identify = "Unknown station on one-four-six point six, identify yourself. Over.",
     fence = "Hatcher, what happened at the fence? Over.",
@@ -308,28 +319,11 @@ end
 -- The player's set, exactly as the rescue calls require it: equipped, on,
 -- powered, two-way, on his channel and able to transmit.
 function Soldier.playerRadio(player)
-    if not player then return nil end
-    local inventory = call(player, "getInventory")
-    local radio = call(player, "getEquipedRadio")
-    if not radio or radio ~= call(player, "getPrimaryHandItem")
-        and radio ~= call(player, "getSecondaryHandItem")
-        and radio ~= call(player, "getClothingItem_Back")
-        or call(radio, "getContainer") ~= inventory
-        or not U().instanceOf(radio, "Radio") then
-        return nil
+    local radio = SC.OddballDistressRadio
+    if radio and type(radio.equippedRadio) == "function" then
+        return radio.equippedRadio(player, true, CHANNEL)
     end
-    local data = call(radio, "getDeviceData")
-    if not data or call(data, "getIsTurnedOn") ~= true
-        or call(data, "getHasBattery") ~= true
-        or (number(call(data, "getPower")) or 0) <= 0
-        or number(call(data, "getChannel")) ~= CHANNEL
-        or call(data, "getIsTwoWay") ~= true
-        or (number(call(data, "getTransmitRange")) or 0) <= 0
-        or call(data, "getMicIsMuted") == true
-        or call(data, "isNoTransmit") == true then
-        return nil
-    end
-    return radio, data
+    return nil
 end
 
 -- The native delivery rule from the rescue calls: more than three meters
@@ -498,27 +492,46 @@ function Soldier.onSpawn(group, actor)
     if not value or not actor then return false, "hatcher_unavailable" end
     local inventory = U().inventory(actor)
     if not inventory then return false, "hatcher_inventory_unavailable" end
-    if value.kitSeeded ~= true then
-        local rifle = U().addItem(inventory, "Base.AssaultRifle")
-        if not rifle then return false, "hatcher_rifle_unavailable" end
-        -- New guns come empty. A sergeant's rifle does not.
-        U().call(rifle, "setCurrentAmmoCount", 20)
-        U().call(actor, "setPrimaryHandItem", rifle)
-        U().call(actor, "setSecondaryHandItem", rifle)
-        for _, kind in ipairs({ "Base.556Clip", "Base.556Clip", "Base.556Clip", "Base.556Box",
-            "Base.Pistol", "Base.9mmClip", "Base.9mmClip", "Base.EntrenchingTool",
-            "Base.WalkieTalkie5", "Base.Battery", "Base.Battery",
-            "Base.CanteenMilitaryFull", "Base.FirstAidKit_Military",
-            "Base.FlashLight_AngleHead_Army", "Base.CompassDirectional", "Base.Map",
-            "Base.Matches", "Base.CigarettePack", "Base.MilitaryMedal", "Base.Hat_GasMask" }) do
-            local item = U().addItem(inventory, kind)
-            if not item then
-                return false, "hatcher_kit_unavailable:" .. kind
+    if value.kitSeeded == true then return true, "hatcher_dug_in" end
+    local issued = value.kitIssuedCounts
+    if issued == nil then
+        -- Adopt older, partially seeded kits once. Later retries trust these
+        -- persisted receipts, never recreating issued gear which has since left.
+        issued = {}
+        for _, item in ipairs(U().inventoryItemsDeep(inventory, 120, 4)) do
+            local kind = U().itemType(item)
+            if KIT_COUNTS[kind] then
+                issued[kind] = math.min(KIT_COUNTS[kind], (issued[kind] or 0) + 1)
             end
-            if kind == "Base.Pistol" then U().call(item, "setCurrentAmmoCount", 15) end
         end
-        value.kitSeeded = true
+        value.kitIssuedCounts = issued
+    elseif type(issued) ~= "table" then
+        return false, "hatcher_kit_receipt_invalid"
     end
+    for kind, maximum in pairs(KIT_COUNTS) do
+        local count = issued[kind]
+        if count ~= nil and (type(count) ~= "number" or count ~= count
+            or count < 0 or count > maximum or count % 1 ~= 0) then
+            return false, "hatcher_kit_receipt_invalid:" .. kind
+        end
+    end
+    local needed = {}
+    for _, kind in ipairs(PERSONAL_KIT) do
+        needed[kind] = (needed[kind] or 0) + 1
+        if (issued[kind] or 0) < needed[kind] then
+            local item = U().addItem(inventory, kind)
+            if not item then return false, "hatcher_kit_unavailable:" .. kind end
+            issued[kind] = needed[kind]
+            -- Only newly issued weapons receive starting ammunition. Retrying
+            -- or loading a partial kit must not refill or replace an owned gun.
+            if kind == "Base.AssaultRifle" then
+                U().call(item, "setCurrentAmmoCount", 20)
+                U().call(actor, "setPrimaryHandItem", item)
+                U().call(actor, "setSecondaryHandItem", item)
+            elseif kind == "Base.Pistol" then U().call(item, "setCurrentAmmoCount", 15) end
+        end
+    end
+    value.kitSeeded = true
     return true, "hatcher_dug_in"
 end
 

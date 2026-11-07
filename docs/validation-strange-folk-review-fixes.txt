@@ -1,0 +1,84 @@
+Strange Folk review fixes - 7 November 2026
+
+Review: C:/ZOMBOID/codex-handoff-0.27.1-review.md.
+Base: living_fellows/0.27.2 at d9d16d47. Release version, bridge and save schema
+are unchanged; these Lua bug fixes join 0.27.2 with additive save fields.
+Earlier PZO combat-probe/report changes remain present and separate.
+
+Changes mapped to the review
+
+1. Ruth's departed flag is persisted and derived for older gone_inside and
+   waiting_to_be_found saves. Normal wake, missing-actor recreation, queued
+   admission and in-flight spawn completion cannot recreate her. An already
+   restored live actor is hibernated only when unseen; her story still pulses.
+2. Bob, Gary, Ron and Dwayne select hostile intent for hostile players. Bob
+   withholds rewards and refuses local recruitment while hostile; existing
+   recruitment policy remains authoritative. They still defend against zombies.
+3. Ruth has a successful ready onSpawn hook. Failed setup is limited to five
+   attempts per member with persisted failure/stop receipts and diagnostics.
+4. Hershel accepts infection mortality 5/6 only (2-3 days or 1-2 weeks).
+5. Hatcher records each issued kit quantity immediately; retries preserve the
+   repeated magazines/batteries, spent ammunition and gear subsequently removed.
+   Existing partial inventories are adopted once; completed old kits stay intact.
+6. Initial and deferred success share scene securing. A separate durable module
+   receipt preserves a successful physical setup across save/budget yield, so
+   quiet scene completion resumes without replaying onSpawn.
+7. Ruth's letter/aging targets only her group-tagged native corpse, including
+   multiple bodies on one square. Searches use bounded chunks/cursors. The
+   installed IsoDeadBody constructor's ModData copy was verified with javap.
+8. Dwayne recognizes actual native car/mechanics literature by exact item type;
+   carpentry/carving/scary titles no longer become engine manuals.
+9. Three actual failed body-spawn attempts end the pending placement. Visible
+   or unloaded locations wait without consuming failures. Missing native spawn
+   interfaces count as failures. Corpse search gets a fresh window after placement.
+10. Unrelated Dads actions preserve the pending verdict and prompt/joke counters.
+11. Five seconds without a vehicle ends Ruth's riding state: walk home when
+    already near home, otherwise walk away. An unloaded actor is not seat loss.
+12. Dwayne's standing tile is checked during candidate selection; alternative
+    sides are tried and blocked candidates are rejected before group creation.
+13. No broad navigation-policy change: the review's seven-nodes/second claim
+    lacks supporting measurement. Ruth retains her existing engine-route opt-in.
+14. Hatcher and authored rescue calls share tuned portable-radio eligibility,
+    preserving the distinct receive/transmit rules and channel requirements.
+15. Removed the three unused context-menu translation keys.
+
+Verification
+
+The existing Gunshop, Dads, Preacher, Soldier, Bitten, DistressRadio, Hitchhiker
+and foundation runners passed. Foundation includes the budget, schedule and
+random-selection cases. Regression coverage includes legacy departure states,
+live/queued/in-flight wake handling, corpse identity/crowded scans, interrupted
+rides, partial kit failure/reload, quiet-scene save-at-yield and setup exhaustion.
+Representative negative controls loaded the original modules with the updated
+behavior harnesses; all five old modules were rejected. No test-for-test
+framework or new permanent runner was added.
+
+The first complete core run passed 96/98; two old context-menu test manifests
+were missing SCContextMenu.lua. After correcting dependencies, 97/98 passed.
+The remaining vehicle-context fixture expected obsolete top-level rows and
+notAvailable flags. Its existing fixture now follows the real submenus and
+native isDisabled contract and supplies current actor/mission identities.
+The focused four-file core case then passed all 12 checks, exit 0. The focused
+expedition-map runner also passed. No production context-menu behavior was
+changed to satisfy those old tests. Core coverage is 97 full-run passes plus
+the final successful focused recheck, rather than a claimed single 98/98 run.
+
+All 40 existing Strange Folk encounter suites passed serially in 36 seconds.
+Evidence: build/strange-folk-review-fixes/ (focused logs, core-final.log,
+all-encounters.log, negative-controls/).
+
+The five-check project gate passed Build, Lifecycle, Behaviour, Cargo and
+Interface in 63.8 seconds (routine profile, 23 direct JVM starts). This includes
+normal/debug payload compilation, source/content checks and native controls.
+Evidence: build/test-results/20261107-092608-bd7701/summary.json and
+build/strange-folk-review-fixes/project-gate.log. Final git diff --check passed.
+
+Field Guide source C:/ZOMBOID/field-manual-src/src/50_part4.html now states
+Hershel's supported infection settings and Hatcher's walkie-talkie requirement.
+Its private web build validates links/assets and is kept under
+build/strange-folk-review-fixes/guide/. The guide has not been published.
+
+These fixes have automated Kahlua/native-contract evidence, not new in-world
+Strange Folk acceptance runs. Tests were serialized with 256 MB heaps and two
+active CPUs; no game client was launched. The checks did not install the mod
+or publish the Field Guide.

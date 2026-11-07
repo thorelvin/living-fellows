@@ -5,7 +5,7 @@ local hours = 24 * 6 + 3 -- day six, 03:00
 local player = { id = "player", x = 0, y = 0, z = 0, inv = { items = {} } }
 local hatcher = { id = "hatcher", x = 500, y = 0, z = 0, inv = { items = {} } }
 local fellow = { id = "fellow", x = 1, y = 1, z = 0 }
-local radioData = { on = true, battery = true, power = 0.8, channel = 146600,
+local radioData = { on = true, portable = true, battery = true, power = 0.8, channel = 146600,
     twoWay = true, range = 8000, muted = false, noTransmit = false }
 local playerRadio = { __class = "Radio", data = radioData }
 player.inv.owner = player
@@ -102,7 +102,8 @@ SC.GameplayUtil = {
             if method == "getDeviceData" then return radioData, true end
         end
         if value == radioData then
-            local map = { getIsTurnedOn = radioData.on, getHasBattery = radioData.battery,
+            local map = { getIsPortable = radioData.portable,
+                getIsTurnedOn = radioData.on, getHasBattery = radioData.battery,
                 getPower = radioData.power, getChannel = radioData.channel,
                 getIsTwoWay = radioData.twoWay, getTransmitRange = radioData.range,
                 getMicIsMuted = radioData.muted, isNoTransmit = radioData.noTransmit }
@@ -215,6 +216,59 @@ local carried = #hatcher.inv.items
 assert(S.onSpawn(group, hatcher) and #hatcher.inv.items == carried, "no second kit on reload")
 assert(S.transmitRange(group) == 16000, "his range is the army walkie's")
 
+-- A partial setup resumes without multiplying earlier supplies or reloading guns.
+do
+    local actor = { inv = { items = {} } }
+    local pending = { oddball = { id = "forest_soldier_hatcher" } }
+    local add = SC.GameplayUtil.addItem
+    local attempts, failAt = 0, 10
+    SC.GameplayUtil.addItem = function(inv, kind)
+        attempts = attempts + 1
+        if attempts == failAt then return nil end
+        return add(inv, kind)
+    end
+    local okay = S.onSpawn(pending, actor)
+    assert(not okay and not pending.oddball.kitSeeded, "the tenth item failure retains a partial kit")
+    local rifle, pistol = actor.primary, nil
+    for _, item in ipairs(actor.inv.items) do if item.kind == "Base.Pistol" then pistol = item end end
+    rifle.ammo, pistol.ammo = 4, 2
+    attempts, failAt = 0, 3 -- resume through the walkie and one battery, then fail again
+    assert(S.onSpawn(pending, actor) == false, "a later failure keeps its own progress")
+    -- A supplied box which has left his inventory is not recreated after reload.
+    for index, item in ipairs(actor.inv.items) do
+        if item.kind == "Base.556Box" then table.remove(actor.inv.items, index) break end
+    end
+    local receipts = {}
+    for kind, count in pairs(pending.oddball.kitIssuedCounts) do receipts[kind] = count end
+    pending.oddball = { id = "forest_soldier_hatcher", kitIssuedCounts = receipts }
+    SC.GameplayUtil.addItem = add
+    assert(S.onSpawn(pending, actor), "the persisted partial kit completes")
+    local counts = {}
+    for _, item in ipairs(actor.inv.items) do counts[item.kind] = (counts[item.kind] or 0) + 1 end
+    assert(counts["Base.AssaultRifle"] == 1 and counts["Base.556Clip"] == 3
+        and counts["Base.Battery"] == 2 and counts["Base.9mmClip"] == 2,
+        "failed retries retain deliberate quantities, with one rifle")
+    assert(counts["Base.556Box"] == nil, "an issued item is never recreated merely because it is gone")
+    assert(actor.primary == rifle and actor.secondary == rifle and rifle.ammo == 4 and pistol.ammo == 2,
+        "retry and reload preserve the exact weapons and their spent ammunition")
+    local owned = #actor.inv.items
+    pending.oddball.kitSeeded, pending.oddball.kitIssuedCounts = nil, { ["Base.Battery"] = -1 }
+    assert(S.onSpawn(pending, actor) == false and #actor.inv.items == owned,
+        "invalid issuance receipts cannot silently recreate supplies")
+end
+do
+    local rifle = { kind = "Base.AssaultRifle", ammo = 3 }
+    local actor = { inv = { items = { rifle, { kind = "Base.556Clip" },
+        { kind = "Base.556Clip" }, { kind = "Base.Battery" } } }, primary = rifle }
+    local legacy = { oddball = { id = "forest_soldier_hatcher" } }
+    assert(S.onSpawn(legacy, actor), "an older incomplete kit adopts existing carried supplies")
+    local counts = {}
+    for _, item in ipairs(actor.inv.items) do counts[item.kind] = (counts[item.kind] or 0) + 1 end
+    assert(counts["Base.AssaultRifle"] == 1 and counts["Base.556Clip"] == 3
+        and counts["Base.Battery"] == 2 and rifle.ammo == 3,
+        "legacy adoption fills only missing quantities without refilling the rifle")
+end
+
 -- 03:00: the slot already passed is skipped; at 06:00 the first broadcast.
 S.pulse(group, player, now)
 assert(#sent == 0 and group.oddball.lastSlot == 24 * 5 + 20)
@@ -279,6 +333,9 @@ hatcherLoaded = true
 radioData.channel = 90000
 assert(#S.radioOptions(player) == 0, "wrong channel, no options")
 radioData.channel = 146600
+radioData.portable = false
+assert(#S.radioOptions(player) == 0, "a handheld nonportable HAM set cannot call him")
+radioData.portable = true
 radioData.twoWay = false
 assert(#S.radioOptions(player) == 0, "a receive-only set cannot call him")
 radioData.twoWay = true

@@ -319,6 +319,56 @@ U.canSee = function() return false end
 SC.Factions.pulse(player, 5000)
 check(group.members[1].waking == true,
     "hidden last road tile permits a safe wake")
+do
+    local original = SC.Factions.export()
+    local groupId, originalById = group.id, SC.Registry.byId
+    -- A wake queued before the story's departure cannot bypass the guard.
+    group.oddball.id, group.oddball.stage = "hitchhiker_ruth_ann", "gone_inside"
+    check(SC.Factions._beginNextSpawnForTests() == false
+        and group.members[1].spawnQueued ~= true and group.members[1].waking ~= true,
+        "a departed Ruth's previously queued wake is discarded")
+    check(SC.Factions.restore(original) == true, "restore the queued roamer before migration cases")
+    group = SC.Factions.group(groupId)
+    for index, stage in ipairs({ "gone_inside", "waiting_to_be_found" }) do
+        local document = SC.Factions.export()
+        local saved = document.groups[groupId]
+        saved.oddball.id, saved.oddball.stage, saved.oddball.departed = "hitchhiker_ruth_ann", stage, nil
+        local member = saved.members[1]
+        member.actorId, member.hibernated = actor.id, index ~= 1
+        member.snapshot = index ~= 1 and original.groups[groupId].members[1].snapshot or nil
+        member.oddballSetupFailures, member.oddballSetupStopped = 5, true
+        check(SC.Factions.restore(document) == true, "legacy departed Ruth restores: " .. stage)
+        group = SC.Factions.group(groupId)
+        record.actor = index == 1 and actor or nil
+        local capturedBefore = captures
+        SC.Factions.pulse(player, 5000 + index * 1000)
+        check(group.oddball.departed == true and group.members[1].hibernated == true
+            and group.members[1].waking ~= true and group.members[1].spawnQueued ~= true
+            and group.lifecycle ~= "destroyed",
+            "departed Ruth stays hidden near her unseen wake tile while her story remains live: " .. stage)
+        if index == 1 then
+            check(captures == capturedBefore + 1 and record.actor == nil,
+                "an already-respawned legacy Ruth is hibernated unseen even near the player")
+        end
+        local departedSave = SC.Factions.export()
+        check(SC.Factions.restore(departedSave) == true
+            and SC.Factions.group(groupId).oddball.departed == true,
+            "Ruth's migrated departure persists through save/restore")
+        group = SC.Factions.group(groupId)
+        member = group.members[1]
+        member.hibernated, member.snapshot = false, nil
+        SC.Registry.byId = function() return nil end
+        SC.Factions.pulse(player, 8000 + index * 1000)
+        check(member.actorId == actor.id and member.spawnQueued ~= true,
+            "departed Ruth cannot use the missing-record spawn fallback")
+        member.actorId = nil
+        SC.Factions.pulse(player, 11000 + index * 1000)
+        check(member.spawnQueued ~= true, "departed Ruth cannot use the missing-ID spawn fallback")
+        SC.Registry.byId = originalById
+    end
+    check(SC.Factions.restore(original) == true, "restore the ordinary roamer fixture")
+    group = SC.Factions.group(groupId)
+end
 record.actor = actor
 group.members[1].hibernated = false
 group.members[1].snapshot = nil
@@ -540,7 +590,7 @@ end
 do
     local oldGrid, oldSafe, oldClear = U.gridSquare, U.isSafeSpawnSquare,
         U.isClearActorSpawnSquare
-    local blocked, interiorAt = {}, nil
+    local blocked, actorBlocked, interiorAt = {}, {}, nil
     local function tile(x, y, z)
         local spriteName = interiorAt == x .. ":" .. y
             and "floors_interior_tilesandwood_01_0" or "blends_street_01_16"
@@ -556,11 +606,21 @@ do
     U.isSafeSpawnSquare = function(square)
         return square ~= nil and not blocked[square.x .. ":" .. square.y]
     end
-    U.isClearActorSpawnSquare = function(square) return square ~= nil end
+    U.isClearActorSpawnSquare = function(square)
+        return square ~= nil and not actorBlocked[square.x .. ":" .. square.y]
+    end
     local vanSite = SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true)
     check(vanSite and vanSite.kind == "resident" and vanSite.van.x == 100
             and vanSite.spawn.x == 102 and vanSite.house.interior[1].x == 102,
         "the station van takes a clear stretch of road with Dwayne beside it")
+    actorBlocked["102:100"] = true
+    local clearSide = SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true)
+    check(clearSide and clearSide.spawn.x == 98,
+        "Dwayne tries the other side when his first standing tile is obstructed")
+    actorBlocked["98:100"], actorBlocked["102:101"], actorBlocked["98:101"] = true, true, true
+    check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
+        "a clear van footprint cannot admit a blocked preacher standing tile")
+    actorBlocked = {}
     blocked["101:102"] = true
     check(SC.Oddballs._siteForRadioVanForTests(tile(100, 100, 0), player, true) == nil,
         "a wreck inside the van's footprint rules the spot out")
@@ -945,7 +1005,15 @@ end)()
         oddball = { id = "pyromaniac_earl_kessler", site = {} } }
     local oldModule, oldById, oldValid = SC.OddballPyromaniac,
         SC.Registry.byId, U.isValidActor
-    local attempts = 0
+    local definition = SC.Oddballs.definition("pyromaniac_earl_kessler")
+    local oldScene, oldSecure = definition.scene, SC.Oddballs.secureScene
+    local attempts, secured = 0, 0
+    definition.scene = { radius = 12, closeDoors = true }
+    SC.Oddballs.secureScene = function(target)
+        check(target == encounter, "retry secures its own authored scene")
+        secured = secured + 1
+        return 0, 0
+    end
     SC.OddballPyromaniac = {
         onSpawn = function()
             attempts = attempts + 1
@@ -958,12 +1026,41 @@ end)()
     end
     U.isValidActor = function(value) return value == companion end
     local ready = SC.Oddballs.spawned(encounter, companion)
-    check(ready == false and member.oddballScenePending == true
+    check(ready == false and member.oddballScenePending == true and secured == 0
         and encounter.oddball.kitSeeded == true,
         "a failed scene setup is reported and marked for retry")
     SC.Oddballs.pulseGroup(encounter, player, U.nowMs() + 30001)
-    check(attempts == 2 and member.oddballScenePending == nil,
-        "a loaded actor completes a deferred scene setup once")
+    check(attempts == 2 and member.oddballScenePending == nil
+        and secured == 1 and encounter.oddball.sceneSecured == true
+        and member.oddballSetupFailures == nil,
+        "a deferred setup secures the scene and clears failure receipts on success")
+    SC.Oddballs.pulseGroup(encounter, player, U.nowMs() + 60002)
+    check(attempts == 2 and secured == 1,
+        "completed setup effects are not replayed on later pulses")
+
+    -- Exhaustion is persisted on the member, so reload/reawakening cannot
+    -- restart a permanently broken module's thirty-second setup loop.
+    attempts = 0
+    member.oddballSetupFailures, member.oddballSetupStopped = nil, nil
+    encounter.oddball.sceneSecured = nil
+    SC.OddballPyromaniac.onSpawn = function()
+        attempts = attempts + 1
+        return false, "broken_scene"
+    end
+    check(SC.Oddballs.spawned(encounter, companion) == false,
+        "a genuine setup failure remains eligible for bounded retries")
+    for retry = 1, 6 do
+        SC.Oddballs.pulseGroup(encounter, player, U.nowMs() + retry * 30001)
+    end
+    check(attempts == 5 and member.oddballSetupFailures == 5
+        and member.oddballSetupStopped == true and member.oddballScenePending == nil
+        and secured == 1,
+        "five failed setups stop without securing an unfinished scene")
+    SC.Oddballs.restore(SC.Oddballs.export())
+    SC.Oddballs.pulseGroup(encounter, player, U.nowMs() + 300000)
+    check(SC.Oddballs.spawned(encounter, companion) == false and attempts == 5,
+        "restoring runtime queues cannot restart an exhausted member")
+    SC.Oddballs.secureScene, definition.scene = oldSecure, oldScene
     SC.OddballPyromaniac, SC.Registry.byId, U.isValidActor =
         oldModule, oldById, oldValid
 end)()
@@ -984,9 +1081,11 @@ check(SC.Factions.group(pyroGroup.id).oddball.ignitedAt == 12345
 local setupSave = SC.StableValue.copyStrict(pyroSave,
     { maxDepth = 16, maxEntries = 131072 })
 setupSave.groups[pyroGroup.id].members[1].oddballScenePending = true
+setupSave.groups[pyroGroup.id].members[1].oddballSetupFailures = 2
 check(SC.Factions.restore(setupSave) == true
-    and SC.Factions.group(pyroGroup.id).members[1].oddballScenePending == true,
-    "a deferred scene setup survives faction save and restore")
+    and SC.Factions.group(pyroGroup.id).members[1].oddballScenePending == true
+    and SC.Factions.group(pyroGroup.id).members[1].oddballSetupFailures == 2,
+    "a deferred scene setup and retry count survive faction save and restore")
 check(SC.Factions.restore(pyroSave) == true,
     "the original scene remains restorable after setup recovery check")
 end)()

@@ -192,6 +192,41 @@ check(added == 2 and #actor.inventory == 2 and spawned == 1 and storyPulses == 1
 check(member.oddballScenePending == nil and group.oddball.kitSeeded == true,
     "completed setup clears saved pending flags")
 
+-- Save after onSpawn succeeds but consumes the slice before the quiet phase.
+-- Restoring must retain that remaining effect without replaying the module.
+reset()
+local definition = O.definition("loretta_ten_and_two")
+local oldScene, oldSecure = definition.scene, O.secureScene
+local secured = 0
+definition.scene = { radius = 12, closeDoors = true }
+O.secureScene = function(candidate)
+    check(candidate == group, "the resumed quiet phase secures its own saved group")
+    secured = secured + 1
+    return 0, 0
+end
+spawned, storyPulses, radioPulses = 0, 0, 0
+member.oddballScenePending = true
+group.oddball.sceneSecured = nil
+groups = { group }
+local _, _, sceneMore = O.pulseGroup(group, player, SC_TEST_CLOCK + 2, budget(2))
+check(sceneMore == true and spawned == 1 and secured == 0,
+    "module success consumes the slice before any quiet-scene effect")
+local savedGroup = SC.StableValue.copyStrict(group, { maxDepth = 14, maxEntries = 1024 })
+check(savedGroup ~= nil, "the suspended scene has a serializable group receipt")
+local savedLedger = O.export()
+group, member = savedGroup, savedGroup.members[1]
+groups = { group }
+check(O.restore(savedLedger) == true, "reload discards runtime setup continuations")
+drain(function(remaining)
+    return O.pulseGroup(group, player, SC_TEST_CLOCK + 3, remaining)
+end, 2)
+check(spawned == 1 and secured == 1 and group.oddball.sceneSecured == true,
+    "reload secures the scene exactly once without replaying successful onSpawn")
+O.pulseGroup(group, player, SC_TEST_CLOCK + 4)
+check(spawned == 1 and secured == 1, "later pulses replay neither committed setup effect")
+definition.scene, O.secureScene = oldScene, oldSecure
+groups = {}
+
 -- Factions must retain its final delegate phase on the child's explicit pending.
 F.list, F.group = oldList, oldGroup
 F.reset()

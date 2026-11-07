@@ -2,7 +2,17 @@
 
 # Changelog
 
-## 0.27.2 - PZO launcher compatibility
+## 0.27.2 - PZO compatibility and Strange Folk fixes
+
+- Keep Ruth Ann gone after her departure, recover an interrupted ride, and
+  place her letter only on her own body. Retain these fixes in existing saves.
+- Let Bob, Gary, Ron and Dwayne respond to hostile players; withhold Bob's
+  reward while hostile and preserve the Dads' verdict state on unrelated events.
+- Finish quiet scene setup after a retry or reload, cap repeated setup failures,
+  and prevent Hatcher's partial starting kit from being issued twice.
+- Restrict Hershel to infection settings that leave time to find him, require
+  a usable portable radio for Hatcher, and correct Dwayne's reading choices
+  and standing position checks.
 
 - Support PZO's launcher during standalone installation: keep its entry point
   and start Living Fellows through a Java agent.

@@ -186,3 +186,12 @@ classes/resources and entry order: only META-INF/MANIFEST.MF changed, for the
 release version. Test-Source.ps1 -Scope All and git diff --check passed after
 the version update. The already completed full release/PZO tests were not
 repeated for this metadata-only change. No local installation was performed.
+
+Subsequent inventory/combat investigation
+
+See validation-pzo-combat-02702.txt for matched PZO/off controls, exact native
+same-object floor-UI warning traces, the correction for mutable zombie outfit
+IDs, and a passing passive incoming-damage run (one new wound, 1.36 health loss).
+The floor view's repeated input remains unproven; no distinct item-ID collision
+was observed in that trace. The optional additional UI replay hit a dead-player
+spawn screen and is documented with a block screenshot, not counted as a pass.

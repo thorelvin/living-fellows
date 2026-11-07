@@ -13,6 +13,10 @@ local hibernated, retiredReason = false, nil
 local houseFound = true
 local tiles = {}
 local deadBody
+local otherBodies = {}
+local floorLoaded, spawnFails, spawnThrows = true, false, false
+local spawnAttempts = 0
+local corpsesVisited = 0
 SandboxVars = { HoursForCorpseRemoval = 216 }
 
 local function tile(x, y, z)
@@ -36,9 +40,20 @@ tile(99, 50, 0).objects = { frontDoor }
 local secured = {}
 
 addZombiesInOutfit = function(x, y, z, count, outfit, female)
+    spawnAttempts = spawnAttempts + 1
+    if spawnThrows then error("injected native spawn failure") end
+    if spawnFails then return {} end
     local zombie = { x = x, y = y, z = z, outfit = outfit, female = female, data = {}, killed = false }
     spawned[#spawned + 1] = zombie
     return { zombie }
+end
+local function bodiesAt(square)
+    local list = {}
+    if square.x == 104 and square.y == 52 then
+        for _, body in ipairs(otherBodies) do list[#list + 1] = body end
+        if deadBody then list[#list + 1] = deadBody end
+    end
+    return list
 end
 getGameTime = function() return {} end
 SC.NativeList = {
@@ -58,7 +73,18 @@ SC.GameplayUtil = {
         if target == ruth then return visibleRuth end
         return true
     end,
-    gridSquare = function(x, y, z) return tile(x, y, z) end,
+    gridSquare = function(x, y, z)
+        if not floorLoaded and x == 104 and y == 52 then return nil end
+        return tile(x, y, z)
+    end,
+    instanceOf = function(value, name) return value.__class == name end,
+    each = function(list, limit, callback, offset)
+        offset = offset or 0
+        for index = offset + 1, math.min(#list, offset + limit) do
+            corpsesVisited = corpsesVisited + 1
+            if callback(list[index]) == false then break end
+        end
+    end,
     isSafeSpawnSquare = function(square) return square ~= nil end,
     modData = function(value) return value.data end,
     addItem = function(container, kind)
@@ -94,15 +120,19 @@ SC.GameplayUtil = {
             return floorSeen and value.x == 104, true
         end
         if type(value) == "table" and value.x and method == "getDeadBody" then
-            if deadBody and value.x == 104 and value.y == 52 then return deadBody, true end
-            return nil, true
+            return bodiesAt(value)[1], true
         end
+        if type(value) == "table" and value.x and method == "getStaticMovingObjects" then
+            return bodiesAt(value), true
+        end
+        if method == "hasModData" then return value.data ~= nil, true end
+        if method == "getModData" then return value.data, true end
         if method == "getName" and type(value) == "table" and value.getName then
             return value.getName(), true
         end
         if method == "Kill" then value.killed = true return nil, true end
         if method == "setDeathTime" then value.deathTime = a return nil, true end
-        if method == "getContainer" and value == deadBody then return deadBody.container, true end
+        if method == "getContainer" and value.container then return value.container, true end
         if method == "setName" then value.name = a return nil, true end
         if method == "addPage" then value.pages[a] = b return nil, true end
         return nil, false
@@ -201,6 +231,7 @@ local function newGroup()
             site = { kind = "roamer", spawn = { x = 0, y = 0, z = 0 } } } }
 end
 local group = newGroup()
+assert(H.onSpawn(group) == true and #spawned == 0, "Ruth's optional setup is immediately ready")
 local function contains(pool, line)
     for _, entry in ipairs(LINES[pool]) do if entry == line then return true end end
     return false
@@ -315,7 +346,8 @@ H.pulse(group, player, now)
 assert(not hibernated, "a blink out of view is not enough")
 now = now + 2100
 H.pulse(group, player, now)
-assert(hibernated and group.oddball.stage == "gone_inside", "unseen, she is gone")
+assert(hibernated and group.oddball.stage == "gone_inside" and group.oddball.departed == true,
+    "unseen, she is gone permanently while the body story remains active")
 
 -- The body is placed only where the player cannot see.
 floorSeen = true
@@ -334,9 +366,14 @@ assert(#spawned == 1 and spawned[1].outfit == "Backpacker" and spawned[1].female
         and spawned[1].killed == true and spawned[1].data.lfHitchhikerGroupId == group.id,
     "a walker in her clothes, put down out of sight")
 now = now + 1000
+otherBodies = {
+    { __class = "IsoDeadBody", container = { items = {} } },
+    { __class = "IsoDeadBody", data = { lfHitchhikerGroupId = "another-group" }, container = { items = {} } },
+    { __class = "IsoObject", data = { lfHitchhikerGroupId = group.id }, container = { items = {} } },
+}
 H.pulse(group, player, now)
 assert(group.oddball.stage == "gone_inside", "the body takes a moment")
-deadBody = { container = { items = {} } }
+deadBody = { __class = "IsoDeadBody", data = { lfHitchhikerGroupId = group.id }, container = { items = {} } }
 H.pulse(group, player, now)
 assert(group.oddball.stage == "waiting_to_be_found")
 assert(math.abs(deadBody.deathTime - (hours - 216 * 0.66)) < 0.001,
@@ -344,6 +381,11 @@ assert(math.abs(deadBody.deathTime - (hours - 216 * 0.66)) < 0.001,
 local letter = deadBody.container.items[1]
 assert(letter and letter.kind == "Base.LetterHandwritten" and letter.name == "Ruth Ann's letter home"
         and letter.pages[1] == H.LETTER, "her letter home is on her")
+for _, body in ipairs(otherBodies) do
+    assert(body.deathTime == nil and #body.container.items == 0,
+        "untagged, foreign and non-corpse objects sharing her tile stay untouched")
+end
+otherBodies = {}
 
 -- Found: a companion says what everyone is thinking, and it ends.
 player.x, player.y = 110, 52
@@ -362,7 +404,7 @@ local quiet = newGroup()
 quiet.oddball.stage = "gone_inside"
 quiet.oddball.bodyPlaced = true
 quiet.oddball.home = { anchor = house.anchor, floor = { x = 104, y = 52, z = 0 } }
-deadBody = { container = { items = {} } }
+deadBody = { __class = "IsoDeadBody", data = { lfHitchhikerGroupId = quiet.id }, container = { items = {} } }
 H.pulse(quiet, player, now)
 assert(deadBody.deathTime == nil and quiet.oddball.stage == "waiting_to_be_found")
 SandboxVars.HoursForCorpseRemoval = 216
@@ -415,4 +457,108 @@ tick()
 assert(group.oddball.stage == "walking_off", "a minute is long enough to wait")
 assert(select(1, H.canRecruit()) == false and H.avoidsZombieCombat() == true)
 
-print("Hitchhiker PASS: ghost shelter, thumbing, stopped-car pickup, real boarding, address, ride lines, arrival, unseen exit, hidden body, rot within removal, letter, found")
+-- Crowded corpse piles are searched in bounded slices, including an old tagged
+-- second body that getDeadBody() and a latest-only scan would both miss.
+do
+    H._resetForTests()
+    local crowded = newGroup()
+    crowded.oddball.stage, crowded.oddball.bodyPlaced = "gone_inside", true
+    crowded.oddball.home = { anchor = house.anchor, floor = { x = 104, y = 52, z = 0 } }
+    hibernated, deadBody, otherBodies = true, nil, {}
+    for index = 1, 160 do
+        otherBodies[index] = { __class = "IsoDeadBody", container = { items = {} } }
+    end
+    otherBodies[2].data = { lfHitchhikerGroupId = crowded.id }
+    local before = corpsesVisited
+    H.pulse(crowded, player, now)
+    assert(crowded.oddball.stage == "gone_inside" and corpsesVisited - before == 128,
+        "one pulse examines at most the newest 128 corpses per square")
+    H.pulse(crowded, player, now)
+    assert(crowded.oddball.stage == "waiting_to_be_found"
+        and #otherBodies[2].container.items == 1 and otherBodies[1].deathTime == nil,
+        "the retained cursor finds the tagged second corpse on a later pulse")
+    otherBodies = {}
+end
+
+-- Losing a seat is bounded, including after an unloaded rider wakes on foot.
+H._resetForTests()
+hibernated, visibleRuth, houseFound = false, true, true
+group = newGroup()
+group.oddball.stage = "riding"
+group.oddball.home = { anchor = house.anchor, floor = { x = 104, y = 52, z = 0 }, doors = house.openings }
+ruth.x, ruth.y, ruth.vehicle = 95, 52, nil
+H.pulse(group, player, now)
+now = now + 4999
+H.pulse(group, player, now)
+assert(group.oddball.stage == "riding", "a brief missing seat does not abandon the ride")
+ruth.vehicle = car
+H.pulse(group, player, now)
+now = now + 6000
+ruth.vehicle = nil
+H.pulse(group, player, now)
+assert(group.oddball.stage == "riding", "getting back into the car reset the grace")
+now = now + 5001
+H.pulse(group, player, now)
+assert(group.oddball.stage == "walking_home", "on foot near her known home, she walks inside")
+
+H._resetForTests()
+group = newGroup()
+group.oddball.stage = "riding"
+houseFound, hibernated = false, true
+H.pulse(group, player, now)
+now = now + 6000
+H.pulse(group, player, now)
+assert(group.oddball.stage == "riding", "an unloaded rider is not proof of vehicle loss")
+hibernated = false
+ruth.x, ruth.y, ruth.vehicle = 0, 0, nil
+H.pulse(group, player, now)
+assert(group.oddball.stage == "riding", "a waking rider gets her own grace")
+now = now + 5001
+H.pulse(group, player, now)
+assert(group.oddball.stage == "walking_off", "on foot without a nearby home, she leaves")
+
+-- Only failed physical spawn attempts consume the persisted body-placement bound.
+H._resetForTests()
+group = newGroup()
+group.oddball.stage = "gone_inside"
+group.oddball.home = { anchor = house.anchor, floor = { x = 104, y = 52, z = 0 } }
+hibernated, floorSeen, spawnFails, deadBody = true, true, true, nil
+local attemptsBefore = spawnAttempts
+for _ = 1, 4 do now = now + 30000; H.pulse(group, player, now) end
+assert(spawnAttempts == attemptsBefore and group.oddball.bodySpawnFailures == nil,
+    "a visible floor can wait indefinitely without spending spawn attempts")
+floorSeen, floorLoaded = false, false
+for _ = 1, 4 do now = now + 30000; H.pulse(group, player, now) end
+assert(spawnAttempts == attemptsBefore and group.oddball.bodySpawnFailures == nil,
+    "an unloaded floor does not spend spawn attempts either")
+floorLoaded = true
+spawnFails = false
+H.pulse(group, player, now)
+now = now + 1000
+H.pulse(group, player, now)
+assert(group.oddball.bodyPlaced and group.oddball.stage == "gone_inside",
+    "a long visible/unloaded wait does not consume the later corpse-search window")
+H._resetForTests()
+group = newGroup()
+group.oddball.stage = "gone_inside"
+group.oddball.home = { anchor = house.anchor, floor = { x = 104, y = 52, z = 0 } }
+spawnFails = true
+attemptsBefore = spawnAttempts
+for index = 1, 2 do
+    spawnThrows = index == 2
+    H.pulse(group, player, now)
+    assert(group.oddball.bodySpawnFailures == index and group.oddball.stage == "gone_inside")
+end
+-- Runtime reset models a reload; the story's failure count remains authoritative.
+H._resetForTests()
+spawnThrows = false
+H.pulse(group, player, now)
+assert(spawnAttempts == attemptsBefore + 3 and group.oddball.bodySpawnFailures == 3
+    and group.oddball.bodyUnavailable and group.oddball.stage == "waiting_to_be_found"
+    and group.oddball.departed == true and group.lifecycle ~= "destroyed",
+    "three actual failed attempts end placement, preserve departure and keep discovery pulsing")
+H.pulse(group, player, now)
+assert(spawnAttempts == attemptsBefore + 3, "an abandoned body placement never retries")
+spawnFails = false
+
+print("Hitchhiker PASS: ghost shelter, ready setup, real boarding, vehicle-loss recovery, unseen departure, exact corpse, bounded placement, rot, letter, found")

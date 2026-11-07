@@ -9,9 +9,11 @@ $mapJavac=& (Join-Path $project 'scripts\Resolve-TestJavac.ps1')
 $files=@(
  (Join-Path $PSScriptRoot 'expedition_map_fixture.lua'),
  (Join-Path $shared 'SCNamespace.lua'),(Join-Path $shared 'SCCall.lua'),
+ (Join-Path $shared 'SCSpeechColors.lua'),
  (Join-Path $shared 'SCNativeList.lua'),(Join-Path $shared 'SCConfig.lua'),
  (Join-Path $PSScriptRoot 'expedition_places_fixture.lua'),
  (Join-Path $client 'SCExpeditionPlaces.lua'),(Join-Path $client 'SCExpeditionTargets.lua'),
+ (Join-Path $client 'SCContextMenu.lua'),
  (Join-Path $client 'SCFishing.lua'),(Join-Path $client 'SCExpeditionMap.lua'),
  (Join-Path $PSScriptRoot 'expedition_map_targets_harness.lua')
 )

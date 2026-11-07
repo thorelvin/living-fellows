@@ -161,6 +161,16 @@ assert(#gary.inv.items == 2 and #ron.inv.items == 3, "a repeated setup adds noth
 local ownBeer = { kind = "Base.BeerCan", data = {}, pages = {}, container = gary.inv }
 table.insert(gary.inv.items, 1, ownBeer)
 assert(D.intentFor(gary, player, {}, group).mode == "dads_living_room")
+for _, hostility in ipairs({ "standing", "lifecycle", "permanentHostility" }) do
+    group[hostility] = hostility == "standing" and "Hostile"
+        or hostility == "lifecycle" and "hostile" or true
+    for _, actor in ipairs({ gary, ron }) do
+        local intent = D.intentFor(actor, player, {}, group)
+        assert(intent.mode == "hostile" and intent.priority == 110,
+            "either hostile dad delegates to human combat: " .. hostility)
+    end
+    group.standing, group.lifecycle, group.permanentHostility = "Neutral", nil, nil
+end
 
 -- No audience, no show.
 visible = false
@@ -200,6 +210,25 @@ assert(last().who == "gary" and contains("garyGroan", last().line))
 assert(group.oddball.awaitingVerdict == true, "after one joke each, they want a verdict")
 local options = D.menuOptions(group, player)
 assert(#options == 4 and options[1].id == "verdict_gary" and options[3].id == "verdict_tie")
+
+-- Combat notifications and unknown choices cannot reset the judge's countdown.
+local verdict = group.oddball
+verdict.promptCount = 2
+local jokes = verdict.roundJokes
+for _, action in ipairs({ "hurt", "hit_player", "not_a_verdict" }) do
+    local accepted, reason = D.action(group, action, player)
+    assert(accepted == false and reason == "unknown_dads_choice"
+            and verdict.awaitingVerdict == true and verdict.promptCount == 2
+            and verdict.roundJokes == jokes and verdict.score.gary == 41
+            and verdict.score.ron == 41 and verdict.rounds.gary == 0 and verdict.rounds.ron == 0,
+        "an unrelated story action leaves the entire pending verdict intact: " .. action)
+end
+player.x = 20
+local accepted, reason = D.action(group, "verdict_gary", player)
+assert(accepted == false and reason == "dads_out_of_earshot"
+        and verdict.awaitingVerdict == true and verdict.promptCount == 2
+        and verdict.roundJokes == jokes, "a distant verdict leaves the round intact")
+player.x = 0
 
 -- The judge gives Gary the round; the book records it; Ron objects in turn.
 assert(D.action(group, "verdict_gary", player))
@@ -313,4 +342,4 @@ player.x = 20
 assert(#D.menuOptions(group, player) == 0)
 assert(select(1, D.canRecruit()) == false)
 
-print("Dads PASS: seeded kit and standings, greeting order, joke beats, verdicts, tie, silent judge, score, champion, real beer, exhibition")
+print("Dads PASS: seeded kit and standings, hostile combat, greeting order, joke beats, unrelated actions preserve verdicts, tie, silent judge, score, champion, real beer, exhibition")

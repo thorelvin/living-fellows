@@ -423,6 +423,10 @@ end
 
 function Dads.intentFor(actor, player, snapshot, group)
     if not story(group) then return nil end
+    if group.standing == "Hostile" or group.lifecycle == "hostile"
+        or group.permanentHostility == true then
+        return { mode = "hostile", priority = 110 }
+    end
     return { mode = "dads_living_room", priority = 40 }
 end
 
@@ -490,8 +494,6 @@ function Dads.action(group, action, player)
     local value = story(group)
     if not value then return false, "wrong_oddball" end
     if not nearForMenu(group, player) then return false, "dads_out_of_earshot" end
-    local current = U().nowMs()
-    local entry = runtimeFor(group)
     if action == "ask_dads_score" then
         if value.stage ~= "contest" then return false, "no_match_running" end
         local round = value.rounds.gary + value.rounds.ron + 1
@@ -500,6 +502,11 @@ function Dads.action(group, action, player)
         return true, "dads_reported_the_score"
     end
     if value.awaitingVerdict ~= true then return false, "no_round_to_judge" end
+    if action ~= "verdict_tie" and action ~= "verdict_gary" and action ~= "verdict_ron" then
+        return false, "unknown_dads_choice"
+    end
+    local current = U().nowMs()
+    local entry = runtimeFor(group)
     value.awaitingVerdict, value.promptCount, value.roundJokes = false, 0, 0
     if action == "verdict_tie" then
         say(group, "gary", nextLine(value, "garyTie"))
@@ -515,9 +522,6 @@ function Dads.action(group, action, player)
         if value.rounds[winner] >= ROUNDS_TO_WIN then
             crown(group, value, winner, player, current)
         end
-    else
-        value.awaitingVerdict = true
-        return false, "unknown_dads_choice"
     end
     entry.phase = "setup"
     entry.nextAt = (entry.queue[#entry.queue] and entry.queue[#entry.queue].at or current)

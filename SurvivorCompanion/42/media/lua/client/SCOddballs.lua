@@ -11,6 +11,7 @@ local SAMPLE_BUDGET = 96
 local MIN_DISTANCE = 35
 local MAX_DISTANCE = 90
 local MAX_UNRESOLVED = 2
+local MAX_SETUP_ATTEMPTS = 5
 local GOLDEN_ANGLE = 2.399963229728653
 local SEARCH_OFFSETS = {
     { 0, 0 }, { 6, 0 }, { -6, 0 }, { 0, 6 }, { 0, -6 },
@@ -3271,7 +3272,8 @@ local function siteForRadioVan(square, player, allowSeen)
     for _, offset in ipairs({ { 2, 0 }, { -2, 0 }, { 2, 1 }, { -2, 1 } }) do
         local tile = U().gridSquare(center.x + offset[1], center.y + offset[2], 0)
         if tile and candidateUnseen(tile, player, allowSeen)
-            and roomName(tile) == nil and not onCampGround(tile) then
+            and roomName(tile) == nil and not onCampGround(tile)
+            and U().isClearActorSpawnSquare(tile) == true then
             spawn = point(tile)
             break
         end
@@ -3441,6 +3443,53 @@ function Oddballs.update(actor, player, runtime, intent, group)
     return handled == true, reason
 end
 
+local function setupMember(group, actorId)
+    for _, member in ipairs(group.members or {}) do
+        if member.actorId == actorId then return member end
+    end
+end
+
+local function setupStopped(member)
+    return member and (member.oddballSetupStopped == true
+        or (tonumber(member.oddballSetupFailures) or 0) >= MAX_SETUP_ATTEMPTS)
+end
+
+local function finishSetupAttempt(group, member, setup)
+    local failed = setup.kit or setup.module
+    local failures = failed and math.min(MAX_SETUP_ATTEMPTS,
+        (tonumber(member and member.oddballSetupFailures or setup.failures) or 0) + 1) or 0
+    setup.failures = failures
+    local stopped = failed and failures >= MAX_SETUP_ATTEMPTS
+    if member then
+        member.oddballSetupFailures = failures > 0 and failures or nil
+        member.oddballSetupStopped = stopped or nil
+        if not failed or stopped then member.oddballSetupModuleReady = nil end
+        member.oddballKitPending = not stopped and setup.kit or nil
+        member.oddballScenePending = not stopped and (setup.module
+            or member.oddballSetupModuleReady == true) or nil
+        member.spawnFailure = failed and (setup.reason or member.spawnFailure
+            or "oddball_setup_failed") or nil
+    end
+    if stopped then
+        setup.kit, setup.module = false, false
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("oddballs", group.id,
+                "scene setup stopped after five failed attempts",
+                tostring(setup.reason or "oddball_setup_failed"))
+        end
+    end
+    return not failed, stopped
+end
+
+local function secureAuthoredScene(group, player)
+    local story = Oddballs.state(group)
+    local scene = story and byId[story.id] and byId[story.id].scene
+    if type(scene) == "table" and story.sceneSecured ~= true then
+        Oddballs.secureScene(group, player, scene)
+        story.sceneSecured = true
+    end
+end
+
 function Oddballs.pulseGroup(group, player, current, remainingBudget)
     if type(group) ~= "table" or type(group.oddball) ~= "table"
         or group.lifecycle == "destroyed" then
@@ -3460,6 +3509,12 @@ function Oddballs.pulseGroup(group, player, current, remainingBudget)
         if not backgroundAvailable(remainingBudget) then return backgroundPending() end
         local member = group.members[pulse.index]
         if member.actorId then pulse.memberById[member.actorId] = member end
+        if setupStopped(member) then
+            member.oddballSetupStopped = true
+            member.oddballKitPending, member.oddballScenePending = nil, nil
+            member.oddballSetupModuleReady = nil
+            if setups and member.actorId then setups[member.actorId] = nil end
+        end
         if member.actorId and (member.oddballKitPending
             or member.oddballScenePending) then
             if not setups then
@@ -3469,7 +3524,8 @@ function Oddballs.pulseGroup(group, player, current, remainingBudget)
             if not setups[member.actorId] then
                 setups[member.actorId] = {
                     kit = member.oddballKitPending == true,
-                    module = member.oddballScenePending == true,
+                    module = member.oddballScenePending == true
+                        and member.oddballSetupModuleReady ~= true,
                     nextAt = 0,
                 }
             end
@@ -3497,8 +3553,9 @@ function Oddballs.pulseGroup(group, player, current, remainingBudget)
                 pulse.setupPhase = pulse.setupPhase or "kit"
                 if pulse.setupPhase == "kit" then
                     if setup.kit then
-                        local ready = seedPersonalKit(group, actor)
+                        local ready, reason = seedPersonalKit(group, actor)
                         setup.kit = ready ~= true
+                        if not ready then setup.reason = reason end
                         local member = pulse.memberById[actorId]
                         if member then member.oddballKitPending = setup.kit or nil end
                     end
@@ -3507,22 +3564,30 @@ function Oddballs.pulseGroup(group, player, current, remainingBudget)
                 if not backgroundAvailable(remainingBudget) then return backgroundPending() end
                 if pulse.setupPhase == "module" then
                     if setup.module then
-                        local ready = callModule(group, "onSpawn", group, actor)
+                        local ready, reason = callModule(group, "onSpawn", group, actor)
                         setup.module = ready ~= true
+                        if not ready then setup.reason = reason end
                         local member = pulse.memberById[actorId]
-                        if member then member.oddballScenePending = setup.module or nil end
+                        if member then
+                            member.oddballSetupModuleReady = ready == true or nil
+                            -- Save the completed physical module step without
+                            -- losing the quiet scene still waiting for budget.
+                            member.oddballScenePending = true
+                        end
+                    end
+                    pulse.setupPhase = "scene"
+                end
+                if not backgroundAvailable(remainingBudget) then return backgroundPending() end
+                if pulse.setupPhase == "scene" then
+                    if not setup.kit and not setup.module then
+                        secureAuthoredScene(group, player)
                     end
                     pulse.setupPhase = "flags"
                 end
-                if not backgroundAvailable(remainingBudget) then return backgroundPending() end
                 -- Finish the receipt before advancing this setup. A yield after
                 -- kit/onSpawn must not replay either successful physical action.
                 local member = pulse.memberById[actorId]
-                if member then
-                    member.oddballKitPending = setup.kit or nil
-                    member.oddballScenePending = setup.module or nil
-                    if not setup.kit and not setup.module then member.spawnFailure = nil end
-                end
+                finishSetupAttempt(group, member, setup)
                 setup.nextAt = current + 30000
                 if not setup.kit and not setup.module then
                     setups[actorId] = nil
@@ -3779,22 +3844,31 @@ function Oddballs.spawned(group, actor)
     story.spawned = true
     roomGuard("register", group, nil, U().nowMs())
     if actor == nil then return true, story.id end
-    local equipped, kitReason = seedPersonalKit(group, actor)
-    local sceneReady, sceneReason = callModule(group, "onSpawn", group, actor)
-    local kitFailed, sceneFailed = equipped ~= true, sceneReady ~= true
-    for _, member in ipairs(group.members or {}) do
-        if member.actorId == U().idOf(actor) then
-            member.oddballKitPending = kitFailed or nil
-            member.oddballScenePending = sceneFailed or nil
-            break
-        end
+    local actorId = U().idOf(actor)
+    local member = setupMember(group, actorId)
+    if setupStopped(member) then
+        member.oddballSetupStopped = true
+        member.oddballKitPending, member.oddballScenePending = nil, nil
+        member.oddballSetupModuleReady = nil
+        if pendingSetups[group.id] then pendingSetups[group.id][actorId] = nil end
+        return false, "oddball_setup_attempts_exhausted"
     end
+    local equipped, kitReason = seedPersonalKit(group, actor)
+    local sceneReady, sceneReason = true, nil
+    if not member or member.oddballSetupModuleReady ~= true then
+        sceneReady, sceneReason = callModule(group, "onSpawn", group, actor)
+    end
+    if member then member.oddballSetupModuleReady = sceneReady == true or nil end
+    local kitFailed, sceneFailed = equipped ~= true, sceneReady ~= true
+    local setup = { kit = kitFailed, module = sceneFailed,
+        reason = kitFailed and kitReason or sceneReason,
+        nextAt = U().nowMs() + 30000 }
+    local _, stopped = finishSetupAttempt(group, member, setup)
     if kitFailed or sceneFailed then
-        pendingSetups[group.id] = pendingSetups[group.id] or {}
-        pendingSetups[group.id][U().idOf(actor)] = {
-            kit = kitFailed, module = sceneFailed,
-            nextAt = U().nowMs() + 30000,
-        }
+        if not stopped then
+            pendingSetups[group.id] = pendingSetups[group.id] or {}
+            pendingSetups[group.id][actorId] = setup
+        end
         local reason = kitFailed and kitReason or sceneReason
         if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
             SC.Diagnostics.report("oddballs", group.id,
@@ -3806,11 +3880,7 @@ function Oddballs.spawned(group, actor)
     if pendingSetups[group.id] then
         pendingSetups[group.id][U().idOf(actor)] = nil
     end
-    local scene = byId[story.id] and byId[story.id].scene
-    if type(scene) == "table" and story.sceneSecured ~= true then
-        story.sceneSecured = true
-        Oddballs.secureScene(group, localPlayer(), scene)
-    end
+    secureAuthoredScene(group, localPlayer())
     return true, story.id
 end
 

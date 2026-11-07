@@ -13,7 +13,7 @@ local function data()
     return {
         on = true, channel = channel, power = 1, volume = 0.8,
         twoWay = true, range = 100,
-        getIsPortable = function() return true end,
+        getIsPortable = function(self) return self.portable ~= false end,
         getIsTwoWay = function(self) return self.twoWay end,
         getIsTurnedOn = function(self) return self.on end,
         getHasBattery = function() return true end,
@@ -71,6 +71,19 @@ SC.GameplayUtil = {
     end,
     position = function(object) return object.x, object.y, object.z end,
 }
+assert(Radio.equippedRadio(player, true, channel) == player.radio,
+    "the shared gate accepts an equipped powered portable transmitter")
+assert(Radio.equippedRadio(player, true, 146600) == nil,
+    "each authored call validates its own channel")
+player.device.portable = false
+assert(Radio.equippedRadio(player, true, channel) == nil
+    and Radio.equippedRadio(player, false, channel) == nil,
+    "nonportable radios cannot use the portable player delivery path")
+player.device.portable, player.device.volume = true, 0
+assert(Radio.equippedRadio(player, false, channel) == nil
+    and Radio.equippedRadio(player, true, channel) == player.radio,
+    "listening requires audible volume, while transmitting does not")
+player.device.volume = 0.8
 SC.Registry = { byId = function(id)
     return id == 5 and { actor = survivor } or nil
 end }

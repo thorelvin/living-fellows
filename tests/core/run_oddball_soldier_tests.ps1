@@ -15,6 +15,7 @@ try {
     $Files = @(
         (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared\SCNamespace.lua'),
         (Join-Path $Client 'SCOddballForecast.lua'),
+        (Join-Path $Client 'SCOddballDistressRadio.lua'),
         (Join-Path $Client 'SCOddballSoldier.lua'),
         (Join-Path $PSScriptRoot 'oddball_soldier_harness.lua')
     )

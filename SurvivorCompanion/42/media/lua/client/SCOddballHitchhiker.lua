@@ -19,8 +19,11 @@ local ARRIVAL_DISTANCE = 18
 local THUMB_MS = 15000
 local RIDE_LINE_MS = 30000
 local BOARD_TIMEOUT_MS = 60000
+local VEHICLE_LOST_MS = 5000
 local UNSEEN_MS = 2000
 local CORPSE_SEARCH_MS = 60000
+local BODY_SPAWN_ATTEMPTS = 3
+local CORPSE_SCAN_LIMIT = 128
 local FOUND_DISTANCE = 4
 -- Rot only runs while corpse removal is on, and a body older than the
 -- removal age is deleted. Two thirds of it reads as long dead and stays.
@@ -72,6 +75,9 @@ local function story(group)
     local value = type(group) == "table" and group.oddball or nil
     if type(value) ~= "table" or value.id ~= ID then return nil end
     if value.stage == nil or value.stage == "unmet" then value.stage = "thumbing" end
+    if value.stage == "gone_inside" or value.stage == "waiting_to_be_found" then
+        value.departed = true
+    end
     value.lines = type(value.lines) == "table" and value.lines or {}
     return value
 end
@@ -236,6 +242,7 @@ local function departUnseen(group, value, player, current, nextStage)
     end
     if gone then
         value.stage = nextStage
+        if nextStage == "gone_inside" then value.departed = true end
         value.unseenSince = nil
     end
     return gone
@@ -245,16 +252,19 @@ end
 local function leaveBody(group, value, player)
     local floor = value.home and value.home.floor
     local square = floor and U().gridSquare(floor.x, floor.y, floor.z or 0)
-    if not square or type(addZombiesInOutfit) ~= "function" or not SC.NativeList then
-        return false
+    if not square then
+        return false, "waiting"
+    end
+    if type(addZombiesInOutfit) ~= "function" or not SC.NativeList then
+        return false, "spawn_failed"
     end
     local index = call(player, "getPlayerNum")
     if number(index) and call(square, "isCanSee", math.floor(number(index))) == true then
-        return false
+        return false, "waiting"
     end
     local okay, list = pcall(addZombiesInOutfit, floor.x, floor.y, floor.z or 0, 1, OUTFIT, 100)
     local zombie = okay and list and SC.NativeList.get(list, 0) or nil
-    if not zombie then return false end
+    if not zombie then return false, "spawn_failed" end
     local data = U().modData(zombie)
     if data then data.lfHitchhikerGroupId = group.id end
     U().call(zombie, "Kill", nil)
@@ -262,14 +272,35 @@ local function leaveBody(group, value, player)
     return true
 end
 
-local function findBody(value)
+local function findBody(group, value)
     local floor = value.home and value.home.floor
     if not floor then return nil end
+    local runtime = runtimeFor(group)
+    runtime.bodySearch = runtime.bodySearch or {}
     for dx = -1, 1 do
         for dy = -1, 1 do
             local square = U().gridSquare(floor.x + dx, floor.y + dy, floor.z or 0)
-            local body = square and call(square, "getDeadBody")
-            if body then return body end
+            local found
+            if square then
+                local objects = call(square, "getStaticMovingObjects")
+                local count = SC.NativeList.size(objects)
+                local key = dx .. ":" .. dy
+                local cursor = runtime.bodySearch[key]
+                if not cursor or cursor.count ~= count then cursor = { count = count, next = count } end
+                local first = math.max(0, cursor.next - CORPSE_SCAN_LIMIT)
+                U().each(objects, cursor.next - first, function(body)
+                    if U().instanceOf(body, "IsoDeadBody") then
+                        local data = call(body, "hasModData") == true and call(body, "getModData")
+                        if type(data) == "table" and data.lfHitchhikerGroupId == group.id then
+                            found = body
+                            return false
+                        end
+                    end
+                end, first)
+                cursor.next = first > 0 and first or count
+                runtime.bodySearch[key] = cursor
+            end
+            if found then runtime.bodySearch = nil return found end
         end
     end
     return nil
@@ -288,6 +319,11 @@ local function ageBody(value, body)
         U().call(letter, "addPage", 1, Hitchhiker.LETTER)
     end
     value.bodyReady = true
+end
+
+function Hitchhiker.onSpawn(group)
+    if not story(group) then return false, "wrong_oddball" end
+    return true, "ruth_ready"
 end
 
 function Hitchhiker.pulse(group, player, current)
@@ -343,6 +379,26 @@ function Hitchhiker.pulse(group, player, current)
         end
         local car = actor and call(actor, "getVehicle")
         local home = value.home and value.home.anchor
+        if actor and not car then
+            entry.vehicleMissingSince = number(entry.vehicleMissingSince) or current
+            if current - entry.vehicleMissingSince >= VEHICLE_LOST_MS then
+                entry.vehicleMissingSince = nil
+                value.seat = nil
+                local x, y = U().position(actor)
+                if home and x and (x - home.x) ^ 2 + (y - home.y) ^ 2 <= ARRIVAL_DISTANCE ^ 2 then
+                    value.stage = "walking_home"
+                    value.doorsUnlocked = unlockHome(value.home)
+                    U().say(actor, LINES.arrive[1])
+                else
+                    value.stage = "walking_off"
+                    U().say(actor, LINES.walkOff[1])
+                end
+            end
+            return true, value.stage
+        end
+        -- A hibernated rider is not evidence of a lost seat. Start the grace
+        -- only after her actor is present, and reset it if she gets back in.
+        entry.vehicleMissingSince = nil
         if car and home and SC.Vehicle and SC.Vehicle.isStationary(car) == true then
             local x, y = U().position(car)
             if x and (x - home.x) ^ 2 + (y - home.y) ^ 2 <= ARRIVAL_DISTANCE ^ 2 then
@@ -378,10 +434,24 @@ function Hitchhiker.pulse(group, player, current)
         end
         if value.bodyPlaced ~= true then
             value.bodySince = number(value.bodySince) or current
-            leaveBody(group, value, player)
+            local placed, reason = leaveBody(group, value, player)
+            if placed then
+                value.bodySince = current
+            elseif reason == "spawn_failed" then
+                value.bodySpawnFailures = (number(value.bodySpawnFailures) or 0) + 1
+                if value.bodySpawnFailures >= BODY_SPAWN_ATTEMPTS then
+                    value.stage = "waiting_to_be_found"
+                    value.bodyUnavailable = true
+                    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                        SC.Diagnostics.report("oddballs", group.id,
+                            "Ruth Ann body placement abandoned", "native spawn failed three times")
+                    end
+                    return true, "ruth_body_unavailable"
+                end
+            end
             return true, "ruth_body_pending"
         end
-        local body = findBody(value)
+        local body = findBody(group, value)
         if body then
             ageBody(value, body)
             value.stage = "waiting_to_be_found"

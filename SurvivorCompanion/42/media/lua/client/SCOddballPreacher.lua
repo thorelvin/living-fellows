@@ -228,6 +228,15 @@ function Preacher.transmit(value, text, code)
     return okay, okay and "transmitted" or tostring(failure)
 end
 
+local ENGINE_LITERATURE = {
+    ["base.magazine_car"] = true, ["base.magazine_car_new"] = true,
+    ["base.bookmechanic1"] = true, ["base.bookmechanic2"] = true,
+    ["base.bookmechanic3"] = true, ["base.bookmechanic4"] = true,
+    ["base.bookmechanic5"] = true,
+    ["base.mechanicmag1"] = true, ["base.mechanicmag2"] = true,
+    ["base.mechanicmag3"] = true,
+}
+
 local function bookCategory(kind)
     kind = string.lower(tostring(kind or ""))
     if string.find(kind, "bible", 1, true) then return "bible" end
@@ -237,10 +246,7 @@ local function bookCategory(kind)
     if string.find(kind, "farm", 1, true) or string.find(kind, "garden", 1, true) then
         return "growing"
     end
-    if string.find(kind, "mechanic", 1, true) or string.find(kind, "engine", 1, true)
-        or string.find(kind, "car", 1, true) then
-        return "engines"
-    end
+    if ENGINE_LITERATURE[kind] then return "engines" end
     if string.find(kind, "military", 1, true) then return "soldiering" end
     return "other"
 end
@@ -248,7 +254,8 @@ Preacher.bookCategory = bookCategory
 
 local function isLiterature(kind)
     kind = tostring(kind or "")
-    return string.find(kind, "^Base%.Book") ~= nil
+    return ENGINE_LITERATURE[string.lower(kind)] == true
+        or string.find(kind, "^Base%.Book") ~= nil
         or string.find(kind, "^Base%.Paperback") ~= nil
         or string.find(kind, "^Base%.Magazine") ~= nil
         or string.find(kind, "^Base%.Comic") ~= nil
@@ -411,6 +418,10 @@ end
 
 function Preacher.intentFor(actor, player, snapshot, group)
     if not story(group) then return nil end
+    if group.standing == "Hostile" or group.lifecycle == "hostile"
+        or group.permanentHostility == true then
+        return { mode = "hostile", priority = 110 }
+    end
     return { mode = "preacher_by_the_van", priority = 34 }
 end
 
