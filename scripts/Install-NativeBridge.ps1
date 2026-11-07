@@ -16,6 +16,9 @@ $ErrorActionPreference = 'Stop'
 $Owner = 'SurvivorCompanion.NativeBridge'
 $WrapperMain = 'survivorcompanion/bridge/SCLauncher'
 $OriginalMain = 'zombie/gameStates/MainScreenState'
+$PzoMain = 'com/pzoptimizer/PZOEntrypoint'
+$AgentMain = 'survivorcompanion.bridge.SCBootstrapAgent'
+$AgentArgument = '-javaagent:LivingFellowsBridge.jar'
 $ExpectedProtocol = '42.21-isocompanion-30'
 $ExpectedSupportedGame = '42.21'
 $ExpectedCompiledGame = '42.21.0'
@@ -36,6 +39,43 @@ function Test-SamePath([string]$Left, [string]$Right) {
 function Get-HashOrEmpty([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function Get-TextHash([string]$Text) {
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try { return [System.BitConverter]::ToString($hasher.ComputeHash($utf8NoBom.GetBytes($Text))).Replace('-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+}
+
+function Normalize-MainClass([string]$Name) { return $Name.Replace('.', '/') }
+function Test-PzoMain([string]$Name) { return (Normalize-MainClass $Name) -eq $PzoMain }
+function Test-HostMain([string]$Name) {
+    $name = Normalize-MainClass $Name
+    return $name -eq $OriginalMain -or $name -eq $PzoMain
+}
+function Test-BridgeAgentArgument([string]$Argument) {
+    $argument = $Argument.Trim('"')
+    if ($argument -notmatch '^-javaagent:(.+?)(?:=.*)?$') { return $false }
+    return [System.IO.Path]::GetFileName($matches[1].Trim('"').Replace('/', '\')) `
+        -ieq 'LivingFellowsBridge.jar'
+}
+function Assert-PzoClasspath($Configuration) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    foreach ($entry in @($Configuration.classpath | Select-Object -First 128)) {
+        if ([string]::IsNullOrWhiteSpace([string]$entry)) { continue }
+        $path = if ([System.IO.Path]::IsPathRooted([string]$entry)) { [string]$entry }
+            else { Join-Path $GameRoot ([string]$entry) }
+        if (Test-Path -LiteralPath $path -PathType Container) {
+            if (Test-Path -LiteralPath (Join-Path $path 'com\pzoptimizer\PZOEntrypoint.class') -PathType Leaf) { return }
+        } elseif ([System.IO.Path]::GetExtension($path) -ieq '.jar' -and
+            (Test-Path -LiteralPath $path -PathType Leaf)) {
+            $archive = $null
+            try {
+                $archive = [System.IO.Compression.ZipFile]::OpenRead($path)
+                if ($archive.GetEntry('com/pzoptimizer/PZOEntrypoint.class')) { return }
+            } catch { } finally { if ($archive) { $archive.Dispose() } }
+        }
+    }
+    throw 'PZO launcher is configured but its PZOEntrypoint class is missing from the launcher classpath; repair PZO before installing Living Fellows.'
 }
 
 function Invoke-Fault([string]$Boundary) {
@@ -77,6 +117,8 @@ function Get-BridgeMetadata([string]$JarPath) {
             protocol = [string]$fields['SC-Bridge-Protocol']
             supportedGame = [string]$fields['SC-Supported-Game-Version']
             compiledGame = [string]$fields['SC-Compiled-Game-Version']
+            premainClass = [string]$fields['Premain-Class']
+            hasAgent = $entryNames -contains 'survivorcompanion/bridge/SCBootstrapAgent.class'
         }
     }
     finally { $archive.Dispose() }
@@ -130,10 +172,15 @@ if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
 if ($config.mainClass -eq $WrapperMain -and $null -eq $existingManifest) {
     throw "SCLauncher is active but its owned manifest is missing at $manifestPath. Restore ProjectZomboid64.json from a known-good backup before reinstalling; the wrapper must never be inferred as the original launcher."
 }
-if ($config.mainClass -ne $OriginalMain -and $config.mainClass -ne $WrapperMain) {
+if (-not (Test-HostMain ([string]$config.mainClass)) -and $config.mainClass -ne $WrapperMain) {
     throw "Refusing to replace an unknown Project Zomboid mainClass: $($config.mainClass)"
 }
+$launchMode = if (Test-PzoMain ([string]$config.mainClass)) { 'agent' } else { 'wrapper' }
+$classpathMatches = @($config.classpath | Where-Object { Test-BridgeClasspathEntry ([string]$_) })
+$agentMatches = @($config.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) })
+if ($launchMode -eq 'agent') { Assert-PzoClasspath $config }
 $recoveredGameReinstall = $false
+$migratedExternalLauncher = $false
 $preserveLauncherEdits = $false
 if ($existingManifest) {
     $ownedBridgeRoot = if ([string]::IsNullOrWhiteSpace([string]$existingManifest.bridgeRoot)) {
@@ -147,33 +194,46 @@ if ($existingManifest) {
     if ($manifestMismatch) {
         throw 'Existing native bridge manifest does not own this normalized game/config/bridge path set.'
     }
-    $classpathMatches = @($config.classpath | Where-Object {
-        Test-BridgeClasspathEntry ([string]$_)
-    })
-    if ($config.mainClass -eq $WrapperMain) {
+    $previousMode = if ($existingManifest.launchMode) { [string]$existingManifest.launchMode } else { 'wrapper' }
+    if ($previousMode -notin @('wrapper', 'agent')) { throw 'Unknown owned native bridge launch mode; refusing update.' }
+    $activeOwnedLauncher = $false
+    if ($config.mainClass -eq $WrapperMain -and $previousMode -eq 'wrapper') {
+        if ($classpathMatches.Count -ne 1 -or $agentMatches.Count -ne 0) {
+            throw 'SCLauncher classpath or bootstrap agent ownership is missing or duplicated; refusing update.'
+        }
+        $activeOwnedLauncher = $true
+    } elseif ((Test-HostMain ([string]$config.mainClass)) -and
+        $classpathMatches.Count -eq 0 -and $agentMatches.Count -eq 0) {
+        # A game reinstall or another launcher's clean install can replace the
+        # JSON while our verified LocalAppData ownership record remains.
+        $recoveredGameReinstall = $true
+    } elseif ($launchMode -eq 'agent' -and $previousMode -eq 'agent') {
+        if ($classpathMatches.Count -ne 1 -or $agentMatches.Count -ne 1 -or
+            [string]$agentMatches[0] -cne $AgentArgument -or
+            [string]$existingManifest.launcherAgentArgument -cne $AgentArgument -or
+            -not (Test-PzoMain ([string]$existingManifest.installedMainClass)) -or
+            -not (Test-PzoMain ([string]$existingManifest.originalMainClass))) {
+            throw 'PZO bootstrap agent or classpath ownership is missing, changed or duplicated; refusing update.'
+        }
+        $activeOwnedLauncher = $true
+    } elseif ($launchMode -eq 'agent' -and $previousMode -eq 'wrapper' -and
+        $classpathMatches.Count -eq 1 -and $agentMatches.Count -eq 0) {
+        # PZO preserves existing classpath entries when it replaces the main.
+        # Adopt that current PZO configuration as the new uninstall baseline,
+        # removing only our verified old wrapper's classpath entry.
+        $recoveredGameReinstall = $true
+        $migratedExternalLauncher = $true
+    } else {
+        throw 'Owned native bridge manifest exists but the launcher is not clean or its bootstrap agent/classpath ownership is ambiguous; refusing recovery.'
+    }
+    if ($activeOwnedLauncher) {
         $recordedInstalledConfigHash = [string]$existingManifest.installedConfigSha256
         if ([string]::IsNullOrWhiteSpace($recordedInstalledConfigHash)) {
             throw 'Owned native bridge manifest has no installedConfigSha256; refusing update before mutation.'
         }
-        if ($classpathMatches.Count -ne 1) {
-            throw 'SCLauncher classpath ownership is missing or duplicated; refusing update.'
-        }
         $preserveLauncherEdits = [bool]$existingManifest.preserveLauncherEdits -or
             -not $recordedInstalledConfigHash.Equals($configHashAtStart,
                 [System.StringComparison]::OrdinalIgnoreCase)
-    } else {
-        # Steam restores ProjectZomboid64.json on reinstall but leaves the
-        # user's LocalAppData ownership manifest behind. A vanilla launcher
-        # with no bridge classpath entry can be installed afresh, provided the
-        # old bridge and backup still match the manifest we own.
-        if ($config.mainClass -ne $OriginalMain -or $classpathMatches.Count -ne 0) {
-            throw 'Owned native bridge manifest exists but SCLauncher is not active and the launcher is not clean; refusing recovery.'
-        }
-        if ([string]$existingManifest.originalMainClass -ne $OriginalMain -or
-            [string]::IsNullOrWhiteSpace([string]$existingManifest.originalConfigSha256)) {
-            throw 'Owned native bridge manifest has no verified original launcher; refusing reinstall recovery.'
-        }
-        $recoveredGameReinstall = $true
     }
     if (-not (Test-Path -LiteralPath $targetJar -PathType Leaf)) {
         throw "Owned native bridge JAR is missing: $targetJar"
@@ -194,8 +254,7 @@ if ($existingManifest) {
     } elseif (Test-Path -LiteralPath $launcherJar) {
         throw "Unmanaged game-local launcher JAR already exists: $launcherJar"
     }
-    if ([string]$existingManifest.originalMainClass -eq $WrapperMain -or
-        [string]::IsNullOrWhiteSpace([string]$existingManifest.originalMainClass)) {
+    if (-not (Test-HostMain ([string]$existingManifest.originalMainClass))) {
         throw 'Owned manifest does not preserve the true original launcher main class.'
     }
     $originalBackup = [string]$existingManifest.originalConfigBackup
@@ -208,15 +267,23 @@ if ($existingManifest) {
         }
     }
     if ($recoveredGameReinstall) {
+        if ([string]::IsNullOrWhiteSpace([string]$existingManifest.originalConfigSha256)) {
+            throw 'Owned native bridge manifest has no verified original launcher; refusing reinstall recovery.'
+        }
         $oldOriginal = Get-Content -LiteralPath $originalBackup -Raw -Encoding utf8 |
             ConvertFrom-Json
-        if ([string]$oldOriginal.mainClass -ne $OriginalMain) {
-            throw 'Original successful-install launcher backup is not vanilla; refusing reinstall recovery.'
+        if (-not (Test-HostMain ([string]$oldOriginal.mainClass)) -or
+            (Normalize-MainClass ([string]$oldOriginal.mainClass)) -ne
+                (Normalize-MainClass ([string]$existingManifest.originalMainClass))) {
+            throw 'Original successful-install launcher backup is not the verified original launcher; refusing reinstall recovery.'
         }
     }
 }
 elseif (Test-Path -LiteralPath $launcherJar) {
     throw "Unmanaged game-local launcher JAR already exists: $launcherJar"
+}
+elseif ($classpathMatches.Count -ne 0 -or $agentMatches.Count -ne 0) {
+    throw 'Unmanaged native bridge classpath or bootstrap agent entry exists; refusing installation.'
 }
 
 $buildOutput = $null
@@ -240,8 +307,18 @@ if ($metadata.protocol -ne $ExpectedProtocol -or
     $metadata.compiledGame -ne $ExpectedCompiledGame) {
     throw "Native bridge metadata mismatch. Expected protocol=$ExpectedProtocol supportedGame=$ExpectedSupportedGame compiledGame=$ExpectedCompiledGame; received protocol=$($metadata.protocol) supportedGame=$($metadata.supportedGame) compiledGame=$($metadata.compiledGame)."
 }
+if ($launchMode -eq 'agent' -and (-not $metadata.hasAgent -or $metadata.premainClass -cne $AgentMain)) {
+    throw 'Native bridge JAR has no compatible bootstrap agent for PZO; use the matching current Living Fellows package.'
+}
 New-Item -ItemType Directory -Path $BridgeRoot, $ConfigBackupRoot -Force | Out-Null
 
+$migratedBaselineText = ''
+$baseline = $config
+if ($migratedExternalLauncher) {
+    $baseline = $configText | ConvertFrom-Json
+    $baseline.classpath = @($baseline.classpath | Where-Object { -not (Test-BridgeClasspathEntry ([string]$_)) })
+    $migratedBaselineText = $baseline | ConvertTo-Json -Depth 100
+}
 $backupPath = if ($existingManifest -and -not $recoveredGameReinstall) {
     [string]$existingManifest.originalConfigBackup
 } else {
@@ -250,11 +327,13 @@ $backupPath = if ($existingManifest -and -not $recoveredGameReinstall) {
 }
 $originalMainClass = if ($existingManifest -and -not $recoveredGameReinstall) {
     [string]$existingManifest.originalMainClass
-} else { [string]$config.mainClass }
+} else { [string]$baseline.mainClass }
 $originalClasspath = if ($existingManifest -and -not $recoveredGameReinstall) {
     @($existingManifest.originalClasspath)
-} else { @($config.classpath) }
-$originalConfigHash = if ($existingManifest -and -not $recoveredGameReinstall -and $existingManifest.originalConfigSha256) {
+} else { @($baseline.classpath) }
+$originalConfigHash = if ($migratedExternalLauncher) {
+    Get-TextHash $migratedBaselineText
+} elseif ($existingManifest -and -not $recoveredGameReinstall -and $existingManifest.originalConfigSha256) {
     [string]$existingManifest.originalConfigSha256
 } elseif ($existingManifest -and -not $recoveredGameReinstall) {
     Get-HashOrEmpty $backupPath
@@ -271,7 +350,10 @@ if (-not $reuseCurrentConfig) {
         -not (Test-BridgeClasspathEntry ([string]$_))
     })
     $newClasspath += $launcherJarArgument
-    $config.mainClass = $WrapperMain
+    if ($launchMode -eq 'wrapper') { $config.mainClass = $WrapperMain }
+    else {
+        $config.vmArgs = @($config.vmArgs | Where-Object { -not (Test-BridgeAgentArgument ([string]$_)) }) + @($AgentArgument)
+    }
     $config.classpath = @($newClasspath)
 }
 
@@ -313,7 +395,7 @@ Copy-Item -LiteralPath $builtJar -Destination $stagedLauncherJar
 $stagedJarHash = Get-HashOrEmpty $stagedJar
 $installedConfigHash = Get-HashOrEmpty $stagedConfig
 $manifest = [ordered]@{
-    schemaVersion = 3
+    schemaVersion = 4
     owner = $Owner
     installedAtUtc = if ($existingManifest -and -not $recoveredGameReinstall) { [string]$existingManifest.installedAtUtc } else { [DateTime]::UtcNow.ToString('o') }
     updatedAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -332,6 +414,9 @@ $manifest = [ordered]@{
     supportedGameVersion = $ExpectedSupportedGame
     compiledGameVersion = $ExpectedCompiledGame
     wrapperMainClass = $WrapperMain
+    launchMode = $launchMode
+    installedMainClass = [string]$config.mainClass
+    launcherAgentArgument = if ($launchMode -eq 'agent') { $AgentArgument } else { '' }
     originalMainClass = $originalMainClass
     originalClasspath = @($originalClasspath)
     originalConfigBackup = $backupPath
@@ -342,18 +427,22 @@ $manifest = [ordered]@{
 Get-Content -LiteralPath $stagedManifest -Raw -Encoding utf8 | ConvertFrom-Json | Out-Null
 
 $committed = $false
+$configPublished = $false
 try {
     Invoke-Fault 'native-config-stage'
     if ((Get-HashOrEmpty $configPath) -ne $configHashAtStart) {
         throw 'Launcher configuration changed during install; refusing to overwrite it.'
     }
     if (-not $priorBackupExisted) {
-        Copy-Item -LiteralPath $priorConfig -Destination $backupPath
+        if ($migratedExternalLauncher) {
+            [System.IO.File]::WriteAllText($backupPath, $migratedBaselineText, $utf8NoBom)
+        } else { Copy-Item -LiteralPath $priorConfig -Destination $backupPath }
         if ((Get-HashOrEmpty $backupPath) -ne $originalConfigHash) {
             throw 'Original launcher backup verification failed.'
         }
     }
     if (-not $reuseCurrentConfig) {
+        $configPublished = $true
         Copy-Item -LiteralPath $stagedConfig -Destination $configPath -Force
     }
     Invoke-Fault 'native-config-replace'
@@ -374,7 +463,7 @@ try {
 catch {
     $trigger = $_
     $rollbackFailures = @()
-    try { Copy-Item -LiteralPath $priorConfig -Destination $configPath -Force }
+    try { if ($configPublished) { Copy-Item -LiteralPath $priorConfig -Destination $configPath -Force } }
     catch { $rollbackFailures += "config restore: $($_.Exception.Message)" }
     try {
         if ($priorJarExisted) { Copy-Item -LiteralPath $priorJar -Destination $targetJar -Force }
@@ -397,7 +486,7 @@ catch {
         }
     } catch { $rollbackFailures += "backup restore: $($_.Exception.Message)" }
 
-    if ((Get-HashOrEmpty $configPath) -ne $priorConfigHash) {
+    if ($configPublished -and (Get-HashOrEmpty $configPath) -ne $priorConfigHash) {
         $rollbackFailures += 'config rollback hash mismatch'
     }
     if ($priorJarExisted -ne (Test-Path -LiteralPath $targetJar -PathType Leaf) -or

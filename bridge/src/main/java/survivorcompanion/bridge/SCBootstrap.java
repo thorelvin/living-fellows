@@ -15,6 +15,7 @@ public final class SCBootstrap {
         private final long generation;
         private final java.util.concurrent.atomic.AtomicBoolean exposureQueued =
                 new java.util.concurrent.atomic.AtomicBoolean();
+        private volatile long exposureDeadlineNanos;
         private volatile boolean cancelled;
 
         private BootstrapRun(long generation) {
@@ -31,15 +32,21 @@ public final class SCBootstrap {
         activeRun = run;
         status = "waiting for Project Zomboid LuaManager";
         Thread installer = new Thread(() -> {
-            long deadline = System.nanoTime() + 180_000_000_000L;
             boolean exposedOnce = false;
             while (isCurrent(run) && !Thread.currentThread().isInterrupted()
-                    && (exposedOnce || System.nanoTime() < deadline)) {
+                    && (exposedOnce || run.exposureDeadlineNanos == 0L
+                            || System.nanoTime() < run.exposureDeadlineNanos)) {
                 try {
-                    if (MainThread.isRunning()
-                            && run.exposureQueued.compareAndSet(false, true)) {
-                        MainThread.queueInvokeOnMainThread(
-                                () -> exposeOnMainThread(run));
+                    if (MainThread.isRunning()) {
+                        // A supported host may show setup dialogs before starting
+                        // the game. Only game startup arms the exposure timeout.
+                        if (run.exposureDeadlineNanos == 0L) {
+                            run.exposureDeadlineNanos = System.nanoTime() + 180_000_000_000L;
+                        }
+                        if (run.exposureQueued.compareAndSet(false, true)) {
+                            MainThread.queueInvokeOnMainThread(
+                                    () -> exposeOnMainThread(run));
+                        }
                     }
                     exposedOnce = exposedOnce || ready;
                     Thread.sleep(ready ? 1_000L : 50L);

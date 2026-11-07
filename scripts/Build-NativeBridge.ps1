@@ -108,6 +108,7 @@ foreach ($required in @(
     'survivorcompanion/bridge/SCNativeCompanion.class',
     'survivorcompanion/bridge/SCBridge.class',
     'survivorcompanion/bridge/SCBootstrap.class',
+    'survivorcompanion/bridge/SCBootstrapAgent.class',
     'survivorcompanion/bridge/SCLauncher.class',
     'survivorcompanion/bridge/Main.class'
 )) {

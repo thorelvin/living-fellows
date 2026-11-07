@@ -1,0 +1,188 @@
+PZO launcher coexistence — release 0.27.2 — 7 November 2026
+
+Cause and implementation
+
+The reported mainClass com/pzoptimizer/PZOEntrypoint belongs to prop11's PZO,
+not xD3I's PZ Optimization covered by the existing combat adapter. LF's former
+installer accepted only vanilla main or its own wrapper. Merely allowing PZO
+would bypass PZO initialization, and delegating from LF would last only until
+PZO's configuration migrator restored its own mainClass.
+
+The installer now recognizes PZO with its entry class on the actual classpath,
+preserves its main and VM options, and adds -javaagent:LivingFellowsBridge.jar.
+The new Premain-Class invokes the same idempotent, nontransforming LF bootstrap.
+It adds no bytecode transformer. The existing worker arms its exposure timeout
+after the game thread starts, allowing host setup dialogs before game startup.
+Vanilla installations retain the existing SCLauncher route. Unknown launchers
+and ambiguous ownership still stop before mutation.
+
+Ownership schema 4 records agent mode; older wrapper records remain supported.
+Switching an existing LF wrapper installation to PZO adopts the current PZO
+configuration, minus LF-owned entries, as the uninstall baseline. Exact and
+selective uninstall preserve PZO and foreign configuration. Dotted/slashed
+PZO class names compare equivalently. Rejected prepublish config races no
+longer restore an obsolete snapshot over the foreign edit.
+
+The matching rebuilt LF bridge is shipped with Lua. No PZO code, engine JAR
+or native DLL is included in the release. Protocol remains 42.21-isocompanion-30;
+behavior was tested as a 0.27.1 candidate; final release metadata is 0.27.2
+and save schemas are unchanged.
+
+Inspected/downloaded official build
+
+PZO V1.9.3, commit 6dc0c6be49984b5e7c5e5bb32f5c8c73a08532d2.
+https://github.com/prop11/PZO-Launcher/releases/tag/V1.9.3
+Source: PZOEntrypoint.java, PZOptimAgent.java, ZomboidConfigMigrator.java,
+PZONative.java and the official manifest at that commit.
+
+SHA256:
+PZOptimEngine.jar 44e97de16a1c1cc8a0fc74c6ddfc7a79eb774b9196f715abdc86dd0efaeae2aa
+pzo_native64.dll ee1a59b1c8818b0714ede66ff5ddc1bd9f9d8e85174da9449ca877b634ce9382
+LF tested candidate 84e6f3979bbf4168a08d44ffc39741968d86194bed70d651ec22bd779327ae24
+Research files are ignored under build/pzo-launcher-research-V1.9.3/.
+
+Automated checks
+
+- Actual rebuilt LF JAR in a bounded -javaagent JVM: bootstrap before host
+  main, argument preservation, one worker/generation and clean retirement.
+  Evidence: build/pzo-bootstrap-agent-test/bootstrap-agent-test.log.
+- Actual released PZO JAR migrator: 28 checks, two compatibility modes and
+  two migrations each; PZO main plus relative LF agent/classpath survive once.
+  No startup/native code ran in this content-only fixture.
+- Five essential project checks passed in 65.8s, serial 256 MB / two CPUs.
+  Evidence: build/test-results/20261107-022722-322220/summary.json.
+- Essential installer run: 15/16 initially passed; the remaining schema-2 test
+  still expected schema 3. Its expectation was updated to schema 4 with explicit
+  wrapper-mode fields and the same migration case then passed.
+- Focused PZO exact/selective lifecycle, clean recovery, wrapper migration,
+  rejection, foreign ordered/duplicate settings and rollback cases all pass.
+  Evidence: build/pzo-installer-focused-20261107-022237/.
+- Final Windows PowerShell checks passed for dotted-main selective uninstall,
+  native fault matrix, deterministic install/uninstall prepublish config races
+  and schema-2 migration. Evidence: build/pzo-final-focused-20261107-024047/.
+- Source metadata/content/PowerShell parsing passed after those final fixes.
+
+Actual game startup
+
+The first private-CWD run reached PZO's actual main and transformers, but failed
+font resolution through its linked media tree before LF readiness/menu. It is
+retained as a setup failure, not a gameplay or successful acceptance result.
+
+One retry used the normal resource CWD, private PZO/LF/watchdog agents, and
+private cache/home. OS handles prevented reading/writing the installed launcher
+JSON and prevented writes to the game JAR. The migrator's expected file-in-use
+warning is specific to this reversible fixture; its ordinary content rewrite
+was tested separately above. No installer was run against the real game root.
+
+The retry verified actual PZO main on stack, its registered transformer,
+native DLL 1.9.3, LF readiness/protocol, and five seconds in MainScreenState.
+A native MainThread-queued screenshot was visually inspected. The process
+exited successfully after capture. Heap 2560 MB, four reported CPUs/affinity,
+BelowNormal priority, 180-second deadline and free-memory guards were applied.
+
+Evidence: build/pzo-launcher-research-V1.9.3/retry-actual-cwd/
+watchdog.log, stdout.log, stderr.log, launch-receipt.json, prepared.json,
+cache/Screenshots/pzo-lf-native-mainmenu.png.
+
+The image contains PZO's informational Lua-mod-missing dialog: only its Java
+engine was enabled, with requireLua=false, power_shield=false and Java-mod
+scanning off. This establishes launcher/bridge coexistence, not a complete
+Workshop frontend, combat, animation, or world/save acceptance pass.
+
+Installed launcher, game JAR and existing LF launcher JAR hashes matched after
+the run. The active global power scheme was unchanged. PZO's nine named local
+telemetry outputs were restored after process exit; no client remains running.
+No original save, persistent game installation or user mod preset was changed.
+
+Full release gate and current PZO acceptance
+
+The serial release gate passed all five checks in 248.3 seconds (23 direct JVM
+starts): Build, Lifecycle, Behaviour, Cargo and Interface. It compiled 292 Lua
+modules normally and with debug enabled, passed all 16 essential installer
+cases, and built the Workshop payload and standalone release archives.
+Evidence: build/test-results/20261107-025122-5a69aa/summary.json.
+
+The release gate contains headless and stub-based fixtures; injecting PZO into
+every JVM would not be a valid real-game compatibility check. Three existing
+controls were therefore also run serially with actual PZO premain and the real
+game JAR/production LF JAR, without runtime API stubs or LF premain:
+- SCNativeApiSignatureTest: PASS, 0.881 seconds.
+- SCNativeBridgeExposureTest: PASS, 9.548 seconds.
+- SCIsoCompanionControlTest: PASS, 13.017 seconds.
+Each verified PZO's transformer registration and exited 0 under 256 MB/two CPUs.
+Evidence: build/pzo-launcher-research-V1.9.3/native-controls-20261107-030127/.
+
+The current official Workshop frontend was then downloaded with existing
+SteamCMD anonymous access: item 3787481250, installed/latest manifest
+6457199287850172211, 344 files / 9,031,448 bytes. Mod metadata and runtime both
+declare 1.9.3. Its ordered file-hash receipt SHA256 is
+49f3dabf0bd090e78432eb8f8cc0f1b7d78c78bc07b7433c720623238fb7be8d.
+Evidence: build/pzo-workshop-current/DOWNLOAD-RECEIPT.md and
+frontend-HASH-MANIFEST.sha256. No subscription or user preset was changed.
+
+One live clone ran the actual PZOEntrypoint, PZO transformer/native DLL, current
+Workshop Lua frontend and LF premain together. A clone-local assertion verified
+MPOptim.Version == 1.9.3 and PZOApi.isEngineActive() == true during the existing
+two-companions/three-zombies natural-acquisition Follow scenario. The separate
+old pzopt.* combat adapter correctly reported absent for this different project.
+All 28 live checks passed, with no skips. In 45.004 seconds both companions
+survived at 100 health, eight melee hits landed and three actual zombie corpses
+were observed in the arena. The hit timeline recorded native zombie health
+reductions, including health-to-zero transitions. All three original lifetime
+receipts terminalized as removed before the first five-second sample (the
+fixture does not distinguish cell removal from an outfit-ID change). Its final
+damage=0, engaged=0 and frozen health fields are therefore stale. Corpse counts
+are an arena fallback, not identity proof that all three original zombies were
+killed: the probe also removed nine late bystanders. These measurement limits
+prevent treating the 28-check PASS as complete combat certification. There
+were no incoming companion wounds; this trial does not establish every zombie
+attack outcome. PZO causation of the stale receipts is unproven.
+
+The console also contains eleven ItemContainer.AddItem duplicate-ID errors,
+map metadata warnings and observer heavy-load damage from the cloned seed's
+248.86/12 inventory. No gameplay exception or client crash occurred. Those
+warnings were retained, not suppressed or declared harmless; their source is
+not established by this run.
+
+The existing native combat screenshot was inspected. Source fixtures were
+unchanged: only this disposable clone gained the active-PZO assertion and
+failure screenshots. Evidence:
+build/live-sandbox-runs/SC-Harness-20261107-030051-58358ddf/cache/console.txt,
+cache/Lua/SurvivorCompanionHarness/squad-combat-results.txt and
+cache/Screenshots/SC-Harness-20261107-030051-58358ddf-squad-combat-2v3_front-1.png.
+
+The private live run used 2560 MB/four CPUs, BelowNormal priority, a 360-second
+outer deadline and free-memory guards. PZO power-shield, laptop GPU preference,
+FSR and third-party Java-mod scanning were disabled in private settings;
+compatibility mode was on. Ordinary PZO combat smoothing, event pacing and
+zombie LOD settings remained enabled. Installed launcher/JAR handles, exact
+post-run hashes and restoration of the nine enumerated telemetry outputs were
+retained. Installed files and the active power scheme stayed unchanged; the
+owned game exited normally and no test JVM/client remains running.
+
+This adds real frontend/engine combat evidence to the full release gate. It is
+not a road/stair, expedition-return, save/reload or all-other-Java-mod acceptance
+matrix. No installer was applied to the actual game installation.
+
+Warning review against earlier evidence
+
+The stale lifetime-receipt fields also occur in an earlier non-PZO combat run
+(SC-Harness-20261106-180219-4e32ca12), so they are an existing measurement flaw.
+The eleven inventory-ID errors were absent from the earlier logs inspected;
+their caller and affected item identities are not recorded. Inventory
+compatibility is therefore not certified by this short combat run. The three
+VehiclesDB2 WAL-transaction notices come from PZO's SaveGameStreamBooster and
+did not abort the run. Font, icon, map and vanilla require warnings also occur
+in the non-PZO seed baseline.
+
+Final release metadata verification
+
+Release metadata, both mod.info files, Lua identity, README badge, shipped
+README and native manifest now declare 0.27.2. The reproducible rebuilt bridge
+and shipped payload match SHA256
+7fde1d912e8c63e001574f8b66c332d4ea9b0efec971ccc2c3fb640378562c5c.
+Comparing every JAR entry with the live-tested candidate confirmed identical
+classes/resources and entry order: only META-INF/MANIFEST.MF changed, for the
+release version. Test-Source.ps1 -Scope All and git diff --check passed after
+the version update. The already completed full release/PZO tests were not
+repeated for this metadata-only change. No local installation was performed.

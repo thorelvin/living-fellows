@@ -76,7 +76,9 @@ function Invoke-EssentialNative([string]$Domain) {
     foreach ($name in $native[$Domain]) {
         $class = if ($plainTests -contains $name) { $name } else { "survivorcompanion.bridge.$name" }
         $classpath = if ($stubTests -contains $name) { "$tools;$nativeClasses" } else { "$tools;$nativeJar;$jar" }
-        Invoke-ScTestCommand -FilePath $java -Arguments @('-cp', $classpath, $class) `
+        $arguments = @('-cp', $classpath, $class)
+        if ($name -eq 'SCBootstrapLifecycleTest') { $arguments += @('--agent-jar', $nativeJar) }
+        Invoke-ScTestCommand -FilePath $java -Arguments $arguments `
             -LogPath (Join-Path $logs "$Domain-$name.log") -WorkingDirectory $GameRoot
     }
 }

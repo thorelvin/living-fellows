@@ -9,6 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Owner = 'SurvivorCompanion.NativeBridge'
+$PzoMain = 'com/pzoptimizer/PZOEntrypoint'
+$AgentArgument = '-javaagent:LivingFellowsBridge.jar'
 $BridgeRoot = [System.IO.Path]::GetFullPath($BridgeRoot).TrimEnd('\')
 $manifestPath = Join-Path $BridgeRoot 'install-manifest.json'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -16,6 +18,12 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 function Get-HashOrEmpty([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function Test-PzoMain([string]$Name) { return $Name.Replace('.', '/') -eq $PzoMain }
+function Test-BridgeAgentArgument([string]$Argument) {
+    $argument = $Argument.Trim('"')
+    if ($argument -notmatch '^-javaagent:(.+?)(?:=.*)?$') { return $false }
+    return [System.IO.Path]::GetFileName($matches[1].Trim('"').Replace('/', '\')) -ieq 'LivingFellowsBridge.jar'
 }
 
 function Same-Path([string]$Left, [string]$Right) {
@@ -83,13 +91,26 @@ if ($ExpectedCurrentConfigSha256 -and $configHash -ne $ExpectedCurrentConfigSha2
 }
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding utf8 | ConvertFrom-Json
 $wrapper = [string]$manifest.wrapperMainClass
-if ($config.mainClass -ne $wrapper) {
+$launchMode = if ($manifest.launchMode) { [string]$manifest.launchMode } else { 'wrapper' }
+if ($launchMode -notin @('wrapper', 'agent')) { throw 'Unknown native bridge launch mode; refusing automatic rollback.' }
+$agentMatches = @($config.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) })
+if ($launchMode -eq 'agent') {
+    if (-not (Test-PzoMain ([string]$config.mainClass)) -or
+        -not (Test-PzoMain ([string]$manifest.installedMainClass)) -or
+        -not (Test-PzoMain ([string]$manifest.originalMainClass)) -or
+        [string]$manifest.launcherAgentArgument -cne $AgentArgument -or
+        $agentMatches.Count -ne 1 -or [string]$agentMatches[0] -cne $AgentArgument) {
+        throw 'PZO bootstrap agent ownership is missing, changed or duplicated; refusing automatic rollback.'
+    }
+} elseif ($config.mainClass -ne $wrapper -or $agentMatches.Count -ne 0) {
     throw "Launcher mainClass changed after installation; refusing automatic rollback: $($config.mainClass)"
 }
 $jarArgument = if ($launcherJar) { 'LivingFellowsBridge.jar' }
     else { $bridgeJar.Replace('\', '/') }
 $classpathMatches = @($config.classpath | Where-Object {
     ([string]$_).Replace('\', '/').Equals($jarArgument,
+        [System.StringComparison]::OrdinalIgnoreCase) -or
+    ([string]$_).Replace('\', '/').Equals($bridgeJar.Replace('\', '/'),
         [System.StringComparison]::OrdinalIgnoreCase)
 })
 if ($classpathMatches.Count -ne 1) {
@@ -119,18 +140,28 @@ $expectedHash = $originalHash
 $updatedConfigText = ''
 if ($mode -eq 'selective') {
     # Keep later VM and classpath edits from other mods; remove only our entries.
-    $config.mainClass = [string]$manifest.originalMainClass
+    if ($launchMode -eq 'wrapper') { $config.mainClass = [string]$manifest.originalMainClass }
     $config.classpath = @($config.classpath | Where-Object {
         -not ([string]$_).Replace('\', '/').Equals($jarArgument,
+            [System.StringComparison]::OrdinalIgnoreCase) -and
+        -not ([string]$_).Replace('\', '/').Equals($bridgeJar.Replace('\', '/'),
             [System.StringComparison]::OrdinalIgnoreCase)
     })
+    if ($launchMode -eq 'agent') {
+        $config.vmArgs = @($config.vmArgs | Where-Object { [string]$_ -cne $AgentArgument })
+    }
     $updatedConfigText = $config | ConvertTo-Json -Depth 100
     $roundTrip = $updatedConfigText | ConvertFrom-Json
-    if ([string]$roundTrip.mainClass -ne [string]$manifest.originalMainClass -or
+    $mainRestored = if ($launchMode -eq 'agent') { Test-PzoMain ([string]$roundTrip.mainClass) }
+        else { [string]$roundTrip.mainClass -eq [string]$manifest.originalMainClass }
+    if (-not $mainRestored -or
         @($roundTrip.classpath | Where-Object {
             ([string]$_).Replace('\', '/').Equals($jarArgument,
+                [System.StringComparison]::OrdinalIgnoreCase) -or
+            ([string]$_).Replace('\', '/').Equals($bridgeJar.Replace('\', '/'),
                 [System.StringComparison]::OrdinalIgnoreCase)
-        }).Count -ne 0) {
+        }).Count -ne 0 -or
+        @($roundTrip.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) }).Count -ne 0) {
         throw 'Selective launcher rollback failed validation.'
     }
     $hasher = [System.Security.Cryptography.SHA256]::Create()
@@ -168,10 +199,12 @@ $disabledManifest = Join-Path $BridgeRoot `
     ('install-manifest.uninstalled.' + (Get-Date -Format 'yyyyMMdd-HHmmss') `
         + '-' + ([guid]::NewGuid().ToString('N')).Substring(0, 8) + '.json')
 
+$configPublished = $false
 try {
     if ((Get-HashOrEmpty $configPath) -ne $configHash) {
         throw 'Launcher configuration changed during uninstall; refusing automatic rollback.'
     }
+    $configPublished = $true
     Copy-Item -LiteralPath $stagedOriginal -Destination $configPath -Force
     if ((Get-HashOrEmpty $configPath) -ne $expectedHash) {
         throw 'Launcher configuration restore hash mismatch.'
@@ -184,7 +217,7 @@ try {
 catch {
     $trigger = $_
     $rollbackFailures = @()
-    try { Copy-Item -LiteralPath $currentConfigBackup -Destination $configPath -Force }
+    try { if ($configPublished) { Copy-Item -LiteralPath $currentConfigBackup -Destination $configPath -Force } }
     catch { $rollbackFailures += "config restore: $($_.Exception.Message)" }
     try {
         if ($launcherJarExisted) {
@@ -196,7 +229,7 @@ catch {
             Copy-Item -LiteralPath $currentManifestBackup -Destination $manifestPath
         }
     } catch { $rollbackFailures += "manifest restore: $($_.Exception.Message)" }
-    if ((Get-HashOrEmpty $configPath) -ne (Get-HashOrEmpty $currentConfigBackup)) {
+    if ($configPublished -and (Get-HashOrEmpty $configPath) -ne (Get-HashOrEmpty $currentConfigBackup)) {
         $rollbackFailures += 'config rollback hash mismatch'
     }
     if ($launcherJarExisted -and

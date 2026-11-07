@@ -80,6 +80,28 @@ function New-StandaloneInstallFixture([string]$Sandbox, [string]$Name, [string]$
     }
 }
 
+# The installer checks classpath membership, not executable third-party code.
+# Keep this a valid ZIP with the recognized entry; never launch its dummy class.
+function Set-ScPzoLauncherFixture($Fixture) {
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $jar = Join-Path $Fixture.game 'pzoptimizer.jar'
+    $zip = [System.IO.Compression.ZipFile]::Open($jar, 'Create')
+    try {
+        $stream = $zip.CreateEntry('com/pzoptimizer/PZOEntrypoint.class').Open()
+        try { $stream.WriteByte(0) } finally { $stream.Dispose() }
+    } finally { $zip.Dispose() }
+    $config = Get-ScOriginalLauncherConfig | ConvertFrom-Json
+    $config.mainClass = 'com/pzoptimizer/PZOEntrypoint'
+    $config.classpath += @('pzoptimizer.jar', '.')
+    $config.vmArgs += @('-agentlib:zbNative', '-Dforeign.keep=one', '-Dforeign.keep=one')
+    $config | Add-Member -NotePropertyName windows -NotePropertyValue ([pscustomobject]@{
+        gameArguments = @('-Dforeign.option=keep', '-Dforeign.option=keep')
+    })
+    $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $Fixture.config -Encoding utf8
+    return $jar
+}
+
 function Install-StandaloneFixture([string]$ProjectRoot, $Fixture,
         [string]$PreparedPayload, [string]$PrebuiltJar) {
     & (Join-Path $ProjectRoot 'scripts\Install-Local.ps1') `
@@ -93,6 +115,7 @@ function Get-InstallFixtureSnapshot($Fixture) {
     return Get-TreeSnapshot @{
         config = $Fixture.config
         launcherJar = (Join-Path $Fixture.game 'LivingFellowsBridge.jar')
+        foreignPzoJar = (Join-Path $Fixture.game 'pzoptimizer.jar')
         bridge = $Fixture.bridge
         target = $Fixture.target
         managedBackups = $Fixture.backups
@@ -104,6 +127,7 @@ function Get-StandaloneFixtureSnapshot($Fixture) {
     return Get-TreeSnapshot @{
         config = $Fixture.config
         launcherJar = (Join-Path $Fixture.game 'LivingFellowsBridge.jar')
+        foreignPzoJar = (Join-Path $Fixture.game 'pzoptimizer.jar')
         target = $Fixture.target
         installData = $Fixture.data
     }

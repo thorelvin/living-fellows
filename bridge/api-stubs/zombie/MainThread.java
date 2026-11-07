@@ -11,6 +11,7 @@ public final class MainThread {
     private MainThread() {}
 
     private static volatile RuntimeException nextQueueFailure;
+    private static volatile boolean running = true;
 
     public static void queueInvokeOnMainThread(Runnable task) {
         RuntimeException failure = nextQueueFailure;
@@ -23,7 +24,8 @@ public final class MainThread {
     public static void failNextQueueForTests(RuntimeException failure) {
         nextQueueFailure = failure;
     }
-    public static boolean isRunning() { return true; }
+    public static boolean isRunning() { return running; }
+    public static void setRunningForTests(boolean value) { running = value; }
     public static int queuedForTests() { return QUEUE.size(); }
     public static void runNextForTests() {
         Runnable task = QUEUE.poll();

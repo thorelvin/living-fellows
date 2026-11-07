@@ -60,8 +60,176 @@ function New-Fixture([string]$Name) {
 function New-StandaloneFixture([string]$Name) {
     return (New-StandaloneInstallFixture $Sandbox $Name $originalConfig)
 }
+function Install-AgentFixture($Fixture, [string]$Fault = '') {
+    & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $Fixture.game `
+        -BridgeRoot $Fixture.bridge -ConfigBackupRoot $Fixture.configBackups `
+        -PrebuiltBridgeJar $PrebuiltJar -FailAfter $Fault | Out-Null
+}
+function Assert-AgentFixture($Fixture) {
+    $config = Get-Content -LiteralPath $Fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $manifest = Get-Content -LiteralPath (Join-Path $Fixture.bridge 'install-manifest.json') `
+        -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($config.mainClass -ne 'com/pzoptimizer/PZOEntrypoint' -or
+        @($config.classpath | Where-Object { $_ -ceq 'LivingFellowsBridge.jar' }).Count -ne 1 -or
+        @($config.vmArgs | Where-Object { $_ -ceq '-javaagent:LivingFellowsBridge.jar' }).Count -ne 1 -or
+        $manifest.schemaVersion -ne 4 -or $manifest.launchMode -ne 'agent' -or
+        $manifest.launcherAgentArgument -cne '-javaagent:LivingFellowsBridge.jar' -or
+        $manifest.installedMainClass -ne 'com/pzoptimizer/PZOEntrypoint' -or
+        $manifest.originalMainClass -ne 'com/pzoptimizer/PZOEntrypoint') {
+        throw 'Recognized PZO launcher did not retain its main with exact owned agent/manifest state.'
+    }
+}
 
 switch ($Case) {
+
+'pzo-agent-lifecycle' {
+    $fixture = New-StandaloneFixture ('pzo-agent-' + $Variant)
+    $foreignJar = Set-ScPzoLauncherFixture $fixture
+    $foreignHash = (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash
+    $originalHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    Assert-AgentFixture $fixture
+    $installedHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    Assert-AgentFixture $fixture
+    if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $installedHash) {
+        throw 'Unchanged PZO agent update rewrote the launcher bytes.'
+    }
+    if ($Variant -eq 'selective') {
+        $edited = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+        $edited.mainClass = 'com.pzoptimizer.PZOEntrypoint'
+        $edited.classpath += @('foreign/keep', 'foreign/keep')
+        $edited.vmArgs += @('-Xmx4096m', '-Xmx4096m', '-Dforeign.keep=two')
+        $edited.windows.gameArguments += '-Dforeign.later=keep'
+        $edited | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+        $editedHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+        Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+        if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $editedHash) {
+            throw 'PZO agent update rewrote foreign ordered/duplicate launcher settings.'
+        }
+        $edited.classpath = @($edited.classpath | Where-Object { $_ -cne 'LivingFellowsBridge.jar' })
+        $edited.vmArgs = @($edited.vmArgs | Where-Object { $_ -cne '-javaagent:LivingFellowsBridge.jar' })
+    } elseif ($Variant -ne 'exact') { throw "Unknown PZO lifecycle variant: $Variant" }
+    & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+        -InstallDataRoot $fixture.data | Out-Null
+    $restored = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($Variant -eq 'exact') {
+        if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $originalHash) {
+            throw 'PZO agent exact uninstall did not restore original launcher bytes.'
+        }
+    } elseif (($restored | ConvertTo-Json -Depth 100 -Compress) -cne
+            ($edited | ConvertTo-Json -Depth 100 -Compress)) {
+        throw 'PZO selective uninstall changed foreign values, order or duplicate counts.'
+    }
+    if ((Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash -ne $foreignHash -or
+        (Test-Path -LiteralPath $fixture.target) -or
+        (Test-Path -LiteralPath (Join-Path $fixture.game 'LivingFellowsBridge.jar'))) {
+        throw 'PZO lifecycle changed the foreign JAR or left an owned install active.'
+    }
+}
+
+'pzo-agent-recovery' {
+    if ($Variant -notin @('clean', 'wrapper-migration')) { throw "Unknown PZO recovery variant: $Variant" }
+    $fixture = New-Fixture ('pzo-recovery-' + $Variant)
+    Install-AgentFixture $fixture
+    $manifestPath = Join-Path $fixture.bridge 'install-manifest.json'
+    $old = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    # Reproduce a pre-agent manifest; absent mode must still mean wrapper.
+    foreach ($field in @('launchMode', 'installedMainClass', 'launcherAgentArgument')) {
+        $old.PSObject.Properties.Remove($field)
+    }
+    $old.schemaVersion = 3
+    $old | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+    $foreignJar = Set-ScPzoLauncherFixture $fixture
+    $foreignHash = (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash
+    $baseline = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $baselineHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+    if ($Variant -eq 'wrapper-migration') {
+        $rewritten = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+        $rewritten.classpath += 'LivingFellowsBridge.jar'
+        $rewritten | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+    }
+    foreach ($fault in @('native-config-replace', 'native-manifest-write')) {
+        $before = Get-InstallFixtureSnapshot $fixture
+        $failed = $false
+        try { Install-AgentFixture $fixture $fault }
+        catch { $failed = $_.Exception.Message -like '*Injected native installer failure*' }
+        if (-not $failed -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+            throw "PZO recovery/migration did not restore exact state at $fault ($Variant)."
+        }
+    }
+    Install-AgentFixture $fixture
+    Assert-AgentFixture $fixture
+    $migrated = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $savedBaseline = Get-Content -LiteralPath $migrated.originalConfigBackup -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($migrated.originalConfigBackup -eq $old.originalConfigBackup -or
+        ($savedBaseline | ConvertTo-Json -Depth 100 -Compress) -cne
+            ($baseline | ConvertTo-Json -Depth 100 -Compress) -or
+        (Get-FileHash -LiteralPath $migrated.originalConfigBackup -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $migrated.originalConfigSha256) {
+        throw 'PZO recovery did not preserve the rewritten original baseline minus only owned LF entries.'
+    }
+    & (Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1') -BridgeRoot $fixture.bridge | Out-Null
+    $expectedHash = if ($Variant -eq 'clean') { $baselineHash } else { $migrated.originalConfigSha256 }
+    if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $expectedHash -or
+        (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash -ne $foreignHash) {
+        throw 'PZO recovery/migration uninstall did not restore its verified baseline and foreign JAR.'
+    }
+}
+
+'pzo-agent-rejected' {
+    $unknown = New-Fixture 'pzo-unknown-main'
+    Set-ScPzoLauncherFixture $unknown | Out-Null
+    $config = Get-Content -LiteralPath $unknown.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $config.mainClass = 'other/UnknownLauncher'
+    $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $unknown.config -Encoding utf8
+    $before = Get-InstallFixtureSnapshot $unknown
+    $refused = $false
+    try { Install-AgentFixture $unknown }
+    catch { $refused = $_.Exception.Message -match 'unknown.*mainClass' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $unknown) -ne $before) {
+        throw 'Unknown launcher was not rejected before all mutation.'
+    }
+    $missing = New-Fixture 'pzo-missing-entry'
+    $missingJar = Set-ScPzoLauncherFixture $missing
+    $zip = [System.IO.Compression.ZipFile]::Open($missingJar, 'Update')
+    try { $zip.GetEntry('com/pzoptimizer/PZOEntrypoint.class').Delete() }
+    finally { $zip.Dispose() }
+    $before = Get-InstallFixtureSnapshot $missing
+    $refused = $false
+    try { Install-AgentFixture $missing }
+    catch { $refused = $_.Exception.Message -match 'PZO|entrypoint|main.*class' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $missing) -ne $before) {
+        throw 'PZO main without its classpath entry was not rejected before mutation.'
+    }
+    $fixture = New-Fixture 'pzo-agent-ambiguous'
+    Set-ScPzoLauncherFixture $fixture | Out-Null
+    Install-AgentFixture $fixture
+    Assert-AgentFixture $fixture
+    $installed = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8
+    foreach ($problem in @('missing-agent', 'duplicate-agent', 'nonexact-agent', 'missing-classpath', 'duplicate-classpath')) {
+        $config = $installed | ConvertFrom-Json
+        switch ($problem) {
+            'missing-agent' { $config.vmArgs = @($config.vmArgs | Where-Object { $_ -ne '-javaagent:LivingFellowsBridge.jar' }) }
+            'duplicate-agent' { $config.vmArgs += '-javaagent:LivingFellowsBridge.jar' }
+            'nonexact-agent' { $config.vmArgs = @($config.vmArgs | ForEach-Object { if ($_ -eq '-javaagent:LivingFellowsBridge.jar') { '-javaagent:./LivingFellowsBridge.jar' } else { $_ } }) }
+            'missing-classpath' { $config.classpath = @($config.classpath | Where-Object { $_ -ne 'LivingFellowsBridge.jar' }) }
+            'duplicate-classpath' { $config.classpath += (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/') }
+        }
+        $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+        $before = Get-InstallFixtureSnapshot $fixture
+        foreach ($operation in @('update', 'uninstall')) {
+            $refused = $false
+            try {
+                if ($operation -eq 'update') { Install-AgentFixture $fixture }
+                else { & (Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1') -BridgeRoot $fixture.bridge -PreflightOnly | Out-Null }
+            } catch { $refused = $_.Exception.Message -match 'agent|classpath' }
+            if (-not $refused -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+                throw "Ambiguous PZO $problem was not rejected before mutation by $operation."
+            }
+        }
+    }
+}
 
 'fresh-matrix' {
     $fixture = New-Fixture ('fresh-matrix-' + $Variant)
@@ -122,6 +290,39 @@ switch ($Case) {
             throw "Native installer fault boundary did not restore exact state: $boundary"
         }
     }
+    # Change the launcher immediately before each publish guard, without a
+    # product fault hook. Refusal must retain that edit and all owned files.
+    $nativeUninstall = Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1'
+    foreach ($operation in @(
+            @{ script = $NativeInstall; guard = 'if ((Get-HashOrEmpty $configPath) -ne $configHashAtStart)' },
+            @{ script = $nativeUninstall; guard = 'if ((Get-HashOrEmpty $configPath) -ne $configHash)' })) {
+        $before = Get-InstallFixtureSnapshot $nativeFixture
+        $priorBytes = [System.IO.File]::ReadAllBytes($nativeFixture.config)
+        $racedBytes = [byte[]]($priorBytes + [byte]32)
+        $guard = @(Select-String -LiteralPath $operation.script -SimpleMatch $operation.guard)
+        if ($guard.Count -ne 1) { throw 'Native prepublish guard is missing or ambiguous.' }
+        $breakpoint = Set-PSBreakpoint -Script $operation.script -Line $guard[0].LineNumber -Action {
+            [System.IO.File]::AppendAllText($configPath, ' ')
+        }
+        $refused = $false
+        try {
+            if ($operation.script -eq $NativeInstall) {
+                & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $nativeFixture.game `
+                    -BridgeRoot $nativeFixture.bridge -ConfigBackupRoot $nativeFixture.configBackups `
+                    -PrebuiltBridgeJar $PrebuiltJar | Out-Null
+            } else { & $nativeUninstall -BridgeRoot $nativeFixture.bridge | Out-Null }
+        } catch { $refused = $_.Exception.Message -like '*Launcher configuration changed during*' }
+        finally { Remove-PSBreakpoint -Breakpoint $breakpoint }
+        if (-not $refused -or
+            [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($nativeFixture.config)) -cne
+            [Convert]::ToBase64String($racedBytes)) {
+            throw "Native prepublish refusal overwrote a concurrent launcher edit: $($operation.script)"
+        }
+        [System.IO.File]::WriteAllBytes($nativeFixture.config, $priorBytes)
+        if ((Get-InstallFixtureSnapshot $nativeFixture) -ne $before) {
+            throw "Native prepublish refusal changed owned files: $($operation.script)"
+        }
+    }
 }
 
 'schema2-migration' {
@@ -140,7 +341,8 @@ switch ($Case) {
     $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
     Remove-Item -LiteralPath $gameJar -Force
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
-    foreach ($field in @('launcherJar', 'launcherJarSha256', 'launcherClasspathEntry')) {
+    foreach ($field in @('launcherJar', 'launcherJarSha256', 'launcherClasspathEntry',
+            'launchMode', 'installedMainClass', 'launcherAgentArgument')) {
         $manifest.PSObject.Properties.Remove($field)
     }
     $manifest.schemaVersion = 2
@@ -155,7 +357,10 @@ switch ($Case) {
         ConvertFrom-Json
     if ($updated.classpath -notcontains 'LivingFellowsBridge.jar' -or
         $updated.classpath -contains $legacyJar -or
-        $updatedManifest.schemaVersion -ne 3 -or
+        $updatedManifest.schemaVersion -ne 4 -or
+        $updatedManifest.launchMode -ne 'wrapper' -or
+        $updatedManifest.installedMainClass -ne 'survivorcompanion/bridge/SCLauncher' -or
+        [string]$updatedManifest.launcherAgentArgument -ne '' -or
         (Get-FileHash -LiteralPath $gameJar -Algorithm SHA256).Hash.ToLowerInvariant() -ne
             [string]$updatedManifest.launcherJarSha256) {
         throw 'Schema 2 launcher did not migrate to an owned relative JAR.'

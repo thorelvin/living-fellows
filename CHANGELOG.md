@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.27.2 - PZO launcher compatibility
+
+- Support PZO's launcher during standalone installation: keep its entry point
+  and start Living Fellows through a Java agent.
+- Preserve other launcher settings on update and uninstall, including
+  installations switched from LF's older wrapper. Protect concurrent launcher
+  edits if installation or removal is interrupted.
+- Wait for the game thread before timing bridge startup, allowing PZO's setup
+  screens to finish while retaining one LF bootstrap worker.
+- Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
+  ship the matching rebuilt bridge with 0.27.2 release metadata. Existing save
+  schemas are unchanged.
+
 ## 0.27.1 - Seven new Strange Folk and clearer orders
 
 - Give clicked companions direct Talk, Follow, Stay and Retreat choices, with

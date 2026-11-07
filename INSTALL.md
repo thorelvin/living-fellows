@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# Install Living Fellows 0.26.69
+# Install Living Fellows 0.27.2
 
 For **Project Zomboid Build 42.21.0, single-player**. Choose Workshop or standalone; use one copy at a time.
 
@@ -23,6 +23,8 @@ ZombieBuddy loads Living Fellows' Java bridge. Check its installation preview be
 4. Launch the game normally and enable **Living Fellows** in **Mods** and in the save's **More… → Choose Mods** menu.
 
 No ZombieBuddy installation or Workshop subscription is needed for this edition. If Windows denies access to the game folder, run the installer as Administrator.
+
+If PZO is already installed, Living Fellows keeps PZO's launcher and adds its own Java startup agent. PZO and LF retain their own settings, and uninstall removes only LF's entries. Use the complete current download so the installer and bridge match.
 
 For a different Steam library, open a terminal in the extracted folder and run:
 

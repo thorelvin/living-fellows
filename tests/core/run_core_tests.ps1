@@ -919,7 +919,7 @@ try {
     Add-ScJvmStep 'sc-animation-contract-test' @('-cp', "$BuildRoot;$Jar", 'SCAnimationContractTest', $GameRoot) @() 'Installed Build 42 animation contract gate failed.'
     Add-ScJvmStep 'sc-item-container-contract-test' @('-cp', "$BuildRoot;$Jar", 'SCItemContainerContractTest') @() 'Installed Build 42 item-container contract gate failed.'
     Add-ScJvmStep 'sc-deferred-main-thread-queue-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCDeferredMainThreadQueueTest') @() 'Deferred main-thread spawn queue gate failed.'
-    Add-ScJvmStep 'sc-bootstrap-lifecycle-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCBootstrapLifecycleTest') @() 'Bootstrap generation lifecycle gate failed.'
+    Add-ScJvmStep 'sc-bootstrap-lifecycle-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCBootstrapLifecycleTest', '--agent-jar', $NativeJar) @() 'Bootstrap generation lifecycle gate failed.'
     Add-ScJvmStep 'sc-street-lookup-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCStreetLookupTest') @() 'Native nearest-street lookup gate failed.'
     Add-ScJvmStep 'sc-fishing-map-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCFishingMapTest') @() 'Native mapped-shore lookup gate failed.'
     Add-ScJvmStep 'sc-road-router-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCRoadRouterTest') @() 'Native road graph and router gate failed.'
