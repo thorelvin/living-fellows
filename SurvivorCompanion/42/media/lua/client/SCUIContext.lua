@@ -1150,7 +1150,7 @@ local function addCleanStainOption(context, square, player)
     end
 end
 
-local function addBaseMenu(context, square, containerTarget, barricadeTarget, player, worldMenu)
+local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)
     if not square or not SC.BaseLife then return false end
     local storage = storageForObject(containerTarget)
     if not baseMenuRelevant(square) and not storage then return false end
@@ -1290,22 +1290,17 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
     end
     menu:addOption(text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext, player)
     if inside and containerTarget then
-        local storageMenu = Menus.group(worldMenu, "camp.storage", text("UI_SC_Base_MarkStorage"))
-        for _, option in ipairs(worldMenu.options) do
-            if option.scMenuKey == "camp.storage" then option.scLFWorld = true break end
-        end
+        local storageMenu = Menus.group(menu, "camp.storage", text("UI_SC_Base_MarkStorage"))
         for _, category in ipairs({ "food", "fresh_food", "water", "medical", "tools", "construction",
             "crafting", "literature", "weapons", "ammunition", "clothing", "valuables", "general", "output",
             "memorial", "farming" }) do
             storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
                 "storage", { object = containerTarget, category = category }, player)
         end
-        Menus.finish(storageMenu)
     end
     if storage then
-        local option = Menus.action(worldMenu, "camp.storage.unmark", text("UI_SC_Base_UnmarkStorage"), nil,
+        Menus.action(menu, "camp.storage.unmark", text("UI_SC_Base_UnmarkStorage"), nil,
             removeStorageFromContext, storage, player)
-        option.scLFWorld = true
     end
     return true
 end
@@ -2170,7 +2165,18 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if #oddballs > 0 then
         addOddballConversations(Menus.group(rootMenu, "strange_folk", text("UI_SC_Context_StrangeFolk")), oddballs, player)
     end
-    if baseRelevant then addBaseMenu(rootMenu, clickSquare, containerTarget, barricadeTarget, player, context) end
+    if baseRelevant then addBaseMenu(rootMenu, clickSquare, containerTarget, barricadeTarget, player) end
+    -- Prioritize the clicked container inside LF without moving storage
+    -- commands above the game's own main-menu options.
+    for _, key in ipairs({ "camp.storage.unmark", "camp.storage" }) do
+        for index, option in ipairs(rootMenu.options) do
+            if option.scLFContext and option.scMenuKey == key then
+                table.remove(rootMenu.options, index)
+                table.insert(rootMenu.options, 1, option)
+                break
+            end
+        end
+    end
     Menus.finish(rootMenu)
     Menus.prune(context)
     for index, option in ipairs(context.options) do
@@ -2178,17 +2184,6 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             table.remove(context.options, index)
             context.options[#context.options+1] = option
             break
-        end
-    end
-    -- Contextual storage actions lead the popup when the click hit a container.
-    -- Move only our own rows; preserve every native/foreign row's relative order.
-    for _, key in ipairs({ "camp.storage.unmark", "camp.storage" }) do
-        for index, option in ipairs(context.options) do
-            if option.scLFContext and option.scMenuKey == key then
-                table.remove(context.options, index)
-                table.insert(context.options, 1, option)
-                break
-            end
         end
     end
     for index, option in ipairs(context.options) do option.id = index end

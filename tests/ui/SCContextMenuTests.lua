@@ -439,14 +439,18 @@ SC.BaseLife = { active = function() return {} end, isInside = function() return 
 SC.BaseVisuals = { status = function() return { enabled = false } end }
 SC.BaseWatch = { isRemote = function() return false end }
 local campMenu = fill({ container })
+local lfStorage, lfStorageOption = group(campMenu, "lf")
 local mark, markParent = find(campMenu, "UI_SC_Base_MarkStorage")
 local unmark, unmarkParent = find(campMenu, "UI_SC_Base_UnmarkStorage")
-check(mark and unmark and markParent == campMenu and unmarkParent == campMenu
+check(mark and unmark and markParent == lfStorage and unmarkParent == lfStorage
+    and not find(campMenu, "UI_SC_Base_MarkStorage", true)
+    and not find(campMenu, "UI_SC_Base_UnmarkStorage", true)
     and not group(campMenu, "camp"),
-    "exact storage marking and removal are direct without Camp/Storage wrappers")
-check(campMenu.options[1] == mark and campMenu.options[2] == unmark
-    and child(campMenu, mark) and #child(campMenu, mark).options == 16,
-    "a container click puts marking first and removal beside it, with categories one level down")
+    "storage marking and removal stay inside Living Fellows without Camp/Storage wrappers")
+check(lfStorage.options[1] == mark and lfStorage.options[2] == unmark
+    and campMenu.options[#campMenu.options] == lfStorageOption
+    and child(lfStorage, mark) and #child(lfStorage, mark).options == 16,
+    "a container click puts storage first inside LF while keeping LF at the bottom of the main menu")
 SC.BaseLife, SC.BaseVisuals, SC.BaseWatch = nil, nil, nil
 
 local household = { id = "household", name = "Neighbours", members = {} }

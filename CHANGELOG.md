@@ -6,8 +6,8 @@
 
 - Give clicked companions direct Talk, Follow, Stay and Retreat choices, with
   other actions grouped by person, squad or the object you clicked.
-- Put Mark storage as... first when you right-click a container, with categories
-  one level down and Unmark storage beside it for an existing marking.
+- Put Mark storage as... first inside Living Fellows when you right-click a
+  container, with categories one level down and Unmark storage beside it.
 - Group routine radio services, computer maintenance and map expedition planning.
   Keep pending radio replies and active map choices easy to reach.
 - Keep native stair crossings moving instead of interrupting them for a window

@@ -27,10 +27,10 @@ not establish reliability for every firehouse stair route or a group.
 
 Storage/menu revision
 
-A container click now puts Mark storage as... first in the native main menu.
-Its categories are one submenu down. A marked container has Unmark storage
-immediately beside it, retaining exact-object guards and confirmation.
-Unrelated native/foreign options retain their relative order.
+A container click puts Mark storage as... first inside Living Fellows, with
+Unmark storage next for a marked container. Categories are one submenu below
+Mark storage as.... The Living Fellows branch stays at the bottom of the
+native main menu. Exact-object guards and confirmation remain intact.
 Storage editing remains restricted by the existing camp/local-view guards.
 
 The Camp and Storage wrapper levels are removed. Other relevant camp actions
@@ -52,7 +52,7 @@ Automated checks
   two processors; 23 direct JVM starts. No game launched by this gate.
   Evidence: build/test-results/20261107-011104-e21c46/summary.json
 
-Native acceptance
+Native acceptance (before the submenu-placement clarification below)
 
 One short run reused the existing cloned Rosewood firehouse world:
 build/live-sandbox-runs/SC-Harness-20261106-215029-dd984a6c/
@@ -91,7 +91,7 @@ Tested source SHA256:
 SCNavigation.lua 43333DB6642EBC832C30A664435E64B05AA909BF66B3192B73E2A682DFA43C8D
 SCUIContext.lua  3179D63951B659604C0C30BF7F7D5A02D78E4E5FCEB9E86FD7E26BFE2DFC329C
 
-Release integration
+Initial release integration
 
 Integrated over 0b78eb6e, the existing 0.27.1 Strange Folk release, preserving
 its version metadata and rebuilt native JAR. The tested Navigation/UIContext
@@ -102,6 +102,16 @@ All five essential checks passed again on the combined 0.27.1 build in
 bridge exposure and content validation passed within that gate.
 Evidence: build/test-results/20261107-013805-8be4e5/summary.json
 
-Local Field Guide paths and both menu photos describe the shallow layout.
-Those gh-pages working changes remain unpublished; no local game installation
-or website publication was performed by this release-integration task.
+Submenu-placement clarification
+
+The user clarified that "top" meant the Living Fellows sublevel, not the
+main popup. Mark and Unmark now lead only that submenu, retaining the shallow
+category path and the native main menu's original ordering.
+The Interface check passed after this correction in 10.4 seconds, including
+assertions for storage's parent, first/second positions, category depth and
+Living Fellows remaining at the bottom of the main menu.
+Evidence: C:/ZOMBOID/work/r271/build/test-results/20261107-014503-fa8dbf/
+No new game run was needed for this ordering-only change. The earlier native
+storage capture records the former position; its figure was removed from the
+unpublished local Field Guide, whose prose and quick reference are corrected.
+The stair implementation and its live acceptance are unchanged.
