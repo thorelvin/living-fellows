@@ -58,5 +58,7 @@
     "Sandbox_LivingFellows_RareComputers_option3": "Common",
     "Sandbox_LivingFellows_RareComputers_tooltip": "A very few newly opened computers outside camp may behave differently from August onward. Requires computer drawer rewards. Changing this setting preserves computers you have already found.",
     "Sandbox_LivingFellows_LockRealItems": "Computer drawer rewards",
-    "Sandbox_LivingFellows_LockRealItems_tooltip": "New computer recoveries can release a desk drawer or reveal real supplies in the building."
+    "Sandbox_LivingFellows_LockRealItems_tooltip": "New computer recoveries can release a desk drawer or reveal real supplies in the building.",
+    "Sandbox_LivingFellows_FirstMeetingEnabled": "Guarantee a first meeting",
+    "Sandbox_LivingFellows_FirstMeetingEnabled_tooltip": "Help an independent survivor meet you early in a new world. Their arrival gets a one-time off-screen zombie clearance. No immunity is added. Requires Spawn independent survivors."
 }

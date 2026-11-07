@@ -1445,6 +1445,7 @@ end
 
 local function scheduledSubsystemDefinitions()
     return {
+        { field = "firstMeeting", owner = SC.FirstMeeting, depth = 3, entries = 32 },
         { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
         { field = "oddballs", owner = SC.Oddballs, depth = 6, entries = 1024 },
         { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
@@ -4276,6 +4277,7 @@ function persistence.restore(player)
 
     local subsystemDefinitions = scheduledSubsystemDefinitions()
     local subsystemDiagnostics = {
+        firstMeeting="first-meeting",
         factions = "factions", oddballs = "oddballs",
         factionWorld = "faction-world", baseLife = "base-life",
         infectionCrisis = "infection-crisis", community = "community",
@@ -4314,6 +4316,8 @@ function persistence.restore(player)
                 SC.Diagnostics.report(subsystemDiagnostics[definition.field], nil,
                     "subsystem save quarantined", failure)
             end
+        elseif definition.field=="firstMeeting" and SC.FirstMeeting then
+            SC.FirstMeeting.restore(nil)
         elseif definition.field == "oddballs" and SC.Oddballs
             and type(SC.Oddballs.restore) == "function" then
             SC.Oddballs.restore(nil)
@@ -4391,6 +4395,13 @@ function persistence.pendingCount()
     local count = 0
     for _ in pairs(pending) do count = count + 1 end
     return count
+end
+-- Used only to migrate first-meeting eligibility after the restore transaction.
+function persistence.hasWorldHistory()
+    if not lastDocument then return false end
+    for _ in pairs(lastDocument.companions or {}) do return true end
+    for _ in pairs(lastDocument.factionActors or {}) do return true end
+    return false
 end
 
 function persistence.isPending(id)

@@ -10,6 +10,7 @@ local seen, learned, observations, controls = {}, {}, {}, {}
 local loaded, missing, migrated, dismissed = false, true, false, false
 local revision, active, pointer, lastNudge = 0, nil, nil, -math.huge
 local lastPlayer, lastSafe, startupAt, startupUntil = nil, false, nil, nil
+local recruitHint,campSince,idleSince,nextSound = nil,nil,nil,0
 local definitions = {
     {id="bridge", title="Bridge ready", text="Living Fellows isn't fully running. Open More > Support and copy the report."},
     {id="meet", title="Meet a survivor", text="Find another survivor. They turn up in houses and along roads."},
@@ -26,6 +27,8 @@ local definitions = {
     {id="locked_computer", title="Locked computers", text="A locked desktop needs its password or a supported recovery method. Inspect the machine and nearby clues."},
     {id="camp_jobs", title="Camp jobs", text="With storage marked, give a resident a Base job in More > Base. Their role and supplies decide what they can do."},
     {id="first_notice", title="Open Living Fellows", text="Press Home for Living Fellows."},
+    {id="recruit_hint", title="Following you", text="New companions start on Follow. You can ask them to stay or retreat."},
+    {id="storage_hint", title="A place for supplies", text="Mark a container inside your camp so companions know where supplies belong."},
 }
 local byId = {}
 for _, tip in ipairs(definitions) do byId[tip.id] = tip end
@@ -53,6 +56,7 @@ local function write()
         if dismissed then f:write("dismissed\n") end
         f:close()
     end)
+    if ok then missing=false end
     return ok
 end
 function G.load()
@@ -86,11 +90,15 @@ local function mark(id, done)
     seen[id] = true
     if done then learned[id] = true end
     if different then changed(); write() end
+    if different and done and lastSafe and now()>=nextSound and U().playUISound then
+        nextSound=now()+600;U().playUISound("UISelectListItem")
+    end
 end
 function G.resetTips()
     seen,learned,observations,controls = {},{},{},{}
     loaded,missing,migrated,dismissed = true,false,false,false
     active,pointer,lastNudge,startupAt,startupUntil = nil,nil,-math.huge,nil,nil
+    recruitHint,campSince,idleSince=nil,nil,nil
     changed();write()
 end
 function G.dismiss() dismissed=true;active,pointer=nil,nil;changed();write() end
@@ -105,6 +113,9 @@ function G.report(event, facts)
         storage="storage",job="job",computer="computer",expedition_used="expeditions",send_home_used="send_home"}
     local id=events[event]
     if id then
+        if event=="recruited" and enabled() and not seen.recruit_hint and facts.actor then
+            recruitHint={actor=facts.actor,expires=now()+60000}
+        end
         if event=="recruited" then mark("meet",true) end
         mark(id,true)
         if active and active.id==id then active=nil;pointer=nil end
@@ -112,7 +123,7 @@ function G.report(event, facts)
         if facts.tab=="expeditions" then mark("expeditions",false)
         elseif facts.tab=="base" then mark("camp_jobs",false) end
     elseif event=="panel" then mark("first_notice",true)
-    else
+    elseif event=="computer_near" or event=="locked_closed" or event=="arrived_home" then
         -- Producers publish facts; they never decide whether a lesson speaks.
         observations[event] = {at=now(),facts=facts}
     end
@@ -171,7 +182,7 @@ function G.pulse(player, current)
     local f=facts(player,records)
     if not migrated then
         migrated=true
-        if missing and (f.base or f.recruits>0) then
+        if missing and (f.base or f.recruits>0 or SC.Persistence and SC.Persistence.hasWorldHistory and SC.Persistence.hasWorldHistory()) then
             for _,id in ipairs(steps) do mark(id,true) end
             mark("first_notice",true)
             dismissed=true;write()
@@ -195,7 +206,57 @@ function G.pulse(player, current)
         if not active or active.id~=id then active={id=id,kind="step",at=current};mark(id,false);changed() end
     elseif active and active.kind=="step" then active=nil;changed() end
     G.updatePointer(current)
+    G.teach(player,current,f)
     return true
+end
+local function worldHours()
+    local time=type(getGameTime)=="function" and getGameTime() or nil
+    return tonumber((U().call(time,"getWorldAgeHours")))
+end
+local function speak(actor,id,current)
+    if not actor or U().isDead(actor) or not lastPlayer or not U().sameFloor(actor,lastPlayer)
+        or U().distance(actor,lastPlayer)>12 or not SC.Dialogue then return false end
+    if SC.Dialogue.lastDisplayUntil and current<SC.Dialogue.lastDisplayUntil(actor)+300 then return false end
+    local okay=SC.Dialogue.say(actor,"guidance."..id)
+    if okay then mark(id,false) end
+    return okay==true
+end
+function G.teach(player,current,f)
+    if not enabled() or not lastSafe then return end
+    if recruitHint then
+        if current>recruitHint.expires then recruitHint=nil
+        elseif speak(recruitHint.actor,"recruit_hint",current) then recruitHint=nil;return end
+    end
+    if not f then return end
+    local h=worldHours()
+    local inside=f.base and SC.BaseLife.isInside and SC.BaseLife.isInside(player)==true
+    if inside and f.storage==0 then campSince=campSince or h else campSince=nil end
+    if inside and f.storage>0 and f.duty==0 and f.idle>=2 then idleSince=idleSince or h else idleSince=nil end
+    if current-lastNudge<900000 then return end
+    local id,step
+    local o=observations.computer_near
+    if o and current-o.at>=5000 and not learned.computer and SC.Terminal
+        and SC.Terminal.present(o.facts.object) and U().distance(player,U().squareOf(o.facts.object))<=5
+        and not SC.Terminal.powered(o.facts.object) then id,step="dead_computer","computer" end
+    o=observations.locked_closed
+    if not id and o and SC.Terminal and SC.Terminal.present(o.facts.object)
+        and SC.Terminal.powered(o.facts.object) and U().distance(player,U().squareOf(o.facts.object))<=5
+        and o.facts.system and o.facts.system.locked and not SC.Terminal.window then id,step="locked_computer","computer" end
+    if not id and h and campSince and h-campSince>=1 then id,step="storage_hint","storage" end
+    if not id and h and idleSince and h-idleSince>=1 then id,step="camp_jobs","job" end
+    o=observations.arrived_home
+    if not id and o and current-o.at<60000 and not learned.send_home then id="send_home" end
+    if not id or seen[id] then return end
+    if active and active.kind=="step" and active.id~=step and active.id~="computer" then return end
+    if speak(f.speaker,id,current) then
+        lastNudge=current
+        if not active or active.id=="computer" then active={id=id,kind="nudge",at=current};changed() end
+    end
+end
+function G.offerShortVersion()
+    G.load()
+    if not enabled() or seen.short_version then return false end
+    mark("short_version",false);return true
 end
 function G.view()
     if not enabled() or not lastSafe or dismissed then return nil end
@@ -270,6 +331,7 @@ end
 function G.reset()
     G.clearPointer();observations,controls={},{}
     active,lastPlayer,lastSafe,startupAt,startupUntil,migrated=nil,nil,false,nil,nil,false
+    recruitHint,campSince,idleSince=nil,nil,nil
     changed()
 end
 return G

@@ -1505,6 +1505,7 @@ local valueData = {
     spawnMaxDistance = 110,
     spawnSampleCount = 48,
     spawnLocalSafetyRadius = 3,
+    firstMeetingEnabled = true,
     spawnMaxNearbyZombies = 2,
     -- Runtime loops remain bounded, but a player may field ten companions and
     -- still retain headroom for neutral encounters and base residents.
@@ -1855,6 +1856,9 @@ function SC.Config.refreshSandbox(source)
 
     if type(sandbox.EncountersEnabled) == "boolean" then
         runtimeOverrides.productionEncounterEnabled = sandbox.EncountersEnabled
+    end
+    if type(sandbox.FirstMeetingEnabled)=="boolean" then
+        runtimeOverrides.firstMeetingEnabled=sandbox.FirstMeetingEnabled
     end
     local encounterCadence = {
         [1] = 900000, -- very rare

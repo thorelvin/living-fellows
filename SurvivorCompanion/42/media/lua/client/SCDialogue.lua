@@ -13,6 +13,19 @@ Dialogue.VERSION = 1
 -- subsystem the same anti-repetition rules and lets personality influence
 -- wording without changing what an action means.
 local pools = {
+    ["guidance.first_meeting"]={common={
+        "Hey! Over here. I'm not one of them, so don't shoot.",
+        {"Easy with that thing. I'm alive, damn it.",clean="Easy with that thing. I'm alive."},
+    }},
+    ["guidance.recruit_hint"]={common={
+        "I'll stick close. Tell me if you'd rather I hold a spot.",
+        "I'll stay near you. Just say when you want me holding somewhere.",
+    }},
+    ["guidance.dead_computer"]={common={"It's dead. Get power to it and it might talk."}},
+    ["guidance.locked_computer"]={common={"Screen wants a password. Somebody always writes it down."}},
+    ["guidance.storage_hint"]={common={"If this is home, we need a place for things. Show us which shelf."}},
+    ["guidance.camp_jobs"]={common={"We could be working. Tell us what needs doing."}},
+    ["guidance.send_home"]={common={"Next time, send us home in the car. We know the way."}},
     ["vehicle.hotwire.success"] = { common = {
         "It's wired and ready.",
         "There. Turn the key you don't have.",

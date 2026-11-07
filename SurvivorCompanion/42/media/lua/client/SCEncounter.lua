@@ -3198,6 +3198,10 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
     end
     if snapshot and (snapshot.immediateCount or 0) > 0 then return seekCover(actor, snapshot, "retreat") end
     if snapshot and (snapshot.threatCount or 0) > 0 then return seekCover(actor, snapshot, "seek_cover") end
+    if SC.FirstMeeting then
+        local handled,why=SC.FirstMeeting.approach(actor,player,snapshot)
+        if handled~=nil then return handled,why end
+    end
 
     if player and viableRescue(snapshot) and SC.Medical and type(SC.Medical.assess) == "function" then
         local assessment = (SC.Medical.assessCached or SC.Medical.assess)(player)

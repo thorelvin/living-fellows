@@ -2124,5 +2124,9 @@
     "UI_SC_Guide_camp_jobs_text": "With storage marked, give a resident a Base job in More > Base. Their role and supplies decide what they can do.",
     "UI_SC_Guide_first_notice_title": "Open Living Fellows",
     "UI_SC_Guide_first_notice_text": "Press Home for Living Fellows.",
-    "UI_SC_Guide_SeenTips": "Tips shown on this computer"
+    "UI_SC_Guide_SeenTips": "Tips shown on this computer",
+    "UI_SC_Guide_recruit_hint_title": "Following you",
+    "UI_SC_Guide_recruit_hint_text": "New companions start on Follow. You can ask them to stay or retreat.",
+    "UI_SC_Guide_storage_hint_title": "A place for supplies",
+    "UI_SC_Guide_storage_hint_text": "Mark a container inside your camp so companions know where supplies belong."
 }

@@ -8,6 +8,15 @@
     (Join-Path $Client 'SCGuidance.lua'),
     (Join-Path $Core 'guidance_harness.lua')
 ) }
+@{ Name = 'interface.emma-first-session'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCTerminalLines.lua'),
+    (Join-Path $Client 'SCTerminalKnowledge.lua'),
+    (Join-Path $Client 'SCTerminalConversation.lua'),
+    (Join-Path $Client 'SCTerminalBrain.lua'),
+    (Join-Path $Core 'guidance_emma_harness.lua')
+) }
 $interfacePanelFiles = @(
     (Join-Path $UI 'SCUIBasePolicyFixture.lua'),
     (Join-Path $Client 'SCContextMenu.lua'),

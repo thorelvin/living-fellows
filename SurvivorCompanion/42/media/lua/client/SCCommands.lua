@@ -1587,6 +1587,7 @@ local function handleRecruit(actor, entry, state, payload, player)
     end
     if type(U().playUISound) == "function" then U().playUISound("UIAchievement") end
     -- Last, so a recruitment that rolls back never leaves a "joined" page behind.
+    if SC.FirstMeeting then SC.FirstMeeting.recruited() end
     if SC.Diary and type(SC.Diary.noteRecruited) == "function" then
         pcall(SC.Diary.noteRecruited, actor, player)
     end

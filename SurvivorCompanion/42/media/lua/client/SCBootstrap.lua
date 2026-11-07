@@ -25,6 +25,8 @@ require "SCActor"
 require "SCPersistence"
 require "SCVehicle"
 require "SCSpawn"
+require "SCSpawnSafety"
+require "SCFirstMeeting"
 require "SCGuidance"
 
 require "SCGameplayUtil"

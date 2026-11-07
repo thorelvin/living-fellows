@@ -1,5 +1,16 @@
 # SPDX-License-Identifier: MIT
 # These are ordered source lists, consumed by the shared fresh-environment runner.
+@{ Name = 'first-meeting-and-safe-arrival'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $Shared 'SCDiagnostics.lua'),
+    (Join-Path $Client 'SCSpawnSafety.lua'),
+    (Join-Path $Client 'SCFirstMeeting.lua'),
+    (Join-Path $Client 'SCSpawn.lua'),
+    (Join-Path $Core 'first_meeting_harness.lua')
+) }
 $lifecycleOwnerFiles = @((Join-Path $Core 'core_fixture.lua'))
 $lifecycleOwnerFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua',
     'SCStableValue.lua', 'SCTransaction.lua', 'SCNativeList.lua', 'SCConfig.lua',

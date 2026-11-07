@@ -18,6 +18,19 @@ SC.TerminalLines = SC.TerminalLines or {}
 local Lines = SC.TerminalLines
 
 Lines.TITLE = "EMMA 0.9.3 BETA // Kentucky Office of Civil Defense"
+Lines.SHORT_OFFER="Want the short version of what I do? Y/N. The long version is longer."
+Lines.SHORT_NO="Suit yourself. Type 'help' when you change your mind."
+Lines.SHORT_CAMP={
+    "status - the camp report. I count the mouths as well as the food.",
+    "who is hurt - injuries and care. Optimism is not a bandage.",
+    "how much food - marked supplies. Hidden sandwiches remain your problem.",
+    "what is everyone doing - duties and stalled work. Somebody has to keep records.",
+    "advice - what I would do, if I had hands.",
+}
+Lines.SHORT_LOCAL={
+    "Ask about this computer, the weather or the time. My ambitions are larger than my access.",
+    "Ask for advice or local files. Camp records are available only on a computer at home.",
+}
 
 Lines.BUILDING_SCAN = {
     complete={

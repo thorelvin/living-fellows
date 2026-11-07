@@ -83,5 +83,25 @@ G.reopen();check(G.view()~=nil,"dismissal is reversible")
 G.report("recruited");G.report("storage")
 local file=disk["LivingFellows-guidance.txt"]
 check(file:find("LF_GUIDANCE_1",1,true)==1 and file:find("done:invite",1,true),"memory is a small versioned file")
+local spoken={}
+SC.Dialogue={say=function(_,topic) spoken[#spoken+1]=topic;return true end,lastDisplayUntil=function() return 0 end}
+G.resetTips();clock=100000;records={{id="sc-test",actor=actor,recruited=true}}
+G.report("recruited",{actor=actor});show=false;clock=100000;G.pulse(player,clock)
+check(#spoken==0,"tips off also silences the first recruit's teaching line")
+show=true;clock=101000;G.pulse(player,clock)
+check(spoken[1]=="guidance.recruit_hint","the recruit speaks after the joining line ends")
+clock=102000;G.pulse(player,clock);check(#spoken==1,"a teaching line never repeats on this install")
+G.report("ordered");G.report("camp");G.report("storage");G.report("job")
+local computer={}
+SC.GameplayUtil.squareOf=function(a) return a end
+SC.GameplayUtil.distance=function(_,a) return a==computer and 2 or 10 end
+SC.Terminal={present=function() return true end,powered=function() return false end}
+G.report("computer_near",{object=computer})
+clock=106999;G.pulse(player,clock);check(#spoken==1,"unpowered-computer teaching has a five-second grace")
+clock=107000;G.pulse(player,clock);check(spoken[2]=="guidance.dead_computer","a reached unpowered computer gets one truthful hint")
+SC.Terminal.powered=function() return true end
+G.report("locked_closed",{object=computer,system={locked=true}})
+clock=108000;G.pulse(player,clock);check(#spoken==2,"a different nudge waits fifteen real minutes")
+clock=1007001;G.pulse(player,clock);check(spoken[3]=="guidance.locked_computer","the waiting nudge can speak when spacing expires")
 guidanceReload=true
 print("GUIDANCE_KAHLUA_PASS checks="..checks)

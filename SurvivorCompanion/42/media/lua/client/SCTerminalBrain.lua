@@ -2193,6 +2193,26 @@ local CAMP_INTENTS = {
 
 function Brain.respond(session, raw, world)
     session.turns = session.turns + 1
+    if session.context.guidanceOffer then
+        session.context.guidanceOffer=nil
+        local answer=string.lower(tostring(raw or "")):match("^%s*(.-)%s*$")
+        if SC.Guidance and SC.Guidance.enabled() and (answer=="y" or answer=="yes" or answer=="n" or answer=="no") then
+            local reply=newReply("help","chat")
+            if answer=="n" or answer=="no" then add(reply,L().SHORT_NO)
+            else
+                local turn={cache={}}
+                add(reply,campAccess(turn,world) and L().SHORT_CAMP or L().SHORT_LOCAL)
+                local hardware=SC.TerminalHardware and world and world.object and SC.TerminalHardware.state(world.object,false)
+                if hardware and hardware.radio then add(reply,"open radio - the mounted receiver. At least somebody is still broadcasting.") end
+                local grid=ask(turn,world,"grid")
+                if type(grid)=="table" and grid.visible then add(reply,"Open LARCH/GRID for substations and controller work. Electricity remains rather useful.") end
+                local panel=SC.BuildingControls and world and world.object and SC.BuildingControls.panel(world.object,false)
+                if panel and SC.BuildingControls.connected(world.object,panel) then add(reply,"Discover building records linked equipment. Doors are easier to negotiate with than people.") end
+            end
+            reply.thinkMs=0
+            return reply
+        end
+    end
     if Conversation then Conversation.state(session) end
     local turn = { cache = {} }
     local intent, slots = Brain.parse(session, raw, world, turn)
@@ -2249,6 +2269,9 @@ function Brain.boot(session, world)
         addPool(session, reply, away >= 24 and "greet_long" or "greet_back", fields)
     end
     session.visits = (session.visits or 0) + 1
+    if SC.Guidance and SC.Guidance.offerShortVersion() then
+        add(reply,L().SHORT_OFFER);session.context.guidanceOffer=true
+    end
     session.lastSeen = now or session.lastSeen
     reply.memoryChanged = true
     return reply

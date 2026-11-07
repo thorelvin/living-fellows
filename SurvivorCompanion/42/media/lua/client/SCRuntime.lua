@@ -943,6 +943,7 @@ local function vitalsTask(current)
                 SC.Diagnostics.report("actor-provider", record.id,
                     "unloaded encounter cleanup failed", removeReason)
             else
+                if SC.FirstMeeting then SC.FirstMeeting.retired(record.id) end
                 if debugDescription ~= nil then
                     print("[SurvivorCompanion][debug-spawn] event=removed " .. debugDescription
                         .. " reason=unloaded_after_discovery")
@@ -1277,6 +1278,7 @@ local function registerTasks()
         { "encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"), 31,
             productionSpawnTask, "background" },
         { "first-hour-guidance", 1000, 10, function(current)
+            if SC.FirstMeeting then SC.FirstMeeting.pulse() end
             if SC.Guidance then return SC.Guidance.pulse(player(),current) end
             return true
         end, "background" },
@@ -2140,6 +2142,7 @@ function runtime.reset(detach)
         schedulerReset = resetModule("scheduler", SC.Scheduler, "reset", true)
         resetModule("vehicle", SC.Vehicle, "reset")
         resetModule("spawn", SC.Spawn, "reset")
+        resetModule("first meeting", SC.FirstMeeting, "reset")
         -- Actor and registry ledgers are the final ownership boundary. Do not
         -- erase either after a scheduler/world adapter has rejected cleanup.
         if #resetFailures == 0 then

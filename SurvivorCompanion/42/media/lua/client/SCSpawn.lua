@@ -691,7 +691,7 @@ local function roomGroupNear(square)
     return nil
 end
 
-local function safeSquare(square, player, requireUnseen)
+local function safeSquare(square, player, requireUnseen, preparingSafety)
     if square == nil then return false end
     local zOk, z = invoke(square, "getZ")
     -- The native floor check also accepts detached roof tiles. Ambient and
@@ -726,6 +726,7 @@ local function safeSquare(square, player, requireUnseen)
     local zombies = 0
     for dx = -radius, radius do
         for dy = -radius, radius do
+            if not preparingSafety then
             local nearbyOk, nearby = invoke(cell, "getGridSquare", x + dx, y + dy, z)
             local listOk, list = false, nil
             if nearbyOk then listOk, list = invoke(nearby, "getMovingObjects") end
@@ -739,6 +740,7 @@ local function safeSquare(square, player, requireUnseen)
                     end
                 end
             end
+            end
         end
     end
     local roomOk, room = invoke(square, "getRoom")
@@ -750,7 +752,7 @@ local function safeSquare(square, player, requireUnseen)
     return true
 end
 
-local function fallbackSquare(player, minimum, maximum, requireUnseen)
+local function fallbackSquare(player, minimum, maximum, requireUnseen, preparingSafety)
     local xOk, playerX = invoke(player, "getX")
     local yOk, playerY = invoke(player, "getY")
     local cellOk, cell = invoke(player, "getCell")
@@ -778,18 +780,18 @@ local function fallbackSquare(player, minimum, maximum, requireUnseen)
                 eligible = indoorProbes <= 8
             end
         end
-        if eligible and safeSquare(square, player, requireUnseen) then return square end
+        if eligible and safeSquare(square, player, requireUnseen, preparingSafety) then return square end
     end
     return nil
 end
 
-function spawn.chooseSquare(player, runtime)
+function spawn.chooseSquare(player, runtime, preparingSafety)
     if player == nil then return nil, "player is unavailable" end
     if SC.Encounter ~= nil and type(SC.Encounter.chooseSpawnSquare) == "function" then
         local ok, square = pcall(SC.Encounter.chooseSpawnSquare, player, runtime or {})
-        if ok and square ~= nil and safeSquare(square, player) then return square end
+        if ok and square ~= nil and safeSquare(square, player, nil, preparingSafety) then return square end
     end
-    local square = fallbackSquare(player, nil, nil, true)
+    local square = fallbackSquare(player, nil, nil, true, preparingSafety)
     return square, (not square) and "no valid loaded unseen spawn square" or nil
 end
 
@@ -895,7 +897,7 @@ function spawn.attempt(player, profile, runtime, source)
     if privateDebug then
         square, reason = spawn.chooseDebugSquare(player)
     else
-        square, reason = spawn.chooseSquare(player, runtime)
+        square, reason = spawn.chooseSquare(player, runtime, spawnSource=="production" and SC.SpawnSafety~=nil)
     end
     if square == nil then return nil, reason end
     profile = type(profile) == "table" and profile or {
@@ -907,8 +909,18 @@ function spawn.attempt(player, profile, runtime, source)
         profile.debugSpawn = true
         profile.debugDiscovered = false
     end
+    if spawnSource=="production" and SC.SpawnSafety then
+        local first=SC.FirstMeeting and SC.FirstMeeting.wants() or false
+        local safety,why=SC.SpawnSafety.begin(square,player,first and 30 or 8)
+        if not safety then return nil,why end
+        pendingSpawn={source=spawnSource,player=player,square=square,profile=profile,
+            safety=safety,firstMeeting=first,startedAt=nowMs()}
+        return nil,"spawn_pending"
+    end
     if type(SC.Actor.beginSpawn) ~= "function" then
-        return SC.Actor.spawn(square, profile)
+        local actor,result=SC.Actor.spawn(square,profile)
+        if actor and spawnSource=="production" and SC.FirstMeeting then SC.FirstMeeting.spawned(actor) end
+        return actor,result
     end
     local ticket, result = SC.Actor.beginSpawn(square, profile)
     if ticket == nil then return nil, result end
@@ -925,6 +937,25 @@ end
 
 function spawn.pollPending()
     if pendingSpawn == nil then return "idle", "no spawn request is pending" end
+    if pendingSpawn.safety then
+        local job=pendingSpawn
+        local status,detail=SC.SpawnSafety.step(job.safety)
+        if status=="pending" then return "pending",detail,job.source end
+        if status~="ready" or not safeSquare(job.square,job.player,true,true) then
+            pendingSpawn=nil
+            return "failed",status=="ready" and "spawn square changed during preparation" or detail,job.source
+        end
+        job.safety=nil
+        if type(SC.Actor.beginSpawn)~="function" then
+            local actor,why=SC.Actor.spawn(job.square,job.profile)
+            pendingSpawn=nil
+            if actor and job.firstMeeting then SC.FirstMeeting.spawned(actor) end
+            return actor and "spawned" or "failed",actor or why,job.source
+        end
+        local ticket,why=SC.Actor.beginSpawn(job.square,job.profile)
+        if not ticket then pendingSpawn=nil;return "failed",why,job.source end
+        job.ticket=ticket
+    end
     if SC.Actor == nil or type(SC.Actor.pollSpawn) ~= "function" then
         local source = pendingSpawn.source
         pendingSpawn = nil
@@ -932,8 +963,9 @@ function spawn.pollPending()
     end
     local actor, result = SC.Actor.pollSpawn(pendingSpawn.ticket)
     if actor ~= nil then
-        local source = pendingSpawn.source
+        local source,first = pendingSpawn.source,pendingSpawn.firstMeeting
         pendingSpawn = nil
+        if first and SC.FirstMeeting then SC.FirstMeeting.spawned(actor) end
         return "spawned", actor, source
     end
     if result == "spawn_pending" then return "pending", result, pendingSpawn.source end
@@ -1009,7 +1041,13 @@ function spawn.productionPulse(player, runtime, current)
         < SC.Config.get("productionSpawnInitialDelayMs") * delayMultiplier then
         return false, "production encounter initial delay"
     end
-    if current - lastProductionAttempt
+    if pendingSpawn then return false,"spawn_pending" end
+    local first=SC.FirstMeeting and SC.FirstMeeting.wants() or false
+    if first then
+        local ready,why=SC.FirstMeeting.ready(current)
+        if not ready then return false,why end
+    end
+    if not first and current - lastProductionAttempt
         < SC.Config.get("productionSpawnCooldownMs") * delayMultiplier then
         return false, "production encounter cooldown"
     end
@@ -1031,12 +1069,13 @@ function spawn.productionPulse(player, runtime, current)
     -- Record every bounded attempt, successful or not, so an unavailable square
     -- never turns the cadence into broad repeated world scans.
     lastProductionAttempt = current
+    if first then SC.FirstMeeting.attempted(current) end
     local actor, reason = spawn.attempt(player, nil, runtime, "production")
     return actor ~= nil, actor or reason
 end
 
 function spawn.reset()
-    if pendingSpawn ~= nil and SC.Actor ~= nil and type(SC.Actor.cancelSpawn) == "function" then
+    if pendingSpawn ~= nil and pendingSpawn.ticket ~= nil and SC.Actor ~= nil and type(SC.Actor.cancelSpawn) == "function" then
         pcall(SC.Actor.cancelSpawn, pendingSpawn.ticket)
     end
     pendingSpawn = nil

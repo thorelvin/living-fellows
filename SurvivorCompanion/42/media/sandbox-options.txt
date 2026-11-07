@@ -39,6 +39,13 @@ option LivingFellows.EncountersEnabled
     page = LivingFellows,
     translation = LivingFellows_EncountersEnabled,
 }
+option LivingFellows.FirstMeetingEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_FirstMeetingEnabled,
+}
 
 option LivingFellows.EncounterFrequency
 {

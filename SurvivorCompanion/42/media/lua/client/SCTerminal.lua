@@ -1101,6 +1101,7 @@ end
 
 function SCTerminalWindow:startEmma()
     self.session = Terminal.sessionFor(self.player, self.object)
+    if SC.Guidance then SC.Guidance.report("computer") end
     local reply = Brain().boot(self.session, self.world)
     Terminal.writeMemory(self.object, self.session, worldHours())
     local lines = reply.lines or {}
@@ -1642,6 +1643,9 @@ end
 
 function SCTerminalWindow:close()
     if self.closed then return end
+    if SC.Guidance and self.system and self.system.locked then
+        SC.Guidance.report("locked_closed",{object=self.object,system=self.system})
+    end
     if SC.BuildingControls and type(SC.BuildingControls.suspend)=="function" then SC.BuildingControls.suspend(self.object) end
     if SC.TerminalHardware and type(SC.TerminalHardware.endUse)=="function" then SC.TerminalHardware.endUse(self.object) end
     if SC.TerminalRadio then
@@ -2318,6 +2322,7 @@ function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects,
     if SC.TerminalDrawers then SC.TerminalDrawers.context(context,player,worldObjects) end
     local computer = Terminal.findComputer(worldObjects)
     if not computer or not Terminal.near(player, computer) then return false end
+    if SC.Guidance then SC.Guidance.report("computer_near",{object=computer}) end
     if SC.GridControl then SC.GridControl.sample(computer) end
     local stored=Terminal.peekState(computer)
     if stored and SC.TerminalLockCrack then SC.TerminalLockCrack.catchUp(stored,worldHours(),Terminal.powered(computer)) end
