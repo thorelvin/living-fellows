@@ -138,6 +138,76 @@ do
 end
 
 do
+    -- Reproduce the bank return's two-tile lateral road attachment. The native
+    -- follower must see the westbound road first, while real driveways stay narrow.
+    local savedPlan, savedCar = SCBridge.planRoadRouteAvoidingAll, SC.ExpeditionCar
+    local shape = "road"
+    SC.ExpeditionCar = { footprint = function(car)
+        if shape == "unknown" then return nil end
+        local half = shape == "over_edge" and 2 or 0.9
+        return { x1=car.x-2.4,y1=car.y-half, x2=car.x+2.4,y2=car.y-half,
+            x3=car.x+2.4,y3=car.y+half, x4=car.x-2.4,y4=car.y+half }
+    end }
+    SCBridge.planRoadRouteAvoidingAll = function(_, _, _, _, _, _, out)
+        out.status, out.fingerprint = "READY", "bank-return"
+        out.geometry = "12072.53125,6773,8,0,Road;12032.8671875,6773,8,0,Road"
+        return true
+    end
+    local target = { x=12032.8671875,y=6773,z=0 }
+    local function start(id, y)
+        local actor = T.actor(id)
+        actor.x, actor.y = 12072.53125, y
+        actor.vehicle.x, actor.vehicle.y = actor.x, actor.y
+        check(Driving.drive(actor,target,{roadAccessEntry={x=actor.x,y=6773,z=0},
+            roadAccessExit={entry=target,bay={x=target.x,y=6754.3984375,z=0}}}),
+            "the return geometry fixture acquires ordinary native driving ownership")
+        return actor, T.lastFollowRoute
+    end
+    local actor, text = start("return-on-mapped-road",6775.1328125)
+    check(text:find("^12072%.53,6773%.00,8%.0;") ~= nil,
+        "the live roadside pose keeps its westbound road heading and width8")
+    check(text:find(";12032%.87,6773%.00,5%.0;12032%.87,6765%.00,5%.0$") ~= nil,
+        "the same return still enters its real driveway with width5")
+    Driving.release(actor)
+    actor, text = start("return-off-road-access",6754.3984375)
+    check(text:find("^12072%.53,6754%.40,5%.0;12072%.53,6773%.00,5%.0;") ~= nil,
+        "a genuine off-road approach retains both narrow checked connector endpoints")
+    check(text:find(";12036%.87,6773%.00,8%.0;12032%.87,6773%.00,5%.0;") ~= nil,
+        "two narrow access ends cannot erase the incoming main-road width")
+    Driving.release(actor)
+    for _, kind in ipairs({"unknown","over_edge"}) do
+        shape=kind
+        actor,text=start("return-road-negative-"..kind,6775.1328125)
+        check(text:find("^12072%.53,6775%.13,5%.0;12072%.53,6773%.00,5%.0;") ~= nil,
+            "unknown geometry or a body crossing the road edge cannot gain road admission: "..kind)
+        Driving.release(actor)
+    end
+    -- The extra road-width anchor must share the existing native route limit.
+    for _, count in ipairs({510,511}) do
+        SCBridge.planRoadRouteAvoidingAll=function(_,_,_,_,_,_,out)
+            out.status,out.fingerprint="READY","bounded-exit"
+            local rows={}
+            for i=1,count do rows[i]=string.format("%.3f,100,%d,0,Road",
+                i==count and 200 or 100+(i-1)*98/(count-2),i==count and 8 or 5) end
+            out.geometry=table.concat(rows,";")
+            return true
+        end
+        actor=managed("return-road-point-limit-"..count,{roadAccessExit={
+            entry=goal,bay={x=200,y=80,z=0}}})
+        text=T.lastFollowRoute
+        local _,separators=text:gsub(";","")
+        check(separators+1==(count==510 and 512 or 511),
+            "width-preserving exit admission respects the native512-point limit: "
+                ..count.." -> "..(separators+1).." tail="..text:sub(-100))
+        check(count==510 and text:find(";200%.00,92%.00,5%.0$") ~= nil
+            or count==511 and text:find(";200%.00,100%.00,8%.0$") ~= nil,
+            "an over-budget driveway extension leaves the original safe road stop")
+        Driving.release(actor)
+    end
+    SCBridge.planRoadRouteAvoidingAll,SC.ExpeditionCar=savedPlan,savedCar
+end
+
+do
     local actor = managed("roadside-tree-buffer")
     T.native[actor].obstacleKind = "tree"
     T.block(actor, 150, 100)

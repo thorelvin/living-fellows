@@ -78,7 +78,7 @@ Hershel's supported infection settings and Hatcher's walkie-talkie requirement.
 Its private web build validates links/assets and is kept under
 build/strange-folk-review-fixes/guide/. The guide has not been published.
 
-These fixes have automated Kahlua/native-contract evidence, not new in-world
-Strange Folk acceptance runs. Tests were serialized with 256 MB heaps and two
-active CPUs; no game client was launched. The checks did not install the mod
-or publish the Field Guide.
+The automated phase above used serialized 256 MB heaps and two active CPUs;
+it did not launch a game client, install the mod or publish the Field Guide.
+Subsequent focused in-world results and their limits are recorded separately
+in docs/validation-strange-folk-live-02702.txt.

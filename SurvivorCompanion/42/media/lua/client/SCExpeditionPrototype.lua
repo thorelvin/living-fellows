@@ -3070,6 +3070,9 @@ function Expedition.describeForPlayer(viewer)
         vehicleIssue = itinerary and itinerary.vehicle
             and (itinerary.vehicle.blocker or itinerary.vehicle.lastFailure
                 and itinerary.vehicle.lastFailure.reason) or mission.vehicleRestoreIssue,
+        vehicleRecoveryRemainingSeconds = leaderVisible and itinerary and itinerary.vehicle
+            and itinerary.vehicle.recovery
+            and math.ceil(itinerary.vehicle.recovery.remainingMs / 1000) or nil,
         members = members,
         supplyProgress = progress,
         woodProgress = woodProgress,
@@ -4021,13 +4024,12 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
     return nil, "planning"
 end
 
--- A distant stump can leave the promoted leader's loaded grid during a cargo
--- shuttle. Reuse the bounded scout planner without changing the trip's route.
-function Expedition.approachWoodSource(actor, target, state)
-    if not mission or not mission.scout or not mission.scout.wood
-        or (mission.scout.phase ~= "wood_working" and mission.scout.phase ~= "returning_to_car")
-        or not Expedition.isMember(actor) or type(state) ~= "table" then
-        return false, "wood_work_unavailable"
+-- These fields are transient navigation state, also cleared by the wood
+-- worker when its exact log reappears. Retain their names for that caller.
+function Expedition._approachStreamedPoint(actor, target, state, action, arrivedReason)
+    if not mission or not mission.scout or not Expedition.isMember(actor)
+        or type(target) ~= "table" or type(state) ~= "table" then
+        return false, "streamed_point_unavailable"
     end
     local source = state.logStreamSource
     if not source or source.x ~= target.x or source.y ~= target.y or source.z ~= target.z then
@@ -4040,9 +4042,56 @@ function Expedition.approachWoodSource(actor, target, state)
         state.logStreamLeg = leg
     end
     local accepted, reason = SC.Navigation.request(actor, state.logStreamLeg, "walk",
-        { action = "wood_collect_log" })
+        { action = action })
     if not accepted or reason == "arrived" then state.logStreamLeg = nil end
-    return accepted, reason == "arrived" and "wood_ground_reloading" or reason
+    return accepted, reason == "arrived" and arrivedReason or reason
+end
+
+-- A distant stump can leave the promoted leader's loaded grid during a cargo
+-- shuttle. Reuse the bounded scout planner without changing the trip's route.
+function Expedition.approachWoodSource(actor, target, state)
+    if not mission or not mission.scout or not mission.scout.wood
+        or (mission.scout.phase ~= "wood_working" and mission.scout.phase ~= "returning_to_car")
+        or not Expedition.isMember(actor) or type(state) ~= "table" then
+        return false, "wood_work_unavailable"
+    end
+    return Expedition._approachStreamedPoint(actor, target, state,
+        "wood_collect_log", "wood_ground_reloading")
+end
+
+-- Returning to a parked car needs the same short loaded legs for every
+-- expedition kind. The saved stop guides streaming; it never substitutes
+-- for resolving and validating the actual vehicle before boarding.
+function Expedition.approachReturnCar(actor, target, state)
+    local scout = mission and mission.scout
+    local vehicle = scout and scout.vehicle
+    local roadRecovery = vehicle and vehicle.state == "held"
+        and type(vehicle.recovery) == "table" and vehicle.recovery.kind == "road"
+        and (vehicle.leg == "outbound" or vehicle.leg == "home")
+    local returning = scout and scout.phase == "returning_to_car" and vehicle
+        and vehicle.leg == "home"
+    local stop = vehicle and (roadRecovery and (vehicle.position or vehicle.sitePoint)
+        or (vehicle.sitePoint or vehicle.position))
+    if not scout or not vehicle or not (returning or roadRecovery) or not mission.leader
+        or actor ~= mission.leader.actor or not Expedition.isMember(actor)
+        or type(state) ~= "table" or type(target) ~= "table"
+        or type(stop) ~= "table" then
+        return false, "car_return_unavailable"
+    end
+    if type(stop.x) ~= "number" or type(stop.y) ~= "number" or stop.z ~= 0
+        or stop.x ~= stop.x or stop.y ~= stop.y
+        or stop.x < 0 or stop.y < 0 or stop.x > 30000 or stop.y > 30000
+        or target.x ~= math.floor(stop.x) or target.y ~= math.floor(stop.y)
+        or target.z ~= 0 then
+        return false, "car_stop_changed"
+    end
+    if not SC.Vehicle or type(SC.Vehicle.isNativeSeated) ~= "function" then
+        return false, "car_return_vehicle_unavailable"
+    end
+    local seated, current = SC.Vehicle.isNativeSeated(actor)
+    if seated or current ~= nil then return false, "car_return_already_seated" end
+    return Expedition._approachStreamedPoint(actor, target, state,
+        "expedition_return_to_car", "car_ground_reloading")
 end
 
 local function scoutFollowersNearLeader()

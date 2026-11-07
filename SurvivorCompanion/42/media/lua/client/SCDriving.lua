@@ -262,6 +262,7 @@ local function snapshot(job)
         routeSourceX = job.routeSourceX, routeSourceY = job.routeSourceY,
         blockedX = job.blockedX, blockedY = job.blockedY, blockedKind = job.blockedKind,
         attempts = job.attempts or 0, circles = circles, parked = job.parked == true,
+        roadAccessMode = job.roadAccessMode,
         managed = job.managed == true,
         owned = jobs[job.actor] == job and SC.ActionSupervisor ~= nil
             and SC.ActionSupervisor.isCurrent(job.token) == true,
@@ -585,6 +586,85 @@ function Driving.approach(actor, target, seconds, allowStoppedRoadFailure, allow
     return true
 end
 
+-- A roadside car is already on the mapped street when its complete physical
+-- body fits the first road strip. Do not make it drive sideways to the road
+-- centre before following the road: that tiny connector hides the actual
+-- departure heading from the native follower's checked turn-around logic.
+-- Unknown geometry and cars outside the road retain the verified access leg.
+local function sourceFitsMappedRoad(job, route, x, y)
+    local points = route and route.points
+    local first, second = points and points[1], points and points[2]
+    if type(first) ~= "table" or type(second) ~= "table" then return false end
+    local ax, ay = finite(first.x), finite(first.y)
+    local bx, by = finite(second.x), finite(second.y)
+    local aw, bw = finite(first.width), finite(second.width)
+    if not ax or not ay or not bx or not by or not aw or not bw
+        or aw < 6 or bw < 6 then return false end
+    local dx, dy = bx - ax, by - ay
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 1 then return false end
+    local ux, uy = dx / length, dy / length
+    local along = (x - ax) * ux + (y - ay) * uy
+    if along < -0.25 or along > length + 0.25 then return false end
+    local floorOkay, z = method(job.vehicle, "getZ")
+    z = finite(z)
+    if not floorOkay or not z or math.floor(z) ~= 0 then return false end
+    local car = SC.ExpeditionCar
+    if not car or type(car.footprint) ~= "function" then return false end
+    local okay, poly = pcall(car.footprint, job.vehicle)
+    if not okay or type(poly) ~= "table" then return false end
+    local limit = math.min(aw, bw) * 0.5 - 0.2
+    for index = 1, 4 do
+        local px, py = finite(poly["x" .. index]), finite(poly["y" .. index])
+        if not px or not py
+            or math.abs((px - ax) * uy - (py - ay) * ux) > limit then
+            return false
+        end
+    end
+    return true
+end
+
+-- Keep the incoming street width while making the actual driveway narrow.
+-- With a two-point street, narrowing both source and destination used to turn
+-- the whole street into a five-tile driveway. An anchor on the existing road
+-- segment preserves its surveyed width without widening any off-road leg.
+local function appendRoadExit(route, exit)
+    local points = route and route.points
+    local last = points and points[#points]
+    if not last then return end
+    local dx, dy = exit.bay.x - exit.entry.x, exit.bay.y - exit.entry.y
+    local length = math.sqrt(dx * dx + dy * dy)
+    local into = math.min(8, length - 2)
+    local endGap = (last.x - exit.entry.x)^2 + (last.y - exit.entry.y)^2
+    if into < 3 or endGap > 16 then return end
+    local addEntry = endGap > 2.25
+    local anchor
+    local before = points[#points - 1]
+    local width = finite(last.width) or 0
+    if not addEntry and before and width > 5
+        and (finite(before.width) or 0) < width then
+        local rx, ry = last.x - before.x, last.y - before.y
+        local run = math.sqrt(rx * rx + ry * ry)
+        if run > 0.5 then
+            local back = math.min(4, run * 0.5)
+            anchor = { x = last.x - rx / run * back,
+                y = last.y - ry / run * back, width = width, street = last.street }
+        end
+    end
+    if #points + 1 + (addEntry and 1 or 0) + (anchor and 1 or 0) > 512 then
+        return -- Stop at the road; the mission still owns the checked parking approaches.
+    end
+    if addEntry then
+        points[#points + 1] = { x = exit.entry.x,
+            y = exit.entry.y, width = 5, street = last.street }
+    else
+        if anchor then table.insert(points, #points, anchor) end
+        points[#points] = { x = last.x, y = last.y, width = 5, street = last.street }
+    end
+    points[#points + 1] = { x = exit.entry.x + dx / length * into,
+        y = exit.entry.y + dy / length * into, width = 5, street = last.street }
+end
+
 local function planJob(job)
     local route, reason, result
     if not SC.ExpeditionRoute or not SC.ExpeditionRoute.planAvoidingAll then
@@ -616,11 +696,16 @@ local function planJob(job)
         local startGap = math.sqrt((x - first.x)^2 + (y - first.y)^2)
         local entryGap = math.sqrt((entry.x - first.x)^2
             + (entry.y - first.y)^2)
-        if startGap > 1.5 then
+        if startGap > 1.5 and entryGap > 1.5 then
+            return parkResult(job, "failed", "road_access_changed")
+        end
+        local onRoad = sourceFitsMappedRoad(job, route, x, y)
+        job.roadAccessMode = onRoad and "on_road" or "access_corridor"
+        if startGap > 1.5 and not onRoad then
             -- The native road geometry begins at the mapped street. Give the
             -- follower the already checked driveway as its first segment so
             -- it steers from the actual parked position, even on a long lot.
-            if entryGap > 1.5 or #route.points >= 512 then
+            if #route.points >= 512 then
                 return parkResult(job, "failed", "road_access_changed")
             end
             -- The native follower takes the wider of both endpoint widths.
@@ -655,26 +740,7 @@ local function planJob(job)
         -- the road follower. The slow parking legs then start facing the bay;
         -- they only drive straight ahead, so a car still pointing along the
         -- street was refused and the squad got out on the road.
-        local last = route.points[#route.points]
-        local exit = job.roadAccessExit
-        local dx, dy = exit.bay.x - exit.entry.x, exit.bay.y - exit.entry.y
-        local length = math.sqrt(dx * dx + dy * dy)
-        local into = math.min(8, length - 2)
-        local endGap = last and ((last.x - exit.entry.x)^2
-            + (last.y - exit.entry.y)^2) or math.huge
-        if into >= 3 and endGap <= 16 and #route.points <= 510 then
-            if endGap > 2.25 then
-                route.points[#route.points + 1] = { x = exit.entry.x,
-                    y = exit.entry.y, width = 5, street = last.street }
-            else
-                route.points[#route.points] = { x = last.x, y = last.y, width = 5, street = last.street }
-            end
-            route.points[#route.points + 1] = {
-                x = exit.entry.x + dx / length * into,
-                y = exit.entry.y + dy / length * into,
-                width = 5, street = last.street,
-            }
-        end
+        appendRoadExit(route, job.roadAccessExit)
     end
     local endpoint = route.points and route.points[#route.points]
     local roadX = type(endpoint) == "table" and finite(endpoint.x)

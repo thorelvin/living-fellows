@@ -847,12 +847,18 @@ local function abandonToWalking(mission, trip, car)
     local x, y, z
     if leader then x, y, z = SC.GameplayUtil.position(leader) end
     if not x or not y or not z then return false, "leader_position_unavailable" end
+    local parkedReturn = trip.state == "returning_to_car"
+        or trip.resumeState == "returning_to_car"
+        or trip.recovery and trip.recovery.kind == "stream"
+    local abandonedAt = car and point(car)
+        or parkedReturn and trip.sitePoint or trip.position or trip.sitePoint
     trip.state = "abandoned"
     trip.radioResumeState, trip.radioHoldCar = nil, nil
     if trip.field and (trip.blocker == "home_car_save_pending"
         or trip.blocker == "home_car_save_failed"
         or trip.blocker == "home_car_save_unavailable") then trip.blocker = nil end
-    trip.abandonedAt = car and point(car) or trip.position
+    trip.abandonedAt = abandonedAt
+    trip.recovery = nil
     scout.phase = (scout.returnRequested or trip.returnRequested
         or trip.leg == "home") and "inbound" or "outbound"
     scout.travelMode = "straight"
@@ -969,6 +975,119 @@ end
 local function carLoaded(trip)
     return SC.Vehicle and SC.Vehicle.loadedBySqlId
         and SC.Vehicle.loadedBySqlId(trip.sqlId) or nil
+end
+
+-- A failed local manoeuvre is not proof the car must be left behind. Retain
+-- the existing roster/seats while the ordinary checked driving entry retries.
+-- Only remaining time is persisted; native routes and timers are reconstructed.
+do
+    local Recovery = {}
+    Car.Recovery = Recovery
+    Recovery.limitMs = 300000
+    function Recovery.advance(trip, now)
+        local recovery = trip.recovery
+        if not recovery then return nil end
+        if recovery.lastAt then
+            recovery.remainingMs = math.max(0, recovery.remainingMs
+                - math.max(0, now - recovery.lastAt))
+        end
+        recovery.lastAt = now
+        return recovery
+    end
+    function Recovery.begin(trip, now, kind, reason, car)
+        local recovery = trip.recovery
+        if not recovery or recovery.kind ~= kind then
+            recovery = { kind = kind, remainingMs = Recovery.limitMs,
+                attempts = 0, origin = car and point(car) or nil }
+            trip.recovery = recovery
+        end
+        recovery.lastAt = now
+        recovery.reason = type(reason) == "string" and reason:sub(1,128)
+            or "car_recovery_required"
+        recovery.nextAttemptAt = now + 10000
+        return recovery
+    end
+    function Recovery.roadReason(reason)
+        return reason == "no_route" or reason == "route_blocked"
+            or reason == "turn_failed" or reason == "goal_not_reached"
+            or reason == "streaming_stalled" or reason == "drive_status_unavailable"
+            or reason == "car_not_loaded" or reason == "road_access_blocked"
+            or reason == "road_access_vehicle_blocked" or reason == "road_access_not_loaded"
+            or reason == "NO_ROUTE" or reason == "NO_SAFE_ROAD_DETOUR"
+            or reason == "road_bridge_failed" or reason == "DATA_NOT_READY"
+    end
+    function Recovery.holdRoad(mission, trip, car, now, reason)
+        if not Recovery.roadReason(reason) then return false end
+        Recovery.begin(trip, now, "road", reason, car)
+        hold(trip, reason)
+        traceTrip(trip, "car_recovery_wait", "reason=" .. tostring(reason)
+            .. " remainingMs=" .. tostring(trip.recovery.remainingMs))
+        return true
+    end
+    function Recovery.roadPulse(mission, trip, car, now)
+        local recovery = trip.recovery
+        if not recovery or recovery.kind ~= "road" then return false end
+        if car and SC.Vehicle.hasPlayerAboard and SC.Vehicle.hasPlayerAboard(car) then
+            trip.blocker = "player_aboard"
+            recovery.lastAt = now
+            return true
+        end
+        local driver = mission.leader and mission.leader.actor
+        local drive = driver and SC.Driving.jobStatus(driver)
+        if car and drive and drive.managed == true and drive.phase ~= "released" then
+            local stopped, why = SC.Driving._stopOwnedVehicle(driver, car,
+                "expedition_car_recovery")
+            if not stopped then trip.blocker = why or "drive_stop_pending" return true end
+        end
+        if recovery.remainingMs <= 0 then
+            if not car and not wholeTeamOnFoot(mission) then return true end
+            trip.blocker = "car_recovery_timeout"
+            if not car then
+                local abandoned, why = abandonToWalking(mission, trip)
+                if not abandoned then trip.blocker = why end
+            else
+                trip.recovery = nil
+                trip.state, mission.scout.phase = "fallback_unloading", "fallback_unloading"
+            end
+            return true
+        end
+        if not car then
+            if wholeTeamOnFoot(mission) and trip.position and SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.approachReturnCar) == "function" then
+                local stream = returnStreams[trip]
+                if not stream then stream = {} returnStreams[trip] = stream end
+                local p = trip.position
+                local _, why = SC.ExpeditionPrototype.approachReturnCar(mission.leader.actor,
+                    {x=math.floor(p.x),y=math.floor(p.y),z=0},stream)
+                trip.blocker = why or "car_not_loaded"
+            end
+            return true
+        end
+        if now < (recovery.nextAttemptAt or now) then return true end
+        recovery.origin = recovery.origin or point(car)
+        recovery.attempts = recovery.attempts + 1
+        recovery.nextAttemptAt = now + 10000
+        -- Boarding revalidates occupants, key, engine, wheels, fuel and route.
+        -- Correct road geometry lets the native follower perform its checked turn.
+        trip.state = trip.leg == "home" and "boarding_home" or "boarding_out"
+        mission.scout.phase = trip.state
+        trip.blocker, trip.recoveryAt = nil, nil
+        trip.boardStartedAt = now
+        traceTrip(trip, "car_recovery_retry", "attempt=" .. recovery.attempts
+            .. " remainingMs=" .. recovery.remainingMs)
+        return true
+    end
+    function Recovery.progress(trip, car, status)
+        local recovery = trip.recovery
+        if not recovery or recovery.kind ~= "road" or not car then return end
+        local at = point(car)
+        if status and status.result == "arrived" or at and recovery.origin
+            and status and status.phase == "following"
+            and (at.x-recovery.origin.x)^2+(at.y-recovery.origin.y)^2 >= 144 then
+            trip.recovery = nil
+            traceTrip(trip, "car_recovery_resumed")
+        end
+    end
 end
 
 -- A dead driver cannot run the normal car pulse. Finish the physical stop and
@@ -1112,6 +1231,12 @@ function Car.requestReturn(mission, now, reason)
         wood.preparation, wood.preparationReason = nil, nil
     end
     if trip.state == "held" or trip.state == "interrupted_by_load" then
+        if trip.state == "held" and trip.recovery and trip.recovery.kind == "road" then
+            recordReturnIntent(scout, reason)
+            trip.leg = "home"
+            trip.resumeState = "driving_home"
+            return true, "returning_by_car"
+        end
         return false, trip.blocker or "car_recovery_required"
     end
     if trip.state == "driving_out" then
@@ -1406,8 +1531,11 @@ function Car.pulse(mission, now, worldHour)
     if not trip or trip.state == "abandoned" then return false end
     -- A radio hold owns the existing car and seats until an explicit resume
     -- or recall. Generic held recovery must not abandon it after a timer.
-    if trip.radioResumeState then return true end
-    if preparingSupplies(scout) then return true end
+    if trip.radioResumeState or preparingSupplies(scout) then
+        if trip.recovery then trip.recovery.lastAt = now end
+        return true
+    end
+    Car.Recovery.advance(trip, now)
     if trip.state == "parked_at_site" then
         if scout.phase ~= "inbound" then return false end
         trip.state, trip.leg = "returning_to_car", "home"
@@ -1416,6 +1544,12 @@ function Car.pulse(mission, now, worldHour)
         return true
     end
     if trip.state == "held" then
+        if Car.Recovery.roadPulse(mission, trip, carLoaded(trip), now) then return true end
+        if trip.resumeState == "returning_to_car" and trip.blocker == "car_not_loaded" then
+            trip.state, scout.phase = "returning_to_car", "returning_to_car"
+            trip.resumeState, trip.recoveryAt = nil, nil
+            return true
+        end
         -- A field arrival cannot silently become a purported roadside stop
         -- after a full/blocked marked bay. Keep the physical car and roster
         -- held until loaded clearance can actually be rechecked.
@@ -1503,26 +1637,53 @@ function Car.pulse(mission, now, worldHour)
     end
     local car = carLoaded(trip)
     if car == nil then
-        if trip.state == "returning_to_car" and scout.wood and trip.sitePoint
-            and SC.ExpeditionPrototype and SC.ExpeditionPrototype.approachWoodSource then
+        if trip.state == "returning_to_car" then
+            local recovery = trip.recovery
+            if not recovery or recovery.kind ~= "stream" then
+                recovery = Car.Recovery.begin(trip, now, "stream", "car_not_loaded")
+            end
+            local p = trip.sitePoint or trip.position
             local stream=returnStreams[trip]
             if not stream then stream={startedAt=now} returnStreams[trip]=stream end
-            if now-stream.startedAt<90000 then
-                local p=trip.sitePoint
-                local moving,why=SC.ExpeditionPrototype.approachWoodSource(mission.leader.actor,
+            if recovery.remainingMs > 0 and p and SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.approachReturnCar) == "function" then
+                local moving,why=SC.ExpeditionPrototype.approachReturnCar(mission.leader.actor,
                     {x=math.floor(p.x),y=math.floor(p.y),z=0},stream)
-                trip.blocker=why
+                trip.blocker = why or "car_not_loaded"
                 if moving then return true end
             end
+            if recovery.remainingMs <= 0 then
+                trip.blocker = "car_recovery_timeout"
+                if wholeTeamOnFoot(mission) then
+                    local abandoned, why = abandonToWalking(mission, trip)
+                    if not abandoned then trip.blocker = why end
+                end
+            end
+            return true
         end
-        trip.missingSince = trip.missingSince or now
-        if now - trip.missingSince > 30000 then
-            hold(trip, "car_not_loaded")
+        if trip.state ~= "interrupted_by_load" then
+            Car.Recovery.holdRoad(mission, trip, nil, now, "car_not_loaded")
+        else
+            trip.missingSince = trip.missingSince or now
+            if now - trip.missingSince > 30000 then hold(trip, "car_not_loaded") end
         end
         return true
     end
     returnStreams[trip]=nil
+    if trip.state ~= "interrupted_by_load" then trip.position = point(car) or trip.position end
+    if trip.recovery and trip.recovery.kind == "stream" then
+        trip.recovery = nil
+        trip.blocker = nil
+        traceTrip(trip, "parked_car_reloaded")
+    end
     trip.missingSince = nil
+    if trip.recovery and trip.recovery.kind == "road"
+        and trip.state ~= "driving_out" and trip.state ~= "driving_home"
+        and trip.recovery.remainingMs <= 0 then
+        hold(trip, "car_recovery_timeout")
+        Car.Recovery.roadPulse(mission, trip, car, now)
+        return true
+    end
     if trip.state == "walking_to_car" then
         local transferred, why = Car.ensureDriverKey(mission.roster, car)
         if not transferred then hold(trip, why) return true end
@@ -1550,7 +1711,7 @@ function Car.pulse(mission, now, worldHour)
                     trip.state = "fallback_unloading"
                     trip.blocker = why
                     scout.phase = "fallback_unloading"
-                else
+                elseif not Car.Recovery.holdRoad(mission, trip, car, now, why) then
                     hold(trip, why)
                 end
                 return true
@@ -1592,6 +1753,8 @@ function Car.pulse(mission, now, worldHour)
         end
         local ready, why, roadEntry = departReady(mission, trip, car)
         if not ready then
+            if Car.Recovery.holdRoad(mission, trip, car, now, why) then return true end
+            trip.recovery = nil
             trip.state, trip.blocker = "boarding_rollback", why
             return true
         end
@@ -1629,6 +1792,8 @@ function Car.pulse(mission, now, worldHour)
                 end
                 return true
             end
+            if Car.Recovery.holdRoad(mission, trip, car, now, reason) then return true end
+            trip.recovery = nil
             trip.state, trip.blocker = "boarding_rollback", reason
             return true
         end
@@ -1638,6 +1803,13 @@ function Car.pulse(mission, now, worldHour)
     end
     if trip.state == "driving_out" or trip.state == "driving_home" then
         local status = SC.Driving.jobStatus(mission.leader.actor)
+        Car.Recovery.progress(trip, car, status)
+        if trip.recovery and trip.recovery.kind == "road"
+            and trip.recovery.remainingMs <= 0 then
+            hold(trip, "car_recovery_timeout")
+            Car.Recovery.roadPulse(mission, trip, car, now)
+            return true
+        end
         if status and status.result == "arrived" then
             if status.owned == false or status.phase == "released" then
                 Car.parkingFailed(mission, trip, car,
@@ -1675,7 +1847,7 @@ function Car.pulse(mission, now, worldHour)
                 .. "/" .. tostring(native and native.state)
                 .. " obstacle=" .. tostring(native and native.obstacleKind))
             if status.reason == "streaming_stalled" then
-                hold(trip, "streaming_stalled")
+                Car.Recovery.holdRoad(mission, trip, car, now, "streaming_stalled")
             elseif trip.leg == "home" and trip.homeRoadEntry
                 and (status.reason == "goal_not_reached"
                     or status.reason == "route_blocked"
@@ -1690,12 +1862,14 @@ function Car.pulse(mission, now, worldHour)
                     trip.parkingRecovery = true
                     traceTrip(trip, "near_road_parking_recovery")
                 else
-                    trip.state, scout.phase = "fallback_unloading",
-                        "fallback_unloading"
+                    Car.Recovery.holdRoad(mission, trip, car, now, status.reason)
                 end
             else
-                trip.state = "fallback_unloading"
-                scout.phase = trip.state
+                if not Car.Recovery.holdRoad(mission, trip, car, now, status.reason) then
+                    trip.recovery = nil
+                    trip.state = "fallback_unloading"
+                    scout.phase = trip.state
+                end
             end
         elseif status and status.result == "interrupted" then
             trip.blocker = status.reason or "drive_interrupted"
@@ -1709,7 +1883,7 @@ function Car.pulse(mission, now, worldHour)
         elseif not status then
             trip.statusMissingSince = trip.statusMissingSince or now
             if now - trip.statusMissingSince > 5000 then
-                hold(trip, "drive_status_unavailable")
+                Car.Recovery.holdRoad(mission, trip, car, now, "drive_status_unavailable")
             end
         else
             trip.statusMissingSince = nil
@@ -1908,6 +2082,22 @@ local function pointCopy(value)
     return { x = x, y = y, z = z }
 end
 
+function Car.copyRecovery(value)
+    if value == nil then return nil end
+    if type(value) ~= "table" or (value.kind ~= "road" and value.kind ~= "stream")
+        or type(value.remainingMs) ~= "number" or not finite(value.remainingMs) or value.remainingMs < 0
+        or value.remainingMs > Car.Recovery.limitMs
+        or type(value.attempts) ~= "number" or value.attempts < 0 or value.attempts > 32
+        or value.attempts ~= math.floor(value.attempts)
+        or type(value.reason) ~= "string" or #value.reason < 1 or #value.reason > 128 then
+        return nil, "vehicle_recovery_invalid"
+    end
+    local origin = value.origin ~= nil and pointCopy(value.origin) or nil
+    if value.origin ~= nil and not origin then return nil, "vehicle_recovery_invalid" end
+    return { kind=value.kind, remainingMs=value.remainingMs,
+        attempts=value.attempts, reason=value.reason, origin=origin }
+end
+
 local function rectangleCopy(value)
     if type(value) ~= "table" or value.z ~= 0 then return nil end
     local result = { z = 0 }
@@ -1997,6 +2187,16 @@ function Car.copyDescriptor(value, roster, leaderId)
     if state == "held" and not validStates[resumeState] then
         return nil, "vehicle_hold_invalid"
     end
+    local recovery, recoveryReason = Car.copyRecovery(value.recovery)
+    if value.recovery ~= nil and not recovery then return nil, recoveryReason end
+    if recovery and recovery.kind == "stream" and (value.leg ~= "home"
+        or state ~= "returning_to_car"
+            and not (state == "held" and resumeState == "returning_to_car")
+            and state ~= "interrupted_by_load") then
+        return nil, "vehicle_recovery_invalid"
+    end
+    if recovery and (state == "abandoned" or state == "home_wait"
+        or state == "parked_at_site") then return nil, "vehicle_recovery_invalid" end
     local result = {
         state = state, leg = value.leg, sqlId = value.sqlId,
         script = value.script, seats = seats,
@@ -2015,6 +2215,7 @@ function Car.copyDescriptor(value, roster, leaderId)
         lastFailure = failure and { reason = failure.reason,
             at = failureAt, obstacle = failure.obstacle } or nil,
         parkingRefusal = value.parkingRefusal,
+        recovery = recovery,
     }
     if value.field then
         if value.engineStopped~=nil and type(value.engineStopped)~="boolean" then return nil,"vehicle_field_invalid" end
@@ -2047,6 +2248,13 @@ function Car.restoreDescriptor(value, roster, leaderId)
     if result.radioResumeState then
         result.state, result.resumeState = "interrupted_by_load", nil
         result.radioResumeState = "interrupted_by_load"
+    end
+    if result.recovery and not result.radioResumeState then
+        if result.recovery.kind == "stream" then
+            result.state, result.resumeState = "returning_to_car", nil
+        else
+            result.state, result.resumeState = "interrupted_by_load", nil
+        end
     end
     return result
 end

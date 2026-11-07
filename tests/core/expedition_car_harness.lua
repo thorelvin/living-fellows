@@ -466,20 +466,50 @@ end
 
 do
     local loaded,prototype=SC.Vehicle.loadedBySqlId,SC.ExpeditionPrototype
-    SC.Vehicle.loadedBySqlId=function()return nil end
-    local trip=freshTrip("returning_to_car","home")
-    trip.sitePoint={x=96.5,y=99.5,z=0} T.mission.scout.wood={}
-    local approaches=0
-    SC.ExpeditionPrototype={approachWoodSource=function(actor,target)
+    local car,visible=T.cars[1],false
+    SC.Vehicle.loadedBySqlId=function()return visible and car or nil end
+    SC.ExpeditionPrototype={approachReturnCar=function(actor,target)
         check(actor==T.mission.leader.actor and target.x==96 and target.y==99,
-            "wood recall reloads the car by walking its view owner toward the actual stop")
-        approaches=approaches+1 return true,"moving"
+            "parked-car recovery walks the actual view owner toward its saved stop")
+        return true,"moving"
     end}
-    check(Car.pulse(T.mission,1000) and approaches==1 and trip.state=="returning_to_car",
-        "a streamed-out parked car is approached before declaring it missing")
-    Car.pulse(T.mission,92000) Car.pulse(T.mission,123000)
-    check(approaches==1 and trip.state=="held" and trip.blocker=="car_not_loaded",
-        "car streaming recovery remains bounded when no real vehicle appears")
+    for _,kind in ipairs({"scout","search","fish","wood"}) do
+        local trip=freshTrip("returning_to_car","home")
+        trip.sitePoint={x=96.5,y=99.5,z=0}
+        T.mission.scout.kind=kind=="scout" and "scout" or "search"
+        T.mission.scout.wood=kind=="wood" and {} or nil
+        T.mission.scout.search=kind~="scout" and {request={category=kind=="fish" and "fish" or "scavenge"}} or nil
+        visible=false
+        check(Car.pulse(T.mission,1000) and Car.pulse(T.mission,100000)
+            and trip.state=="returning_to_car" and trip.recovery.remainingMs==201000,
+            kind.." approaches an unloaded parked car beyond the former short abandonment timer")
+        visible=true
+        check(Car.pulse(T.mission,101000) and trip.state=="boarding_home" and trip.recovery==nil,
+            kind.." resolves the reloaded car and resumes checked boarding")
+    end
+    visible=false
+    local trip=freshTrip("returning_to_car","home")
+    trip.sitePoint={x=96.5,y=99.5,z=0}
+    Car.pulse(T.mission,200000) Car.pulse(T.mission,320000)
+    local savedRecovery=assert(Car.copyDescriptor(trip,T.team,"leader"))
+    local restoredRecovery=assert(Car.restoreDescriptor(savedRecovery,T.team,"leader"))
+    check(savedRecovery.recovery.remainingMs==180000 and restoredRecovery.recovery.remainingMs==180000
+        and restoredRecovery.recovery.lastAt==nil and restoredRecovery.recovery.nextAttemptAt==nil,
+        "save/load preserves only the unused five-minute recovery allowance, not native timers")
+    for _,invalid in ipairs({"180000",-1,300001,math.huge,0/0}) do
+        savedRecovery.recovery.remainingMs=invalid
+        local okay,copied=pcall(Car.copyDescriptor,savedRecovery,T.team,"leader")
+        check(okay and copied==nil,
+            "malformed or oversized saved recovery budgets are rejected without throwing")
+    end
+    savedRecovery.recovery.remainingMs=180000
+    T.mission.scout.vehicle,T.mission.scout.phase=restoredRecovery,"returning_to_car"
+    Car.pulse(T.mission,900000) Car.pulse(T.mission,1079999)
+    check(restoredRecovery.state=="returning_to_car" and restoredRecovery.recovery.remainingMs==1,
+        "loading does not grant a new five-minute parked-car search")
+    Car.pulse(T.mission,1080000)
+    check(restoredRecovery.state=="abandoned" and T.mission.scout.phase=="inbound",
+        "a car that never loads uses walking fallback only after its remaining allowance expires")
     SC.Vehicle.loadedBySqlId,SC.ExpeditionPrototype=loaded,prototype
     T.mission.scout.wood=nil
 end
@@ -511,8 +541,8 @@ farRoadFailure = freshTrip("driving_home", "home")
 T.cars[1].x = 50
 T.driveStatus = { result = "failed", reason = "route_blocked" }
 check(Car.pulse(T.mission, 83000)
-        and farRoadFailure.state == "fallback_unloading",
-    "a failed drive far from the verified road entry uses safe walking fallback")
+        and farRoadFailure.state == "held" and farRoadFailure.recovery.kind=="road",
+    "a failed drive far from the road entry receives bounded car recovery before walking fallback")
 T.cars[1].x, T.cars[1].y = 102, 102
 T.driveStatus = nil
 
@@ -721,20 +751,32 @@ check(Car.pulse(T.mission, 252000)
     "seated crew never abandons an unloaded vehicle")
 T.cars = { unloadedCar }
 check(Car.pulse(T.mission, 269000)
-    and missingDuringDrive.state == "fallback_unloading"
+    and missingDuringDrive.state == "boarding_out"
     and Car.pulse(T.mission, 270000)
-    and missingDuringDrive.state == "abandoned",
-    "a returned car lets an interrupted crew exit and walk")
+    and missingDuringDrive.state == "driving_out"
+    and T.team[1].actor.car==unloadedCar and T.team[2].actor.car==unloadedCar,
+    "a reloaded seated car resumes fresh boarding and checked driving without ejecting its crew")
+local unresolvedSeats=freshTrip("driving_out")
+T.cars={}
+Car.pulse(T.mission,300000) Car.pulse(T.mission,600000)
+check(unresolvedSeats.state=="held" and unresolvedSeats.recovery.remainingMs==0
+    and T.team[1].actor.car==unloadedCar and T.team[2].actor.car==unloadedCar,
+    "even an expired recovery cannot abandon passengers whose native seats remain unresolved")
+T.cars={unloadedCar}
+Car.pulse(T.mission,600001) Car.pulse(T.mission,600002)
+check(unresolvedSeats.state=="abandoned" and not unloadedCar.engine
+    and not T.team[1].actor.car and not T.team[2].actor.car,
+    "expired missing-car recovery exits only after the real car reloads and is safely stopped")
 
 local missingOnFoot = freshTrip("returning_to_car", "home")
 T.cars = {}
 check(Car.pulse(T.mission, 280000)
     and Car.pulse(T.mission, 311000)
-    and Car.pulse(T.mission, 312000)
-    and Car.pulse(T.mission, 328000)
+    and missingOnFoot.state == "returning_to_car"
+    and Car.pulse(T.mission, 580000)
     and missingOnFoot.state == "abandoned"
     and T.mission.scout.phase == "inbound",
-    "on-foot crew walks home when its parked car is gone")
+    "on-foot crew walks home only after five minutes without a reloaded parked car")
 
 local missingAfterLoad = freshTrip("interrupted_by_load", "home")
 check(Car.pulse(T.mission, 340000)
@@ -753,12 +795,13 @@ local missingMate = T.team[2].actor
 T.team[2].actor = nil
 check(Car.pulse(T.mission, 440000)
     and Car.pulse(T.mission, 456000)
-    and incompleteRoster.state == "held",
-    "missing roster member prevents an unverified walking fallback")
+    and Car.pulse(T.mission, 757000)
+    and incompleteRoster.state ~= "abandoned",
+    "an expired parked-car search cannot abandon a missing living roster member")
 T.team[2].actor = missingMate
-check(Car.pulse(T.mission, 457000)
+check(Car.pulse(T.mission, 758000)
     and incompleteRoster.state == "abandoned",
-    "walking fallback resumes after the full roster is present")
+    "expired walking fallback resumes only after the full living roster is present")
 T.cars = { unloadedCar }
 
 local occupiedBay = freshTrip("held", "home")
@@ -921,14 +964,48 @@ do
     local failedRoad = seatedTrip("driving_home", "home")
     car.x, car.y = 160, 160
     local nativeStatus = SC.Driving.status
+    local stopOwned = SC.Driving._stopOwnedVehicle
+    local stopAllowed,stopCalls=false,0
+    SC.Driving._stopOwnedVehicle=function(actor,expected,reason)
+        check(actor==T.team[1].actor and expected==car and reason=="expedition_car_recovery",
+            "recovery releases only the failed driver's exact native car")
+        stopCalls=stopCalls+1
+        if not stopAllowed then return false,"drive_owner_mismatch" end
+        T.driveStatus={phase="released",managed=true,owned=false}
+        return true
+    end
     SC.Driving.status = function() return { obstacleKind = "solid" } end
-    T.driveStatus = { result = "failed", reason = "route_blocked", attempts = 3 }
+    T.driveStatus = { phase="failed",managed=true,result = "failed", reason = "route_blocked", attempts = 3 }
     check(Car.pulse(T.mission, 806000) and failedRoad.lastFailure.reason == "route_blocked"
-        and failedRoad.lastFailure.obstacle == "solid" and failedRoad.lastFailure.at.x == 160,
-        "a failed native home drive retains the original reason, obstacle and physical position")
+        and failedRoad.lastFailure.obstacle == "solid" and failedRoad.lastFailure.at.x == 160
+        and failedRoad.state=="held" and T.team[1].actor.car==car and T.team[2].actor.car==car,
+        "a failed home drive retains its physical crew and truthful failure during recovery")
+    check(Car.pulse(T.mission, 807000) and failedRoad.state == "held"
+        and failedRoad.blocker=="drive_owner_mismatch" and stopCalls==1
+        and T.team[1].actor.car==car and T.team[2].actor.car==car,
+        "rejected managed release retains the crew and refuses an unowned stop or retry")
+    stopAllowed=true
+    check(Car.pulse(T.mission,808000) and failedRoad.state=="held" and stopCalls==2
+        and failedRoad.recovery.remainingMs==298000 and T.team[1].actor.car==car,
+        "a verified lease release preserves the original cooldown and remaining recovery allowance")
+    SC.Driving._stopOwnedVehicle=stopOwned
     T.driveStatus = nil
-    check(Car.pulse(T.mission, 807000) and failedRoad.state == "abandoned",
-        "failed drive cleanup still switches off and leaves the actual blocked car")
+    T.routeFailure="no_route"
+    Car.pulse(T.mission,816000) Car.pulse(T.mission,817000)
+    check(failedRoad.state=="held" and failedRoad.recovery.remainingMs==289000
+        and T.team[1].actor.car==car and T.team[2].actor.car==car,
+        "a rejected fresh route retains passengers without replenishing the recovery budget")
+    T.routeFailure=nil
+    local beforeRetry=T.driveCalls
+    Car.pulse(T.mission,827000) Car.pulse(T.mission,828000)
+    check(failedRoad.state=="driving_home" and T.driveCalls==beforeRetry+1
+        and failedRoad.recovery.remainingMs==278000,
+        "a clear retry revalidates the actual car and starts a fresh drive within the original budget")
+    Car.pulse(T.mission,1106000)
+    check(failedRoad.state=="fallback_unloading" and T.team[1].actor.car==car,
+        "five-minute recovery exhaustion still requires verified stopping and exits")
+    check(Car.pulse(T.mission,1106001) and failedRoad.state=="abandoned" and not car.engine,
+        "expired recovery switches off and leaves only the actual owned car")
     local retainedFailure = Car.copyDescriptor(failedRoad, T.team, "leader")
     check(retainedFailure and retainedFailure.lastFailure.reason == "route_blocked"
         and retainedFailure.lastFailure.obstacle == "solid",

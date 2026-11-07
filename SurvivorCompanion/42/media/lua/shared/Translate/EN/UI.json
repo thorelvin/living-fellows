@@ -307,6 +307,7 @@
     "UI_SC_Expedition_DriveFuel": "Fuel: %1 in tank; at least %2 estimated for both legs and reserve.",
     "UI_SC_Expedition_CarState": "Car trip: %1.",
     "UI_SC_Expedition_CarIssue": "Car needs attention: %1.",
+    "UI_SC_Expedition_CarRecovery": "Retrying a safe car route — %1 remaining.",
     "UI_SC_Expedition_CarAbandoned": "The team left its car near %1, %2 and continued on foot.",
     "UI_SC_Expedition_TravelSummary": "Travel: %1.",
     "UI_SC_Expedition_Aggressive": "Aggressive (weapons free)",

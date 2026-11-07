@@ -1,0 +1,124 @@
+Living Fellows 0.27.2 - live expedition checks
+2026-11-07; source a46e16e6c523c82b9a17e1b8faa86458f1e396c4
+All eight primary cases completed. This is not an all-pass result.
+
+Scope
+Four selectable mission kinds, each walking and driving: eight primary cases.
+Native Project Zomboid 42.21.0, LF alone, original saved Tess, private cloned worlds.
+Native actions, ordinary crew stats, actual equipment, trees, items and car SQL5.
+No supplied catches, replacement cargo, NPC teleportation or accelerated catch timers.
+Original save and installed launcher/JAR/user mod presets remain outside the test caches.
+One client at a time, BelowNormal, four CPUs, 1792 MiB heap, 1024x576/1x textures,
+30 FPS, and a 1.5 GiB emergency free-virtual-memory guard. This is functional
+acceptance with one crew member, not large-crew, other-mod or performance acceptance.
+
+Results
+WOOD WALK: PASS. One mature tree felled and one original Base.Log physically stored;
+healthy crew and solo restoration. Run 115456: 61 PASS, 0 FAIL, 0 SKIP; 561247 ms.
+
+WOOD DRIVE: CARGO/DELIVERY VERIFIED WITH LIMITS. One tree felled, two real logs
+picked up and loaded, original car physically returned with engine off, Tess alive.
+The narrowly drawn test parking outline caused parking_footprint_outside_area fallback.
+Both durable LF log identities were finally verified in marked Log Yard zone:18,
+tile 12034,6732,0, after ordinary delivery continued across reloads. This proves
+cargo persistence and physical delivery; uninterrupted delivery/clean parking is unproved.
+Original trip 131021: 751066 ms, raw 58 PASS/2 FAIL/2 SKIP. Its two trunk assertions
+retained a vehicle object invalidated by streaming; a fresh SQL5 lookup found both logs.
+Final corrected delivery control 135414: 9 PASS/0 FAIL/0 SKIP, stopped SQL5, living
+original Tess, released solo view, exact native world wrappers and permitted yard.
+Quiet-site fixture removed ten zombies in DRIVE and zero in WALK: contested-site
+safety is not certified. Existing usable gear sufficed; no axe or bag was created.
+
+SCOUT WALK: FAIL observation. Reached selected building and naturally returned,
+but debrief said observed while observation.status was unavailable. Zero scan/visible
+counts are fallback values, not an actual empty observation. Run 120934: 30/1/2.
+
+SCOUT DRIVE: FAIL observation and car return. Thirteen fresh, matching-origin native
+perception samples rejected selected_site_not_visible at 12070.5,6729.998 outside
+building 12071:6727:12077:6730. Return no_route left the stopped car at
+12108.3594,6775.7031; crew walked home. Run 122423: raw 31/1/1.
+
+SEARCH WALK: BLOCKED BANK ACCESS; acquisition objective unmet. Reached bank
+12085:6782:12103:6802 (building identified by the user), then four unopened-container
+approach_timeouts at the security roll-down crossing 12096:6788. Zero loot;
+natural return at search_deadline. Run 123633: raw 24/1/0.
+
+SEARCH DRIVE: BLOCKED BANK ACCESS and FAILED CAR RETURN. Reproduced the same
+security roll-down crossing failure before inspecting container contents.
+Zero loot; natural search_deadline return.
+Car no_route fallback at 12108.3047,6775.6875, essentially the Scout return location;
+crew walked home. This case used a wider parking outline. Run 133351: raw 24/1/0.
+The open_door_threshold log label is a low-confidence classification of the reported
+edge/object, not proof that the whole security roll-down passage was open. Its native
+door-collision flag was false. Exact shutter parts/state were not captured.
+These cases establish failed access to the secured bank area, not a general ordinary-
+door regression. Positive search/looting in an accessible building remains unverified.
+They also do not prove empty shelves, ignored known useful items, or failed delivery
+of acquired search loot.
+
+FISH WALK: NO CATCH within four-game-hour turn-home limit. Real bank discovery,
+equipment borrowing, native cast/bobber, valid Paperclip hook and an earlier native
+trash bite were observed. Walked home with zero fish receipts. Run 124847: 10/1/0.
+Trash does not satisfy the fish request. Catch/delivery acceptance remains unproved;
+zero catch alone does not establish a frozen worker.
+
+FISH DRIVE: NO CATCH and FAILED CAR RETURN. Run 135734: 10 PASS/1 FAIL/0 SKIP.
+Rod/bait prepared normally, car reached its stopping point with engine off, crew
+walked to bank and cast. Native bobber timers decreased and reset normally, but no
+fish receipt appeared before the four-hour return limit. Return then held at
+car_not_loaded and abandoned SQL5. Tess walked home; native cleanup confirmed
+one player, null secondary slot, released owner/chunks. Fish delivery and the final
+health assertions were not reached. The saved vehicles.db still contains SQL5 at
+12108.5078,6775.1563: absence from the loaded view did not mean the car was deleted.
+
+Diagnosis and limits
+Scout arrival chooses a reachable exterior without ensuring LOS into the selected
+building; observing does not try another face before returning unavailable as observed.
+Search repeatedly retries the bank security crossing before inspecting loot sources.
+Investigate shutter recognition, alternate access and skipping inaccessible containers;
+do not infer that ordinary doors are broken. Existing locked-room exclusion requires
+confirmed lock evidence, which this open-threshold classification did not provide.
+Two no_route car-return failures reproduce near 12108,6775. Fishing adds a separate
+car_not_loaded return failure although the parked car survived in the save database.
+Engine off plus crew return is not a successful vehicle return. Scouting visibility
+and car-return handling are confirmed priority failures; bank-access retry handling
+needs a focused barrier-state check and an accessible-building search control.
+Follow-up car-return runs reproduced the bank-side abandonment and the unloaded
+parked-car failure, while another short scouting return succeeded. The roadside
+failure follows a wall/static avoidance buffer plus a wreck buffer closing the
+road graph; the unloaded-car walk-back branch is wood-only. A stale abandoned-car
+location was also confirmed. See validation-car-returns-02702.txt for fresh exits,
+screenshots, controlled route comparisons, and source anchors.
+Fishing DRIVE timer cadence matches the native zero-abundance retry branch; a poor
+bank is an inference, not a directly sampled abundance measurement.
+
+Private probe corrections are separate from gameplay faults: stale car reference,
+runtime native IDs incorrectly treated as durable across LF inventory rehydration,
+and missing Log Yard world-item handling. Native getID is runtime-only; durable
+identity is LF_ItemStableId (SCGameplayUtil:199-202). Final wood verification follows
+that contract. Earlier observer runs 132846 and 134552 are not evidence of cargo loss.
+Private attached inspection scripts also produced a nil-return argument error and
+post-exit Lua-thread errors; these are diagnostic-tool errors, not expedition exceptions.
+Earlier setup retries hit an obsolete actor-name requirement, missing parking mark,
+and memory guards; none is counted as a completed mission result. Gameplay unchanged.
+
+Evidence
+Full run roots are C:/ZOMBOID/work/r271/build/live-sandbox-runs/SC-Harness-20261107-<suffix>:
+115456-0da58036 (wood walk), 131021-21378684 (wood drive),
+135414-5b52a8f4 (final wood delivery), 120934-e95a756f (scout walk),
+122423-7d9ed1bc (scout drive), 123633-2f9003a7 (search walk),
+133351-2d0747c7 (search drive), 124847-ea69d9d9 (fish walk),
+135734-ccaa3bdd (fish drive). Each contains cache/console.txt and cache/Screenshots/.
+Search crossing image: 133351-2d0747c7/cache/Screenshots/search-door-before-diagnostic.png.
+Block screenshots and raw summaries are retained. Machine-readable matrix:
+C:/ZOMBOID/work/r271/build/expedition-live-02702/runs.json.
+
+Final checks
+All test clients closed. Installed launcher SHA256 remained
+E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307;
+installed game JAR remained
+E1A69EB743EDE60B213A0FE7F8B83D4FCAB773036D256CC4543A336F3B058A33.
+Private source bridge SHA256:
+7fde1d912e8c63e001574f8b66c332d4ea9b0efec971ccc2c3fb640378562c5c.
+Only this validation report was added outside ignored build/ for this task;
+all temporary probes/launch instrumentation remain under ignored build/.

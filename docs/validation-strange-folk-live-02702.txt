@@ -1,0 +1,68 @@
+Living Fellows 0.27.2 - focused live Strange Folk acceptance
+2026-11-07, source a46e16e6c523c82b9a17e1b8faa86458f1e396c4
+
+Real Project Zomboid 42.21.0, LF alone, private cloned saves, offline launch.
+One client at a time: 2560 MB Java heap, four CPUs, BelowNormal, 30 FPS cap,
+600-second outer watchdog and 2 GiB free-virtual-memory guard. No installer,
+original save, enabled user preset or installed launcher/JAR was changed.
+Native payload SHA256:
+7fde1d912e8c63e001574f8b66c332d4ea9b0efec971ccc2c3fb640378562c5c
+
+Successful scenarios (under build/live-sandbox-runs/):
+
+SC-Harness-20261107-101314-4c2ae775: Ruth, ordinary single-player.
+30 PASS, 0 FAIL, 1 SKIP. Real passenger boarding and exit; unseen departure;
+ten seconds of ordinary scheduled pulses without a new actor, waking flag
+or queued spawn; exact group-tagged body, Backpacker outfit and letter;
+corpse age; story retirement with the same body still present.
+Address discovery was skipped: no eligible unclaimed house 60-160 m away.
+The existing arrival fixture selected a loaded nearby house; this did not
+exercise a long player-driven ride. Screenshot: ruth-departed-scene.png.
+
+SC-Harness-20261107-103812-44e0913d: Bob's hostile reward/recruitment guards.
+25 PASS, 0 FAIL. Real shop setup, weapon and four reward identities; public
+offense API changed standing before the reward pulse. All four exact item
+objects/IDs remained with Bob, no player gain, rewardGiven stayed false,
+public recruitment rejected faction_hostile. Completed native attack
+receipt against the exact observer after 3064 ms; observer immunity retained.
+IMPORTANT: Bob killed 0/5 siege zombies. They bunched outside the shop and
+the existing fixture finished them after 90 seconds. This run used a god-mode,
+initially invisible observer. It is NOT proof of a successful zombie defence.
+The stall screenshot is cache/Screenshots/block-ui-reentry-mainmenu.png
+(generic capture-helper filename; captured state was IngameState).
+
+SC-Harness-20261107-104230-cf749a1d: Dwayne, 30 PASS, 0 FAIL.
+Native van/radio range, sermon heard on a real radio, 12-page binder,
+greeting, exact book handover and Reverend dialogue. Public aim offense
+selected hostile policy; completed native attack receipt against the exact
+observer after 1933 ms; god mode and unchanged observer health verified.
+These two hostility checks prove attempts, not landed damage. No direct
+attack invocation, synthetic hit event or scripted damage was used.
+
+Test setup limitations and failed attempts:
+Ordinary SP ignores PlayerCheats unless Core.debug, client or server is true.
+Both God setter overloads ultimately use that gate. Three earlier Dwayne
+runs completed normal scene checks but failed the added God prerequisite:
+101856-1ccc1942, 102556-54abe274 and 103020-acb524f9. Their block screenshots
+and failing summaries are retained; they are not counted as successful runs.
+A full -debug startup (103428-37d99311) hit the Kahlua 200-local limit in
+unused private Arthur/Squad probes and was stopped. A native screenshot
+was requested but the blocked main thread did not service it. Logs retained.
+The successful hostility fixtures started normally, then enabled Core.debug
+and observer God once through a clone-only native loading helper. Production
+Lua/bridge were unchanged. This avoids the full debug-start compiler problem.
+
+Evidence includes console.txt, summaries, launch/hash/power receipts and
+screenshots. Clone-only probe additions and loading helper remain ignored
+under build/strange-folk-live-02702/. Exact probe-used.lua copies are retained
+beside each run. Deleting the verified duplicate cloned mod/save payloads
+was rejected by automatic approval review ("blocked by policy"), including
+the safer literal-path attempt. They remain: 0.64 GiB across these seven
+owned runs. No alternate deletion mechanism was used. Original saves and
+all result evidence were kept.
+These are focused scene checks, not a full combat, driving or release signoff.
+
+Console review: no new gameplay exceptions, stack traces or duplicate-item
+warnings in the three successful runs. Startup warnings match their controls.
+Dwayne's run contains one recurring blank animation-variable warning, also
+present in the earlier baseline; its actor/call-site remains unidentified.

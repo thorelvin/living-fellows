@@ -190,9 +190,8 @@ check(Car.cancelField(mission,201) and descriptor.state=="abandoned" and descrip
     and not T.team[1].actor.car and not T.team[2].actor.car and not car.engine and car.x==beforeX and car.y==beforeY,
     "near recall safely stops engine and physically unseats crew without moving the car")
 
--- Reproduce a real failed drive: the crew must remain at the safely stopped
--- car while its native save is pending, then resume walking without retaining
--- that resolved save warning or losing the actual route/obstacle failure.
+-- A failed field drive keeps the crew aboard for recovery before the existing
+-- stopped-car save barrier can authorize a physical walking fallback.
 descriptor.state,mission.scout.phase="driving_home","driving_home"
 for _,record in ipairs(T.team) do local seat=descriptor.seats[record.id] record.actor.car,record.actor.seat=car,seat car.occupied[seat]=record.actor end
 car.engine=true T.driving=false
@@ -200,16 +199,30 @@ SC.Driving.status=function() return {obstacleKind="tree"} end
 T.driveStatus={result="failed",reason="no_route",attempts=3}
 Car.pulse(mission,300,0)
 local roadFailure=descriptor.lastFailure
-check(descriptor.state=="fallback_unloading" and descriptor.blocker=="no_route"
-    and roadFailure.reason=="no_route" and roadFailure.obstacle=="tree",
-    "actual failed drive records its cause before the field save barrier")
+check(descriptor.state=="held" and descriptor.blocker=="no_route" and descriptor.recovery.kind=="road"
+    and roadFailure.reason=="no_route" and roadFailure.obstacle=="tree"
+    and T.team[1].actor.car==car and T.team[2].actor.car==car,
+    "Send Home retains the exact seated crew and route failure during car recovery")
+local recoverySave=assert(Car.copyDescriptor(descriptor,T.team,"leader"))
+local recoveryReload=assert(Car.restoreDescriptor(recoverySave,T.team,"leader"))
+check(recoverySave.field and recoverySave.recovery.remainingMs==300000
+    and recoveryReload.state=="interrupted_by_load" and recoveryReload.resumeState==nil
+    and recoveryReload.recovery.remainingMs==300000 and recoveryReload.recovery.lastAt==nil,
+    "field recovery persists its remaining allowance without reusing native timers or a drive lease")
 T.driveStatus=nil T.stopSavePending=true
-Car.pulse(mission,301,0)
+Car.pulse(mission,299999,0)
+check(descriptor.state~="fallback_unloading" and descriptor.state~="abandoned"
+    and T.team[1].actor.car==car and T.team[2].actor.car==car,
+    "Send Home does not unload before the five-minute recovery allowance expires")
+Car.pulse(mission,300300,0)
+check(descriptor.state=="fallback_unloading" and T.team[1].actor.car==car,
+    "recovery exhaustion still leaves physical stop and exit verification pending")
+Car.pulse(mission,300301,0)
 check(descriptor.state=="fallback_unloading" and mission.scout.phase=="fallback_unloading"
     and descriptor.blocker=="home_car_save_pending" and descriptor.lastFailure==roadFailure
     and not T.team[1].actor.car and not T.team[2].actor.car and not car.engine,
     "pending native save retains the stopped fallback without allowing walking or erasing the driving failure")
-T.stopSavePending=false Car.pulse(mission,302,0)
+T.stopSavePending=false Car.pulse(mission,300302,0)
 check(descriptor.state=="abandoned" and mission.scout.phase=="inbound" and descriptor.blocker==nil
     and descriptor.lastFailure==roadFailure and roadFailure.reason=="no_route" and roadFailure.obstacle=="tree",
     "ready native save resumes fallback walking with its original failure and no stale save blocker")

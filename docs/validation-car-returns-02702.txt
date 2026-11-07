@@ -1,0 +1,186 @@
+Living Fellows 0.27.2 - focused car-return investigation
+2026-11-07; source a46e16e6c523c82b9a17e1b8faa86458f1e396c4
+
+Three additional live runs completed: one successful car return, one roadside
+abandonment, and one parked-car abandonment. Every observed vehicle-to-foot
+transition was logged and captured. The first investigation used unchanged
+gameplay code; the implementation and new acceptance results follow below.
+
+Scope
+Real Project Zomboid 42.21.0, LF alone, original saved Tess and taxi SQL5,
+independent private clones of completed wood-walk save 115456-0da58036.
+No NPC relocation, replacement vehicle, supplied fuel, forced exit, or forced
+mission completion. A public parking outline was added around the existing car.
+One client, four CPUs, BelowNormal, 1024x576/1x textures, 30 FPS, 1280 MiB heap.
+The same 1.5 GiB free-virtual-memory guard remained active. An initial 1792 MiB
+attempt 143610-3cd6c6b0 hit that guard before its destination; it is not counted
+as a completed car-return test. Its resource-block screenshot is retained.
+
+1. Nearby-building scout: car return succeeded
+Run SC-Harness-20261107-144529-cff3c1b8.
+Normal site exit at frame 2049; home exit at frame 5835.
+Same taxi parked at 12032.96875,6756.125, with engine off; solo view restored.
+Its wall-related replan found a short westward route home.
+Raw harness: 31 PASS/1 FAIL/1 SKIP. The failure was the pre-existing unavailable
+scout observation; the car-return and engine checks passed.
+
+2. Bank-side scout: roadside abandonment reproduced
+Run SC-Harness-20261107-145427-abef6bc0. Target bank 12085:6782:12103:6802;
+this was scouting, not an attempt to loot through its security roll-downs.
+Normal site exit at frame 2198, taxi at 12072.53125,6775.1328125.
+At frame 3641 the initial return route was valid and went directly west along
+the eight-tile-wide road at y=6773. Driving then inserted source/destination
+access connectors and narrowed the first three route points to width five.
+The taxi steered north in ordinary follow mode and received a wall/static
+bumper stop near 12071.5,6765.5 before a successful turnaround.
+
+That static obstruction added a radius-12 avoidance circle. The next route
+went east to 12110, south around the block, west to 12000, then north and home.
+At the east junction, wreck SQL14 at 12110,6780 added its FIRST radius-four
+vehicle circle at 12110.5,6778.5. The two combined constraints produced
+NO_SAFE_ROAD_DETOUR/horde_avoidance_blocked. The wording does not prove a horde:
+the recorded obstructions were static/wall and vehicle.
+
+At frame 5036 ExpeditionCar chose fallback_unloading/no_route; frame 5037
+recorded Tess exiting SQL5 at 12109.5,6774.5. The stopped taxi remained at
+12108.2890625,6775.578125. She walked home. Fresh vehicle telemetry confirmed
+engine off; native driveStatus retains an older engineRunning value after release.
+Raw harness: 31 PASS/1 FAIL/1 SKIP, again failing the scouting report; these
+raw counts alone do not certify car return. The exit/fallback trace establishes it.
+
+Map-only isolation, replayed with the exact failed source and goal and the wreck
+buffer fixed at four tiles, changed only the preceding static-buffer radius:
+  static radius 4  -> READY, six route points
+  static radius 8  -> NO_SAFE_ROAD_DETOUR
+  static radius 12 -> NO_SAFE_ROAD_DETOUR
+These queries did not control the car. This isolates avoidance-graph closure,
+not missing road data. Attempts=2 meant one static block plus one vehicle block;
+there was no demonstrated repeated-vehicle radius-six expansion.
+Read-only straight car-width surveys found clear parallel strips at y=6775
+and y=6769. They do not establish a safe complete turn or swept-body bypass.
+
+Why the crew exits: SCExpeditionCar's failed-drive recovery explicitly selects
+fallback_unloading away from the home road entry and calls stopAndUnload,
+which stops the vehicle and orders SC.Vehicle.exit. It is an ordered recovery
+decision, not spontaneous companion behaviour. The initial connector/turn and
+over-broad subsequent road avoidance need hardening before relaxing safe exits.
+Source anchors: SCDriving.lua:588,615,874; SCRoadRouter.java:99;
+SCDrivePath.java:181; SCExpeditionCar.lua:924,1680.
+
+3. Fishing: parked car streams out, return recovery never walks back to it
+Run SC-Harness-20261107-150752-4b36f19a. Public one-game-hour turn-home option;
+native preparation, travel and fishing timers remained normal.
+The only disembark was the normal site exit, frame 4434, taxi at
+12108.53125,6775.15625. Tess reached the bank about 100 tiles from the car.
+Return began at frame 9862 while the taxi was outside the loaded vehicle list.
+She remained at the bank: about 30 seconds -> held/car_not_loaded, then about
+15 seconds -> abandoned. No homeward boarding or return-leg disembark occurred.
+She walked home and released the secondary view. Raw harness 10 PASS/1 FAIL/0 SKIP
+failed its fish-acquisition objective; this shortened case tested return, not catch yield.
+
+Cause: loadedBySqlId scans currently loaded vehicles. Car.pulse's branch that
+walks toward the saved parked sitePoint to reload an absent car is restricted
+to scout.wood; its approachWoodSource helper is also wood-gated. Fishing skips
+movement, waits 30 seconds, then abandons after the further 15-second hold.
+The saved vehicles.db still contains the original SQL5 at its exact site position.
+Fix direction: share bounded return-to-car approach across mission kinds and
+distinguish an unloaded car from a missing/destroyed car before abandoning it.
+Source anchors: SCVehicle.lua:1362; SCExpeditionCar.lua:1462,1506,1854;
+SCExpeditionPrototype.lua:4026. Removing only the outer wood condition is insufficient.
+
+Additional confirmed metadata bug
+The same fishing trip retained correct sitePoint=12108.53125,6775.15625 but
+abandonedAt was copied from stale position=12028.4453125,6757.0703125, roughly
+82 tiles away near camp. The actual car did not teleport. Nil-car abandonment
+uses trip.position instead of the saved sitePoint (SCExpeditionCar.lua:855).
+
+Screenshots and evidence
+Root: C:/ZOMBOID/work/r271/build/live-sandbox-runs/SC-Harness-20261107-<run>/
+Each run has cache/console.txt, probe-used.lua, and cache/Screenshots/.
+145427-abef6bc0 screenshot suffixes:
+  -car-return-2-block-fallback_unloading-no_route.png
+  -car-return-3-unboard-sc-1_792185247907E9-1-189736.png
+  -car-return-4-block-abandoned-no_route.png
+150752-4b36f19a:
+  -car-return-1-unboard-sc-1_792185247907E9-1-189736.png
+  -car-return-2-block-held-car_not_loaded.png
+  -car-return-3-block-abandoned-car_not_loaded.png
+The first case's home-exit screenshot has already reverted to the primary
+kitchen camera, so it is weaker visual evidence than the roadside exit image.
+
+All test clients closed. Installed launcher/game JAR hashes match the original
+pins recorded in validation-expeditions-02702.txt. Original save and presets
+were not used as writable test caches. Temporary observation/control modules
+remain under ignored build/car-return-live-02702; no gameplay fix is included.
+
+Implementation and repeat acceptance (2026-11-07)
+The later user decision covers every expedition kind, keeping crew aboard
+during bounded recovery for up to five minutes. Lua now shares the existing
+streamed waypoint worker for parked-car returns; missing streamed vehicles
+are approached at the saved real stop before fresh native identity/seat checks.
+Road failures retain the roster, stop only the exact owned drive, and retry
+the ordinary preflight/native manoeuvre every ten seconds. Hard component,
+occupant and verified stop/exit checks remain in force. Remaining recovery
+time persists without replaying wall-clock time spent offline or resetting
+the five-minute allowance. Nil-car abandonment uses the real parked stop;
+live loaded positions refresh on the car pulse without bypassing load checks.
+The road route also preserves its surveyed width and heading where the actual
+vehicle footprint already fits the first mapped road strip. Off-road access
+and final driveways retain their checked narrow segments. No native changes.
+
+Automated: all FIVE essential checks PASS, 65.7 s, routine profile:
+build/test-results/20261107-163432-0ae97c. Interface was repeated after the
+countdown UI edit and passed (20261107-163710-539216). Existing focused car,
+home-car and wood-mission regressions PASS; driving harness PASS 281 checks.
+No new test framework or duplicate harness was added.
+
+Fixed Scout BANK: SC-Harness-20261107-163720-b8c75551.
+Same original taxi and target as the failed investigation. No_route at f5001
+(15:43:35.851 UTC), crew still aboard at 12108.6484,6775.875. Recovery retry1
+at f5300, 10.023 s later; remaining 289978 ms. Actual progress cleared the
+recovery episode at f5795. Road arrival f6332; parking verified f6851;
+engine stopped and normal home exit f6852 (15:44:37.782 UTC).
+Final physical car: 12032.8203,6755.3594, fresh engine=false. The only exits
+were normal site f2053 and home f6852; no exit during failure or retry.
+Primary solo view restored. Raw 31 PASS / 1 FAIL / 1 SKIP: the sole failure
+remains unavailable Scout observation, not car return. This is car-return
+acceptance, not a passed complete Scout gameplay acceptance.
+
+All new probe screenshots use the native zoom-out queue, configured maximum
+2x from 1x, restoring each surviving view afterwards. Controller state and
+fresh carLoaded are recorded BEFORE camera changes, which can stream chunks.
+Wide no_route image: cache/Screenshots/
+SC-Harness-20261107-163720-b8c75551-car-return-4-block-held-no_route.png.
+It shows the occupied taxi beside the burned wreck; no forced exit or
+collision-buffer shrink was used. Native cached engineRunning after release
+is not used as shutdown evidence; fresh vehicle reads are authoritative.
+
+Fixed fishing parked-car return: SC-Harness-20261107-164536-9de7e813.
+Public drive mission, normal one-game-hour turn-home option and bait timers.
+At return f9760 the original SQL5 was genuinely unloaded. Tess was on foot at
+12127.2275,6672.4995, with the saved car stop 12108.5078,6775.1563.
+The new action expedition_return_to_car physically walked her toward that
+stop: at f11190 she was 12110.4922,6726.9795, car still not loaded. The car
+reloaded at f11220, about 49 s after return began, retaining SQL5 but with a
+new native object ID as expected after streaming. No camera zoom or photo
+occurred between the previous site screenshot/restoration f4391 and this
+reload, so the camera did not manufacture the recovery.
+Tess then physically boarded and drove home. Normal home exit f13201;
+fresh engine=false and car at 12032.8281,6755.3516, speed zero. Only normal
+site and home exits were recorded; no held/fallback/abandoned state occurred.
+Solo restoration applied at f13477: one player, slot1 null, primary camera,
+secondary lighting retired and chunks released. Raw 10 PASS / 1 FAIL:
+fish_actual_trip acquired=0 before the public one-hour return limit. No fish
+were supplied or catch timers changed; this is a successful car-return test,
+not a passed complete fishing/cargo acceptance.
+Home screenshot: cache/Screenshots/
+SC-Harness-20261107-164536-9de7e813-car-return-4-unboard-sc-1_792185247907E9-1-189736.png.
+
+Both fixed-run clients closed normally. Installed launcher and game JAR
+SHA256 still match E8595D75... and E1A69EB7... respectively; the rebuilt
+bridge remains 7FDE1D91... (full pins in validation-expeditions-02702.txt).
+No original save, installed payload, launcher or player preset was changed.
+Live proof here covers Scout road recovery and Fishing streamed-car recovery;
+all four expedition kinds share the worker and are covered by the existing
+focused harness. Five-minute exhaustion/reload/ownership cases are automated
+checks, not fault-injected native live scenarios. No commit or push performed.

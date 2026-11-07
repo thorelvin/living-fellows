@@ -110,6 +110,15 @@ local function observedPhaseText(phase)
     return value
 end
 
+local function carRecoveryText(seconds)
+    seconds = tonumber(seconds)
+    if not seconds or seconds ~= seconds or seconds == math.huge
+        or seconds == -math.huge then return nil end
+    seconds = math.max(0, math.ceil(seconds))
+    return tr("UI_SC_Expedition_CarRecovery",
+        string.format("%d:%02d", math.floor(seconds / 60), seconds % 60))
+end
+
 local function feedback(detail, message, success)
     detail.feedback = message
     detail.feedbackSuccess = success == true
@@ -213,6 +222,7 @@ function Planner.viewStructureSignature()
         tostring(view and view.preparationMemberId or ""),
         Planner.departurePreparationSignature(view and view.departurePreparation),
         tostring(view and view.observedPhase or ""),
+        tostring(view and view.vehicleRecoveryRemainingSeconds ~= nil),
         tostring(view and view.visibleMembers or 0),
         tostring(view and view.supplyProgress
             and view.supplyProgress.collected or ""),
@@ -1030,6 +1040,13 @@ function Planner.build(detail, panel)
         if view and view.vehicleIssue then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_CarIssue", view.vehicleIssue))
+        end
+        if carRecoveryText(view and view.vehicleRecoveryRemainingSeconds) then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", function()
+                if expedition.current() ~= mission then return "" end
+                local observed = expedition.describeForPlayer(getSpecificPlayer(0))
+                return carRecoveryText(observed and observed.vehicleRecoveryRemainingSeconds) or ""
+            end)
         end
         if view and view.supplyProgress then
             local progress = view.supplyProgress
