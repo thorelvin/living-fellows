@@ -45,6 +45,7 @@ try {
                 (Join-Path $Client 'SCFactions.lua') `
                 (Join-Path $Client 'SCFactionRecruitment.lua') `
                 (Join-Path $Client 'SCBedGeometry.lua') `
+                (Join-Path $Client 'SCSpawnSafety.lua') `
                 (Join-Path $Client 'SCOddballs.lua') `
                 (Join-Path $TestRoot $harness)
             if ($LASTEXITCODE -ne 0) { throw 'Oddball foundation regression failed.' }

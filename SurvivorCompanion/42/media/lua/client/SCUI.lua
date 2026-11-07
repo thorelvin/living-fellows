@@ -5545,8 +5545,8 @@ function SCUIRoot:createChildren()
         self:addChild(button)
         self.tabButtons[#self.tabButtons + 1] = button
         if SC.Guidance then
-            if tab=="expeditions" then SC.Guidance.control(button,"expeditions",self)
-            elseif tab=="more" then SC.Guidance.control(button,"job",self) end
+            if tab=="expeditions" then SC.Guidance.control(button,"expeditions",self,false,true)
+            elseif tab=="more" then SC.Guidance.control(button,"job",self,false,true) end
         end
     end
     self.detail = SCUIDetail:new(170, metrics.headerHeight + (2 * metrics.tabHeight) + 4, provisionalWidth - 176, provisionalHeight - metrics.headerHeight - (2 * metrics.tabHeight) - 11, self)

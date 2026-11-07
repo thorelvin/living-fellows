@@ -78,6 +78,22 @@ check(#G.list()>=7,"seen instructions remain available to reread")
 G.skip();check(show==false and G.view()==nil,"veteran skip turns off all tips")
 G.resetTips();show=true;records={};clock=25000;G.pulse(player,clock)
 check(G.view().id=="meet","reset teaches again without changing world actors")
+local tabParent={visible=true,isVisible=function(self) return self.visible end}
+local tabButton,quietTab={}, {}
+G.control(tabButton,"expeditions",tabParent,false,true)
+G.control(quietTab,"send_home",tabParent,false,true)
+check(tabButton.tooltip==G.text("expeditions"),"an unexplored tab explains itself")
+local firstButton={tooltip="Follow"}
+G.control(firstButton,"order",tabParent)
+for _=1,30 do G.control({tooltip="Stay"},"order",tabParent) end
+check(firstButton.tooltip=="Follow","a control pushed out of the list gets its own tooltip back")
+clock=25200;G.pulse(player,clock)
+check(quietTab.tooltip==G.text("send_home"),"a pinned tab keeps its hint while other controls come and go")
+G.report("expedition_used");clock=25500;G.pulse(player,clock)
+check(tabButton.tooltip==nil,"a pinned tab keeps following what was learned")
+show=false;clock=26000;G.pulse(player,clock)
+check(quietTab.tooltip==nil,"tips off restores a pinned tab's own tooltip")
+show=true;tabParent.visible=false;clock=26500;G.pulse(player,clock)
 G.dismiss();check(G.view()==nil,"the card can be dismissed independently")
 G.reopen();check(G.view()~=nil,"dismissal is reversible")
 G.report("recruited");G.report("storage")
@@ -92,6 +108,8 @@ show=true;clock=101000;G.pulse(player,clock)
 check(spoken[1]=="guidance.recruit_hint","the recruit speaks after the joining line ends")
 clock=102000;G.pulse(player,clock);check(#spoken==1,"a teaching line never repeats on this install")
 G.report("ordered");G.report("camp");G.report("storage");G.report("job")
+G.pulse(player,clock)
+check(G.view().id=="computer" and G.tracker()==nil,"the optional computer step stays on the card, not beside the launcher")
 local computer={}
 SC.GameplayUtil.squareOf=function(a) return a end
 SC.GameplayUtil.distance=function(_,a) return a==computer and 2 or 10 end
@@ -109,10 +127,24 @@ local base={storage={one={}}}
 SC.BaseLife.active=function() return base end
 G.resetTips();G.report("met");G.report("recruited");G.report("ordered");G.report("camp");G.report("storage");G.report("job")
 records[2]={id="sc-two",actor=actor,recruited=true,runtime={lastDecision="idle"}}
+G.dismiss()
 clock=2000000;G.pulse(player,clock)
 clock=2059999;G.pulse(player,clock);check(not G.dot("expeditions"),"feature nudges wait a minute")
 clock=2060000;G.pulse(player,clock);check(G.dot("expeditions"),"a settled two-person camp gets one expedition nudge")
-G.report("tab",{tab="expeditions"});clock=2061000;G.pulse(player,clock)
+local function listed(id) for _,tip in ipairs(G.list()) do if tip.id==id then return true end end return false end
+check(not listed("nudge_expeditions"),"a nudge is not spent before anything shows it")
+local line=G.tracker()
+check(line and line.kind=="nudge" and line.id=="nudge_expeditions" and line.tab=="expeditions"
+    and line.text==G.text("nudge_expeditions"),"a dismissed checklist still lets a feature nudge show beside the launcher")
+clock=2090000;G.pulse(player,clock)
+check(G.tracker() and G.tracker().id=="nudge_expeditions","an unseen nudge waits for the screen")
+clock=2100000;G.shown("nudge_expeditions");check(listed("nudge_expeditions"),"a nudge counts as seen once drawn")
+clock=2111999;G.pulse(player,clock);check(G.tracker()~=nil,"a shown nudge stays twelve seconds from when it was drawn")
+clock=2112000;G.pulse(player,clock)
+check(G.tracker()==nil and G.dot("expeditions"),"after twelve seconds the line goes, the dot stays")
+G.reset();clock=2113000;G.pulse(player,clock)
+check(G.dot("expeditions"),"the dot survives a runtime reload until the tab is visited")
+G.report("tab",{tab="expeditions"});clock=2114000;G.pulse(player,clock)
 check(not G.dot("expeditions"),"visiting the actual tab clears its dot")
 clock=3000000;G.pulse(player,clock);check(not G.dot("expeditions"),"visited features never nudge again")
 G.resetTips();G.report("recruited");G.report("ordered");G.report("camp");G.report("storage");G.report("job")

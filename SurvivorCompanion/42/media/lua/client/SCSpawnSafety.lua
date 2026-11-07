@@ -6,12 +6,14 @@ local SC=SurvivorCompanion
 SC.SpawnSafety=SC.SpawnSafety or {}
 local S=SC.SpawnSafety
 local function U() return SC.GameplayUtil end
-function S.canClear(zombie,player)
+-- Strange Folk scenes pass allowTargeting: a walker already chasing someone
+-- inside the scene must not survive to break its quiet start.
+function S.canClear(zombie,player,allowTargeting)
     if not U().isZombie(zombie) or U().isDead(zombie)
         or U().isCorpseProxy and U().isCorpseProxy(zombie) then return false end
     if SC.Actor and SC.Actor.isCompanion and SC.Actor.isCompanion(zombie) then return false end
     -- Never dissolve somebody's active fight or a visible actor.
-    if select(1,U().call(zombie,"getTarget"))~=nil then return false end
+    if not allowTargeting and select(1,U().call(zombie,"getTarget"))~=nil then return false end
     if player then
         if U().canSee(player,zombie)==true then return false end
         local sq=U().squareOf(zombie)

@@ -3198,9 +3198,11 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
     end
     if snapshot and (snapshot.immediateCount or 0) > 0 then return seekCover(actor, snapshot, "retreat") end
     if snapshot and (snapshot.threatCount or 0) > 0 then return seekCover(actor, snapshot, "seek_cover") end
+    local firstMeetingNearby = false
     if SC.FirstMeeting then
         local handled,why=SC.FirstMeeting.approach(actor,player,snapshot)
         if handled~=nil then return handled,why end
+        firstMeetingNearby = why == "first_meeting_nearby"
     end
 
     if player and viableRescue(snapshot) and SC.Medical and type(SC.Medical.assess) == "function" then
@@ -3220,6 +3222,12 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
         state.nextNeutralScavengeAt = current + (weaponSearch
             and (utility.config("neutralWeaponSearchRetryMs") or 4000)
             or (utility.config("neutralScavengeRetryMs") or 10000))
+    end
+    -- The first visitor has called out to the player: rescue and nearby
+    -- scavenging above still apply, but sounds and cover no longer lead away.
+    if firstMeetingNearby then
+        utility.stop(actor)
+        return true, "first_meeting_waiting"
     end
     if snapshot and snapshot.strongestSound and SC.Navigation and type(SC.Navigation.request) == "function" then
         local sound = snapshot.strongestSound

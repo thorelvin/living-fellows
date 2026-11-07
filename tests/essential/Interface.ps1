@@ -8,6 +8,12 @@
     (Join-Path $Client 'SCGuidance.lua'),
     (Join-Path $Core 'guidance_harness.lua')
 ) }
+@{ Name = 'interface.guidance-surfaces'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCUIGuidance.lua'),
+    (Join-Path $UI 'SCUIGuidanceTests.lua')
+) }
 @{ Name = 'interface.emma-first-session'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

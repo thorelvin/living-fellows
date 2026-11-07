@@ -36,6 +36,8 @@ local definitions = {
 local byId = {}
 for _, tip in ipairs(definitions) do byId[tip.id] = tip end
 local steps = {"meet","invite","order","camp","storage","job","computer"}
+-- A feature nudge keeps a dot on its tab until that tab is visited.
+local nudgeTabs = {nudge_expeditions="expeditions",nudge_jobs="more"}
 G.definitions, G.steps = definitions, steps
 local function U() return SC.GameplayUtil end
 local function now() return U().nowMs() end
@@ -47,6 +49,11 @@ end
 G.text = text
 local function enabled() return not SC.UserOptions or SC.UserOptions.get("showTips") ~= false end
 G.enabled = enabled
+local function restoreTooltip(c)
+    if c.menu then if c.control.toolTip then c.control.toolTip.description=c.description or "" end
+    else c.control.tooltip=c.tooltip end
+end
+local function restoreTooltips() for _,c in ipairs(controls) do restoreTooltip(c) end end
 local function write()
     if type(getFileWriter) ~= "function" then return false end
     local f
@@ -101,7 +108,9 @@ local function mark(id, done)
 end
 function G.resetTips()
     G.clearPointer()
-    seen,learned,observations,controls = {},{},{},{}
+    seen,learned,observations = {},{},{}
+    -- The panel's tabs stay registered; their pointers may run again.
+    for _,c in ipairs(controls) do c.expired,c.at=false,now() end
     loaded,missing,migrated,dismissed = true,false,false,false
     active,pointer,lastNudge,startupAt,startupUntil = nil,nil,-math.huge,nil,nil
     recruitHint,campSince,idleSince=nil,nil,nil;nudgeDue={};driveAwayAt=nil
@@ -194,10 +203,7 @@ function G.pulse(player, current)
     G.load();current=current or now();lastPlayer=player
     if not enabled() then
         G.clearPointer()
-        for _,c in ipairs(controls) do
-            if c.menu and c.control.toolTip then c.control.toolTip.description=c.description or ""
-            elseif not c.menu then c.control.tooltip=c.tooltip end
-        end
+        restoreTooltips()
         if active or pointer or lastSafe then active,pointer,lastSafe=nil,nil,false;changed() end
         return true
     end
@@ -221,12 +227,11 @@ function G.pulse(player, current)
     G.facts=f
     if not safe then
         active=nil;G.clearPointer()
-        for _,c in ipairs(controls) do
-            if c.menu and c.control.toolTip then c.control.toolTip.description=c.description or ""
-            elseif not c.menu then c.control.tooltip=c.tooltip end
-        end
+        restoreTooltips()
         return true
     end
+    -- Panel controls follow what has been learned, not only the last hover.
+    for _,c in ipairs(controls) do if not c.menu then c.control.tooltip=G.tip(c.id) or c.tooltip end end
     if not startupAt then
         startupAt=current
         if not seen.first_notice then startupUntil=current+12000;mark("first_notice",false) end
@@ -234,7 +239,9 @@ function G.pulse(player, current)
     local bridge=SC.State and SC.State.active==false
     local step=not dismissed and currentStep() or nil
     local id=bridge and "bridge" or step
-    if active and active.kind=="nudge" and (current-active.at>=12000 or learned[active.id]) then
+    -- A nudge's twelve seconds start when it is first on screen.
+    if active and active.kind=="nudge" and (learned[active.id]
+        or active.shownAt and current-active.shownAt>=12000) then
         active=nil;G.clearPointer();changed()
     end
     if id then
@@ -286,11 +293,16 @@ function G.teach(player,current,f)
     if not id and o and current-o.at<60000 and not learned.send_home then id="send_home" end
     if not id or seen[id] then return end
     if active and active.kind=="step" and active.id~=step and active.id~="computer" then return end
+    -- One at a time: a feature nudge still waiting for the screen goes first.
+    if active and active.kind=="nudge" then return end
     if speak(f.speaker,id,current) then
         lastNudge=current
         local nudgeId=id=="camp_jobs" and "nudge_jobs" or id
         if id=="camp_jobs" then mark(nudgeId,false) end
-        if not active or active.id=="computer" then active={id=nudgeId,kind="nudge",at=current};changed() end
+        if not active or active.id=="computer" then
+            -- Spoken aloud, so it already counts as shown.
+            active={id=nudgeId,kind="nudge",at=current,shownAt=current};changed()
+        end
     end
 end
 function G.offerShortVersion()
@@ -309,15 +321,25 @@ function G.nudges(current,f,step)
             nudgeDue[id]=nudgeDue[id] or current
             if current-nudgeDue[id]>=60000 and current-lastNudge>=900000
                 and (not active or active.id=="computer") then
-                active={id=id,kind="nudge",at=current};lastNudge=current;mark(id,false);changed();break
+                -- Seen, spacing and the twelve seconds wait for G.shown.
+                active={id=id,kind="nudge",at=current};changed();break
             end
         end
     end
 end
+-- Called by whichever surface actually draws the nudge's text.
+function G.shown(id)
+    if not active or active.id~=id or active.kind~="nudge" or active.shownAt then return end
+    local current=now()
+    active.shownAt,lastNudge=current,current
+    mark(id,false)
+end
 function G.dot(tab)
-    if not enabled() or not lastSafe or not active or learned[active.id] or active.kind~="nudge" then return false end
-    return active.id=="nudge_expeditions" and tab=="expeditions"
-        or active.id=="nudge_jobs" and tab=="more"
+    if not enabled() or not lastSafe then return false end
+    for id,nudgeTab in pairs(nudgeTabs) do
+        if nudgeTab==tab and not learned[id] and (seen[id] or active and active.id==id) then return true end
+    end
+    return false
 end
 function G.view()
     if not enabled() or not lastSafe or dismissed then return nil end
@@ -327,7 +349,7 @@ function G.view()
         if id=="meet" and SC.FirstMeeting and SC.FirstMeeting.pending() then
             message=U().text("UI_SC_Guide_MeetingPending","Someone is alive nearby. Listen for a voice.")
         end
-        return {id=id,title=text(id,"title"),text=message}
+        return {id=id,kind=active and active.id==id and active.kind or "step",title=text(id,"title"),text=message}
     end
     return {id="complete",title=U().text("UI_SC_Guide_Complete","That's the basics."),
         text=U().text("UI_SC_Guide_CompleteText","The Field Guide has the rest: thorelvin.github.io/living-fellows")}
@@ -356,12 +378,21 @@ function G.clearPointer()
     end
     pointer=nil
 end
-function G.control(control,id,parent,menu)
+-- Pinned controls (the panel's own tabs) live as long as the panel and are
+-- never pushed out by short-lived buttons and menu options.
+function G.control(control,id,parent,menu,pinned)
     if not control or not byId[id] then return end
-    for i=#controls,1,-1 do if controls[i].control==control then table.remove(controls,i) end end
-    if #controls>=24 then table.remove(controls,1) end
-    controls[#controls+1]={control=control,id=id,parent=parent,menu=menu,at=now(),tooltip=control.tooltip,
-        description=control.toolTip and control.toolTip.description}
+    for i=#controls,1,-1 do
+        local c=controls[i]
+        if c.control==control or pinned and c.pinned and c.id==id then table.remove(controls,i) end
+    end
+    if #controls>=24 then
+        for i=1,#controls do
+            if not controls[i].pinned then restoreTooltip(controls[i]);table.remove(controls,i);break end
+        end
+    end
+    controls[#controls+1]={control=control,id=id,parent=parent,menu=menu,pinned=pinned==true,at=now(),
+        tooltip=control.tooltip,description=control.toolTip and control.toolTip.description}
     local tip=G.tip(id)
     if tip and not menu then control.tooltip=tip end
 end
@@ -409,9 +440,17 @@ function G.dismissPointer()
     for _,c in ipairs(controls) do if c.id==id then c.expired=true end end
     G.clearPointer()
 end
+-- The line beside the collapsed launcher. Nudges show there even after the
+-- checklist card was dismissed; the optional computer step does not linger.
 function G.tracker()
-    local v=G.view()
-    if v and v.id~="complete" then return v.title end
+    if not enabled() or not lastSafe then return nil end
+    if active and active.kind=="nudge" then
+        return {id=active.id,kind="nudge",title=text(active.id,"title"),text=text(active.id),tab=nudgeTabs[active.id]}
+    end
+    if dismissed then return nil end
+    local id=active and active.kind=="step" and active.id or currentStep()
+    if not id or id=="computer" then return nil end
+    return {id=id,kind="step",title=text(id,"title")}
 end
 function G.notice()
     if enabled() and lastSafe and startupUntil and now()<startupUntil and not learned.first_notice then
@@ -419,7 +458,7 @@ function G.notice()
     end
 end
 function G.reset()
-    G.clearPointer();observations,controls={},{}
+    G.clearPointer();restoreTooltips();observations,controls={},{}
     active,lastPlayer,lastSafe,startupAt,startupUntil,migrated=nil,nil,false,nil,nil,false
     recruitHint,campSince,idleSince=nil,nil,nil;nudgeDue={};driveAwayAt=nil
     changed()

@@ -5,9 +5,13 @@ local SC=SurvivorCompanion
 SC.FirstMeeting=SC.FirstMeeting or {}
 local F=SC.FirstMeeting
 local state={phase="new",attempts=0,rearms=0,called=false,hadRecruit=false}
-local lastAttempt=-math.huge
+local lastAttempt,holdUntil=-math.huge,-math.huge
 local restoreBlocked=false
-local phases={new=true,seeking=true,approaching=true,contact=true,done=true,lapsed=true,legacy=true}
+-- After the call-out the visitor stays near the player who heard it. The
+-- leash leaves room for scavenging within reach of the usual 12-14 m spot.
+local LEASH,WAIT_HOURS,RETURN_HOLD_MS=25,2,60000
+local phases={new=true,seeking=true,approaching=true,contact=true,waiting=true,done=true,lapsed=true,legacy=true}
+local function met(phase) return phase=="approaching" or phase=="contact" or phase=="waiting" end
 local function U() return SC.GameplayUtil end
 local function hours()
     local t=type(getGameTime)=="function" and getGameTime() or nil
@@ -65,36 +69,19 @@ end
 function F.pulse()
     if not enabled() then return true end
     if state.phase=="new" then F.wants() end
-    if state.actorId and (state.phase=="approaching" or state.phase=="contact")
-        and not SC.Registry.byId(state.actorId) then
-        if state.phase=="contact" then state.phase="done"
-        else F.retired(state.actorId) end
+    if state.actorId and met(state.phase) and not SC.Registry.byId(state.actorId) then
+        if state.phase=="approaching" then F.retired(state.actorId) else state.phase="done" end
     end
-    if (state.phase=="approaching" or state.phase=="contact") and hours()
-        and state.deadlineHours and hours()>=state.deadlineHours then state.phase="lapsed" end
+    if met(state.phase) and hours() and state.deadlineHours and hours()>=state.deadlineHours then
+        -- A visitor who already called out has met the player; only an
+        -- unfinished approach counts as a lapsed guarantee.
+        state.phase=state.phase=="waiting" and "done" or "lapsed"
+    end
     return true
 end
-function F.approach(actor,player,snapshot)
-    if not enabled() or SC.Registry.idOf(actor)~=state.actorId
-        or (state.phase~="approaching" and state.phase~="contact") then return nil end
-    F.pulse()
-    if state.phase=="lapsed" or not player or not U().sameFloor(actor,player) then return nil end
-    snapshot=type(snapshot)=="table" and snapshot or {}
-    if (tonumber(snapshot.threatCount) or 0)>0 or (tonumber(snapshot.immediateCount) or 0)>0
-        or (tonumber(snapshot.pressure) or 0)>0 then return nil end
-    local distance=U().distance(actor,player)
-    local seen=U().canSee(player,actor)==true
-    if seen and distance<=20 then
-        state.phase="contact"
-        if SC.Guidance then SC.Guidance.report("met") end
-    end
-    if seen and distance<=15 and not state.called and SC.Dialogue then
-        local okay=SC.Dialogue.say(actor,"guidance.first_meeting")
-        if okay then state.called=true;state.phase="done" end
-    end
-    if distance<=13 and seen then U().stop(actor);return true,"first_meeting_waiting" end
+local function toward(actor,player,distance,seen,snapshot)
     -- A point on a twelve-metre circle can sit behind the same opaque wall
-    -- forever. Until contact, route toward the actual player; stop short as
+    -- forever. Out of sight, route toward the actual player; stop short as
     -- soon as sight is established, using the normal door/window safeguards.
     if not seen and SC.Navigation then
         local square=U().squareOf(player)
@@ -112,6 +99,55 @@ function F.approach(actor,player,snapshot)
         end
     end
     return nil
+end
+local function wait(actor,player,snapshot)
+    local current=U().nowMs()
+    if not U().sameFloor(actor,player) then U().stop(actor);return true,"first_meeting_waiting" end
+    local distance=U().distance(actor,player)
+    local seen=U().canSee(player,actor)==true
+    if distance>LEASH then
+        -- Walk back before scavenging again, so a far container cannot pull
+        -- the visitor to and fro across the leash.
+        holdUntil=current+RETURN_HOLD_MS
+        if SC.Encounter and SC.Encounter.cancelScavenge then SC.Encounter.cancelScavenge(actor,"first_meeting_return") end
+        local handled,why=toward(actor,player,distance,seen,snapshot)
+        if handled~=nil then return handled,why end
+        U().stop(actor);return true,"first_meeting_waiting"
+    end
+    if current<holdUntil then
+        if distance>14 then
+            local handled,why=toward(actor,player,distance,seen,snapshot)
+            if handled~=nil then return handled,why end
+        end
+        U().stop(actor);return true,"first_meeting_waiting"
+    end
+    -- Within reach: Encounter may scavenge close by, but must not wander off.
+    return nil,"first_meeting_nearby"
+end
+function F.approach(actor,player,snapshot)
+    if not enabled() or SC.Registry.idOf(actor)~=state.actorId or not met(state.phase) then return nil end
+    F.pulse()
+    if not met(state.phase) or not player then return nil end
+    snapshot=type(snapshot)=="table" and snapshot or {}
+    if (tonumber(snapshot.threatCount) or 0)>0 or (tonumber(snapshot.immediateCount) or 0)>0
+        or (tonumber(snapshot.pressure) or 0)>0 then return nil end
+    if state.phase=="waiting" then return wait(actor,player,snapshot) end
+    if not U().sameFloor(actor,player) then return nil end
+    local distance=U().distance(actor,player)
+    local seen=U().canSee(player,actor)==true
+    if seen and distance<=20 then
+        state.phase="contact"
+        if SC.Guidance then SC.Guidance.report("met") end
+    end
+    if seen and distance<=15 and not state.called and SC.Dialogue then
+        local okay=SC.Dialogue.say(actor,"guidance.first_meeting")
+        if okay then
+            state.called=true;state.phase="waiting"
+            state.deadlineHours=(hours() or state.deadlineHours or 0)+WAIT_HOURS
+        end
+    end
+    if distance<=13 and seen then U().stop(actor);return true,"first_meeting_waiting" end
+    return toward(actor,player,distance,seen,snapshot)
 end
 function F.export()
     local copy={schema=1}
@@ -139,11 +175,12 @@ function F.restore(raw)
             copy[key]=value
         end
     end
-    if (copy.phase=="approaching" or copy.phase=="contact") and (not copy.actorId or not copy.deadlineHours) then return false,"incomplete first-meeting receipt" end
-    state=copy;lastAttempt=-math.huge;restoreBlocked=false
+    if met(copy.phase) and (not copy.actorId or not copy.deadlineHours) then return false,"incomplete first-meeting receipt" end
+    state=copy;lastAttempt,holdUntil=-math.huge,-math.huge;restoreBlocked=false
     return true
 end
 function F.reset()
-    state={phase="new",attempts=0,rearms=0,called=false,hadRecruit=false};lastAttempt=-math.huge;restoreBlocked=false
+    state={phase="new",attempts=0,rearms=0,called=false,hadRecruit=false}
+    lastAttempt,holdUntil=-math.huge,-math.huge;restoreBlocked=false
 end
 return F

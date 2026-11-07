@@ -36,13 +36,15 @@ function UI.build(detail,panel,y)
     card:initialise();card.backgroundColor={r=.11,g=.13,b=.10,a=.5}
     card.borderColor={r=.5,g=.5,b=.32,a=.5};parent:addChild(card)
     panel,y=card,4
-    if UI.lastStep~=v.id then
-        UI.lastStep=v.id;card.scSlideAt=SC.GameplayUtil.nowMs()
-        card.prerender=function(self)
-            ISPanel.prerender(self)
+    if UI.lastStep~=v.id then UI.lastStep=v.id;card.scSlideAt=SC.GameplayUtil.nowMs() end
+    card.prerender=function(self)
+        ISPanel.prerender(self)
+        if self.scSlideAt then
             local fraction=math.min(1,(SC.GameplayUtil.nowMs()-self.scSlideAt)/180)
             self:setY(top+6*(1-fraction))
         end
+        -- Drawn on screen: only now does a nudge count as seen.
+        if v.kind=="nudge" then G.shown(v.id) end
     end
     local metrics=detail.metrics or SC.UI.layoutMetrics()
     y=detail:addSection(panel,y,"UI_SC_Guide_FirstSteps")
@@ -79,31 +81,65 @@ function UI.buildTips(detail,panel,y)
     end
     return y
 end
+-- Word-wrapped lines, at most `limit`, the last one cut with "..." if needed.
+local function wrap(text,width,font,limit)
+    local manager=getTextManager()
+    local lines,line,cut={}, "", false
+    for word in tostring(text or ""):gmatch("%S+") do
+        local candidate=line=="" and word or line.." "..word
+        if line=="" or manager:MeasureStringX(font,candidate)<=width then line=candidate
+        elseif #lines+1>=limit then cut=true;break
+        else lines[#lines+1]=line;line=word end
+    end
+    if line~="" then lines[#lines+1]=cut and line.." ..." or line end
+    for i,value in ipairs(lines) do lines[i]=fit(value,width,font) end
+    return lines
+end
+local function trackerPanel()
+    local panel=ISPanel:new(0,0,250,30)
+    panel:initialise();panel:instantiate();panel:addToUIManager();panel:setAlwaysOnTop(true)
+    panel.backgroundColor={r=.08,g=.09,b=.07,a=.82};panel.borderColor={r=.52,g=.56,b=.43,a=.9}
+    panel.onMouseUp=function(self)
+        local item=self.scItem
+        SC.Guidance.report("panel")
+        SC.UI.open(item and item.tab or "status")
+        return true
+    end
+    panel.render=function(self)
+        local lineHeight=getTextManager():getFontHeight(UIFont.Small)
+        for i,line in ipairs(self.scLines or {}) do
+            if i==1 then self:drawText(line,8,4,.94,.91,.69,1,UIFont.Small)
+            else self:drawText(line,8,4+(i-1)*lineHeight,.86,.86,.82,1,UIFont.Small) end
+        end
+    end
+    return panel
+end
 function UI.launcher(launcher)
     local G=SC.Guidance
-    local message=G.notice() or G.tracker()
-    if not message or not launcher:isVisible() then
+    local notice=G.notice()
+    local item=notice and {id="first_notice",title=notice} or G.tracker()
+    if not item or not launcher:isVisible() then
         if tracker then tracker:setVisible(false) end
         return
     end
-    if not tracker then
-        tracker=ISButton:new(0,0,250,30,"",nil,function()
-            G.report("panel");SC.UI.open("status")
-        end)
-        tracker:initialise();tracker:instantiate();tracker:addToUIManager()
-        tracker:setAlwaysOnTop(true)
-    end
+    if not tracker then tracker=trackerPanel() end
     local screen=getCore():getScreenWidth()
     local width=math.max(100,math.min(300,screen-launcher:getWidth()-16))
-    tracker:setWidth(width)
+    local key=tostring(item.id)..":"..tostring(item.title)..":"..tostring(item.text)..":"..width
+    if tracker.scKey~=key then
+        tracker.scKey,tracker.scItem=key,item
+        local lines={fit(item.title,width-16,UIFont.Small)}
+        if item.kind=="nudge" then
+            for _,line in ipairs(wrap(item.text,width-16,UIFont.Small,3)) do lines[#lines+1]=line end
+        end
+        tracker.scLines=lines
+        tracker:setWidth(width)
+        tracker:setHeight(8+#lines*getTextManager():getFontHeight(UIFont.Small))
+    end
     local x=launcher.dockSide=="left" and launcher:getX()+launcher:getWidth()+4 or launcher:getX()-width-4
     tracker:setX(math.max(0,math.min(screen-width,x)));tracker:setY(launcher:getY())
-    if tracker.scText~=message then
-        tracker.scText=message
-        tracker:setTitle(fit(message,width-20,tracker.font or UIFont.Small))
-        tracker.tooltip=message
-    end
     tracker:setVisible(true)
+    if item.kind=="nudge" then G.shown(item.id) end
     if G.notice() and not noticeAt then noticeAt=SC.GameplayUtil.nowMs() end
     if noticeAt then
         local age=SC.GameplayUtil.nowMs()-noticeAt

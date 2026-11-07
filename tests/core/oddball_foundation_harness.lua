@@ -2047,6 +2047,9 @@ end
 do
     local previousCell, previousCanSee, previousGrid = getCell, U.canSee, U.gridSquare
     local previousPosition, previousDead, previousSquareOf = U.position, U.isDead, U.squareOf
+    local previousZombie, previousProxy = U.isZombie, U.isCorpseProxy
+    U.isZombie = function(value) return type(value) == "table" and value.bandit ~= true end
+    U.isCorpseProxy = function(value) return type(value) == "table" and value.proxy == true end
     U.position = function(value)
         if type(value) == "table" and type(value.x) == "number" then
             return value.x, value.y, value.z or 0
@@ -2058,8 +2061,10 @@ do
     local function walker(x, y, options)
         options = options or {}
         local zombie = { x = x, y = y, z = 0, visible = options.visible == true,
+            target = options.target, bandit = options.bandit, proxy = options.proxy,
             square = { isCanSee = function() return options.lit == true end } }
         function zombie:isDead() return options.dead == true end
+        function zombie:getTarget() return self.target end
         function zombie:removeFromWorld() self.removed = true end
         function zombie:removeFromSquare() self.offSquare = true end
         return zombie
@@ -2070,7 +2075,10 @@ do
     local nearby = walker(515, 500)
     local farAway = walker(540, 500)
     local corpse = walker(501, 501, { dead = true })
-    local list = { inHouse, seenInHouse, litInHouse, nearby, farAway, corpse }
+    local chasing = walker(505, 504, { target = {} })
+    local bandit = walker(503, 504, { bandit = true })
+    local dragged = walker(502, 504, { proxy = true })
+    local list = { inHouse, seenInHouse, litInHouse, nearby, farAway, corpse, chasing, bandit, dragged }
     getCell = function() return { getZombieList = function() return list end } end
     U.canSee = function(_, target) return type(target) == "table" and target.visible == true end
     local door = { open = true }
@@ -2090,13 +2098,16 @@ do
                 { kind = "door", x = 505, y = 500, z = 0, objectIndex = 0 },
                 { kind = "window", x = 506, y = 502, z = 0, objectIndex = 0 } } } }
     local removed, closed = SC.Oddballs.secureScene(scene, viewer, { radius = 15, closeDoors = true })
-    check(removed == 2 and inHouse.removed and nearby.removed and not farAway.removed
+    check(removed == 3 and inHouse.removed and nearby.removed and not farAway.removed
             and not seenInHouse.removed and not litInHouse.removed and not corpse.removed,
         "unseen walkers in the house or within reach leave; seen, lit, far and dead ones stay")
+    check(chasing.removed and not bandit.removed and not dragged.removed,
+        "a walker already chasing someone leaves too; bandits and dragged corpses stay")
     check(closed == 1 and door.open == false and shut.toggled == 0,
         "an open outside door is pulled shut; a shut one is left alone, never locked")
     getCell, U.canSee, U.gridSquare = previousCell, previousCanSee, previousGrid
     U.position, U.isDead, U.squareOf = previousPosition, previousDead, previousSquareOf
+    U.isZombie, U.isCorpseProxy = previousZombie, previousProxy
 end
 check(SC.Oddballs.definition("bitten_hershel_combs").scene.closeDoors == true
         and SC.Oddballs.definition("dad_joke_feud").scene.closeDoors == true

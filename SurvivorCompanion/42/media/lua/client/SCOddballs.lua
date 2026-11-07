@@ -3801,7 +3801,8 @@ function Oddballs.secureScene(group, player, options)
                 local seen = player ~= nil and (U().canSee(player, zombie) == true
                     or playerNum ~= nil and select(1, U().call(square, "isCanSee",
                         math.floor(playerNum))) == true)
-                if not seen and (not SC.SpawnSafety or SC.SpawnSafety.canClear(zombie,player)) then
+                -- Chasing walkers go too; bandits and dragged corpses stay.
+                if not seen and (not SC.SpawnSafety or SC.SpawnSafety.canClear(zombie,player,true)) then
                     doomed[#doomed + 1] = zombie
                 end
             end

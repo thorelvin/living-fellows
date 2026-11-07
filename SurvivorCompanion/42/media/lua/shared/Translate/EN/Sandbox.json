@@ -1,7 +1,7 @@
 {
     "Sandbox_LivingFellows": "Living Fellows",
     "Sandbox_LivingFellows_EncountersEnabled": "Spawn independent survivors",
-    "Sandbox_LivingFellows_EncountersEnabled_tooltip": "Allows new independent survivors to appear. Existing companions are never removed when this is disabled.",
+    "Sandbox_LivingFellows_EncountersEnabled_tooltip": "Allows new independent survivors to appear. Before each arrival, hidden, idle zombies within 8 meters of the spot are removed; zombies you can see or that are chasing someone stay. Existing companions are never removed when this is disabled.",
     "Sandbox_LivingFellows_EncounterFrequency": "Independent survivor frequency",
     "Sandbox_LivingFellows_EncounterFrequency_tooltip": "Controls the minimum real-time delay between independent survivor encounters.",
     "Sandbox_LivingFellows_EncounterFrequency_option1": "Very rare",
@@ -60,5 +60,5 @@
     "Sandbox_LivingFellows_LockRealItems": "Computer drawer rewards",
     "Sandbox_LivingFellows_LockRealItems_tooltip": "New computer recoveries can release a desk drawer or reveal real supplies in the building.",
     "Sandbox_LivingFellows_FirstMeetingEnabled": "Guarantee a first meeting",
-    "Sandbox_LivingFellows_FirstMeetingEnabled_tooltip": "Help an independent survivor meet you early in a new world. Their arrival gets a one-time off-screen zombie clearance. No immunity is added. Requires Spawn independent survivors."
+    "Sandbox_LivingFellows_FirstMeetingEnabled_tooltip": "Help an independent survivor meet you early in a new world. Before they arrive, hidden, idle zombies within 30 meters are removed once, out of sight. After that they get no protection. Requires Spawn independent survivors."
 }

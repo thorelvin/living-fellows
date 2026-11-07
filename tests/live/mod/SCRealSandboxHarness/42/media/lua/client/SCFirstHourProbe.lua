@@ -51,12 +51,18 @@ function Probe.step(H,current,check,result,setPhase)
         SandboxVars.LivingFellows.FirstMeetingEnabled=true
         SC.Config.refreshSandbox()
         s={started=current,zombies={}};H.firstHour=s
+        -- Offer the west-side spot that reaches the house without climbing the
+        -- camp's tall fences (a separate, known arrival limit). Production
+        -- placement still validates it and falls back to its own sample.
+        s.choose=SC.Encounter.chooseSpawnSquare
+        local preferred=getCell():getGridSquare(11987,6757,0)
+        SC.Encounter.chooseSpawnSquare=function() return preferred end
         s.square=SC.Spawn.chooseSquare(H.player,SC.State,true,true)
+        SC.Encounter.chooseSpawnSquare=s.choose
         if not s.square then return stop("arrival_candidate","no loaded off-screen candidate") end
         print("SC_REAL_SANDBOX|FIRST_HOUR_CANDIDATE|"..s.square:getX()..","..s.square:getY())
         -- Hold the validated native candidate for repeatability; its production
         -- visibility/geometry checks and sliced safety preparation still run.
-        s.choose=SC.Encounter.chooseSpawnSquare
         SC.Encounter.chooseSpawnSquare=function() return s.square end
         for _,offset in ipairs({{-3,-3},{-3,3},{3,-3},{3,3},{0,5},{5,0}}) do
             local sq=getCell():getGridSquare(s.square:getX()+offset[1],s.square:getY()+offset[2],0)
@@ -115,8 +121,35 @@ function Probe.step(H,current,check,result,setPhase)
             capture(H,"survivor-arrival")
             check("arrival_callout_and_contact",receipt.called and SC.Guidance.view()
                 and SC.Guidance.view().id=="invite","distance="..distance)
-            SC.UI.open("talk",s.id);setPhase("first_hour_invite",current)
+            -- Leave the visitor alone for a while: after the call-out they
+            -- must stay within reach instead of going back to wandering.
+            s.maxDistance=distance;SC.UI.instance:setCollapsed(true)
+            setPhase("first_hour_wait",current)
         elseif current-s.spawnAt>240000 then return stop("approach_timeout","distance="..distance) end
+    elseif H.phase=="first_hour_wait" then
+        local record=SC.Registry.byId(s.id)
+        if not record or SC.GameplayUtil.isDead(s.actor) then return stop("visitor_unavailable_waiting",tostring(s.id)) end
+        local distance=SC.GameplayUtil.distance(s.actor,H.player)
+        s.maxDistance=math.max(s.maxDistance,distance)
+        local receipt=SC.FirstMeeting.export()
+        if receipt.phase~="waiting" then return stop("visitor_stopped_waiting","phase="..tostring(receipt.phase)) end
+        if distance>30 then return stop("visitor_wandered","distance="..distance) end
+        if not s.waitTraced or current>=s.waitTraced then
+            s.waitTraced=current+5000
+            local rt=record.runtime or {}
+            print("SC_REAL_SANDBOX|FIRST_HOUR_WAIT|distance="..string.format("%.1f",distance)
+                ..";decision="..tostring(rt.lastDecision)..";reason="..tostring(rt.lastReason))
+        end
+        if not s.trackerCaptured and current-H.phaseStartedAt>=3000 then
+            local line=SC.Guidance.tracker()
+            check("launcher_line_current_step",line and line.id=="invite",line and line.id or "none")
+            capture(H,"collapsed-tracker-invite");s.trackerCaptured=true
+        end
+        if current-H.phaseStartedAt>=30000 then
+            check("visitor_waits_nearby",s.maxDistance<=30,"max_distance="..string.format("%.1f",s.maxDistance)
+                ..";phase="..receipt.phase)
+            SC.UI.open("talk",s.id);setPhase("first_hour_invite",current)
+        end
     elseif H.phase=="first_hour_invite" then
         if current-H.phaseStartedAt<2000 then return end
         local b=find(SC.UI.instance,function(c) return c.scCommand=="recruit" end)
@@ -172,6 +205,7 @@ function Probe.step(H,current,check,result,setPhase)
         setPhase("first_hour_tracker",current)
     elseif H.phase=="first_hour_tracker" then
         if current-H.phaseStartedAt<2000 then return end
+        check("optional_step_quiet_launcher",SC.Guidance.tracker()==nil,"view="..tostring(SC.Guidance.view() and SC.Guidance.view().id))
         capture(H,"collapsed-tracker")
         result("PASS","first_hour_walkthrough","recruit_ms="..(s.recruitedAt-s.started)
             ..";camp_ms="..(s.campAt-s.started)..";walkthrough_ms="..(current-s.started)

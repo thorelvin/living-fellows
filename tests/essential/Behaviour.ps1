@@ -18,3 +18,4 @@
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
+@{ Name = 'behaviour.first-meeting-visitor'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'first_meeting_visitor_harness.lua') }

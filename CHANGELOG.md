@@ -6,18 +6,27 @@
 
 - Follow a small First steps checklist on Status, with the current task beside
   the collapsed LF launcher. Steps follow actual recruitment, orders, camp,
-  storage and job assignments; using a computer is an optional final step.
+  storage and job assignments; using a computer is an optional final step
+  that stays on the card but not beside the launcher.
 - Invite independent survivors from Talk. Count successful squad orders too,
   while rejected orders leave the checklist unchanged.
 - Dismiss the card, turn Show tips off or use Show tips again in Mod Options.
   Reread tips under More > Support. Tip history follows the installation;
   existing camps skip the introductory checklist.
 - Arrange an early independent survivor in fresh worlds, with bounded retries,
-  cautious approach and a call-out. Clear hidden, idle zombies once within
-  30 metres of the first arrival and 8 metres of later independent arrivals.
-  Preserve visible enemies and active fights; survivors remain vulnerable.
+  cautious approach and a call-out. After calling out, they stay within about
+  25 metres for up to two in-game hours, searching nearby containers, and walk
+  back if you move away. Clear hidden, idle zombies once within 30 metres of
+  the first arrival and 8 metres of later independent arrivals, as the sandbox
+  tooltips now say. Preserve visible enemies and active fights; survivors
+  remain vulnerable. Strange Folk scenes still clear walkers that are chasing
+  someone, but never bandits or a corpse being dragged.
 - Offer a short introduction on the first EMMA session, with commands suited
   to that computer. Space contextual hints apart and hold them during danger.
+- Show Expeditions and Camp jobs hints beside the collapsed launcher even after
+  the card is dismissed. A hint counts as seen only once it is on screen, and
+  its tab keeps a dot until you visit it. Tab hints follow what you have done,
+  even after many menus and panel refreshes.
 - Correct old camp-menu directions in the quick-start text and Field Guide
   sources. Verify the first six steps in a cloned world with real zombies.
 - Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
