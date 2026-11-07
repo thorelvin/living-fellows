@@ -20,6 +20,11 @@ def require(value: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+ui_strings = json.loads((SHARED / "Translate/EN/UI.json").read_text(encoding="utf-8"))
+stale_paths = [key for key, value in ui_strings.items() if "Base life" in value]
+require(not stale_paths, f"shipped guidance points to the removed Base life menu: {stale_paths}")
+
+
 lua_files = sorted(LUA.rglob("*.lua"))
 all_lua = "\n".join(path.read_text(encoding="utf-8") for path in lua_files)
 require(re.search(r"tonumber\s*\(\s*select\s*\(", all_lua) is None,
