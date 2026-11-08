@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.27.1 — First Edition, Twenty-Seventh Printing — You won't die... alone.</p>
+  <p class="version">Release 0.27.3 — First Edition, Twenty-Eighth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -334,7 +334,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma-locks"><strong>Break into a locked computer.</strong></a> Undelete the owner's files, turn the Larchfield code wheel or argue your case with EMMA, then open the drawer beside it.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.1</strong>, with <a href="#ch18c_new">seven new Strange Folk</a>, <a href="#ch17_home">sending someone home on foot or by car</a>, <a href="#ch17_prep">expedition kits packed before they leave</a>, <a href="#ch17_wood">logging areas picked on the map</a> and <a href="#emma-locks">locked computers and their drawers</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.3</strong>, with <a href="#ch2_first">a First steps card and an early first meeting</a>, <a href="#ch4_world">tidier right-click menus</a>, <a href="#ch18c_new">seven new Strange Folk</a>, <a href="#ch17_home">sending someone home on foot or by car</a>, <a href="#ch17_prep">expedition kits packed before they leave</a> and <a href="#ch17_wood">logging areas picked on the map</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -423,7 +423,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ul class="checklist" style="margin-top:0.6rem;margin-bottom:0;">
   <li>Install exactly one copy of Living Fellows: Workshop with ZombieBuddy, or the standalone <code>Install.bat</code></li>
   <li>Load a single-player save and press <kbd>Home</kbd> to open the companion panel</li>
-  <li>Find a survivor, select them in the panel, and press <span class="menu">Recruit</span></li>
+  <li>Find a survivor, right-click them, and choose <span class="menu">Talk to (name) → Invite to join</span></li>
   <li>Pick a main order on <span class="menu">Orders</span>; new recruits start on Follow</li>
   <li>Try <kbd>Keypad 1</kbd> to peek through their eyes and <kbd>Keypad 3</kbd> to steer them</li>
   <li>If anything looks wrong, open <span class="menu">More → Support</span> and copy its report</li>
@@ -477,7 +477,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <strong>Another Steam library:</strong> <code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code>
 </div>
 
-<p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes Living Fellows' files and launcher entries. If another mod has changed the launcher since installation, the uninstaller keeps that mod's settings.</p>
+<p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes Living Fellows' files and launcher entries. If another mod has changed the launcher since installation, the uninstaller keeps that mod's settings. With PZO's launcher installed, <code>Install.bat</code> keeps PZO's own start-up and adds Living Fellows to it as a Java agent.</p>
 
 <h3>A World That Remembers</h3>
 <p>Companions, households, relationships, contracts, bases and production orders are saved with the world. They remain if your character dies and you start another survivor in the same world.</p>
@@ -496,14 +496,21 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="step-n">1</span>Load a single-player save.</li>
   <li><span class="step-n">2</span>Press <kbd>Home</kbd> to open the companion panel, or click the small <strong>LF</strong> launcher when the panel is collapsed.</li>
   <li><span class="step-n">3</span>Explore until you meet a survivor. Survivors never join automatically.</li>
-  <li><span class="step-n">4</span>Select the survivor in the panel and press <span class="menu">Recruit</span> when it is offered.</li>
+  <li><span class="step-n">4</span>Right-click the survivor and choose <span class="menu">Talk to (name) → Invite to join</span>. The same button is available on Status.</li>
   <li><span class="step-n">5</span>Open <span class="menu">Orders</span> and pick a main order.</li>
-  <li><span class="step-n">6</span>Hold <kbd>Keypad 1</kbd> to peek through the selected companion's position; let go to return to your character. Press <kbd>Keypad 2</kbd>, or right-click a nearby companion and choose <span class="menu">Watch</span>, for a view that stays.</li>
+  <li><span class="step-n">6</span>Hold <kbd>Keypad 1</kbd> to peek through the selected companion's position; let go to return to your character. Press <kbd>Keypad 2</kbd>, or right-click a nearby companion and choose <span class="menu">Living Fellows → <em>their name</em> → Watch</span>, for a view that stays.</li>
   <li><span class="step-n">7</span>Hold <kbd>Keypad 3</kbd> to steer that companion toward the cursor; let go to hand them back to their own judgement.</li>
   <li><span class="step-n">8</span>If something looks wrong, open <span class="menu">More → Support</span> for runtime health and a copyable report.</li>
 </ol>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>All right. I'll come with you.<span class="who">— a new recruit</span></div>
+
+<h3 id="ch2_first">Your First Steps</h3>
+<p>The <strong>First steps</strong> card on <span class="menu">Status</span> keeps the next useful task in view: meet a survivor, invite them, give an order, set a camp core, mark storage and choose a base job. A powered computer is an optional last step. Steps tick themselves off when you do them. With the panel collapsed, the current step sits beside the <strong>LF</strong> launcher; click it to return to Status.</p>
+<p>With <strong>Guarantee a first meeting</strong> enabled in the sandbox settings, a fresh Living Fellows world makes extra attempts to arrange an early meeting. An independent survivor approaches cautiously and calls out, then stays within about 25 meters for up to two hours, searching nearby containers and walking back if you move away. Before they appear, unseen, idle zombies within 30 meters are cleared once so they have a chance to meet you. Later independent arrivals get an 8-meter clearing. Visible enemies and ongoing fights stay in place, and new danger can arrive: this does not make anyone invulnerable. The setting requires <strong>Spawn independent survivors</strong>.</p>
+<p>Tips wait when danger is close. A highlighted control gives you a little time to find it first, then stops drawing attention. Advanced features remain available from the start; occasional hints point them out when they become useful.</p>
+<p>Dismiss the card whenever you like. <strong>I've done this before</strong> turns tips off, including the teaching lines. Under <span class="menu">Options → Mods → Living Fellows</span>, <strong>Show tips</strong> controls them and <strong>Show tips again</strong> resets what this computer remembers. Tip history follows this installation across worlds; world progress and the first meeting do not reset with it. <span class="menu">More → Support → Tips</span> lets you reread instructions you have seen. Hints about Expeditions and camp jobs still show beside the LF launcher after you dismiss the card, and leave a dot on their tab until you open it.</p>
+<p>The first time you meet ordinary EMMA, she offers a short introduction. Answer <strong>Y</strong> or <strong>N</strong>, or carry on with your own question. She only describes commands this computer can use; camp records remain available only at home.</p>
 
 <h3>What a New Recruit Starts With</h3>
 <table>
@@ -538,12 +545,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 
 <h3>Talking</h3>
-<p>Use the <span class="menu">Talk</span> button above the tabs, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a topic and a line, and the companion walks into speaking distance before it answers. If someone or something stands between you, it looks for another clear place nearby. The talk view shows the newest words at the top and says so when something interrupts. Every line you can choose, and what it does, is in <a href="#ch9b">Chapter 9b</a>. The same right-click menu offers Follow, Stay, Regroup and Retreat, and a link to the full Orders panel.</p>
+<p>Use the <span class="menu">Talk</span> button above the tabs, or right-click a nearby companion and choose <span class="menu">Talk to [name]</span>. Pick a topic and a line, and the companion walks into speaking distance before it answers. If someone or something stands between you, it looks for another clear place nearby. The talk view shows the newest words at the top and says so when something interrupts. Every line you can choose, and what it does, is in <a href="#ch9b">Chapter 9b</a>. The same right-click menu offers Follow, Stay and Retreat directly; Living Fellows and the companion’s name lead to Regroup and the full Orders panel.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Doing fine. Tell me what comes next.<span class="who">— a companion asked how they are</span></div>
 
 <h3>Peek and Watch</h3>
-<p>Select a companion in the roster and hold <kbd>Keypad 1</kbd> to ease the camera toward them; let go to ease home. <kbd>Keypad 2</kbd> starts or stops a <strong>Watch</strong> view that stays on them. With the mouse, right-click a nearby companion and choose <span class="menu">Watch</span>; while watching, right-click anywhere and choose <span class="menu">Stop watching</span>. Both work with the panel collapsed, on the same floor within 16 tiles, and alongside the game's right-click aim lean. All three keypad keys can be rebound under Options, Key bindings, Living Fellows.</p>
+<p>Select a companion in the roster and hold <kbd>Keypad 1</kbd> to ease the camera toward them; let go to ease home. <kbd>Keypad 2</kbd> starts or stops a <strong>Watch</strong> view that stays on them. With the mouse, right-click a nearby companion and choose <span class="menu">Living Fellows → <em>their name</em> → Watch</span>; while watching, right-click anywhere and choose <span class="menu">Stop watching</span>. Both work with the panel collapsed, on the same floor within 16 tiles, and alongside the game's right-click aim lean. All three keypad keys can be rebound under Options, Key bindings, Living Fellows.</p>
 
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>Peek and Watch move only the camera. Your character keeps moving normally and is just as vulnerable. Don't watch a companion's fight while you stand in a street full of your own trouble.</div>
 
@@ -616,15 +623,17 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="tbl-power">Retreat</td><td>Emergency: break contact and fall back.</td></tr>
 </table>
 
-<h3>World Orders</h3>
-<p>Right-click the world for the <span class="menu">Living Fellows</span> menu. The selected companion gets <span class="menu">Move here</span> plus one action for whatever you clicked: open or close a door, barricade, remove a barricade, dismantle, or <span class="menu">Check room</span> for an indoor room. Target actions, care, squad signals, base work and households sit in submenus.</p>
+<h3 id="ch4_world">World Orders</h3>
+<p>Right-click a recruited companion for four quick choices: <span class="menu">Talk</span>, <span class="menu">Follow</span>, <span class="menu">Stay</span> and <span class="menu">Retreat</span>. Open <span class="menu">Living Fellows → <em>their name</em></span> for Orders, Regroup, Send home, Watch, inventory and care. Tasks holds objectives and one-time jobs; Personal holds nicknames and dismissal. The person you clicked receives these actions even if someone else is selected in the panel. When several companions overlap, choose a person by name.</p>
+<p>On empty ground, the selected companion gets a shortcut named for them: <span class="menu"><em>name</em>: Move here</span>. A clicked door, barricade, dismantlable object or indoor room adds its relevant shortcut. <span class="menu">Living Fellows → Nearby companions</span> lists other nearby companions by name; choosing one opens their Orders panel. While watching a companion, <span class="menu">Stop watching</span> stays directly on the right-click menu.</p>
+<p>The same <span class="menu">Living Fellows</span> menu groups Squad signals and field work, Areas, Construction, work on this vehicle or generator, Households and Strange Folk. Each group appears when it has something relevant to offer. An action that needs a bandage, a camp rally or another requirement stays visible with a reason when it applies to your target. When you right-click a container, <span class="menu">Mark storage as...</span> comes first inside <span class="menu">Living Fellows</span>, with categories one level below it. A marked container offers <span class="menu">Unmark storage</span> next.</p>
 
 <figure class="plate terminal-shot">
-  <a href="assets/lf_photo_menu.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_menu.webp" width="1280" height="719" alt="A right-click menu over a companion inside a house, listing Medical Check, Talk to Jill Kelvin, Give nickname, Follow me, Stay here, Regroup, Retreat, Open companion orders, LF: Jill Kelvin - Move here and Living Fellows."></a>
-  <figcaption><span class="plate-no">Photo 2</span> Right-click a companion for its own orders, and the selected companion's shortcut, marked LF, is there too. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+  <a href="assets/lf_photo_context_companion.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_context_companion.webp" width="1280" height="720" alt="The native right-click menu has Talk, Follow, Stay and Retreat for the clicked companion. Living Fellows opens a named companion submenu with Orders, Regroup, Watch, inventory, Tasks and Personal."></a>
+  <figcaption><span class="plate-no">Photo 2</span> Quick orders stay on the main menu. Everything else for the clicked companion sits under Living Fellows and their name; Squad, Areas and Construction have their own branches. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
 <ul>
-  <li><span class="menu">Target actions → Guard here</span> anchors the selected companion to that square.</li>
+  <li><span class="menu">Guard here</span> anchors the named companion to that square.</li>
   <li><span class="menu">Focus on this zombie</span> makes them strongly prefer it. <span class="menu">Leave this zombie alone</span> lowers its priority for twelve seconds.</li>
   <li>Focus the same zombie again within four seconds to <strong>push</strong> the order.</li>
 </ul>
@@ -639,7 +648,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The <span class="menu">Squad</span> panel shows progress and offers <strong>Stop field work and regroup</strong> or <strong>Resume field work</strong> when paused. An immediate threat interrupts work, and the order does not wait for a worker who has died. Walking more than 32 tiles from a crop order or 25 tiles from a tree order ends it and brings the followers back to you.</p>
 
 <h3>Assigned Objectives</h3>
-<p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
+<p>Right-click a recruited companion and choose <span class="menu">Living Fellows → <em>their name</em> → Tasks → Assign objective</span> to set a concrete priority: medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and comes back once your objective is met (<a href="#ch9d">Chapter 9d</a>).</p>
 
 <h3>Standing Settings</h3>
 <table>
@@ -800,7 +809,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Right-click a usable second car and choose <span class="menu">Drive this car and follow me</span> for a recruited companion. One companion-driven follow car can be assigned at a time. When you enter and drive your own car, its driver follows by road instead of trying to take a passenger seat. If the route fails, the engine dies, or that car is left too far behind, the assignment ends with a reason and the companion returns to ordinary Ride with player behaviour.</p>
 
 <h3 id="ch5c_taxi">Markus's Taxi</h3>
-<p>With a powered portable walkie-talkie that can transmit, right-click it and choose <span class="menu">Markus's Taxi → Call for pickup</span>. Stand beside an open road or junction so Markus Sloane can find a clear pickup spot. His cab comes to the road; wait for it to stop before boarding. Enter a passenger seat, then right-click inside the cab or right-click a road on the world map to give him a destination. He asks for the map location if you wait too long. Offer jewelry toward the quoted fare through the same taxi menu. At the destination, everyone leaves the cab with their belongings; Markus then drives away. The radio menu can report his approach or cancel a pending pickup.</p>
+<p>With a powered portable walkie-talkie that can transmit, right-click it and choose <span class="menu">Living Fellows radio → Markus's Taxi → Call for pickup</span>. Stand beside an open road or junction so Markus Sloane can find a clear pickup spot. His cab comes to the road; wait for it to stop before boarding. Enter a passenger seat, then right-click inside the cab or right-click a road on the world map to give him a destination. He asks for the map location if you wait too long. Offer jewelry toward the quoted fare through the same taxi menu. At the destination, everyone leaves the cab with their belongings; Markus then drives away. The radio menu can report his approach or cancel a pending pickup.</p>
 
 <!-- CH 6 -->
 <h2 class="chapter" id="ch6"><img class="ico" src="https://pzwiki.net/w/images/4/40/BaseballBat.png" alt="">Chapter 6: Combat and the Rules of Engagement<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1295,7 +1304,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A <strong>push</strong> (focusing the same zombie twice, <a href="#ch4">Chapter 4</a>) is remembered three ways: as being pushed into a fight, as being pushed and getting everyone through, or as being pushed and getting hurt. A higher relationship score gives a push more room; below a score of 25 it adds nothing at all.</div>
 
 <h3 id="ch9d_hits">When You Hit Them</h3>
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Clumsy with a shotgun? Turn on <span class="menu">Protect recruited companions from player attacks</span> in Mod Options (<a href="#appB_mod">Appendix B</a>). Your swings, shoves, stomps and shots then do nothing to a recruited ally: no damage, no blood, no lost helmet, and no strike. The blast of your own explosives does no damage either, but fire, burns and your car still hurt, and hostile, exiled and unrecruited survivors stay hittable.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Clumsy with a shotgun? Turn on <span class="menu">Protect recruits from your attacks</span> in Mod Options (<a href="#appB_mod">Appendix B</a>). Your swings, shoves, stomps and shots then do nothing to a recruited ally: no damage, no blood, no lost helmet, and no strike. The blast of your own explosives does no damage either, but fire, burns and your car still hurt, and hostile, exiled and unrecruited survivors stay hittable.</div>
 <p>A swing or a shot that lands on a companion is remembered. If zombies or hostile people are on them at that moment, it is an accident in a melee: they complain and nothing is counted. A hit in a quiet moment is a <strong>strike</strong>.</p>
 <table>
   <tr><th>Strike</th><th>What follows</th><th>Trust</th><th>Bond</th></tr>
@@ -1349,7 +1358,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="lore-pull"><span class="lore-label">Overheard — </span>A real meal together would remind me what we are surviving for.<span class="who">— a companion asked what they're hoping for</span></div>
 
 <h3>Assigned Objectives</h3>
-<p>Right-click a recruited companion and choose <span class="menu">Assign objective</span> to set one of the first five goals yourself. An objective they've already fulfilled isn't offered, since it would complete at once for nothing. Their own goal is set aside, not lost: it comes back when your objective is done.</p>
+<p>Right-click a recruited companion and choose <span class="menu">Living Fellows → <em>their name</em> → Tasks → Assign objective</span> to set one of the first five goals yourself. An objective they've already fulfilled isn't offered, since it would complete at once for nothing. Their own goal is set aside, not lost: it comes back when your objective is done.</p>
 
 <!-- CH 9e -->
 <h2 class="chapter" id="ch9e"><img class="ico" src="https://pzwiki.net/w/images/f/f3/Book.png" alt="">Chapter 9e: Downtime and Quiet Hours<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1472,7 +1481,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>They bring one</strong></td><td>About one survivor in eight already has a nickname, usually from the old job: Doc, Wrench, Sarge, Patches. They introduce themselves with it when they join. Now and then, a recruit met inside a town goes by its name instead.</td></tr>
   <tr><td><strong>A friend coins one</strong></td><td>Companions who get on well (they know each other, and like each other) may give one a nickname in passing. Each companion tries at most once a week, and rarely succeeds. The same goes for you once trust and bond with a companion both reach 25.</td></tr>
   <tr><td><strong>They earn one</strong></td><td>A deed takes the luck out of it: the next friend free to coin a name uses the one it earned (below).</td></tr>
-  <tr><td><strong>You give one</strong></td><td>Right-click a recruited companion and choose <span class="menu">Give nickname...</span>: 2 to 16 letters, numbers, spaces, apostrophes, hyphens or periods. <span class="menu">Clear nickname</span> takes it away. A name you give is never replaced by one the others coin.</td></tr>
+  <tr><td><strong>You give one</strong></td><td>Right-click a recruited companion and choose <span class="menu">Living Fellows → <em>their name</em> → Personal → Give nickname...</span>: 2 to 16 letters, numbers, spaces, apostrophes, hyphens or periods. <span class="menu">Clear nickname</span> takes it away. A name you give is never replaced by one the others coin.</td></tr>
 </table>
 
 <h3>Earned Names</h3>
@@ -1553,12 +1562,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <div class="callout callout-recipe"><span class="callout-label">How to — </span>
-<strong>Set the camp core:</strong> right-click the ground tile and choose <span class="menu">Living Fellows → Base life → Set camp core here</span>.
+<strong>Set the camp core:</strong> right-click the ground and choose <span class="menu">Living Fellows → Set camp core here</span>.
 </div>
 
 <h3>Drawing Zones</h3>
 <ol class="steps">
-  <li><span class="step-n">1</span>Right-click the first corner tile and choose <span class="menu">Start zone here</span>, then the kind of zone.</li>
+  <li><span class="step-n">1</span>Right-click the first corner tile and choose <span class="menu">Living Fellows → Areas → Start zone here</span>, then the kind of zone.</li>
   <li><span class="step-n">2</span>Move the mouse to preview the rectangle.</li>
   <li><span class="step-n">3</span>Right-click the final corner tile. That locks the rectangle, so the preview won't shift while you move through the menu.</li>
   <li><span class="step-n">4</span>Choose <span class="menu">Finish zone here</span>. Your character's position is never used.</li>
@@ -1610,9 +1619,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <h3>Marking Storage</h3>
-<p>Right-click a container inside the camp, choose <span class="menu">Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. Shelf sorting carries matching items together too, up to twenty a trip; items held back as a reserve stay out of the batch. A trip in progress survives a reload, and a cancelled one puts the rest of the stack back. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Right-click a container inside the camp, choose <span class="menu">Living Fellows → Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. Shelf sorting carries matching items together too, up to twenty a trip; items held back as a reserve stay out of the batch. A trip in progress survives a reload, and a cancelled one puts the rest of the stack back. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
 <p>Camp jobs, car unloading and expedition deliveries try every container of the right category before they pause for lack of space. The Base panel names each full destination, and the worker says so once, then waits for room.</p>
-<p>To remove a marking, right-click the container and choose <span class="menu">Living Fellows → Base life → Unmark storage</span>. This removes the camp registration; the container and everything in it stay where they are. Storage management is at the bottom of the Base panel, below the daily job controls.</p>
+<p>To remove a marking, right-click the container and choose <span class="menu">Living Fellows → Unmark storage</span>. This removes the camp registration; the container and everything in it stay where they are. Storage management is at the bottom of the Base panel, below the daily job controls.</p>
 
 <table>
   <tr><th></th><th>Category</th><th>What goes in it</th></tr>
@@ -1671,7 +1680,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Companions build what you plan. Planned work appears as a <strong>blueprint ghost</strong>, and residents on duty build it in stages with materials from camp storage.</p>
 
 <div class="callout callout-recipe"><span class="callout-label">How to — </span>
-<strong>Plan construction:</strong> inside the camp, right-click the ground and choose <span class="menu">Living Fellows → Base life → Queue construction</span>, then the piece: Wooden wall frame, Wooden wall, Wooden floor, Wooden door frame or Wooden door. A placement cursor appears. Drag to lay a run of wall, and turn the piece with the game's own <strong>Rotate building</strong> key before you place it.
+<strong>Plan construction:</strong> inside the camp, right-click the ground and choose <span class="menu">Living Fellows → Construction → Queue construction</span>, then the piece: Wooden wall frame, Wooden wall, Wooden floor, Wooden door frame or Wooden door. A placement cursor appears. Drag to lay a run of wall, and turn the piece with the game's own <strong>Rotate building</strong> key before you place it.
 </div>
 
 <div class="callout callout-recipe"><span class="callout-label">How to — </span>
@@ -2134,7 +2143,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Battery backup alone lasts about six game hours, so a crack needs a generator behind it.</li>
   <li>A machine outside the loaded area earns nothing until you are back near it. If it still has power then, the whole absence counts.</li>
   <li>Moving the cracking computer pauses it. Ordinary companions leave that machine alone, and a factory reset keeps the work.</li>
-  <li>To check from a distance, right-click an equipped, powered two-way walkie-talkie and choose <span class="menu">EMMA: Grid report</span>. An unlocked, powered base computer must answer on the same channel within two-way range. The report arrives by real radio.</li>
+  <li>To check from a distance, right-click an equipped, powered two-way walkie-talkie and choose <span class="menu">Living Fellows radio → EMMA → EMMA: Grid report</span>. An unlocked, powered base computer must answer on the same channel within two-way range. The report arrives by real radio.</li>
 </ul>
 
 <figure class="plate terminal-shot">
@@ -2438,7 +2447,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Sheltered</strong></td><td>The squad has taken shelter inside a house at a map point</td><td>Go and meet them there</td></tr>
   <tr><td><strong>No way home</strong></td><td>After four fresh route attempts, often from an upper floor, the squad holds and radios <em>Can't find a way home from near X, Y. Need orders: return, push on, or hold position.</em></td><td><span class="menu">Return</span> or <span class="menu">push on</span> starts one fresh attempt; so does reaching them on their floor</td></tr>
 </table>
-<p>During a Search you can ask how it's going: right-click your equipped walkie-talkie and choose <span class="menu">Ask for progress report</span>. The Expeditions tab then shows the answer, such as <em>Last radio report at world hour 14: 3 of 8 requested supplies collected.</em></p>
+<p>During a Search you can ask how it's going: right-click your equipped walkie-talkie and choose <span class="menu">Living Fellows radio → Expedition → Ask for progress report</span>. The Expeditions tab then shows the answer, such as <em>Last radio report at world hour 14: 3 of 8 requested supplies collected.</em></p>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>If the squad hears your recall but can find no safe way back, it says so and waits for backup. Go and get them; they won't walk into a death trap because you told them to.</div>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>If a call shows <em>No radio receipt</em>, check that both radios are powered, equipped and on the same channel. Standing within three tiles of the leader also counts as no receipt; step further away.</div>
 
@@ -2447,7 +2456,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol class="steps">
   <li><span class="step-n">1</span>Equip a powered walkie-talkie on your character and on the squad leader.</li>
   <li><span class="step-n">2</span>Tune both to the same channel.</li>
-  <li><span class="step-n">3</span>Right-click your equipped radio and choose <span class="menu">Return immediately</span>.</li>
+  <li><span class="step-n">3</span>Right-click your equipped radio and choose <span class="menu">Living Fellows radio → Expedition → Return immediately</span>.</li>
 </ol>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
 
@@ -2627,7 +2636,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.1 uses native bridge protocol <code>42.21-isocompanion-30</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.3 uses native bridge protocol <code>42.21-isocompanion-30</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Seventy-two hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2650,7 +2659,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Two of them radio for rescue on <strong>90 MHz</strong>: Eli Rourke and Nate Duvall. Hold or wear a powered portable radio tuned to 90 MHz with the volume up, and you'll hear them while their area is loaded, as long as you are more than three tiles away and well inside their radio's range. Eli calls every 90 seconds and Nate a little less often; storm static can garble a call, and the next one gets through. To answer, you need a working two-way radio: right-click it in your inventory and choose <span class="menu">Reply to <em>name</em> on 90 MHz</span>. The rescue location goes on your map.</p>
 
 <h3 id="ch18c_air">On the Air</h3>
-<p>Two more are heard before they are met. <strong>Dwayne Stidham</strong> reads the Gospel Hour on <strong>FM 103.4</strong> at 08:00, 13:00 and 19:00 from a station van, and any radio tuned and in range picks it up. <strong>Garland Hatcher</strong> sends sitreps on <strong>146.6 MHz</strong> at 06:00 and 20:00: the walkers he can count around his camp and tomorrow's weather from the game's own forecast. To talk back, hold or wear a powered two-way radio set to 146.6 with the microphone on, within range of his set both ways, then right-click it in your inventory and choose a <span class="menu">146.6: …</span> call. Start by asking who is broadcasting. He trusts you one step more for each day you call, and more than three calls in an hour sends him quiet until 06:00 the next day.</p>
+<p>Two more are heard before they are met. <strong>Dwayne Stidham</strong> reads the Gospel Hour on <strong>FM 103.4</strong> at 08:00, 13:00 and 19:00 from a station van, and any radio tuned and in range picks it up. <strong>Garland Hatcher</strong> sends sitreps on <strong>146.6 MHz</strong> at 06:00 and 20:00: the walkers he can count around his camp and tomorrow's weather from the game's own forecast. To talk back, hold or wear a powered two-way walkie-talkie set to 146.6 with the microphone on, within range of his set both ways, then right-click it in your inventory and choose a <span class="menu">146.6: …</span> call. Start by asking who is broadcasting. He trusts you one step more for each day you call, and more than three calls in an hour sends him quiet until 06:00 the next day.</p>
 
 <h3>The Cast</h3>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span><strong>Spoilers.</strong> The tables below give away each stranger's hook. Skip them if you'd rather meet everyone cold. <strong>✚</strong> marks someone who can join you once the story and trust allow.</div>
@@ -2659,7 +2668,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <table>
   <tr><th>Person</th><th>Where</th><th>What to know</th></tr>
   <tr><td><strong>Bernice “Miss Liberty” Hupp</strong></td><td>On a road near a butcher's, barn or farm store</td><td>It is the Fourth of July for her, every day. She follows you and throws her ten real firecrackers at your feet, and the dead come to the bang. Ask her to stop and she won't. She runs when the box is empty, when the dead get close or when she is hit.</td></tr>
-  <tr><td><strong>Hershel Combs</strong></td><td>A bathroom floor</td><td>Bitten nine days ago and counting. Sit with him, ask about the bite, refuse him, or do what he asks. However it ends, he stays down. He only turns up where bites infect.</td></tr>
+  <tr><td><strong>Hershel Combs</strong></td><td>A bathroom floor</td><td>Bitten nine days ago and counting. Sit with him, ask about the bite, refuse him, or do what he asks. However it ends, he stays down. He appears with bite infection enabled and Infection Mortality set to 2–3 days or 1–2 weeks.</td></tr>
   <tr><td><strong>Gary and Ron</strong></td><td>Living room</td><td>They put their families on the evacuation buses and stayed behind to settle a dad-joke feud, tied at forty-one. Judge a best of five; the winner hands you his beer.</td></tr>
   <tr><td><strong>Dwayne Stidham</strong> ✚</td><td>A radio van on a clear road</td><td>He ran the board for the Gospel Hour and keeps reading the late Reverend's last twelve sermons on air (above). Give him a book, magazine or comic and he reads that on air too. When the reading runs out he signs off and may come along.</td></tr>
   <tr><td><strong>Bob Kenley</strong> ✚</td><td>Gun store</td><td>Kenley's Guns. He nearly shoots you at the door, then brags about his new front glass or, in a store without it, about the deadbolts he has locked himself in behind. The dead come anyway, through the glass or the door. If he lives, he hands over an M1911, two magazines and a box of .45 rounds.</td></tr>
@@ -2778,10 +2787,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><kbd>Keypad 3</kbd> held</td><td>Steer the selected companion toward the cursor</td><td class="tbl-note">Yields to combat rescue and survival</td></tr>
   <tr><td><kbd>Insert</kbd></td><td>Show or hide the base layout</td><td class="tbl-note">All Living Fellows keys are rebindable under Options, Key bindings, Living Fellows</td></tr>
   <tr><td>Game's Rotate building key</td><td>Turn a blueprint before you place it</td><td class="tbl-note">The game's own binding</td></tr>
-  <tr><td>Right-click a companion</td><td>Talk to [name], Watch, Follow, Stay, Regroup, Retreat, Assign objective; a Chef on duty also offers Cook me a meal. Medical Check examines them and opens their body-part panel; Give nickname... names them.</td><td class="tbl-note"></td></tr>
-  <tr><td>Right-click the world</td><td><span class="menu">Living Fellows</span>: Move here, object actions, target actions, care, squad signals, base life, households</td><td class="tbl-note"></td></tr>
+  <tr><td>Right-click a companion</td><td>Talk, Follow, Stay and Retreat. <span class="menu">Living Fellows → <em>name</em></span> holds Orders, Regroup, Send home, Watch, inventory and care; Tasks and Personal hold objectives, jobs, nicknames and dismissal. Medical Check remains the game's own examination entry.</td><td class="tbl-note">Actions belong to the clicked person.</td></tr>
+  <tr><td>Right-click the world</td><td>Named Move here and object shortcuts for the selected companion. <span class="menu">Living Fellows</span> groups Nearby companions, Squad, Camp, this vehicle or generator, Households and Strange Folk.</td><td class="tbl-note">Nearby names open Orders; blocked relevant actions explain why.</td></tr>
   <tr><td>Right-click the world → Living Fellows → Squad</td><td>Whistle, Hold, Fall back, Cease fire, Fire; harvest or chop near a ground tile</td><td class="tbl-note">Hand signs need line of sight; field work needs recruited followers (<a href="#ch5b">Ch 5b</a>, <a href="#ch4_field">Ch 4</a>)</td></tr>
-  <tr><td>Right-click your radio</td><td>Return immediately (expeditions)</td><td class="tbl-note">Needs a received transmission</td></tr>
+  <tr><td>Right-click your radio</td><td><span class="menu">Living Fellows radio</span>: Expedition, EMMA and taxi services. Pending expedition decisions and distress replies stay directly on the menu.</td><td class="tbl-note">Uses the equipped radio; expedition orders need a received transmission.</td></tr>
   <tr><td>Right-click a powered desktop → Use computer</td><td>Open EMMA; <kbd>Tab</kbd> switches chat/menu, numbers choose menu entries, <kbd>Esc</kbd> goes back</td><td class="tbl-note"><a href="#emma">Ch 16b</a>; camp records require a computer inside camp</td></tr>
 </table>
 
@@ -2792,6 +2801,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Option</th><th>Range</th><th>Default</th><th>Effect</th></tr>
   <tr><td>Spawn independent survivors</td><td>on / off</td><td>on</td><td>Whether new independent survivors appear</td></tr>
   <tr><td>Independent survivor frequency</td><td>Very rare, Rare, Normal, Frequent</td><td>Normal</td><td>The base real-time gap between attempts. Each living recruit lengthens it; the increase grows faster with a large group.</td></tr>
+  <tr><td>Guarantee a first meeting</td><td>on / off</td><td>on</td><td>In a new world, an independent survivor is helped to meet you early (<a href="#ch2_first">Ch 2</a>). Hidden, idle zombies within 30 meters are removed once before they arrive; after that nobody is protected. Needs <strong>Spawn independent survivors</strong>.</td></tr>
   <tr><td>Maximum active companions</td><td>1–16</td><td>16</td><td>Limit for new recruits and encounters</td></tr>
   <tr><td>Companion hunger and thirst rate</td><td>0–2</td><td>0.33</td><td>0 turns it off; 1 matches the player</td></tr>
   <tr><td>Spawn new survivor households</td><td>on / off</td><td>on</td><td>Whether new households appear</td></tr>
@@ -2826,9 +2836,14 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Companion chatter</td><td>Normal, Less, Rare</td><td>Normal</td><td>Less doubles and Rare quadruples the gaps between incidental remarks: jokes, place comments, table talk, stray thoughts and walking banter. Replies, orders, combat calls, medical warnings and rescue calls keep their timing.</td></tr>
   <tr><td>Coughs and sneezes</td><td>Normal, Rare, Off</td><td>Normal</td><td>At most one a real minute on Normal, one every five real minutes on Rare, or none</td></tr>
   <tr><td>Ordinary colds</td><td>on / off</td><td>on</td><td>Off clears a companion's cold and stops new ones; Knox infection and infected wounds are untouched. A cold caught in the moment before can still make one sound.</td></tr>
-  <tr><td>Protect recruited companions from player attacks</td><td>on / off</td><td>off</td><td>Your swings, shoves, stomps and shots do nothing to a recruited ally, and your explosives' blast does it no damage (<a href="#ch9d_hits">Ch 9d</a>). Fire, burns and car hits still hurt.</td></tr>
+  <tr><td>Protect recruits from your attacks</td><td>on / off</td><td>off</td><td>Your swings, shoves, stomps and shots do nothing to a recruited ally, and your explosives' blast does it no damage (<a href="#ch9d_hits">Ch 9d</a>). Fire, burns and car hits still hurt.</td></tr>
   <tr><td>Terminal movement lamp</td><td>Flash, Steady, Off</td><td>Flash</td><td>Shows approaching threats while you recover a locked computer. Flash is capped at three flashes a second, Steady changes brightness, and Off hides the lamp and its ticks.</td></tr>
   <tr><td>PZOptimizer combat compatibility</td><td>on / off</td><td>on</td><td>With a supported PZOptimizer build installed, zombies keep making the game's own attacks on Living Fellows people; other attacks keep the optimizer's handling. Its status is in the Support report. Without PZOptimizer it does nothing.</td></tr>
+  <tr><td>Bandits NPC compatibility</td><td>on / off</td><td>on</td><td>Two-way combat with Bandits2 when that mod is enabled. Off keeps the identity safeguards but drops the combat integration.</td></tr>
+  <tr><td>A-Life NPC compatibility</td><td>on / off</td><td>on</td><td>Two-way combat with Project A-Life. Companions share your faction reputation; independent Living Fellows people keep their own. Off keeps the identity safeguards. A-Life and Bandits together are not supported.</td></tr>
+  <tr><td>Speech colours</td><td>Speaker colours, White text</td><td>Speaker colours</td><td>Each Living Fellows person speaks in their own soft colour, kept through recruitment and reloads. White text turns it off. Name tags keep their colours, and the change applies to new lines.</td></tr>
+  <tr><td>Show tips</td><td>on / off</td><td>on</td><td>The First steps card, control pointers and occasional teaching lines (<a href="#ch2_first">Ch 2</a>). Every feature stays available with tips off.</td></tr>
+  <tr><td>Show tips again</td><td>button</td><td>—</td><td>Forgets the tips seen on this computer and turns tips back on. World progress and encounters are kept.</td></tr>
 </table>
 
 <p class="appendix-label">Appendix C</p>
@@ -2966,7 +2981,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><kbd>Keypad 3</kbd> held</td><td>Steer them toward the cursor</td></tr>
   <tr><td><kbd>Insert</kbd></td><td>Show or hide the base layout</td></tr>
   <tr><td>Rotate building</td><td>The game's key; turns a blueprint</td></tr>
-  <tr><td>Right-click</td><td>A companion: Talk, Watch, quick orders, Assign objective. The world: the <span class="k">Living Fellows</span> menu.</td></tr>
+  <tr><td>Right-click</td><td>A companion: Talk, Follow, Stay, Retreat. More: <span class="k">Living Fellows → name</span>. Ground: named orders for the selected companion.</td></tr>
 </table>
 <p class="tbl-note">Ch 3, Appendix A</p>
 </div>
@@ -3045,9 +3060,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="card">
 <h4><img src="https://pzwiki.net/w/images/8/81/Hammer.png" alt="">Setting up camp</h4>
 <ol>
-  <li>Right-click → <span class="k">Living Fellows → Base life → Set camp core here</span> (twelve tiles each way).</li>
+  <li>Right-click → <span class="k">Living Fellows → Set camp core here</span> (12 meters each way).</li>
   <li><span class="k">Start zone here</span>, right-click the far corner, <span class="k">Finish zone here</span>.</li>
-  <li><span class="k">Mark storage as...</span>: regular or fresh food, water, medical, tools, construction, valuables, and more.</li>
+  <li><span class="k">Living Fellows → Mark storage as...</span>: regular or fresh food, water, medical, tools, construction, valuables, and more.</li>
+  <li><span class="k">Living Fellows → Unmark storage</span>: remove the marking.</li>
   <li><span class="k">More → Base</span>: give each resident a base job.</li>
 </ol>
 <p>Grow the camp with more Camp boundary rectangles started inside it. Lumber, farm, fishing, burial and pyre areas may lie 30 tiles out; a ground-floor parking area may reach 20. Stairs extend the camp up or down, basements included. Blueprints: <span class="k">Queue construction</span>.</p>
@@ -3097,7 +3113,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="k">Choose on map</span>: right-click a building, shore or woodland. Known map targets allow 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
   <li><span class="k">Review mission</span>, then <span class="k">Send squad</span>.</li>
 </ol>
-<p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Return immediately</em>.</p>
+<p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Living Fellows radio → Expedition → Return immediately</em>.</p>
 <p><span class="k">Wood</span>: 1/2/4/8/12/24 logs or Full load (up to 256). Keep permitted Log Yard, Construction or General storage ready.</p>
 <p class="tbl-note">Ch 17</p>
 </div>
@@ -3129,7 +3145,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.27.1 &nbsp;·&nbsp; First Edition, Twenty-Seventh Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.27.3 &nbsp;·&nbsp; First Edition, Twenty-Eighth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
