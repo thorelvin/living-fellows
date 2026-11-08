@@ -11,43 +11,57 @@ title=Living Fellows: Companion NPC
 description=[h1]Living Fellows[/h1]
 description=[b]You won't die... alone.[/b]
 description=
-description=[url=https://thorelvin.github.io/living-fellows/]Read the Field Guide[/url] | [url=https://thorelvin.github.io/living-fellows/quick-reference.html]Quick reference[/url] | [url=https://discord.gg/vPK7faQVt]Discord[/url] | [url=https://github.com/thorelvin/living-fellows/issues/new/choose]Report a bug[/url]
+description=Find your people. Build a home. Send a crew across town while you keep the camp going, watch their journey, or call Markus when you need a ride back.
 description=
-description=Living Fellows adds companions, survivor households and working bases to Project Zomboid. Find your people, give them somewhere to live and try to bring everyone home.
+description=[url=https://thorelvin.github.io/living-fellows/]Field Guide - start here[/url] | [url=https://thorelvin.github.io/living-fellows/quick-reference.html]Quick reference[/url]
 description=
-description=[h2]Send a squad on an expedition[/h2]
-description=Scout a building, search for supplies, fish or collect wood while you get on with your own plans. Choose one to four companions, a leader, a walking or driving route and a return time. Watch their trip in a second view. They use real tools, collect real items and carry the haul into camp storage.
+description=[b]Project Zomboid 42.21.0 | Single-player | Requires ZombieBuddy 2.3.3+ and its one-time loader setup[/b]
 description=
-description=Choose a logging area on the explored map, or let wood crews find nearby woodland. They borrow an axe and return logs to permitted Log Yard, Construction or General storage. Collected, carried and stored counts stay separate. A full store pauses delivery and retries automatically; manual Retry remains available.
+description=[h2]Send a crew. Bring them home.[/h2]
+description=[img]https://images.steamusercontent.com/ugc/15183459141282847163/F3AC0D1A12EAF91CFC8B1618464F8E9D90D34572/[/img]
+description=Choose one to four companions for scouting, supply runs, fishing or collecting wood. Walk or drive and set a return time. Use your explored map to choose buildings or logging areas, and watch the leader in a second view while you play.
+description=
+description=They take real tools, collect real items and carry the haul into marked camp storage. Logs in the car still need unloading. Getting home is only part of the job.
 description=
 description=[h2]Keep the camp working with Base Watch[/h2]
-description=Leave an indoor resident on watch so the camp stays loaded while you travel. The others keep sorting, farming, cooking, repairing and guarding. Check in by radio while you're away. Base Watch and expeditions share one companion view, so run one at a time.
+description=[img]https://images.steamusercontent.com/ugc/14780688319925829455/F178B256470F5D20D98CFB5CD06BFDE5E3B86044/[/img]
+description=Leave an indoor resident on watch so the camp stays loaded while you're away. The others keep sorting, farming, cooking, repairing and guarding. Check in by radio, or look through the companion view.
 description=
-description=[h2]Call Markus's taxi[/h2]
-description=Stranded on the road? Call for pickup from a working walkie-talkie, climb into Markus Sloane's cab and choose a road destination on the world map. Bring jewelry for the fare.
+description=[i]Base Watch and expeditions share one companion view; use one at a time.[/i]
 description=
-description=[h2]Build a crew worth knowing[/h2]
+description=[h2]Markus is still taking fares[/h2]
+description=[img]https://images.steamusercontent.com/ugc/16586748544980398892/3F28972ECB4580666B68C1685340368D6F92B1E0/[/img]
+description=Call from a working walkie-talkie. Markus Sloane drives over, picks you up and takes you to a road destination you choose on the map. Bring jewelry. He has a business to run.
+description=
+description=[h2]EMMA is at her desk. The county isn't.[/h2]
+description=[img]https://images.steamusercontent.com/ugc/12425944703019054839/AD0CE6DF05F242F57DB7D59F3013918662A8E292/[/img]
+description=Use a powered computer to meet the Emergency Management Assistant. At camp, ask about supplies, injuries, jobs and expeditions. She remembers your notes and asks before carrying out actions.
+description=
+description=Away from home, recover locked computers, read their previous owners' files and uncover stories from the outbreak. Upgrade a camp computer with a radio for expedition services, discover connected building controls, or reconnect substations to restore grid power.
+description=
+description=[b]EMMA runs entirely offline. No API keys, subscriptions or hosted AI service.[/b]
+description=
+description=[h2]People worth bringing back[/h2]
 description=[list]
-description=[*]Up to 16 persistent companions with professions, personalities, relationships, memories, needs, wounds and permanent death.
-description=[*]Squad travel, combat rules, real equipment and medical care. Fellows fight together, treat injuries and retreat when they're outmatched.
-description=[*]Private diaries written about things their owners actually experienced. The book stays behind when its author dies.
-description=[*]Working bases with marked storage, jobs, construction, farming, cooking, logging and care for the dead. Blocked jobs pause and retry.
-description=[*]Households that trade, offer work and remember how you treat them, plus 72 Strange Folk with their own stories. Random eligible encounters can begin on the second day.
+description=[*]Up to 16 persistent companions with professions, personalities, needs, injuries, relationships and memories.
+description=[*]Squad orders, combat rules, real equipment and medical care. Death is permanent; some companions leave a physical diary behind.
+description=[*]A working home: mark storage and work areas, assign jobs, cook, build, farm, gather wood and care for the dead. Blocked jobs pause and retry.
+description=[*]Survivor households that trade, offer work and remember how you treat them. Strange Folk bring their own stories, requests and surprises.
 description=[/list]
 description=
-description=[h2]Getting started[/h2]
+description=[h2]Your first few minutes[/h2]
 description=[olist]
-description=[*]Install [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853]ZombieBuddy[/url] 2.3.3 or newer and complete its one-time loader setup. Subscribing alone is not enough.
-description=[*]Subscribe to Living Fellows and enable both mods. For an existing save, use More... > Choose Mods too.
-description=[*]Press Home to open the companion panel, or click LF. Meet a survivor and choose Recruit when offered.
-description=[*]Use Orders, Squad, Expeditions and More > Base, or right-click the world for Living Fellows commands.
+description=[*]Install [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853]ZombieBuddy[/url] 2.3.3 or newer and complete its loader setup. Subscribing alone isn't enough.
+description=[*]Subscribe to Living Fellows and enable both mods. For an existing save, enable them under More... > Choose Mods too.
+description=[*]Press Home or click LF. The First steps card on Status helps you get started; dismiss it or change Show tips in Mod Options whenever you like.
+description=[*]Meet a survivor, right-click them and choose Talk to (name), then Invite to join. Set a camp core, mark storage and give someone a base job.
 description=[/olist]
 description=
-description=[b]Release 0.27.1. Project Zomboid Build 42.21.0, single-player.[/b] Multiplayer and additional human split-screen players are not supported.
+description=Multiplayer and additional human split-screen players are not supported. Optional Bandits2 and Project A-Life adapters have specific supported setups: [url=https://github.com/thorelvin/living-fellows/tree/living_fellows/0.27.3/docs]compatibility notes[/url].
 description=
-description=The [url=https://github.com/thorelvin/living-fellows/releases/latest]Windows standalone edition[/url] includes its own bridge and needs no ZombieBuddy. Choose Workshop or standalone; use one copy at a time.
+description=The [url=https://github.com/thorelvin/living-fellows/releases/latest]Windows standalone edition[/url] includes its own bridge and needs no ZombieBuddy. Use one edition at a time.
 description=
-description=Need a hand? More > Support provides a diagnostic report. Include it, the game and mod versions, and what happened when reporting a problem.
+description=Need a hand? Open More > Support for a diagnostic report. [url=https://discord.gg/vPK7faQVt]Discord[/url] | [url=https://github.com/thorelvin/living-fellows/issues/new/choose]Report a bug[/url]
 description=
 description=Workshop ID: 3805760339
 description=Mod ID: SurvivorCompanion
