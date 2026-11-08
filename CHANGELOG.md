@@ -32,6 +32,8 @@
   infection decisions no longer conflict merely because neither has an executor.
 - Keep an unfinished camp meal ahead of chores between bites, preventing radio
   operators from repeatedly sitting and standing instead of resuming after a break.
+- Stop a stack trace in the console at the main menu when ZombieBuddy loads
+  the bridge: the PZOptimizer adapter now checks the bridge before calling it.
 - Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
   ship the rebuilt bridge with 0.27.4 metadata. Existing save schemas are unchanged.
 
