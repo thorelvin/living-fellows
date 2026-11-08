@@ -242,7 +242,9 @@ require "SCBuildingControls"
 require "SCBuildingScan"
 require "SCTerminalHardware"
 require "SCTerminalRadio"
+require "SCTerminalRadioWorkUI"
 require "SCTerminalRadioUI"
+require "SCRadioWork"
 require "SCGridControl"
 require "SCGridRadio"
 require "SCTerminalGridUI"
@@ -292,7 +294,7 @@ local requiredModules = {
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Lighting", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "HygieneEffects", "WorkTransport", "GatherWork",
-    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis",
+    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis", "RadioWork",
     "LifeEvents", "Community", "NicknameLife", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "ViewControl", "Steering", "UIContext",

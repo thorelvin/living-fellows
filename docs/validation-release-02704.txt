@@ -36,3 +36,23 @@ Live verification, separate from the gate
 - Retained local evidence: C:/ZOMBOID/outputs/caleb-native-fire/.
 - Original save and installed mod were unchanged. Temporary probe and owned game
   process were removed; the release packages contain no live harness.
+
+Radio watch, feedback and conversation follow-up
+Base: e56ec532 (living_fellows/0.27.4)
+- Add staffed radio recruitment watch, native seated desk use, animated signal
+  instruments and retained work/results through interruption and reload.
+- Add the rounded orange launcher, readable current blockers and attention
+  notices; harden quarantine recovery, evidence privacy and decision ownership.
+- Route Strange Folk Talk choices to their authored interactions, retaining
+  permitted conversations through doors/windows and the Corey diary response.
+- Fix exact radio-job cancellation, deferred completion cleanup and independent
+  infection decisions without executors. Focused regressions are part of the
+  existing Behaviour check; no extra runner or background service was added.
+
+Final follow-up release gate: PASS, all five checks, 242.2 seconds, serial.
+Evidence: build/test-results/20261108-110746-601497
+All 16 essential installer cases passed, including rollback and PZO-agent cases.
+Workshop and standalone Windows packages rebuilt at 0.27.4 with debug disabled.
+Detailed native evidence and screenshots are recorded in
+validation-radio-watch-02704.txt and validation-feedback-launcher-02704.txt.
+The final three review fixes were verified automatically without another live run.

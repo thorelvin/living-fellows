@@ -2358,7 +2358,7 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
             return false, "infection_crisis_unavailable"
         end
         return callSubsystem("infection-crisis", actor, function()
-            return SC.InfectionCrisis.updateActor(actor, player)
+            return SC.InfectionCrisis.updateActor(actor, player, rootRuntime.snapshot)
         end)
     elseif candidate.kind == "faction" then
         if not SC.FactionBehavior or type(SC.FactionBehavior.update) ~= "function" then
@@ -3010,6 +3010,8 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
             urgent = ownerNeedsImmediatePreemption(
                 token.owner, snapshot, assessment, needs, commands, factionEmergency, actor, player)
                 or alarmPreempts(token.owner)
+                or token.owner=="radio_work" and type(needs)=="table"
+                    and (needs.active or needs.hungry or needs.thirsty or needs.peeDue)
             local serialChanged = token.owner == "downtime"
                 and type(token.metadata) == "table"
                 and tonumber(token.metadata.commandSerial) ~= (tonumber(commands.commandSerial) or 0)
@@ -3121,6 +3123,17 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     or "owned_downtime_poll_failed"
                 state.lastHandledAt = current
                 return true, state.intent
+            elseif token.owner == "radio_work" and commands.order == "base_duty"
+                and SC.BaseWork and type(SC.BaseWork.update) == "function" then
+                -- The typing pose is a child of the radio job. Keep polling
+                -- its controller while the native visual owns the actor, so
+                -- real work time, power loss and job leases keep advancing.
+                local safe, _, workReason = U().safeSubsystem("radio-work",actor,
+                    SC.BaseWork.update,actor,player,rootRuntime or {})
+                state.current,state.currentKey="base_work","base_work"
+                state.intent=safe and (workReason or "radio_work_listening") or "radio_work_poll_failed"
+                state.lastHandledAt=current
+                return true,state.intent
             elseif token.owner == "player_control"
                 or token.phase == "committing" or token.phase == "verifying" then
                 state.current = "activity"

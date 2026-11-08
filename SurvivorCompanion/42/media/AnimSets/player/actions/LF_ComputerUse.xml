@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animNode>
+    <m_Name>LF_ComputerUse</m_Name>
+    <m_AnimName>Bob_IdleMaking_Surface</m_AnimName>
+    <m_Looped>true</m_Looped>
+    <m_BlendTime>0.30</m_BlendTime>
+    <m_SpeedScale>0.85</m_SpeedScale>
+    <m_SyncTrackingEnabled>false</m_SyncTrackingEnabled>
+    <m_Conditions>
+        <m_Name>PerformingAction</m_Name>
+        <m_Type>STRING</m_Type>
+        <m_Value>LF_ComputerUse</m_Value>
+    </m_Conditions>
+    <m_SubStateBoneWeights><weight>0.00</weight><includeDescendants>false</includeDescendants></m_SubStateBoneWeights>
+    <m_SubStateBoneWeights><weight>0.00</weight><includeDescendants>false</includeDescendants></m_SubStateBoneWeights>
+    <m_SubStateBoneWeights><boneName>Bip01_Spine</boneName><weight>0.50</weight><includeDescendants>false</includeDescendants></m_SubStateBoneWeights>
+    <m_SubStateBoneWeights><boneName>Bip01_Spine1</boneName></m_SubStateBoneWeights>
+</animNode>

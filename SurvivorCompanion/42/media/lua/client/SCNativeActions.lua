@@ -188,7 +188,7 @@ local visualActionSpecs = {
         primaryItem = true, ticks = 150 },
     -- A short desk interaction uses the existing native hand-work pose. No
     -- fabricated book, tool, learned recipe or reward is attached to it.
-    computer_use = { animation = "Craft", animationEnum = true,
+    computer_use = { animation = "LF_ComputerUse",
         ticks = 1080, maxTicks = 3600 },
     -- The visible shelf routine does not duplicate the base sorting job's
     -- inventory transfers.
@@ -5036,7 +5036,7 @@ function actions.dispatch(actor, mode, intent, provider)
     -- movement, combat, rescue, construction, window and vehicle action must
     -- first leave furniture or the engine can retain a seated animation/state.
     local seatedActivity = action == "read" or action == "repair" or action == "craft_supply"
-        or action == "ext_gesture" or action == "write_diary"
+        or action == "ext_gesture" or action == "write_diary" or action == "computer_use"
     if action == "sit_ground" then
         local standing, standingReason = leaveFurniture(actor)
         if not standing then return false, standingReason end

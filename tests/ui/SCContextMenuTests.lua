@@ -466,6 +466,93 @@ local social = fill({ floor })
 check(group(social, "households") and group(social, "strange_folk")
     and not find(social, "Ask the visitor", true),
     "available household and Strange Folk conversations retain separate populated groups")
+local storyCalls, chatBefore = {}, #opened
+oddball.oddball.id, oddball.oddball.stage = "fan_corey_biggs", "following"
+SC.Factions.group = function(id) return id == oddball.id and oddball or nil end
+local choicesEnabled = true
+SC.Oddballs.groupForActor = function() return nil end -- Legacy affiliation flags can be absent.
+SC.Oddballs.menuOptions = function()
+    return { { id = "ask_diary", label = "Ask what Corey wrote", enabled = choicesEnabled } }
+end
+SC.Oddballs.storyAction = function(id, action, player, payload)
+    storyCalls[#storyCalls + 1] = { id = id, action = action, player = player, payload = payload }
+    return true, "fan_diary_recalled"
+end
+local coreyMenu = fill({ unknown })
+local coreyTalk = find(coreyMenu, "talk:" .. unknown.id, true)
+local coreyChoices = child(coreyMenu, coreyTalk)
+check(coreyChoices and find(coreyChoices, "Ask what Corey wrote", true) and #opened == chatBefore,
+    "a clicked unrecruited Strange Folk actor opens authored choices without requiring a roster selection")
+local diary = find(coreyChoices, "Ask what Corey wrote", true)
+select(diary)
+check(#storyCalls == 1 and storyCalls[1].id == oddball.id and storyCalls[1].action == "ask_diary"
+    and storyCalls[1].player == T.doctor and #opened == chatBefore,
+    "the actual context callback dispatches Corey's diary choice to the exact story and player")
+choicesEnabled = false
+select(diary)
+check(#storyCalls == 1, "a story choice that changed after opening cannot dispatch")
+choicesEnabled = true
+local previousX = unknown.square.x
+unknown.square.x = previousX + 100
+select(diary)
+check(#storyCalls == 1, "walking away invalidates an old story popup")
+unknown.square.x = previousX
+local record = records[unknown.id]
+records[unknown.id] = { id = unknown.id, actor = a }
+select(diary)
+check(#storyCalls == 1, "a removed/replaced story actor cannot inherit an old popup")
+records[unknown.id] = record
+oddball.members = {}
+select(diary)
+check(#storyCalls == 1, "a person who left this story group cannot use its stale popup")
+oddball.members = { { actorId = unknown.id } }
+SC.Oddballs.groupForActor = function(value) return value == unknown and oddball or nil end
+local resolved = fill({ unknown })
+check(child(resolved,find(resolved,"talk:" .. unknown.id,true)) ~= nil,
+    "current authored affiliations use the same direct story conversation")
+records[unknown.id].factionMember, records[unknown.id].factionId = true, oddball.id
+unknown.square.x = T.doctor:getX() + 5
+local atTalkRange = fill({ unknown })
+check(child(atTalkRange, find(atTalkRange, "talk:" .. unknown.id, true)) ~= nil,
+    "a Strange Folk member is directly talkable outside the medical-check range")
+unknown.square.x = previousX
+records[unknown.id].factionMember, records[unknown.id].factionId = nil, nil
+local nestedStory = find(fill({ floor }), "Ask what Corey wrote")
+select(nestedStory)
+local currentCalls = #storyCalls
+choicesEnabled = false
+select(nestedStory)
+check(#storyCalls == currentCalls, "the nested Strange Folk menu also revalidates an expired choice")
+choicesEnabled = nil
+local pending = fill({ unknown })
+local pendingChoice = find(pending, "Ask what Corey wrote")
+check(pendingChoice and pendingChoice.notAvailable,
+    "an unmet story prerequisite returning nil cannot expose a selectable choice")
+select(diary)
+check(#storyCalls == currentCalls, "callbacks also reject nil story availability")
+choicesEnabled = true
+local oldOptions = SC.Oddballs.menuOptions
+SC.Oddballs.menuOptions = function() return {} end
+local passiveMenu = fill({ unknown })
+local passiveTalk = find(passiveMenu, "talk:" .. unknown.id, true)
+check(passiveTalk and passiveTalk.isDisabled and not child(passiveMenu, passiveTalk) and #opened == chatBefore,
+    "passive or finished scenes explain that there is no conversation instead of opening an unusable chat")
+SC.Oddballs.menuOptions = oldOptions
+oddball.lifecycle = "destroyed"
+local endedTalk = find(fill({ unknown }), "talk:" .. unknown.id, true)
+select(nestedStory)
+check(endedTalk and endedTalk.isDisabled and #storyCalls == currentCalls and #opened == chatBefore,
+    "an ended scene cannot fall back to companion chat or dispatch a stale story action")
+oddball.lifecycle = "settled"
+local oldSee, oldRoom12, oldNate = SC.GameplayUtil.canSee, SC.OddballRoom12, SC.OddballDehydrated
+SC.GameplayUtil.canSee = function() return false end
+for _, name in ipairs({ "OddballRoom12", "OddballDehydrated" }) do
+    SC[name] = { canTalkThroughDoor = function(value) return value == oddball end }
+    check(find(group(fill({ floor }), "strange_folk"), "Ask what Corey wrote") ~= nil,
+        name .. " retains its authored conversation when the closed door blocks sight")
+    SC[name] = nil
+end
+SC.GameplayUtil.canSee, SC.OddballRoom12, SC.OddballDehydrated = oldSee, oldRoom12, oldNate
 SC.Factions, SC.FactionContracts, SC.Oddballs = nil, nil, nil
 
 local foreignMenu = root()

@@ -10,7 +10,7 @@ local function U() return SC.ControlUtil end
 local function option(label,action,value) return {label=label,radioAction=action,radioValue=value} end
 local function trimmed(s) return tostring(s or ""):lower():gsub("[?!%.]+$",""):gsub("%s+"," "):match("^%s*(.-)%s*$") end
 function UI.active(w) return w and not w.closed and w.system and w.menuPage=="radio_desk" and not w.system.locked end
-function UI.notice(w,text) w.radioNotice=tostring(text or "") end
+function UI.notice(w,text) w.radioNotice=tostring(text or "");w.radioNoticeAt=U().now() end
 function UI.open(w)
     local rt,reason=R().ready(w)
     if not rt then w:print(reason,"system") return false end
@@ -18,6 +18,7 @@ function UI.open(w)
     w.scanPage,w.scanReturn=nil,nil
     w.menuPage,w.radioPage,w.radioOffset,w.menuSelection="radio_desk","home",0,1
     w.radioNotice="LARCH/WAVE ready. Presets, scanning, audio and your reception notebook."
+    w.radioNoticeAt=nil
     if R().hasMission() then
         local _,message=R().tune(w,R().teamChannel())
         w.radioNotice="Active expedition: team channel selected where available. "..tostring(message or "")
@@ -39,7 +40,25 @@ function UI.options(w)
     local rt=R().snapshot(w)
     if not rt then return {option("Back to EMMA","leave")} end
     local p=w.radioPage
-    if p=="reading" then return {option("Back to notebook","page","notebook")}
+    if p=="recruit" and SC.RadioWork then
+        local view=UI.workView(w)
+        local result={}
+        if view.jobId then
+            result[#result+1]=option("Cancel shift","work_stop")
+        elseif view.contact and view.contact.status=="found" then
+            result[#result+1]=option("Invite survivor to camp","work_invite")
+            result[#result+1]=option("Pass on this contact","work_decline")
+        else result[#result+1]=option("Assign radio operator","page","operators") end
+        result[#result+1]=option("Back to radio desk","page","home")
+        return result
+    elseif p=="operators" and SC.RadioWork then
+        local result={} local rows=w.radioWorkCrew or {} local offset=w.radioOffset or 0
+        for i=offset+1,math.min(offset+3,#rows) do result[#result+1]=option(rows[i].name,"work_assign",rows[i].id) end
+        if offset>0 then result[#result+1]=option("Previous operators","offset",math.max(0,offset-3)) end
+        if offset+3<#rows then result[#result+1]=option("More operators","offset",offset+3) end
+        result[#result+1]=option("Back","page","recruit")
+        return result
+    elseif p=="reading" then return {option("Back to notebook","page","notebook")}
     elseif p=="library" then return {option("Received text","page","notebook"),option("Heard stations","page","heard"),option("Back","back")}
     elseif p=="presets" or p=="heard" or p=="notebook" then
         local rows=p=="presets" and R().presets(w.object) or rt and rt.memory[p=="heard" and "found" or "log"] or {}
@@ -72,8 +91,13 @@ function UI.options(w)
         result[#result+1]=option("Back","back")
         return result
     end
-    return {option("Presets","page","presets"),option("Scanner","page","scan"),option("Audio / visual","page","audio"),
-        option("Notebook","page","library"),option("Team / Marcus","page","team"),option("Back to EMMA","leave")}
+    local result={option("Presets","page","presets"),option("Scanner","page","scan"),option("Audio / visual","page","audio"),
+        option("Notebook","page","library"),option("Team / Marcus","page","team")}
+    if SC.RadioWork and SC.BaseLife and SC.BaseLife.isInside(w.object) then
+        result[#result+1]=option("Survivor radio watch","page","recruit")
+    end
+    result[#result+1]=option("Back to EMMA","leave")
+    return result
 end
 local function result(w,okay,message,proposal)
     if proposal then
@@ -86,7 +110,9 @@ local function result(w,okay,message,proposal)
 end
 local function act(w,action,value)
     if action=="open" then UI.open(w) return true
-    elseif action=="page" then w.radioPage,w.radioOffset,w.menuSelection=value,0,1 return true
+    elseif action=="page" then
+        if value=="operators" and SC.RadioWork then w.radioWorkCrew=SC.RadioWork.crew() end
+        w.radioPage,w.radioOffset,w.menuSelection=value,0,1 return true
     elseif action=="offset" then w.radioOffset,w.menuSelection=value,1 return true
     elseif action=="back" then UI.back(w) return true
     elseif action=="leave" then UI.leave(w) return true
@@ -104,7 +130,17 @@ local function act(w,action,value)
     local rt,reason=R().ready(w)
     if not rt then return result(w,false,reason) end
     rt.lastPoll=nil
-    if action=="control" then
+    if action=="work_assign" or action=="work_stop" or action=="work_invite" or action=="work_decline" then
+        if not SC.RadioWork then return result(w,false,"Radio watch is unavailable.") end
+        local okay,message
+        if action=="work_assign" then okay,message=SC.RadioWork.assign(w.object,value)
+        elseif action=="work_stop" then okay,message=SC.RadioWork.stop(w.object)
+        elseif action=="work_decline" then okay,message=SC.RadioWork.decline(w.object)
+        else okay,message=SC.RadioWork.invite(w.object,w.player) end
+        w.radioWorkAt=nil;w.radioPage,w.menuSelection="recruit",1
+        local feedback=SC.RadioWork.message(message)
+        return result(w,okay,feedback)
+    elseif action=="control" then
         R().stop(w.object,true)
         if value.operation=="radio" then
             local okay,detail=R().tune(w,R().teamChannel())
@@ -222,13 +258,22 @@ function UI.update(w,now)
     if UI.active(w) then
         local rt,reason=R().poll(w,now)
         if not rt then UI.notice(w,reason) end
+        if w.radioPage=="recruit" or w.radioPage=="operators" then UI.workView(w) end
     end
+end
+function UI.workView(w)
+    local now=U().now()
+    if not w.radioWorkAt or now-w.radioWorkAt>=500 or now<w.radioWorkAt then
+        w.radioWorkView=SC.RadioWork.snapshot(w.object);w.radioWorkAt=now
+    end
+    return w.radioWorkView
 end
 function UI.boxes(w)
     local options=UI.options(w) local boxes={}
     local pad=math.max(3,math.floor(w.layout.pad/3))
-    local grid=#options>1 and (w.radioPage=="home" or w.radioPage=="scan" or w.radioPage=="audio" or w.radioPage=="team")
-    local cols=grid and (w:columns()>=48 and 3 or 2) or 1
+    local grid=#options>1 and (w.radioPage=="home" or w.radioPage=="scan" or w.radioPage=="audio"
+        or w.radioPage=="team" or w.radioPage=="recruit")
+    local cols=grid and math.min(#options,w.radioPage=="recruit" and 2 or w:columns()>=48 and 3 or 2) or 1
     local rows=math.ceil(#options/cols)
     local gap=grid and pad or 2
     local h=w.rowHeight+gap
@@ -278,6 +323,9 @@ function UI.draw(w,now)
     end
     local boxes,buttonTop=UI.boxes(w)
     w.radioHits=boxes
+    if (w.radioPage=="recruit" or w.radioPage=="operators") and SC.RadioWork then
+        UI.drawWork(w,now,boxes,buttonTop);return
+    end
     if not snap then
         lines(w.radioNotice or "Radio unavailable.",top,buttonTop)
         for _,box in ipairs(boxes) do
@@ -341,5 +389,9 @@ function UI.draw(w,now)
         if #label>limit then label=label:sub(1,math.max(1,limit-3)).."..." end
         text(label,box.x+2,box.y+1,title)
     end
+end
+
+function UI.drawWork(w,now,boxes,bottom)
+    SC.TerminalRadioWorkUI.draw(w,now,UI.workView(w),boxes,bottom)
 end
 return UI

@@ -1,0 +1,77 @@
+Companion feedback, crisis recovery and collapsed launcher
+8 November 2026 — living_fellows/0.27.4
+
+Player behaviour
+- Status explains the current blocker under Why paused, with a recovery step.
+  Recovered failures remain in optional Recent problems and Support diagnostics.
+- The rounded charcoal LF tab uses orange lettering and an attention badge.
+  Docking, dragging, Home and the player's text-size setting remain supported.
+- One nonblocking notice offers Review and Acknowledge. Review opens the exact
+  job or decision. Acknowledgement survives reload and leaves its badge until
+  the issue resolves. Incoming notices do not open menus, take focus or pause.
+- Crisis information follows witnessed, disclosed or observed evidence. Hidden
+  infection percentages and private intentions are not shown to the player.
+- Watch permits indoor duty and self-care. Missing/unreachable quarantine
+  remains pending under watch, retries after three game minutes, and retains
+  manual Retry. Arrival is verified on the correct floor before quarantine.
+- Irreversible outcomes require explicit, current player confirmation. Stale
+  decisions, unavailable actors/equipment, urgent danger and ambiguous effects
+  after reload cannot silently carry out or replay that authorization.
+- Release, death and dismissal clear crisis-owned restrictions and paths;
+  later manual restrictions and unrelated action owners are preserved.
+
+Automated verification
+The existing five essential checks are used; no additional runner was added.
+Focused additions cover feedback/action/retry identity, indoor watch admission,
+quarantine arrival/retry, stale revisions, private evidence, actual medic/patient
+claims, death, reload, exact restriction ownership and interrupted final actions.
+UI checks exercise launcher sizing, corner hit testing, drag isolation, retained
+alerts, acknowledgement and the production irreversible-confirmation callback.
+Final gate: PASS, all five checks, 58 seconds, serial execution.
+Evidence: build/test-results/20261108-040412-6b9a58
+Build 14.6s; Lifecycle 33.1s; Behaviour 2.1s; Cargo 2.6s; Interface 5.7s.
+An earlier test assertion expected a redacted player row; the correct private
+result is no player row. The corrected assertion and final gate both passed.
+
+Real in-game acceptance
+Run: build/live-sandbox-runs/SC-Harness-20261108-035446-55f42fab
+Project Zomboid 42.21.0, LF-only, isolated source bridge, cloned save. One game
+process, below-normal scheduling, four processors, 30 FPS and 3 GB Java heap.
+The installed launcher and original save were not modified.
+
+The clone used the native two-storey Rosewood firehouse, actual doors/stairs
+and two test companions. A known quarantine verdict was seeded in the clone;
+this checks recovery and presentation, not natural infection acquisition.
+1. Missing quarantine stayed pending under watch, with readable notice/card.
+2. An unaffected companion accepted Follow and moved 3.31 tiles normally.
+3. Marking upstairs quarantine allowed ordinary production navigation to reach
+   8122,11744,1 from 8151.5,11737.5,0 in approximately 25 seconds.
+4. Arrival applied quarantine. Explicit release cleared its restriction and
+   normal base duties resumed. The 240-second observation completed successfully.
+5. The real renderer captured the rounded launcher, pending Status card,
+   acknowledged badge and upstairs arrival. No gameplay exceptions occurred;
+   existing startup map/content warnings remain in the console.
+
+Evidence: cache/Lua/SurvivorCompanionHarness/feedback-acceptance.txt and events.log;
+cache/Screenshots/lf-feedback-* (native PNG screenshots without file extensions).
+User previews: C:/ZOMBOID/outputs/feedback-launcher-02704/
+  launcher-upstairs-quarantine.png
+  status-pending-quarantine.png
+
+Earlier acceptance blockers were captured before correction. The first fixture
+did not verify a rejected movement command. The next run exposed a real issue:
+a distant zombie blocked safe indoor quarantine travel. The final production
+fix admits indoor withdrawal past non-immediate threats and gives it priority
+over a generic distant-combat candidate, while preserving urgent safety/care.
+
+After live acceptance, automated checks also cover the tightened constant-time
+medic lookup, private-viewer identity and immutable confirmation snapshot.
+This is not multiplayer acceptance or an exhaustive natural-disease playthrough.
+
+Review fix — 8 November 2026
+Final-decision conflict checks compare only real, non-nil actor IDs. Separate
+subjects without executors can be authorized independently; a shared executor
+or a subject already serving as executor remains protected from overlap.
+The existing crisis harness reproduces the former false actor-busy result and
+checks both real conflict cases. All five project checks PASS in 65.1 seconds:
+build/test-results/20261108-110016-d532c3. No new live acceptance was run for this fix.

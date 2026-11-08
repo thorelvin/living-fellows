@@ -257,6 +257,58 @@ do
     check(clicks==2 and w.radioPage=="scan","radio keyboard menu selection plays one click")
     getSoundManager=previousSound
 end
+do
+    local savedWork,savedInside=SC.RadioWork,SC.BaseLife.isInside
+    local active={status="working",operator="Tess Nolan",progress=2,goal=4,jobId="job:watch"}
+    local snapshots=0
+    SC.RadioWork={snapshot=function() snapshots=snapshots+1;return active end,
+        crew=function() return {{id="tess",name="Tess Nolan"}} end}
+    SC.BaseLife.isInside=function() return true end
+    w.radioPage="home";w:prerender()
+    local watch
+    for _,entry in ipairs(w:menuOptions()) do if entry.radioValue=="recruit" then watch=entry end end
+    check(watch~=nil,"a camp radio desk exposes the survivor-watch program")
+    UI.input(w,"",watch);T.now=T.now+600;w:prerender()
+    check(w.radioPage=="recruit" and w.radioWorkView.operator=="Tess Nolan",
+        "the custom display retains the assigned username and progress")
+    local before=snapshots
+    w:prerender();w:prerender()
+    check(snapshots==before,"drawing the SDR reuses a throttled snapshot")
+    for _,box in ipairs(w.radioHits) do check(box.y+box.height<=w:viewBottom(),"radio-work actions fit inside the CRT") end
+    local savedCore,savedDraw=getCore,w.drawRect
+    getCore=function() return {getScreenWidth=function() return 1280 end,getScreenHeight=function() return 720 end} end
+    w:refreshLayout()
+    local bars=0
+    w.drawRect=function(self,x,y,width,height,...)
+        if width>0 and width<(self.layout.right-self.layout.left)/35 and height>0 then bars=bars+1 end
+        return savedDraw(self,x,y,width,height,...)
+    end
+    w:prerender()
+    check(bars>=40,"the working SDR remains visible at 1280 by 720")
+    local display=SC.TerminalRadioWorkUI
+    local frame=display.frame(w,T.now,active)
+    local startTime=frame.time
+    for i=1,140 do display.frame(w,T.now+i*180,active) end
+    check(#frame.history==12 and #frame.log<=8 and frame.time>startTime,
+        "visible scanning scrolls a bounded waterfall and rolling operator log")
+    local timeBefore,rowsBefore=frame.time,#frame.history
+    active.status="paused"
+    display.frame(w,T.now+30000,active)
+    check(frame.time==timeBefore and #frame.history==rowsBefore,
+        "a paused real job freezes its scan instead of pretending work continues")
+    active.status="working"
+    local calls=snapshots
+    display.draw(w,T.now+30200,active,w.radioHits,w:viewBottom()-w.rowHeight*2)
+    check(snapshots==calls and active.contact==nil,
+        "display animation never polls native job state or invents a survivor contact")
+    getCore,w.drawRect=savedCore,savedDraw;w:refreshLayout()
+    active={status="found",operator="Tess Nolan",progress=4,goal=4,
+        contact={name="Nolan Reed",status="found"}}
+    w.radioWorkAt=nil;w:prerender()
+    check(w:menuOptions()[1].radioAction=="work_invite","a contact waits for the player's explicit invitation")
+    SC.BaseLife.isInside,SC.RadioWork=savedInside,savedWork
+    w.radioPage="home"
+end
 send("scan presets") w:close()
 check(pc.device.channel==90000,"closing the terminal restores its original channel")
 R.reset()

@@ -8,6 +8,16 @@ local function check(ok, message)
 end
 local ready, reason = M.onSpawn(F.group, F.nate)
 check(ready == true and reason == "nate_waiting", "scene enters waiting state")
+check(M.canTalkThroughDoor(F.group, F.player),
+    "Nate can be discovered through his closed rescue door")
+F.player.z = 1
+check(not M.canTalkThroughDoor(F.group, F.player),
+    "Nate's door conversation cannot be heard through a floor")
+F.player.z = 0
+F.nate.square = F.outside
+check(not M.canTalkThroughDoor(F.group, F.player),
+    "Nate's old rescue door cannot reach him after he has left")
+F.nate.square = F.spawnSquare
 check(F.nate.stats.thirst == 0.94 and F.nate.sitting == true,
     "Nate is visibly slumped and severely thirsty")
 F.nate.sitting, F.poseSquareClear = false, false

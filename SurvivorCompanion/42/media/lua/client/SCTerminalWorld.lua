@@ -436,7 +436,8 @@ function World.new(player, object)
             local job = humanize(row.kind or row.type or "work")
             local reason
             if row.blocker then
-                reason = SC.UI and type(SC.UI.baseFailureReason) == "function"
+                reason = SC.ActionFeedback and SC.ActionFeedback.describe(SC.ActionFeedback.reason(row.blocker))
+                    or SC.UI and type(SC.UI.baseFailureReason) == "function"
                     and SC.UI.baseFailureReason(row.blocker, true) or nil
                 if not reason or reason:find("^UI_SC_") then
                     reason = SC.TerminalLines.T.job_reason_unknown

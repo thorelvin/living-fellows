@@ -30,8 +30,12 @@ $interfacePanelFiles = @(
     (Join-Path $GameRoot 'media\lua\client\ISUI\ISUIElement.lua'),
     (Join-Path $GameRoot 'media\lua\client\ISUI\ISTickBox.lua'),
     (Join-Path $Client 'SCUIFormat.lua'),
+    (Join-Path $Client 'SCUIBounds.lua'),
+    (Join-Path $Client 'SCActionFeedback.lua'),
+    (Join-Path $Client 'SCUIAttention.lua'),
     (Join-Path $Client 'SCUI.lua'),
     (Join-Path $Essential 'interface_commands.lua'),
+    (Join-Path $UI 'SCUIAttentionTests.lua'),
     (Join-Path $UI 'SCUIBaseRefreshTests.lua'),
     (Join-Path $UI 'SCHomeTripObservationTests.lua'),
     (Join-Path $Client 'SCExpeditionTargets.lua'),
@@ -80,7 +84,7 @@ foreach ($module in @(
 ) }
 
 $interfaceRadioFiles = @($interfaceTerminalFiles)
-foreach ($module in @('SCTerminalHardware', 'SCTerminalRadio', 'SCTerminalRadioUI', 'SCTerminalServices')) {
+foreach ($module in @('SCTerminalHardware', 'SCTerminalRadio', 'SCTerminalRadioWorkUI', 'SCTerminalRadioUI', 'SCTerminalServices', 'SCRadioWork')) {
     $interfaceRadioFiles += Join-Path $Client ($module + '.lua')
 }
 @{ Name = 'interface-radio-lifecycle'; Files = $interfaceRadioFiles + @(

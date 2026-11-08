@@ -92,6 +92,7 @@ function Routes.key(actor, goalSquare, intent)
     return activeBaseRouteScope() .. "|" .. tostring(routeClass or "work")
         .. "|" .. (intent.workCampOnly == true
             and (intent.workReach == true and "reach" or "camp") or "normal")
+        .. (intent.workIndoorOnly == true and "|indoors" or "")
         .. "|" .. goalKey
 end
 

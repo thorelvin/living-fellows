@@ -1260,14 +1260,31 @@ local function mostRecentRetry(actor)
     return copy
 end
 
-function Supervisor.summary(actor)
+function Supervisor.summary(actor, readOnly)
     if actor == nil then return nil end
-    Supervisor.update(actor)
+    if readOnly ~= true then Supervisor.update(actor) end
     local token = activeByActor[actor]
     local native = token == nil and nativeSnapshot(actor) or nil
     local source = token or native
     local failure = mostRecentFailure(actor)
-    local retry = mostRecentRetry(actor)
+    -- Public feedback must never attach another task's cooldown to this failure.
+    local retry = failure and Supervisor.retryStatus(actor, failure.action,
+        failure.targetKey, failure.failureCategory) or nil
+    local blocker = failure
+    if failure then
+        for index = #historyFor(actor), 1, -1 do
+            local event = historyFor(actor)[index]
+            if event == failure then break end
+            if event.event == "begin" or event.event == "completed"
+                or event.event == "retry_reset" or event.event == "cancelled"
+                or ((event.event == "transition" or event.event == "progress")
+                    and event.token ~= failure.token) then
+                blocker = nil
+                break
+            end
+        end
+    end
+    if source ~= nil then blocker = nil end
     local currentTime = nowMs()
     return {
         actorId = actorId(actor),
@@ -1287,6 +1304,8 @@ function Supervisor.summary(actor)
             - (tonumber(source.phaseAt) or currentTime)) or 0,
         reservationCount = token and #token.reservations or 0,
         lastFailure = failure and safeDetail(failure, 0) or nil,
+        blocker = blocker and safeDetail(blocker, 0) or nil,
+        feedbackVersion = 1,
         retry = retry,
         urgent = Supervisor.urgentStatus(actor),
     }

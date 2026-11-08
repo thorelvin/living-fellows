@@ -16,9 +16,7 @@ BaseLife.ROLES = {
     generalist = true, guard = true, builder = true, quartermaster = true, medic = true,
     farmer = true, angler = true, chef = true, woodcutter = true, corpsekeeper = true, maintainer = true,
 }
--- Standing marks an infection crisis can leave on a survivor. All of them bar
--- camp duty: watch and quarantine keep someone inside under supervision,
--- exile keeps them out until the player lifts it.
+-- Watch permits indoor duty. Quarantine and exile suspend work, never care.
 BaseLife.RESTRICTIONS = { watch = true, quarantine = true, exiled = true }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
@@ -38,7 +36,7 @@ BaseLife.JOB_TYPES = {
     inflate_tires = true, wash_vehicle = true,
     repair = true, replace_bandage = true, clean = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
-    gather_materials = true, production = true, farm = true, cook = true,
+    gather_materials = true, production = true, farm = true, cook = true, radio_work = true,
 }
 BaseLife.GATHER_MATERIALS = {
     logs = "Base.Log",
@@ -186,6 +184,10 @@ function BaseLife.upkeepSupplyRetryMs(job, reason)
 end
 local function transientJobDelay(job, reason)
     if type(job) ~= "table" then return nil end
+    if job.type == "radio_work" and (reason == "radio_work_no_power"
+        or reason == "radio_work_computer_missing" or reason == "radio_work_radio_missing"
+        or reason == "radio_work_locked" or reason == "radio_work_interrupted"
+        or reason == "computer_unavailable" or reason == "computer_no_access") then return 180000 end
     if job.type == "clean" and (reason == "cleaning_tool_missing"
         or reason == "cleaning_cleaner_missing" or reason == "cleaning_water_or_bucket_missing"
         or reason == "cleaning_water_source_changed" or reason == "cleaning_water_unreachable"
@@ -346,6 +348,7 @@ local function emptyDocument()
         bases = {},
         residents = {},
         restrictions = {},
+        restrictionOwners = {},
         history = {},
     }
 end
@@ -1043,6 +1046,8 @@ local function normalize(source)
     for id, value in pairs(type(source.restrictions) == "table" and source.restrictions or {}) do
         if type(id) == "string" and BaseLife.RESTRICTIONS[value] then
             result.restrictions[id] = value
+            local owner = type(source.restrictionOwners) == "table" and source.restrictionOwners[id]
+            if type(owner) == "string" and #owner <= 96 then result.restrictionOwners[id] = owner end
         end
     end
     for _, row in ipairs(type(source.history) == "table" and source.history or {}) do
@@ -1378,6 +1383,8 @@ end
 -- Navigation admission for camp work: ordinary work stays inside the camp
 -- area, while jobs tied to a reach zone may also use the bounded band.
 function BaseLife.admitsWork(value, intent)
+    if type(intent) == "table" and intent.workIndoorOnly == true
+        and BaseLife.isOutdoorSquare(value) ~= false then return false end
     if BaseLife.isInside(value) then return true end
     return type(intent) == "table" and intent.workReach == true
         and BaseLife.withinWorkReach(value) == true
@@ -4404,6 +4411,7 @@ function BaseLife.outdoorJob(job)
 end
 
 local function jobScore(actorId, job, settlementId)
+    if not BaseLife.workPermitted(actorId, job) then return -math.huge end
     if SC.BaseWatch and SC.BaseWatch.isLeaderId
         and SC.BaseWatch.isLeaderId(actorId)
         and BaseLife.outdoorJob(job) then return -math.huge end
@@ -4493,7 +4501,7 @@ function BaseLife.priorityWorkFor(actorId)
     local base, current = activeBase(), now()
     local resident = ensure().residents[actorId]
     if not base or not resident or resident.duty ~= true
-        or BaseLife.RESTRICTIONS[ensure().restrictions[actorId]] then return nil end
+        or (ensure().restrictions[actorId] and ensure().restrictions[actorId] ~= "watch") then return nil end
     local best, bestScore
     for _, job in ipairs(base.jobs) do
         local assigned = job.assignedId == actorId or job.reservedBy == actorId
@@ -4516,7 +4524,7 @@ function BaseLife.claimJob(actorId)
     local base, current = activeBase(), now()
     local resident = ensure().residents[actorId]
     if not base or not resident or resident.duty ~= true then return nil, "not_on_base_duty" end
-    if BaseLife.RESTRICTIONS[ensure().restrictions[actorId]] then
+    if ensure().restrictions[actorId] and ensure().restrictions[actorId] ~= "watch" then
         return nil, "infection_restriction"
     end
     -- Restored or legacy rows may contain a gather job whose assigned worker
@@ -4542,7 +4550,10 @@ function BaseLife.claimJob(actorId)
     end
     if staleRemoved then bumpWorkConsistencyRevision() end
     local existing = BaseLife.jobFor(actorId)
-    if existing then return existing, "existing_job" end
+    if existing then
+        if not BaseLife.workPermitted(actorId, existing) then return nil, "infection_restriction" end
+        return existing, "existing_job"
+    end
     local actor = U().resolveActor and U().resolveActor(actorId)
     local settlement = actor and SC.Production and SC.Production.settlementFor
         and SC.Production.settlementFor(actor)
@@ -4771,7 +4782,7 @@ function BaseLife.cancelJob(id)
     end
     local transferJob = job.type == "haul" or job.type == "sort"
         or job.type == "sort_floor"
-        or job.type == "clean"
+        or job.type == "clean" or job.type == "radio_work"
         or job.type == "fetch" or job.type == "unload_vehicle"
         or job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle"
@@ -5221,11 +5232,16 @@ function BaseLife.resident(actorId)
     return ensure().residents[actorId]
 end
 
-function BaseLife.setRestriction(actorId, value)
+function BaseLife.setRestriction(actorId, value, owner)
     if value ~= nil and not BaseLife.RESTRICTIONS[value] then
         return false, "invalid_restriction"
     end
-    ensure().restrictions[actorId] = value
+    local state = ensure()
+    state.restrictionOwners = state.restrictionOwners or {}
+    if owner and state.restrictionOwners[actorId] ~= nil
+        and state.restrictionOwners[actorId] ~= owner then return false, "restriction_owned_elsewhere" end
+    state.restrictions[actorId] = value
+    state.restrictionOwners[actorId] = value ~= nil and owner or nil
     if SC.Registry and type(SC.Registry.byId) == "function"
         and SC.Commands and type(SC.Commands.refreshPlayerAttackProtection) == "function" then
         local record = SC.Registry.byId(actorId)
@@ -5451,6 +5467,30 @@ end
 
 function BaseLife.restriction(actorId)
     return ensure().restrictions[actorId]
+end
+
+function BaseLife.restrictionOwner(actorId)
+    return (ensure().restrictionOwners or {})[actorId]
+end
+
+local indoorDuty = { radio_work = true, sort = true, sort_floor = true, haul = true, fetch = true,
+    clean = true, craft_supply = true, cook = true, repair = true, replace_bandage = true }
+function BaseLife.workPermitted(actorId, job)
+    local restriction = BaseLife.restriction(actorId)
+    if restriction == nil then return true end
+    if restriction ~= "watch" or not job or not indoorDuty[job.type] then return false end
+    return not BaseLife.outdoorJob(job)
+end
+
+function BaseLife.watchMovementPermitted(actor, square, intent)
+    if BaseLife.restriction(U().idOf(actor)) ~= "watch" then return true end
+    if type(intent) == "table" and intent.urgent == true then return true end
+    if type(intent) == "table" and intent.watchReturnInside == true
+        and BaseLife.isInside(intent.targetSquare) == true
+        and BaseLife.isOutdoorSquare(intent.targetSquare) == false then
+        return BaseLife.withinWorkReach(square) == true
+    end
+    return BaseLife.isInside(square) == true and BaseLife.isOutdoorSquare(square) == false
 end
 
 function BaseLife.noteHistory(kind, fields)
@@ -6168,6 +6208,17 @@ local function validateRestoreSource(source)
         local path = "$.baseLife.restrictions[" .. tostring(id) .. "]"
         if type(id) ~= "string" or id == "" or not BaseLife.RESTRICTIONS[restriction] then
             return restoreFailure(path, "invalid restriction")
+        end
+    end
+    if source.restrictionOwners ~= nil then
+        if type(source.restrictionOwners) ~= "table" then
+            return restoreFailure("$.baseLife.restrictionOwners", "expected owner map")
+        end
+        for id, owner in pairs(source.restrictionOwners) do
+            if type(id) ~= "string" or source.restrictions[id] == nil
+                or type(owner) ~= "string" or #owner == 0 or #owner > 96 then
+                return restoreFailure("$.baseLife.restrictionOwners", "invalid restriction owner")
+            end
         end
     end
     local okay, countOrReason = validRecordArray(source.history, "$.baseLife.history",

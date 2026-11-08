@@ -7,12 +7,9 @@ SC.UIBounds = SC.UIBounds or {}
 local Bounds = SC.UIBounds
 
 Bounds.defaults = {
-    collapsedWidth = 54,
-    collapsedMaxWidth = 84,
-    collapsedWidthRatio = 0.022,
-    collapsedHeight = 112,
-    collapsedMaxHeight = 148,
-    collapsedHeightRatio = 0.06,
+    collapsedWidth = 64,
+    collapsedHeight = 80,
+    collapsedInset = 6,
     expandedRatio = 0.32,
     expandedMinWidth = 380,
     expandedMaxWidth = 560,
@@ -24,15 +21,13 @@ Bounds.defaults = {
 
 function Bounds.collapsedSize(screenWidth, screenHeight)
     local d = Bounds.defaults
-    local width = Bounds.clamp(
-        Bounds.round(screenWidth * d.collapsedWidthRatio),
-        d.collapsedWidth,
-        d.collapsedMaxWidth)
-    local height = Bounds.clamp(
-        Bounds.round(screenHeight * d.collapsedHeightRatio),
-        d.collapsedHeight,
-        d.collapsedMaxHeight)
-    return width, height
+    local fontHeight = 16
+    if type(getTextManager) == "function" and UIFont then
+        fontHeight = getTextManager():getFontHeight(UIFont.Small)
+    end
+    local scale = Bounds.clamp((tonumber(fontHeight) or 16) / 16, 1, 2)
+    scale = math.min(scale, math.max(1, (screenHeight - d.safeVerticalMargin * 2) / d.collapsedHeight))
+    return Bounds.round(d.collapsedWidth * scale), Bounds.round(d.collapsedHeight * scale)
 end
 
 function Bounds.clamp(value, minimum, maximum)
@@ -83,9 +78,9 @@ function Bounds.collapsedRect(screenWidth, screenHeight, dockSide, savedY)
     local maximumY = screenHeight - d.safeVerticalMargin - height
     local defaultY = Bounds.round(screenHeight * d.defaultEdgeRatio)
     local y = Bounds.clamp(tonumber(savedY) or defaultY, d.safeVerticalMargin, maximumY)
-    local x = 0
+    local x = d.collapsedInset
     if side == "right" then
-        x = screenWidth - width
+        x = screenWidth - width - d.collapsedInset
     end
     return {
         x = x,

@@ -228,6 +228,19 @@ animals[2].onlineId = 102
 for _, job in ipairs(party.jobs) do job.status = "completed" end
 SC.OddballRoom12.pulse(party, player, now)
 assert(party.oddball.stage == "party", "finished barricades should start the party")
+local previousPartyRoom = actors[party.id].square.room
+actors[party.id].square.room = room
+assert(SC.OddballRoom12.canTalkThroughDoor(party, player),
+    "Delbert's closed-door conversation is discoverable without sight of its speaker")
+local previousPartyZ = player.z
+player.z = 1
+assert(not SC.OddballRoom12.canTalkThroughDoor(party, player),
+    "Room 12 cannot be heard from a different floor")
+player.z = previousPartyZ
+actors[party.id].square.room = outside
+assert(not SC.OddballRoom12.canTalkThroughDoor(party, player),
+    "Delbert's old door cannot reach him after he has left the room")
+actors[party.id].square.room = previousPartyRoom
 SC.GameplayUtil.addItem(player.inv, "Base.Whiskey")
 assert(SC.OddballRoom12.action(party, "trade_supplies", player))
 assert(party.oddball.tradeCount == 1 and party.oddball.rewardIndex == 2,

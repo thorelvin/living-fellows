@@ -115,6 +115,10 @@ local function trackerPanel()
     return panel
 end
 function UI.launcher(launcher)
+    if SC.UIAttention and SC.UIAttention.bannerVisible() then
+        if tracker then tracker:setVisible(false) end
+        return
+    end
     local G=SC.Guidance
     local notice=G.notice()
     local item=notice and {id="first_notice",title=notice} or G.tracker()
@@ -143,8 +147,7 @@ function UI.launcher(launcher)
     if G.notice() and not noticeAt then noticeAt=SC.GameplayUtil.nowMs() end
     if noticeAt then
         local age=SC.GameplayUtil.nowMs()-noticeAt
-        if age<900 then launcher:drawRectBorder(0,0,launcher:getWidth(),launcher:getHeight(),
-            math.sin(age/900*math.pi),1,.83,.3) end
+        -- The rounded launcher owns its border and attention treatment.
     end
 end
 function UI.draw(root)

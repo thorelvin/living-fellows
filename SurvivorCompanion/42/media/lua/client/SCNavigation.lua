@@ -5127,6 +5127,7 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         groupParticipants = intent and intent.groupParticipants,
         urgent = intent and intent.urgent == true,
         workCampOnly = intent and intent.workCampOnly == true,
+        workIndoorOnly = intent and intent.workIndoorOnly == true,
         workReach = intent and intent.workReach == true,
         requireSameSquare = intent and intent.requireSameSquare == true,
         draggingBody = intent and intent.draggingBody == true,
@@ -7129,8 +7130,22 @@ function Navigation.request(actor, target, movementMode, intent)
     local sourceSquare = utility.squareOf(actor)
     local requestedGoalSquare = targetSquare(target)
     if not sourceSquare then return false, "invalid_source" end
+    if SC.BaseLife and SC.BaseLife.restriction
+        and SC.BaseLife.restriction(utility.idOf(actor)) == "watch"
+        and not (intent and intent.urgent) then
+        intent = utility.copyShallow(intent)
+        intent.targetSquare = requestedGoalSquare
+        intent.workCampOnly, intent.workReach = true, false
+        intent.workIndoorOnly = SC.BaseLife.isOutdoorSquare(sourceSquare) == false
+        intent.watchReturnInside = not intent.workIndoorOnly
+        if intent.watchReturnInside then intent.workReach = true end
+    end
     local goalSquare, goalAdjusted = resolveFollowGoal(sourceSquare, requestedGoalSquare, intent)
     if not goalSquare then return false, "invalid_destination" end
+    if SC.BaseLife and SC.BaseLife.watchMovementPermitted
+        and not SC.BaseLife.watchMovementPermitted(actor, goalSquare, intent) then
+        return false, "watch_indoor_duty"
+    end
     local permitted, permissionReason = navigationOwnershipPermission(actor, intent)
     if permitted ~= true then return false, permissionReason end
 
@@ -8420,6 +8435,11 @@ function Navigation.request(actor, target, movementMode, intent)
         requestIntent.direct = false
         requestIntent.enginePath = true
         requestIntent.vegetationClearance = true
+    end
+    if SC.BaseLife and SC.BaseLife.watchMovementPermitted
+        and not SC.BaseLife.watchMovementPermitted(actor, nextSquare, requestIntent) then
+        utility.stop(actor)
+        return false, "watch_indoor_duty"
     end
     state.lastAttemptFrom, state.lastAttemptTo = sourceSquare, nextSquare
     local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)

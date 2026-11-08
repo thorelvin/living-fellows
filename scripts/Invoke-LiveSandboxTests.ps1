@@ -1404,6 +1404,15 @@ if ($LowImpact) {
         $_ -notmatch '^-Xm[sx]' -and $_ -notmatch '^-XX:ActiveProcessorCount='
     }) + @('-Xms256m', '-Xmx3072m', '-XX:ActiveProcessorCount=4')
 }
+$isolatedVanillaBootstrap = $IsolatedSourceBridge -and -not $SteamLaunch -and
+    $launcher.mainClass -eq 'zombie/gameStates/MainScreenState'
+if ($isolatedVanillaBootstrap) {
+    # In-memory config for the disposable direct Java process only. Current
+    # normal installs bootstrap through ZombieBuddy and retain vanilla's main.
+    # A live source run does not need to reinstall the obsolete global wrapper.
+    $launcher.classpath = @($launcher.classpath) + @('SurvivorCompanionBridge.jar')
+    $launcher.mainClass = 'survivorcompanion/bridge/SCLauncher'
+}
 if ($launcher.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
     throw 'The native SCLauncher is not installed; run Install-Local.ps1 -NativeBridge first.'
 }
@@ -1415,6 +1424,10 @@ if ($bridgeClassPath.Count -ne 1) {
 }
 $bridgePath = $bridgeClassPath[0].Replace('/', '\')
 if (-not [System.IO.Path]::IsPathRooted($bridgePath)) { $bridgePath = Join-Path $GameRoot $bridgePath }
+if ($isolatedVanillaBootstrap) {
+    $bridgePath = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+    if ($IsolatedBridgePath) { $bridgePath = $IsolatedBridgePath }
+}
 if (-not (Test-Path -LiteralPath $bridgePath -PathType Leaf)) {
     throw "Native companion bridge is missing: $bridgePath"
 }
@@ -2204,6 +2217,7 @@ $manifest = [ordered]@{
     } else { $null }
     oddballSceneScreenshot = if ($captureOddballScene) { $OddballSceneScreenshot } else { $null }
     sourceBridge = $sourceBridge
+    isolatedVanillaBootstrap = [bool]$isolatedVanillaBootstrap
     sourcePayloadProjectRoot = $payloadProjectRoot
     isolatedBridgePath = $IsolatedBridgePath
     sourceBridgeSha256 = $sourceBridgeHash

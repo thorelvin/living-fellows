@@ -13,6 +13,37 @@ Dialogue.VERSION = 1
 -- subsystem the same anti-repetition rules and lets personality influence
 -- wording without changing what an action means.
 local pools = {
+    ["radio_work.start"]={common={
+        "I'll keep an ear on the county. Somebody's got to be out there.",
+        "EMMA's got the frequencies. I've got the patience. Mostly.",
+        "Radio watch. If anyone answers, I'll tell them where home is.",
+        "Headphones on. Try not to need me for anything loud.",
+    }},
+    ["radio_work.banter"]={common={
+        "Another dead channel. At least that kind stays quiet.",
+        "Somebody keeps transmitting a weather report. Optimist.",
+        "EMMA says try again. EMMA doesn't have ears.",
+        "Heard a voice. Turned out to be an advertisement. Still hungry, apparently.",
+        "County's awfully quiet for somewhere with this many people walking around.",
+        "If you're alive out there, say something. Anything except 'sale ends Sunday'.",
+        "Used to hate people talking over the radio. Funny what you miss.",
+        "Found music for half a second. Then the world remembered itself.",
+    }},
+    ["radio_work.found_male"]={common={
+        "I found one. He's barely alive.",
+        "Someone answered. A man. Doesn't sound like he's got much left.",
+        "Got a live one. He needs somewhere safe, and soon.",
+    }},
+    ["radio_work.found_female"]={common={
+        "I found one. She's barely alive.",
+        "Someone answered. A woman. Doesn't sound like she's got much left.",
+        "Got a live one. She needs somewhere safe, and soon.",
+    }},
+    ["radio_work.quiet"]={common={
+        "That's the shift. Nothing human on the radio this time.",
+        "No answer. Doesn't mean there's nobody left. Just means no answer.",
+        "Just static. We'll try again when someone's there to hear us.",
+    }},
     ["guidance.first_meeting"]={common={
         "Hey! Over here. I'm not one of them, so don't shoot.",
         {"Easy with that thing. I'm alive, damn it.",clean="Easy with that thing. I'm alive."},

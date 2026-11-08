@@ -310,6 +310,7 @@ function H.pulse()
                         end
                     end
                     state.lastHours=hours
+                    if SC.RadioWork then SC.RadioWork.observe(object) end
                     if state.radio and H.powered(object) then H.receiver(object) else H.stop(object) end
                     if not r.lastFlush or now-r.lastFlush>=10000 then H.flush(object) r.lastFlush=now end
                 else

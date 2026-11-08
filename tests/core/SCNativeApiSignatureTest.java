@@ -849,6 +849,8 @@ public final class SCNativeApiSignatureTest {
                 "BodyDamage.getOverallBodyHealth() signature changed");
         require(method(bodyDamage, "ReduceGeneralHealth", float.class).getReturnType() == void.class,
                 "BodyDamage.ReduceGeneralHealth(float) signature changed");
+        require(method(bodyDamage, "calculateOverallHealth").getReturnType() == void.class,
+                "BodyDamage.calculateOverallHealth() signature changed");
         require(method(bodyPart, "SetHealth", float.class).getReturnType() == void.class,
                 "BodyPart.SetHealth(float) signature changed");
         require(method(bodyDamage, "getBodyParts").getReturnType() == java.util.ArrayList.class

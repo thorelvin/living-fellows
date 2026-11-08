@@ -18,6 +18,8 @@ require "SCUIExpeditions"
 require "SCUIHomeTrip"
 require "SCInteraction"
 require "SCUIGuidance"
+require "SCActionFeedback"
+require "SCUIAttention"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -373,6 +375,10 @@ end
 -- Terminal advice requests known sentences only. General menu feedback keeps
 -- its existing fallback; internal reason codes remain available in logs.
 function UI.baseFailureReason(reason, knownOnly)
+    if SC.ActionFeedback then
+        local feedback = SC.ActionFeedback.reason(reason)
+        if feedback.known then return SC.ActionFeedback.describe(feedback) end
+    end
     if type(reason) ~= "string" then return not knownOnly and UI.humanize(tostring(reason)) or nil end
     local homeReason = string.gsub(reason, "^group_prevalidation:", "")
     if string.sub(homeReason, 1, 5) == "home_" and SC.HomeTrip and SC.HomeTrip.reasonText then
@@ -505,7 +511,8 @@ function UI.baseFailureReason(reason, knownOnly)
         barricade_target_gone = true,
     }
     if known[reason] then return UI.text("UI_SC_Base_Reason_" .. reason) end
-    return not knownOnly and UI.humanize(reason) or nil
+    return not knownOnly and (SC.ActionFeedback and SC.ActionFeedback.describe(SC.ActionFeedback.reason(reason))
+        or UI.text("UI_SC_Feedback_unknown_cause")) or nil
 end
 
 function UI.fontHeight(font, override)
@@ -694,6 +701,10 @@ local function detailStructureSignature(row, tab)
         return stableSignatureValue({
             row = row ~= nil,
             guidance = SC.Guidance and SC.Guidance.signature() or "",
+            attention = SC.UIAttention and SC.UIAttention.signature() or "",
+            recentProblems = UI._recentProblems == true,
+            recentFailure = UI._recentProblems and row and row.actionSummary
+                and row.actionSummary.lastFailure and row.actionSummary.lastFailure.at or nil,
             recruit = row ~= nil and row.recruited ~= true,
             request = row and type(row.pendingRequest) == "table"
                 and row.pendingRequest.kind or nil,
@@ -1131,6 +1142,11 @@ function UI.actionSummaryText(summary)
 end
 
 function UI.actionFailureText(summary)
+    if SC.ActionFeedback then
+        local feedback = SC.ActionFeedback.failure(summary)
+        if not feedback then return nil end
+        return UI.stateText(feedback.action) .. ": " .. SC.ActionFeedback.describe(feedback)
+    end
     local failure = type(summary) == "table" and summary.lastFailure or nil
     if type(failure) ~= "table" then return nil end
     local value = UI.stateText(failure.action) .. ": " .. UI.stateText(failure.reason)
@@ -1751,16 +1767,47 @@ end
 
 local function onCrisisButton(target, button)
     if not SC.InfectionCrisis then return end
+    if button.scCrisisAction == "authorize" and not button.scFinalConfirmed then
+        local snapshot = {}
+        for key, value in pairs(button) do
+            if type(key) == "string" and key:sub(1, 2) == "sc" then snapshot[key] = value end
+        end
+        snapshot.scFinalConfirmed = true
+        local message = UI.text("UI_SC_Feedback_confirm_final", button.scSubjectName or "?",
+            UI.text("UI_SC_Base_Outcome_" .. tostring(button.scOutcome)))
+        local modal = ISModalDialog:new(0, 0, 460, 190, message, true, {}, function(_, answer)
+            if answer.internal == "YES" then onCrisisButton(target, snapshot) end
+        end)
+        modal:initialise()
+        modal.onGainJoypadFocus = function(self, joypadData)
+            ISPanelJoypad.onGainJoypadFocus(self, joypadData)
+            self:clearJoypadButtonsList()
+            self:insertNewLineOfButtons(self.no, self.yes)
+            self.joypadIndex, self.joypadIndexY = 1, 1
+            self:setISButtonForB(self.no)
+        end
+        -- Stock ISModalDialog.destroy forces speed 1. This confirmation is
+        -- player-opened, but must preserve the player's current game speed.
+        modal.destroy = function(self) self:setVisible(false); self:removeFromUIManager() end
+        modal.onKeyRelease = function(self, key)
+            if key == Keyboard.KEY_ESCAPE or key == Keyboard.KEY_RETURN then self:destroy(); return true end
+            return false
+        end
+        modal:addToUIManager()
+        return
+    end
     local ok, accepted, reason
     if button.scCrisisAction == "authorize" then
         ok, accepted, reason = pcall(SC.InfectionCrisis.authorize, button.scCrisisId,
-            button.scOutcome)
+            button.scOutcome, button.scDecisionRevision)
     elseif button.scCrisisAction == "release" then
         ok, accepted, reason = pcall(SC.InfectionCrisis.release, button.scCrisisId,
-            "player_released")
+            "player_released", button.scDecisionRevision)
+    elseif button.scCrisisAction == "retry" then
+        ok, accepted, reason = pcall(SC.InfectionCrisis.retry, button.scCrisisId, button.scDecisionRevision)
     else
         ok, accepted, reason = pcall(SC.InfectionCrisis.choose, button.scCrisisId,
-            button.scOutcome)
+            button.scOutcome, button.scDecisionRevision)
     end
     local crisisFailure = {
         bleach_declined = "UI_SC_Base_BleachDeclined",
@@ -1773,7 +1820,8 @@ local function onCrisisButton(target, button)
         ok and accepted == true
             and UI.text("UI_SC_CommandAcceptedDetail", buttonFeedbackLabel(button))
             or (crisisFailure[reason] and UI.text(crisisFailure[reason])
-                or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted))),
+                or (SC.ActionFeedback and SC.ActionFeedback.describe(SC.ActionFeedback.reason(reason))
+                    or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)))),
         ok and accepted == true)
     UI.refresh()
 end
@@ -3082,7 +3130,7 @@ function SCUIDetail:addSignal(panel, y, labelKey, signal)
     return y + metrics.buttonHeight + 4
 end
 
-function SCUIDetail:addCrisisAction(panel, y, labelKey, crisisId, outcome, action)
+function SCUIDetail:addCrisisAction(panel, y, labelKey, crisisId, outcome, action, revision, subjectName)
     local metrics = self.metrics or UI.layoutMetrics()
     local label = UI.text(labelKey)
     local width = math.max(100, panel:getWidth() - 28)
@@ -3092,6 +3140,7 @@ function SCUIDetail:addCrisisAction(panel, y, labelKey, crisisId, outcome, actio
     makeButtonTranslucent(button)
     button.scCrisisId, button.scOutcome = crisisId, outcome
     button.scCrisisAction = action or "choose"
+    button.scDecisionRevision, button.scSubjectName = revision, subjectName
     button.scLabel = label
     button.tooltip = label
     panel:addChild(button)
@@ -3607,6 +3656,7 @@ end
 
 function SCUIDetail:buildStatus(panel, row)
     local y = 7
+    if SC.UIAttention then y = SC.UIAttention.build(self, panel, y, row) end
     if SC.UIGuidance then y=SC.UIGuidance.build(self,panel,y) end
     if row and row.recruited ~= true then
         y = self:addCommand(panel, y, "UI_SC_Action_Recruit", "recruit", nil)
@@ -3650,10 +3700,34 @@ function SCUIDetail:buildStatus(panel, row)
             end))
         local actionFailure = UI.actionFailureText(row.actionSummary)
         if actionFailure then
-            y = self:addInformationLine(panel, y, "UI_SC_Info_LastActionFailure",
+            y = self:addInformationLine(panel, y, "UI_SC_Feedback_why_paused",
                 selectedRowValue(self, function(value)
                     return UI.actionFailureText(value.actionSummary)
                 end))
+        end
+        if row.actionSummary and row.actionSummary.lastFailure then
+            local metrics = self.metrics or UI.layoutMetrics()
+            local toggle = ISButton:new(8, y, math.max(100, panel:getWidth() - 28), metrics.buttonHeight,
+                UI.text("UI_SC_Feedback_recent"), nil, function()
+                    UI._recentProblems = not UI._recentProblems
+                    if UI.instance and UI.instance.detail then UI.instance.detail:rebuild(true) end
+                end)
+            toggle:initialise(); panel:addChild(toggle)
+            y = y + metrics.buttonHeight + 5
+            if UI._recentProblems then
+                local recent = row.actor and SC.ActionSupervisor and SC.ActionSupervisor.history(row.actor, 20)
+                    or { row.actionSummary.lastFailure }
+                local shown = 0
+                for index = #recent, 1, -1 do
+                    local event = recent[index]
+                    if event.event == "failed" or event == row.actionSummary.lastFailure then
+                        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.stateText(event.action)
+                            .. ": " .. SC.ActionFeedback.describe(SC.ActionFeedback.reason(event.reason)))
+                        shown = shown + 1
+                        if shown == 3 then break end
+                    end
+                end
+            end
         end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Order",
             selectedRowValue(self, function(value) return UI.stateText(value.order) end))
@@ -4017,6 +4091,7 @@ function SCUIDetail:buildBase(panel, row)
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_Base_StalledHint"))
             for _, job in ipairs(stalled) do
+                if UI._focusAttention == job.id then self.scAttentionScroll = y; UI._focusAttention = nil end
                 local kind = UI.humanize(job.kind or job.type)
                 local worker = job.assignedId and residentNames[job.assignedId]
                 local storageFull = job.blocker == "destination_full"
@@ -4030,7 +4105,7 @@ function SCUIDetail:buildBase(panel, row)
                     and UI.text("UI_SC_Base_ChefRestartRecovery")
                     or job.state == "pending" and job.blocker == "expired_job_subsystem_owned"
                         and UI.text("UI_SC_Base_RecoveryPending")
-                    or UI.humanize(job.blocker or "blocked")
+                    or UI.baseFailureReason(job.blocker or "blocked")
                 if job.type == "sort_floor" then
                     local category = type(job.target) == "table"
                         and job.target.floorCategory or nil
@@ -4155,7 +4230,7 @@ function SCUIDetail:buildBase(panel, row)
             local crisis = crisisByResident[residentRow.id]
             if residentRow.restriction and crisis and not crisis.finalAuthorized then
                 y = self:addCrisisAction(panel, y, "UI_SC_Base_ReleaseCrisis",
-                    crisis.id, nil, "release")
+                    crisis.id, nil, "release", crisis.decisionRevision, crisis.subjectName)
             end
         end
         y = self:buildProductionSection(panel, y, base, row)
@@ -4218,12 +4293,11 @@ function SCUIDetail:buildBase(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_Base_NoCrisis"))
     else
         for _, crisis in ipairs(crises.rows) do
+            if UI._focusAttention == crisis.id then self.scAttentionScroll = y; UI._focusAttention = nil end
             if crisis.knownToViewer then
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text("UI_SC_Base_CrisisRow", crisis.subjectName or crisis.subjectId,
-                        UI.humanize(crisis.phase),
-                        tostring(math.floor(tonumber(crisis.infectionLevel) or 0)),
-                        UI.humanize(crisis.outcome or crisis.strategy)))
+                    (crisis.subjectName or crisis.subjectId) .. ": "
+                        .. (SC.ActionFeedback and SC.ActionFeedback.crisis(crisis) or UI.humanize(crisis.phase)))
             else
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text("UI_SC_Base_RestrictedCrisisRow",
@@ -4239,22 +4313,24 @@ function SCUIDetail:buildBase(panel, row)
                     for _, outcome in ipairs({ "watch", "quarantine", "exile", "mercy", "bleach" }) do
                         if (outcome ~= "mercy" and outcome ~= "bleach"
                             or not crisis.subjectIsPlayer)
-                            and (outcome ~= "bleach" or (crisis.infectionLevel or 0) >= 90) then
+                            and (outcome ~= "bleach" or crisis.canOfferBleach) then
                             y = self:addCrisisAction(panel, y, "UI_SC_Base_Outcome_" .. outcome,
-                                crisis.id, outcome, "choose")
+                                crisis.id, outcome, "choose", crisis.decisionRevision, crisis.subjectName)
                         end
                     end
                 end
                 y = self:addCrisisAction(panel, y, "UI_SC_Base_ReleaseCrisis",
-                    crisis.id, nil, "release")
+                    crisis.id, nil, "release", crisis.decisionRevision, crisis.subjectName)
             end
-            if (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice"
-                or crisis.outcome == "bleach")
-                and crisis.phase == "resolved" and not crisis.finalAuthorized then
+            if crisis.canRetry then
+                y = self:addCrisisAction(panel, y, "UI_SC_Feedback_retry_route", crisis.id, nil,
+                    "retry", crisis.decisionRevision, crisis.subjectName)
+            end
+            if crisis.canAuthorize then
                 y = self:addCrisisAction(panel, y,
                     crisis.outcome == "bleach" and "UI_SC_Base_AuthorizeBleach"
                         or "UI_SC_Base_AuthorizeFinal",
-                    crisis.id, crisis.outcome, "authorize")
+                    crisis.id, crisis.outcome, "authorize", crisis.decisionRevision, crisis.subjectName)
             end
         end
     end
@@ -5238,6 +5314,12 @@ end
 
 function SCUIDetail:buildSupport(panel)
     local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Support")
+    local row = self.root and self.root.selectedRow
+    local failure = row and row.actionSummary and row.actionSummary.lastFailure
+    if failure then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tostring(failure.action) .. " | " .. tostring(failure.reason) .. " | " .. tostring(failure.targetLabel or failure.targetKey))
+    end
     if SC.UIGuidance then y=SC.UIGuidance.buildTips(self,panel,y) end
     y = self:addSection(panel, y, "UI_SC_Support_Health")
     if not SC.Support or type(SC.Support.snapshot) ~= "function" then
@@ -5361,6 +5443,7 @@ function SCUIDetail:rebuild(preserveScroll)
     panel:setScrollWidth(contentWidth)
     panel:setScrollHeight(contentHeight)
     local maximumScroll = math.max(0, contentHeight - panel:getHeight())
+    if self.scAttentionScroll then previousY = -self.scAttentionScroll; self.scAttentionScroll = nil end
     panel:setYScroll(Bounds.clamp(previousY, -maximumScroll, 0))
     if rebuildScope then
         SC.Performance.endScope(rebuildScope)
@@ -6059,6 +6142,7 @@ end
 
 function SCUIRoot:render()
     ISPanel.render(self)
+    if SC.UIAttention then SC.UIAttention.present(self) end
     if SC.UIGuidance then SC.UIGuidance.draw(self) end
     local metrics = self.metrics or UI.layoutMetrics()
     local titleX = self.titleX or 202
@@ -6083,9 +6167,7 @@ function SCUICollapsedLauncher:new(rect, root)
     local object = ISPanel.new(self, rect.x, rect.y, rect.width, rect.height)
     object.root = root
     object.dockSide = rect.dockSide
-    object.backgroundColor = { r = 0.08, g = 0.09, b = 0.075,
-        a = configuredOpacity(1.2, 0.42, 0.9) }
-    object.borderColor = { r = 0.52, g = 0.56, b = 0.43, a = 0.9 }
+    object.background = false
     object.moveWithMouse = false
     object.dragging = false
     object.dragDistance = 0
@@ -6109,6 +6191,7 @@ function SCUICollapsedLauncher:applyScreenBounds(savedY)
 end
 
 function SCUICollapsedLauncher:onMouseDown(x, y)
+    if not UI.launcherContains(x, y, self:getWidth(), self:getHeight()) then return false end
     self.dragging = true
     self.dragDistance = 0
     if self.setCapture then self:setCapture(true) end
@@ -6133,6 +6216,7 @@ function SCUICollapsedLauncher:onMouseUp(x, y)
     -- element received its own preceding mouse-down.
     if not self.dragging then return false end
     local wasClick = (self.dragDistance or 0) < 4
+        and UI.launcherContains(x, y, self:getWidth(), self:getHeight())
     self.dragging = false
     if self.setCapture then self:setCapture(false) end
     if wasClick and self.root then
@@ -6151,6 +6235,14 @@ function SCUICollapsedLauncher:onMouseUpOutside(x, y)
     return self:onMouseUp(x, y)
 end
 
+function UI.launcherContains(x, y, width, height)
+    if x < 0 or y < 0 or x > width or y > height then return false end
+    local radius = 10 * width / 64
+    local cx = math.max(radius, math.min(width - radius, x))
+    local cy = math.max(radius, math.min(height - radius, y))
+    return (x - cx) ^ 2 + (y - cy) ^ 2 <= radius ^ 2
+end
+
 function SCUICollapsedLauncher:prerender()
     probeRightMouseBlocker()
     local sw, sh = screenSize()
@@ -6158,22 +6250,41 @@ function SCUICollapsedLauncher:prerender()
         self:applyScreenBounds()
     end
     ISPanel.prerender(self)
+    if SC.UIAttention then SC.UIAttention.present(self) end
     if SC.UIGuidance then SC.UIGuidance.launcher(self) end
-    self:drawRectBorder(0, 0, self:getWidth(), self:getHeight(), 0.9, 0.52, 0.56, 0.43)
-    local centreX = math.floor(self:getWidth() / 2)
-    self:drawTextCentre("LF", centreX, 8, 0.94, 0.91, 0.69, 1, UIFont.Small)
-    local iconScale = self:getWidth() >= 72 and 3 or 2
-    local iconWidth = Pixels.measure("companion", iconScale)
-    Pixels.draw(self, "companion", centreX - math.floor(iconWidth / 2), 34,
-        iconScale, 0.77, 0.76, 0.58, 1)
-    local heartWidth = Pixels.measure("heart", 2)
-    Pixels.draw(self, "heart", centreX - math.floor(heartWidth / 2),
-        self:getHeight() - 48, 2, 0.63, 0.32, 0.26, 1)
+    UI._launcherTextures = UI._launcherTextures or {
+        fill = getTexture("media/textures/UI/LFLauncherFill.png"),
+        border = getTexture("media/textures/UI/LFLauncherBorder.png"),
+        badge = getTexture("media/textures/UI/LFAlertBadge.png"),
+    }
+    local textures = UI._launcherTextures
+    local width, height = self:getWidth(), self:getHeight()
+    local scale = width / 64
+    local hover = UI.launcherContains(self:getMouseX(), self:getMouseY(), width, height)
+    local down = self.dragging and (self.dragDistance or 0) < 4
+    local offset = down and math.max(1, math.floor(scale)) or 0
+    if textures.fill then
+        self:drawTextureScaled(textures.fill, 0, 0, width, height, .96,
+            down and .075 or hover and .14 or .106, down and .08 or hover and .15 or .114, .106)
+        self:drawTextureScaled(textures.border, 0, 0, width, height, hover and 1 or .55, .851, .525, .231)
+    end
+    local centreX = math.floor(width / 2)
+    local font = UIFont.Large or UIFont.Small
+    if UI.textWidth(font, "LF") > width - 14 * scale then font = UIFont.Medium or UIFont.Small end
+    self:drawTextCentre("LF", centreX, math.floor(23 * scale) + offset, .851, .525, .231, 1, font)
     local chevron = self.dockSide == "right" and "chevronLeft" or "chevronRight"
-    local chevronWidth = Pixels.measure(chevron, 2)
+    local iconScale = math.max(2, math.floor(2 * scale))
+    local chevronWidth = Pixels.measure(chevron, iconScale)
     Pixels.draw(self, chevron, centreX - math.floor(chevronWidth / 2),
-        self:getHeight() - 18, 2, 0.77, 0.79, 0.68, 1)
-    self.tooltip = UI.text("UI_SC_OpenRosterHotkey", UI.hotkeyName())
+        height - 21 * scale + offset, iconScale, .85, .77, .65, 1)
+    local count = SC.UIAttention and SC.UIAttention.count() or 0
+    if count > 0 and textures.badge then
+        local size = 20 * scale
+        self:drawTextureScaled(textures.badge, width - size - 4 * scale, 4 * scale, size, size, 1, .90, .58, .24)
+        self:drawTextCentre(SC.UIAttention.urgent() and "!" or tostring(math.min(99, count)), width - size / 2 - 4 * scale,
+            4 * scale + (size - UI.fontHeight(UIFont.Small)) / 2, .08, .09, .08, 1, UIFont.Small)
+    end
+    self.tooltip = UI.text("UI_SC_Feedback_launcher_hint", UI.hotkeyName())
 end
 
 function UI.showCollapsedLauncher(root)
@@ -6267,6 +6378,12 @@ end
 function UI.showStatus(description)
     local companionId = type(description) == "table" and (description.id or description.companionId) or nil
     return UI.open("status", companionId, description)
+end
+
+function UI.reviewAttention(row)
+    UI._focusAttention = row.crisis and row.id or row.jobId
+    UI.open("base", row.subjectId)
+    if UI._focusAttention and UI.instance and UI.instance.detail then UI.instance.detail:rebuild(false) end
 end
 
 function UI.openInventory(actor, player)
@@ -6414,6 +6531,7 @@ function UI.scheduledRefresh()
 end
 
 function UI.close()
+    if SC.UIAttention then SC.UIAttention.reset() end
     if UI._questDialog then UI._questDialog:close() end
     if SC.CompanionGifts and type(SC.CompanionGifts.reset) == "function" then
         SC.CompanionGifts.reset()
@@ -6489,6 +6607,7 @@ function UI.refresh()
 end
 
 function UI.reset()
+    UI._launcherTextures, UI._recentProblems = nil, nil
     UI.clearDebugHouseLocator()
     if SC.MedicalUI then SC.MedicalUI.close("world_reset") end
     UI.close()

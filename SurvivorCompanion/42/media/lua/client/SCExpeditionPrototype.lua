@@ -1143,6 +1143,9 @@ function Expedition.start(records, plan)
     end
     local seen, roster = {}, {}
     for _, record in ipairs(records) do
+        if SC.BaseLife and SC.BaseLife.restriction and SC.BaseLife.restriction(record.id) then
+            return false, "infection_restriction"
+        end
         if not alive(record) or seen[record.actor] then
             return false, "expedition_member_unavailable"
         end

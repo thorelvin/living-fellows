@@ -471,6 +471,14 @@ function Dehydrated.avoidsZombieCombat(actor, group)
     return value ~= nil and value.recovered ~= true
 end
 
+function Dehydrated.canTalkThroughDoor(group, player)
+    local value, actor = story(group), actorFor(group)
+    return value ~= nil and actor ~= nil
+        and select(1, U().call(actor, "isDead")) ~= true
+        and playerInRoom(value, actor)
+        and nearDoor(value, player, 7)
+end
+
 function Dehydrated.menuOptions(group, player)
     local value = story(group)
     if not value or not player or not nearDoor(value, player, 7)

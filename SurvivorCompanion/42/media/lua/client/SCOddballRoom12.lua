@@ -299,6 +299,14 @@ function Room12.canRecruit(group)
         or "sweet_pea_missing"
 end
 
+function Room12.canTalkThroughDoor(group, player)
+    local value, actor = story(group), actorFor(group)
+    return value ~= nil and actor ~= nil
+        and select(1, U().call(actor, "isDead")) ~= true
+        and inPartyRoom(group, actor)
+        and nearDoor(group, player)
+end
+
 function Room12.menuOptions(group, player)
     local value = story(group)
     if not value then return {} end

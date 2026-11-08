@@ -2,7 +2,7 @@
 
 # Changelog
 
-## 0.27.4 - Caleb's vigil and correct combat sounds
+## 0.27.4 - Caleb's vigil, radio watch and clearer feedback
 
 - Meet Caleb Hensley, a grieving stranger gathering his family's bodies.
   Hear his story and witness an ending driven by native fire damage.
@@ -12,6 +12,22 @@
 - Stop adding weapon-impact sounds to companion shoves and stomps. Read
   each weapon's configured hit sound instead of a baseball-bat fallback,
   fixing the blunt hit heard when an unarmed Corey pushes a zombie.
+- Assign a companion to Survivor radio watch on a powered camp computer with
+  a mounted walkie-talkie. Four game hours of work gives a 35% chance to find
+  a survivor, with an explicit invitation before they approach camp.
+- Seat radio operators at a suitable chair with an animated desk action.
+  Follow their progress on a moving spectrum, scrolling waterfall and operator
+  log; display animation runs only while visible. Pauses preserve work already done.
+- Replace the collapsed launcher with a rounded orange LF tab and attention
+  badge. Review opens the relevant job or decision; Acknowledge hides its notice.
+- Explain why work paused and how to recover. Keep quarantine pending when
+  its area cannot be reached, permit indoor duty under watch, and require a
+  current player confirmation before irreversible infection decisions.
+- Open Strange Folk story choices from their Talk menu, including Corey,
+  and retain the authored conversations through permitted doors and windows.
+- Keep radio cancellation tied to its exact job, wait for keyboard release
+  before completing a shift, and preserve the result across reloads. Separate
+  infection decisions no longer conflict merely because neither has an executor.
 - Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
   ship the rebuilt bridge with 0.27.4 metadata. Existing save schemas are unchanged.
 

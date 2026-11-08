@@ -645,24 +645,88 @@ local function talkableOddballs(player)
                 and type(SC.OddballPurdy.canTalkThroughWindow) == "function"
                 and SC.OddballPurdy.canTalkThroughWindow(group, player) then
                 result[#result + 1] = group
+                added = true
+            end
+            if not added and SC.OddballRoom12
+                and type(SC.OddballRoom12.canTalkThroughDoor) == "function"
+                and SC.OddballRoom12.canTalkThroughDoor(group, player) then
+                result[#result + 1] = group
+                added = true
+            end
+            if not added and SC.OddballDehydrated
+                and type(SC.OddballDehydrated.canTalkThroughDoor) == "function"
+                and SC.OddballDehydrated.canTalkThroughDoor(group, player) then
+                result[#result + 1] = group
             end
         end
     end
     return result
 end
 
-local function oddballStoryAction(_target, groupId, action, player, payload)
+local function oddballStoryAction(_target, groupId, action, player, payload, sourceRow)
+    local group = SC.Factions and SC.Factions.group and SC.Factions.group(groupId)
+    local memberCurrent, reachable = sourceRow == nil, sourceRow == nil
+    if sourceRow then
+        if not currentRecord(sourceRow, player) then return end
+        for _, member in ipairs(group and group.members or {}) do
+            if member.actorId == sourceRow.id then memberCurrent = true break end
+        end
+        for _, candidate in ipairs(talkableOddballs(player)) do
+            if candidate.id == groupId then reachable = true break end
+        end
+    end
+    local available = false
+    for _, choice in ipairs(memberCurrent and reachable and group and group.lifecycle ~= "destroyed"
+        and SC.Oddballs and SC.Oddballs.menuOptions and SC.Oddballs.menuOptions(group, player) or {}) do
+        if choice.id == action and choice.enabled == true then available = true break end
+    end
+    if not available then
+        safeMethod(player, "setHaloNote", text("UI_SC_Oddball_ChoiceChanged"))
+        return
+    end
     local ok, accepted, detail = false, false, "story_unavailable"
     if SC.Oddballs and type(SC.Oddballs.storyAction) == "function" then
         ok, accepted, detail = pcall(SC.Oddballs.storyAction,
             groupId, action, player, payload)
     end
     if player then
+        local message = detail == "fan_diary_recalled" and text("UI_SC_Oddball_CoreyDiaryRecalled")
+            or tostring(detail or "Done")
         safeMethod(player, "setHaloNote", ok and accepted == true
-            and text("UI_SC_Oddball_ActionAccepted", tostring(detail or "Done"))
+            and text("UI_SC_Oddball_ActionAccepted", message)
             or text("UI_SC_Oddball_ActionFailed", tostring(ok and detail or accepted)))
     end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function addOddballStoryChoices(menu, group, player, sourceRow, options)
+    if not sourceRow then
+        local stage = group.oddball and group.oddball.stage or "unmet"
+        addUnavailableOption(menu, text("UI_SC_Oddball_Progress", tostring(stage)))
+    end
+    options = options or SC.Oddballs and type(SC.Oddballs.menuOptions) == "function"
+        and SC.Oddballs.menuOptions(group, player) or {}
+    if #options == 0 then
+        addUnavailableOption(menu, text("UI_SC_Oddball_NoAction"))
+    end
+    for _, row in ipairs(options) do
+        local label = tostring(row.label or row.id or "Speak")
+        local item
+        if row.enabled ~= true then
+            item = addUnavailableOption(menu, label)
+        elseif type(row.id) == "string" then
+            item = menu:addOption(label, nil, oddballStoryAction,
+                group.id, row.id, player, row.payload, sourceRow)
+        end
+        local detail = row.detail or row.reason
+        if item and detail and type(ISToolTip) == "table" then
+            local tooltip = ISToolTip:new()
+            tooltip:initialise()
+            tooltip:setVisible(false)
+            tooltip.description = tostring(detail)
+            item.toolTip = tooltip
+        end
+    end
 end
 
 local function addOddballConversations(context, groups, player)
@@ -670,31 +734,7 @@ local function addOddballConversations(context, groups, player)
         local option = context:addOption(tostring(group.name or "Stranger"), nil, nil)
         local menu = ISContextMenu:getNew(context)
         context:addSubMenu(option, menu)
-        local stage = group.oddball and group.oddball.stage or "unmet"
-        addUnavailableOption(menu, text("UI_SC_Oddball_Progress", tostring(stage)))
-        local options = SC.Oddballs and type(SC.Oddballs.menuOptions) == "function"
-            and SC.Oddballs.menuOptions(group, player) or {}
-        if #options == 0 then
-            addUnavailableOption(menu, text("UI_SC_Oddball_NoAction"))
-        end
-        for _, row in ipairs(options) do
-            local label = tostring(row.label or row.id or "Speak")
-            local item
-            if row.enabled == false then
-                item = addUnavailableOption(menu, label)
-            elseif type(row.id) == "string" then
-                item = menu:addOption(label, nil, oddballStoryAction,
-                    group.id, row.id, player, row.payload)
-            end
-            local detail = row.detail or row.reason
-            if item and detail and type(ISToolTip) == "table" then
-                local tooltip = ISToolTip:new()
-                tooltip:initialise()
-                tooltip:setVisible(false)
-                tooltip.description = tostring(detail)
-                item.toolTip = tooltip
-            end
-        end
+        addOddballStoryChoices(menu, group, player)
     end
 end
 
@@ -710,7 +750,7 @@ local function addRecruitedOddballAction(menu, row, player)
     for _, action in ipairs(SC.Oddballs.menuOptions(group, player) or {}) do
         if action.id == "gut_up" or action.id == "have_tea" then
             local fallback = action.id == "have_tea" and "Have tea" or "Gut up"
-            if action.enabled == false then
+            if action.enabled ~= true then
                 addUnavailableOption(menu, tostring(action.label or fallback))
             else
                 menu:addOption(tostring(action.label or fallback), nil,
@@ -1340,7 +1380,9 @@ local function nearbyRows(player)
             local row = contextRow(actor, player, states)
             if row then
                 if row.recruited then rows[#rows+1] = row end
-                if row.recruited or not row.factionMember and row.factionId == nil then
+                local story = not row.recruited and SC.Oddballs and SC.Oddballs.groupForActor
+                    and SC.Oddballs.groupForActor(actor)
+                if row.recruited or story or not row.factionMember and row.factionId == nil then
                     talkRows[#talkRows+1] = row
                 end
             end
@@ -1359,6 +1401,39 @@ local function openTalkFromContext(_, row)
     if SC.UI and type(SC.UI.open) == "function" then
         SC.UI.open("talk", row.id)
     end
+end
+
+local function addTalkFromContext(menu, row, player, label)
+    local group
+    if row.recruited ~= true and SC.Oddballs then
+        if type(SC.Oddballs.groupForActor) == "function" then
+            group = SC.Oddballs.groupForActor(row.actor)
+        end
+        if not group and SC.Factions and type(SC.Factions.list) == "function" then
+            -- A legacy actor record can lack faction flags. The saved member
+            -- identity still identifies its authored conversation correctly.
+            for _, candidate in ipairs(SC.Factions.list(false) or {}) do
+                for _, member in ipairs(candidate.members or {}) do
+                    if member.actorId == row.id then group = candidate break end
+                end
+                if group then break end
+            end
+        end
+    end
+    local key = "talk:" .. row.id
+    if group and group.oddball then
+        local option = Menus.action(menu, key, label, nil, nil)
+        local options = group.lifecycle ~= "destroyed" and SC.Oddballs.menuOptions
+            and SC.Oddballs.menuOptions(group, player) or {}
+        if #options == 0 then
+            Menus.reason(option, text("UI_SC_Oddball_NoAction"))
+            return option, true
+        end
+        local choices = Menus.group(menu, key, label)
+        addOddballStoryChoices(choices, group, player, row, options)
+        return option, true
+    end
+    return Menus.action(menu, key, label, nil, openTalkFromContext, row), false
 end
 
 local function openOrdersFromContext(_, row)
@@ -1877,7 +1952,7 @@ end
 local function personMenu(parent, row, player, popup, direct)
     local menu = Menus.group(parent, "person:" .. row.id, row.name)
     if not direct then
-        Menus.action(menu, "talk:" .. row.id, text("UI_SC_Talk_Open"), nil, openTalkFromContext, row)
+        addTalkFromContext(menu, row, player, text("UI_SC_Talk_Open"))
     end
     if row.recruited ~= true then return menu end
     addOrdersShortcut(menu, row, player)
@@ -2128,10 +2203,10 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             or medicalOption
         medicalPatient = medicalOption and (medicalOption.onSelect == context.onGetUpAndThen
             and medicalOption.param4 or medicalOption.param2)
-        local talk = Menus.action(context, "talk:" .. clickedCompanion.id,
-            text("UI_SC_Talk_To", clickedCompanion.name), nil, openTalkFromContext, clickedCompanion)
+        local talk, storyTalk = addTalkFromContext(context, clickedCompanion, player,
+            text("UI_SC_Talk_To", clickedCompanion.name))
         talk.scLFWorld = true
-        if SC.Interaction and SC.Interaction.descriptor and SC.Interaction.descriptor("doing") then
+        if not storyTalk and SC.Interaction and SC.Interaction.descriptor and SC.Interaction.descriptor("doing") then
             local available, reason, argument = SC.Interaction.availability(clickedCompanion, "doing", player)
             if not available then Menus.reason(talk, argument and text(reason, argument) or text(reason)) end
         end

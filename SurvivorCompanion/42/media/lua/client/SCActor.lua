@@ -1499,6 +1499,9 @@ function actorService.retireDead(actor)
     end
     local deadOk, dead = invoke(actor, "isDead")
     if not deadOk or dead ~= true then return false, "actor is still alive" end
+    if SC.InfectionCrisis and SC.InfectionCrisis.actorDied then
+        SC.InfectionCrisis.actorDied(SC.Registry.idOf(actor))
+    end
     if cachedProvider == nil or type(cachedProvider.retireDead) ~= "function" then
         return false, "actor provider cannot finalize a permanent death"
     end

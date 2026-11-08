@@ -1975,7 +1975,7 @@ function Commands.describe(companionId, player)
     end
     local actionSummary
     if SC.ActionSupervisor and type(SC.ActionSupervisor.summary) == "function" then
-        local ok, value = pcall(SC.ActionSupervisor.summary, actor)
+        local ok, value = pcall(SC.ActionSupervisor.summary, actor, true)
         if ok and type(value) == "table" then actionSummary = value end
     end
     local nativeSeated = vehicleStatus and (vehicleStatus.status == "in_vehicle"

@@ -1,0 +1,145 @@
+Survivor radio watch — 8 November 2026 — living_fellows/0.27.4
+
+Implementation
+SCRadioWork owns the radio assignment, measured work time, contact receipt and
+checked invitation. It uses the existing base-job save schema, persistent PC
+movableData, shared computer interaction/ownership and native actor creation.
+No bridge change or additional dependency is required.
+
+Default: four game hours of actual keyboard work; 35% contact chance. One outcome
+is retained per completed job, with Invite, Pass and Cancel controls. A recruit
+gets a fixed identity before dispatch, joins the roster and approaches safe
+outdoor camp ground/perimeter without forcing locked camp doors. Missing power
+or hardware retains progress and uses the existing retry controls.
+
+The named operator remains visible on the LARCH/WAVE Survivor Watch page.
+Its animated signal display uses the current CRT palette and is a fictional SDR
+display, not measured audio or discovery of hidden vanilla broadcast scripts.
+Ordinary radio reception and expedition channels remain under their existing
+services. Working chatter and discovery lines use the normal dialogue service.
+
+Cost and ownership
+No world/computer discovery service was added. The existing radio service checks
+only explicit pending invitations and radio receipts. The worker's controller
+advances only while its actor owns and performs the keyboard action. The visible
+screen uses a 500 ms retained snapshot and 40 drawn bars. Invitation routing tests
+at most four candidates, with bounded local welcome-point reads. Closed, unstaffed
+computers do no recruitment searching or elapsed-time catch-up.
+
+Automated checks
+The existing Behaviour and Interface checks cover named assignment, PC contention,
+the actual Decision ownership hold, routine hunger preemption, measured work,
+animation renewal, saved progress, power loss/retry, exact job ownership, one roll,
+one invitation and conservative interrupted-arrival handling. The UI test checks
+that all signal bars remain visible at 1280x720, actions fit, no native polling is
+added per rendered frame, and contacts wait for an explicit invitation.
+
+Native acceptance
+Disposable LF-only save clones use Project Zomboid 42.21.0 and the isolated source
+bridge, one game process at a time, 3 GB heap, four processors and 30 FPS. The
+original save and installed launcher are untouched. A real walkie-talkie and UPS
+are installed through the normal hardware APIs. Ordinary native typing, the AI
+controller, the real CRT renderer and native actor creation/navigation are used.
+The fixture seeds a partial shift and forces the final contact roll; this is not
+a four-hour natural-balance measurement. Nearby clone-only zombies are cleared
+for the final quiet positive-path scenario.
+
+Earlier runs captured blockers before correction: fixture setup before position
+settled; a real controller hold preventing progress during typing; insufficient
+720p plot space; a native overall-health setter being recalculated from healthy
+body parts; a recruit approaching a locked indoor door; and a legitimate camp
+alarm pausing work beyond the probe's original timeout. Screenshots/logs are kept.
+The production fixes poll the radio controller, use vanilla's weighted general
+health reduction plus calculateOverallHealth for stable native weakness,
+use an outdoor welcoming point and preserve safety preemption.
+
+Final native feature acceptance: PASS
+build/live-sandbox-runs/SC-Harness-20261108-045103-9b1cdce4
+radio-work-acceptance.txt records the actual typing pose, live monitor through
+animation renewal, retained progress, completed job release, accepted invitation,
+rejected repeat invitation and one living recruit reaching camp. Michael Alomar's
+native overall health was 35.00076 on arrival. Subsequent normal AI admitted him
+to camp duty, found a bed, slept and recovered to 37.20583 during observation.
+Console metadata records radio_work.banter and radio_work.found_male with the
+requested "I found one. He's barely alive." line.
+
+Native screenshots copied to C:/ZOMBOID/outputs/radio-watch-02704/:
+  radio-operator-screen.png
+  radio-found-contact.png
+  radio-survivor-arrival.png
+The original native captures remain in that run's cache/Screenshots directory.
+Final project gate: PASS, all five checks, serial, 60.5 seconds.
+Evidence: build/test-results/20261108-045455-f252c1
+Build 16.0s; Lifecycle 33.5s; Behaviour 2.5s; Cargo 2.8s; Interface 5.7s.
+The final native run also reports LIVE_SANDBOX_PASS after 130 seconds of
+observation, with three living companions and no stacked samples. No gameplay
+exceptions occurred. Existing vanilla startup map/content warnings remain.
+
+Cleanup of earlier runs' generated mod payloads, cloned saves and loading-gate
+classes was rejected by automatic approval review (blocked by policy). No test
+files were deleted. Logs, screenshots, manifests and native save clones remain.
+
+Radio operator interface and seating polish — 8 November 2026
+----------------------------------------------------------
+The visible survivor-watch page now has a moving spectrum/sweep cursor, a
+32-bin by 12-row waterfall, a segmented signal meter and a rolling operator log.
+Its eight retained messages include the actual operator and job state; cosmetic
+search stages never invent survivor contacts. The screen uses cached job data,
+the current CRT palette and bounded local display history. Animation advances
+only while the page is drawn and the real shift is working. No background
+scanner, world discovery or new service was introduced.
+
+Research: SDR Console's spectrum, S-meter and frequency/time waterfall:
+https://www.sdr-radio.com/SpectrumAndWaterfall
+Native seating and animation were checked against installed 42.21.0 sources:
+ISRestAction.lua, ISPathFindAction.lua, SeatingManager, sitonfurniture action
+transitions and stock upper-body action animations.
+
+The worker reserves a nearby free native chair facing the keyboard, enters it
+through native seating and loops LF_ComputerUse over the seated lower-body pose.
+This references the installed Bob_IdleMaking_Surface clip. A bounded native
+entry failure falls back to standing work. Exact chair/PC access rejects walls.
+Natural typing renewal retains the chair and supervisor. One Cancel request
+persists until ordinary job cancellation releases the keyboard and chair.
+
+Final project gate: PASS, all five checks, serial, 65.5 seconds.
+Evidence: build/test-results/20261108-080608-2e429b
+Build 15.9s; Lifecycle 38.9s; Behaviour 2.3s; Cargo 2.7s; Interface 5.7s.
+Existing tests cover retained display bounds, no per-frame job polling, native
+seat/keyboard access, renewal ownership and deferred one-click cancellation.
+
+Final native polish acceptance: PASS / COMPLETE
+build/live-sandbox-runs/SC-Harness-20261108-081053-d9ddd1a3
+cache/Lua/SurvivorCompanionHarness/radio-polish-acceptance.txt
+Mara Wells occupied the exact native chair in the cloned Rosewood firehouse,
+performed LF_ComputerUse in sitonfurniture and advanced actual radio work.
+The native visual token renewed through normal completion while she remained
+seated. Two real monitor captures show the advancing scan. A single Cancel
+request removed the job and let her stand. This fixture seeds a partial shift
+and clears nearby clone-only zombies; it is a positive-path animation and UI
+check, not a natural four-hour balance or live audio-analysis measurement.
+
+Screenshots: C:/ZOMBOID/outputs/radio-operator-polish-02704/
+  radio-watch-screen.png
+  radio-watch-scan-pass.png
+  seated-operator.png
+  operator-released.png
+Earlier native attempts retained their blocker screenshots and led to fixes
+for seated keyboard access, locomotion classification, renewal and cancellation.
+Only the final run above completed every polish check. The game exited cleanly;
+no Java, javac or Project Zomboid process remained at the final process check.
+
+Review fixes — 8 November 2026
+Cancelling a specific radio job now passes its exact job ID through the worker's
+pause operation. Cancelling an older blocked assignment preserves that actor's
+newer PC, native action and supervisor. Completed work retains its saved result
+and active job until keyboard cleanup succeeds, showing Finishing meanwhile.
+Cleanup retries before starting another pose; restoring the pending completion
+does not reroll the result, recreate the contact or start more typing.
+
+The existing radio harness checks both PCs, deferred native release through the
+real BaseWork completion path, and reload with a saved completion result.
+The deferred-completion regression failed before the fix; the old-job ownership
+failure was independently reproduced during review. All five project checks
+PASS in 65.1 seconds: build/test-results/20261108-110016-d532c3.
+This verification is automated; no further live game was launched for these fixes.

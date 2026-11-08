@@ -2526,6 +2526,16 @@ function BaseWork.update(actor, player, runtime)
     end
     reportBlockedTool(actor, player, state, runtime)
     local job = SC.BaseLife.jobFor(id)
+    if SC.BaseLife.restriction(id) ~= nil then
+        clearGuardPatrol(actor, state, "infection_restriction")
+        if job and not SC.BaseLife.workPermitted(id, job) then
+            local cancelled, reason = BaseWork.cancel(actor, "infection_restriction")
+            if cancelled ~= true then return false, reason end
+            if job.reservedBy == id then SC.BaseLife.releaseJob(job.id, id, "infection_restriction") end
+            state, job = stateFor(actor), nil
+        end
+        if SC.BaseLife.restriction(id) ~= "watch" then return false, "infection_restriction" end
+    end
     if job then clearGuardPatrol(actor, state, "guard_job_assigned") end
     -- A corpse in tow belongs to a production haul. Without that job in hand
     -- (blocked, released or finished), the body goes down before rest,
@@ -2570,7 +2580,7 @@ function BaseWork.update(actor, player, runtime)
             return returnInsideAtNight(actor, state)
         end
     end
-    if not job and resident.role == "angler" and SC.Fishing
+    if not job and SC.BaseLife.restriction(id) == nil and resident.role == "angler" and SC.Fishing
         and type(SC.Fishing.update) == "function"
         and not SC.BaseLife.outdoorNightRestricted() then
         -- Fishing never runs out the way a job queue can, so a tired angler
@@ -2779,7 +2789,15 @@ function BaseWork.update(actor, player, runtime)
         -- stock must deliver or return it, whatever job comes next.
     end
     local handled, reason, terminal
-    if job.type == "build" then handled, reason, terminal = updateBuild(actor, state, job)
+    if job.type == "radio_work" and SC.RadioWork then
+        local completed
+        handled, reason, terminal, completed = SC.RadioWork.update(actor, state, job)
+        if completed then
+            if SC.BaseLife.job(job.id) then SC.BaseLife.completeJob(job.id, id, reason) end
+            state.jobId = nil
+            return true, reason
+        end
+    elseif job.type == "build" then handled, reason, terminal = updateBuild(actor, state, job)
     elseif job.type == "barricade" then handled, reason, terminal = queueBarricade(actor, job)
     elseif job.type == "gather_materials" then
         if not SC.GatherWork or type(SC.GatherWork.update) ~= "function" then
@@ -3268,6 +3286,10 @@ function BaseWork.auditMaintenance(player, remainingBudget)
 end
 
 function BaseWork.cancel(actor, reason)
+    if SC.RadioWork then
+        local okay, why = SC.RadioWork.pause(actor, reason or "base_work_cancelled")
+        if not okay then return false, why end
+    end
     for job, scan in pairs(transferScans) do
         if scan.actor == actor then transferScans[job] = nil end
     end
@@ -3362,6 +3384,12 @@ end
 -- BaseLife calls this before deleting a build row, so cancellation cannot
 -- report success while the exact accepted native action is still executable.
 function BaseWork.cancelJob(jobId, ownerId, reason)
+    local radioJob = SC.BaseLife.job(jobId)
+    if radioJob and radioJob.type == "radio_work" and SC.RadioWork then
+        local actor = U().resolveActor(ownerId or radioJob.assignedId)
+        if not actor then return true end
+        return SC.RadioWork.pause(actor, reason or "base_job_cancelled", jobId)
+    end
     local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
     if unloadJob and unloadJob.target and unloadJob.target.stockBatch and SC.SortBatch then
         if SC.SortBatch.releaseGone(unloadJob) then return true,"sort_worker_gone" end
