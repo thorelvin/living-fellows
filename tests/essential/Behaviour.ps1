@@ -19,3 +19,7 @@
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
 @{ Name = 'behaviour.first-meeting-visitor'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'first_meeting_visitor_harness.lua') }
+@{ Name = 'behaviour.family-pyre'; Files = @(
+    (Join-Path $Essential 'caleb_fixture.lua'),
+    (Join-Path $Client 'SCOddballCaleb.lua'),
+    (Join-Path $Essential 'caleb_harness.lua')) }

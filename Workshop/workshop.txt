@@ -57,7 +57,7 @@ description=[*]Press Home or click LF. The First steps card on Status helps you 
 description=[*]Meet a survivor, right-click them and choose Talk to (name), then Invite to join. Set a camp core, mark storage and give someone a base job.
 description=[/olist]
 description=
-description=Multiplayer and additional human split-screen players are not supported. Optional Bandits2 and Project A-Life adapters have specific supported setups: [url=https://github.com/thorelvin/living-fellows/tree/living_fellows/0.27.3/docs]compatibility notes[/url].
+description=Multiplayer and additional human split-screen players are not supported. Optional Bandits2 and Project A-Life adapters have specific supported setups: [url=https://github.com/thorelvin/living-fellows/tree/living_fellows/0.27.4/docs]compatibility notes[/url].
 description=
 description=The [url=https://github.com/thorelvin/living-fellows/releases/latest]Windows standalone edition[/url] includes its own bridge and needs no ZombieBuddy. Use one edition at a time.
 description=

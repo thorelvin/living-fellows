@@ -994,9 +994,9 @@ public final class SCNativeApiSignatureTest {
 
         // The same gap one step later: the flesh noise belongs to the victim's
         // damage code, so a companion's shovel landed with a squish and no
-        // shovel. Scripts name that sound HitSound; pin both ways the engine
-        // exposes it, and the ranged test that keeps firearms out of it.
-        require(handWeapon.getMethod("getImpactSound").getReturnType() == String.class
+        // shovel. CombatManager reads script HitSound through getZombieHitSound;
+        // getImpactSound is a different field with a BaseballBatHit default.
+        require(handWeapon.getMethod("getZombieHitSound").getReturnType() == String.class
                 && handWeapon.getMethod("isRanged").getReturnType() == boolean.class,
                 "weapon impact-sound accessors changed shape");
 

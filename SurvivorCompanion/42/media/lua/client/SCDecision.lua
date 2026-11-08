@@ -2221,12 +2221,15 @@ local function profiledDecisionPhase(name, actor, callback, ...)
 end
 
 local function delegate(candidate, actor, player, rootRuntime, commands, snapshot, state)
-    -- Only base work's own haul may move a companion with a corpse in tow.
+    -- Base hauling and an authored scene may each own a real corpse drag.
     -- Any other subsystem, including a fallback after stalled base work, gets
     -- an actor that has put the body down. Combat is left out: a re-check of
     -- unreachable zombies must not tear down the haul, and a real threat
     -- already cancels base work or makes the hauler drop the body itself.
-    if candidate.kind ~= "base_work" and candidate.kind ~= "combat"
+    local sceneDrag = candidate.kind == "faction" and SC.Oddballs
+        and type(SC.Oddballs.ownsCorpseDrag) == "function"
+        and SC.Oddballs.ownsCorpseDrag(actor) == true
+    if candidate.kind ~= "base_work" and candidate.kind ~= "combat" and not sceneDrag
         and SC.Production and type(SC.Production.releaseDrag) == "function" then
         pcall(SC.Production.releaseDrag, actor, "decision_" .. tostring(candidate.kind))
     end

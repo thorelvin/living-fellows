@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.27.4 - Caleb's vigil and correct combat sounds
+
+- Meet Caleb Hensley, a grieving stranger gathering his family's bodies.
+  Hear his story and witness an ending driven by native fire damage.
+- Preserve his real corpse-hauling actions through the pickup animation,
+  keep scene ownership separate from base-work cleanup, and retain progress
+  across reloads without duplicating the family or restarting the fire.
+- Stop adding weapon-impact sounds to companion shoves and stomps. Read
+  each weapon's configured hit sound instead of a baseball-bat fallback,
+  fixing the blunt hit heard when an unarmed Corey pushes a zombie.
+- Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
+  ship the rebuilt bridge with 0.27.4 metadata. Existing save schemas are unchanged.
+
 ## 0.27.3 - First steps and safer survivor arrivals
 
 - Follow a small First steps checklist on Status, with the current task beside

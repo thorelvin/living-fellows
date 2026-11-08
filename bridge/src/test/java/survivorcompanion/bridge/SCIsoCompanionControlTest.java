@@ -2307,6 +2307,38 @@ public final class SCIsoCompanionControlTest {
 
         testGunshotSound((SCNativeCompanion) actor);
 
+        // Corey carries no weapon. The native collision can nevertheless
+        // supply BareHands or a held weapon while shoving; neither a push nor
+        // a stomp may gain that weapon's blunt impact sound from our bridge.
+        {
+            SCNativeCompanion hitter = (SCNativeCompanion) actor;
+            var weapon = new HandWeapon("Base", "Impact control", "ImpactControl", "Base.ImpactControl");
+            var scriptType = Class.forName("zombie.scripting.objects.Item");
+            var script = scriptType.getConstructor().newInstance();
+            scriptType.getMethod("setWeaponCategories", java.util.Set.class).invoke(script, java.util.Set.of());
+            HandWeapon.class.getMethod("setWeaponCategories", java.util.Set.class).invoke(weapon, java.util.Set.of());
+            HandWeapon.class.getMethod("setScriptItem", scriptType).invoke(weapon, script);
+            HandWeapon.class.getMethod("setImpactSound", String.class).invoke(weapon, "BaseballBatHit");
+            HandWeapon.class.getMethod("setZombieHitSound", String.class).invoke(weapon, "ShovelHit");
+            require("ShovelHit".equals(SCNativeCompanion.companionWeaponHitSound(weapon)),
+                    "weapon HitSound fell back to the constructor's baseball-bat impact");
+            long before = hitter.getCompanionHitSounds();
+            hitter.setDoShove(true);
+            hitter.driveCompanionHitSoundForTests(weapon, 1);
+            hitter.setDoShove(false);
+            hitter.setPerformingShoveAnimation(true);
+            hitter.driveCompanionHitSoundForTests(weapon, 1);
+            hitter.setPerformingShoveAnimation(false);
+            hitter.setPerformingStompAnimation(true);
+            hitter.driveCompanionHitSoundForTests(weapon, 1);
+            hitter.setPerformingStompAnimation(false);
+            require(hitter.getCompanionHitSounds() == before,
+                    "a shove or stomp played the collision weapon's impact sound");
+            hitter.driveCompanionHitSoundForTests(weapon, 1);
+            require(hitter.getCompanionHitSounds() == before + 1,
+                    "a genuine weapon strike lost its configured impact sound");
+        }
+
         // Foliage parity. A direct step carries a fixed distance from Lua, so
         // without this factor a companion crossed a hedge at full walking speed
         // while the player has to push through it.

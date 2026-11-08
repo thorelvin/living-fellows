@@ -1803,6 +1803,8 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             and stableCopy(site.captiveSpawns, 4, { count = 16 }) or nil,
         memberSpawns = site.memberSpawns
             and stableCopy(site.memberSpawns, 4, { count = 24 }) or nil,
+        familySpawns = site.familySpawns
+            and stableCopy(site.familySpawns, 3, { count = 24 }) or nil,
         altar = site.altar and stableCopy(site.altar, 2) or nil,
         vestry = site.vestry and stableCopy(site.vestry, 2) or nil,
         vestryDoor = site.vestryDoor and stableCopy(site.vestryDoor, 2) or nil,
@@ -1866,7 +1868,7 @@ function Factions.createOddballGroup(site, definition, debugCreated)
     -- Keep the failure local to this encounter instead of persisting a scene
     -- which cannot complete its work after the next load.
     for _, field in ipairs({ "hordeSpawns", "bins", "animalSpawns",
-        "fuelPosts", "memberSpawns", "petSpawns", "toySpawns" }) do
+        "fuelPosts", "memberSpawns", "petSpawns", "toySpawns", "familySpawns" }) do
         if site[field] ~= nil and storySite[field] == nil then
             return nil, "oddball_site_copy_failed_" .. field
         end

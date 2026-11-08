@@ -1,0 +1,38 @@
+Living Fellows 0.27.4 - Caleb's vigil and combat sounds
+Date: 2026-11-08
+Branch: living_fellows/0.27.4
+Base: 60b02443 (living_fellows/0.27.3)
+
+Changes
+- Add Caleb Hensley, his family-body gathering, original tale and native fire ending.
+- Preserve exact authored corpse receipts across reloads; never recreate missing bodies.
+- Keep an authored haul separate from base-work cleanup and wait for native pickup poses.
+- Use HandWeapon.getZombieHitSound, as native combat does, instead of the separate
+  impact field whose constructor can retain BaseballBatHit. Exclude shoves and stomps.
+- Rebuild the matching bridge and synchronize release metadata; retain protocol
+  42.21-isocompanion-30 and all existing save schemas.
+
+Automated release gate
+- scripts/Test-Project.ps1 -Release: all five checks PASS in 242.9 seconds.
+- Build, Lifecycle, Behaviour, Cargo and Interface passed; all 16 installer cases passed.
+- Both Workshop and standalone Windows packages built with version 0.27.4.
+- Evidence: build/test-results/20261108-024358-7672f6.
+- Caleb tests cover physical-body receipts, interrupted native work, scene ownership,
+  story/farewell gating, no timed death, extinguishing and brief ground-fire flame gaps.
+- Real-JAR sound controls verify shove/stomp suppression, correct configured hit-sound
+  selection despite a different impact default, and retained genuine weapon sounds.
+
+Live verification, separate from the gate
+- A disposable clone on Project Zomboid 42.21.0 completed the tale, all three native
+  corpse grabs/hauls/drops, the final shout, ignition and native corpse creation.
+- Health fell from 100 through 89.59, 55.55 and 17.66 to 0; the native death record
+  reported arm/leg burns, no bleeding, no bites and no infection. Cleanup completed
+  after its normal retry. No scripted damage or kill command was used.
+- That run preceded the final flame-gap classification correction and release bump;
+  the correction was covered by the final automated gate, without another live run.
+- Corey's recent live log reported weapon=none; his authored kit has no weapon.
+  The audio correction was checked headlessly against the real game JAR, not by a
+  new audible live comparison.
+- Retained local evidence: C:/ZOMBOID/outputs/caleb-native-fire/.
+- Original save and installed mod were unchanged. Temporary probe and owned game
+  process were removed; the release packages contain no live harness.

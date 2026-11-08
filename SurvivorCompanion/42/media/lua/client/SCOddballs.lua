@@ -659,6 +659,12 @@ local definitions = {
         identity = { forename = "Ruth Ann", surname = "Sizemore", gender = "female",
             outfit = "Backpacker", dirt = 0.15, visualSeed = 3100242 },
         module = "OddballHitchhiker" },
+    { id = "family_pyre_caleb_hensley", name = "Caleb Hensley",
+        archetype = "oddball_resident", kind = "family_pyre",
+        recruitment = false, firstEligibleOffsetDays = 1,
+        identity = { forename = "Caleb", surname = "Hensley", gender = "male",
+            outfit = "Farmer", dirt = 0.95, visualSeed = 3100243 },
+        module = "OddballCaleb" },
 }
 -- Scene modules own their signature weapons and reward stock. These small
 -- personal kits fill the gaps without changing an encounter's combat script.
@@ -3443,6 +3449,11 @@ function Oddballs.update(actor, player, runtime, intent, group)
     return handled == true, reason
 end
 
+function Oddballs.ownsCorpseDrag(actor)
+    local group = Oddballs.groupForActor(actor)
+    return group ~= nil and callModule(group, "ownsCorpseDrag", actor, group) == true
+end
+
 local function setupMember(group, actorId)
     for _, member in ipairs(group.members or {}) do
         if member.actorId == actorId then return member end
@@ -3967,7 +3978,9 @@ local function ambientCooldown(currentDay)
 end
 
 local function ambientSiteFor(square, player, definition, name, building, visitedBuildings)
-    if definition.kind == "patrol" then
+    if definition.kind == "family_pyre" and SC.OddballCaleb then
+        return SC.OddballCaleb.siteFor(square, player, false)
+    elseif definition.kind == "patrol" then
         return siteForDefenseLeague(square, player)
     elseif definition.kind == "radio_van" then
         return siteForRadioVan(square, player, false)
@@ -4321,7 +4334,9 @@ function Oddballs.debugSpawnRandom(player)
                         and state.seeded[definition.id] == nil
                         and state.retired[definition.id] == nil then
                         local site
-                        if definition.kind == "patrol" then
+                        if definition.kind == "family_pyre" and SC.OddballCaleb then
+                            site = SC.OddballCaleb.siteFor(square, player, true)
+                        elseif definition.kind == "patrol" then
                             site = siteForDefenseLeague(square, player, true)
                         elseif definition.kind == "radio_van" then
                             site = siteForRadioVan(square, player, true)

@@ -194,7 +194,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             resolveNoArg(IsoGameCharacter.class, "updateAimingDelay");
     private static final Method WEAPON_SOUND_BY_ID = resolveWeaponSoundById();
     private static final Method WEAPON_SWING_SOUND = resolveWeaponSwingSound();
-    private static final Method WEAPON_IMPACT_SOUND = resolveWeaponImpactSound();
+    private static final Method WEAPON_ZOMBIE_HIT_SOUND = resolveWeaponZombieHitSound();
     private static final Method WEAPON_IS_RANGED = resolveWeaponIsRanged();
     private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
     private static final Method RANGED_SHOOT_SOUND = resolvePlayerMethod("playRangedWeaponShootSound", String.class);
@@ -1422,33 +1422,40 @@ public final class SCNativeCompanion extends IsoPlayer {
      * shovel -- {@code HitSound = ShovelHit} in the item script -- exactly as
      * the gunshot went missing while its bullet impact did not.
      *
-     * <p>Scripts name this sound {@code HitSound}, which the engine exposes as
-     * {@code getSoundByID("HitSound")} and as {@code getImpactSound()}. A
+     * <p>Scripts name this sound {@code HitSound}, which CombatManager reads
+     * through {@code getZombieHitSound()}. The separate {@code getImpactSound()}
+     * can retain its constructor's BaseballBatHit default even for BareHands. A
      * weapon that declares neither stays silent, because that is what it
      * declares. Firearms are left alone: their report is the swing sound above
      * and their impact already belongs to the bullet.
      */
-    private void driveCompanionHitSound(Object weapon, int hitCount) {
+    private boolean usesCompanionWeaponImpact() {
+        return !isDoShove() && !isPerformingShoveAnimation() && !isPerformingStompAnimation();
+    }
+
+    static String companionWeaponHitSound(Object weapon) throws ReflectiveOperationException {
+        if (weapon == null || WEAPON_ZOMBIE_HIT_SOUND == null) return null;
+        Object named = WEAPON_ZOMBIE_HIT_SOUND.invoke(weapon);
+        return named instanceof String value && !value.isBlank() ? value : null;
+    }
+
+    private void driveCompanionHitSound(Object weapon, int hitCount, boolean weaponImpact) {
         // Counted on every landed swing, before any early return, so "no hit
         // reached this path" and "a hit reached it with nothing to play" stay
         // distinguishable in diagnostics.
         if (hitCount <= 0 || weapon == null) return;
         bridgeHitSoundEvents++;
+        // Vanilla excludes shoves from its weapon-impact branch. CombatManager
+        // still supplies BareHands (or the held weapon) for that collision;
+        // replaying its HitSound adds a blunt hit over a push or stomp.
+        if (!weaponImpact) return;
         if (bridgeDisabled || isDead() || CHARACTER_PLAY_SOUND == null) return;
         try {
             if (WEAPON_IS_RANGED != null
                     && Boolean.TRUE.equals(WEAPON_IS_RANGED.invoke(weapon))) {
                 return;
             }
-            String sound = null;
-            if (WEAPON_SOUND_BY_ID != null) {
-                Object named = WEAPON_SOUND_BY_ID.invoke(weapon, "HitSound");
-                if (named instanceof String value && !value.isBlank()) sound = value;
-            }
-            if (sound == null && WEAPON_IMPACT_SOUND != null) {
-                Object impact = WEAPON_IMPACT_SOUND.invoke(weapon);
-                if (impact instanceof String value && !value.isBlank()) sound = value;
-            }
+            String sound = companionWeaponHitSound(weapon);
             if (sound == null) return;
             CHARACTER_PLAY_SOUND.invoke(this, sound);
             bridgeHitSounds++;
@@ -1574,7 +1581,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     /** Test seam: the hit-sound path without a swing animation to drive it. */
     void driveCompanionHitSoundForTests(Object weapon, int hitCount) {
-        driveCompanionHitSound(weapon, hitCount);
+        driveCompanionHitSound(weapon, hitCount, usesCompanionWeaponImpact());
     }
 
     /** Landed melee swings that reached this companion's hit-sound path. */
@@ -1660,6 +1667,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeAttackAttemptSerial++;
             Object[] ballisticInput = null, ballisticScratch = null;
             SCFirearmShot.Snapshot shotBefore = captureCompanionShot(weapon);
+            boolean weaponImpact = usesCompanionWeaponImpact();
             try {
                 if (WEAPON_IS_AIMED_FIREARM != null
                         && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) {
@@ -1688,7 +1696,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             inFlight = false;
             driveCompanionGunshotSound(weapon, shotBefore);
             int hitCount = getLastHitCount();
-            driveCompanionHitSound(weapon, hitCount);
+            driveCompanionHitSound(weapon, hitCount, weaponImpact && usesCompanionWeaponImpact());
             boolean targetHit = hitCount > 0 && collisionTarget != null
                     && collisionTargetAffected(targetHealthBefore, collisionTarget.getHealth(),
                             targetDeadBefore, collisionTarget.isDead());
@@ -3783,10 +3791,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
-    private static Method resolveWeaponImpactSound() {
+    private static Method resolveWeaponZombieHitSound() {
         try {
             Method method = Class.forName("zombie.inventory.types.HandWeapon")
-                    .getMethod("getImpactSound");
+                    .getMethod("getZombieHitSound");
             method.setAccessible(true);
             return method;
         } catch (ReflectiveOperationException | RuntimeException failure) {
