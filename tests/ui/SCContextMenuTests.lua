@@ -451,6 +451,82 @@ check(lfStorage.options[1] == mark and lfStorage.options[2] == unmark
     and campMenu.options[#campMenu.options] == lfStorageOption
     and child(lfStorage, mark) and #child(lfStorage, mark).options == 16,
     "a container click puts storage first inside LF while keeping LF at the bottom of the main menu")
+
+-- Use vanilla's actual press/release dispatcher with the real LF menu action.
+local priorCell = getCell
+local areaDraft, areaDrag, areaBlocked, areaFinished = nil, nil, false, {}
+local cell = { getGridSquare = function(_, x, y, z) return T.square(x, y, z) end }
+function cell:getDrag() return areaDrag end
+function cell:setDrag(value)
+    local prior = areaDrag
+    areaDrag = value
+    if prior and prior ~= value then prior:deactivate() end
+end
+getCell = function() return cell end
+function T.doctor:getPlayerNum() return 0 end
+function T.doctor:isBuildButtonDown() return self.buildDown == true end
+function T.doctor:isBuildButtonReleased() return self.buildReleased == true end
+SC.BaseLife.zoneDraft = function()
+    if not areaDraft then return nil end
+    return { kind = areaDraft.kind, first = { x = areaDraft.first.x,
+        y = areaDraft.first.y, z = areaDraft.first.z } }
+end
+SC.BaseLife.beginZone = function(kind, square)
+    areaDraft = { kind = kind, first = { x = square:getX(), y = square:getY(), z = square:getZ() } }
+    return true
+end
+SC.BaseLife.lockZoneEndpoint = function(square)
+    areaDraft.lockedEndpoint = { x = square:getX(), y = square:getY(), z = square:getZ() }
+end
+SC.BaseLife.cancelZone = function() areaDraft = nil; return true end
+SC.BaseLife.finishZone = function(square)
+    if areaBlocked then return false, "zone_outside_base_area" end
+    areaFinished[#areaFinished + 1] = { first = areaDraft.first, last = square }
+    areaDraft = nil
+    return true
+end
+SC.BaseVisuals.refresh = function() end
+local areaStart = find(fill({ container }), "UI_SC_Base_Zone_rest")
+select(areaStart)
+check(areaDrag and areaDraft and #areaFinished == 0,
+    "starting an area installs a native cursor without finishing on the menu click")
+local function clickArea(x, y, z)
+    local cursor, square = areaDrag, T.square(x, y, z)
+    T.doctor.buildReleased, T.doctor.buildDown = false, false
+    DoTileBuilding(cursor, true, x, y, z, square)
+    T.doctor.buildDown = true
+    DoTileBuilding(cursor, true, x, y, z, square)
+    T.doctor.buildDown, T.doctor.buildReleased = false, true
+    DoTileBuilding(cursor, true, x, y, z, square)
+    T.doctor.buildReleased = false
+end
+clickArea(17, 12, 1)
+check(areaDraft and areaDrag and #areaFinished == 0, "a click on another floor cannot finish the area")
+areaBlocked = true
+clickArea(17, 12, 0)
+check(areaDraft and areaDrag and #areaFinished == 0, "a rejected rectangle stays editable")
+areaBlocked = false
+local originalAreaZ = T.doctor.getZ
+function T.doctor:getZ() return SC_TEST_BOXED_FLOAT end
+clickArea(18, 13, 0)
+T.doctor.getZ = originalAreaZ
+check(not areaDraft and not areaDrag and #areaFinished == 1
+    and areaFinished[1].first.x == groundSquare.x and areaFinished[1].last.x == 18
+    and areaFinished[1].last.y == 13, "one native left click finishes the exact area and releases the cursor")
+select(areaStart)
+check(not find(fill({ container }), "UI_SC_Base_FinishZone"), "area completion no longer requires a context-menu action")
+cell:setDrag(nil)
+check(not areaDraft and #areaFinished == 1, "native Escape/right-click cancellation leaves no area behind")
+select(areaStart)
+local olderCursor = areaDrag
+select(areaStart)
+check(areaDrag ~= olderCursor and areaDraft and areaDrag.draft.first.x == areaDraft.first.x,
+    "replacing an area cursor preserves the new draft")
+local foreignCursor = { deactivate = function() end }
+cell:setDrag(foreignCursor)
+olderCursor:update()
+check(areaDrag == foreignCursor and not areaDraft, "a stale LF cursor never clears another placement tool")
+getCell = priorCell
 SC.BaseLife, SC.BaseVisuals, SC.BaseWatch = nil, nil, nil
 
 local household = { id = "household", name = "Neighbours", members = {} }

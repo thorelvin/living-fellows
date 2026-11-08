@@ -20,6 +20,8 @@
   log; display animation runs only while visible. Pauses preserve work already done.
 - Replace the collapsed launcher with a rounded orange LF tab and attention
   badge. Review opens the relevant job or decision; Acknowledge hides its notice.
+- Finish area marking with a left-click on the opposite corner, using the
+  native placement cursor. Right-click or Escape cancels; invalid areas stay editable.
 - Explain why work paused and how to recover. Keep quarantine pending when
   its area cannot be reached, permit indoor duty under watch, and require a
   current player confirmation before irreversible infection decisions.

@@ -61,6 +61,8 @@ This edition includes its own bridge and does not need ZombieBuddy. Keep the ext
 3. Set orders and combat style in **Orders**; put companions into groups in **Squad**.
 4. Right-click the ground and choose **Living Fellows → Set camp core here**. Mark storage, then assign jobs at the top of **More → Base**. To remove a storage marking, right-click its container and choose **Living Fellows → Unmark storage**.
 
+To mark an area, choose its type at the first corner, then **left-click the opposite corner** to finish. Right-click or press **Esc** to cancel.
+
 The **First steps** card on Status follows your progress, with a short reminder beside the collapsed launcher. New worlds get an early independent survivor who approaches cautiously; the first arrival gets a one-time clearing of hidden, idle zombies nearby. They remain vulnerable. Dismiss the card or turn **Show tips** off in Mod Options; **Show tips again** brings it back. **More → Support → Tips** keeps the instructions you've seen.
 
 The orange **LF** tab shows a badge when something needs attention. **Review** opens the relevant decision or blocked job; **Acknowledge** hides its notice while keeping the badge. Status explains **Why paused** and how to recover. Infection decisions use the evidence your character knows: watch allows indoor duties, unavailable quarantine stays pending, and irreversible outcomes require your confirmation.

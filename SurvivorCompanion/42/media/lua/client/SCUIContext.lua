@@ -4,6 +4,7 @@ require "ISUI/ISContextMenu"
 require "ISUI/ISWorldObjectContextMenu"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISTextBox"
+require "BuildingObjects/ISBuildingObject"
 require "SCInteraction"
 require "SCConstructionPlanner"
 require "SCGameplayUtil"
@@ -926,6 +927,7 @@ local function findTarget(worldObjects, player)
         removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget
 end
 
+local startZoneCursor, stopZoneCursor
 local function baseAction(target, action, payload, player)
     if not SC.BaseLife then return end
     if SC.BaseWatch and SC.BaseWatch.isRemote
@@ -965,10 +967,20 @@ local function baseAction(target, action, payload, player)
             ok, result = false, "build_recipe_missing"
         end
     end
+    if ok and action == "zone_begin" then
+        if not startZoneCursor(player) then
+            SC.BaseLife.cancelZone()
+            ok, result = false, "zone_cursor_unavailable"
+        end
+    elseif ok and (action == "zone_finish" or action == "zone_cancel") then
+        stopZoneCursor()
+    end
     if player then
         local failure = SC.UI and type(SC.UI.baseFailureReason) == "function"
             and SC.UI.baseFailureReason(result) or tostring(result)
-        safeMethod(player, "setHaloNote", ok and action == "clean"
+        safeMethod(player, "setHaloNote", ok and action == "zone_begin"
+                and text("UI_SC_Base_ZonePickEnd")
+            or ok and action == "clean"
                 and text("UI_SC_Base_CleaningQueued")
             or ok and action == "room_mark"
                 and text("UI_SC_Base_RoomMarked", text(payload.kind == "area"
@@ -984,6 +996,80 @@ local function baseAction(target, action, payload, player)
         end
     end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+    return ok, result
+end
+
+local ZoneCursor
+local function sameZoneDraft(first, second)
+    -- BaseLife exposes defensive copies, never the private draft table.
+    return first and second and first.kind == second.kind
+        and first.first.x == second.first.x and first.first.y == second.first.y
+        and first.first.z == second.first.z
+end
+stopZoneCursor = function(cursor)
+    cursor = cursor or Context._zoneCursor
+    if not cursor then return end
+    local cell = type(getCell) == "function" and getCell() or nil
+    if safeMethod(cell, "getDrag", cursor.player) == cursor then
+        cell:setDrag(nil, cursor.player)
+    else cursor:deactivate() end
+end
+
+startZoneCursor = function(player)
+    local draft = SC.BaseLife.zoneDraft()
+    local cell = type(getCell) == "function" and getCell() or nil
+    local index = safeMethod(player, "getPlayerNum")
+    if not draft or index == nil or not cell or type(cell.setDrag) ~= "function"
+        or type(ISBuildingObject) ~= "table" then return false end
+    if not ZoneCursor then
+        ZoneCursor = ISBuildingObject:derive("SCBaseZoneCursor")
+        function ZoneCursor:rotateMouse() end
+        function ZoneCursor:rotateKey() end
+        function ZoneCursor:isValid(square)
+            -- Native heights can be boxed Java Floats; compare tile floors.
+            local squareZ = tonumber(tostring(safeMethod(square, "getZ")))
+            local actorZ = tonumber(tostring(safeMethod(self.character, "getZ")))
+            return Context._zoneCursor == self
+                and sameZoneDraft(SC.BaseLife.zoneDraft(), self.draft) and square ~= nil
+                and squareZ == self.draft.first.z and actorZ ~= nil
+                and math.floor(actorZ) == self.draft.first.z
+                and safeMethod(self.character, "isDead") ~= true
+        end
+        function ZoneCursor:render(x, y, z, square)
+            if not self:isValid(square) then return end
+            local endpoint = self.endpoint
+            if not endpoint or endpoint.x ~= x or endpoint.y ~= y or endpoint.z ~= z then
+                local ok, point = SC.BaseLife.lockZoneEndpoint(square)
+                if ok then self.endpoint = point end
+            end
+        end
+        function ZoneCursor:tryBuild(x, y, z)
+            local square = safeMethod(getCell(), "getGridSquare", x, y, z)
+            if not self:isValid(square) then return end
+            baseAction(nil, "zone_finish", { square = square, name = self.draft.kind }, self.character)
+            self:reinit()
+        end
+        function ZoneCursor:update()
+            if Context._zoneCursor ~= self
+                or not sameZoneDraft(SC.BaseLife.zoneDraft(), self.draft) then stopZoneCursor(self) end
+        end
+        function ZoneCursor:deactivate()
+            if Context._zoneCursor ~= self then return end
+            Context._zoneCursor = nil
+            if sameZoneDraft(SC.BaseLife.zoneDraft(), self.draft) then
+                SC.BaseLife.cancelZone()
+                if SC.BaseVisuals then SC.BaseVisuals.refresh() end
+            end
+        end
+    end
+    local cursor = setmetatable({}, ZoneCursor)
+    ZoneCursor.__index = ZoneCursor
+    cursor:init()
+    cursor.character, cursor.player, cursor.draft = player, index, draft
+    cursor.skipBuildAction, cursor.noNeedHammer = true, true
+    Context._zoneCursor = cursor
+    cell:setDrag(cursor, index)
+    return true
 end
 
 local function toggleBaseLayout(_, player)
@@ -1273,8 +1359,6 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
     local inside = type(SC.BaseLife.isInside) == "function"
         and SC.BaseLife.isInside(square) == true
     if draft then
-        menu:addOption(text("UI_SC_Base_FinishZone"), nil, baseAction, "zone_finish",
-            { square = square, name = draft.kind }, player)
         menu:addOption(text("UI_SC_Base_CancelZone"), nil, baseAction, "zone_cancel", {}, player)
     else
         local zoneOption = areas:addOption(text("UI_SC_Base_StartZone"), nil, nil)
@@ -2179,12 +2263,6 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             sealedDoorGroup.id, "touch_door", player)
         option.scLFWorld = true
     end
-    if test ~= true and clickSquare and SC.BaseLife
-        and type(SC.BaseLife.zoneDraft) == "function"
-        and SC.BaseLife.zoneDraft()
-        and type(SC.BaseLife.lockZoneEndpoint) == "function" then
-        SC.BaseLife.lockZoneEndpoint(clickSquare)
-    end
     local selected = selectedNearbyRow(rows)
     local medicalPatient = medicalOption and (medicalOption.onSelect == context.onGetUpAndThen
         and medicalOption.param4 or medicalOption.param2)
@@ -2648,6 +2726,7 @@ end
 
 function Context.remove()
     stopTaxiCallAudio()
+    stopZoneCursor()
     if not Context._installed
         and not (ISInventoryPaneContextMenu
             and ISInventoryPaneContextMenu.readItem

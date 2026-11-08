@@ -46,6 +46,8 @@ $interfacePanelFiles = @(
 
 $interfaceContextFiles = @(
     (Join-Path $UI 'SCMedicalContextFixture.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
+    (Join-Path $GameRoot 'media\lua\server\BuildingObjects\ISBuildingObject.lua'),
     (Join-Path $GameRoot 'media\lua\client\ISUI\ISContextMenu.lua'),
     (Join-Path $Client 'SCContextMenu.lua'),
     (Join-Path $Client 'SCMedicalUI.lua'),

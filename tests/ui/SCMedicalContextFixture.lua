@@ -46,7 +46,11 @@ function getText(key, argument, secondArgument)
         .. " tiles of " .. tostring(argument) .. " for a medical check." end
     return key
 end
-Events = nil
+Events = {}
+for _, name in ipairs({ "OnDoTileBuilding2", "OnDoTileBuilding3", "OnKeyPressed",
+    "OnDestroyIsoThumpable", "RenderOpaqueObjectsInWorld" }) do
+    Events[name] = { Add = function() end }
+end
 ISToolTip = {}
 function ISToolTip:new()
     return { initialise = function() end, setVisible = function(self, visible) self.visible = visible end }

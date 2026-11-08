@@ -143,3 +143,42 @@ The deferred-completion regression failed before the fix; the old-job ownership
 failure was independently reproduced during review. All five project checks
 PASS in 65.1 seconds: build/test-results/20261108-110016-d532c3.
 This verification is automated; no further live game was launched for these fixes.
+
+Area marking and full-shift acceptance — 8 November 2026
+------------------------------------------------------
+Area selection now uses vanilla's placement cursor: choose the first corner
+from the context menu, then left-click the opposite corner. Native cancellation
+discards the draft; invalid placement keeps the selection available to correct.
+The cursor compares the defensive BaseLife draft snapshots by their corners,
+and only its current owner may cancel them. Native boxed/fractional actor heights
+are normalized to a floor. The existing context-menu test uses the installed
+ISBuildingObject press/release dispatcher and defensive snapshots, and covers
+replacement, stale cursor cleanup, floor rejection and cancellation.
+
+Build and Interface PASS: build/test-results/20261108-150217-55e03c (19.6 seconds).
+Live run: build/live-sandbox-runs/SC-Harness-20261108-150244-ee9ab1c0.
+Ground-floor and upstairs context-menu starts, exact rectangle placement through
+the native cursor callback, unchanged player position and native cancellation
+all PASS. These are in-game callbacks, not OS mouse/keyboard input. Screenshots
+show the real saved areas on both floors. Earlier blocked runs retained captures
+and exposed the defensive-copy identity bug before the final run.
+
+The radio fixture starts a fresh operator at zero work with native hardware and
+supplies. It does not seed work progress or alter the random contact outcome.
+The operator enters the exact desk chair, performs LF_ComputerUse, renews that
+animation while seated, and advances work after closing the terminal.
+
+Final receipt: COMPLETE, and LIVE_SANDBOX_PASS. Four measured game hours finished
+after approximately 15 minutes at the save's normal 90-minute-day setting.
+The job disappeared and radio_work no longer owned the actor. The unmodified
+35% roll produced QUIET, with 100% progress and the ordinary completed report.
+No needs pause occurred: final hunger was about 13%, tiredness 15%, thirst 2%.
+Needs preemption remains covered by automated checks; recruit arrival was not
+retested in this quiet run. The earlier seeded-contact arrival check above is
+separate evidence. No new gameplay exceptions appeared, and the game exited
+cleanly with no remaining game, Java or compiler process.
+
+Screenshots and the complete receipt are in
+C:/ZOMBOID/outputs/area-radio-acceptance-02704/: area-ground-floor.png,
+area-upstairs.png, radio-operator-screen.png, seated-operator.png,
+radio-normal-completion.png and acceptance.txt.
