@@ -182,3 +182,37 @@ Screenshots and the complete receipt are in
 C:/ZOMBOID/outputs/area-radio-acceptance-02704/: area-ground-floor.png,
 area-upstairs.png, radio-operator-screen.png, seated-operator.png,
 radio-normal-completion.png and acceptance.txt.
+
+Short needs-break acceptance — 8 November 2026
+--------------------------------------------
+The first native run, SC-Harness-20261108-182043-4eaa65d3, found a real resume
+failure. Routine hunger was raised to 78% and thirst to 60%, below emergency
+thresholds, with matching metabolism sampling baselines and real carried food
+and water. After three native bites hunger remained just above 30%. The meal
+still preempted radio ownership, but its reduced score let the radio job win
+selection again, producing repeated chair entry/exit and no further work.
+The bounded probe captured the block before exiting.
+
+Needs now exposes the ongoing camp-meal episode. Decision scoring retains its
+admission pressure between bites until actual hunger falls below 30%. Emergency
+flags and danger/travel eligibility stay unchanged. The existing radio harness
+reproduced the selection failure before the fix and passes afterward.
+Build and Behaviour PASS: build/test-results/20261108-182653-c77107 (16.1 seconds).
+
+Corrected native run: SC-Harness-20261108-182803-2cb53277 — COMPLETE and
+LIVE_SANDBOX_PASS after 68 observation samples. Real consumption reduced hunger
+from 78% to about 20% and thirst from 60% to near zero. Saved work stayed at
+0.030159 hours during the meal, then the same job resumed on the exact native
+chair with LF_ComputerUse and advancing work. The probe cancelled through the
+ordinary control and confirmed job removal and radio ownership release.
+No new gameplay exceptions appeared; no game or Java process remained.
+
+Receipt and native screenshots: C:/ZOMBOID/outputs/radio-needs-break-02704/
+acceptance.txt, before-fix-block.png, needs-break.png, resumed-at-desk.png and
+resumed-screen.png. This is a seeded-needs break/recovery check, not another
+four-hour shift or a live survivor-contact test. Original save/installation
+remain untouched by these isolated harness runs.
+
+Workstation visual limitation: these fixtures placed the bare PC sprite directly
+on a tile without a desk, and did not match its facing to the chair. Desk support,
+monitor orientation and hand alignment still require a proper workstation check.

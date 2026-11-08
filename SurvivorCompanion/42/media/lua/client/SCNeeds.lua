@@ -764,6 +764,7 @@ function Needs.assess(actor, runtime)
         hunger = hunger,
         thirst = thirst,
         fatigue = fatigue,
+        mealInProgress = state.baseMeal == true,
         hungry = hunger >= hungerThreshold or state.baseMeal == true,
         thirsty = thirst >= (U().config("needsThirstThreshold") or 0.48),
         emergency = hunger >= (U().config("needsHungerEmergency") or 0.82)

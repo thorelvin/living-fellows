@@ -30,6 +30,8 @@
 - Keep radio cancellation tied to its exact job, wait for keyboard release
   before completing a shift, and preserve the result across reloads. Separate
   infection decisions no longer conflict merely because neither has an executor.
+- Keep an unfinished camp meal ahead of chores between bites, preventing radio
+  operators from repeatedly sitting and standing instead of resuming after a break.
 - Retain bridge protocol `42.21-isocompanion-30` for Project Zomboid 42.21.0;
   ship the rebuilt bridge with 0.27.4 metadata. Existing save schemas are unchanged.
 

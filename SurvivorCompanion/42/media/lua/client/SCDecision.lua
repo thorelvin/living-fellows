@@ -491,7 +491,10 @@ end
 
 local function needsDecisionScore(needs, active)
     needs = type(needs) == "table" and needs or {}
-    local pressure = math.max(needs.hunger or 0, needs.thirst or 0)
+    -- Keep an admitted camp meal ahead of chores between bites until it ends.
+    -- Otherwise radio work wins selection and immediately yields to it again.
+    local mealPressure = needs.mealInProgress and (U().config("needsHungerThreshold") or .70) or 0
+    local pressure = math.max(needs.hunger or 0, needs.thirst or 0, mealPressure)
     local score = (active or needs.active) and 112 or (62 + pressure * 42)
     if needs.peeDue then score = math.max(score, needs.peeOverdue and 86 or 68) end
     return score

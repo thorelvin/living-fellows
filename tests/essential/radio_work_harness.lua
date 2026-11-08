@@ -93,6 +93,23 @@ local token=S.current(actor)
 SC.Decision._holdOwnedActivityOrPacingForTests(actor,f.player,quiet,healthy,{hungry=true,hunger=.75},
     {recruited=true,order="base_duty",commandSerial=1},{},f.clock,{})
 check(not S.isCurrent(token),"routine hunger preempts typing before starvation")
+local originalHunger,mealRuntime=actor.hunger,{}
+actor.hunger=.78
+SC.Needs.assess(actor,mealRuntime)
+actor.hunger=.301
+local finishingMeal=SC.Needs.assess(actor,mealRuntime)
+local duty={recruited=true,order="base_duty",commandSerial=1}
+local choices=SC.Decision._evaluateForTests(actor,f.player,quiet,duty,healthy,
+    finishingMeal,{},f.clock)
+check(finishingMeal.hungry and choices[1].kind=="needs",
+    "an admitted camp meal keeps priority over radio work between its final bites")
+actor.hunger=.299
+local finishedMeal=SC.Needs.assess(actor,mealRuntime)
+choices=SC.Decision._evaluateForTests(actor,f.player,quiet,duty,healthy,finishedMeal,{},f.clock)
+check(not finishedMeal.hungry and not finishedMeal.mealInProgress and choices[1].kind=="base_work",
+    "the completed meal releases duty so the same radio shift can resume")
+actor.hunger=originalHunger
+SC.Needs.reset(actor)
 f.worldHour=f.worldHour+8
 R.update(actor,{},job)
 check(job.target.radioHours==progress,"unattended and need-break time grants no progress")
