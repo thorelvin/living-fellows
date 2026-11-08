@@ -36,3 +36,34 @@ button.onClick(button.target, button)
 assert(#issued == 1, "missing and unavailable selections cannot dispatch")
 SC.Commands, SC.Interaction, UI.refresh = saved.commands, saved.interaction, saved.refresh
 SC_TEST_REPORT = (SC_TEST_REPORT or "") .. "; Selected command PASS: exact actor, payload and player; stale selection guarded"
+
+-- Holding right mouse runs the real diagnostic with a native-style list size.
+-- safeMethod returns a trailing nil; it must not become tonumber's radix.
+local savedInput = { config = SC.Config, mouse = isMouseButtonDown,
+    timestamp = getTimestampMs, player = getSpecificPlayer, manager = UIManager,
+    prerender = ISPanel.prerender }
+local clock, held, inspected = 1000, true, 0
+SC.Config = { get = function(key) return key == "debugSpawnEnabled" and true or nil end }
+isMouseButtonDown = function() return held end
+getTimestampMs = function() return clock end
+getSpecificPlayer = function() return {
+    getVehicle = function() end, isAiming = function() return false end,
+} end
+UIManager = { getUI = function() return {
+    size = function() inspected = inspected + 1 return 2 end,
+    get = function() end,
+} end }
+ISPanel.prerender = function() end
+local inputRoot = setmetatable({ lastScreenWidth = BasePolicyFixture.screenWidth,
+    lastScreenHeight = BasePolicyFixture.screenHeight },
+    { __index = BasePolicyFixture.classes.SCUIRoot })
+inputRoot:prerender()
+clock = 1400
+inputRoot:prerender()
+inputRoot:prerender()
+assert(inspected == 1, "right-hold diagnostic accepts a numeric list size and reports only once")
+held = false
+inputRoot:prerender()
+SC.Config, isMouseButtonDown, getTimestampMs, getSpecificPlayer, UIManager,
+    ISPanel.prerender = savedInput.config, savedInput.mouse, savedInput.timestamp,
+    savedInput.player, savedInput.manager, savedInput.prerender

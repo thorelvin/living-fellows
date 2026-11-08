@@ -5463,7 +5463,8 @@ local function probeRightMouseBlocker()
     local hits = {}
     local elements = UIManager and type(UIManager.getUI) == "function"
         and UIManager.getUI() or nil
-    local count = elements and tonumber(safeMethod(elements, "size")) or 0
+    local countValue = elements and safeMethod(elements, "size")
+    local count = tonumber(countValue) or 0
     for index = count - 1, 0, -1 do
         local element = safeMethod(elements, "get", index)
         if element and safeMethod(element, "isVisible") == true
