@@ -2028,6 +2028,8 @@
     "UI_SC_Expedition_PreparationDeficit": "Cargo needs %1 more item space and %2 more carrying capacity.",
     "UI_SC_Expedition_PreparationWarningStorage": "Some surplus stays carried because permitted storage is unavailable.",
     "UI_SC_Expedition_PreparationWarningStorageRoute": "Some surplus stays carried because the route to camp storage is blocked.",
+    "UI_SC_Expedition_PreparationWarningStashingDeferred": "Optional stashing took too long. Remaining gear stays carried; cargo space is checked before departure.",
+    "UI_SC_Expedition_PreparationWarningSuppliesDeferred": "Some supply top-ups took too long and were left behind. Check carried supplies above.",
     "UI_SC_Expedition_PreparationWarningFood": "Food is below the usual minimum.",
     "UI_SC_Expedition_PreparationWarningWater": "Water is below the usual minimum.",
     "UI_SC_Expedition_PreparationWarningMedicine": "Medicine is below the usual minimum.",

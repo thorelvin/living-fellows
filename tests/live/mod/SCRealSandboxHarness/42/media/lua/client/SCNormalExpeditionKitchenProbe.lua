@@ -96,9 +96,21 @@ end
 
 local function setup(H, SC, check, result, setPhase, current)
     local crewSize = tonumber(H.config.normal_expedition_kitchen_crew_size) or 2
-    if not check("normal_kitchen_crew_size_option", crewSize == 1 or crewSize == 2,
-        "requested crew size=" .. tostring(crewSize)) then setPhase("finish", current) return end
-    if (not SC.BaseLife.active() or #SC.Registry.records() < crewSize)
+    if not H.normalKitchenCrewSizeValidated then
+        if not check("normal_kitchen_crew_size_option", crewSize == 1 or crewSize == 2,
+            "requested crew size=" .. tostring(crewSize)) then setPhase("finish", current) return end
+        H.normalKitchenCrewSizeValidated = true
+    end
+    -- Restoring the first records does not mean the whole crew or vehicle
+    -- index is ready. Wait before staging the primary or claiming a fixture.
+    local readyCrew = 0
+    for _, record in ipairs(SC.Registry.records()) do
+        local state = record.actor and SC.Commands.peek(record.actor)
+        if state and state.recruited == true and healthy(record.actor)
+            and SC.BaseLife.isInside(record.actor) then readyCrew = readyCrew + 1 end
+    end
+    local readyCars = SC.ExpeditionCar.parkedCars()
+    if (not SC.BaseLife.active() or readyCrew < crewSize or #readyCars == 0)
         and current - H.phaseStartedAt < 15000 then return end
     local fixture = { primary = H.player, crew = {}, places = {}, page = 0, frames = 0,
         startedAt = current, nextTraceAt = current, planIndex = 1, carIndex = 1 }
@@ -149,7 +161,7 @@ local function setup(H, SC, check, result, setPhase, current)
         return a.id < b.id
     end)
     while #fixture.crew > crewSize do table.remove(fixture.crew) end
-    fixture.cars = SC.ExpeditionCar.parkedCars()
+    fixture.cars = readyCars
     if not check("normal_kitchen_real_crew_car", #fixture.crew == crewSize and #fixture.cars > 0,
         "requested crew=" .. crewSize .. " saved healthy recruited crew=" .. #fixture.crew
             .. " existing parked cars=" .. #fixture.cars) then

@@ -465,6 +465,26 @@ local function freshTrip(state, leg)
 end
 
 do
+    freshTrip("boarding_out")
+    local actor, car, locked = T.team[2].actor, T.cars[1], true
+    local priorCar, priorSeat, priorOccupant, priorDoor = actor.car, actor.seat, car.occupied[1], car.getPassengerDoor
+    actor.car, actor.seat, car.occupied[1] = nil, nil, nil
+    car.getPassengerDoor = function() return { getDoor = function()
+        return { isLocked = function() return locked end }
+    end } end
+    local order = { car = car, seat = 1, sqlId = car:getSqlId() }
+    for _ = 1, 10 do
+        local accepted, reason = Car.boardMember(actor, order, {})
+        check(accepted and reason == "waiting_for_driver_unlock" and actor.car == nil,
+            "a passenger arriving first waits without entering a locked door or burning boarding retries")
+    end
+    locked = false
+    check(Car.boardMember(actor, order, {}) and actor.car == car and actor.seat == 1,
+        "the same passenger boards normally once the driver unlocks its door")
+    actor.car, actor.seat, car.occupied[1], car.getPassengerDoor = priorCar, priorSeat, priorOccupant, priorDoor
+end
+
+do
     local loaded,prototype=SC.Vehicle.loadedBySqlId,SC.ExpeditionPrototype
     local car,visible=T.cars[1],false
     SC.Vehicle.loadedBySqlId=function()return visible and car or nil end
@@ -961,6 +981,14 @@ do
     SC.Vehicle.loadedBySqlId = loader
     Car.pulse(T.mission, 805000)
 
+    local failedStart = seatedTrip("driving_home", "home")
+    T.driveStatus = { phase = "failed", managed = true, result = "failed", reason = "engine_failed" }
+    check(Car.pulse(T.mission, 805500) and failedStart.state == "held"
+            and failedStart.recovery.remainingMs == 300000
+            and failedStart.lastFailure.reason == "engine_failed"
+            and T.team[1].actor.car == car and T.team[2].actor.car == car,
+        "failed native cranking retains the crew for checked recovery instead of immediately abandoning the car")
+    T.driveStatus = nil
     local failedRoad = seatedTrip("driving_home", "home")
     car.x, car.y = 160, 160
     local nativeStatus = SC.Driving.status

@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.27.6 - Faster expedition preparation
+
+- Expedition packing limits optional stashing and supply top-ups, keeping
+  remaining gear with its owner and showing what was deferred. Required tools
+  and cargo-capacity checks still apply before departure.
+- Companions finish eligible deposits at the current shelf before choosing
+  another route, and prefer lighter drinking containers when gathering supplies.
+- Scavenging scores supplies in short time slices and resumes at the next
+  item. Partly searched containers stay pending rather than being treated as empty.
+- Expedition passengers wait for the driver to unlock their door instead of
+  exhausting boarding retries. Failed engine starts use the existing bounded
+  five-minute recovery before the crew gives up the car.
+- Update the private live harness for 42.22.2 and retain the expedition, cargo
+  and camp measurements. Camp decision spikes and doorway delays remain under
+  investigation; returning cargo and storing it remain separate steps.
+- Targets Project Zomboid 42.22.2 with unchanged bridge protocol
+  `42.22-isocompanion-31`. The rebuilt bridge carries the 0.27.6 release metadata.
+
 ## 0.27.5 - Getting to know your survivors
 
 - Update the standalone bridge for Project Zomboid 42.22.2 and protocol

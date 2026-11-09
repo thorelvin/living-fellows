@@ -660,6 +660,8 @@ function Planner.buildDeparturePreparation(detail, panel, y, summary)
                     string.format("%.1f", tonumber(deficit.effective) or 0)))
         end
         local warnings = { loadout_storage_unavailable = "Storage", loadout_storage_unreachable = "StorageRoute",
+            loadout_stashing_deferred = "StashingDeferred",
+            loadout_supplies_deferred = "SuppliesDeferred",
             loadout_food_shortage = "Food",
             loadout_water_shortage = "Water", loadout_medicine_shortage = "Medicine",
             loadout_reduced_cargo_room = "Cargo" }

@@ -57,7 +57,7 @@ unlocked explicitly for this measurement. Screenshots and raw reports stay
 in the isolated run. Neither mode belongs to the routine five-check gate.
 
 This is a private in-game integration harness for the real Project Zomboid
-42.21.0 single-player client. It is deliberately outside `SurvivorCompanion`
+42.22.2 single-player client. It is deliberately outside `SurvivorCompanion`
 and is not copied into Workshop staging or release archives.
 
 The runner creates a unique directory under `build/live-sandbox-runs`, clones a

@@ -606,6 +606,22 @@ function Car.boardMember(actor, order, snapshot)
     local prepared, reason = SC.Vehicle.preflightBoard(actor, car, seat,
         seat == 0)
     if prepared then
+        if mission and trip.sqlId == order.sqlId and seat > 0 then
+            local partOk, part = call(car, "getPassengerDoor", seat)
+            local doorOk, door = call(part, "getDoor")
+            local lockedOk, locked = call(door, "isLocked")
+            if partOk and doorOk and lockedOk and locked == true then
+                -- A passenger can arrive before the key holder/driver. Native
+                -- entry would fail this lock and exhaust retries before the
+                -- driver's next unlock pulse. Wait at the door instead.
+                if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, "waiting_for_driver_unlock") end
+                if SC.Actor and SC.Actor.stop then SC.Actor.stop(actor) end
+                if SC.ActionSupervisor and SC.ActionSupervisor.transition then
+                    SC.ActionSupervisor.transition(began.supervisorToken, "waiting")
+                end
+                return boardingResult(actor, order, true, "waiting_for_driver_unlock")
+            end
+        end
         local options = { driverSeat = seat == 0,
             playerCommand = order.hotwire == true or order.fieldWork == true,
             allowVirtualSeat = false, preflight = prepared }
@@ -1009,6 +1025,9 @@ do
     end
     function Recovery.roadReason(reason)
         return reason == "no_route" or reason == "route_blocked"
+            -- Three failed native cranks do not prove a usable engine cannot
+            -- restart. The existing cooldown/budget rechecks the car first.
+            or reason == "engine_failed"
             or reason == "turn_failed" or reason == "goal_not_reached"
             or reason == "streaming_stalled" or reason == "drive_status_unavailable"
             or reason == "car_not_loaded" or reason == "road_access_blocked"

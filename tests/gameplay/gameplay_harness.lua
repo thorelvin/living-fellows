@@ -60,4 +60,30 @@ check(opened and door.open and #state.openedDoors == 1,
 SC.NavTraversal.release(door, follower)
 check((player.movementCalls or 0) == playerMoves and player.body.health == playerHealth,
     "companion routing never moves or damages the local player")
+do
+    local items, visits = {}, {}
+    for index = 1, 20 do items[index] = f.item("Base.SearchSlice" .. index, "Item", {}) end
+    local cupboard = f.containerObject(follower.square, items)
+    local search, precise, count, found = {}, 0, 0, nil
+    local clock, score, inside = SC.Performance.preciseNowMs, SC.Logistics.itemNeedScore, SC.BaseLife.isInside
+    SC.Performance.preciseNowMs = function() precise = precise + .6 return precise end
+    SC.BaseLife.isInside = function() return false end
+    SC.Logistics.itemNeedScore = function(_, item)
+        count, visits[item] = count + 1, (visits[item] or 0) + 1
+        return item == items[20] and 100 or 0, "general"
+    end
+    SC.Encounter._noteContainerOpened(search, cupboard, f.clock)
+    for _ = 1, 20 do
+        count = 0
+        local _, selected = SC.Encounter.stickyContainer(follower, search, {}, {},
+            { items = {}, shouldUnload = false }, f.clock)
+        check(count > 0 and count <= 3, "expensive scavenging yields after a bounded item slice")
+        if selected then found = selected break end
+        check(search.openContainer == cupboard, "a partly read cupboard remains open for the next slice")
+    end
+    check(found == items[20] and #cupboard.items == 20,
+        "time-sliced scavenging reaches the late useful item without moving stock")
+    for _, item in ipairs(items) do check(visits[item] == 1, "scavenging resumes without rescoring the prefix") end
+    SC.Performance.preciseNowMs, SC.Logistics.itemNeedScore, SC.BaseLife.isInside = clock, score, inside
+end
 print("BEHAVIOUR_NAVIGATION_PASS checks=" .. tostring(f.checks()))

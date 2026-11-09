@@ -396,9 +396,72 @@ function SurvivorCompanion.__testPreparationPacking()
     check(assessment and assessment.stage ~= "blocked" and #assessment.warnings == 0
             and fellow.inventory:contains(surplus) and not shelf:contains(surplus),
         "a long approach with real physical progress is not skipped")
+    for _ = 1, 25 do
+        movingX, f.clock = movingX + .3, f.clock + 501
+        sc.Logistics.prepareLoadout(fellow, movingRequest, safe)
+    end
+    ready, assessment = prepare(fellow, movingRequest)
+    check(ready and assessment.cargoReady and fellow.inventory:contains(surplus)
+            and not shelf:contains(surplus) and sc.ActionSupervisor.reservationCount(fellow) == 0
+            and string.find(table.concat(assessment.warnings, ":"), "loadout_stashing_deferred", 1, true),
+        "continued movement cannot extend optional stashing indefinitely; surplus and cargo checks survive")
+    local unsafeRequest = request("moving-storage-required-room", 8)
+    for _ = 1, 75 do
+        movingX, f.clock = movingX + .3, f.clock + 501
+        sc.Logistics.prepareLoadout(fellow, unsafeRequest, safe)
+    end
+    ready, assessment = prepare(fellow, unsafeRequest)
+    check(not ready and assessment.reason == "loadout_carry_capacity"
+            and fellow.inventory:contains(surplus) and not shelf:contains(surplus)
+            and sc.ActionSupervisor.reservationCount(fellow) == 0,
+        "optional stashing deadline never bypasses the required cargo reserve")
     sc.Logistics.resetPreparation(fellow)
     fellow.getX = priorX
     sc.GameplayUtil.directInteractionAccess, sc.Navigation.requestAny = priorAccess, priorRequest
+    do
+        local first = item("Base.FirstShelfPreparation", "Item", { weight = .1 })
+        local plank = item("Base.Plank", "Item", { weight = .1 })
+        local last = item("Base.LastShelfPreparation", "Item", { weight = .1 })
+        local storageRows, storageById, resolve = base.storageRows, base.storage, base.resolveContainer
+        local constructionShelf = containerObject(fellow.square, {})
+        local construction = { id = "storage:preparation-construction", category = "construction", deposits = true }
+        base.storageRows = function(category, withdrawals)
+            if category == "construction" then return { construction } end
+            return storageRows(category, withdrawals)
+        end
+        base.storage = function(id) return id == construction.id and construction or storageById(id) end
+        base.resolveContainer = function(storage)
+            if storage == construction then return constructionShelf, constructionShelf.owner end
+            return resolve(storage)
+        end
+        -- The existing surplus starts the general shelf visit. Inventory order
+        -- then alternates categories, but the last general item should go first.
+        fellow.inventory:AddItem(first)
+        fellow.inventory:AddItem(plank)
+        fellow.inventory:AddItem(last)
+        local order, addGeneral, addConstruction = {}, shelf.AddItem, constructionShelf.AddItem
+        shelf.AddItem = function(destination, moved)
+            order[#order + 1] = moved
+            return addGeneral(destination, moved)
+        end
+        constructionShelf.AddItem = function(destination, moved)
+            order[#order + 1] = moved
+            return addConstruction(destination, moved)
+        end
+        ready, assessment = prepare(fellow, request("group-shelf-visits", 4))
+        local positions = {}
+        for index, moved in ipairs(order) do positions[moved] = index end
+        check(ready and shelf:contains(first) and shelf:contains(last) and constructionShelf:contains(plank)
+                and positions[last] < positions[plank],
+            "preparation groups deposits at the current shelf while respecting construction storage"
+                .. ": ready=" .. tostring(ready) .. " reason=" .. tostring(assessment and assessment.reason)
+                .. " first=" .. tostring(positions[first]) .. " last=" .. tostring(positions[last])
+                .. " plank=" .. tostring(positions[plank]) .. " construction=" .. tostring(constructionShelf:contains(plank)))
+        shelf.AddItem, constructionShelf.AddItem = addGeneral, addConstruction
+        base.storageRows, base.storage, base.resolveContainer = storageRows, storageById, resolve
+        shelf:Remove(surplus)
+        fellow.inventory:AddItem(surplus)
+    end
     local fillers = {}
     for index = 1, 245 do
         fillers[index] = item("Base.KeptPreparation" .. tostring(index), "Item", { favorite = true, weight = 0 })
@@ -410,6 +473,7 @@ function SurvivorCompanion.__testPreparationPacking()
         if subject == fellow and intent and intent.action == "loot_container" and intent.item == surplus then
             poses = poses + 1
             if poses == 1 then
+                f.clock = f.clock + 35000
                 water.weight = water.weight + 0.01
                 fellow.getMaxWeight = function() return 11 end
             end
@@ -499,6 +563,42 @@ function SurvivorCompanion.__testPreparationPacking()
     ready = prepare(carrier, { key = "stored-ration", atCamp = true, allowBagUpgrade = false, cargoRaw = 1 })
     check(ready and carrier.inventory:contains(fresh) and supply:contains(emergency) and supply:contains(normal),
         "bounded supply discovery finds fresh food beyond its first scan slice")
+    local stockAxe = item("Base.HandAxe", "Weapon", { weight = 1 })
+    supply:AddItem(stockAxe)
+    sc.GameplayUtil.directInteractionAccess = function() return false, { fellow.square }, "interaction_route_pending" end
+    sc.Navigation.requestAny = function(subject, targets, mode, options)
+        sc.ActionSupervisor.transition(options.supervisorToken, "approaching")
+        sc.ActionSupervisor.progress(options.supervisorToken, "search:" .. f.clock)
+        return true, "searching"
+    end
+    for _, purpose in ipairs({ "food", "tool" }) do
+        local bottle = item("Base.WaterBottleStock" .. purpose, "Food", { weight = .2,
+            fluidContainer = water:getFluidContainer() })
+        local seeker = resident("bounded-stock-" .. purpose, { bottle })
+        local req = { key = "bounded-stock-" .. purpose, atCamp = true, allowBagUpgrade = false, cargoRaw = 1,
+            requiredTools = purpose == "tool" and { { itemType = "Base.HandAxe" } } or nil }
+        for _ = 1, 75 do
+            sc.Logistics.prepareLoadout(seeker, req, safe)
+            f.clock = f.clock + 501
+        end
+        ready, assessment = prepare(seeker, req)
+        check((purpose == "food" and ready
+                and string.find(table.concat(assessment.warnings, ":"), "loadout_supplies_deferred", 1, true)
+                and sc.ActionSupervisor.reservationCount(seeker) == 0)
+            or (purpose == "tool" and not ready and sc.ActionSupervisor.reservationCount(seeker) > 0),
+            "unreachable optional top-ups yield, while a required tool still prevents departure: " .. purpose)
+        check(supply:contains(stockAxe) and not seeker.inventory:contains(stockAxe),
+            "a timed supply approach never moves or recreates the exact source tool")
+        sc.Logistics.resetPreparation(seeker)
+    end
+    sc.GameplayUtil.directInteractionAccess, sc.Navigation.requestAny = priorAccess, priorRequest
+    local pot = item("Base.Pot", "Item", { weight = 2, fluidContainer = water:getFluidContainer() })
+    local lightBottle = item("Base.WaterBottleLightStock", "Food", { weight = .1, fluidContainer = water:getFluidContainer() })
+    supply:AddItem(pot) supply:AddItem(lightBottle)
+    local waterCarrier = resident("light-water-stock", {})
+    ready = prepare(waterCarrier, { key = "light-water-stock", atCamp = true, allowBagUpgrade = false, cargoRaw = 1 })
+    check(ready and waterCarrier.inventory:contains(lightBottle) and supply:contains(pot),
+        "preparation prefers a light drinking container over the first stored cooking pot")
     base.availableCountExact, base.resolveObject = oldAvailable, oldObject
     base.isInside, base.active, base.storageRows, base.storage, base.resolveContainer =
         oldInside, oldActive, oldRows, oldStorage, oldResolve

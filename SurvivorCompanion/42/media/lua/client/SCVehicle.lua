@@ -269,7 +269,7 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
         -- Followers can start from well outside the passenger-door radius and
         -- must queue around other companions. The generic 15 second approach
         -- deadline falsely expired a valid manifest before they reached the car.
-        deadlines = action == "board_vehicle" and { approaching = 60000 } or nil,
+        deadlines = action == "board_vehicle" and { approaching = 60000, waiting = 120000 } or nil,
         allowedActions = {
             approach_vehicle = true,
             board_vehicle = true,

@@ -1308,7 +1308,7 @@ end
 -- after each item, and a marginally better one somewhere else usually won -- so
 -- a companion took one thing, walked away, took one thing there, and so on. Two
 -- steps from an open cupboard beats twenty to the next one.
-function Encounter.stickyContainer(actor, state, needs, commands, audit, time)
+function Encounter.stickyContainer(actor, state, needs, commands, audit, time, context)
     if type(state) ~= "table" then return nil end
     local container = state.openContainer
     if container == nil then return nil end
@@ -1333,11 +1333,11 @@ function Encounter.stickyContainer(actor, state, needs, commands, audit, time)
             return nil
         end
     end
-    local score, item, category, owner = scoreContainer(
-        actor, container, needs, commands and commands.objectives, commands, audit, state)
+    local score, item, category, owner, complete = scoreContainer(
+        actor, container, needs, commands and commands.objectives, commands, audit, state, context)
     if item == nil or score <= 0 then
-        state.openContainer = nil
-        return nil
+        if complete ~= false then state.openContainer = nil end
+        return nil, nil, nil, nil, nil, complete
     end
     return container, item, category, owner, score
 end
@@ -1376,9 +1376,9 @@ end
 Encounter.UNOPENED = setmetatable({}, { __tostring = function() return "unopened" end })
 
 function Encounter._itemScanSlice(state, container, size, budget)
-    if size <= budget then return 0, true end
-    if type(state) ~= "table" then return 0, false end
+    if type(state) ~= "table" then return 0, size <= budget end
     local cursors = state.itemCursors
+    if size <= budget and not (cursors and cursors[container]) then return 0, true end
     if type(cursors) ~= "table" then
         cursors = setmetatable({}, { __mode = "k" })
         state.itemCursors = cursors
@@ -1396,31 +1396,40 @@ function Encounter._itemScanSlice(state, container, size, budget)
     return start, complete
 end
 
-scoreContainer = function(actor, container, needs, objectives, commands, audit, state)
+scoreContainer = function(actor, container, needs, objectives, commands, audit, state, context)
     local utility = U()
+    local performance = SC.Performance
+    local clock = performance and performance.preciseNowMs or utility.nowMs
+    context = context or { deadline = clock() + 1.5, storages = storageIndex() }
     local bestItem, bestCategory, bestScore = nil, nil, 0
     local owner = containerOwner(container)
     -- Marked base storage gives up nothing below its reserve, and storage the
     -- player has taken back gives up nothing at all.
-    local allowed, _, storage = Encounter.mayTakeFrom(container, storageIndex())
-    if not allowed then return 0, nil, nil, owner end
+    local allowed, _, storage = Encounter.mayTakeFrom(container, context.storages)
+    if not allowed then return 0, nil, nil, owner, true end
     -- A survivor with nothing to fight with should walk toward the places that
     -- hold weapons, whether or not the player has said so out loud. The
     -- explicit order still applies; it is no longer the only thing that does.
-    local wantsWeapon = type(commands) == "table"
-        and commands.prioritizeMeleeWeapon == true
-    if not wantsWeapon and SC.Combat
-        and type(SC.Combat.weaponAvailability) == "function" then
-        local _, usable = SC.Combat.weaponAvailability(actor)
-        wantsWeapon = tonumber(usable) ~= nil and tonumber(usable) <= 0
+    if context.wantsWeapon == nil then
+        context.wantsWeapon = type(commands) == "table" and commands.prioritizeMeleeWeapon == true
+        if not context.wantsWeapon and SC.Combat
+            and type(SC.Combat.weaponAvailability) == "function" then
+            local _, usable = SC.Combat.weaponAvailability(actor)
+            context.wantsWeapon = tonumber(usable) ~= nil and tonumber(usable) <= 0
+        end
     end
-    local weaponLocationBonus = wantsWeapon
+    local weaponLocationBonus = context.wantsWeapon
         and logicalWeaponLocationBonus(container, owner) or 0
     local budget = utility.config("scavengeItemBudget") or 40
     local items = containerItems(container)
-    local start, complete = Encounter._itemScanSlice(
-        state, container, utility.listSize(items), budget)
+    local size, processed = utility.listSize(items), 0
+    local start, complete = Encounter._itemScanSlice(state, container, size, budget)
     utility.each(items, budget, function(item)
+        -- A container quota alone permits hundreds of expensive item scores.
+        -- Always make progress, then retain the exact next item when this
+        -- slice's time is spent. An unfinished cupboard is never "empty".
+        if processed > 0 and clock() >= context.deadline then return false end
+        processed = processed + 1
         local protected = SC.PersonalItems
             and SC.PersonalItems.isProtected(item, actor, "return_to_owner")
         local score, category = 0, nil
@@ -1466,6 +1475,11 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
             bestItem, bestCategory, bestScore = item, category, score
         end
     end, start)
+    complete = start + processed >= size
+    if type(state) == "table" then
+        state.itemCursors = state.itemCursors or setmetatable({}, { __mode = "k" })
+        state.itemCursors[container] = { size = size, index = complete and 0 or start + processed }
+    end
     local distance = ownerDistance(actor, owner)
     if commands and commands.scavengeMissionId ~= nil
         and commands.scavengeSite and commands.scavengeSite.buildingId then
@@ -2128,13 +2142,18 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     -- used to re-rank everything in range after each item, so a marginally
     -- better container elsewhere usually won and companions took one thing from
     -- each in turn.
-    local openContainer, openItem, openCategory, openOwner, openScore =
-        Encounter.stickyContainer(actor, state, needs, commands, audit, time)
+    local performance = SC.Performance
+    local clock = performance and performance.preciseNowMs or U().nowMs
+    local context = { deadline = clock() + 1.5, storages = storageIndex() }
+    local openContainer, openItem, openCategory, openOwner, openScore, openComplete =
+        Encounter.stickyContainer(actor, state, needs, commands, audit, time, context)
     if openContainer ~= nil and (commands.scavengeTargetContainer == nil
         or openContainer == commands.scavengeTargetContainer) then
         return beginTask(actor, state, openContainer, openItem, openCategory,
             openOwner, openScore, commands, audit, time)
     end
+    if openComplete == false and (commands.scavengeTargetContainer == nil
+        or state.openContainer == commands.scavengeTargetContainer) then return nil, "searching" end
 
     if not selection then
         local candidates, complete, progress, total, sitePassComplete = candidateContainers(
@@ -2161,12 +2180,13 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     end
 
     local remaining = math.max(0, #selection.candidates - selection.index + 1)
-    local granted = remaining
+    local granted, claim = remaining
     if SC.Performance and type(SC.Performance.claimUnits) == "function" then
-        granted = SC.Performance.claimUnits("scavengeContainers", remaining, false)
+        granted, claim = SC.Performance.claimUnits("scavengeContainers", remaining, false, true)
     end
-    local startedAt, processed = U().nowMs(), 0
-    while processed < granted and selection.index <= #selection.candidates do
+    local startedAt, processed = clock(), 0
+    while processed < granted and selection.index <= #selection.candidates
+        and (processed == 0 or clock() < context.deadline) do
         local container = selection.candidates[selection.index]
         selection.index = selection.index + 1
         processed = processed + 1
@@ -2176,7 +2196,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
                 -- Known ground. This companion has had this one open, so what
                 -- is in it is fair to rank on.
                 score, item, category, owner, complete = scoreContainer(
-                    actor, container, needs, commands.objectives, commands, audit, state)
+                    actor, container, needs, commands.objectives, commands, audit, state, context)
                 if item and score > 0 then
                     score = score + Encounter.blindContainerScore(
                         actor, container, owner, commands, needs)
@@ -2196,7 +2216,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
                 -- skips the marked-storage rule, and applying it here rejected
                 -- every corpse inside a base.
                 if corpseContainers[container] == true
-                    or Encounter.mayTakeFrom(container, storageIndex()) then
+                    or Encounter.mayTakeFrom(container, context.storages) then
                     score = Encounter.blindContainerScore(
                         actor, container, owner, commands, needs)
                     item, category = Encounter.UNOPENED, nil
@@ -2225,12 +2245,17 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
                 -- More of this container still to read; leave it uncooled so
                 -- the next pass resumes where this slice stopped.
                 releaseContainer(container, actor)
+                selection.index = selection.index - 1
+                break
             end
         end
     end
+    if claim and performance and type(performance.settleUnits) == "function" then
+        performance.settleUnits(claim, processed)
+    end
     if SC.Performance and type(SC.Performance.record) == "function" then
         SC.Performance.record("scavenge.score", U().idOf(actor),
-            U().nowMs() - startedAt, processed, false)
+            clock() - startedAt, processed, false)
     end
     if selection.index <= #selection.candidates then
         if SC.Performance and type(SC.Performance.markYield) == "function" then

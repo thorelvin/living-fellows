@@ -117,9 +117,148 @@ Release preparation
   uninstalled and the original launcher configuration restored byte-for-byte.
   The game JAR remained unchanged. Packages and uploader staging remain ready.
 
+Controlled live follow-up, 2026-11-09
+  Native 42.22.2 client, protocol 31, LF alone, one client at a time. Used
+  disposable copies of the established Rising camp, not the player's original
+  save. The standalone installation and stock launcher remained untouched.
+  LowImpact requested four CPUs, BelowNormal scheduling, a 3 GiB heap and
+  30 FPS. These are functional checks, not an unrestricted performance baseline.
+
+  The private harness still had a 42.21-only version limit. Updated both test
+  metadata files to 42.22.2. Its kitchen probe also checked resources before
+  all saved actors restored; it now waits up to 15 seconds for healthy crew
+  and the parked-car index, and validates its crew option only once.
+
+  Camp observation: 180 seconds, four existing companions, 178 samples, no
+  stacking or gameplay exceptions. Residents moved and changed activities.
+  The LF panel opened during observation, so the menus-stayed-closed assertion
+  failed. This run is NOT a clean closed-menu timing sample.
+  Evidence: build/live-sandbox-runs/SC-Harness-20261109-190419-80135530
+
+  Search DRIVE: actual Tess and Xian, original stopped car SQL5, mapped store
+  11928:6794:11942:6813, two useful items. The saved parking markings admitted
+  no car; a clone-only public parking outline was added around SQL5 without
+  moving, creating or refueling it. Inventory, health, tools and loot were not
+  supplied. Normal production preparation, boarding, driving, looting and
+  autonomous return ran throughout. No forced return or mission completion.
+  Result: 30 PASS / 0 FAIL / 1 manual pixel-review SKIP, 561,680 ms after
+  dispatch. Both real items were acquired and returned; both crew were healthy.
+  SQL5 returned to 12032.9297,6755.3828 with its actual engine stopped. Solo
+  player/HUD/camera ownership and secondary chunk release checks passed.
+  Screenshot records cover preparation, site exits, home exits and solo return.
+  The observation deadline was extended by 120 seconds only; the production
+  one-game-hour return timer was unchanged. Wider diagnostic screenshots can
+  affect chunk streaming, so this is not an unchanged-zoom control.
+  Evidence: build/live-sandbox-runs/SC-Harness-20261109-191724-6c2d2a5f
+
+  Findings: preparation took about 339 seconds before boarding. A read-only
+  snapshot found Tess ready, while Xian was staging an optional Cooking Pot
+  despite already having cargo room. Repeated storage journeys and crowded
+  approaches warrant further work. The bounded destination survey does not
+  bound the entire optional deposit's physical approach. This is the baseline
+  preceding the preparation follow-up below.
+
+  Delivery continuation: reloaded that completed trip in another clone and
+  observed four residents for 180 seconds, 179 samples, with LF menus closed.
+  Result: 10 PASS / 0 FAIL. The original Broom receipt reached storage:8.
+  The original Bleach remained carried by Tess, returned=true, stored=false,
+  reason=matching_storage_full. Its pending receipt was preserved. A separate
+  old wood receipt was already unresolved in the seed and was not recreated.
+  Closed-menu whole-mod tick p50/p95/max: 5.082/14.014/62.606 ms on this capped
+  profile. Scavenge and base-work delegates remained significant; idle computer
+  services measured p95 0.021 ms, max 0.034 ms. No LF gameplay exceptions.
+  Evidence: build/live-sandbox-runs/SC-Harness-20261109-192918-3096c6b5
+
+  Logs retain the old seed's 527 unmatched room/building metadata messages,
+  plus stock startup font/container and mannequin warnings. These are separate
+  from LF gameplay exceptions. One optional attach diagnostic initially refused
+  its cache guard; its agent initialization stack is investigation noise, not
+  an LF gameplay failure. The replacement diagnostic validated the actual game
+  filesystem cache before reading the owned run.
+
+Preparation and camp follow-up, 2026-11-09
+  Optional surplus stashing now has a 30-second total allowance, including
+  route surveys and walking. Optional stock top-ups/bag discovery each get
+  a 30-second allowance per purpose. Native poses/transfers already underway
+  settle normally. Skipped items stay owned; missing required tools and actual
+  cargo-capacity checks remain in force. Warnings explain deferred stashing
+  and stock. Deposits finish eligible items for the current preferred-category
+  shelf before selecting another route; water top-ups prefer lighter vessels.
+
+  Scavenge selection/contents scoring now yields on a 1.5 ms slice after at
+  least one item. Actual item cursors and unfinished selections survive the
+  yield, including containers shorter than the item-count budget. Unread stock
+  is not reported empty. Storage indexing and weapon availability are shared
+  within a selection call, and unused container quotas are returned.
+
+  Live work also exposed a boarding race: a passenger arriving before the
+  driver exhausted native-entry retries on a locked door. Expedition passengers
+  now wait for the driver's unlock rather than attempting locked entry. The
+  existing boarding deadline still applies. Native engine_failed now joins the
+  existing five-minute checked recovery/cooldown instead of immediate car
+  abandonment; actual engine, fuel, occupants and route checks still apply.
+
+  Automated: all five routine checks passed against the final code in
+  build/test-results/20261109-204842-d889d3 (149.5 seconds, serial).
+  Focused car changes also passed Build and Cargo beforehand in
+  build/test-results/20261109-203035-24b082.
+  Existing harnesses cover moving/stationary stashing, required cargo, exact
+  protected items, an already-started pose crossing the deadline, grouped shelf
+  visits, delayed optional versus required-tool withdrawal, light water stock,
+  interrupted scoring reaching a late item once, locked-door waiting and
+  retained occupants after engine failure. No new test framework was added.
+
+  Live comparison used the same original camp save, two healthy companions,
+  existing car SQL5 and mapped store. Preparation changed from about 339.6 s
+  to 63.2 s. The final car trip completed in 286,713 ms versus the baseline's
+  561,680 ms, collecting and returning two real items. Car SQL5 returned to
+  12032.9297,6755.3906, engine off; both crew returned alive, secondary view
+  released and primary HUD/camera ownership restored. No LF gameplay exception.
+  Final trip: 30 PASS, 0 FAIL, one manual pixel-review SKIP.
+  Evidence: build/live-sandbox-runs/SC-Harness-20261109-203142-6499a9d1
+
+  Earlier comparison runs are retained, not counted as clean round trips:
+  200027-95a8aebe was stopped after photographing the optional Cooking Pot
+  withdrawal stall; 201114-9e1b90dc failed actual outbound driving after locked
+  passenger-door retries; 202218-b0c0e488 collected/returned both items but
+  walked home after three fresh native StartingFailed cranks. Its car remained
+  at the store. Engine failure recovery has automated coverage; the final live
+  run restarted successfully without needing that recovery branch. The actual
+  car had engine quality41, engine condition84 and battery condition77. No NPC
+  or vehicle was teleported, repaired, refuelled or revived. The primary
+  player's one-time kitchen staging remains the declared baseline fixture.
+
+  Three-minute post-trip camp continuation: 10 PASS, 0 FAIL, four residents,
+  178 samples, menus stayed closed. Bleach receipt
+  lf-item:1794252945076:1:502991992 reached storage:19; Broom receipt
+  lf-item:1794252970275:2:2066556904 remained carried by Tess, pending delivery.
+  The pre-existing unresolved log receipt was not recreated. Doorway crowding
+  was photographed after zooming out; it remains a movement concern.
+  Whole-mod tick p50/p95/max: 2.111/13.918/140.623 ms; base-maintenance p95
+  4.352 ms; decision.evaluate p95 14.303 ms; scavenge delegate max9.437 ms.
+  Idle computer services p95 0.026 ms. The lower median does not establish a
+  camp-lag fix: p95 remained near14 ms and a larger maximum was observed.
+  These are single-run, capped-profile observations with different post-trip
+  inventories and a zoomed block capture, not a controlled performance claim.
+  Per-metric percentiles use the latest120 samples; maxima span the run.
+  Evidence: build/live-sandbox-runs/SC-Harness-20261109-204040-45629182
+
+0.27.6 release metadata
+  The functional/live validation above preceded the version-label change.
+  VERSION.txt, both mod.info files, Lua identity, native manifest and packaged
+  bridge now report 0.27.6; game 42.22.2 and bridge protocol31 are unchanged.
+  All100 packaged class files are byte-identical to the preceding bridge;
+  the JAR's release metadata changed. New bridge SHA-256:
+  1f7e53621789c2def7c89cda8f0454eb813cacd7855be88a85684853a72efdaf
+  All source/content checks passed, and the focused Build check passed in
+  build/test-results/20261109-205714-08dfc2. No additional live run was needed
+  for the version-label change.
+
 Limits
-  The automated checks did not launch the game. A later user-played session
-  was reviewed through its logs; controlled live acceptance was not repeated.
+  The five-check release gate itself did not launch the game. The later live
+  follow-up above covers one search/car trip and short camp observations.
+  Native restoration checks and screenshots do not certify every wall, vehicle
+  visibility, nameplate or camera angle after return.
   Full Workshop discovery/approval, other NPC mods and optimizer combinations
   have not been revalidated on 42.22.2. The release profile covers the 16
   representative installer cases above, not the separate exhaustive fault suite.

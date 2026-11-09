@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.5-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.6-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -90,4 +90,4 @@ Open **More → Support** for a diagnostic report. Include it, your game and mod
 
 Project Zomboid belongs to The Indie Stone. Living Fellows is an independent mod, not affiliated with or endorsed by them.
 
-[standalone]: https://github.com/thorelvin/living-fellows/releases/download/v0.27.5-pz42.22.2/LivingFellowsCompanion-0.27.5-STANDALONE-WINDOWS.zip
+[standalone]: https://github.com/thorelvin/living-fellows/releases/latest
