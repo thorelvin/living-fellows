@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# Install Living Fellows 0.27.4
+# Install Living Fellows
 
-For **Project Zomboid Build 42.22.2, single-player**. Choose Workshop or standalone; use one copy at a time.
+For **Project Zomboid Build 42.22.2, single-player**. The Windows standalone edition is recommended for this game version and includes its own native bridge. Choose Workshop or standalone; use one copy at a time.
 
 [Field Guide](https://thorelvin.github.io/living-fellows/) · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html)
 
@@ -17,7 +17,7 @@ ZombieBuddy loads Living Fellows' Java bridge. Check its installation preview be
 
 ## Standalone Windows
 
-1. Download a complete [standalone release](https://github.com/thorelvin/living-fellows/releases), or choose **Code → Download ZIP** on the repository.
+1. Download the [standalone Windows ZIP for 0.27.5](https://github.com/thorelvin/living-fellows/releases/download/v0.27.5-pz42.22.2/LivingFellowsCompanion-0.27.5-STANDALONE-WINDOWS.zip).
 2. Extract the whole folder. Run the installer from that folder, not from inside a ZIP viewer.
 3. Close Project Zomboid and run **Install.bat**.
 4. Launch the game normally and enable **Living Fellows** in **Mods** and in the save's **More… → Choose Mods** menu.

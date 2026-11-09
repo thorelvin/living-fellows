@@ -6,77 +6,88 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-<p align="center">
-  <img src="assets/banner.png" width="100%" alt="Living Fellows: survivors walking a dusk street together">
-</p>
+[![Release](https://img.shields.io/badge/release-0.27.5-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
-[![Release](https://img.shields.io/badge/release-0.27.5-blue.svg)](CHANGELOG.md)
-[![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#requirements)
-[![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
-Find your people. Give them a place to live. Try to bring everyone home.
+> **Playing 42.22.2? [Download the standalone Windows release →][standalone]**
+>
+> Recommended for this game version. Includes its own native bridge; no ZombieBuddy required. [Installation help](INSTALL.md).
 
-Living Fellows adds companions, survivor households and working bases to Project Zomboid. Your fellows carry real supplies, get hurt, remember what happens to them and make their own decisions when things go wrong.
+## Send a crew. Bring them home.
 
-## More than someone following you
+![An expedition shown beside the player's own view: send one to four companions to scout, loot, fish or collect logs.](assets/features/expeditions.jpg)
 
-- **Send a squad on an expedition.** Scout a building, search for supplies, fish or collect wood while you get on with your own plans. Send one to four companions on foot or by car, choose a target on your map, a leader and return time, and watch their trip in a second view. They bring back what they actually find and carry it into camp storage.
-- **Keep the camp working with Base Watch.** Leave an indoor resident on watch and the camp stays loaded while you travel. The others keep sorting, farming, cooking, repairing and guarding. Check in by radio while you're away. Base Watch and expeditions share one companion view, so run one at a time.
-- **Call Markus's taxi.** Stranded on the road? Call for pickup from a working walkie-talkie, climb into Markus Sloane's cab and choose a road destination on the map. Bring jewelry for the fare.
-- **Build a crew worth knowing.** Up to 16 companions with professions, personalities, relationships and memories. They fight in formation, look after their needs, treat wounds and retreat when they're outmatched. Some keep private diaries. Death is permanent, and the book stays behind.
-- **Make a home that works.** Mark storage and work areas, assign jobs, grow food, build, fell trees, saw planks and bury the dead. Wood goes into neat four-log stacks. Blocked jobs pause and retry automatically; manual Retry stays available.
-- **Ask EMMA.** Check camp supplies, people and jobs, recover locked computers, or reconnect substations to restore grid power. EMMA remembers notes, handles follow-ups and confirms actions with you. Ask for practical survival advice, or browse 568 entries left by previous owners and 151 county and EMMA files. Everything runs offline on a full-screen 1993 terminal. [More](docs/camp-computer.md).
-- **Meet the people still out there.** Households trade, offer work and remember how you treat them. Strange Folk bring their own stories, requests and bad habits. Encounters can begin on the second day, with a random eligible character each time.
+Send one to four companions to scout, loot, fish or collect wood, on foot or by car. Pick a map target and return time, then watch their trip in a second view while you play. They bring back actual cargo and unload it into camp storage.
 
-The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, camp jobs, equipment, travel and the people you'll meet.
+## Base Watch and Markus's taxi
 
-## Requirements
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://thorelvin.github.io/living-fellows/"><img src="assets/features/base-watch.jpg" alt="Base Watch keeps the camp in view while the player travels." width="100%"></a>
+      <p><strong>Home keeps working.</strong> Leave an indoor resident on Base Watch so camp stays loaded while you're away. Others keep sorting, farming, cooking, repairing and guarding. Check in by radio.</p>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://thorelvin.github.io/living-fellows/"><img src="assets/features/markus-taxi.jpg" alt="Markus Sloane arrives beside his yellow taxi to collect the player." width="100%"></a>
+      <p><strong>Markus is still taking fares.</strong> Call from a powered walkie-talkie, meet his cab beside a road and choose a road destination on your map. Bring jewelry for the fare.</p>
+    </td>
+  </tr>
+</table>
 
-**Project Zomboid Build 42.22.2 · Single-player.** Multiplayer and additional human split-screen players are not supported.
+Base Watch, expeditions and Send Home share one companion view. Use one at a time.
 
-Choose one installation method. Workshop and standalone copies share the same mod ID and should not be enabled together.
+## Meet EMMA
 
-Using Bandits2 too? See the [optional adapter's scope and test results](docs/compatibility-bandits2.md).
-There is also optional [Project A-Life compatibility](docs/compatibility-project-alife.md). Use one external NPC mod at a time.
+![EMMA's 1993 computer terminal showing a live camp report and a numbered menu.](assets/features/emma-terminal.jpg)
 
-### Steam Workshop
+A county assistant is still running on the computers you find. At camp, ask EMMA about supplies, people, jobs and expeditions. She remembers notes and follow-ups: ask about generators, then their fuel. Recover locked machines, read old owners' outbreak files, discover unusual computer personalities and reconnect substations to restore grid power.
 
-1. Subscribe to [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) **2.3.3 or newer** and complete its one-time loader setup. Subscribing alone is not enough.
-2. Subscribe to [Living Fellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339).
-3. Start the game and enable both in **Mods**. For an existing save, enable both under **More… → Choose Mods** too.
+**She's more caring, too.** EMMA recognizes grief, distress and self-doubt, remembers the conversation and asks when she's unsure. Her usual jokes pause while she listens. Everything runs offline, with no internet or hosted AI service.
 
-### Standalone for Windows
+Mount a walkie-talkie on a powered camp computer and assign a **Survivor radio watch**. Follow your operator's search on the animated radio desk and choose whether to invite new contacts to camp.
 
-1. Download the complete repository with **Code → Download ZIP**, or get the standalone Windows package from [Releases](https://github.com/thorelvin/living-fellows/releases).
-2. Extract the whole folder, close Project Zomboid and run **Install.bat**.
-3. Start the game and enable **Living Fellows** in **Mods** and in the save's **More… → Choose Mods** menu.
+## People worth knowing
 
-This edition includes its own bridge and does not need ZombieBuddy. Keep the extracted folder: **Uninstall.bat** removes the installation. See [INSTALL.md](INSTALL.md) for another Steam library, updating or troubleshooting.
+- **Build your crew.** Up to 16 companions with professions, personalities and memories. Some keep private diaries. Fight together, treat wounds or send someone home. Death is permanent.
+- **Understand their trust.** Named stages and recent changes show where you stand. Offer food, water or medical help without barter. Helping a real need builds trust.
+- **Give them a home.** Assign jobs, grow food, build, maintain vehicles and bury the dead. Blocked work pauses and retries, with an explanation and a manual Retry button.
+- **Meet the others.** Households trade, offer work and remember your treatment. Strange Folk bring their own stories and bad habits. Random eligible encounters can begin on day two.
 
-## Your first few minutes
+## Get started
 
-1. Press **Home** to open the companion panel, or click the small **LF** launcher.
-2. Meet a survivor, right-click them and choose **Talk to (name) → Invite to join**. Use **Talk** to get to know them.
-3. Set orders and combat style in **Orders**; put companions into groups in **Squad**.
-4. Right-click the ground and choose **Living Fellows → Set camp core here**. Mark storage, then assign jobs at the top of **More → Base**. To remove a storage marking, right-click its container and choose **Living Fellows → Unmark storage**.
+**Project Zomboid 42.22.2 · Windows standalone · Single-player.** Multiplayer and additional human split-screen players are not supported.
 
-To mark an area, choose its type at the first corner, then **left-click the opposite corner** to finish. Right-click or press **Esc** to cancel.
+1. Download the **[standalone Windows ZIP][standalone]** and extract the whole folder.
+2. Close Project Zomboid and run **Install.bat** from that folder.
+3. Start the game and enable **Living Fellows** in **Mods**. For an existing save, enable it under **More… → Choose Mods** too.
 
-The **First steps** card on Status follows your progress, with a short reminder beside the collapsed launcher. New worlds get an early independent survivor who approaches cautiously; the first arrival gets a one-time clearing of hidden, idle zombies nearby. They remain vulnerable. Dismiss the card or turn **Show tips** off in Mod Options; **Show tips again** brings it back. **More → Support → Tips** keeps the instructions you've seen.
+Keep the extracted folder for **Uninstall.bat**. See the [installation guide](INSTALL.md) for updating or another Steam library.
 
-The orange **LF** tab shows a badge when something needs attention. **Review** opens the relevant decision or blocked job; **Acknowledge** hides its notice while keeping the badge. Status explains **Why paused** and how to recover. Infection decisions use the evidence your character knows: watch allows indoor duties, unavailable quarantine stays pending, and irreversible outcomes require your confirmation.
+<details>
+<summary><strong>Using Steam Workshop instead?</strong></summary>
 
-On a powered camp computer with a mounted walkie-talkie, open **Local services → LARCH/WAVE radio desk → Survivor radio watch**. Assign a companion on base duty and monitor their signal search. A four-hour shift has a 35% chance to find a survivor; you decide whether to invite them. Needs, danger and power loss pause the work without losing progress.
+Subscribe to [Living Fellows](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339) and [ZombieBuddy](https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853) **2.3.3 or newer**. Complete ZombieBuddy's one-time loader setup, then enable both for your save. Standalone is recommended for 42.22.2.
 
-Hold **keypad 1** to Peek, press **keypad 2** to toggle Watch, or hold **keypad 3** to steer the selected companion toward the cursor. All three keys can be rebound. Companions, households and camp work are saved with the world, even if your character dies.
+</details>
+
+Use one edition at a time. Check the version-specific [Bandits2](docs/compatibility-bandits2.md) and [Project A-Life](docs/compatibility-project-alife.md) compatibility notes before combining NPC mods.
+
+## Your first evening
+
+1. Press **Home** or click the orange **LF** tab. The **First steps** card on Status follows your progress.
+2. Right-click a survivor to **Talk**. Get to know them, offer help and ask about joining.
+3. Open **Living Fellows** in the ground's right-click menu and choose **Establish camp here…**.
+4. Right-click a container → **Living Fellows → Mark storage as…**. Assign jobs at the top of **More → Base**. When marking an area, left-click its opposite corner to finish.
+
+The **[Field Guide](https://thorelvin.github.io/living-fellows/)** walks through orders, camp work, travel, computers and the people you'll meet.
 
 ## Need a hand?
 
-Open **More → Support** for a diagnostic report. If the panel is missing, check that the mod is enabled for the save; Workshop users should also check ZombieBuddy's loader setup. A stuck companion may recover with **Regroup**.
+Open **More → Support** for a diagnostic report. Include it, your game and mod versions, and a screenshot or relevant logs in a [bug report](https://github.com/thorelvin/living-fellows/issues/new/choose). You can also join us on [Discord](https://discord.gg/vPK7faQVt).
 
-For a [bug report](https://github.com/thorelvin/living-fellows/issues/new/choose), include the Support report, game and mod versions, what happened and a screenshot or relevant logs. Remove private information before posting.
+[What's new](CHANGELOG.md) · [Contributing and building](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md) · [MIT license](LICENSE)
 
-[What's new](CHANGELOG.md) · [Contributing and building](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md)
+Project Zomboid belongs to The Indie Stone. Living Fellows is an independent mod, not affiliated with or endorsed by them.
 
-Original mod, [MIT licensed](LICENSE). Project Zomboid belongs to The Indie Stone; Living Fellows is not affiliated with or endorsed by them.
+[standalone]: https://github.com/thorelvin/living-fellows/releases/download/v0.27.5-pz42.22.2/LivingFellowsCompanion-0.27.5-STANDALONE-WINDOWS.zip
