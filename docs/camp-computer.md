@@ -41,7 +41,8 @@ lines. The operating system and the assistant are distinct.
   care, without advancing the lock or story. A white support notice appears once
   per session. When she is unsure what you meant, she asks once, directly, and
   understands everyday answers such as "yeah", "kind of" or "nah, I'm fine".
-  Survival questions about dying in the game keep their normal answers.
+  Survival questions about dying in the game keep their normal answers. A sad or
+  troubled message she cannot place gets a warm reply instead of a joke.
   A check-in on a later visit stores only a character timestamp.
   Options > Mods > Living Fellows includes **Record misunderstood EMMA messages
   locally**, enabled by default. At most 600 missed inputs are retained in

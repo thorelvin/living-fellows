@@ -12,6 +12,9 @@
   "kind of" or "nah, I'm fine", and never jokes right after asking it. Survival
   questions like "how do I not die in winter" keep their normal answers. She
   notices more warning signs, including self-harm in any tense, and more put-downs.
+- When EMMA cannot place a sad or troubled message about you, she answers it
+  warmly and points you to someone you trust, instead of a joke or a camp report.
+  Game slang like "suicide run" and questions about your character stay ordinary.
 - Hungry residents can ask for a supply run after a completed empty search.
   Passive episodes retain their recovery deadline while needs take priority.
 - Sorting reports full storage even when shelves change during its search.

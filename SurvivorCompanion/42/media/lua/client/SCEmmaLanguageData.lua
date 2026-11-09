@@ -1114,9 +1114,12 @@ D.WORTH_PHRASES = {
     "i am a mess", "i am a joke", "mess everything up", "mess it all up", "screw everything up",
     "i suck at everything", "i suck at this", "i suck at life", "screwing everything up", "messing everything up",
     "i keep screwing up", "i keep messing up", "everything i touch",
+    "nobody likes me", "no one likes me", "worst at everything", "worst at most things", "bad at everything",
+    "good at nothing", "good for nothing", "people avoid me",
 }
 D.WORTH_WORDS = {"useless", "stupid", "failure", "pathetic", "loser", "weak", "idiot", "dumb",
-    "worthless", "hopeless", "burden", "disappointment", "mess", "joke", "waste", "coward", "fraud"}
+    "worthless", "hopeless", "burden", "disappointment", "mess", "joke", "waste", "coward", "fraud",
+    "ugly", "awkward", "boring", "annoying"}
 D.pools.worth = {
     "I disagree. Firmly. A bad day is not a verdict on you.",
     "You are being unfair to my operator. Take a breath. We can work through one thing at a time.",

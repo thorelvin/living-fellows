@@ -27,6 +27,7 @@ D.CARE_PHRASES = {
     "thoughts of suicide", "if i live or die", "life is pointless", "take them all", "this is the end for me",
     "do not want to wake up", "could disappear", "disappear forever",
     "i deserve to die", "i deserve to be dead", "i do not deserve to live", "i should not exist", "i should not be alive",
+    "sewer slide", "self delete", "stopped eating on purpose", "not eating on purpose",
     "i should not be here anymore", "i should not be here at all",
     "world is better without me", "everyone would be better off without me",
 }
@@ -86,6 +87,12 @@ P.care_check = {
       "Are you thinking about ending your life? Y/N. Whatever the answer, I am staying right here." },
     { "I want to be sure I heard you right, {name}.",
       "Are you thinking about ending your life? Y/N. You can tell me either way." },
+}
+-- Sadness the rules could not place. Warm, no question, and a nudge toward a person.
+P.care_gentle = {
+    "That sounds hard, {name}. I am here, and I am listening. Tell me more, or tell someone you trust today.",
+    "I hear you. You do not have to carry that alone. People love you, even when it does not feel that way. Call a friend today.",
+    "That sounds heavy. I am staying right here. One person you trust should hear this too, today if you can.",
 }
 -- The reply right after that question was not an answer. Stay warm, never joke.
 P.care_check_open = {

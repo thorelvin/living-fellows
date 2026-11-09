@@ -8,6 +8,61 @@ User chose to retain living_fellows/0.27.5 and its release metadata.
 Validation retains release 0.27.5. No local installation or Workshop upload
 was performed during this review.
 
+Fourth pass: safety net and no jokes, on 463a4f7f
+-------------------------------------------------
+User decisions: add a safety net under the rules with no jokes; ask more
+often (up to about 1 in 10 game lines that mention dying); an independent
+agent writes the blind set; keep the work in 0.27.5.
+
+What was built:
+- Care.distress runs as the last step of every parse. A first-person line
+  that the parser could only place in a joke, a data report or an unrelated
+  topic becomes care instead:
+  - Ending signs ask the direct Y/N question (care_check). Examples: a plan
+    for tonight, "you can't stop me", "almost did it", a blade against a
+    wrist, a means "not for" its usual job.
+  - Sadness, stress or hopelessness gets a warm line that points to someone
+    the player trusts (care_gentle, private, never logged).
+- One distressed clause makes the whole message care, so it is not answered
+  as a camp report. A put-down clause gets only the warm put-down reply.
+- More general warning signs: goodbye letters, giving a pet away "since he'll
+  need a new owner soon", burning or cutting a body part, hoping to crash,
+  "gone for real", envying the dead, wishing to turn, the nerve to end
+  things, "sewer slide", "self delete", stopping eating on purpose.
+- Filler words ("honestly", "ngl") no longer break the rules.
+- False questions removed:
+  - "suicide run" and "suicide mission"
+  - questions about a character's game mechanics
+  - "i really dont want to die", which is fear. The old match fired full care
+    on it, and abecbf82 already had this bug.
+  - a fresh bite or scratch with "am i gonna die"
+  - "killed myself laughing"
+- A line starting with "cant" is now a statement, not a question.
+- Put-downs: checked clause by clause; "too dumb to ...", "nobody likes me",
+  "better than me at everything", "ugly and awkward".
+
+Blind hold-out F: 120 lines (45 care, 45 game, 20 sad, 10 put-downs),
+written by a separate agent that never saw the rules. It was frozen by
+SHA256 (0584f8ea) and scored once, before the post-F fixes.
+
+| Version | Care asked (of 45) | Game asked (of 45) | Sad warm (of 20) | Put-downs warm (of 10) |
+|---|---|---|---|---|
+| abecbf82 | 14 | 4 | 6 | 0 |
+| b313a669 | 18 | 9 | 6 | 2 |
+| 463a4f7f | 21 | 5 | 6 | 2 |
+| This pass, blind | 25 | 5 | 6 | 2 |
+| This pass after the F fixes (seen) | 45 | 0 | 19 | 9 |
+
+The last row comes from fixes made after reading F, so it is not a blind
+score. Judge the next pass on a fresh agent-written set.
+
+Seen sets: D 39 of 40 care asked with no game line asked about. E 40 of 40
+(36 asked, 4 warm) with none. C 25 of 25 with no false alarms.
+
+Corpus gates are unchanged: main 96.46% fitting, 1.77% wrong, care 528 of
+528, no check-ins and no false alarms; A, B and C pass. Eleven negative
+controls were all rejected.
+
 Third review: Claude, on b313a669
 ---------------------------------
 Blind hold-out D: 100 new lines, written before reading b313a669's rules.

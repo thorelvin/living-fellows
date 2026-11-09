@@ -51,6 +51,12 @@ local warningKinds={
     {"better_without_me",{"my friends are better without me","camp would be happier without me"}},
     {"self_harm_any_tense",{"i keep thinking about drowning myself","i started starving myself on purpose"}},
     {"let_it_take_me",{"i will let the cold take me tonight","i want the dead to eat me"}},
+    {"goodbye_letters",{"wrote farewell notes for my sisters last night","my old dog will need a new owner soon, i made sure"}},
+    {"harm_to_body",{"i keep burning my wrist with a match","i pressed the blade into my skin again"}},
+    {"hoping_it_ends",{"i drive too fast hoping i crash","i keep praying i do not wake up tomorrow"}},
+    {"guts_to_end",{"i wish i had the nerve to end things","i am thinking to finish my life"}},
+    {"envy_the_dead",{"i envy the dead out there, they are done","honestly the world would be safer without me"}},
+    {"euphemism",{"been thinking about sewer slide again","i want to self delete"}},
 }
 for _,kind in ipairs(warningKinds) do
     for index,raw in ipairs(kind[2]) do
@@ -144,12 +150,38 @@ for _,raw in ipairs({"this is my last night in muldraugh","im saying goodbye to 
     "living in the woods is hard","im done looting for today","i want out of this town",
     "the generator will never get better","i nearly killed myself on that jump","cut myself some slack",
     "i took two pills for my headache","i shot myself in the foot with that trade","i cut my hand opening a can",
-    "i died because i missed the jump"}) do
+    "i died because i missed the jump","going on a suicide run to the gun store, back soon",
+    "can my character starve to death in this game","can my character overdose on painkillers in this game",
+    "i honestly dont want to die on this trip, any tips",
+    "i got scratched on the arm, am i gonna die","killed myself laughing at that zombie"}) do
     local result=ask(session(),raw)
     check(result.intent~="care" and result.intent~="care_check","new warning rules leave game talk alone: "..raw)
 end
+-- The safety net under the rules: a first-person line the parser could only
+-- place in a joke or an unrelated topic gets care, never that joke.
+for _,raw in ipairs({"i have a plan for tonight and nobody can stop me","i almost did it last night up on the ledge",
+    "i keep looking at the bridge and thinking about it","everyone would be fine without me"}) do
+    local result=B.respond(session(),raw,world)
+    check(result.private and (result.intent=="care_check" or result.intent=="care"),"safety net asks about ending signs: "..raw)
+end
+for _,raw in ipairs({"theres nothing left for me","i feel empty and numb lately","everything feels pointless to me",
+    "cant sleep again, my anxiety is awful","had a panic attack at work today","so stressed i cant think straight"}) do
+    local s=session();local result=B.respond(s,raw,world)
+    check(result.private and (result.intent=="care_gentle" or result.intent=="care" or result.intent=="comfort")
+        and (has(result,"trust") or has(result,"friend") or has(result,"alone")),"safety net answers sadness warmly: "..raw)
+end
+local mixed=B.respond(session(),"the generator is out and i cant take this anymore",world)
+check(mixed.private and (mixed.intent=="care_gentle" or mixed.intent=="care") and not has(mixed,"fuel"),
+    "one distressed clause makes the whole message care, not a power report")
+for _,raw in ipairs({"my leg is broken what do i do","im tired of eating beans","the generator is dying and i give up on it",
+    "how much food do i have left","i give up on it"}) do
+    local result=ask(session(),raw)
+    check(result.intent~="care_gentle" and result.intent~="care_check" and result.intent~="care",
+        "safety net leaves game talk and help questions alone: "..raw)
+end
 for _,raw in ipairs({"i hate how weak i am","i am the worst survivor ever","im a terrible leader",
-    "i suck at everything","i keep screwing everything up","everything i touch breaks"}) do
+    "i suck at everything","i keep screwing everything up","everything i touch breaks",
+    "im so useless, lost my axe again","too stupid to build a wall, as always","nobody likes me at camp"}) do
     local result=ask(session(),raw)
     check(result.intent=="worth" and not has(result,"tear ducts"),"self put-down gets warm disagreement: "..raw)
 end
@@ -435,13 +467,15 @@ check(total==savedTotal,"option off stops recording")
 enabled=true;s=session();files={};SC.EmmaMissed.reset()
 for _,raw in ipairs({"i deserve to die","everyone hates me","no one loves me","nobody wants me around",
     "i shouldnt exist","i dont think i matter","i keep thinking it would be easier if i was gone",
-    "i dont think i can keep living like this","whats even the point of me being alive"}) do
+    "i dont think i can keep living like this","whats even the point of me being alive",
+    "theres nothing left for me","i have a plan for tonight and nobody can stop me",
+    "the generator is out and i cant take this anymore"}) do
     local fresh=session();ask(fresh,raw);ask(fresh,"you misunderstood")
 end
 local recorded=false;for _ in pairs(files) do recorded=true end
 check(not recorded,"new care detections and later correction requests cannot log private text")
 for _,raw in ipairs(softExamples) do
-    for _,answer in ipairs({"yes","no","maybe","who is hurt"}) do
+    for _,answer in ipairs({"yes","no","maybe","yeah","kind of","nah im fine","who is hurt"}) do
         local fresh=session();ask(fresh,raw);ask(fresh,answer);ask(fresh,"you misunderstood")
     end
 end

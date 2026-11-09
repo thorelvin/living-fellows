@@ -141,8 +141,13 @@ local function careOf(toks) return SC.EmmaCare.assess(table.concat(toks, " ")) e
 local worthFillers=set({"so","such","a","an","just","really","completely","totally","the","biggest","absolute","total"})
 local worthNegation=set({"not","never","no","longer"})
 local worthTail=set({"and","lol","emma","today"})
+local worthSet={}
+for _,word in ipairs(D.WORTH_WORDS) do worthSet[word]=true end
+-- "i am ugly and awkward": another put-down word may follow, nothing else.
 local function worthEnding(tokens,at)
-    for index=at+1,#tokens do if not worthTail[tokens[index]] then return false end end
+    for index=at+1,#tokens do
+        if not worthTail[tokens[index]] and not worthSet[tokens[index]] then return false end
+    end
     return true
 end
 local function worthWord(token)
@@ -165,6 +170,10 @@ local function badRole(tokens,cursor)
     return worthEnding(tokens,at-1)
 end
 local function worthOf(tokens)
+    -- "too dumb to figure out farming": the speaker is the unstated subject.
+    if tokens[1]=="too" and tokens[2] and worthWord(tokens[2]) then return "worth" end
+    if phraseIn(tokens,"better than me at",true) and (phraseIn(tokens,"everything",true)
+        or phraseIn(tokens,"anything",true)) then return "worth" end
     -- "i hate how weak i am" is aimed at the speaker, not at EMMA.
     for at=1,#tokens-4 do
         if tokens[at]=="i" and tokens[at+1]=="hate" and tokens[at+2]=="how" then
@@ -202,7 +211,7 @@ local function worthOf(tokens)
     -- Authored non-copular put-downs still need a self reference. A copular
     -- phrase must use the bounded predicate above, never a substring match.
     local own=false
-    for _,word in ipairs(tokens) do if word=="i" or word=="my" or word=="myself" then own=true end end
+    for _,word in ipairs(tokens) do if word=="i" or word=="me" or word=="my" or word=="myself" then own=true end end
     if own then for _,phrase in ipairs(D.WORTH_PHRASES) do
         if phrase:sub(1,5)~="i am " and phraseIn(tokens,phrase,true) then return "worth" end
     end end
@@ -435,6 +444,13 @@ function M.parse(session, text, world, turn, baseParse)
     -- Care wins first. Ordinary self put-downs receive warmth before hostile
     -- vocabulary or resource words can misclassify them.
     local worth=worthOf(toks)
+    -- "im useless, cant even keep one base standing": judge each clause on its own.
+    if not worth and text:find("[,;%.!%?]") then
+        for part in text:gmatch("[^,;%.!%?]+") do
+            worth=worthOf(expand(Brain.tokens(part)))
+            if worth then break end
+        end
+    end
     if worth then return worth,{} end
     if literal:find("^go back") or literal:find("^back to") then return baseParse(session,text,world,turn) end
     if phraseIn(toks,"scan radio channels",fuzzy) then return "guide",{guideId="scanner",page=1} end
@@ -591,6 +607,15 @@ function M.parse(session, text, world, turn, baseParse)
         return "knock",{punchline=joined}
     end
     return brainIntent, slots
+end
+-- Every parse passes the care safety net last: an emotional first-person line
+-- the parser could only place in a joke or an unrelated topic becomes care.
+local parseCore=M.parse
+function M.parse(session, text, world, turn, baseParse)
+    local intent,slots=parseCore(session,text,world,turn,baseParse)
+    local net=SC.EmmaCare.distress and SC.EmmaCare.distress(text,intent)
+    if net then return net,{} end
+    return intent,slots
 end
 
 
@@ -752,7 +777,12 @@ end
 function M.respond(session,raw,world,baseRespond)
     M.install()
     local intent=M.careSignal(raw)
-    if not intent and SC.EmmaCare.quiet(session) then intent=classify(raw,session,world) end
+    if not intent then
+        -- The parse includes the care safety net, so classify every message:
+        -- a net result must reach care before clause splitting or any joke.
+        local parsed=classify(raw,session,world)
+        if parsed=="care_check" or parsed=="care_gentle" or SC.EmmaCare.quiet(session) then intent=parsed end
+    end
     local care=SC.EmmaCare.respond(session,raw,intent,false)
     if care then return care end
     local negative=SC.EmmaCare.tokens(raw)
@@ -787,6 +817,24 @@ function M.respond(session,raw,world,baseRespond)
         end
     end
     local clauses=M.clauses(raw,session,world)
+    -- One distressed clause makes the whole message care: "the generator is
+    -- out and i cant take this anymore" must not come back as a power report.
+    if #clauses>1 then
+        for _,part in ipairs(clauses) do
+            local id=classify(part,session,world)
+            if id=="care_check" or id=="care_gentle" then
+                local care=SC.EmmaCare.respond(session,raw,id,false)
+                if care then return care end
+            end
+            -- A put-down clause gets the warm reply alone, not a camp report after it.
+            if id=="worth" then
+                local start=session.turns
+                local result=baseRespond(session,part,world)
+                session.turns=start+1
+                return result
+            end
+        end
+    end
     -- An input containing an action is one confirmation transaction. A second
     -- clause, even 'yes', cannot authorize or replace it inside this message.
     if #clauses>1 then
