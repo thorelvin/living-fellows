@@ -1554,7 +1554,7 @@ public final class SCIsoCompanionControlTest {
             currentField.set(machine, null);
             require(!actor.isCompanionTraversalActive(), "idle actor falsely owns native traversal");
             for (String stateName : new String[] { "ClimbOverFenceState", "ClimbOverWallState",
-                    "ClimbThroughWindowState", "ClimbSheetRopeState", "ClimbDownSheetRopeState",
+                    "ClimbThroughWindowState", "ClimbState", "ClimbDownState",
                     "OpenWindowState", "SmashWindowState" }) {
                 Object nativeState = Class.forName("zombie.ai.states." + stateName)
                         .getMethod("instance").invoke(null);
@@ -2036,6 +2036,9 @@ public final class SCIsoCompanionControlTest {
         Class<?> soundManagerClass = Class.forName("zombie.SoundManager");
         soundManagerClass.getField("instance").set(null,
                 Class.forName("zombie.DummySoundManager").getConstructor().newInstance());
+        // 42.22 world removal always unregisters with the native entity engine.
+        Class.forName("zombie.entity.GameEntityManager")
+                .getMethod("Init", int.class).invoke(null, 0);
 
         Class<?> cellClass = Class.forName("zombie.iso.IsoCell");
         Object cell = cellClass.getConstructor(int.class, int.class).newInstance(64, 64);
@@ -2561,7 +2564,7 @@ public final class SCIsoCompanionControlTest {
                 "player weapon hit damaged a protected recruit");
         // CombatManager bloodies its target and may knock off a helmet before
         // Hit runs; the local swing's own hit list must veto both for an ally.
-        zombie.util.list.PZArrayList<zombie.network.fields.hit.HitInfo> swingTargets =
+        java.util.ArrayList<zombie.network.fields.hit.HitInfo> swingTargets =
                 ((IsoPlayer) localPlayer).getHitInfoList();
         swingTargets.clear();
         require(!((SCNativeCompanion) actor).protectedFromLocalSwing(),

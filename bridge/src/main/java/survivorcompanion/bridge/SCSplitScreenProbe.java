@@ -1572,6 +1572,9 @@ public final class SCSplitScreenProbe {
             probe.cell.getObjectList().remove(actor);
         } catch (RuntimeException | LinkageError failure) {
             stockObserverIssue = "teardown_failed_" + failure.getClass().getSimpleName();
+            // This entry is debug-only and latches after one failure. Preserve
+            // the native cause when a new game build changes observer cleanup.
+            failure.printStackTrace(System.err);
             return false;
         }
         IsoPlayer.players[1] = null;

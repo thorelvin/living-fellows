@@ -64,7 +64,6 @@ import zombie.iso.objects.IsoWindow;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteGrid;
 import zombie.seating.SeatingManager;
-import zombie.util.list.PZArrayList;
 import zombie.vehicles.BaseVehicle;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
@@ -73,7 +72,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.21-isocompanion-30";
+    public static final String PROTOCOL = "42.22-isocompanion-31";
 
     public static boolean configurePZOptimizerAdapter(boolean enabled) { return SCPZOptimizerCompatibility.configure(enabled); }
     public static String getPZOptimizerAdapterState() { return SCPZOptimizerCompatibility.state(); }
@@ -120,14 +119,14 @@ public final class SCBridge {
     public static final int BODY_BULLET = 1 << 10;
     public static final int BODY_GLASS = 1 << 11;
     /**
-     * Core.getVersionNumber() reports the public release family (42.21) in a
+     * Core.getVersionNumber() can report the public release family (42.22) in a
      * live game, even though this bridge is compiled and signature-tested
-     * against the installed 42.21.0 runtime. Keep both spellings explicit so
+     * against the installed 42.22.2 runtime. Keep both spellings explicit so
      * the live display label cannot incorrectly disable an otherwise verified
      * bridge, while unrelated game families still fail closed.
      */
-    public static final String SUPPORTED_GAME_VERSION = "42.21";
-    public static final String COMPILED_GAME_VERSION = "42.21.0";
+    public static final String SUPPORTED_GAME_VERSION = "42.22";
+    public static final String COMPILED_GAME_VERSION = "42.22.2";
 
     private static final int MAX_NAME_LENGTH = 48;
     private static final int MAX_OUTFIT_LENGTH = 96;
@@ -818,10 +817,9 @@ public final class SCBridge {
     private static boolean completeSouthBedFootprint(IsoCell cell,
             IsoGridSquare foot, IsoGridSquare pillow, IsoRoom room) {
         SeatingManager seating = SeatingManager.getInstance();
-        PZArrayList<IsoObject> objects = foot.getObjects();
+        List<IsoObject> objects = foot.getObjects();
         if (seating == null || objects == null) return false;
-        // PZArrayList deliberately does not implement iterator(): its
-        // iterator() throws UnsupportedOperationException in Build 42.21.
+        // Keep indexed access so the native tile list is read without copying.
         for (int index = 0; index < objects.size(); index++) {
             IsoObject object = objects.get(index);
             if (object == null || object.getSquare() != foot
@@ -855,7 +853,7 @@ public final class SCBridge {
         if (square == null || square.getChunk() == null || square.getRoom() != room) {
             return false;
         }
-        PZArrayList<IsoObject> objects = square.getObjects();
+        List<IsoObject> objects = square.getObjects();
         if (objects == null) return false;
         for (int index = 0; index < objects.size(); index++) {
             IsoObject object = objects.get(index);
@@ -3000,7 +2998,7 @@ public final class SCBridge {
     }
 
     private static boolean furnitureClear(IsoGridSquare square, Set<IsoObject> ignored) {
-        PZArrayList<IsoObject> objects = square.getObjects();
+        List<IsoObject> objects = square.getObjects();
         if (objects == null || objects.size() > 64) return false;
         for (int i = 0; i < objects.size(); i++) {
             IsoObject object = objects.get(i);
@@ -3117,7 +3115,7 @@ public final class SCBridge {
         for (int index = 0; index < square.getMovingObjects().size(); index++) {
             if (square.getMovingObjects().get(index) != actor) return false;
         }
-        PZArrayList<IsoObject> objects = square.getObjects();
+        List<IsoObject> objects = square.getObjects();
         if (objects == null || objects.size() > 64) return false;
         for (int index = 0; index < objects.size(); index++) {
             IsoObject object = objects.get(index);

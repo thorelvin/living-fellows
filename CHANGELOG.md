@@ -4,6 +4,15 @@
 
 ## 0.27.5 - Getting to know your survivors
 
+- Update the standalone bridge for Project Zomboid 42.22.2 and protocol
+  `42.22-isocompanion-31`. Native world-object and combat hit lists now use
+  the game's standard Java collections. Lua/native runtime checks and the
+  real-game tests target 42.22.2 and its bundled Java 25 runtime.
+  Sheet-rope actions use the new shared climb entry points and retain native
+  ownership through the renamed climb states.
+  Area selection uses the native building tool after world scripts load,
+  avoiding a failed server-script request during client menu startup.
+
 - EMMA recognizes more ways of saying you are not okay, and asks directly
   when she is unsure. Self put-down replies respect negation and context. Storage
   questions recognize medicine and swapped letters, and more conversation

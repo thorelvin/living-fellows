@@ -19,7 +19,7 @@ Living Fellows release branches use `living_fellows/<version>`, with the current
 
 ## Development setup
 
-Living Fellows targets Project Zomboid 42.21.0. PowerShell 5.1 or newer and a local Windows installation of the game are currently required for the complete Java bridge build.
+Living Fellows targets Project Zomboid 42.22.2. PowerShell 5.1 or newer and a local Windows installation of the game are currently required for the complete Java bridge build. Keep `JAVA_HOME` on JDK 17 for the reproducible bridge build; set `SC_TEST_JAVA_HOME` to a separate JDK 25 for tests against the game's Java 25 classes. Tests run with the game's bundled JRE; neither compiler needs to replace it.
 
 Run the five essential checks from the repository root:
 

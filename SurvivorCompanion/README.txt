@@ -5,7 +5,7 @@ https://thorelvin.github.io/living-fellows/
 Quick reference: https://thorelvin.github.io/living-fellows/quick-reference.html
 
 You won't die... alone.
-Companions, survivor households and working bases for Project Zomboid 42.21.0.
+Companions, survivor households and working bases for Project Zomboid 42.22.2.
 Single-player only.
 
 TAKE THE OTHERS WITH YOU

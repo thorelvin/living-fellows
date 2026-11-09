@@ -10,7 +10,6 @@ import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
 import zombie.vehicles.BaseVehicle;
 import zombie.iso.areas.IsoRoom;
-import zombie.util.list.PZArrayList;
 
 public class IsoGridSquare {
     public zombie.core.properties.PropertyContainer getProperties() { return null; }
@@ -23,7 +22,7 @@ public class IsoGridSquare {
     public int getZ() { return 0; }
     public int getPlayerCutawayFlag(int playerIndex, long timeMs) { return 0; }
     public ArrayList<IsoMovingObject> getMovingObjects() { return null; }
-    public PZArrayList<IsoObject> getObjects() { return null; }
+    public java.util.List<IsoObject> getObjects() { return null; }
     public IsoRoom getRoom() { return null; }
     public ArrayList<IsoMovingObject> getStaticMovingObjects() { return null; }
     public java.util.List<IsoObject> getSpecialObjects() { return null; }

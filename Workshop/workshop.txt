@@ -15,7 +15,7 @@ description=Find your people. Build a home. Send a crew across town while you ke
 description=
 description=[url=https://thorelvin.github.io/living-fellows/]Field Guide - start here[/url] | [url=https://thorelvin.github.io/living-fellows/quick-reference.html]Quick reference[/url]
 description=
-description=[b]Project Zomboid 42.21.0 | Single-player | Requires ZombieBuddy 2.3.3+ and its one-time loader setup[/b]
+description=[b]Project Zomboid 42.22.2 | Single-player | Requires ZombieBuddy 2.3.3+ and its one-time loader setup[/b]
 description=
 description=[h2]Send a crew. Bring them home.[/h2]
 description=[img]https://images.steamusercontent.com/ugc/15183459141282847163/F3AC0D1A12EAF91CFC8B1618464F8E9D90D34572/[/img]

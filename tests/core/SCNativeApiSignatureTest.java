@@ -5,7 +5,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-/** Public-signature gate against the installed Project Zomboid 42.21.0 JAR. */
+/** Public-signature gate against the installed Project Zomboid 42.22.2 JAR. */
 public final class SCNativeApiSignatureTest {
     private SCNativeApiSignatureTest() {}
 
@@ -67,6 +67,23 @@ public final class SCNativeApiSignatureTest {
         Class<?> companion = Class.forName("survivorcompanion.bridge.SCNativeCompanion");
         Class<?> bridge = Class.forName("survivorcompanion.bridge.SCBridge");
         Class<?> square = Class.forName("zombie.iso.IsoGridSquare");
+        require(method(square, "getObjects").getReturnType() == java.util.List.class
+                        && method(character, "getHitInfoList").getReturnType() == java.util.ArrayList.class,
+                "42.22 world/combat List and ArrayList return types changed");
+        require(method(character, "climb").getReturnType() == void.class
+                        && method(character, "climbDown").getReturnType() == void.class
+                        && method(character, "canClimbSheetRope", square).getReturnType() == boolean.class
+                        && method(character, "canClimbDownSheetRope", square).getReturnType() == boolean.class,
+                "42.22 shared rope/ladder climb entry points changed");
+        for (Class<?> nativeType : new Class<?>[] {bridge, companion}) {
+            try (java.io.InputStream bytes = nativeType.getResourceAsStream(
+                    nativeType.getSimpleName() + ".class")) {
+                require(bytes != null && !new String(bytes.readAllBytes(),
+                                java.nio.charset.StandardCharsets.ISO_8859_1)
+                                .contains("zombie/util/list/PZArrayList"),
+                        "native bridge still links the removed PZArrayList type: " + nativeType.getSimpleName());
+            }
+        }
         Class<?> edge = Class.forName("zombie.iso.objects.GridSquareEdge");
         Class<?> windowFrame = Class.forName("zombie.iso.objects.IsoWindowFrame");
         Class<?> globalModData = Class.forName("zombie.world.moddata.GlobalModData");

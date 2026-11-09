@@ -1,6 +1,7 @@
 {
-  "gameVersion": "42.21.0",
-  "projectZomboidJarSha256": "E1A69EB743EDE60B213A0FE7F8B83D4FCAB773036D256CC4543A336F3B058A33",
-  "projectZomboidJarBytes": 65682033,
+  "gameVersion": "42.22.2",
+  "projectZomboidJarSha256": "3C4A7C5F149D784758C6FB5F8FA85F3A21D572E38BC081400E89035F8120D287",
+  "projectZomboidJarBytes": 68815659,
+  "javaMajor": 25,
   "javaRelativePath": "jre64\\bin\\java.exe"
 }

@@ -288,7 +288,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.21-isocompanion-30".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.22-isocompanion-31".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
@@ -374,13 +374,16 @@ public final class SCNativeBridgeExposureTest {
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
                 "production bridge did not expose the native attack enum contract");
         String readiness = String.valueOf(rawget.invoke(environment, "SC_TEST_READY"));
-        require(SCBridge.isSupportedGameVersion("42.21")
-                        && SCBridge.isSupportedGameVersion("42.21.0")
+        require(SCBridge.isSupportedGameVersion("42.22")
+                        && SCBridge.isSupportedGameVersion("42.22.2")
+                        && !SCBridge.isSupportedGameVersion("42.21")
+                        && !SCBridge.isSupportedGameVersion("42.22.1")
+                        && !SCBridge.isSupportedGameVersion("42.23")
                         && !SCBridge.isSupportedGameVersion("42.19")
                         && !SCBridge.isSupportedGameVersion("42.20"),
                 "native bridge release-family gate is too broad or rejects a valid live label");
         require(!readiness.contains("requires Project Zomboid"),
-                "live 42.21 label was incorrectly rejected by the version gate: " + readiness);
+                "live 42.22 label was incorrectly rejected by the version gate: " + readiness);
         require(!readiness.isEmpty(),
                 "headless readiness unexpectedly bypassed the local-player isolation gate");
 

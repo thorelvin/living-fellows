@@ -7,6 +7,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Set;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -47,7 +48,6 @@ import zombie.characterTextures.BloodBodyPartType;
 import zombie.network.fields.hit.HitInfo;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.util.list.PZArrayList;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -461,7 +461,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (IsoPlayer.players == null || IsoPlayer.players.length == 0) return false;
         IsoPlayer player = IsoPlayer.players[0];
         if (player == null || !blocksPlayerWeaponHit(player)) return false;
-        PZArrayList<HitInfo> hits = player.getHitInfoList();
+        ArrayList<HitInfo> hits = player.getHitInfoList();
         if (hits == null) return false;
         for (int index = 0; index < hits.size(); index++) {
             HitInfo hit = hits.get(index);

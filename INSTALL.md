@@ -2,7 +2,7 @@
 
 # Install Living Fellows 0.27.4
 
-For **Project Zomboid Build 42.21.0, single-player**. Choose Workshop or standalone; use one copy at a time.
+For **Project Zomboid Build 42.22.2, single-player**. Choose Workshop or standalone; use one copy at a time.
 
 [Field Guide](https://thorelvin.github.io/living-fellows/) · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html)
 

@@ -43,7 +43,7 @@ local function climbing(actor)
     local names = string.lower(tostring(stateName) .. ":" .. tostring(actionState))
     for _, name in ipairs({ "climboverfence", "climboverwall", "climbthroughwindow",
         "climbfence", "climbwall", "climbwindow", "climbsheetrope",
-        "climbdownsheetrope", "climbrope", "climbdownrope" }) do
+        "climbdownsheetrope", "climbrope", "climbdownrope", "climbstate", "climbdownstate" }) do
         if string.find(names, name, 1, true) then return true end
     end
     local ok, value = invoke(actor, "isClimbing")
@@ -640,7 +640,7 @@ function Traversal.sheetRope(actor, action, intent, provider)
     local checked, climbable = invoke(actor, check, square)
     if not checked then return false, "native sheet-rope climb check is unavailable" end
     if climbable ~= true then return false, "native sheet rope is not climbable" end
-    local methodName = down and "climbDownSheetRope" or "climbSheetRope"
+    local methodName = down and "climbDown" or "climb"
     local invoked, failure = invoke(actor, methodName)
     if not invoked or failure == false then return false, failure or "native sheet-rope climb failed" end
     return retainRequest(actor, action, intent,

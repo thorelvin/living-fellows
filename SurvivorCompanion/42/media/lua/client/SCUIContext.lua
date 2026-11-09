@@ -4,7 +4,6 @@ require "ISUI/ISContextMenu"
 require "ISUI/ISWorldObjectContextMenu"
 require "ISUI/ISInventoryPaneContextMenu"
 require "ISUI/ISTextBox"
-require "BuildingObjects/ISBuildingObject"
 require "SCInteraction"
 require "SCConstructionPlanner"
 require "SCGameplayUtil"
@@ -1022,6 +1021,8 @@ stopZoneCursor = function(cursor)
 end
 
 startZoneCursor = function(player)
+    -- The game loads ISBuildingObject with its server scripts when entering
+    -- a world. Resolve it here; requiring it during client menu loading fails.
     local draft = SC.BaseLife.zoneDraft()
     local cell = type(getCell) == "function" and getCell() or nil
     local index = safeMethod(player, "getPlayerNum")

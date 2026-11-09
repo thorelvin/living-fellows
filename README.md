@@ -11,7 +11,7 @@
 </p>
 
 [![Release](https://img.shields.io/badge/release-0.27.5-blue.svg)](CHANGELOG.md)
-[![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
+[![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#requirements)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -33,7 +33,7 @@ The [Field Guide](https://thorelvin.github.io/living-fellows/) covers orders, ca
 
 ## Requirements
 
-**Project Zomboid Build 42.21.0 · Single-player.** Multiplayer and additional human split-screen players are not supported.
+**Project Zomboid Build 42.22.2 · Single-player.** Multiplayer and additional human split-screen players are not supported.
 
 Choose one installation method. Workshop and standalone copies share the same mod ID and should not be enabled together.
 

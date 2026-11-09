@@ -1,0 +1,107 @@
+Living Fellows 0.27.5: Project Zomboid 42.22.2 compatibility
+Validated and installed locally on 2026-11-09.
+
+Runtime
+  Project Zomboid 42.22.2, revision 3d39148846, Steam build 26486631.
+  projectzomboid.jar: 68,815,659 bytes
+  SHA-256: 3C4A7C5F149D784758C6FB5F8FA85F3A21D572E38BC081400E89035F8120D287
+  Bundled Java 25.0.5; bridge protocol 42.22-isocompanion-31.
+
+Review sources
+  Official 42.22.2 notes:
+  https://theindiestone.com/forums/topic/103067-42222-stable-released/
+  Release overview:
+  https://projectzomboid.com/blog/news/2026/10/moving-on-up-42-22-pre-release/
+  Public signatures and rope behavior were also checked against the installed
+  game JAR and stock Lua. No decompiled game code is included in this change.
+
+Compatibility changes
+  PZArrayList was removed. The bridge now uses the actual List return type for
+  tile objects and ArrayList for combat hit lists. The API check rejects an
+  older compiled bridge still referencing PZArrayList; that rejection was
+  reproduced against the previous shipping JAR before rebuilding.
+
+  Sheet-rope actions now call climb/climbDown after the existing native rope
+  validation. ClimbState and ClimbDownState retain traversal ownership.
+  Automatic ladder routing and new crowbar jobs are outside this port.
+
+  Runtime gates, both mod.info files, installer, Lua identity and documentation
+  target 42.22.2. Save schemas and gameplay defaults are unchanged.
+
+  The reproducible shipping bridge still uses JDK 17 and class-file major 61.
+  Real-game tests need a separate JDK 25 compiler for the game's major-69
+  classes. Both native test execution and Lua compilation use the bundled
+  game JRE. Neither the JRE nor projectzomboid.jar was modified.
+
+Automated results
+  Test-Project.ps1 -Serial: 5/5 PASS, routine profile, 141.6 seconds.
+  Build, Lifecycle, Behaviour, Cargo and Interface all passed in one final run.
+  Evidence: build/test-results/20261109-174540-b922b0/summary.json
+
+  Core regressions: 98/98 PASS, serial, 116.6 seconds. Includes combat hit and
+  gunshot dispatch, stamina/moodle isolation, sleep recovery, action ownership,
+  view teardown, persistence, navigation and standalone launcher checks.
+  All 34 production Java sources also compiled directly against the real game
+  JAR with target 17, using no game API stubs. The optional optimizer patch
+  used only its compile-time annotation stub.
+
+  Source, release-sync, content and voice-action label checks passed.
+  Test fixtures now initialize the entity engine before native actor removal
+  and provide the new stock menu tutorial/joypad queries. Production removal
+  behavior and stock menu code were retained.
+
+Local standalone installation
+  Installed: C:\Users\thore\Zomboid\mods\SurvivorCompanion
+  Both installed metadata files omit the ZombieBuddy requirement.
+  Public configuration: debug, movement recorder and experimental actors off.
+  All 320 Lua files match source. Four bridge copies and ownership manifests
+  agree. The enabled LF profile entry and owned launcher were verified.
+  Installed launcher smoke test passed with protocol 42.22-isocompanion-31.
+  Bridge SHA-256:
+  a066865d5fd642ee649919db0ee4b9d567945de7c5b9f8dc419df810c9cc4f01
+  Detailed local evidence: build/port-42222/installed-verification.json
+
+  Follow-up: the mod picker preferred an old 0.27.3 uploader staging copy in
+  Zomboid/Workshop/LivingFellowsCompanion over the installed standalone with
+  the same ID. With the game closed, that folder was moved intact outside the
+  game's search paths. Receipt: build/port-42222/stale-workshop-archive.json.
+  After restarting, the actual game picker displayed the local mods path,
+  version 0.27.5, game 42.22.2, an empty Dependencies row and green Enabled
+  status. The startup log also reported the protocol-31 bridge ready.
+
+Log investigation after the first saved-world session
+  The 17:54 session loaded the intended local 0.27.5 build and had no Lua/Java
+  gameplay exceptions. Map loading logged 513 unmatched room IDs and 14
+  unmatched building IDs. The native reader consumes these entries and skips
+  their flags when no definition matches; it does not repair room geometry.
+  The room flags are explored/lights/spawn/roof state, and building records
+  include alarms, key IDs, visits and loot respawn state.
+
+  A read-only parse of the subsequent normal save found 91,681 room records
+  and 9,976 building records with the expected version-251 structure. All 14
+  flagged building IDs and 509 flagged room IDs were absent from this new
+  metadata. Those 523 specific stale entries should therefore not repeat
+  without another map change; a later full load has not been tested.
+
+  The four remaining room IDs (231, 327914, 327911, 655594 in cell 25,33) also
+  occur in the local 42.21 session of 2026-11-08. They match an older report
+  with no mods enabled and the same vanilla basement collision:
+  https://theindiestone.com/forums/topic/98551-maniqui-and-basements-error/
+  This is evidence against an LF regression; it is not an official diagnosis
+  of this particular save. No save files or map definitions were modified.
+
+  The LF startup warning was an eager client require of ISBuildingObject,
+  which is supplied by the game's server-side world scripts. Removed that
+  eager require; the placement callback already resolves the global at use
+  time and rejects an unavailable tool safely. The existing context-menu
+  suite passed all 1,739 assertions with actual stock ISBuildingObject loaded
+  AFTER SCUIContext, including native one-click area completion and cleanup.
+  This source follow-up is not installed; the player's game was not restarted.
+
+Limits
+  The automated checks did not launch the game. A later user-played session
+  was reviewed through its logs; controlled live acceptance was not repeated.
+  Workshop loader integration, other NPC mods and
+  optimizer combinations have not been revalidated on 42.22.2. The full
+  release installer fault matrix was not repeated; the real standalone
+  installation and its file, ownership and configuration postconditions passed.

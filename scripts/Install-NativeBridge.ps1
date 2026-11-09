@@ -19,9 +19,9 @@ $OriginalMain = 'zombie/gameStates/MainScreenState'
 $PzoMain = 'com/pzoptimizer/PZOEntrypoint'
 $AgentMain = 'survivorcompanion.bridge.SCBootstrapAgent'
 $AgentArgument = '-javaagent:LivingFellowsBridge.jar'
-$ExpectedProtocol = '42.21-isocompanion-30'
-$ExpectedSupportedGame = '42.21'
-$ExpectedCompiledGame = '42.21.0'
+$ExpectedProtocol = '42.22-isocompanion-31'
+$ExpectedSupportedGame = '42.22'
+$ExpectedCompiledGame = '42.22.2'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Normalize-Path([string]$Path) {

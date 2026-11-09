@@ -14,10 +14,11 @@ $Runtime = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 $ExpectedVersion = [string]$Runtime.gameVersion
 $ExpectedHash = ([string]$Runtime.projectZomboidJarSha256).ToUpperInvariant()
 $ExpectedBytes = [long]$Runtime.projectZomboidJarBytes
+$ExpectedJavaMajor = [int]$Runtime.javaMajor
 $JavaRelativePath = [string]$Runtime.javaRelativePath
 if ([string]::IsNullOrWhiteSpace($ExpectedVersion) -or
     $ExpectedHash -notmatch '^[0-9A-F]{64}$' -or
-    $ExpectedBytes -le 0 -or
+    $ExpectedBytes -le 0 -or $ExpectedJavaMajor -le 0 -or
     [string]::IsNullOrWhiteSpace($JavaRelativePath)) {
     throw "Pinned Project Zomboid runtime manifest is invalid: $ManifestPath"
 }
@@ -30,6 +31,14 @@ if (-not (Test-Path -LiteralPath $Jar -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $GameJava -PathType Leaf)) {
     throw "Pinned Project Zomboid Java runtime not found: $GameJava"
+}
+$JavaRelease = Join-Path (Split-Path -Parent (Split-Path -Parent $GameJava)) 'release'
+$JavaVersion = if (Test-Path -LiteralPath $JavaRelease -PathType Leaf) {
+    [regex]::Match((Get-Content -LiteralPath $JavaRelease -Raw), '(?m)^JAVA_VERSION="(\d+)(?:[.\-"]|$)')
+} else { $null }
+if (-not $JavaVersion -or -not $JavaVersion.Success -or
+    [int]$JavaVersion.Groups[1].Value -ne $ExpectedJavaMajor) {
+    throw "Project Zomboid $ExpectedVersion requires the pinned Java $ExpectedJavaMajor runtime."
 }
 
 $ActualBytes = (Get-Item -LiteralPath $Jar).Length
@@ -54,4 +63,4 @@ if (-not $InstallerMatch.Success -or $InstallerMatch.Groups[1].Value -ne $Expect
     throw "Install-NativeBridge ExpectedCompiledGame does not match pinned runtime $ExpectedVersion."
 }
 
-Write-Output "PZ_RUNTIME_PASS version=$ExpectedVersion jar-sha256=$ActualHash bytes=$ActualBytes"
+Write-Output "PZ_RUNTIME_PASS version=$ExpectedVersion java=$ExpectedJavaMajor jar-sha256=$ActualHash bytes=$ActualBytes"

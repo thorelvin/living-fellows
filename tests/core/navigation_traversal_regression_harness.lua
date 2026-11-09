@@ -56,7 +56,7 @@ local function actor()
         return self:request()
     end
     value.climbOverFence, value.climbOverWall = value.request, value.request
-    value.climbThroughWindow, value.climbSheetRope = value.request, value.request
+    value.climbThroughWindow, value.climb = value.request, value.request
     function value:triggerContextualAction(action, object)
         self.contextualAction, self.contextualObject = action, object
         return self:request()
@@ -65,7 +65,7 @@ local function actor()
         self.frameClimb = true
         return self:request(...)
     end
-    value.climbDownSheetRope, value.openWindow, value.smashWindow = value.request, value.request, value.request
+    value.climbDown, value.openWindow, value.smashWindow = value.request, value.request, value.request
     function value:cancelCompanionTraversal()
         if not self.cancelAllowed then return false end
         self.event, self.climbing = nil, false
@@ -374,7 +374,7 @@ for _, action in ipairs({ "climb_fence", "climb_wall", "climb_window",
     current = current + 100
     value.nativeState = { __class = ({ climb_fence = "ClimbOverFenceState",
         climb_wall = "ClimbOverWallState", climb_window = "ClimbThroughWindowState",
-        climb_sheet_rope = "ClimbSheetRopeState", climb_down_sheet_rope = "ClimbDownSheetRopeState" })[action] }
+        climb_sheet_rope = "ClimbState", climb_down_sheet_rope = "ClimbDownState" })[action] }
     check(T.poll(value) == "active" and not value:isClimbing(),
         action .. " observes real native state even when legacy climbing field stays false")
     current = current + 1600

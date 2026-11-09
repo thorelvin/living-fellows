@@ -5,6 +5,10 @@
 The routine gate has five checks. It exercises production code against the
 pinned Project Zomboid runtime, without launching the game.
 
+For 42.22.2, use JDK 17 to build the bridge and JDK 25 to compile tests against
+the game classes. Set `JAVA_HOME` to JDK 17 and `SC_TEST_JAVA_HOME` to JDK 25.
+The test runner uses the game's bundled Java 25 runtime without changing it.
+
 ```powershell
 .\scripts\Test-Project.ps1
 .\scripts\Test-Project.ps1 -Check Cargo

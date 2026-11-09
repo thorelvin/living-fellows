@@ -19,7 +19,7 @@ body:
     id: game-version
     attributes:
       label: Project Zomboid version
-      placeholder: 42.21.0
+      placeholder: 42.22.2
     validations:
       required: true
   - type: dropdown

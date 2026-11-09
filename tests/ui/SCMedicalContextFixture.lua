@@ -47,6 +47,7 @@ function getText(key, argument, secondArgument)
     return key
 end
 Events = {}
+JoypadState = { players = {} }
 for _, name in ipairs({ "OnDoTileBuilding2", "OnDoTileBuilding3", "OnKeyPressed",
     "OnDestroyIsoThumpable", "RenderOpaqueObjectsInWorld" }) do
     Events[name] = { Add = function() end }
@@ -103,6 +104,7 @@ function T.installNativeMenus()
     local original = { getNew = ISContextMenu.getNew, context = getPlayerContextMenu,
         core = getCore, textManager = getTextManager, fonts = UIFont }
     function getCore() return { getGameMode = function() return "Sandbox" end,
+        isTutorial = function() return false end,
         getOptionContextMenuFont = function() return "Medium" end } end
     UIFont = UIFont or { Small = "Small", Medium = "Medium", Large = "Large" }
     function getTextManager()
