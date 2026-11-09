@@ -47,6 +47,10 @@ require "Farming/TimedActions/ISCurePlantAction"
 require "TimedActions/ISInventoryTransferAction"
 require "FeedingTrough/TimedActions/ISAddWaterToTrough"
 require "TimedActions/Animals/ISHutchGrabEgg"
+require "TimedActions/Animals/ISToggleHutchDoor"
+require "TimedActions/Animals/ISToggleHutchEggHatchDoor"
+require "TimedActions/Animals/ISHutchCleanFloor"
+require "TimedActions/Animals/ISHutchCleanNest"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -2682,16 +2686,53 @@ function actions.startAnimal(actor, intent)
     if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
         or intent.validate() ~= true then return false, "animal_action_invalid" end
     local item, object = intent.item, intent.object
-    local record, reason = prepareWorkInventory(actor, item and { item } or {}, item, nil)
+    local record, reason = prepareWorkInventory(actor, intent.items or (item and { item } or {}), item, nil)
     if not record then return false, reason end
     local action, created
-    if intent.operation == "animal_water" and ISAddWaterToTrough then
-        created, action = pcall(ISAddWaterToTrough.new, ISAddWaterToTrough, actor, object, item, false)
+    if intent.operation == "animal_water" and ISFluidTransferAction and ISFluidContainer then
+        local _, donor = invoke(item, "getFluidContainer")
+        local _, receiver = invoke(object, "getFluidContainer")
+        if donor and receiver then
+            local amount = math.min(donor:getAmount(), math.max(0, intent.high - receiver:getAmount()))
+            if amount > 0 then
+                created, action = pcall(ISFluidTransferAction.new, ISFluidTransferAction,
+                    actor, ISFluidContainer:new(donor), donor, ISFluidContainer:new(receiver), receiver, amount)
+            end
+        end
+        if created and action then
+            -- The stock UI validator consults getPlayer(). Bind this instance
+            -- to its real companion, item and trough instead.
+            action.isValid = function(self)
+                return self.character == actor and self.source:getOwner() == item
+                    and self.target:getOwner() == object and intent.validate() == true
+                    and FluidContainer.CanTransfer(donor, receiver) == true
+            end
+            action.start = function(self)
+                self:setActionAnim("MixFluids")
+                self:setOverrideHandModels(item:getStaticModel(), nil)
+                self.sound = actor:playSound("AnimalFeederAddWater")
+            end
+        end
     elseif intent.operation == "animal_feed" and ISInventoryTransferAction then
         local okay, destination = invoke(object, "getContainer")
         if okay and destination then
             created, action = pcall(ISInventoryTransferAction.new, ISInventoryTransferAction,
                 actor, item, actor:getInventory(), destination, 100)
+            if created and action then
+                action.canMergeAction = function() return false end
+                local start, update = action.start, action.update
+                action.start = function(self)
+                    start(self)
+                    -- Stock transfer animation selects the local player's loot
+                    -- panel. Companions have no such panel; retain the native
+                    -- transfer and animation without that UI-only binding.
+                    self.selectedContainer = nil
+                end
+                action.update = function(self)
+                    actor:faceThisObject(object)
+                    return update(self)
+                end
+            end
         end
     elseif intent.operation == "animal_egg" and ISHutchGrabEgg and intent.nest then
         created, action = pcall(ISHutchGrabEgg.new, ISHutchGrabEgg, actor, intent.nest, object)
@@ -2699,6 +2740,17 @@ function actions.startAnimal(actor, intent)
             action.tree = object -- stock waitToStart otherwise faces an unset field
             action.maxTime = action.timePerEgg + 5
         end
+    elseif intent.operation == "animal_open" or intent.operation == "animal_close" then
+        created, action = pcall(ISToggleHutchDoor.new, ISToggleHutchDoor, actor, object)
+    elseif intent.operation == "animal_hatch_open" then
+        created, action = pcall(ISToggleHutchEggHatchDoor.new, ISToggleHutchEggHatchDoor, actor, object)
+    elseif intent.operation == "animal_clean_floor" then
+        created, action = pcall(ISHutchCleanFloor.new, ISHutchCleanFloor,
+            actor, object, intent.water, item, intent.cleaner)
+        if created and action then action.tree = object end
+    elseif intent.operation == "animal_clean_nest" then
+        created, action = pcall(ISHutchCleanNest.new, ISHutchCleanNest, actor, object, nil)
+        if created and action then action.tree = object end
     end
     if not created or not action then
         restoreWorkInventory(actor, record)
@@ -2718,15 +2770,6 @@ function actions.startAnimal(actor, intent)
                 if intent.validate() ~= true then self:forceStop() return false end
                 return native(self, ...)
             end
-        end
-    end
-    if intent.operation == "animal_water" then
-        local native = action.updateAddingWater
-        action.updateAddingWater = function(self)
-            if intent.validate() ~= true or object:getWater() >= intent.high then
-                self:forceStop() return
-            end
-            return native(self)
         end
     end
     return queueTrackedWork(actor, action, record, "farm_" .. intent.operation)

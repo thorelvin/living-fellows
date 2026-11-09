@@ -21,6 +21,11 @@ local wording = {
     watch = { "Under watch: indoor duties only.", "Review the camp decision to change the restriction." },
     restricted = { "Camp work is paused by a camp decision.", "Review the decision; food, drink, rest and medical care remain available." },
     preparing = { "Still looking for usable supplies.", "The search is continuing in bounded steps.", true },
+    animal_zone = { "The chicken pen could not be checked safely.", "Keep the whole animal zone inside camp and stay nearby until it loads." },
+    animal_native = { "Chicken care stopped before its result was confirmed.", "Check the trough or hutch. The farmer will retry without replacing missing items." },
+    animal_feed_trough_missing = { "Chickens need a separate feed trough.", "Place an empty trough in the animal zone. Each trough holds feed or water." },
+    animal_water_trough_missing = { "Chickens need a separate water trough.", "Place an empty trough in the animal zone. Existing feed will be left intact." },
+    animal_hutch_missing = { "The chicken pen has no usable hutch.", "Place a compatible hutch inside its animal zone." },
     radio_work_no_power = { "Radio watch is paused: the computer has no power.", "Restore its power. Shift progress is saved and the job retries automatically.", true },
     radio_work_radio_missing = { "The computer's two-way radio is missing or broken.", "Mount a working walkie-talkie; the operator's progress is saved." },
     radio_work_locked = { "The assigned computer is locked.", "Unlock it to resume the saved radio shift." },
@@ -50,6 +55,10 @@ local exact = {
     floor_pickup_animation_replaced = "interrupted", loot_animation_replaced = "interrupted",
     work_side_busy = "crowded", watch_indoor_duty = "watch", infection_restriction = "restricted",
     cleaning_supplies_scanning = "preparing", haul_scan_pending = "preparing",
+    animal_audit_pending = "preparing", animal_audit_incomplete = "animal_zone",
+    animal_flock_not_loaded = "animal_zone", animal_zone_unavailable = "animal_zone",
+    animal_zone_outside_camp = "animal_zone", animal_action_incomplete = "animal_native",
+    animal_egg_recovery_pending = "uncertain", farm_food_storage_missing = "storage_missing",
 }
 
 function F.text(key, fallback, ...)

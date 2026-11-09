@@ -784,6 +784,9 @@ local function receiptActivelyOwned(receipt)
             and state.jobId == receipt.jobId then
             if state.borrowed and state.borrowed.receiptId == receipt.id then return true end
             if state.animalEgg and state.animalEgg.receiptId == receipt.id then return true end
+            for _, loan in ipairs(state.animalLoans or {}) do
+                if loan.borrowed and loan.borrowed.receiptId == receipt.id then return true end
+            end
             for _, output in ipairs(type(state.outputs) == "table" and state.outputs or {}) do
                 if output.receiptId == receipt.id then return true end
             end
@@ -917,8 +920,6 @@ function FarmWork.audit(base)
     recoverPending(math.max(1, math.floor(config("farmRecoveryPerPulse", 4))))
     reopenCarriedWaterJobs(base)
     local farmZones = zones()
-    local animal = SC.AnimalWork and SC.AnimalWork.candidate(base) or nil
-    if #farmZones == 0 and not animal then return false, "farm_zone_missing" end
     local budget = math.max(1, math.floor(config("farmScanSquaresPerSlice", 16)))
     local carriedWaterId, farmers = nil, {}
     local ids = SC.BaseLife.dutyResidentIds and SC.BaseLife.dutyResidentIds() or {}
@@ -932,6 +933,15 @@ function FarmWork.audit(base)
             farmers[#farmers + 1] = { id = id, actor = actor }
         end
     end
+    local animal, animalReason, animalPending
+    if #farmers > 0 and SC.AnimalWork then
+        animal, animalReason, animalPending = SC.AnimalWork.candidate(base, #farmZones > 0 and 8 or 16)
+        if #farmZones > 0 then budget = math.min(budget, 8) end
+    end
+    -- Finish the bounded pass through the scheduler's continuation path rather
+    -- than waiting for all other maintenance families between every 16 tiles.
+    if animalPending then return false, animalReason, true end
+    if #farmZones == 0 and not animal then return false, animalReason or "farm_scan_no_work" end
     -- One bounded inventory inspection per audit, even in a large camp.
     if #farmers > 0 then
         carriedWaterAuditCursor = carriedWaterAuditCursor % #farmers + 1
@@ -2059,7 +2069,8 @@ end
 -- before it starts while any such obligation is still live.
 function FarmWork.canCancelJob(jobId)
     for _, state in pairs(states) do
-        if state.jobId == jobId and (state.work or state.animalWork or state.animalEgg or state.borrowed
+        if state.jobId == jobId and (state.work or state.animalWork or state.animalEgg
+            or state.animalLoans or state.borrowed
             or state.collectingHarvest or (state.outputs and #state.outputs > 0)) then
             return false, "farm_recovery_pending"
         end
@@ -2176,21 +2187,30 @@ FarmWork._seedCountForTests = seedCount
 FarmWork._speakForTests = speak
 
 function FarmWork.reset(actor)
-    if SC.AnimalWork then SC.AnimalWork.reset(actor) end
     if actor then
-        FarmWork.cancelActor(actor, "farm_reset")
+        local okay, reason = FarmWork.cancelActor(actor, "farm_reset")
+        if not okay then return false, reason end
+        if SC.AnimalWork then SC.AnimalWork.reset(actor) end
     else
-        for value in pairs(states) do FarmWork.cancelActor(value, "farm_reset") end
+        local actors = {}
+        for value in pairs(states) do actors[#actors+1] = value end
+        for _, value in ipairs(actors) do
+            local okay, reason = FarmWork.cancelActor(value, "farm_reset")
+            if not okay then return false, reason end
+        end
+        if SC.AnimalWork then SC.AnimalWork.reset() end
         states = setmetatable({}, { __mode = "k" })
         scanState, knownPlots = {}, {}
         supplyScans, seedScans, knownBase = {}, {}, nil
         lastFarmSpeechAt = -math.huge
         carrierLostSince = {}
     end
+    return true
 end
 
 function FarmWork.summary()
     local result = {}
+    result.chickenBlocker = SC.AnimalWork and SC.AnimalWork.blocker()
     for key, value in pairs(metrics) do result[key] = value end
     local base, pending, active, blocked = SC.BaseLife and SC.BaseLife.active() or nil, 0, 0, 0
     for _, job in ipairs(base and base.jobs or {}) do
@@ -2211,6 +2231,7 @@ end
 FarmWork.animalSupport = {
     borrow = borrowSupply, settle = consumeOrReturn, approach = approach,
     receipt = allocateReceipt, deposit = depositOutputs, waterUses = waterUses,
+    restore = restoreBorrowed,
     waterPredicate = waterContainerPredicate, findWater = findWaterSource,
     threat = threatNearby, mark = mark, unmark = unmark, speak = speak,
 }

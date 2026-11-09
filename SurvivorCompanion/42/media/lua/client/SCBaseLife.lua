@@ -118,6 +118,12 @@ local TRANSIENT_FARM_BLOCKERS = {
     farm_supply_missing = 120000,
     unsafe_area = 30000,
     farm_outside_night = 120000,
+    animal_audit_pending = 15000,
+    animal_device_unavailable = 30000,
+    animal_zone_unavailable = 30000,
+    animal_care_unavailable = 30000,
+    animal_action_incomplete = 60000,
+    animal_carry_capacity_low = 180000,
 }
 -- Sorting can become temporarily impossible when the player fills or changes
 -- a marked shelf during a haul. A safely returned item is not failed work.
@@ -3167,6 +3173,9 @@ function BaseLife.jobAllowsWorkReach(job)
             and z == zone.z and x >= zone.x1 and x <= zone.x2
             and y >= zone.y1 and y <= zone.y2
     elseif job.type == "farm" then
+        if job.target.animal == true then
+            return SC.AnimalWork and SC.AnimalWork.allowsWorkReach(job) == true
+        end
         local zone = findById(base and base.zones or {}, job.target.zoneId)
         return zone ~= nil and zone.kind == "farm"
             and not BaseLife.zoneInsideAreaUnion(zone, base.zones)
@@ -4438,7 +4447,8 @@ local function jobScore(actorId, job, settlementId)
     if job.type == "cook" and (ensure().residents[actorId] or {}).role ~= "chef" then
         return -math.huge
     end
-    if BaseLife.outdoorNightRestricted() and BaseLife.outdoorJob(job) then
+    if BaseLife.outdoorNightRestricted() and BaseLife.outdoorJob(job)
+        and not (SC.AnimalWork and SC.AnimalWork.nightClosingJob(job)) then
         return -math.huge
     end
     if orderOwnedJob(job) then

@@ -795,6 +795,7 @@ local function baseDetailSignature()
         jobRetries = jobRetries,
         storageRows = summary.storageRows, maintenanceRows = summary.maintenanceRows,
         residentRows = summary.residentRows,
+        chickenBlocker = summary.farm and summary.farm.chickenBlocker,
         operations = {
             readiness = operations.readiness, stock = operations.stock,
             alerts = operations.alerts, policies = operations.policies,
@@ -4080,6 +4081,10 @@ function SCUIDetail:buildBase(panel, row)
         local jobs = base.jobs or {}
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Jobs", jobs.pending or 0, jobs.active or 0, jobs.blocked or 0))
+        if base.farm and base.farm.chickenBlocker and SC.ActionFeedback then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                SC.ActionFeedback.describe(SC.ActionFeedback.reason(base.farm.chickenBlocker)))
+        end
         -- The count includes every blocked job, including ones that will
         -- retry automatically. Show the same set with their actual reasons.
         local stalled, residentNames = {}, {}
