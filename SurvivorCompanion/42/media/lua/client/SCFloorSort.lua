@@ -569,14 +569,14 @@ local function pickupVisual(actor, job, item, wrapper, square)
         if visual.token and SC.NativeActions
             and type(SC.NativeActions.visualToken) == "function"
             and SC.NativeActions.visualToken(actor, "loot_container") ~= visual.token then
-            local phase, owner, action = "unknown", "unknown", "unknown"
+            local phase, owner, activity = "unknown", "unknown", "unknown"
             if type(SC.NativeActions.activityStatus) == "function" then
-                phase, owner, action = SC.NativeActions.activityStatus(actor)
+                phase, owner, activity = SC.NativeActions.activityStatus(actor)
             end
             print("[SurvivorCompanion/floor-pickup] actor=" .. tostring(U().idOf(actor))
                 .. " job=" .. tostring(job.id) .. " expected=loot_container phase="
                 .. tostring(phase) .. " owner=" .. tostring(owner) .. " action="
-                .. tostring(action) .. " ageMs=" .. tostring(now() - visual.startedAt))
+                .. tostring(activity) .. " ageMs=" .. tostring(now() - visual.startedAt))
             visuals[actor] = nil
             return false, "floor_pickup_animation_replaced", true
         end

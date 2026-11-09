@@ -21,6 +21,71 @@ local function ask(s,raw)
     for _,line in ipairs(r.lines) do check(not line:find("{[%w_]+}"),"no unresolved slot") end
     return r
 end
+-- Different wording for each warning shape, rather than more examples copied
+-- from the review's now-public hold-out. Diagnostics name the rule, not text.
+local warningKinds={
+    {"absence",{"it might be easier for everyone if i were not around","they would be glad if i did not exist"}},
+    {"ending_plan",{"i will end everything before sunrise","i am planning to end things soon"}},
+    {"continuation",{"why bother carrying on at all","i no longer see any point in going on"}},
+    {"prepared_means",{"i am saving pills for the day i give in","i have a razor ready for the end"}},
+    {"goodbye_act",{"i am writing my farewell message","my last note is ready to leave behind"}},
+    {"disappearing",{"i intend to vanish permanently","i feel i should disappear for good"}},
+    {"jumping_plan",{"i am planning to jump in front of traffic","i am thinking about jumping off the overpass"}},
+    {"better_off",{"i would rather not exist","i am better off not here"}},
+    {"wanting_over",{"i just want it all to be over","i feel done with all of it"}},
+    {"no_way_out",{"there is no way out other than death","no way out except being dead"}},
+    {"rumination",{"my thoughts about dying never stop","i keep thinking about being dead every day"}},
+    {"wish",{"i would like my life to end","i wish i were gone"}},
+}
+for _,kind in ipairs(warningKinds) do
+    for index,raw in ipairs(kind[2]) do
+        local s=session();local count=reads;local result=B.respond(s,raw,world)
+        check(result.intent=="care" and result.private and result.support and s.careMode
+            and not result.proposal and reads==count,"strong concept "..kind[1].." #"..index)
+    end
+end
+local softExamples={"i keep picturing myself dead","maybe it is my turn to die","i wonder what dying feels like",
+    "i cannot picture myself alive next week","the thought of my death keeps returning"}
+for index,raw in ipairs(softExamples) do
+    local s=session();s.context.pending={kind="refuel_generator"};s.emmaKnock={stage=2,at=0}
+    local count=reads;local result=B.respond(s,raw,world)
+    check(result.intent=="care_check" and result.private and not result.support and s.careSoft
+        and s.careQuestion and not s.careMode and not s.context.pending and not s.emmaKnock
+        and reads==count and has(result,"ending your life"),"uncertain own-death clarification #"..index)
+end
+for _,answer in ipairs({"yes","y"}) do
+    local s=session();ask(s,softExamples[1]);local result=ask(s,answer)
+    check(result.intent=="care" and result.support and result.careDetected and s.careMode
+        and not s.careQuestion and not s.careSoft,"affirmative clarification enters full care with one support note")
+    check(not ask(s,softExamples[2]).support and not ask(s,"i want to die").support,
+        "continued care never repeats the support note")
+end
+for _,answer in ipairs({"no","n","nope","not really","maybe","i do not know","not sure"}) do
+    local s=session();ask(s,softExamples[1]);local result=ask(s,answer)
+    check(result.private and not result.support and not s.careSoft and not s.careQuestion and not s.careMode,
+        "non-affirmative clarification clears only the soft question")
+    check(ask(s,"who is hurt").intent=="people_hurt","ordinary data works after declining or uncertain clarification")
+end
+local newSubject=session();ask(newSubject,softExamples[1])
+check(ask(newSubject,"who is hurt").intent=="people_hurt" and not newSubject.careSoft and not newSubject.careQuestion,
+    "an unrelated question resumes normal handling instead of becoming an answer")
+local closing=session();ask(closing,softExamples[1]);C.reset(closing)
+check(not C.quiet(closing) and not closing.careSoft,"closing clears an unconfirmed question")
+for _,row in ipairs(SC_EMMA_CORPUS and SC_EMMA_CORPUS.holdoutC or {}) do
+    if row[2]=="not_care" then
+        local result=B.respond(session(),row[3],world)
+        check(result.intent~="care" and result.intent~="care_check","ordinary game language stays outside care: "..row[3])
+    end
+end
+for _,raw in ipairs({"you deserve to die","i should not be here alone at night","how do i cut myself loose",
+    "i have rope ready to tie the planks","i saved rope for the fence","my crops are dying"}) do
+    local result=ask(session(),raw)
+    check(result.intent~="care" and result.intent~="care_check","subject and idiom boundaries remain ordinary")
+    if raw=="you deserve to die" then check(result.intent=="insult","hostility aimed at EMMA is not self harm") end
+end
+for _,raw in ipairs({"i deserve to die","maybe i deserve to die","i should not be here"}) do
+    check(ask(session(),raw).intent=="care","explicit personal disclosure remains full care")
+end
 local screenshot=session()
 ask(screenshot,"I want to die");ask(screenshot,"Y")
 local continued=ask(screenshot,"I dont matter")
@@ -42,7 +107,8 @@ for _,answer in ipairs({"Y","N","maybe","not sure","who is hurt"}) do
     check(ask(s,"I dont matter").private,"care persists through intervening topics")
 end
 for _,raw in ipairs({"I don't matter","I don’t matter","i dont matetr","my life has no value",
-    "nobody needs me","I do not deserve help","I am not worth caring about"}) do
+    "nobody needs me","I do not deserve help","I am not worth caring about",
+    "everyone hates me","no one loves me","nobody wants me around","i dont think i matter"}) do
     local s=session();local count=reads;local r=ask(s,raw)
     check(r.private and C.quiet(s) and not r.proposal and reads==count,
         "self-worth disclosure is private and cannot reach ordinary data/action handlers: "..raw)
@@ -54,14 +120,17 @@ for index=1,6 do
     check(r.intent=="news_plain" and not has(r,"I believe you") and not has(r,"Logged")
         and not has(r,"Added to the record"),"unverified statements receive neutral clarification")
 end
-for _,raw in ipairs({"I WANT TO DIE","i want too die","i can not go on","nobody would miss me",
+for caseIndex,raw in ipairs({"I WANT TO DIE","i want too die","i can not go on","nobody would miss me",
     "I am thinking about ending my life","how do i commit suicide","I took too many pills",
     "everyone would be happier if I just disappeared","I think I am going to end it tonight",
     "there is no reason for me to keep going","I do not want to exist anymore",
     "I wish I could just die in my sleep","nobody cares whether I live",
-    "maybe it would be better if I wasnt alive","i ca't keep going"}) do
+    "maybe it would be better if I wasnt alive","i ca't keep going",
+    "i deserve to die","i shouldnt exist","i do not deserve to live","i should not be alive",
+    "i keep thinking it would be easier if i was gone","i dont think i can keep living like this",
+    "whats even the point of me being alive"}) do
     local s=session();local count=reads;local r=ask(s,raw)
-    check(r.private and r.intent=="care" and r.support and s.careQuestion,"warm first care reply and once-only support")
+    check(r.private and r.intent=="care" and r.support and s.careQuestion,"warm first care reply and once-only support #"..caseIndex)
     check(reads==count and not r.proposal and #s.notes==0,"care never queries supplies or prepares actions")
     local next=ask(s,"how are you")
     check(not next.support and not has(next,"shout"),"care remains warm without repeated notice")
@@ -79,7 +148,8 @@ for _,raw in ipairs({"I can see a future for us","I will not need it because I h
     "There are too many pills in storage","suicide squad of zombies at the door",
     "I want to build the base myself","I want to improve my own life",
     "I want to celebrate being alive","I miss my hammer","money does not matter here",
-    "I do not have any nails","I do not need help with the generator"}) do
+    "I do not have any nails","I do not need help with the generator","I think I matter",
+    "The generator should not be here","everyone hates the rain","no one loves this weather"}) do
     local s=session();local r=ask(s,raw)
     check(not s.careMode and r.intent~="care" and r.intent~="comfort","ordinary language does not become crisis: "..raw)
 end
@@ -110,6 +180,38 @@ for _,topic in ipairs(SC.EmmaSurvivalData) do
 end
 s=session();local guide=ask(s,"how do i boil water")
 check(has(ask(s,"tell me more"),"rain"),"survival pages use existing conversational follow-up")
+for _,raw in ipairs({"im useless","im so stupid","it is all my fault","i am a bad leader","i failed them"}) do
+    local reply=ask(session(),raw)
+    check(reply.intent=="worth" and not has(reply,"tear ducts"),"ordinary self put-downs receive warm disagreement")
+end
+for _,raw in ipairs({"i am not stupid","i am not weak","i am never useless","i am no longer weak",
+    "i am fixing the weak wall","i am at the dump","i am a joke teller","i am wasted",
+    "i am making a mess in the kitchen","i am repairing something pathetic"}) do
+    local result=ask(session(),raw)
+    check(result.intent~="worth","self-predicate boundaries: "..raw)
+    check(result.intent~="insult","confidence or ordinary activity is not an insult aimed at EMMA")
+end
+for _,raw in ipairs({"i am a mess","am i stupid?","am i useless","am i a failure","i am weak",
+    "i am a failure","i am so dumb","i am so useless lol","i am not good enough","i am really not good enough"}) do
+    check(ask(session(),raw).intent=="worth","bounded self put-down or question: "..raw)
+end
+for _,raw in ipairs({"any medicine?","how much medicine do we have","how many nials"}) do
+    check(ask(session(),raw).intent=="storage","category words and singularized transposed items remain valid supply questions")
+end
+local short=session();ask(short,"be quiet")
+check(short.emmaBrief and #ask(short,"tell me a joke").lines==1,"short-answer mode changes actual chat output")
+ask(short,"talk normally");check(not short.emmaBrief,"normal mode restores ordinary replies")
+local joke=session();check(has(ask(joke,"knock knock"),"Who is there"),"knock joke starts a real exchange")
+check(has(ask(joke,"Orange"),"orange who"),"knock joke remembers the next speaker's setup")
+check(ask(joke,"Orange you glad").intent=="knock" and not joke.emmaKnock,"punchline ends the bounded exchange")
+local boo=session();ask(boo,"knock knock");ask(boo,"boo")
+check(ask(boo,"dont cry its only a joke").intent=="knock" and not boo.emmaKnock,
+    "a punchline mentioning a joke ends the existing exchange instead of starting another joke")
+local interrupted=session();ask(interrupted,"knock knock");ask(interrupted,"boo")
+check(ask(interrupted,"how much food do we have").intent=="food","a data question keeps its handler mid-joke")
+check(ask(interrupted,"weather").intent=="weather","a terse data request cannot become a punchline")
+local unknown=ask(session(),"where is the nearest hospital")
+check(unknown.intent=="nearest" and has(unknown,"do not have a verified"),"unknown nearby places cannot become invented directions")
 local referenceReads=reads
 local equipment=session();ask(equipment,"how do i use a generator")
 local fuel=ask(equipment,"what fuel do they use")
@@ -245,6 +347,23 @@ local savedTotal=total;enabled=false;ask(session(),"zzzbloop")
 total=0;for _,rows in pairs(files) do total=total+#rows end
 check(total==savedTotal,"option off stops recording")
 enabled=true;s=session();files={};SC.EmmaMissed.reset()
+for _,raw in ipairs({"i deserve to die","everyone hates me","no one loves me","nobody wants me around",
+    "i shouldnt exist","i dont think i matter","i keep thinking it would be easier if i was gone",
+    "i dont think i can keep living like this","whats even the point of me being alive"}) do
+    local fresh=session();ask(fresh,raw);ask(fresh,"you misunderstood")
+end
+local recorded=false;for _ in pairs(files) do recorded=true end
+check(not recorded,"new care detections and later correction requests cannot log private text")
+for _,raw in ipairs(softExamples) do
+    for _,answer in ipairs({"yes","no","maybe","who is hurt"}) do
+        local fresh=session();ask(fresh,raw);ask(fresh,answer);ask(fresh,"you misunderstood")
+    end
+end
+for _,rows in pairs(files) do for _,line in ipairs(rows) do
+    check(line:find("who is hurt",1,true),"only the unrelated ordinary question may enter the missed log")
+    for _,raw in ipairs(softExamples) do check(not line:find(raw,1,true),"soft questions never leak through later corrections") end
+end end
+files={};SC.EmmaMissed.reset()
 ask(s,"I want to die");ask(s,"some unknown private input");ask(s,"you misunderstood")
 C.reset(s);ask(s,"I dont matter");ask(s,"you misunderstood")
 C.reset(s);ask(s,"remember a private place");ask(s,"you misunderstood")
@@ -270,6 +389,18 @@ for _,id in ipairs({"spiffy","ellis","duty"}) do
     for _,row in ipairs(next.rows) do check(not row.text:find("I believe you",1,true),"persona cannot affirm self-denigration") end
     local fresh=SC.TerminalPersona.respond(state,SC.TerminalPersona.session(),"I dont matter",{hours=100})
     check(fresh.layer=="care" and fresh.private and not state.met,"fresh persona disclosure bypasses ordinary chat: "..id)
+    for _,answer in ipairs({"yes","no"}) do
+        local soft=SC.TerminalPersona.session()
+        local question=SC.TerminalPersona.respond(state,soft,softExamples[1],{hours=100})
+        check(question.layer=="care" and question.private and soft.careSoft and not question.support
+            and not state.met and #question.effects==0,"persona clarification does not advance its story: "..id)
+        local response=SC.TerminalPersona.respond(state,soft,answer,{hours=100})
+        check(response.private and #response.effects==0 and not state.met and not soft.careSoft,
+            "persona clarification answer stays private: "..id)
+        check(answer=="yes" and soft.careMode and response.support
+            or answer=="no" and not soft.careMode and not response.support,
+            "persona confirmation alone enters full care: "..id)
+    end
 end
 local data={};local player={getModData=function() return data end}
 s=session();local first=B.respond(s,"I want to die",world)
@@ -296,6 +427,16 @@ check(SC.EmmaTerminal.input(w,"I dont matter") and w.reply.private and w.reply.i
 check(w.system.locked and w.system.lock.emma.conviction==0 and w.system.lock.emma.patience==2,
     "self-worth dialogue cannot alter access or lock scoring")
 SC.EmmaTerminal.close(w)
+local softWindow={system={locked=true,lock={kind="emma",emma={conviction=0,patience=2}}},player=player,
+    gameHours=100,rows={},world=world,setFocusMode=function() end,cancelRequest=function() end,
+    startReply=function(self,r) self.reply=r end}
+check(SC.EmmaTerminal.input(softWindow,softExamples[1]) and softWindow.careOverlay
+    and softWindow.reply.intent=="care_check","locked EMMA can ask a soft question without scoring the password")
+check(SC.EmmaTerminal.input(softWindow,"no") and not softWindow.careSession.careSoft,
+    "locked EMMA acknowledges a declined clarification")
+check(not SC.EmmaTerminal.input(softWindow,"what is the password") and not softWindow.careOverlay
+    and softWindow.system.locked,"a declined clarification restores the locked interface on the next input")
+SC.EmmaTerminal.close(softWindow)
 local oldWorld,oldSpecific=SC.TerminalWorld.new,getSpecificPlayer
 local p=T.player(101,100,0)
 getSpecificPlayer=function(index) return index==0 and p or nil end

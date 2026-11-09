@@ -311,6 +311,7 @@ local requiredModules = {
 -- narrow entry points bootstrap owns directly; fail before acquiring any
 -- global event if a partial load or incompatible module replaced one.
 local requiredFunctions = {
+    { "Medical", "noteNativeDamage" },
     { "Config", "refreshSandbox" },
     { "UserOptions", "get" },
     { "UserOptions", "load" },

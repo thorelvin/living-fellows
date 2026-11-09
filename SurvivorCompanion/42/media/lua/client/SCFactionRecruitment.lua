@@ -609,6 +609,13 @@ end
 function Recruitment.summary(groupOrId)
     local group = groupFor(groupOrId)
     if not group then return nil end
+    -- Eligibility normalizes recruitment state and can expire its cooldown.
+    -- A UI read must do that on a projection, never on the saved household.
+    local view, recruitment = {}, {}
+    for key,value in pairs(group) do view[key]=value end
+    for key,value in pairs(type(group.recruitment)=="table" and group.recruitment or {}) do recruitment[key]=value end
+    view.recruitment=recruitment
+    group=view
     local state = Recruitment.initialize(group)
     local ready, reason = eligibility(group, false)
     local member = memberFor(group, state.candidateKey)
@@ -652,10 +659,12 @@ end
 
 -- Explain all household gates together. This reads retained social state only;
 -- it neither scans supplies nor advances a contract or trial.
-function Recruitment.requirements(groupOrId)
+function Recruitment.requirements(groupOrId, snapshot)
     local group = groupFor(groupOrId)
     if not group then return { "faction_unavailable" } end
-    local summary = Recruitment.summary(group)
+    local summary, failure = snapshot, nil
+    if type(summary)~="table" then summary,failure=Recruitment.summary(group) end
+    if not summary then return { failure or "recruitment_summary_unavailable" } end
     local reasons, seen = {}, {}
     local function add(reason)
         if not seen[reason] then reasons[#reasons + 1] = reason; seen[reason] = true end

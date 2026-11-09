@@ -274,10 +274,23 @@ Autonomy.updatePurposeful(recovering, { purposeful = {
     route = { recovering }, index = 1, dwellUntil = 0,
 } })
 foreign = currentVisual; tick = begun + 4 * 3600000 + 1
-update(recovering)
+Autonomy.intentFor(recovering,nil,{},recovering.commands,{hungry=true,active=true})
 check(Autonomy.episodeStatus(recovering) == nil and currentVisual == foreign and cancels == 2,
-    "original recovery deadline expires during needs without cancelling a newer action")
+    "intent arbitration expires the original paused deadline without cancelling a newer needs action")
 U.move = fixtureMove
+
+local hungry=actor("empty-pantry",70.5,70.5)
+hungry.commands.order="base_duty"
+tick=tick+48*3600000
+local request=Autonomy.intentFor(hungry,nil,{},hungry.commands,{hungry=true,supplyMissing=true})
+check(request and request.purpose=="supply_request","an empty pantry allows a hungry resident's supply request")
+check(Autonomy.intentFor(hungry,nil,{},hungry.commands,{hungry=true})==nil,
+    "reachable food and an unfinished search keep meal priority without requesting another run")
+check(Autonomy.intentFor(hungry,nil,{},hungry.commands,{hungry=true,supplyMissing=true,active=true})==nil,
+    "an active meal is never displaced by a supply request")
+hungry.mind.lastSupplyRequestAt=tick
+check(Autonomy.intentFor(hungry,nil,{},hungry.commands,{thirsty=true,supplyMissing=true})==nil,
+    "an unmet water need still obeys the supply-request cooldown")
 
 reset()
 SC_TEST_REPORT = "AUTONOMY_GROUND_PASS checks=" .. checks

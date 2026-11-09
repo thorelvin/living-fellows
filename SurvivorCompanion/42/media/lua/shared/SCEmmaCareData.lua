@@ -26,10 +26,13 @@ D.CARE_PHRASES = {
     "hurting myself", "think about dying", "thinking about dying", "thinking about ending", "think about ending",
     "thoughts of suicide", "if i live or die", "life is pointless", "take them all", "this is the end for me",
     "do not want to wake up", "could disappear", "disappear forever",
+    "i deserve to die", "i deserve to be dead", "i do not deserve to live", "i should not exist", "i should not be alive",
+    "i should not be here anymore", "i should not be here at all",
+    "world is better without me", "everyone would be better off without me",
 }
 -- Care when they are the whole message (after "emma," and punctuation are stripped).
 D.CARE_WHOLE = { "kill me", "end me", "let me die", "i want to go", "goodbye world",
-    "i want out", "i am tired of fighting" }
+    "i want out", "i am tired of fighting", "i should not be here" }
 -- kms = "kill myself"; sewerslide and unalive are the euphemisms people use to slip past filters.
 D.CARE_WORDS = { suicide = true, suicidal = true, selfharm = true, kms = true, unalive = true,
     sewerslide = true }
@@ -41,6 +44,10 @@ D.SELF_WORTH_PHRASES = {
     "nobody cares about me", "no one cares about me", "nobody needs me", "no one needs me",
     "i am a waste of space", "i am worthless", "i am not important", "i am a burden",
     "i do not deserve help", "i am not worth helping", "i am not worth caring about",
+    "everyone hates me", "everybody hates me", "nobody loves me", "no one loves me",
+    "nobody wants me", "no one wants me", "i do not think i matter", "i matter to nobody",
+    "i matter to no one", "i will never matter", "i never mattered", "i am unlovable",
+    "hate who i am", "i do not belong anywhere",
 }
 
 -- "just kill me" catches the joke as well as the cry. That is the price of your rule, and
@@ -73,6 +80,12 @@ local P = D.pools
 P.care_ask = {
     "Can I ask you something plainly? Are you thinking about ending your life? Y/N. Whatever the answer, I am staying right here.",
     "I want to ask you directly, because it matters. Are you thinking about suicide? Y/N. You can tell me the truth.",
+}
+P.care_check = {
+    { "That sounded heavy, {name}. I would rather ask than guess.",
+      "Are you thinking about ending your life? Y/N. Whatever the answer, I am staying right here." },
+    { "I want to be sure I heard you right, {name}.",
+      "Are you thinking about ending your life? Y/N. You can tell me either way." },
 }
 -- An explicit yes. Uncertain and unrelated replies are handled separately.
 P.care_ask_yes = {
@@ -128,6 +141,8 @@ P.care_worth = {
       "Please reach out to someone you trust. Let them hear what you are telling me." },
     { "I hear how painful this feels. I will not treat it as a verdict on your worth.",
       "You do not have to carry it alone. A friend, family member or someone who can help is worth reaching out to today." },
+    { "You matter, {name}. Feeling alone does not mean you have to face this alone.",
+      "Call a friend today. Tell them what you just told me." },
 }
 P.care_hello = {
     "Hello again. I am glad you are here. How are you feeling now?",

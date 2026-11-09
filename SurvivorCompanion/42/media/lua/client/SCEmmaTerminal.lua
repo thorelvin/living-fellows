@@ -53,7 +53,10 @@ function UI.input(w,raw)
     if w.system and w.system.locked and not persona and not emma then return false end
     local session=persona and w.personaSession or w.session or w.careSession
     local signal=SC.EmmaUnderstand.careSignal(raw)
-    if not signal and not SC.EmmaCare.quiet(session) then return false end
+    if not signal and not SC.EmmaCare.quiet(session) then
+        if emma then w.careOverlay=nil end
+        return false
+    end
     if not session then
         session=SC.TerminalBrain.newSession({operator=operator(w.player)})
         w.careSession=session
@@ -65,7 +68,10 @@ function UI.input(w,raw)
         id=SC.EmmaUnderstand.preview(session,raw,w.world)
     end
     local reply=SC.EmmaCare.respond(session,raw,id,persona or emma)
-    if not reply then return false end
+    if not reply then
+        if emma and not SC.EmmaCare.quiet(session) then w.careOverlay=nil end
+        return false
+    end
     w:cancelRequest()
     w.personaEnding=nil
     if emma then w.careOverlay=true end

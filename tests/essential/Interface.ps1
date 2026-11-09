@@ -95,6 +95,10 @@ foreach ($module in @(
     (Join-Path $Client 'SCRuntime.lua'),
     (Join-Path $Essential 'interface_terminal_idle.lua')
 ) }
+@{ Name = 'interface-emma-corpus'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $UI 'SCEmmaCorpusData.lua'),
+    (Join-Path $UI 'SCEmmaCorpusTests.lua')
+) }
 
 $interfaceRadioFiles = @($interfaceTerminalFiles)
 foreach ($module in @('SCTerminalHardware', 'SCTerminalRadio', 'SCTerminalRadioWorkUI', 'SCTerminalRadioUI', 'SCTerminalServices', 'SCRadioWork')) {

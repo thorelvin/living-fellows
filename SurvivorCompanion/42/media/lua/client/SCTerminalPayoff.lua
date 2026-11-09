@@ -178,8 +178,15 @@ end
 function P.begin(w,how)
     local lock=w.system.lock
     if lock.slip and SC.TerminalDrawers then SC.TerminalDrawers.release(w.object) end
+    if w.headless then return end
+    if SC.Terminal.normalPowered and not SC.Terminal.normalPowered(w.object) then
+        -- Borrowed keyboard power does not energize the building or run its
+        -- physical drawer/stash search. Leave that welcome pending for mains.
+        w:startEmma()
+        return
+    end
     if lock.welcomed then w:startEmma() return end
-    if w.headless or not SC.Terminal.powered(w.object) then return end
+    if not SC.Terminal.powered(w.object) then return end
     w.payoff={started=SC.GameplayUtil.nowMs(),how=how,welcome=P.welcome(w.system)}
     if lock.realItems~=false and not lock.drawer and not lock.slip and not (lock.stash and lock.stash.committed) then
         local x,y,z=U().position(w.object) local tile=U().square(w.object)

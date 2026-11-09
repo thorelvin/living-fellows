@@ -7,7 +7,7 @@ local Log = SC.EmmaMissed
 local fileIndex,count,initialized,failed=1,0,false,false
 local paths={"LivingFellows/emma_missed_a.txt","LivingFellows/emma_missed_b.txt"}
 local misses={fallback=true,fallback_echo=true,did_you_mean=true}
-local private={remember=true,callme=true,forget=true,care=true,comfort=true,recall=true,notes=true}
+local private={remember=true,callme=true,forget=true,care=true,care_check=true,comfort=true,recall=true,notes=true}
 local function enabled()
     return not (SC.UserOptions and SC.UserOptions.get and SC.UserOptions.get("emmaMissedLog")==false)
 end

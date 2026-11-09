@@ -1875,8 +1875,8 @@ local function findTransfer(job, actor)
         end
     end
     transferScans[job] = nil
-    return done(nil, nil, nil, nil, nil, scan.changed and "haul_scan_changed"
-        or scan.matchingStoreFull and "haul_destinations_full" or "no_sortable_supply")
+    return done(nil, nil, nil, nil, nil, scan.matchingStoreFull and "haul_destinations_full"
+        or scan.changed and "haul_scan_changed" or "no_sortable_supply")
 end
 
 -- The stack controller reuses the same selector and exact-item policy as

@@ -141,7 +141,7 @@ function Social.offer(id, kind)
             or Social.reason(why)
         if ok then
             local current = SC.Commands.describe(id, actor)
-            if current.relationshipTier ~= status.row.relationshipTier then
+            if current and current.relationshipTier ~= status.row.relationshipTier then
                 message = message .. " " .. text("new_stage", "Now %1.", SC.UI.stateText(current.relationshipTier))
             end
         end
@@ -174,7 +174,8 @@ end
 function Social.joining(row)
     local group = row.factionId and SC.Factions and SC.Factions.group(row.factionId)
     if group and SC.FactionRecruitment then
-        return SC.FactionRecruitment.summary(group), SC.FactionRecruitment.requirements(group), group
+        local summary=SC.FactionRecruitment.summary(group)
+        return summary, SC.FactionRecruitment.requirements(group,summary), group
     end
 end
 

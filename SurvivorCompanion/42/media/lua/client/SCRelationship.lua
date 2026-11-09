@@ -303,9 +303,9 @@ function Relationship.noteHelp(state, kind, relief)
         care[kind .. "HelpHour"], care[kind .. "HelpCount"] = now, 0
     end
     care[kind .. "HelpCount"] = math.min(3, (tonumber(care[kind .. "HelpCount"]) or 0) + 1)
-    -- Credit is paid at handover. A bottle can supply several drinks and food
-    -- can be eaten in portions: none are a second act of care in this window.
-    care[kind .. "HelpPendingUntil"] = care[kind .. "HelpHour"] + 24
+    -- Handover already paid for the next matching observed use. Consume that
+    -- receipt once, rather than suppressing unrelated meals for a whole day.
+    care[kind .. "HelpPendingUntil"] = now + 3
     local scale = clamp(relief, 0, 1) * multiplier
     if scale > 0 then
         recordEvent(state, "help_" .. kind, { trust = 3 * scale, bond = 2 * scale,
@@ -317,9 +317,8 @@ end
 local function alreadyCreditedHelp(state, kind)
     local key = kind .. "HelpPendingUntil"
     local expires = tonumber(state.care[key])
-    if expires ~= nil and careHour() < expires then return true end
     state.care[key] = nil
-    return false
+    return expires ~= nil and careHour() < expires
 end
 
 function Relationship.noteWork(state, fact)

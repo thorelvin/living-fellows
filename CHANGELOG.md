@@ -4,6 +4,20 @@
 
 ## 0.27.5 - Getting to know your survivors
 
+- EMMA recognizes more ways of saying you are not okay, and asks directly
+  when she is unsure. Self put-down replies respect negation and context. Storage
+  questions recognize medicine and swapped letters, and more conversation
+  topics now have working replies and follow-ups.
+- Hungry residents can ask for a supply run after a completed empty search.
+  Passive episodes retain their recovery deadline while needs take priority.
+- Sorting reports full storage even when shelves change during its search.
+  Three consecutive changed searches pause for manual Retry instead of looping.
+- Gifts suppress only the next matching meal or drink credit, allowing later
+  shared meals to build trust normally.
+- Household previews no longer change saved recruitment state. Hostile
+  households stay out of the nearby Talk list, and stale gift panels close safely.
+- A failed battery-powered terminal opening restores its verified charge;
+  borrowed power cannot run building phones or physical reward searches.
 - Camp sorting keeps its place when shelves change, and checks later shelves
   before returning to a large one. Changed, unmatched searches retry after
   three minutes instead of remaining stuck on "Haul scan pending".

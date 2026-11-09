@@ -75,8 +75,17 @@ guest.hunger, f.clock = .8, f.clock + 91000
 SC.Commands.observeRelationship(guest, player, {})
 guest.hunger, f.clock = .3, f.clock + 2000
 SC.Commands.observeRelationship(guest, player, {})
-check(SC.Commands.describe(guest.id, player).trust == reduced.trust,
-    "another portion or gifted meal cannot bypass the same-day help limit")
+check(SC.Commands.describe(guest.id, player).trust == reduced.trust + 3,
+    "a later shared meal earns ordinary trust after consuming the single gift receipt")
+local foodAfter=SC.Commands.describe(guest.id, player).trust
+SC.Relationship.noteHelp(SC.Commands.peek(guest),"water",1)
+local waterAfter=SC.Commands.describe(guest.id, player).trust
+guest.hunger, f.clock = .8, f.clock + 91000
+SC.Commands.observeRelationship(guest, player, {})
+guest.hunger, f.clock = .3, f.clock + 2000
+SC.Commands.observeRelationship(guest, player, {})
+check(waterAfter>=foodAfter and SC.Commands.describe(guest.id, player).trust==waterAfter+3,
+    "water handover does not suppress an unrelated shared meal")
 local state = SC.Commands.peek(guest)
 f.clock = f.clock + 25 * 3600000
 check(SC.Relationship.helpMultiplier(state, "food") == 1, "a new game-day window restores ordinary help benefit")
@@ -118,6 +127,12 @@ end
 local group = { id = "essential-help-house", name = "Household", discovered = true,
     standing = "Wary", members = { { key = "one", alive = true }, { key = "two", alive = true } } }
 local required = SC.FactionRecruitment.requirements(group)
+check(group.recruitment==nil,"reading recruitment gates never initializes saved household state")
+local summaryFn=SC.FactionRecruitment.summary
+SC.FactionRecruitment.summary=function() return nil,"recruitment_summary_copy_failed" end
+check(SC.FactionRecruitment.requirements(group)[1]=="recruitment_summary_copy_failed",
+    "a failed recruitment snapshot becomes a readable blocker rather than a nil dereference")
+SC.FactionRecruitment.summary=summaryFn
 local gates = {}; for _, value in ipairs(required) do gates[value] = true end
 check(gates.trusted_standing_required and gates.more_contracts_required,
     "household explanations show standing and contract requirements together")

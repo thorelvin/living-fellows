@@ -166,6 +166,32 @@ for _ = 1, 8 do
     if reason ~= "haul_scan_pending" then changedWhy = reason; break end
 end
 f.check(changedWhy == "haul_scan_changed", "a changed unmatched sweep is retryable rather than falsely empty")
+base.depositStorageRows=function() return {destination} end
+destination.container.capacity=0
+busy.container.items={f.item("Base.Money","Item"),f.item("Base.Paperclip","Item")}
+local fullJob={type="sort"}
+SC.BaseWork.sortTransfer(fullJob,actor)
+busy.container.items[#busy.container.items+1]=f.item("Base.Paperclip","Item")
+local fullWhy
+for _=1,12 do
+    local _,_,_,_,_,why=SC.BaseWork.sortTransfer(fullJob,actor)
+    if why~="haul_scan_pending" then fullWhy=why;break end
+end
+f.check(fullWhy=="haul_destinations_full","a changing sweep preserves the actionable full-storage blocker")
 SC.Performance = originalPerformance
 for key, value in pairs(saved) do base[key] = value end
+if not base.active() then base.create(actor.square,"Sorting retry camp") end
+local queued,retryJob=base.enqueueJob({type="sort",priority=2})
+f.check(queued,"retry-cap scenario has an ordinary sorting job")
+for attempt=1,3 do
+    f.check(base.blockJob(retryJob.id,nil,"haul_scan_changed"),"changing scan records its bounded retry")
+    f.check(base.jobAutoRetry(retryJob)==(attempt<3),"only the first two changed scans rearm automatically")
+end
+f.check(base.jobParked(retryJob),"a third changed scan parks instead of looping forever")
+f.check(base.retryJob(retryJob.id) and retryJob.haulScanChanges==0,"manual Retry resets the scan retry allowance")
+retryJob.haulScanChanges,retryJob.reservedBy=2,actor.id
+f.check(base.noteJobStorageProgress(retryJob.id,actor.id) and retryJob.haulScanChanges==0,
+    "a verified deposit breaks the sequence of changed scans")
+base.blockJob(retryJob.id,nil,"haul_destinations_full")
+f.check(base.jobAutoRetry(retryJob),"real storage-full jobs keep their ordinary automatic retry")
 print("SORTING_SCAN_PASS")

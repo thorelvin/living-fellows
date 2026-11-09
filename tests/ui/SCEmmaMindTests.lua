@@ -107,6 +107,24 @@ local identity=Terminal.peekState(dark).identity
 battery.charge=.04
 check(SC.EmmaJump.connect(player,dark,battery,identity)==false and battery.charge==.04,"insufficient charge cannot start or consume a connection")
 battery.charge=.8
+local nativeOpen=Terminal.open
+local diagnostics,openErrors=SC.Diagnostics,0
+SC.Diagnostics={report=function(area,_,event,detail)
+    check(area=="emma-jump" and event=="terminal open failed" and tostring(detail):find("injected UI failure",1,true),
+        "developer diagnostics retain the actual terminal-open failure")
+    openErrors=openErrors+1
+end}
+for _,failure in ipairs({"decline","throw"}) do
+    Terminal.open=function() if failure=="throw" then error("injected UI failure") end;return false,"computer_occupied" end
+    local connected,message=SC.EmmaJump.connect(player,dark,battery,identity)
+    check(connected==false and math.abs(battery.charge-.8)<.00001
+        and not SC.EmmaJump.active(player,dark),"failed UI entry restores only its verified battery deduction: "..failure)
+    check(message:find("The terminal could not open.",1,true) and not message:find("injected",1,true)
+        and not message:find(".lua:",1,true),"players see a fixed explanation, not a Lua path or raw exception")
+end
+check(openErrors==1,"only the throwing terminal open produces a developer exception record")
+SC.Diagnostics=diagnostics
+Terminal.open=nativeOpen
 check(SC.EmmaJump.connect(player,dark,battery,identity)==true and math.abs(battery.charge-.75)<.00001,"connection consumes exactly five percent once")
 local w=Terminal.window;w:flush()
 check(Terminal.powered(dark) and not Terminal.normalPowered(dark) and not Terminal.companionAvailable(dark),"lease powers UI but not companion services")
@@ -114,6 +132,25 @@ check(SC.EmmaJump.connect(player,dark,battery,identity)==false and math.abs(batt
 local denied=SC.TerminalActions.prepare(w,{kind="refuel_generator"})
 check(not denied,"jump session cannot submit camp work or building effects")
 local os=Terminal.peekState(dark)
+local began=false
+local payoffWindow={object=dark,system={archive="_factory",seed=29,lock={}},startEmma=function() began=true end}
+SC.TerminalPayoff.begin(payoffWindow,"word")
+check(began and not payoffWindow.system.lock.welcomed and not payoffWindow.system.lock.stash
+    and not payoffWindow.payoff and not payoffWindow.payoffSearch,"borrowed UI power never runs the physical reward search")
+check(pcall(SC.TerminalPayoff.begin,{object=dark,system={lock={}},headless=true},"case"),
+    "unpowered case recovery never attempts to start a headless window")
+local phone=SC.TerminalLockPhone
+local resolve,sameLine,priorLock=phone.resolve,phone.sameLine,os.lock
+phone.resolve=function() return dark end;phone.sameLine=function() return true end
+os.lock={}
+local phoneWindow={object=dark,system=os,player=player}
+check(not phone.dial(phoneWindow) and not os.lock.redialUntil
+    and phoneWindow.securityMessage:find("building power",1,true),
+    "an otherwise valid owned phone request cannot use borrowed UI power")
+local phoneRows=table.concat(phone.lines(phoneWindow),"\n")
+check(phoneRows:find("building power",1,true) and not phoneRows:find("Place call",1,true),
+    "a battery-powered phone page explains its limit and hides the unusable call row")
+phone.resolve,phone.sameLine,os.lock=resolve,sameLine,priorLock
 os.locked=true
 os.lock={kind="word",settled=true,crack={doneHours=0,lastHours=T.hours,powered=false,requiredHours=12}}
 local oldHours=T.hours

@@ -209,7 +209,7 @@ for _, name in ipairs({
     "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
     "BaseObjectRef", "BaseLife", "HygieneEffects", "WorkTransport", "GatherWork", "FarmWork", "Fishing", "BaseWork", "Production",
-    "InfectionCrisis", "LifeEvents", "Community", "NicknameLife",
+    "InfectionCrisis", "RadioWork", "LifeEvents", "Community", "NicknameLife",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering",
     "UIContext",
@@ -217,6 +217,9 @@ for _, name in ipairs({
 }) do
     SC[name] = SC[name] or resettable()
 end
+-- SCBootstrap captures this function as its own OnPlayerGetDamage lifecycle
+-- callback when it loads, so the stub must exist before SCBootstrap.lua.
+SC.Medical.noteNativeDamage = function() return true end
 -- World noise is part of the transactional hook set. This harness does not
 -- load the real SCSenses, so its stub needs the same install/remove/state
 -- contract the bootstrap asks every owner for.

@@ -496,6 +496,7 @@ local function normalizeJob(source)
         reservedBy = nil, leaseUntil = 0, blocker = source.blocker ~= nil
             and cleanText(source.blocker, "blocked", 160) or nil,
         attempts = integer(source.attempts, 0, 0, 1000),
+        haulScanChanges = integer(source.haulScanChanges, 0, 0, 3),
         navigationRecovery = stableCopy(source.navigationRecovery, 3, { count = 32 }),
         fullAlertSpoken = source.fullAlertSpoken == true,
         retryAt = math.max(0, finite(source.retryAt, 0)),
@@ -4655,6 +4656,8 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     end
     job.state, job.reservedBy, job.leaseUntil = "blocked", nil, 0
     job.blocker = cleanText(reason, "blocked", 160)
+    job.haulScanChanges = job.blocker == "haul_scan_changed"
+        and math.min(3, (tonumber(job.haulScanChanges) or 0) + 1) or 0
     local storageFull = job.blocker == "floor_storage_full"
         or job.blocker == "destination_full"
         or job.blocker == "haul_destinations_full"
@@ -4733,6 +4736,7 @@ function BaseLife.noteJobStorageProgress(id, actorId)
     local job = BaseLife.job(id)
     if not job or job.reservedBy ~= actorId then return false, "job_not_owned" end
     job.fullAlertSpoken = false
+    job.haulScanChanges = 0
     return true
 end
 
@@ -4921,7 +4925,7 @@ function BaseLife.retryJob(id)
     end
     if job.state ~= "blocked" then return false, "job_not_blocked" end
     job.state, job.retryAt, job.blocker = "pending", 0, nil
-    job.attempts, job.updatedAt = 0, now()
+    job.attempts, job.haulScanChanges, job.updatedAt = 0, 0, now()
     if type(job.navigationRecovery) == "table" then
         job.navigationRecovery.generation, job.navigationRecovery.changed = 1, false
         job.navigationRecovery.rearmed = nil
@@ -4940,8 +4944,8 @@ function BaseLife.jobParked(job)
     return type(job) == "table" and job.state == "blocked"
         and not orderOwnedJob(job)
         and not transientJobDelay(job, job.blocker)
-        and (tonumber(job.attempts) or 0)
-            >= (tonumber(U().config("baseJobParkAfterFailures")) or 6)
+        and ((job.blocker == "haul_scan_changed" and (tonumber(job.haulScanChanges) or 0) >= 3)
+            or (tonumber(job.attempts) or 0) >= (tonumber(U().config("baseJobParkAfterFailures")) or 6))
 end
 
 function BaseLife.jobAutoRetry(job)
@@ -4949,6 +4953,7 @@ function BaseLife.jobAutoRetry(job)
         return false
     end
     local reason = tostring(job.blocker or "")
+    if reason == "haul_scan_changed" and (tonumber(job.haulScanChanges) or 0) >= 3 then return false end
     if BaseLife.upkeepSupplyRetryMs(job, reason) then return true end
     -- Preserve conservative native-effect/receipt recovery. In particular,
     -- vehicle controllers deliberately request a longer check for any missing

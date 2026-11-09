@@ -14,9 +14,14 @@ check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         .. tostring(SC.State.disabledReason))
 check(Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1,
     "mounted radio load/place hooks are owned by the bootstrap transaction")
-check(SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==1
-        and SC.TerminalLamp.install() and Events.OnPlayerGetDamage.count()==1,
+-- OnPlayerGetDamage has two owners: the terminal lamp contract and the
+-- bootstrap's own native damage note.
+check(SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==2
+        and SC.TerminalLamp.install() and Events.OnPlayerGetDamage.count()==2,
     "terminal damage feedback is owned once through its production installer")
+check(type(SC.Medical.noteNativeDamage)=="function"
+        and Events.OnPlayerGetDamage.handlers[SC.Medical.noteNativeDamage]==true,
+    "native damage notes are owned once by the bootstrap lifecycle")
 check(SC.TerminalLockPhone.isInstalled() and SC.TerminalLockRadio.isInstalled()
         and Events.OnDeviceText.count()==1 and Events.OnFillWorldObjectContextMenu.count()==1
         and SC.TerminalLockPhone.install() and SC.TerminalLockRadio.install()
@@ -85,6 +90,14 @@ check(not optionsInstalled
     "bootstrap rejects an incomplete user options contract before acquiring hooks")
 SC.UserOptions.load = optionLoad
 
+local damageNote = SC.Medical.noteNativeDamage
+SC.Medical.noteNativeDamage = nil
+local damageInstalled, damageReason = SC.Bootstrap.install()
+check(not damageInstalled and tostring(damageReason):find("SCMedical.noteNativeDamage",1,true)
+        and Events.OnPlayerGetDamage.count()==0 and Events.OnGameStart.count()==0,
+    "a missing native-damage callback rejects bootstrap before any hooks are acquired")
+SC.Medical.noteNativeDamage = damageNote
+
 Events.OnSave.failAdd = true
 local installed, reason = SC.Bootstrap.install()
 check(not installed and string.find(tostring(reason), "OnSave hook failed", 1, true)
@@ -127,7 +140,8 @@ local function allOwned()
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
         and Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1
-        and SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==1
+        and SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==2
+        and Events.OnPlayerGetDamage.handlers[SC.Medical.noteNativeDamage]==true
         and SC.Factions.installed and SC.FactionContracts.installed
         and SC.OddballRoomGuard.installed
         and SC.OddballDistressRadio.installed
@@ -147,7 +161,11 @@ SC.Runtime.failReset = false
 check(SC.Bootstrap.remove(), "bootstrap removal retries after runtime reset failure")
 
 check(SC.Bootstrap.install(), "terminal damage callback removal fixture installs")
-Events.OnPlayerGetDamage.failRemove=true
+-- Fail only the lamp's callback. The bootstrap's native damage note on the same
+-- event is removed first and must come back with the rollback.
+Events.OnPlayerGetDamage.failRemove=function(callback)
+    return callback~=SC.Medical.noteNativeDamage
+end
 removed,removeReason=SC.Bootstrap.remove()
 check(not removed and allOwned()
         and string.find(tostring(removeReason),"terminal damage feedback",1,true),
@@ -163,6 +181,7 @@ for _, entry in ipairs({
     { name = "OnInitGlobalModData", event = Events.OnInitGlobalModData },
     { name = "LoadGridsquare", event = Events.LoadGridsquare },
     { name = "OnObjectAdded", event = Events.OnObjectAdded },
+    { name = "OnPlayerGetDamage", event = Events.OnPlayerGetDamage },
 }) do
     check(SC.Bootstrap.install(), entry.name .. " removal fixture installs")
     SC.Runtime.worldSentinel = { value = entry.name }

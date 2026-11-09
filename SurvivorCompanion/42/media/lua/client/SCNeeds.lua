@@ -765,6 +765,8 @@ function Needs.assess(actor, runtime)
         thirst = thirst,
         fatigue = fatigue,
         mealInProgress = state.baseMeal == true,
+        supplyMissing = (state.hungerSupplyMissing == true and (hunger >= hungerThreshold or state.baseMeal == true))
+            or (state.thirstSupplyMissing == true and thirst >= (U().config("needsThirstThreshold") or 0.48)),
         hungry = hunger >= hungerThreshold or state.baseMeal == true,
         thirsty = thirst >= (U().config("needsThirstThreshold") or 0.48),
         emergency = hunger >= (U().config("needsHungerEmergency") or 0.82)
@@ -1604,8 +1606,12 @@ function Needs.update(actor, player, runtime, options)
     if thirstEmergency(assessment) then waterScope=nil end
     if hungerEmergency(assessment) then foodScope=nil end
     local function track(accepted,why)
-        if accepted then state.routineWork=not (state.selectedNeed=="thirst"
-            and thirstEmergency(assessment) or state.selectedNeed=="hunger" and hungerEmergency(assessment)) end
+        if accepted then
+            if state.selectedNeed=="thirst" then state.thirstSupplyMissing=nil
+            elseif state.selectedNeed=="hunger" then state.hungerSupplyMissing=nil end
+            state.routineWork=not (state.selectedNeed=="thirst"
+                and thirstEmergency(assessment) or state.selectedNeed=="hunger" and hungerEmergency(assessment))
+        end
         return accepted,why
     end
     local function consumable(predicate)
@@ -1660,12 +1666,14 @@ function Needs.update(actor, player, runtime, options)
             state.waterSource, state.waterOriginSquare = nil, nil
             state.nextWaterSearchAt = 0
             if water then return track(drinkItem(actor, water, assessment.thirst)) end
-            local fetched, fetchReason, _, fetchPhase = fetchFromCamp(actor,
+            local fetched, fetchReason, fetchStatus, fetchPhase = fetchFromCamp(actor,
                 "needs_water", safeWater, snapshot,waterScope and {origin=waterScope.origin,radius=waterScope.radius} or nil)
+            state.thirstSupplyMissing=fetchStatus=="missing" or nil
             if fetched and not (assessment.hungry and fetchPhase=="searching") then return track(true, fetchReason) end
         elseif not travelling or assessment.emergency then
-            local fetched, fetchReason, _, fetchPhase = fetchFromCamp(actor, "needs_water", safeWater, snapshot,
+            local fetched, fetchReason, fetchStatus, fetchPhase = fetchFromCamp(actor, "needs_water", safeWater, snapshot,
                 waterScope and {origin=waterScope.origin,radius=waterScope.radius} or nil)
+            state.thirstSupplyMissing=fetchStatus=="missing" or nil
             if fetched and not (assessment.hungry and fetchPhase=="searching") then return track(true, fetchReason) end
             thirstReason = "clean_water_unavailable"
         end
@@ -1678,9 +1686,11 @@ function Needs.update(actor, player, runtime, options)
         state.foodPending=handled==true or nil
         if handled then return track(handled,why) end
         foodReason=why
+        state.hungerSupplyMissing=why=="safe_food_unavailable" or nil
     elseif not assessment.hungry then
-        state.foodTier,state.foodRetryAt,state.foodPending=nil,nil,nil
+        state.foodTier,state.foodRetryAt,state.foodPending,state.hungerSupplyMissing=nil,nil,nil,nil
     end
+    if not assessment.thirsty then state.thirstSupplyMissing=nil end
     if hour and peeDueAt and hour >= peeDueAt
         and select(1, U().call(actor, "getVehicle")) == nil then
         return updatePee(actor, player, state, hour, peeDueAt)

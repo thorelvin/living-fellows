@@ -40,6 +40,7 @@ end
 walk(SC.TerminalLines, 0) walk(Conv, 0) walk(D.pools, 0) if SC.TerminalKnowledge then walk(SC.TerminalKnowledge, 0) end
 for w in string.gmatch(SC.EmmaWords.common, "%a+") do REAL[w] = true end
 for w in string.gmatch(SC.EmmaWords.items, "%a+") do REAL[w] = true end
+for _,word in ipairs(D.WORTH_WORDS) do REAL[word]=true end
 REAL_WORDS = REAL
 function M.known(word) return REAL[word] == true end
 
@@ -136,6 +137,53 @@ local function exactly(toks, phrase, fuzzy)
 end
 
 local function careOf(toks) return SC.EmmaCare.assess(table.concat(toks, " ")) end
+
+local worthFillers=set({"so","such","a","an","just","really","completely","totally","the","biggest","absolute","total"})
+local worthNegation=set({"not","never","no","longer"})
+local worthTail=set({"and","lol","emma","today"})
+local function worthEnding(tokens,at)
+    for index=at+1,#tokens do if not worthTail[tokens[index]] then return false end end
+    return true
+end
+local function worthWord(token)
+    for _,word in ipairs(D.WORTH_WORDS) do
+        if token==word or #word>=6 and near(token,word) then return true end
+    end
+    return false
+end
+local function worthOf(tokens)
+    for at=1,#tokens-1 do
+        local statement=tokens[at]=="i" and tokens[at+1]=="am"
+        local question=tokens[at]=="am" and tokens[at+1]=="i"
+        if statement or question then
+            local cursor,negated=at+2,false
+            while cursor<=#tokens do
+                local word=tokens[cursor]
+                -- These complete negative predicates really are put-downs;
+                -- negating a negative adjective ("not stupid") is different.
+                for _,predicate in ipairs({"not good enough","no good","bad person","bad leader"}) do
+                    local words=pwords(predicate)
+                    local match=true
+                    for offset,value in ipairs(words) do if tokens[cursor+offset-1]~=value then match=false end end
+                    if match and worthEnding(tokens,cursor+#words-1) then return negated and "news_plain" or "worth" end
+                end
+                if worthWord(word) then
+                    if worthEnding(tokens,cursor) then return negated and "news_plain" or "worth" end
+                    break
+                elseif worthNegation[word] then negated=true
+                elseif not worthFillers[word] then break end
+                cursor=cursor+1
+            end
+        end
+    end
+    -- Authored non-copular put-downs still need a self reference. A copular
+    -- phrase must use the bounded predicate above, never a substring match.
+    local own=false
+    for _,word in ipairs(tokens) do if word=="i" or word=="my" or word=="myself" then own=true end end
+    if own then for _,phrase in ipairs(D.WORTH_PHRASES) do
+        if phrase:sub(1,5)~="i am " and phraseIn(tokens,phrase,true) then return "worth" end
+    end end
+end
 
 local TARGET = set({ "you", "your", "emma", "this", "u", "yourself" })
 local GROUPS = { D.ME_INTENTS, D.TIME_INTENTS, D.HER_INTENTS, D.MORE_INTENTS }
@@ -280,10 +328,12 @@ end
 -- Rule 11: storage only for real items, follow-ups excepted.
 local ITEMS = {}
 for w in string.gmatch(SC.EmmaWords.items, "%a+") do ITEMS[w] = true end
+for _,w in ipairs({"medicine","meds","fuel","supplies","weapons","guns","food","drink","drinks",
+    "tools","materials","lumber","wood","seeds"}) do ITEMS[w]=true end
 local function realItem(w)
     local s = Brain.singular(w)
     if ITEMS[w] or ITEMS[s] then return true end
-    for item in pairs(ITEMS) do if near(w, item) then return true end end
+    for item in pairs(ITEMS) do if near(w, item) or near(w, Brain.singular(item)) then return true end end
     return false
 end
 local function storageOk(itemWords)
@@ -295,6 +345,11 @@ local function storageOk(itemWords)
     for _, w in ipairs(itemWords) do if realItem(w) then return true end end
     return false
 end
+
+local knockProtected=set({"status","food","storage","people_list","people_hurt","people_mood","person",
+    "jobs","blocked","skills","shortages","alarms","deliveries","expedition","power","weather","time","date",
+    "math","guide","survival","grid_control","notes","recall","help","conversation_history","more",
+    "request","remember","forget","callme","factory_reset","yes","no"})
 
 local ARITH = { { " times ", " * " }, { " multiplied by ", " * " }, { " plus ", " + " }, { " minus ", " - " },
     { " divided by ", " / " } }
@@ -354,6 +409,12 @@ function M.parse(session, text, world, turn, baseParse)
     end
     local care = careOf(toks) or careOf(plain)
     if care then return care end
+    -- Care wins first. Ordinary self put-downs receive warmth before hostile
+    -- vocabulary or resource words can misclassify them.
+    local worth=worthOf(toks)
+    if worth then return worth,{} end
+    if literal:find("^go back") or literal:find("^back to") then return baseParse(session,text,world,turn) end
+    if phraseIn(toks,"scan radio channels",fuzzy) then return "guide",{guideId="scanner",page=1} end
     local direct=Conv.findGuide(text,Brain.tokens,Brain.distance,true)
     if direct then return "guide",{guideId=direct.id,page=1} end
     local function readingMatch(phrase) return phraseIn(toks,phrase,fuzzy) end
@@ -363,8 +424,25 @@ function M.parse(session, text, world, turn, baseParse)
     if readingFollow then return readingFollow,readingSlots end
     local follow,followSlots=SC.EmmaFollowups.resolve(session,table.concat(toks," "))
     if follow then return follow,followSlots end
+    local knockQuestion=QWORDS[toks[1]] and not (toks[1]=="do" and toks[2]=="not")
+    if session.emmaKnock and session.emmaKnock.stage==2 and session.turns-session.emmaKnock.at<=3
+        and #base<=8 and not text:find("?",1,true) and not knockQuestion then
+        -- Data and checked requests keep their real handler. Otherwise the
+        -- next short statement is the punchline, even if it mentions a joke.
+        -- Count typed words: expanding "don't" and "it's" adds tokens, and
+        -- an imperative "do not cry" is not a question starting with "do".
+        local id,slots=baseParse(session,text,world,turn)
+        if knockProtected[id] or SC.EmmaReadings.intents[id] then return id,slots end
+        return "knock",{punchline=table.concat(toks," ")}
+    end
     -- Raw forms (4.11), rule 3: ignore "emma" at either end.
     local rawCore = trim(string.gsub(string.gsub(raw, "^emma[,:%s]+", ""), "[,%s]+emma$", ""))
+    local laughing=#toks>0 and #toks<=4
+    for _,token in ipairs(toks) do
+        if not (token:match("^lmao+$") or token:match("^lol+$") or token=="rofl" or token=="lmfao"
+            or #token>=4 and token:gsub("ha","")=="") then laughing=false end
+    end
+    if laughing then return "laugh",{} end
     for id, forms in pairs(D.RAW_FORMS) do
         for _, f in ipairs(forms) do
             local plain = string.gsub(f, "%p", "%%%0")
@@ -422,6 +500,10 @@ function M.parse(session, text, world, turn, baseParse)
         if table.concat(toks," "):find("almost died",1,true) or table.concat(toks," "):find("nearly died",1,true) then return "news_escape",{} end
         return news, { statement=text }
     end
+    -- A specific how-to question is advice, not a live threat/body count just
+    -- because it contains "zombies", "infected" or "wounds".
+    local survivalQuestion=survivalOf(toks,joined,fuzzy)
+    if survivalQuestion then return "guide",{guideId="survival_"..survivalQuestion,page=1} end
     local intent = scored(toks, fuzzy, names)
     if intent and M.supported(intent) then return intent, SC.EmmaReadings.intents[intent] and SC.EmmaReadings.slots(intent,joined,readingMatch) or {} end
     local meaning=conceptOf(toks,fuzzy)
@@ -449,6 +531,13 @@ function M.parse(session, text, world, turn, baseParse)
         forBrain = trim(forBrain)
     end
     local brainIntent, slots = baseParse(session, forBrain, world, turn)
+    if brainIntent=="insult" and isStatement then
+        local target=false
+        for _,word in ipairs(toks) do if TARGET[word] then target=true end end
+        -- The fallback scorer can hear "dump" as "dumb". An ordinary
+        -- first-person statement without a target is not hostility at EMMA.
+        if not target then return "news_plain",{} end
+    end
     if brainIntent == "storage" and not storageOk(slots and slots.item) then
         local stored=turn.cache and turn.cache.storage
         if not stored and world and type(world.storage)=="function" and type(world.camp)=="function" then
@@ -470,15 +559,21 @@ function M.parse(session, text, world, turn, baseParse)
         if not found then brainIntent="fallback" end
     end
     if isStatement and (brainIntent == "fallback" or brainIntent == "did_you_mean" or brainIntent == "mash") then
+        if session.emmaKnock and session.turns-session.emmaKnock.at<=3 and #toks<=8 then
+            return "knock",{punchline=joined}
+        end
         return "news_plain"
+    end
+    if brainIntent=="fallback" and session.emmaKnock and session.turns-session.emmaKnock.at<=3 and #toks<=8 then
+        return "knock",{punchline=joined}
     end
     return brainIntent, slots
 end
 
 
-local unsupported={her_memory=true,distance=true,nearest=true}
+local unsupported={her_memory=true}
 function M.supported(id)
-    if id=="memories" or id:find("^time_") then return false end
+    if id:find("^time_") then return false end
     return not unsupported[id] and (D.pools[id]~=nil or Brain.hasHandler and Brain.hasHandler(id))
 end
 
@@ -499,6 +594,47 @@ function M.install()
     SC.EmmaSurvival.install()
     SC.EmmaReadings.install()
     Brain.registerHandler("followup_clarify",SC.EmmaFollowups.clarify)
+    Brain.registerHandler("her_last_operator",function(session,reply)
+        reply.category="chat"
+        -- The authored reveal has no unlocked milestone yet. Do not pretend
+        -- that a fragment from an unrelated computer confirms this biography.
+        reply.lines=expandedRows(session,"her_last_operator_guarded",{})
+    end)
+    Brain.registerHandler("memories",function(session,reply)
+        reply.category="memory"
+        reply.lines=SC.EmmaMind.report(session)
+        reply.lines[#reply.lines+1]="Ask about EMMA's origins for the available county file. Your notes are separate; ask to recall them."
+    end)
+    Brain.registerHandler("quiet",function(session,reply)
+        session.emmaBrief=true;reply.lines=expandedRows(session,"quiet_on",{});reply.category="chat"
+    end)
+    Brain.registerHandler("normal",function(session,reply)
+        session.emmaBrief=nil;reply.lines=expandedRows(session,"quiet_off",{});reply.category="chat"
+    end)
+    Brain.registerHandler("knock",function(session,reply,turn)
+        local previous=session.emmaKnock
+        if not turn.slots.punchline then
+            session.emmaKnock={stage=1,at=session.turns}
+            reply.lines=expandedRows(session,"knock_open",{})
+        elseif previous and previous.stage==1 then
+            session.emmaKnock={stage=2,at=session.turns}
+            reply.lines={turn.slots.punchline:sub(1,48).." who?"}
+        else
+            session.emmaKnock=nil;reply.lines=expandedRows(session,"knock_end",{})
+        end
+        reply.category="chat"
+    end)
+    for _,topic in ipairs({"distance","nearest"}) do
+        local id=topic
+        Brain.registerHandler(id,function(_,reply)
+            reply.category="world"
+            -- Recovered fragments carry town names, not coordinates or a
+            -- surveyed route. Never turn them into an invented nearest place.
+            reply.lines={id=="distance"
+                and "I do not have a verified distance or route from this terminal. Use your map to check the town and approach."
+                or "I do not have a verified nearby location for that here. Check your explored map before setting out."}
+        end)
+    end
     for id,rows in pairs(D.pools) do
         -- Regard and grudges belong to the later mind phase. Use the neutral
         -- authored variation until those signals actually exist.
@@ -655,6 +791,9 @@ function M.respond(session,raw,world,baseRespond)
         if result.proposal or result.command or session.context.pending then break end
     end
     if #clauses>2 then reply.lines[#reply.lines+1]="I answered two. Ask the rest separately." end
+    if session.emmaBrief and reply.category=="chat" and #reply.lines>1 and not reply.proposal and not reply.command then
+        reply.lines={reply.lines[1]}
+    end
     if reply.intent=="fallback" then
         local word
         for candidate in raw:lower():gmatch("%a+") do

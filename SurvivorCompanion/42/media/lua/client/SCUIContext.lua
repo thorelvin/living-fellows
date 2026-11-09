@@ -1455,9 +1455,13 @@ local function contextRow(actor, player, states)
     local name = safeMethod(actor, "getFullName") or record.name or safeMethod(actor, "getDisplayName")
         or text("UI_SC_Value_UnknownCompanion")
     if SC.UI and SC.UI.displayName then name = SC.UI.displayName(record, name) end
+    local faction=record.factionId and SC.Factions and SC.Factions.group and SC.Factions.group(record.factionId)
+    local hostile=state.hostileToPlayer==true or type(state.care)=="table" and state.care.playerHostile==true
+        or faction and (faction.standing=="Hostile" or faction.lifecycle=="hostile" or faction.permanentHostility==true)
     return { id = id, actor = actor, name = name, recruited = record.recruited == true,
         alive = true, available = true, distance = distance, group = state.group or record.group,
-        order = state.order, factionId = record.factionId, factionMember = record.factionMember }
+        order = state.order, factionId = record.factionId, factionMember = record.factionMember,
+        factionStanding=faction and faction.standing, hostile=hostile==true }
 end
 
 local function nearbyRows(player)
@@ -1472,7 +1476,7 @@ local function nearbyRows(player)
                 if row.recruited then rows[#rows+1] = row end
                 local story = not row.recruited and SC.Oddballs and SC.Oddballs.groupForActor
                     and SC.Oddballs.groupForActor(actor)
-                if row.recruited or story or row.factionStanding ~= "Hostile" then
+                if row.recruited or story or not row.hostile then
                     talkRows[#talkRows+1] = row
                 end
             end

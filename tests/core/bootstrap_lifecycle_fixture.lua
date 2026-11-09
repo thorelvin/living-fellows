@@ -9,7 +9,12 @@ local function event()
         value.handlers[callback] = true
     end
     function value.Remove(callback)
-        if value.failRemove then error("injected lifecycle Remove failure") end
+        -- true fails every removal; a function fails only the callbacks it picks,
+        -- so one owner can fail while another owner of the same event succeeds.
+        local fail = value.failRemove
+        if fail == true or (type(fail) == "function" and fail(callback)) then
+            error("injected lifecycle Remove failure")
+        end
         value.handlers[callback] = nil
     end
     function value.count()
@@ -91,12 +96,15 @@ local required = {
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
     "BaseVisuals", "HygieneEffects", "WorkTransport", "GatherWork",
-    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community", "NicknameLife",
+    "FarmWork", "Fishing", "BaseWork", "Production", "InfectionCrisis", "RadioWork", "LifeEvents", "Community", "NicknameLife",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary", "Quirks", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering", "UIContext",
     "Net", "Banter", "CombatTrace", "Gestures", "Tales", "WorkRoutes", "ZombieAttack",
 }
 for _, name in ipairs(required) do SC[name] = SC[name] or {} end
+-- SCBootstrap captures this function as its own OnPlayerGetDamage lifecycle
+-- callback when it loads, so the stub must exist before SCBootstrap.lua.
+SC.Medical.noteNativeDamage = function() return true end
 SC.Persistence.bindWorldStore = function() return true end
 
 local function ownedHooks()

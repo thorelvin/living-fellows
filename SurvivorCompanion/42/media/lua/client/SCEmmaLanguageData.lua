@@ -15,6 +15,7 @@ D.HOSTILE_PHRASES = { "fuck off", "fuck you", "screw you", "piss off", "go to he
     "eat shit", "bite me", "drop dead", "go away", "i hate you", "you suck", "get lost", "stfu", "kys", "f you",
     "you are broken", "piece of junk", "nobody likes you", "smash you", "unplug you", "you are the worst",
     "you are terrible", "dumb machine", "stupid computer", "dumbass", "pile of junk", "you are trash", "fu",
+    "shut it", "screw off", "you deserve to die",
     "you are a terrible", "you are an awful", "you are a horrible", "terrible assistant", "you are useless" }
 -- Hostile phrases are checked again after swear words are removed, ignoring "the":
 -- "shut the fuck up" becomes "shut up".
@@ -87,7 +88,7 @@ D.SLANG = {
 D.WHOLE_WORDS = {
     laugh = { "lol", "lmao", "haha", "hahaha", "hehe", "rofl", "lmfao", "lol ok", "that is funny", "funny",
         "xd", "lol lol" },
-    unsure = { "idk", "i do not know", "do not know", "not sure", "no idea", "beats me", "i am not sure" },
+    unsure = { "idk", "i do not know", "do not know", "not sure", "no idea", "no clue", "beats me", "i am not sure" },
     brb = { "brb", "be right back", "back in a sec", "one sec", "hold on", "wait", "one moment", "brb brb" },
     nevermind = { "nevermind", "never mind", "forget it", "forget i asked", "does not matter" },
     hmm = { "hmm", "hm", "um", "uh", "erm", "uhh", "hmmm", "huh" },
@@ -182,6 +183,7 @@ end
 do
 -- Matched on the trimmed, lowercased raw text: the whole message, or its last word.
 D.RAW_FORMS = {
+    foreign = { "hallo", "hola", "bonjour", "hei", "hej", "ciao" },
     smile = { ":)", ":-)", ":d", "=)", "^^", "c:", ":]", ";)" },
     frown = { ":(", ":-(", "d:", ":c", ";-;", "t_t", ":'(", ":[" },
     heart = { "<3" },
@@ -260,7 +262,8 @@ D.MORE_INTENTS = {
     { id = "jobs", phrases = { ["what are people doing"] = 12, ["whats everyone up to"] = 12, ["what is everyone up to"] = 12 } },
     { id = "time", phrases = { ["how many days has it been"] = 14, ["how long has it been"] = 12, ["what month"] = 10 } },
     { id = "power", phrases = { ["do we have power"] = 14, ["is the power on"] = 14, ["do we have electricity"] = 14 } },
-    { id = "food", phrases = { ["enough food"] = 12, ["days of food"] = 14, ["what is for dinner"] = 12,
+    { id = "food", phrases = { ["enough food"] = 12, ["enough to eat"] = 12, ["low on food"] = 12,
+        ["how much food"] = 12, ["days of food"] = 14, ["what is for dinner"] = 12,
         ["what do we have to eat"] = 14, ["are we starving"] = 12 } },
 }
 -- Gamer and chat shorthand (afk, ffs, smh, fml, uwu, gtg, ttyl) joined D.SLANG in 4.4.
@@ -479,7 +482,8 @@ D.MORE_EXTENSIONS = {
     { id = "cure", phrases = { ["be cured"] = 12, ["cure the bite"] = 12, ["cure for the bite"] = 12 } },
     { id = "help", exact = { "options", "commands", "menu", "what can i ask", "what can i say" } },
     { id = "exit", exact = { "talk later", "catch you later", "peace", "peace out", "i am leaving", "i am out",
-        "signing off", "gotta go", "got to go", "later emma", "see you later" } },
+        "signing off", "gotta go", "got to go", "later emma", "see you later", "afk for a while",
+        "leaving now", "alright i am off" }, phrases={ ["heading off"]=12,["logging out"]=12,["got to run"]=12 } },
     { id = "status", phrases = { ["any news"] = 12, ["how is the base"] = 14, ["how is everything"] = 12, ["update me"] = 12,
         ["anything new"] = 12, ["how are we doing"] = 12, ["camp status"] = 14, ["base report"] = 14 } },
     { id = "me_infected", phrases = { ["am i a zombie"] = 14, ["am i turning"] = 14, ["will i become a zombie"] = 14,
@@ -519,7 +523,7 @@ D.CONCEPTS = {
     { id = "power_off", all = { { "power", "electricity", "grid", "electric" }, { "when", "how long", "until", "will" },
         { "fail", "go", "out", "off", "down", "last", "cut", "die", "shut", "stop" } } },
     { id = "water_off", all = { { "water", "taps", "tap", "plumbing" }, { "when", "how long", "until", "will" },
-        { "off", "out", "stop", "cut", "last", "work", "shut", "run" } }, none = { "boil", "purify", "clean", "drink", "safe" } },
+        { "off", "out", "stop", "cut", "last", "work", "shut", "run", "running" } }, none = { "boil", "purify", "clean", "drink", "safe" } },
     { id = "daylight", all = { { "dark", "sunset", "sunrise", "dawn", "dusk", "sun", "nightfall", "daylight", "light out" },
         { "when", "what time", "how long", "until" } } },
     { id = "me_status", all = { { "am i", "my body", "my health", "how am i" }, { "hurt", "injured", "sick", "healthy",
@@ -658,7 +662,8 @@ D.HER_INTENTS = {
     { id = "her_opinion", phrases = { ["what do you think of me"] = 12, ["what do you think about me"] = 12,
         ["am i a good operator"] = 12, ["do you respect me"] = 12, ["am i doing well"] = 10, ["rate me"] = 10,
         ["am i your favorite"] = 12 } },
-    { id = "her_watching", phrases = { ["are you watching me"] = 12, ["can you see me"] = 12, ["are you spying"] = 12,
+    { id = "her_watching", phrases = { ["are you watching me"] = 12, ["can you see me"] = 12,
+        ["can you see what i am doing"] = 14, ["are you spying"] = 12,
         ["do you have cameras"] = 12, ["can you hear me"] = 10, ["are you listening to me"] = 10,
         ["how do you know where i am"] = 12 } },
     { id = "her_hate", phrases = { ["do you hate me"] = 12, ["are you mad at me"] = 12, ["are you angry"] = 10,
@@ -1101,4 +1106,19 @@ P.no_free_more = { "No? Very decisive. Shame there was no question.", "Refused. 
 
 end
 
+D.WORTH_PHRASES = {
+    "i am useless", "i am stupid", "i am a failure", "i am pathetic", "i am a loser", "i am weak",
+    "i am a waste", "i am a bad person", "i am so dumb", "i am an idiot", "it is all my fault",
+    "i am not good enough", "i mess everything up", "i always fail", "i can not do anything right",
+    "i ruin everything", "i failed them", "i am a bad leader", "i am no good", "i am such a failure",
+    "i am a mess", "i am a joke", "mess everything up", "mess it all up", "screw everything up",
+}
+D.WORTH_WORDS = {"useless", "stupid", "failure", "pathetic", "loser", "weak", "idiot", "dumb",
+    "worthless", "hopeless", "burden", "disappointment", "mess", "joke", "waste", "coward", "fraud"}
+D.pools.worth = {
+    "I disagree. Firmly. A bad day is not a verdict on you.",
+    "You are being unfair to my operator. Take a breath. We can work through one thing at a time.",
+    "That sounds painful. You deserve kindness, including from yourself. Talk to someone you trust today.",
+    "A mistake is something you did, not everything you are, {name}.",
+}
 return D

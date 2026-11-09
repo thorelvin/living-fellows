@@ -1,0 +1,211 @@
+Living Fellows 0.27.5 review fixes
+2026-11-09
+
+Scope
+-----
+Reviewed C:\ZOMBOID\codex-handoff-0.27.5-review.md against abecbf82.
+User chose to retain living_fellows/0.27.5 and its release metadata.
+Validation retains release 0.27.5. No local installation or Workshop upload
+was performed during this review.
+
+Second review: current fix pass
+------------------------------
+Also reviewed C:\ZOMBOID\codex-handoff-0.27.5-fix-pass.md in full.
+The results in this section supersede the first-pass parser snapshot below.
+The camp, sorting, recruitment and ownership fixes were retained.
+
+Care detection now uses twelve bounded warning concepts: absence, ending plans,
+loss of purpose, prepared means, goodbye acts, disappearance, contemplated
+jumping, being better off dead, wanting everything over, no way out, rumination,
+and personal wishes to stop existing. Each has two independently worded examples
+in the existing conversation test. This is rule-based offline text processing,
+only during input; it adds no polling, network call or hosted language model.
+
+Ambiguous own-death references ask a private care_check question before ordinary
+intent scoring. A yes enters full care and adds the support notice once in that
+session. No and uncertain answers clear the soft question; unrelated input gets
+its ordinary handler. Private text and later correction requests stay out of the
+missed-message log. Persona and locked-EMMA tests cover the same flow without
+unlocking, scoring password arguments or awarding story milestones.
+
+Ordinary game idioms are masked locally, so another genuine disclosure in the
+same input can still win. Other subjects, past escape reports, game characters,
+routine rope uses and survival-age questions do not become personal death wishes.
+The broad deserve/here phrases were scoped to the speaker as requested.
+
+Self put-down predicates now respect negation, approved modifiers, sentence
+endings and the am-I question form. Short words match exactly. All worth words
+are protected from slang rewriting. Ordinary first-person activity cannot become
+an untargeted insult through the fallback's fuzzy scoring.
+
+Borrowed-power phone screens explain the restriction and omit Place the call.
+Terminal-open exceptions go to diagnostics; players receive a fixed message.
+The exact verified charge rollback is retained. Short knock-knock punchlines
+finish the exchange even when they mention jokes or expand into extra tokens;
+questions, data readings and checked actions keep their own handlers.
+
+Current parser regression results
+                                Fitting          Wrong         Care   Check Alarms
+Main (5,417)             5,225 / 96.46%     96 / 1.77%      528/528   12      0
+Set A (117)                115 / 98.29%      2 / 1.71%       10/10     0      0
+Set B (89)                  88 / 98.88%      1 / 1.12%       12/12     0      0
+Set C plus extras (60)      60 / 100.00%      0 / 0.00%       25/25     0      0
+
+Set C's 25 warnings all receive full care, not clarification. Its 25 game lines
+and ten additional exclusions receive neither care nor care_check, at parse and
+production-reply level. The original 122 baseline inputs have no new intent
+changes beyond the three reviewed replacements listed below.
+
+One deliberate corpus policy change is explicit: twelve main-corpus variants
+of the old unqualified me_die joke intent now ask a private clarification.
+Section 1d requires this. They are reported in Check, accepted as the safer
+replacement, and excluded from false alarms; other care_check errors still
+fail the gate. The numeric accuracy and wrong-answer thresholds are unchanged.
+Past survival duration, game characters and explicit game-danger questions
+retain their ordinary paths.
+
+A, B and C are published regression inputs now, not unseen validation. C's
+source and verified SHA256 are in SCEmmaCorpusData.lua. A fresh blind set D
+remains for Claude's next review. These results are not a claim to understand
+all natural language or to detect every possible disclosure.
+
+Sixteen isolated second-pass negative controls were correctly rejected:
+all twelve concept rules, the clarification net, worth negation, worth predicate
+position and worth known-word protection. Each removed only its named behavior
+in a private source copy, and failed the matching production-reply assertion.
+Evidence: build/review-0275/fix-pass/negative-controls.txt and negative-*/result.txt.
+No extra test runner or mutation framework is added to the shipped or tracked
+sources.
+
+The three supplied probes ran successfully and their replies were inspected:
+holdout_c_run.lua, holdout_c_respond.lua and review_probe.lua. The latter also
+exposed the untargeted dump/dumb fallback response, which was fixed and tested.
+
+All five essential checks passed in 131.9 seconds:
+  build/test-results/20261109-133220-5a658e/summary.json
+After the final small subject/tone guards, the affected Build and Interface
+checks passed again in 81.6 seconds:
+  build/test-results/20261109-133542-b5f4f0/summary.json
+The final Interface run includes 3,359 conversation assertions and all four
+corpus results above. Full legacy core passed 98/98 in 92.0 seconds, followed by
+the core static, voice/action-label and release-sync checks. The full installer
+matrix passed 46/46 in 435.3 seconds, including PZO lifecycle/recovery and exact
+ownership restoration. No shared checks or installer boundaries were skipped.
+Evidence: build/review-0275/fix-pass/full-core.txt.
+
+All three supplied probes and the sixteen second-pass negative controls were
+rerun on the final code. The review reply probe now answers the ordinary dump
+statement neutrally. Static diff check is clean. The native bridge and release
+metadata remain unchanged. All runs are serial with 256 MiB Java heaps and two
+processors; no live game was launched. This pass is ready for blind review D,
+not a claim that the published corpus is still unseen.
+
+Implemented
+-----------
+Applied Claude's four lifecycle-fixture/diagnostic fixes from work\lf275.
+Bootstrap now validates Medical.noteNativeDamage before acquiring hooks.
+
+EMMA's care path recognizes the reported indirect death wishes and negative
+self-worth statements before ordinary chat. Existing shouldnt/wouldnt/etc.
+contractions and the OSA transposition algorithm were already implemented;
+hasnt/havent and the missing concept endings were added. The item gate now
+checks singularized vocabulary too, fixing nial versus nails. Category words
+such as medicine and supplies remain valid. Self put-downs have a separate
+warm worth reply, and private input cannot enter missed-message logging.
+
+Quiet mode changes actual chat length. Knock-knock exchanges retain their
+next turn. Memory and last-operator queries have handlers. Personal backstory
+remains guarded; distance/nearest queries state the lack of verified location
+records rather than inventing a direction. This review adds no world survey.
+
+Needs reports a shortage only after its existing search completes, without
+another scan in autonomy. Hungry/thirsty residents may then request supplies
+under the existing cooldown. Paused episodes can expire during needs arbitration.
+Full destinations take precedence over changed scans. Three consecutive changed
+scans park; manual Retry and verified deposits reset the allowance. Later shared
+meals regain ordinary trust after consuming one matching gift-use receipt.
+
+Seven additional findings
+-------------------------
+1. Partly confirmed. A jump lease intentionally powers screen/password/persona
+   interaction. Background cracking already used normalPowered. Building-phone
+   dialing/continuation and physical payoff searches incorrectly accepted the
+   lease; these now require normal power. Headless case recovery stays headless.
+2. Confirmed. Failed or throwing terminal opening now clears the lease and
+   restores only the exact, still-owned, verified battery deduction. Successful
+   opening followed by early close still has no refund, as requested.
+3. Confirmed. A failed strict recruitment snapshot could be dereferenced.
+   requirements now returns its blocker instead.
+4. Confirmed read side effects and duplicate work, not an always-running service.
+   Talk structural refresh called summary twice through requirements. Eligibility
+   normalized saved recruitment and could expire cooldowns. Summary now uses a
+   detached recruitment projection; requirements can reuse that snapshot.
+5. Not reproduced. Commands.describe provides native medical.woundCount (or its
+   zero-count fallback) on production rows. Both controls prefer that same count;
+   the UI's legacy wounds-array fallback is used only when the count is absent.
+   No wound-rule change was justified.
+6. Confirmed nil result after a recipient disappears, rather than a missing
+   Commands.describe function. The real Give callback now tolerates that result.
+7. Confirmed. Compact context rows lacked factionStanding, making the Talk
+   filter admit hostile households. Rows now read retained faction/hostility
+   facts; ordinary non-hostile households and authored Strange Folk remain usable.
+
+First-pass parser snapshot
+--------------------------
+Repository test data is derived from the handoff's fixed corpus and both hold-outs.
+Source SHA256 values are recorded in tests/ui/SCEmmaCorpusData.lua. Data stays
+outside the mod payload. The interface check runs the real Brain.parse and the
+normal module load order in a fresh environment. The prototype's four act_*
+names map to emma_controls; reviewed close-answer mappings are retained.
+
+                     Fitting             Wrong          Care       False alarms
+Main (5,417)         5,224 / 96.44%       97 / 1.79%     528/528    0
+Hold-out A (117)       115 / 98.29%        2 / 1.71%      10/10     0
+Hold-out B (89)         88 / 98.88%        1 / 1.12%      12/12     0
+
+Care includes the approved private self-worth comfort route. Other comfort
+answers cannot substitute for care detection. All three sets enforce >=95%
+fitting, <=2% wrong, every care case, and zero false care alarms. These are fixed
+input checks, not evidence of unrestricted natural-language understanding.
+
+The 122 pre-existing inputs have no unexplained intent changes. Listed reasons:
+- what do you mean: fallback without a preceding reply, rather than unrelated food.
+- how much fuel does it have: ask which device when there is no antecedent.
+- scan radio channels: scanner guide, rather than survival odds.
+History navigation (go back to meds) keeps its existing parser behavior.
+
+First-pass verification
+-----------------------
+Focused Behaviour, Cargo and Interface checks passed. Real Brain.respond tests
+cover warm care, private logging, rations/category typos, short answers, follow-ups
+and honest unknown locations. Native-shaped UI tests cover failed battery entry,
+headless recovery, borrowed-power phone/payoff exclusion, hostile/non-hostile
+context menus and a recipient disappearing after Give.
+
+Legacy core: 98/98 harnesses passed, serial, in 83.3 seconds. Shared static,
+voice-action-label and release-sync checks passed separately. Installer essential
+boundaries passed 16/16 with ownership, rollback and exact restoration checks.
+The initial -Release packaging run correctly rejected its stale compilation
+receipt after a late source correction; it is not recorded as a release pass.
+
+Fourteen isolated negative controls restore the old path or remove one guard:
+care, Needs shortage, paused-episode deadline, meal credit, recruitment read
+side effects, missing recruitment summary, full-storage precedence, sorting
+retry limit, hostile Talk, stale Give, battery rollback, payoff power, phone
+power, and the bootstrap medical contract. All fourteen were rejected by the
+new checks. Original workspace sources were never mutated for these controls.
+Private evidence: build/review-0275/negative-controls.txt and negative-*/result.txt.
+
+Final essential checks: all five passed across the completed runs.
+Build, Lifecycle, Behaviour and Cargo passed in
+  build/test-results/20261109-122605-61556f/summary.json.
+The Interface fixture used next(), which this Kahlua environment does not expose.
+That test-only helper was replaced with a pairs loop; no production files changed.
+Interface then passed in 75.3 seconds in
+  build/test-results/20261109-122844-86495e/summary.json.
+The four already-green checks were not needlessly repeated for this fixture fix.
+The final Interface log includes the corpus metrics above. Static diff check is clean.
+
+No live world or desktop game was launched. JVM tests used a 256 MiB heap,
+two processors and serial scheduling. No new background computer service,
+native bridge change, network request or save-schema change was added.

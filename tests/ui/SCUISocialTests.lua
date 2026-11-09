@@ -56,6 +56,28 @@ assert(SC.UISocial.signature(row) ~= signature, "personal progress refreshes wit
 signature = SC.UISocial.signature(row)
 row.thirst = .2
 assert(SC.UISocial.signature(row) ~= signature, "a satisfied need refreshes its help action")
+local help,commands,interaction,refresh,combo=SC.RelationshipHelp,SC.Commands,SC.Interaction,UI.refresh,ISComboBox
+local methods={}
+for _,key in ipairs({"instantiate","addToUIManager","removeFromUIManager","setAlwaysOnTop","setHeight"}) do
+    methods[key]={value=ISPanel[key]};ISPanel[key]=function() end
+end
+ISComboBox=ISPanel:derive("ISComboBox")
+function ISComboBox:addOptionWithData(label,data) self.options=self.options or {};self.options[#self.options+1]={data=data};self.selected=1 end
+SC.Interaction=nil;UI.refresh=function() end
+SC.GameplayUtil.call=function() return true end
+local transfers=0
+SC.RelationshipHelp={catalog=function() return {{name="Peach",item={},tier=1}} end,
+    describe=function() return {row=row} end,
+    give=function() transfers=transfers+1;return true,"help_appreciated" end}
+SC.Commands={describe=function() return nil end}
+local picker=SC.UISocial.offer(row.id,"food")
+local giveButton
+for _,child in ipairs(picker.childrenInOrder) do if child.title=="Give selected item" then giveButton=child end end
+assert(giveButton,"actual offer panel exposes its confirmation button")
+giveButton.onClick(giveButton.target,giveButton)
+assert(transfers==1 and SC.UISocial.picker==nil,"a recipient disappearing after handover cannot crash or replay the transfer")
+SC.RelationshipHelp,SC.Commands,SC.Interaction,UI.refresh,ISComboBox=help,commands,interaction,refresh,combo
+for key,entry in pairs(methods) do ISPanel[key]=entry.value end
 SC.Factions, SC.FactionRecruitment, SC.GameplayUtil = saved.factions, saved.recruitment, saved.util
 F.fontHeight = 16
 print("UI_SOCIAL_PASS: need actions, readable bounded layouts, joining gates and meaningful refresh")

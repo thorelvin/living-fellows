@@ -649,6 +649,16 @@ check(not find(foreignMenu, "leaf:" .. a.id .. ":follow", true)
     "refilling for another clicked person replaces LF quick actions and preserves foreign rows")
 
 local knownActors, selectedId = actors, SC.UI.instance.selectedId
+local oldFactions=SC.Factions
+local enemy=actor("hostile-nearby","Hostile household",11,10,false)
+records[enemy.id].factionId="hostile-house"
+local enemyGroup={id="hostile-house",standing="Hostile"}
+SC.Factions={group=function(id) return id==enemyGroup.id and enemyGroup end}
+local hostileMenu=fill({enemy})
+check(not find(hostileMenu,"talk:"..enemy.id),"a hostile household is absent from nearby Talk choices")
+enemyGroup.standing="Wary"
+check(find(fill({enemy}),"talk:"..enemy.id),"an ordinary non-hostile household remains available to talk")
+actors[#actors]=nil;records[enemy.id]=nil;SC.Factions=oldFactions
 actors, SC.UI.instance.selectedId = {}, nil
 local emptyWorld = fill({ floor })
 check(#emptyWorld.options == 0, "an empty world click never exposes an empty Living Fellows root")

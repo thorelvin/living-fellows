@@ -53,6 +53,24 @@ check(not SC.Needs.assess(worker, mealRuntime).hungry and worker.hunger < 0.3 an
         and worker.inventory:contains(spoiled),
     "verified meal recovery releases needs without selecting rotten food")
 
+f.makeSquare(60,60,0)
+local empty=f.actor("empty-camp-meal",60,60,{})
+empty.modData.SC_Order="base_duty";empty.hunger,empty.thirst=.8,.2
+local oldInside,oldSupply=SC.BaseLife.isInside,SC.Encounter.takePlayerSupply
+SC.BaseLife.isInside=function(a) return a==empty or oldInside(a) end
+local searching=true
+SC.Encounter.takePlayerSupply=function() return searching and "in_progress" or "missing","test search","searching" end
+local emptyRuntime={snapshot=quiet}
+SC.Needs.update(empty,player,emptyRuntime)
+check(not SC.Needs.assess(empty,emptyRuntime).supplyMissing,"an unfinished preferred-food search is not a shortage")
+searching=false
+for _=1,5 do SC.Needs.update(empty,player,emptyRuntime);f.clock=f.clock+1001 end
+check(SC.Needs.assess(empty,emptyRuntime).supplyMissing,"a completed empty search exposes the actual food shortage")
+empty.inventory:AddItem(f.item("Base.RecoveredMeal","Food",{hungerChange=-1}))
+for _=1,5 do SC.Needs.update(empty,player,emptyRuntime);f.clock=f.clock+1001 end
+check(not SC.Needs.assess(empty,emptyRuntime).supplyMissing,"finding a real meal clears the supply shortage")
+SC.BaseLife.isInside,SC.Encounter.takePlayerSupply=oldInside,oldSupply
+
 worker.hunger, worker.thirst, worker.fatigue = 0.2, 0.2, 1
 SC.Needs.reset(worker)
 check(SC.Needs.assess(worker, {}).exhausted, "native fatigue exposes exhaustion")

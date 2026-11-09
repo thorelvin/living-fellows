@@ -47,8 +47,20 @@ function J.connect(player,object,battery,expectedIdentity)
     local now=U().now()
     leases[object]={player=player,identity=state.identity,at=now,untilAt=now+J.SESSION_MS,x=x,y=y,z=z,
         charge=math.floor((before-J.COST)*100+.5)}
-    local opened,why=SC.Terminal.open(player,object)
-    if not opened then leases[object]=nil return false,"Power connected, but the terminal could not open: "..tostring(why) end
+    local called,opened,why=pcall(SC.Terminal.open,player,object)
+    if not called or not opened then
+        leases[object]=nil
+        -- Only roll back our exact deduction. A changed battery is ambiguous,
+        -- and must never receive an unverified extra five percent.
+        local current=U().charge(battery)
+        local refunded=current and math.abs(current-(before-J.COST))<.000001
+            and U().owns(player,battery) and U().setCharge(battery,before)
+        if not called and SC.Diagnostics and type(SC.Diagnostics.report)=="function" then
+            pcall(SC.Diagnostics.report,"emma-jump",nil,"terminal open failed",opened)
+        end
+        return false,"The terminal could not open."
+            ..(refunded and " Battery charge restored." or " Check the battery charge before trying again.")
+    end
     return true,"Borrowed power connected. EMMA only; up to ten minutes or until you close the screen."
 end
 function J.use(player,object,battery)

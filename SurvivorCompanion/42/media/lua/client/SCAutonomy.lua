@@ -254,14 +254,23 @@ local function hasLowSupplies(actor)
     return bandages == 0 or food == 0 or water == 0
 end
 
-local function shouldRequestSupply(actor, mind)
+local function shouldRequestSupply(actor, mind, unmetNeed)
     local current = simNow()
     if mind.pendingRequest ~= nil
         or current < finite(mind.lastSupplyRequestAt, 0)
             + hours(U().config("mindSupplyRequestCooldownGameHours") or 24) then return false end
+    if unmetNeed then return true end
     local age = current - SC.Community.lastSupplyRunAt()
     return mind.boredom >= 45 and (age >= hours(U().config("mindSupplyRunAgeGameHours") or 48)
         or hasLowSupplies(actor))
+end
+
+local finishEpisode
+local function pausedRecoveryDue(episode)
+    if not episode or not episode.paused then return false end
+    local deadline=episode.recoverAt or (episode.kind=="withdraw" and episode.nextAt)
+    return deadline and (episode.kind~="withdraw" or deadline>episode.startedAt)
+        and (episode.kind=="withdraw" and U().nowMs() or simNow())>=deadline
 end
 
 function Autonomy.intentFor(actor, player, snapshot, commands, needs)
@@ -271,11 +280,22 @@ function Autonomy.intentFor(actor, player, snapshot, commands, needs)
         return nil
     end
     local runtime = runtimeState(actor)
+    if pausedRecoveryDue(runtime.episode) then
+        finishEpisode(actor,runtime,"episode_recovered_during_needs",runtime.episode.kind)
+    end
     local foodOrWaterDue = type(needs) == "table" and (needs.emergency == true
         or commands.order == "base_duty" and not commands.expeditionMember
             and not commands.expeditionMoving and atBase(actor)
             and (needs.hungry or needs.thirsty or needs.mealInProgress))
-    if foodOrWaterDue or runtime.episode and runtime.episode.paused and needs and needs.active then return nil end
+    if foodOrWaterDue or runtime.episode and runtime.episode.paused and needs and needs.active then
+        -- Only a completed Needs search may call the camp short of supplies.
+        -- Do not scan again here or turn a pending search into an empty pantry.
+        if needs.supplyMissing and not needs.active and threatCount(snapshot)==0
+            and shouldRequestSupply(actor,SC.Community.mindFor(actor,commands),true) then
+            return {kind="purposeful_idle",priority=54,purpose="supply_request"}
+        end
+        return nil
+    end
     if runtime.episode then return { kind = "mental_episode", priority = 90, active = true } end
     local reservation = SC.Community.reservationFor(actor)
     if reservation and reservation.ownerId ~= U().idOf(actor) then
@@ -531,7 +551,7 @@ local function cancelVisual(actor, episode)
     return true
 end
 
-local function finishEpisode(actor, runtime, reason, kind, completed)
+finishEpisode = function(actor, runtime, reason, kind, completed)
     local episode = runtime.episode
     local released, releaseReason = cancelVisual(actor, episode)
     if released ~= true then return false, releaseReason or "episode_release_pending" end
@@ -1040,9 +1060,7 @@ local function updateEpisode(actor, player, rootRuntime)
     local episode = runtime.episode
     if not episode then return false, "no_active_episode" end
     if episode.paused then
-        local deadline = episode.recoverAt or (episode.kind == "withdraw" and episode.nextAt)
-        if deadline and (episode.kind ~= "withdraw" or deadline > episode.startedAt)
-            and (episode.kind == "withdraw" and U().nowMs() or simNow()) >= deadline then
+        if pausedRecoveryDue(episode) then
             return finishEpisode(actor, runtime, "episode_recovered_during_needs", episode.kind)
         end
         episode.paused, episode.groundDeadline, episode.seatDeadline = nil, nil, nil

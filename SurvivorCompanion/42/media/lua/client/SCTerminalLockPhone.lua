@@ -83,6 +83,10 @@ end
 function P.ringing() return active and active.ringing==true and active or nil end
 function P.answerable() return active and active.cycle>=0 and active or nil end
 function P.dial(w)
+    if not (SC.Terminal.normalPowered or SC.Terminal.powered)(w.object) then
+        w.securityMessage="The internal line needs building power. Borrowed battery power only runs this screen."
+        return false
+    end
     if active then w.securityMessage="The internal line is already in use." return false end
     local lock=w.system.lock local phone=P.resolve(lock.phone) local hours=U().hours()
     if not phone or not hours or not P.sameLine(w.object,phone) then w.securityMessage="Internal line unavailable. Check the telephone or use another recovery method." return false end
@@ -121,7 +125,7 @@ function P.answer(player,phone)
     if not c or c.cycle<0 or c.phone~=phone or not U().present(phone) or not U().near(player,phone,1.5)
         or from~=sq and U().call(from,"canReachTo",sq)~=true or U().call(player,"isDead")==true then return false end
     local os=currentOS(c)
-    if not os or not P.sameLine(c.pc,phone) or not SC.Terminal.powered(c.pc) then P.stop() return false end
+    if not os or not P.sameLine(c.pc,phone) or not (SC.Terminal.normalPowered or SC.Terminal.powered)(c.pc) then P.stop() return false end
     os.lock.heard=true
     local code=P.code(os) local rows={"LARCH INTERNAL ATTENDANT: Account recovery.","Your recovery code is "..code..".","Repeating: "..code..". Return to the computer."}
     if os.seed%5==0 then
@@ -164,7 +168,7 @@ function P.pulse(now)
     if type(isGamePaused)=="function" and isGamePaused() then return end
     local os=currentOS(c)
     if not os or not U().present(c.phone) or not U().present(c.pc) or not P.sameLine(c.pc,c.phone)
-        or not SC.Terminal.powered(c.pc) or U().call(c.player,"isDead")==true then P.stop() return end
+        or not (SC.Terminal.normalPowered or SC.Terminal.powered)(c.pc) or U().call(c.player,"isDead")==true then P.stop() return end
     c.elapsed=c.elapsed+dt
     if c.elapsed>=60000 then P.stop() return end
     local cycle=math.floor(c.elapsed/6000) local ringing=c.elapsed%6000<2000
@@ -189,6 +193,10 @@ end
 function P.lines(w)
     local lock=w.system.lock local at=lock.phone
     local rows={"LARCH/DIAL-BACK / INTERNAL RECOVERY"}
+    if not (SC.Terminal.normalPowered or SC.Terminal.powered)(w.object) then
+        rows[#rows+1]="The internal line needs building power. Borrowed battery power only runs this screen."
+        return rows
+    end
     if w.lockPhoneSearch then
         local search=w.lockPhoneSearch
         local total=math.max(1,math.min(4096,
