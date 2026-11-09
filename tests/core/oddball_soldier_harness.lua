@@ -55,11 +55,12 @@ local forecastDays = 2
 getClimateManager = function()
     local forecasts = { dayForecast("1993 - 7 - 4", {}),
         dayForecast("1993 - 7 - 5", tomorrowWeather) }
+    for index,day in ipairs(forecasts) do
+        local offset=index-1
+        day.getIndexOffset=function() return offset end
+    end
     return { getClimateForecaster = function()
-        return { getForecasts = function()
-            return { size = function() return math.min(#forecasts, forecastDays) end,
-                get = function(_, index) return forecasts[index + 1] end }
-        end }
+        return { getForecast = function(_,offset) return offset<forecastDays and forecasts[offset+1] or nil end }
     end }
 end
 getCell = function() return { getZombieList = function() return zombies end } end

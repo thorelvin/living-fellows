@@ -352,6 +352,20 @@ do
     check(light.on and flood.on,"night routine applies the captured lights")
     updates=0 SC.BuildingSecurity.pulse()
     check(updates==0,"repeated night ticks do not flash unchanged lights")
+    local oldPowered=SC.Terminal.powered
+    local savedOn=hardware.on
+    hardware.on=false
+    SC.Terminal.powered=function() return true end -- UI-only borrowed supply
+    squares["100:100"].generatorPower=false
+    panel.routines.night.blocker="Waiting for normal power."
+    light.on=false
+    check(B.prepare(pc,"on",lightRow.id,player)==nil and B.connect(player,pc)==false,
+        "borrowed UI power cannot authorize or connect building controls")
+    SC.BuildingSecurity.pulse(pc)
+    check(not light.on and panel.routines.night.blocker=="Waiting for normal power.","borrowed UI power cannot advance a saved lighting routine")
+    SC.Terminal.powered=oldPowered
+    hardware.on=savedOn
+    squares["100:100"].generatorPower=true
     B.disconnect(pc,panel)
     check(panel.routines.night.suspended,"moving or disconnecting the owner suspends automatic actions")
     check(B.connect(player,pc) and not panel.routines.night.suspended,"a physical reconnection resumes that PC's routine")

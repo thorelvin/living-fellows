@@ -214,7 +214,12 @@ local loadedReads=reads
 T.now=T.now+100 -- admit a real due slice before exhausting its budget
 D.pulse(function() return 0 end)
 check(reads==loadedReads,"an exhausted scheduler budget performs zero tile reads")
-pc.square.generatorPower=false tick(100)
-check(D.state(pc).status=="paused","loss of real computer power pauses its scan")
+local oldPowered=SC.Terminal.powered
+pc.square.generatorPower=false
+SC.Terminal.powered=function() return true end -- UI-only borrowed supply
+tick(100)
+check(D.state(pc).status=="paused" and reads==loadedReads,"borrowed UI power cannot continue a building scan")
+check(B.startScan(pc,player)==false,"borrowed UI power cannot start or resume discovery")
+SC.Terminal.powered=oldPowered
 
 print("BUILDING_SCAN_ENGINE_PASS checks="..checks)

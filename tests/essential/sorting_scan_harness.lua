@@ -127,7 +127,45 @@ for _ = 1, 100 do
     f.check(source == nil, "a resumed scan cannot select an unmarked storage")
     if why ~= "haul_scan_pending" then finished = why break end
 end
-f.check(finished == "no_sortable_supply" and #removed.container.items == 66,
+f.check(finished == "haul_scan_changed" and #removed.container.items == 66,
     "removing a source invalidates its pending scan without touching its stock")
+-- A shelf's changing count must not restart its sweep in front of every
+-- other source. A very large first shelf also gets only one fair quantum.
+local churnItems = {}
+for i = 1, 1000 do churnItems[i] = f.item("Base.Paperclip", "Item", { weight = .01 }) end
+local busy = { id = "storage:busy", category = "general", withdrawals = true,
+    container = f.containerObject(actor.square, churnItems) }
+local later = { id = "storage:later", category = "general", withdrawals = true,
+    container = f.containerObject(actor.square, { lateMoney }) }
+base.storageRows = function() return { busy, later } end
+SC.Performance = { preciseNowMs = function() return 0 end, remainingBudgetMs = function() return 0 end }
+local churnJob, selectedAt = { type = "sort" }, nil
+for i = 1, 20 do
+    if #busy.container.items == 1000 then busy.container.items[1001] = f.item("Base.Paperclip", "Item")
+    else table.remove(busy.container.items) end
+    local source, _, _, _, item = SC.BaseWork.sortTransfer(churnJob, actor)
+    if source then
+        f.check(source == later and item == lateMoney, "count churn retains the exact later candidate")
+        selectedAt = i; break
+    end
+end
+f.check(selectedAt and selectedAt <= 3, "eight-item round robin reaches later storage despite a large changing first shelf")
+f.check(later.container.items[1] == lateMoney and #destination.container.items == 0,
+    "fair discovery neither withdraws nor duplicates stock")
+base.depositStorageRows = function() return {} end
+busy.container.items = { f.item("Base.Paperclip", "Item"), f.item("Base.Paperclip", "Item") }
+base.storageRows = function() return { busy } end
+local changedJob = { type = "sort" }
+local precise = 0
+SC.Performance.preciseNowMs = function() precise = precise + 1 return precise end
+local _, _, _, _, _, changedWhy = SC.BaseWork.sortTransfer(changedJob, actor)
+f.check(changedWhy == "haul_scan_pending", "slow source yields after its first real item")
+busy.container.items[3] = f.item("Base.Paperclip", "Item")
+for _ = 1, 8 do
+    local _, _, _, _, _, reason = SC.BaseWork.sortTransfer(changedJob, actor)
+    if reason ~= "haul_scan_pending" then changedWhy = reason; break end
+end
+f.check(changedWhy == "haul_scan_changed", "a changed unmatched sweep is retryable rather than falsely empty")
+SC.Performance = originalPerformance
 for key, value in pairs(saved) do base[key] = value end
 print("SORTING_SCAN_PASS")

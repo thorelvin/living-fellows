@@ -86,6 +86,7 @@ function Get-ScGameplayFiles {
         'SCInteraction.lua',
         'SCCompanionGifts.lua',
         'SCFactionRecruitment.lua',
+        'SCRelationshipHelp.lua',
         'SCBaseAlert.lua',
         'SCDecision.lua'
     ) | ForEach-Object { Join-Path $Client $_ }

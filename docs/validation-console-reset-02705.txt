@@ -1,0 +1,66 @@
+Console investigation - 2026-11-09
+
+Input
+C:/ZOMBOID/.codex-remote-attachments/01a16dd1-0e06-79d1-8ed2-7f5743a89a28/34c01f6f-b647-464d-a935-d03be44fc9a9/1-console.txt
+Tester: LF 0.27.4, PZ 42.21.0, PZO launcher/agent, ZombieBuddy 2.3.4
+and other Lua mods. Log begins 2026-11-08 20:14.
+
+Confirmed LF defect and fix
+Returning to the main menu during ResetLua clears SCBridge before
+OnMainMenuEnter resets the optional optimizer adapter. The old reset
+indexed the missing bridge inside pcall; Kahlua still logged that caught
+access as an exception. Adapter initialization, status and reset now check
+that their optional native entry points exist before invoking them.
+No global exception suppression, native patches or foreign-mod edits.
+Existing Behaviour regression covers nil and older bridges without making
+an invalid call. Focused Behaviour PASS: 20261109-014110-985298 (5.9s).
+
+Other errors, still unassigned
+There are 19 ReturnValues.put null-pointer exceptions, starting in vanilla
+ISFarmingMenu.getShovel at frame 8345. Later stacks include building menus,
+inventory transfers and player eating. The invoker attempts to return a
+null pooled result; these stacks do not establish which mod caused it.
+PZO appears in the event path; its presence alone is not causal evidence.
+The tester's exact native engine and LF JAR hashes are not in the log.
+Period Accurate Posters [B42 Ported] independently indexes a missing junk
+distribution at startup (PostersProceduralDistributions.lua:4).
+
+Native controls
+Two isolated, sequential, three-minute runs in disposable save copies:
+- LF alone: SC-Harness-20261109-014402-9c9377a9, standalone SC launcher.
+- LF + PZO: SC-Harness-PZO-20261109-0151, native engine and Lua frontend
+  1.9.9, Workshop manifest 3018701328976225193, compatibility mode Auto.
+Both: harness PASS (8 checks), three complete native farming-tool lookup,
+exact root/bag transfer and player-eating cycles. Zero thrown exceptions,
+zero ReturnValues.put failures and zero nil-adapter errors. Native actions
+used their real implementations with short fixture durations. Ordinary LF
+behaviour remained running. Completion screenshots inspected.
+
+PZO source/release: https://github.com/prop11/PZO-Launcher/releases/tag/V1.9.9
+Engine SHA256: 4afdaf878570ed31812590b9dc2ef0f3f3b88f5fe91a1386d09dc04780a2ecc2
+DLL SHA256: 8a73d3260da18ae5ca48ab96678d14a1a47cb627bd6be182e0c9550dd806c16a
+Hashes matched the official release digests. No update is claimed to fix
+the tester's exception. The existing LF PZOptimizer adapter targets the
+different pzopt.ActionEval optimizer; absent is expected with prop11 PZO.
+
+Limits and isolation
+These are targeted controls, not a reproduction of the full tester mod set.
+The PZO run used a further clone of the completed LF control, so the two
+world states differ. Neither included ZombieBuddy or the posters mod.
+The LF native class bytes match HEAD; only release metadata differs.
+A temporary duplicate-item diagnostic agent was present in the PZO run.
+No global PZO power/GPU/FSR changes or launcher migration were allowed.
+Installed game JAR, launcher JSON and LF bridge hashes remain unchanged;
+temporary PZO telemetry was restored. Both clients exited normally.
+Original saves and enabled presets were not changed. No install or push.
+
+Evidence
+C:/ZOMBOID/outputs/console-02704-20261109/native-controls-summary.json
+The same folder has both action receipts and inspected completion PNGs.
+Full console logs remain under the two named build/live-sandbox-runs.
+The private diagnostic module and runner are not part of the release.
+
+Final project gate
+All five PASS, serial, 76.3 seconds, 256 MB Java heap and two processors.
+Evidence: build/test-results/20261109-020129-ae6c57.
+Build 15.9s, Lifecycle 41.1s, Behaviour 2.7s, Cargo 2.7s, Interface 13.8s.

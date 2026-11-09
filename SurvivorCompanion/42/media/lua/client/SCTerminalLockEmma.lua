@@ -77,6 +77,7 @@ function Emma.loss(w,now)
     SC.TerminalLockCrew.react(w,"failure",50)
 end
 function Emma.input(w,raw)
+    if SC.EmmaTerminal and SC.EmmaTerminal.input(w,raw) then return true end
     local now=U().hours()
     if not now then w.securityMessage="Clock unavailable." return true end
     local e=Emma.ensure(w.system)

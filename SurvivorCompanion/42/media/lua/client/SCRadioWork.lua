@@ -80,7 +80,7 @@ function R.available(object)
     if not SC.Terminal or not SC.Terminal.isComputer(object)
         or not SC.ControlUtil.present(object) then return false, "radio_work_computer_missing" end
     if not SC.BaseLife or not SC.BaseLife.isInside(object) then return false, "radio_work_camp_only" end
-    if not SC.Terminal.powered(object) then return false, "radio_work_no_power" end
+    if not (SC.Terminal.normalPowered or SC.Terminal.powered)(object) then return false, "radio_work_no_power" end
     local data = call(object, "getModData")
     local portable = type(data) == "table" and data.movableData
     local system = type(portable) == "table" and portable[SC.TerminalSystem.MEMORY_KEY]

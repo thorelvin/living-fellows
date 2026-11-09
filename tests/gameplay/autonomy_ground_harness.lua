@@ -226,5 +226,58 @@ for _, hazard in ipairs({ "fire", "brokenGlass", "stairs", "slope", "door" }) do
         "quiet ground excludes " .. hazard)
 end
 
+-- Camp needs pause the same passive episode. Recovery time keeps passing,
+-- and delayed cleanup must never cancel a new owner's visual.
+reset()
+zone(70, 70); tile(70, 70)
+SC.BaseLife.active = function() return {} end
+SC.BaseLife.isInside = function() return true end
+local recovering = actor("shutdown-needs", 70.5, 70.5)
+recovering.commands.order = "base_duty"
+local currentVisual, cancels, speeches = nil, 0, 0
+local fixtureMove = U.move
+U.move = function(value, mode, intent)
+    local okay = fixtureMove(value, mode, intent)
+    if intent.action == "sit_ground" then currentVisual = {} end
+    if intent.action == "rear_scan" then currentVisual = {} end
+    return okay
+end
+U.say = function() speeches = speeches + 1; return true end
+SC.NativeActions = {
+    visualToken = function() return currentVisual end,
+    cancelVisualOwned = function(_, token)
+        check(token == currentVisual, "episode cancels only its own visual")
+        cancels = cancels + 1; currentVisual = nil; return true
+    end,
+}
+update(recovering); update(recovering)
+check(recovering.seated and Autonomy.episodeStatus(recovering).stage == "shutdown", "shutdown begins before the needs handoff")
+local begun, speechCount = tick, speeches
+local due = { hungry = true, mealInProgress = true, hunger = .7 }
+check(Autonomy.intentFor(recovering, nil, {}, recovering.commands, due) == nil,
+    "routine camp hunger suppresses an active episode before it can retake control")
+check(Autonomy.pauseForNeeds(recovering) and not recovering.seated and cancels == 1,
+    "needs release the exact episode visual and standing pose")
+local foreign = {}; currentVisual = foreign
+check(Autonomy.pauseForNeeds(recovering) and cancels == 1 and currentVisual == foreign,
+    "repeated pause leaves a replacement eating action untouched")
+check(Autonomy.intentFor(recovering, nil, {}, recovering.commands, due) == nil,
+    "missing food keeps needs retry ownership instead of restarting the episode")
+currentVisual = nil; tick = begun + 3600000
+check(Autonomy.intentFor(recovering, nil, {}, recovering.commands, {}) ~= nil,
+    "satisfied needs make the retained episode available again")
+update(recovering); update(recovering)
+check(recovering.seated and speeches == speechCount,
+    "resuming finds its posture without repeating the announcement")
+check(Autonomy.pauseForNeeds(recovering), "resumed episode can yield again")
+Autonomy.updatePurposeful(recovering, { purposeful = {
+    route = { recovering }, index = 1, dwellUntil = 0,
+} })
+foreign = currentVisual; tick = begun + 4 * 3600000 + 1
+update(recovering)
+check(Autonomy.episodeStatus(recovering) == nil and currentVisual == foreign and cancels == 2,
+    "original recovery deadline expires during needs without cancelling a newer action")
+U.move = fixtureMove
+
 reset()
 SC_TEST_REPORT = "AUTONOMY_GROUND_PASS checks=" .. checks

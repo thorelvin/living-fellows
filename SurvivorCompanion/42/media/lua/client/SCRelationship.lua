@@ -123,6 +123,22 @@ function Relationship.score(state)
     return clamp(state.trust, 0, 100) * 0.55 + clamp(state.bond, 0, 100) * 0.45
 end
 
+-- Stage boundaries are unchanged. Progress describes the whole relationship,
+-- not just trust, and never promises recruitment from a household.
+function Relationship.progress(state)
+    local score = Relationship.score(state)
+    local steps = { { 0, "cautious" }, { 10, "ally" }, { 30, "trusted" },
+        { 55, "close" }, { 80, "family" } }
+    for index = #steps, 1, -1 do
+        if score >= steps[index][1] then
+            local nextStep = steps[index + 1]
+            return { stage = steps[index][2], nextStage = nextStep and nextStep[2],
+                fraction = nextStep and (score - steps[index][1])
+                    / (nextStep[1] - steps[index][1]) or 1 }
+        end
+    end
+end
+
 local function earnedThresholdDelta(state, context, configKey, lowScore)
     context = type(context) == "table" and context or {}
     if context.playerRequested ~= true then return 0 end
@@ -182,6 +198,8 @@ local function latestMemory(state, predicate)
 end
 
 local memoryText = {
+    help_food = { "IGUI_SC_Memory_HelpFood", "You gave me food when I was hungry." },
+    help_water = { "IGUI_SC_Memory_HelpWater", "You gave me drinking water when I needed it." },
     recruited = { "IGUI_SC_Memory_Recruited", "You asked me to come with you. I remember deciding I did not want to face this alone." },
     treatment = { "IGUI_SC_Memory_Treatment", "You stayed close when I was hurt and helped me get patched up." },
     meal = { "IGUI_SC_Memory_Meal", "You made sure I had something to eat when I needed it." },
@@ -258,6 +276,50 @@ end
 
 function Relationship.noteEvent(state, kind, changes)
     return recordEvent(state, kind, changes)
+end
+
+local function careHour()
+    local time = type(getGameTime) == "function" and getGameTime() or nil
+    local hour = time and select(1, U().call(time, "getWorldAgeHours"))
+    return tonumber(hour) or U().nowMs() / 3600000
+end
+
+function Relationship.helpMultiplier(state, kind)
+    local care = type(state.care) == "table" and state.care or {}
+    local start = tonumber(care[kind .. "HelpHour"])
+    local now = careHour()
+    local count = start and now >= start and now - start < 24
+        and (tonumber(care[kind .. "HelpCount"]) or 0) or 0
+    return count == 0 and 1 or count == 1 and 0.5 or 0
+end
+
+function Relationship.noteHelp(state, kind, relief)
+    if kind ~= "food" and kind ~= "water" then return false, "invalid_help" end
+    Relationship.initialize(nil, state)
+    local multiplier = Relationship.helpMultiplier(state, kind)
+    local now, care = careHour(), state.care
+    local start = tonumber(care[kind .. "HelpHour"])
+    if not start or now < start or now - start >= 24 then
+        care[kind .. "HelpHour"], care[kind .. "HelpCount"] = now, 0
+    end
+    care[kind .. "HelpCount"] = math.min(3, (tonumber(care[kind .. "HelpCount"]) or 0) + 1)
+    -- Credit is paid at handover. A bottle can supply several drinks and food
+    -- can be eaten in portions: none are a second act of care in this window.
+    care[kind .. "HelpPendingUntil"] = care[kind .. "HelpHour"] + 24
+    local scale = clamp(relief, 0, 1) * multiplier
+    if scale > 0 then
+        recordEvent(state, "help_" .. kind, { trust = 3 * scale, bond = 2 * scale,
+            morale = 2 * scale, counter = "suppliesGiven" })
+    end
+    return true, scale > 0 and "help_appreciated" or "help_supplied"
+end
+
+local function alreadyCreditedHelp(state, kind)
+    local key = kind .. "HelpPendingUntil"
+    local expires = tonumber(state.care[key])
+    if expires ~= nil and careHour() < expires then return true end
+    state.care[key] = nil
+    return false
 end
 
 function Relationship.noteWork(state, fact)
@@ -370,12 +432,16 @@ function Relationship.observe(actor, player, snapshot, state)
     end
     if close and hunger < (runtime.hunger or hunger) - 0.12
         and eventReady(runtime, "meal", now, 90000) then
-        observed("meal", { trust = 3, bond = 2, morale = 3, stress = -2, counter = "meals" })
+        if not alreadyCreditedHelp(state, "food") then
+            observed("meal", { trust = 3, bond = 2, morale = 3, stress = -2, counter = "meals" })
+        end
         meaningful = true
     end
     if close and thirst < (runtime.thirst or thirst) - 0.12
         and eventReady(runtime, "drink", now, 90000) then
-        observed("drink", { trust = 3, bond = 2, morale = 2, stress = -2, counter = "drinks" })
+        if not alreadyCreditedHelp(state, "water") then
+            observed("drink", { trust = 3, bond = 2, morale = 2, stress = -2, counter = "drinks" })
+        end
         meaningful = true
     end
     if close and (runtime.danger or 0) >= 0.5 and danger < 0.2
@@ -442,11 +508,23 @@ function Relationship.summary(actor, state, description)
         and SC.Background.professionLabel(background) or background.occupation
     local aptitude = SC.Background and SC.Background.aptitudeLabel
         and SC.Background.aptitudeLabel(background) or "Adaptable"
+    local reasons = {}
+    for index = #(state.memories or {}), 1, -1 do
+        local memory = state.memories[index]
+        if type(memory) == "table" and memoryText[memory.kind] then
+            reasons[#reasons + 1] = Relationship.memoryText(memory)
+            if #reasons == 3 then break end
+        end
+    end
     return {
         bond = clamp(state.bond, 0, 100),
         morale = clamp(state.morale == nil and 55 or state.morale, 0, 100),
         stress = clamp(state.stress == nil and 12 or state.stress, 0, 100),
         relationshipTier = Relationship.tier(state),
+        progress = Relationship.progress(state),
+        reasons = reasons,
+        helpFoodMultiplier = Relationship.helpMultiplier(state, "food"),
+        helpWaterMultiplier = Relationship.helpMultiplier(state, "water"),
         mood = Relationship.mood(state),
         currentNeed = needCode(description, state),
         recentMemory = Relationship.recentMemory(state),

@@ -2,6 +2,72 @@
 
 # Changelog
 
+## 0.27.5 - Getting to know your survivors
+
+- Camp sorting keeps its place when shelves change, and checks later shelves
+  before returning to a large one. Changed, unmatched searches retry after
+  three minutes instead of remaining stuck on "Haul scan pending".
+- Floor sorting keeps ownership of its pickup animation through completion.
+  Urgent interruptions release that exact pickup before another action starts.
+- Hunger and thirst can pause passive mental episodes during base duty. The
+  episode resumes against its original deadline after the companion eats or
+  drinks; one-shot outbursts are interrupted rather than repeated.
+- Critical-health and death logs now include actual needs, illness, fire and
+  recent native damage reasons, helping distinguish deaths without wounds.
+- Avoid a compatibility-adapter error when returning to the main menu or
+  reloading Lua after the native bridge has already been cleared.
+- Recover medical and county-calendar indexes for EMMA's own-player health,
+  wounds, needs and infection readings, plus actual helicopter, utility and
+  weather schedules. Seasonal dawn and dusk are available from every computer.
+- Knox infection is disclosed once at login; a time estimate is only given when
+  asked and supported by the actual mortality rule. Care pauses automatic
+  notices and countdowns. Wound infection and false symptoms stay distinct.
+- Forecasts now use the native day-offset API. The previous list lookup could
+  describe weather from nine days ago as tomorrow's forecast.
+- Keep the requested need or weather search when refreshing EMMA's readings.
+  Sunrise wording and tolerated typos retain the right reading; a date alone
+  no longer turns a supply question into a forecast.
+- Unavailable health, calendar and weather records stay unknown. Infection
+  warnings do not repeat when their native timestamp first becomes available,
+  and repeating a medical answer cannot add a shout joke. Plain care replies
+  keep the actual calendar dates.
+- EMMA shares operator recognition and an explicit notebook across ordinary
+  computers. World memory survives character death; short conversations remain
+  local. Existing notes migrate once, with overflow retained on the old machine.
+- Recover each ordinary computer once for fragments and memory tiers. Moved or
+  reset machines never count twice; persona computers remain separate voices.
+- Jump-start an unpowered computer with Electrical 2, a screwdriver and 5% of a
+  real car battery. The foreground session lasts up to ten real minutes and
+  supports EMMA without powering radio, building or background services.
+- Shared-note deletion asks which notes to erase and requires fresh confirmation.
+  Factory reset affects the current computer while preserving the shared mind.
+- EMMA has broader conversational replies, slang and typo handling, two-question
+  answers and 26 paged survival references. Follow-up questions also work across
+  people, relationships, equipment, jobs, expeditions, radio and building controls.
+- Replies establish the next subject: ask about a generator, its fuel, then where
+  to find it. Current readings are checked again; unclear references ask for
+  clarification. Instructions stay separate from confirmed actions.
+- Distress and grief receive gentle replies across EMMA, locked conversations
+  and persona computers. Care dialogue pauses jokes and story progress; its
+  support notice appears once. A later check-in stores only a character timestamp.
+- Self-worth disclosures such as "I don't matter" receive supportive replies
+  in fresh conversations and after care follow-ups. Unclear statements now get
+  neutral questions instead of agreement or claims that they were logged.
+- Misunderstood messages can be recorded locally for improving the offline parser.
+  This option starts enabled, stores at most 600 entries and excludes care
+  conversations, saved notes and operator names. Nothing is uploaded.
+- Talk shows named relationship stages, progress toward the next stage and
+  recent reasons for change. The former Ally stage is now called Familiar.
+- Offer food, drinking water or medical help without opening barter. Choose
+  the exact supply to give; water clearly hands over the whole container.
+  Helping a real need earns trust, with diminishing returns for repeat gifts.
+- Ask household members about joining before they are eligible. Personal
+  trust, household standing, contracts, trial periods and family obligations
+  have separate, readable explanations. Recruitment thresholds are unchanged.
+- Camp setup now says Establish camp here, and the barter confirmation says Trade.
+- Rebuilt native bridge with 0.27.5 release metadata; protocol remains
+  `42.21-isocompanion-30` and existing save schemas are unchanged.
+
 ## 0.27.4 - Caleb's vigil, radio watch and clearer feedback
 
 - Meet Caleb Hensley, a grieving stranger gathering his family's bodies.

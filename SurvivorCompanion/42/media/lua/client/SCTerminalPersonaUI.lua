@@ -31,6 +31,7 @@ function UI.boot(w)
     call(w.entry,"setPlaceholderText","")
     call(w.entry,"setMaxTextLength",SC.TerminalPersona.MAX_INPUT)
     UI.layout(w) w:setFocusMode("chat")
+    if SC.EmmaTerminal then SC.EmmaTerminal.boot(w) end
 end
 local moodles={tired="TIRED",panic="PANIC",hungry="HUNGRY",pain="PAIN",drunk="DRUNK",unhappy="UNHAPPY",wet="WET",bored="BORED"}
 function UI.facts(w,at,includeWorld)
@@ -118,6 +119,7 @@ function UI.effects(w,effects,f)
     return confirm
 end
 function UI.reply(w,reply,f)
+    w.privateEmmaReply=reply.private==true
     local failed=UI.effects(w,reply.effects or {},f)
     if failed then reply.rows=failed.rows end
     w.replyAutoScroll=true
@@ -127,6 +129,9 @@ function UI.reply(w,reply,f)
         w:enqueue({row.text},"emma",(reply.speed or 95)*(row.slow and .25 or 1))
     end
     w:enqueue({""},"emma",reply.speed or 95)
+    if reply.support then w:enqueue(reply.support,"support",reply.speed or 95) end
+    if reply.private and SC.EmmaTerminal then SC.EmmaTerminal.remember(w.player,reply,w.gameHours) end
+    if reply.command then w.pendingCommand=reply.command end
     local wait=reply.thinkMs or 0
     w.state=wait>0 and "thinking" or "typing"
     w.thinkStart,w.thinkEnd=now(),now()+wait
@@ -139,6 +144,7 @@ function UI.input(w,raw)
 end
 function UI.finished(w)
     w.personaFinishedAt=now()
+    if w.privateEmmaReply or SC.EmmaCare and SC.EmmaCare.quiet(w.personaSession) then w.personaEnding=nil; return end
     if SC.TerminalPersonaDiscovery then SC.TerminalPersonaDiscovery.noteConversation(w) end
     local p=w.system.lock and w.system.lock.persona
     if p and p.met and SC.TerminalLockCrew then SC.TerminalLockCrew.react(w,"persona_"..p.id,35) end
@@ -156,6 +162,7 @@ function UI.finished(w)
     w:close() SC.Terminal.open(w.player,w.object)
 end
 function UI.watch(w,at)
+    if SC.EmmaCare and SC.EmmaCare.quiet(w.personaSession) then return end
     w.personaSensor=w.personaSensor or {}
     w.personaThreat=read(SC.TerminalWorld.nearestThreat,w.player,w.personaSensor,at)
     if w.state~="idle" then return end
@@ -167,6 +174,10 @@ function UI.watch(w,at)
 end
 function UI.powerCut(w,at)
     w.queue,w.typing,w.personaEnding={},nil,nil
+    if SC.EmmaCare and SC.EmmaCare.quiet(w.personaSession) then
+        w:print("Power lost. The computer is shutting down.","system")
+        w.state,w.closeAt="closing",at+1500;return
+    end
     local reply=SC.TerminalPersona.powerCut(w.system.lock.persona)
     for _,row in ipairs(reply.rows) do w:print(row.text,"emma") end
     w.readingAnchor,w.scroll=nil,0 w.state,w.closeAt="closing",at+1500

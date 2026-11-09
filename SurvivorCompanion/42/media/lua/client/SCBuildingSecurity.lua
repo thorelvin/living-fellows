@@ -186,7 +186,7 @@ function S.pulse(onlyComputer)
                 if sounds[panel.id] and sounds[panel.id].computer==computer then S.stop(panel) end
                 B().computers[computer]=nil powerStates[computer]=nil
             else
-                local powered=SC.Terminal.powered(computer)
+                local powered=(SC.Terminal.normalPowered or SC.Terminal.powered)(computer)
                 local source=not powered and "off" or U().nativePower(computer) and "building power" or "battery backup"
                 if powerStates[computer] and powerStates[computer]~=source then B().log(panel,"Computer supply: "..source..".") end
                 powerStates[computer]=source

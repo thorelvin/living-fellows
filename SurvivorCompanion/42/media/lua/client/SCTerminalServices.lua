@@ -70,6 +70,7 @@ local function crew(window)
     return rows
 end
 function S.menu(window)
+    if SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) then window.menuPage=nil return nil end
     local p=window.menuPage
     if stationPages[p] and not campComputer(window) then
         window.stationReviewed=nil
@@ -291,6 +292,7 @@ function S.review(window)
     return true,lines
 end
 function S.prepare(window,proposal)
+    if SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) then return nil,"Borrowed power runs EMMA only." end
     local request=proposal.request
     if type(request)~="table" then return nil,"Request unavailable." end
     if request.operation=="launch" and not campComputer(window) then
@@ -411,6 +413,7 @@ function S.install(player,object,effect,duration)
     return true,"Installation queued. Components are checked and consumed at completion.",action
 end
 function S.execute(window,request)
+    if SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) then return false,"Borrowed power runs EMMA only." end
     local pc,player=window.object,window.player
     local operation=request.operation
     if operation=="device" then
@@ -523,6 +526,7 @@ local function security(window,word)
     window:setFocusMode("chat") show(window,lines)
 end
 function S.input(window,raw,chosen)
+    if SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) then return false end
     if window.system.locked then return false end
     local text=string.lower(raw):match("^%s*(.-)%s*$")
     local action,value=chosen and chosen.serviceAction,chosen and chosen.serviceValue

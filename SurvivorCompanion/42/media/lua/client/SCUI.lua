@@ -20,6 +20,7 @@ require "SCInteraction"
 require "SCUIGuidance"
 require "SCActionFeedback"
 require "SCUIAttention"
+require "SCUISocial"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -386,6 +387,7 @@ function UI.baseFailureReason(reason, knownOnly)
     end
     local workReasons = {
         floor_pickup_animation_replaced = "work_pickup_interrupted",
+        haul_scan_changed = "work_storage_changed",
         floor_pickup_animation_failed = "work_pickup_interrupted",
         floor_pickup_animation_rejected = "work_pickup_interrupted",
         loot_animation_replaced = "work_pickup_interrupted",
@@ -694,6 +696,7 @@ local function detailStructureSignature(row, tab)
             relationship = row and row.relationshipTier or nil,
             recruited = row and row.recruited == true,
             serial = conversation and conversation.serial or 0,
+            social = SC.UISocial and SC.UISocial.signature(row) or "",
         }, 2, { count = 24 }, {})
     end
     if tab == "status" then
@@ -948,6 +951,10 @@ local function copySummary(row, summary)
     row.profession = summary.profession or row.profession
     row.aptitude = summary.aptitude or row.aptitude
     row.backgroundLabel = summary.backgroundLabel or row.backgroundLabel
+    row.relationshipProgress = summary.relationshipProgress or row.relationshipProgress
+    row.relationshipReasons = summary.relationshipReasons or row.relationshipReasons
+    row.helpFoodMultiplier = summary.helpFoodMultiplier
+    row.helpWaterMultiplier = summary.helpWaterMultiplier
     if summary.trust ~= nil then row.trust = summary.trust end
     if summary.bond ~= nil then row.bond = summary.bond end
     if summary.morale ~= nil then row.morale = summary.morale end
@@ -3590,9 +3597,7 @@ function SCUIDetail:buildTalk(panel, row)
         y = y + metrics.infoLineHeight
     end
     y = math.max(7 + portraitHeight, y) + 6
-    if row.recruited ~= true then
-        y=self:addCommand(panel,y,"UI_SC_Action_Recruit","recruit",nil)
-    end
+    if SC.UISocial then y = SC.UISocial.build(self, panel, y, row) end
     y = self:addSection(panel, y, "UI_SC_Section_Talk")
     local topic = self.talkTopic or "check_in"
     local topicWidth = math.floor((panel:getWidth() - 16) / #SC.Interaction.categories)
@@ -3640,6 +3645,7 @@ function SCUIDetail:buildTalk(panel, row)
                 tostring(speaker) .. ": " .. tostring(line.text))
         end
     end
+    if row.recruited ~= true then return y end
     local ordersTitle = UI.text("UI_SC_Talk_OpenOrders")
     local ordersWidth = math.max(100, panel:getWidth() - 28)
     local orders = ISButton:new(8, y + 4, ordersWidth,
@@ -3658,8 +3664,8 @@ function SCUIDetail:buildStatus(panel, row)
     local y = 7
     if SC.UIAttention then y = SC.UIAttention.build(self, panel, y, row) end
     if SC.UIGuidance then y=SC.UIGuidance.build(self,panel,y) end
-    if row and row.recruited ~= true then
-        y = self:addCommand(panel, y, "UI_SC_Action_Recruit", "recruit", nil)
+    if row and row.recruited ~= true and SC.UISocial then
+        y = SC.UISocial.addJoiningLink(self, panel, y, row)
         y = y + 4
     end
     -- Requests are time-sensitive, so they stay above the general readout.
@@ -5924,6 +5930,17 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
             descriptionApplied = true
         end
     end
+    -- A household guest can be the explicit conversation target without adding
+    -- the whole household to the companion roster or enabling party commands.
+    if self.socialFocusId then
+        local included = false
+        for _, row in ipairs(entries) do if row.id == self.socialFocusId then included = true; break end end
+        local record = not included and SC.Registry and SC.Registry.byId(self.socialFocusId)
+        if record and record.actor then
+            local row = UI.describeEntry(record.actor, player)
+            if row.id == self.socialFocusId and row.alive ~= false then entries[#entries + 1] = row end
+        end
+    end
     local expedition = SC.ExpeditionPrototype
     local view = expedition and type(expedition.describeForPlayer) == "function"
         and expedition.describeForPlayer(player) or nil
@@ -6364,6 +6381,7 @@ function UI.open(tab, companionId, description)
     end
     root:applyScreenBounds()
     local descriptionId = type(description) == "table" and (description.id or description.companionId) or nil
+    root.socialFocusId = UI.normalizeTab(tab) == "talk" and (companionId or descriptionId) or nil
     root:refreshRoster(companionId or descriptionId, description, true)
     local requestedTab = UI.normalizeTab(tab)
     if description and not requestedTab then

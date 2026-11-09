@@ -93,24 +93,21 @@ requested, nativeState = true, "unsupported"
 SC.PZOptimizerAdapter.initialize()
 SC.PZOptimizerAdapter.initialize()
 check(diagnosticCalls == 1, "unsupported optimizer produces one readable diagnostic")
--- Kahlua prints a full stack trace even for an error that pcall catches. A missing
--- bridge (ZombieBuddy publishes SCBridge after the main menu) or an older one must
--- therefore raise no error at all, so count every failed pcall while testing them.
-local realPcall, caught = pcall, 0
-local function counted(ok, ...)
-    if not ok then caught = caught + 1 end
-    return ok, ...
-end
-pcall = function(fn, ...) return counted(realPcall(fn, ...)) end
-SCBridge = nil
-check(SC.PZOptimizerAdapter.reset() and SC.PZOptimizerAdapter.status().state == "disabled",
-    "main-menu reset works before the bridge is published")
-check(not SC.PZOptimizerAdapter.initialize(), "a missing bridge leaves the adapter inactive")
 SCBridge = {}
-SC.PZOptimizerAdapter.status()
-SC.PZOptimizerAdapter.reset()
 check(not SC.PZOptimizerAdapter.initialize(), "older native bridges fail safely")
-pcall = realPcall
-check(caught == 0, "a missing or older bridge raises no error, even inside pcall (caught " .. tostring(caught) .. ")")
+local originalPcall, invalidNativeCalls = pcall, 0
+pcall = function(fn, ...)
+    local okay, a, b = originalPcall(fn, ...)
+    if not okay then invalidNativeCalls = invalidNativeCalls + 1 end
+    return okay, a, b
+end
+for _,bridge in ipairs({false,{}}) do
+    SCBridge = bridge or nil
+    check(SC.PZOptimizerAdapter.reset(), "main-menu reset tolerates an unexposed native bridge")
+    check(SC.PZOptimizerAdapter.status().inlineCalls == 0, "unexposed bridge status has no native counter")
+    check(not SC.PZOptimizerAdapter.initialize(), "unexposed bridge initialization reports unavailable")
+end
+pcall = originalPcall
+check(invalidNativeCalls == 0, "no caught nil or missing-API invocation can produce a game Lua exception")
 SCBridge, SC.UserOptions, SC.Diagnostics = originalBridge, originalOptions, originalDiagnostics
 print("BEHAVIOUR_COMBAT_PASS checks=" .. tostring(f.checks()))

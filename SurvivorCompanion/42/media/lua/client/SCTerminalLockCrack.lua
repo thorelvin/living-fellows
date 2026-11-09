@@ -20,17 +20,20 @@ function C.sealed(state)
     return c.sealed
 end
 function C.open(w)
+    if SC.EmmaJump and SC.EmmaJump.active(w.player,w.object) then
+        w.securityMessage="Borrowed power cannot run background password recovery." return
+    end
     local now=SC.ControlUtil.hours()
     if not now then w.securityMessage="Clock unavailable." return end
     if not w.system.lock.crack then
         local skill=SC.Terminal.electricalSkill(w.player)
-        w.system.lock.crack={doneHours=0,lastHours=now,powered=SC.Terminal.powered(w.object),requiredHours=skill<4 and 12 or skill<8 and 9 or 6}
+        w.system.lock.crack={doneHours=0,lastHours=now,powered=(SC.Terminal.normalPowered or SC.Terminal.powered)(w.object),requiredHours=skill<4 and 12 or skill<8 and 9 or 6}
     end
-    C.catchUp(w.system,now,SC.Terminal.powered(w.object))
+    C.catchUp(w.system,now,(SC.Terminal.normalPowered or SC.Terminal.powered)(w.object))
     w.lockPage="crack" w.lockCrackOpened=SC.GameplayUtil.nowMs() w.crackSoundLetters=0 w.securityMessage=nil
 end
 function C.update(w,now)
-    C.catchUp(w.system,SC.ControlUtil.hours(),SC.Terminal.powered(w.object))
+    C.catchUp(w.system,SC.ControlUtil.hours(),(SC.Terminal.normalPowered or SC.Terminal.powered)(w.object))
     local c=w.system.lock.crack
     if not c then return end
     local elapsed=math.max(0,now-(w.lockCrackOpened or now))
@@ -57,7 +60,7 @@ function C.input(w,raw)
     if lower=="1" or lower=="back" then w.lockPage=nil return true end
     if lower=="2" or lower=="ask for help" then return SC.TerminalLockCrew.hint(w) end
     if lower=="" then return true end
-    C.catchUp(w.system,SC.ControlUtil.hours(),SC.Terminal.powered(w.object))
+    C.catchUp(w.system,SC.ControlUtil.hours(),(SC.Terminal.normalPowered or SC.Terminal.powered)(w.object))
     local c=w.system.lock.crack local password=C.password(w.system)
     w.crackAnswerVerified=nil
     if string.upper(raw)==password then

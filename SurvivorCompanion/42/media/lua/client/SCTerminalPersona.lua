@@ -650,6 +650,16 @@ end
 -- ---------------------------------------------------------------------------
 
 function P.respond(state, session, raw, facts)
+    if SC.EmmaCare then
+        local signal=SC.EmmaUnderstand and SC.EmmaUnderstand.careSignal(raw)
+        local care=SC.EmmaCare.respond(session,raw,signal,true)
+        if care then
+            local rows={}
+            for _,line in ipairs(care.lines) do rows[#rows+1]={text=line} end
+            return {layer="care",rows=rows,effects={},thinkMs=0,speed=95,
+                private=true,support=care.support,careDetected=care.careDetected,command=care.command}
+        end
+    end
     local D = indexed(SC.TerminalPersonaData[state.id])
     facts = facts or {}
     local text = clean(raw, P.MAX_INPUT)

@@ -146,7 +146,7 @@ function L.settle(state,player,object,insideCamp)
         SC.TerminalDrawers.claim(player,object,state)
         return
     end
-    SC.TerminalLockCrack.catchUp(state,SC.ControlUtil.hours(),SC.Terminal.powered(object))
+    SC.TerminalLockCrack.catchUp(state,SC.ControlUtil.hours(),(SC.Terminal.normalPowered or SC.Terminal.powered)(object))
     if lock.legacy and not lock.settled then
         local options=SandboxVars and SandboxVars.LivingFellows or {}
         lock.realItems=options.LockRealItems~=false lock.settled=true

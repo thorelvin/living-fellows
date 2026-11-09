@@ -5,7 +5,8 @@ SC.RadioEndpoints=SC.RadioEndpoints or {}
 local R=SC.RadioEndpoints
 local issued=setmetatable({}, {__mode="k"})
 function R.station(player,computer)
-    if not SC.Terminal.near(player,computer) or not SC.Terminal.powered(computer) then return nil,"Station unavailable." end
+    if SC.EmmaJump and SC.EmmaJump.active(player,computer) then return nil,"Borrowed power cannot run the station radio." end
+    if not SC.Terminal.near(player,computer) or not (SC.Terminal.normalPowered or SC.Terminal.powered)(computer) then return nil,"Station unavailable." end
     local state=SC.TerminalHardware.state(computer,false)
     local receiver,data,item=SC.TerminalHardware.receiver(computer)
     if not state or not receiver then return nil,"Mount a usable two-way radio first." end

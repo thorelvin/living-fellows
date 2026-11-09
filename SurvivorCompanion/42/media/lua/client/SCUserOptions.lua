@@ -28,6 +28,7 @@ local values = {
     pzOptimizerCompatibility = true,
     speechColors = "speaker",
     terminalLamp = "flash",
+    emmaMissedLog = true,
 }
 
 local api = PZAPI.ModOptions
@@ -77,6 +78,7 @@ local speechColorsOption = combo("speechColors", "UI_SC_ModOptions_SpeechColors"
 local lampOption=combo("terminalLamp","UI_SC_ModOptions_TerminalLamp","UI_SC_ModOptions_TerminalLamp_Tooltip",LAMP,{
     "UI_SC_ModOptions_LampFlash","UI_SC_ModOptions_LampSteady","UI_SC_ModOptions_LampOff"})
 local tipsOption=tickBox("showTips","UI_SC_ModOptions_ShowTips",true,"UI_SC_ModOptions_ShowTips_Tooltip")
+local emmaLogOption=tickBox("emmaMissedLog","UI_SC_ModOptions_EmmaMissedLog",true,"UI_SC_ModOptions_EmmaMissedLog_Tooltip")
 local resetTipsOption
 if type(options.addButton)=="function" then
     if not options:getOption("resetTips") then
@@ -121,6 +123,7 @@ end
 
 function UserOptions.apply()
     values.showTips=tipsOption:getValue()==true
+    values.emmaMissedLog=emmaLogOption:getValue()==true
     if resetTipsOption and resetTipsOption:getValue()==true then
         resetTipsOption:setValue(false)
         if SC.Guidance then SC.Guidance.resetTips() end

@@ -520,6 +520,9 @@ local function factionConversationAction(target, factionId, action, topic, playe
     elseif action == "recruitment_ask" then
         ok, accepted, detail = pcall(
             SC.FactionRecruitment.ask, factionId, player, false)
+    elseif action == "recruitment_review" then
+        if SC.UISocial then SC.UISocial.reviewJoining(factionId) end
+        return
     elseif action == "recruitment_trial" then
         ok, accepted, detail = pcall(
             SC.FactionRecruitment.startTrial, factionId, player, false)
@@ -798,6 +801,9 @@ local function addFactionConversations(context, factions, player)
             end
             menu:addOption(text("UI_SC_Faction_RecruitmentEndTrial"), nil,
                 factionConversationAction, group.id, "recruitment_return", nil, player)
+        elseif recruitment then
+            menu:addOption(text("UI_SC_Social_ask"), nil,
+                factionConversationAction, group.id, "recruitment_review", nil, player)
         end
     end
 end
@@ -1466,7 +1472,7 @@ local function nearbyRows(player)
                 if row.recruited then rows[#rows+1] = row end
                 local story = not row.recruited and SC.Oddballs and SC.Oddballs.groupForActor
                     and SC.Oddballs.groupForActor(actor)
-                if row.recruited or story or not row.factionMember and row.factionId == nil then
+                if row.recruited or story or row.factionStanding ~= "Hostile" then
                     talkRows[#talkRows+1] = row
                 end
             end

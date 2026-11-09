@@ -8,8 +8,8 @@
 -- The window owns no tick: the UI manager's per-frame update animates the
 -- thinking pause and the typewriter, and checks every half second that the
 -- player is still at the keyboard and the power is still on. EMMA's memory
--- of an operator (name, notes, last visit) lives in the computer's own mod
--- data, bounded and normalized on every read.
+-- of an operator and explicit notes lives in shared world ModData. Recent
+-- conversation stays on this computer; all records are bounded on read.
 
 require "ISUI/ISPanel"
 require "ISUI/ISButton"
@@ -17,6 +17,9 @@ require "ISUI/ISTextEntryBox"
 require "TimedActions/ISBaseTimedAction"
 require "Moveables/ISMoveableSpriteProps"
 require "SCContextMenu"
+require "SCEmmaTerminal"
+require "SCEmmaMind"
+require "SCEmmaJump"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -52,6 +55,12 @@ local function call(object, method, ...)
     local value, ok = U().call(object, method, ...)
     if ok then return value end
     return nil
+end
+
+function Terminal.entryText(entry)
+    -- UITextBox2's display text can lag its editing buffer at Enter. Read the
+    -- same live buffer used by persona terminals before clearing the field.
+    return call(entry and entry.javaObject,"getInternalText") or call(entry,"getText") or ""
 end
 
 local function text(key, fallback)
@@ -118,7 +127,7 @@ function Terminal.present(object)
         and (tonumber(call(object, "getObjectIndex")) or -1) >= 0
 end
 
-function Terminal.powered(object)
+function Terminal.normalPowered(object)
     if not Terminal.present(object) then return false end
     if SC.GridControl and SC.TerminalHardware then
         SC.GridControl.restoreInstallation(object,SC.TerminalHardware.state(object,false))
@@ -126,11 +135,14 @@ function Terminal.powered(object)
     if SC.TerminalHardware then return SC.TerminalHardware.powered(object) end
     return World().powered(call(object, "getSquare")) == true
 end
+function Terminal.powered(object)
+    return Terminal.normalPowered(object) or SC.EmmaJump and SC.EmmaJump.active(nil,object) or false
+end
 
 -- A read-only eligibility check for ambient NPC use. A portable lock is never
 -- bypassed, and the player's active window always takes precedence.
 function Terminal.companionAvailable(object)
-    if not Terminal.isComputer(object) or not Terminal.powered(object)
+    if not Terminal.isComputer(object) or not Terminal.normalPowered(object)
         or Terminal.window and Terminal.window.object == object then return false end
     local data = call(object, "getModData")
     local portable = type(data) == "table" and data.movableData
@@ -174,6 +186,7 @@ function Terminal.readMemory(object)
 end
 
 function Terminal.writeMemory(object, session, worldHours)
+    if session.emmaMind and SC.EmmaMind then return SC.EmmaMind.commit(session) end
     local data = call(object, "getModData")
     if type(data) ~= "table" then return false end
     local memory = Brain().exportMemory(session, worldHours)
@@ -219,6 +232,7 @@ function Terminal.computerState(player, object)
         state.paletteVersion = Presentation().PALETTE_VERSION
     end
     portable[System().MEMORY_KEY] = state
+    if state.lock and state.lock.kind=="persona" then portable.LF_EmmaPersona=true end
     return state
 end
 
@@ -358,17 +372,33 @@ function Terminal.sessionFor(player, object)
     local portable = portableData(object, false)
     local state = portable and portable[System().MEMORY_KEY]
     if not state or state.locked then return nil end
+    local mind=SC.EmmaMind
+    local square=call(object,"getSquare")
+    local town=SC.NicknameLife and SC.NicknameLife.townAt
+        and SC.NicknameLife.townAt(call(square,"getX"),call(square,"getY"))
+    local hours=type(getGameTime)=="function" and tonumber(call(getGameTime(),"getWorldAgeHours"))
+    local entry,reason
+    if mind then entry,reason=mind.enter(player,state,portable,{hours=hours,name=operatorName(player),
+        kind=World().computerKind(object,state.brand),town=town,place=town or "out in the country"},Terminal.readMemory(object)) end
     local key = state.identity
     local session = sessions[key]
-    if session then return session end
-    session = Brain().newSession({ operator = operatorName(player),
-        memory = Terminal.readMemory(object), nowMs = nowMs })
-    sessions[key] = session
-    sessionOrder[#sessionOrder + 1] = key
-    while #sessionOrder > Terminal.SESSIONS do
-        sessions[table.remove(sessionOrder, 1)] = nil
+    if session and (entry and (not session.emmaMind or session.emmaMind.operator~=entry.operator
+        or session.emmaMind.world~=entry.world) or not entry and session.emmaMind) then session=nil end
+    if not session then
+        session = Brain().newSession({ operator = operatorName(player),
+            memory = entry and entry.memory or Terminal.readMemory(object),
+            noteLimit=entry and entry.limit,nowMs = nowMs })
+        sessions[key] = session
+        for index=#sessionOrder,1,-1 do if sessionOrder[index]==key then table.remove(sessionOrder,index) end end
+        sessionOrder[#sessionOrder + 1] = key
+        while #sessionOrder > Terminal.SESSIONS do sessions[table.remove(sessionOrder, 1)] = nil end
     end
-    return session
+    if entry then
+        session.emmaMind={world=entry.world,operator=entry.operator,computer=entry.computer}
+        session.visits,session.lastSeen=entry.memory.visits,entry.memory.lastSeen
+        mind.refresh(session)
+    end
+    return session,entry,reason
 end
 
 function Terminal.resetSessions()
@@ -419,6 +449,7 @@ function Terminal.reset()
         end
     end
     Terminal.resetSessions()
+    if SC.EmmaJump then SC.EmmaJump.reset() end
     return true
 end
 
@@ -663,7 +694,7 @@ function SCTerminalWindow:menuOptions()
     if SC.TerminalScanUI and SC.TerminalScanUI.active(self) then return SC.TerminalScanUI.options(self) end
     if SC.TerminalGridUI and SC.TerminalGridUI.active(self) then return SC.TerminalGridUI.options(self) end
     if SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then return SC.TerminalRadioUI.options(self) end
-    if SC.TerminalServices then
+    if SC.TerminalServices and not (SC.EmmaJump and SC.EmmaJump.active(self.player,self.object)) then
         local serviceMenu = SC.TerminalServices.menu(self)
         if serviceMenu then return serviceMenu end
     end
@@ -875,7 +906,7 @@ end
 function SCTerminalWindow:setFocusMode(mode)
     if self.system and self.system.locked then mode = "chat" end
     if mode == self.focusMode then return end
-    if self.focusMode == "chat" and self.entry then self.chatDraft = self.entry:getText() end
+    if self.focusMode == "chat" and self.entry then self.chatDraft = Terminal.entryText(self.entry) end
     self.focusMode = mode
     self:setEntryText(mode == "chat" and (self.chatDraft or "") or "")
     if self.entry then pcall(function() self.entry:focus() end) end
@@ -883,15 +914,15 @@ end
 
 function SCTerminalWindow:entryChanged()
     if self.changingEntry or self.state == "booting" or self.state == "closing" then return end
-    local raw = self.entry:getText()
+    local raw = Terminal.entryText(self.entry)
     if self.system and self.system.locked and SC.TerminalLockUI and SC.TerminalLockUI.instantChoice(self,raw) then
-        self:submit()
+        self:submit(raw)
         return
     end
     if self.focusMode == "menu" and raw ~= "" then
         if raw:match("^[1-9]$") then
             self.menuSelection = tonumber(raw)
-            self:submit()
+            self:submit(raw)
         else
             -- Starting a sentence is also an intentional move to chat.
             self.focusMode = "chat"
@@ -955,7 +986,7 @@ function SCTerminalWindow:otherKey(key)
 end
 
 function SCTerminalWindow:scrollBy(rows)
-    if self.system and self.system.locked then
+    if self.system and self.system.locked and not (SC.EmmaTerminal and SC.EmmaTerminal.active(self)) then
         local footer=SC.TerminalLockUI and self.system.lock and math.ceil(#SC.TerminalLockUI.footer(self)/2) or 0
         local panel=SC.TerminalLockUI and SC.TerminalLockUI.panel(self)
         local reserve=panel and (SC.TerminalLockUI.primary(self) and footer or self.lockPage=="manual" and footer+1 or 0)
@@ -983,6 +1014,7 @@ function SCTerminalWindow:scrollBy(rows)
 end
 
 function SCTerminalWindow:onMouseWheel(delta)
+    if SC.EmmaTerminal and SC.EmmaTerminal.active(self) then self:scrollBy(tonumber(delta) or 0);return true end
     if self.system and self.system.locked and tonumber(delta) and tonumber(delta)~=0 and SC.TerminalLockWheel
         and SC.TerminalLockWheel.turn(self,tonumber(delta)>0 and 1 or -1) then self:playClickSound() return true end
     -- A positive delta is the wheel turning down. These pages count their offset from
@@ -1015,7 +1047,7 @@ function SCTerminalWindow:onMouseDown(x, y)
             if x >= box.x and x < box.x + box.width and y >= box.y and y < box.y + box.height then
                 self:setFocusMode("menu")
                 self:setEntryText(tostring(box.index))
-                self:submit()
+                self:submit(tostring(box.index))
                 return true
             end
         end
@@ -1024,7 +1056,7 @@ function SCTerminalWindow:onMouseDown(x, y)
                 self:playClickSound()
                 self:setEntryText(box.value)
                 self.lockPointerSubmit=true
-                self:submit()
+                self:submit(box.value)
                 self.lockPointerSubmit=nil
                 return true
             end
@@ -1076,6 +1108,7 @@ function SCTerminalWindow:enqueue(lines, kind, speed)
 end
 
 function SCTerminalWindow:startReply(reply)
+    self.privateEmmaReply=reply.private==true
     if self.scanPage and self.requestTicket then
         self.scanPrompt = { ticket = self.requestTicket, text = table.concat(reply.lines or {}, "\n") }
         self.scanSampleAt = nil
@@ -1089,6 +1122,7 @@ function SCTerminalWindow:startReply(reply)
     if #lines > 0 then lines[#lines + 1] = "" end
     local speed = #lines > 12 and Terminal.CHARS_PER_SECOND * 3 or Terminal.CHARS_PER_SECOND
     self:enqueue(lines, "emma", speed)
+    if reply.support then self:enqueue(reply.support,"support",speed) end
     local wait = tonumber(reply.thinkMs) or 0
     if wait > 0 then
         self.state = "thinking"
@@ -1100,9 +1134,35 @@ function SCTerminalWindow:startReply(reply)
 end
 
 function SCTerminalWindow:startEmma()
-    self.session = Terminal.sessionFor(self.player, self.object)
+    local entry,sharedReason
+    self.session,entry,sharedReason = Terminal.sessionFor(self.player, self.object)
     if SC.Guidance then SC.Guidance.report("computer") end
     local reply = Brain().boot(self.session, self.world)
+    local checkin=SC.EmmaTerminal and SC.EmmaTerminal.checkin(self.player,self.session,worldHours())
+    local infectionNotice=not checkin and SC.EmmaReadings and SC.EmmaReadings.boot(self.session,self.world)
+    if checkin then
+        local boot={}
+        for index=1,#(Lines().BOOT or {}) do boot[index]=reply.lines[index] end
+        reply.lines=boot
+        for _,line in ipairs(checkin.lines) do reply.lines[#reply.lines+1]=line end
+        self.session.context.guidanceOffer=nil
+    elseif infectionNotice then
+        local boot={}
+        for index=1,#(Lines().BOOT or {}) do boot[index]=reply.lines[index] end
+        reply.lines=boot
+        for _,line in ipairs(infectionNotice) do reply.lines[#reply.lines+1]=line end
+        self.session.context.guidanceOffer=nil
+    elseif SC.EmmaMind then
+        local extra=SC.EmmaMind.bootLines(self.session,entry)
+        -- Guidance remains last; the shared mind adds at most three rows.
+        local offer=reply.lines[#reply.lines]==Lines().SHORT_OFFER and table.remove(reply.lines)
+        for _,line in ipairs(extra) do reply.lines[#reply.lines+1]=line end
+        if sharedReason then reply.lines[#reply.lines+1]=sharedReason end
+        if offer then reply.lines[#reply.lines+1]=offer end
+    end
+    if SC.EmmaJump and SC.EmmaJump.active(self.player,self.object) then
+        reply.lines[#reply.lines+1]="Borrowed power: EMMA only, up to ten minutes. Radio and building services are unavailable."
+    end
     Terminal.writeMemory(self.object, self.session, worldHours())
     local lines = reply.lines or {}
     local count = #(Lines().BOOT or {})
@@ -1113,7 +1173,7 @@ function SCTerminalWindow:startEmma()
     self:enqueue(bootLines, "system", Terminal.BOOT_CHARS_PER_SECOND)
     if #greeting > 0 then greeting[#greeting + 1] = "" end
     self:enqueue(greeting, "emma", Terminal.CHARS_PER_SECOND)
-    if SC.TerminalPersonaDiscovery then
+    if not checkin and not infectionNotice and SC.TerminalPersonaDiscovery then
         local followup,id=SC.TerminalPersonaDiscovery.campLine(self)
         if followup then
             self:enqueue({followup,""},"emma",Terminal.CHARS_PER_SECOND)
@@ -1121,8 +1181,8 @@ function SCTerminalWindow:startEmma()
             self.queue[#self.queue].personaFollowup=id
         end
     end
-    if SC.TerminalLockEmma then SC.TerminalLockEmma.onVisit(self) end
-    if self.lockEmmaWinLine then self:print(self.lockEmmaWinLine,"emma") self.lockEmmaWinLine=nil end
+    if not checkin and not infectionNotice and SC.TerminalLockEmma then SC.TerminalLockEmma.onVisit(self) end
+    if not checkin and not infectionNotice and self.lockEmmaWinLine then self:print(self.lockEmmaWinLine,"emma") self.lockEmmaWinLine=nil end
     self.state = "typing"
     self:setFocusMode("menu")
 end
@@ -1201,6 +1261,7 @@ function SCTerminalWindow:finishBoot()
     if self.startupReady then return end
     self.startupReady = true
     self.state = "idle"
+    if self.system.locked and SC.EmmaTerminal and SC.EmmaTerminal.boot(self) then return end
     if self.system.locked and not (SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self)) and SC.TerminalLockCrew then SC.TerminalLockCrew.react(self,"first",25) end
     if not self.system.locked then
         if self.system.lock and not self.system.lock.welcomed and SC.TerminalPayoff then SC.TerminalPayoff.begin(self,"resume") return end
@@ -1459,9 +1520,10 @@ function SCTerminalWindow:systemInput(raw)
         self:close()
         return true
     end
-    if not self.system.locked and SC.TerminalScanUI and SC.TerminalScanUI.input(self,trimmed,option) then return true end
-    if not self.system.locked and SC.TerminalGridUI and SC.TerminalGridUI.input(self,trimmed,option) then return true end
-    if not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
+    local jumped=SC.EmmaJump and SC.EmmaJump.active(self.player,self.object)
+    if not jumped and not self.system.locked and SC.TerminalScanUI and SC.TerminalScanUI.input(self,trimmed,option) then return true end
+    if not jumped and not self.system.locked and SC.TerminalGridUI and SC.TerminalGridUI.input(self,trimmed,option) then return true end
+    if not jumped and not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
     -- This computer's physical drawer precedes the building-device parser,
     -- whose generic "unlock <name>" command would otherwise swallow it.
     if not self.system.locked and (lower=="unlock drawer" or option and option.systemCommand=="drawer") and SC.TerminalDrawers then
@@ -1584,8 +1646,10 @@ function SCTerminalWindow:finishCommand()
     if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then SC.TerminalPersonaUI.finished(self) end
 end
 
-function SCTerminalWindow:submit()
-    local raw = self.entry and self.entry:getText() or ""
+function SCTerminalWindow:submit(selected)
+    -- Pointer choices carry their exact value; setting display text and reading
+    -- it back in the same frame must not substitute an older editing buffer.
+    local raw = selected~=nil and tostring(selected) or Terminal.entryText(self.entry)
     if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) then raw=SC.TerminalPersonaUI.entryText(self) end
     self:setEntryText("")
     if self.state == "closing" then return end
@@ -1606,6 +1670,7 @@ function SCTerminalWindow:submit()
         if string.find(raw, "^%s*$") or self.closed then return end
     end
     if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) and string.find(raw,"^%s*$") then return end
+    if SC.EmmaTerminal and SC.EmmaTerminal.input(self,raw) then return end
     if not string.find(raw, "^%s*$") then
         table.insert(self.history, 1, raw)
         while #self.history > Terminal.HISTORY do table.remove(self.history) end
@@ -1660,6 +1725,8 @@ function SCTerminalWindow:close()
     if self.session and self:hasCurrentAccess() then
         pcall(Terminal.writeMemory, self.object, self.session, worldHours())
     end
+    if SC.EmmaTerminal then SC.EmmaTerminal.close(self) end
+    if SC.EmmaJump then SC.EmmaJump.stop(self.object) end
     self:setVisible(false)
     self:removeFromUIManager()
     if Terminal.window == self then Terminal.window = nil end
@@ -1673,7 +1740,7 @@ function SCTerminalWindow:watch(now)
     if self.state == "closing" then return end
     if SC.TerminalLamp and SC.TerminalLamp.watch(self,now) then return end
     if SC.TerminalLockCrack and self.system.lock and self.system.lock.crack then
-        SC.TerminalLockCrack.catchUp(self.system,self.gameHours,Terminal.powered(self.object))
+        SC.TerminalLockCrack.catchUp(self.system,self.gameHours,Terminal.normalPowered(self.object))
     end
     if not self:hasCurrentAccess() or not Terminal.present(self.object) or not Terminal.near(self.player, self.object)
         or call(self.player, "isDead") == true then
@@ -1683,6 +1750,7 @@ function SCTerminalWindow:watch(now)
     local campBefore = self.campReportAvailable
     self:refreshCampAccess()
     if campBefore ~= self.campReportAvailable then self.menuSelection = 1 end
+    if SC.EmmaJump and SC.EmmaJump.watch(self,now) then return end
     if not Terminal.powered(self.object) then
         self:cancelRequest()
         self:stopBootSound()
@@ -1745,7 +1813,7 @@ local SPINNER = { "|", "/", "-", "\\" }
 
 function SCTerminalWindow:drawRow(value, y, kind)
     local colors = self.colors or Presentation().colors("green")
-    local color = colors[kind] or colors.emma
+    local color = kind=="support" and {1,1,1,1} or colors[kind] or colors.emma
     self:drawText(value, self.layout.left, y, color[2], color[3], color[4], color[1], self.font)
 end
 
@@ -1827,6 +1895,7 @@ function SCTerminalWindow:readingFrame(now)
 end
 
 function SCTerminalWindow:drawSecurity()
+    if SC.EmmaTerminal and SC.EmmaTerminal.active(self) then return SC.EmmaTerminal.draw(self,nowMs()) end
     if SC.TerminalLockUI and SC.TerminalLockUI.draw(self,nowMs()) then return end
     local headers, rows = self:securityHeaderRows(), self:securityRows()
     local options=SC.TerminalLockUI and self.system.lock and SC.TerminalLockUI.footer(self) or {}
@@ -2024,7 +2093,9 @@ end
 function SCTerminalWindow:drawHints(range)
     local colors = self.colors or Presentation().colors("green")
     local hint
-    if self.serviceSecurity and self.menuPage=="building_security" then
+    if SC.EmmaTerminal and SC.EmmaTerminal.active(self) then
+        hint="Enter: send   PgUp/PgDn: read   Esc: log off"
+    elseif self.serviceSecurity and self.menuPage=="building_security" then
         local status=System().status(self.serviceSecurity,self.gameHours)
         local puzzle=self.serviceSecurity.puzzle
         hint=status=="lockout" and "Building recovery locked. Retry after one hour."
@@ -2245,7 +2316,7 @@ function Terminal.open(player, object)
     if type(window.setAlwaysOnTop) == "function" then window:setAlwaysOnTop(true) end
     Terminal.window = window
     if SC.TerminalHardware and type(SC.TerminalHardware.beginUse)=="function" then SC.TerminalHardware.beginUse(object) end
-    if SC.BuildingControls and type(SC.BuildingControls.register)=="function" then SC.BuildingControls.register(object) end
+    if Terminal.normalPowered(object) and SC.BuildingControls and type(SC.BuildingControls.register)=="function" then SC.BuildingControls.register(object) end
     local ok, failure = pcall(function() window:boot() end)
     if not ok then
         diagnostic("terminal boot failed", failure)
@@ -2325,9 +2396,10 @@ function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects,
     if SC.Guidance then SC.Guidance.report("computer_near",{object=computer}) end
     if SC.GridControl then SC.GridControl.sample(computer) end
     local stored=Terminal.peekState(computer)
-    if stored and SC.TerminalLockCrack then SC.TerminalLockCrack.catchUp(stored,worldHours(),Terminal.powered(computer)) end
+    if stored and SC.TerminalLockCrack then SC.TerminalLockCrack.catchUp(stored,worldHours(),Terminal.normalPowered(computer)) end
     if SC.TerminalLockCase then SC.TerminalLockCase.context(context,player,computer) end
     if SC.TerminalServices then SC.TerminalServices.context(context, player, computer) end
+    if SC.EmmaJump then SC.EmmaJump.context(context,player,computer) end
     if not Terminal.powered(computer) then
         if SC.GridControl and SC.GridControl.visible() and SC.GridControl.siteFor(computer) then
             local why=SC.GridControl.connectBlocker(computer)

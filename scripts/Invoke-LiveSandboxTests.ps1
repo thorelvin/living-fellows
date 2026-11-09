@@ -244,7 +244,7 @@ param(
     [ValidateRange(1, 16)][int[]]$SquadCombatZombieCounts = @(),
     [switch]$SquadCombatNaturalAcquisition,
     [switch]$SquadCombatPassiveControl,
-    [ValidateSet('Base.Crowbar', 'Base.Pen', 'Base.HuntingKnife', 'Base.Shovel', 'Base.GardenHoe', 'Base.WoodenMallet', 'Base.Wrench')]
+    [ValidateSet('Base.Crowbar', 'Base.Pen', 'Base.HuntingKnife', 'Base.Shovel', 'Base.GardenHoe', 'Base.WoodenMallet', 'Base.Wrench', 'Base.Pan')]
     [string]$SquadCombatWeaponType = 'Base.Crowbar',
     [ValidateSet('Base.Crowbar', 'Base.WoodenMallet', 'Base.Wrench')]
     [string[]]$SquadCombatWeaponTypes = @(),

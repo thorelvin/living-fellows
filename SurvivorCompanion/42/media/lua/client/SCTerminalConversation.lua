@@ -15,13 +15,13 @@ end
 
 guide("camp", "Starting a camp",
     {"how do i start a camp","how do i set up a base","how do i make a base","how do i set camp core","where do i start a base"},
-    {"Right-click the ground, then Living Fellows > Base life > Set camp core here. Mark storage and work areas, then assign residents to base duty.",
+    {"Right-click the ground, then Living Fellows > Camp > Establish camp here. Mark storage and work areas, then assign residents to base duty.",
      "Start with food, clean water, medical supplies and tools. A camp is easier to run when its shelves mean what their labels say."},
     {"Use More > Base for the selected companion's job and the camp's policies. Storage management is at the bottom.",
      "Press Insert to inspect the marked layout. Rooms and floors still need usable routes between them."})
 guide("storage", "Marking and removing storage",
     {"how do i mark storage","how do i unmark storage","how do i remove storage","how do i change storage","how does storage work"},
-    {"Right-click a container inside camp and use Living Fellows > Base life to mark its storage category.",
+    {"Right-click a container inside camp, then Living Fellows > Mark storage as... and choose its category.",
      "To remove the marking, choose Unmark storage. The container and its contents remain where they are."},
     {"Camp workers use permitted marked supplies and respect reserves. A label is permission, not an instruction to manufacture its contents.",
      "Ask how many nails, how much food or shortages for current records. Unmarked shelves are not part of that count."})
@@ -160,9 +160,9 @@ guide("offline", "Offline operation",
 guide("memory", "Conversation and notes",
     {"how does your memory work","how long do you remember","can you remember this conversation","what do you remember about this conversation","how do i save a note"},
     {"While this terminal session is open I keep a small recent-topic history. You can ask what were we talking about, go back to the previous topic, or check a subject again.",
-     "Use remember followed by a note to save it on this computer. A brief logoff keeps the thread; a long silence clears temporary conversation."},
+     "Use remember followed by a note for the shared EMMA notebook. A brief logoff keeps this computer's thread; a long silence clears temporary conversation."},
     {"Brief thanks or acknowledgements do not erase the subject. Names and items are looked up again when you follow up; an old answer is not a fresh measurement.",
-     "Forget that conversation clears the recent thread. Forget everything clears your saved notes. Factory reset is a separate confirmed operation."})
+     "Forget that conversation clears the recent thread. Forget everything asks which shared notes to erase. Factory reset affects this computer, preserving shared notes and fragments."})
 guide("escrow_station", "County radio service",
     {"is that station automated","who runs the numbers station","why did the radio know my name","who is county key escrow"},
     {"That station is automated. I checked twice."},
@@ -212,7 +212,7 @@ guide("doors", "Doors and shutters",
 guide("lights", "Lights and routines",
     {"how do i control lights","how do circuits work","how do i turn lights on at night","how do i enable lockdown","how do automatic routines work"},
     {"Connect local controls, fit the required lighting relays and use Equipment to name devices or group lights. Constructed floodlights need their own usable supply.",
-     "Routines are opt-in. Night lighting switches selected lights at 20:00 and 06:00; lockdown leaves obstructed steps pending."},
+     "Routines are opt-in and run only while the computer is in use. Night lighting checks 20:00 and 06:00; closing the terminal pauses controls, while the radio service can continue."},
     {"Moving or disconnecting the authorizing computer suspends its routines. Start with one named light group so the result is easy to inspect.",
      "Generator supply and lighting relays are supported. Individual fridge/freezer switching is not available."})
 guide("generator", "Generator service",
@@ -397,7 +397,7 @@ end
 function C.guide(id)
     for _,record in ipairs(C.GUIDES) do if record.id==id then return record end end
 end
-function C.findGuide(text, tokenize, distance)
+function C.findGuide(text, tokenize, distance, exactOnly)
     local function normalize(value)
         local out=table.concat(tokenize(value)," "):gsub("^emma%s+",""):gsub("^please%s+","")
         return out:gsub("^could you tell me%s+",""):gsub("^can you tell me%s+","")
@@ -417,6 +417,7 @@ function C.findGuide(text, tokenize, distance)
         end
     end
     if C.questionIndex[query] then return C.questionIndex[query] end
+    if exactOnly then return nil end
     if distance and #query>=12 then
         local found
         local frame=query:match("^(%S+%s+%S+%s+%S+)")
@@ -457,7 +458,7 @@ function C.state(session)
         -- calls state(), and must not erase a freshly prepared clarification
         -- or lore reference during that same response.
         state.lastAt=nil
-        for _,key in ipairs({"person","personId","item","itemText","referenceId","referencesSeen","pending","personChoices","intent"}) do
+        for _,key in ipairs({"person","personId","item","itemText","referenceId","referencesSeen","pending","personChoices","followupChoice","intent"}) do
             session.context[key]=nil
         end
     end
@@ -488,17 +489,18 @@ local NEUTRAL={thanks=true,ack=true,hello=true,sorry=true,compliment=true,empty=
     fallback=true,did_you_mean=true,did_you_mean_no=true,yes=true,no=true,clear=true,exit=true,
     request=true,factory_reset=true,factory_reset_help=true,conversation_history=true,
     conversation_forget=true,conversation_missing=true,clarify_person=true,chat_apology=true,chat_patience=true,
-    remember=true,forget=true,callme=true,whoami=true,recall=true}
+    remember=true,forget=true,callme=true,whoami=true,recall=true,followup_clarify=true}
 function C.neutral(intent) return NEUTRAL[intent]==true end
 function C.record(session, raw, reply, slots)
     local state=C.state(session)
     state.lastAt=C.clock(session)
+    if reply.intent~="followup_clarify" then session.context.followupChoice=nil end
     if reply.intent~="empty" and reply.intent~="repeat" and reply.intent~="conversation_forget" then
         state.history[#state.history+1]={question=C.clean(raw),intent=reply.intent}
         while #state.history>C.MAX_HISTORY do table.remove(state.history,1) end
     end
     if reply.error or C.neutral(reply.intent) then return end
-    local topic={intent=reply.intent,kind="data",turn=session.turns or 0,label=reply.intent,at=state.lastAt}
+    local topic={intent=reply.intent,originIntent=reply.intent,kind="data",turn=session.turns or 0,label=reply.intent,at=state.lastAt}
     local intent=reply.intent
     if intent=="person" and slots.person then
         topic.kind,topic.id,topic.label="person",slots.person.id,C.clean(slots.person.name,80)
@@ -527,6 +529,14 @@ function C.record(session, raw, reply, slots)
         topic.label=topic.id
     elseif intent=="skills" then topic.query=slots.query topic.label=slots.query or "skills"
     elseif intent:find("^chat_") or reply.category=="chat" then topic.kind="chat" end
+    if SC.EmmaFollowups then SC.EmmaFollowups.annotate(topic,slots,reply) end
+    if reply.reading then
+        topic.reading=reply.reading
+        topic.readingDay=reply.readingDay
+        topic.readingDawn=slots.dawn
+        topic.readingNeed=slots.need
+        topic.readingWeather=slots.weather
+    end
     local key=topic.kind..":"..tostring(topic.id or topic.kind=="item" and table.concat(topic.item," ")
         or topic.query or topic.expression or topic.intent)
     topic.key=key
@@ -559,12 +569,14 @@ function C.quantity(text)
 end
 function C.topicTurn(topic)
     if not topic then return end
-    if topic.kind=="guide" then return "guide",{guideId=topic.id,page=topic.page} end
+    if topic.kind=="guide" then return "guide",{guideId=topic.id,page=topic.page,facet=topic.facet,
+        followupSubject=topic.subject,followupParent=topic.parentSubject} end
     if topic.kind=="person" then return "person_reference",{id=topic.id,name=topic.label,aspect=topic.aspect} end
     if topic.kind=="math" then return "math",{expression=topic.expression,value=topic.value} end
     if topic.kind=="item" then return topic.intent,{item=C.copyWords(topic.item),itemText=C.copyWords(topic.itemText),required=topic.required} end
     if topic.kind=="lore" then return "lore",{referenceId=topic.id} end
-    return topic.intent,{query=topic.query}
+    return topic.intent,{query=topic.query,day=topic.readingDay,dawn=topic.readingDawn,
+        need=topic.readingNeed,weather=topic.readingWeather}
 end
 function C.meta(session, text, numericText)
     local value=words(text)

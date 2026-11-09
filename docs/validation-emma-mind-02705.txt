@@ -1,0 +1,80 @@
+EMMA shared mind and jump-starting - Phase C, 0.27.5
+2026-11-09
+
+Scope
+World ModData LF_EmmaMindV1 holds bounded operator records, explicit notes,
+one-time computer receipts and domain indexes. Local short conversations and
+care dialogue are excluded. Ordinary EMMA contributes once; locked PCs wait
+for an unlocked boot. Persona machines remain excluded after factory reset.
+Legacy notes migrate once without rewriting their source. Overflow stays on
+the original computer until room is available. Factory reset affects that
+computer, preserving the shared notebook, fragments and operator recognition.
+
+Generic "forget everything" lists notes and asks which to erase. Specific
+or all-note deletion uses fresh, one-use Y/N tickets with revision and content
+checks. Progress reads "Computer recovery: 1 fragment recovered" and "Next
+memory tier at 2 fragments", with the correct singular/plural.
+
+Jump-starting requires the primary operator, Electrical 2, a screwdriver and
+an exact, owned, intact car battery with at least 5% charge. The native timed
+installation action revalidates on completion and subtracts .05 once. A
+foreground lease lasts 600000 real milliseconds or until logoff; no refund
+for early logoff, no persisted lease and no background drain. Normal supply
+is required for radio endpoints/work, discovery, building authorization,
+security routines and background password-recovery credit. No new event hook,
+idle scan, global action wrapper or native bridge code was added.
+
+Automated verification - final source
+scripts/Test-Project.ps1 -Serial: PROJECT_TEST_PASS checks=5.
+Build, Lifecycle, Behaviour, Cargo, Interface: PASS, 73.8 seconds.
+Evidence: build/test-results/20261109-004332-c6f955.
+SCEmmaMindTests runs inside the existing Interface check, covering migration,
+two-PC sharing, deletion conflicts/replay, local reset, new-character identity,
+stable moved-PC credit, tier/domain thresholds, malformed records, ledger
+bounds, charge accounting, early close, expiry and jump-powered lock reopening.
+
+Existing SCBuildingServicesTests and SCBuildingScanTests also passed against
+production modules through KahluaTestRunner (256 MB heap, two processors).
+They check that UI-only borrowed power cannot authorize building controls,
+run a saved lighting routine, start/resume discovery or continue a scan.
+Logs: C:/ZOMBOID/outputs/emma-mind-02705/building-services.log
+      C:/ZOMBOID/outputs/emma-mind-02705/building-scan.log
+
+Native acceptance - Project Zomboid 42.21.0
+One low-impact game at a time, LF alone, isolated source payload and bridge.
+Source save: Rising/2026-11-08_00-37-04; original and installed game untouched.
+Actual mapped office desktops: 6372,5317,0 and 6368,5322,0. No computer spawned.
+The clone unlocked these fixture PCs, bypassed their unrelated first-owner
+welcome sequence, and seeded one legacy note. The player was moved to the
+mapped office, with clone-only protection for the isolated acceptance.
+
+First run: SC-Harness-20261109-002907-6bcd26bb - COMPLETE, LIVE_SANDBOX_PASS.
+- Native terminal entry recognizes the same operator and note at both desks.
+- Generic forgetting asks which note; reset reboots with shared data intact.
+- Native movable pickup/placement swaps both PCs between existing tabletops,
+  retaining their exact identities and granting no duplicate fragment.
+- A real car battery completes the native timed connection and drops .80 to .75.
+- Normal supply was switched off at the fixture PC. The session reports jump
+  power, refuses a camp-action ticket and expires under the native real clock.
+- Expiry used a six-second fixture lease; the configured ten-minute duration,
+  early logoff and non-refund behavior are covered headlessly.
+
+Reload: SC-Harness-20261109-003448-36fe3698 - COMPLETE, LIVE_SANDBOX_PASS.
+After a graceful engine save and a fresh process, both moved computer identities,
+the shared note, operator alias and fragment count survived without new credit.
+No LF Lua exceptions or terminal failures in either successful native run.
+
+Earlier fixture blocks (no PCs near the initial save, welcome timing, checking
+the closed pre-reset window) have screenshots and logs retained in the local
+live-sandbox-runs folders. Both successful receipts and three native screenshots
+are copied to C:/ZOMBOID/outputs/emma-mind-02705. Screenshots predate the final
+progress-label wording. The final service-power guards and wording were then
+verified by the automated checks above; the native scenario was not repeated.
+
+Limits and documentation
+New-character identity is headless-tested; a native death/recreation scenario
+was not run. Body/calendar indexes are persisted, but actual condition and
+calendar answers belong to Phase D. Story/regard/broadcasts remain later work.
+docs/camp-computer.md, CHANGELOG and the local Field Guide EMMA chapter updated.
+The Field Guide build passed its image, anchor and tag checks; not published.
+No commit, push or local installation performed for this phase.

@@ -17,7 +17,7 @@ local definitions = {
     {id="meet", title="Meet a survivor", text="Find another survivor. They turn up in houses and along roads."},
     {id="invite", title="Invite them", text="Right-click them, choose Talk to (their name), then Invite to join."},
     {id="order", title="Give an order", text="Right-click your companion: Follow, Stay or Retreat. Orders holds the rest."},
-    {id="camp", title="Set a camp core", text="Right-click the ground where you want to live > Living Fellows > Set camp core here."},
+    {id="camp", title="Establish a camp", text="Right-click the ground where you want to live > Living Fellows > Establish camp here..."},
     {id="storage", title="Mark storage", text="Right-click a container inside camp > Living Fellows > Mark storage as..."},
     {id="job", title="Give someone a job", text="Select a companion, open More > Base, and pick their Base job."},
     {id="computer", title="Use a computer (optional)", text="Right-click a powered computer > Use computer. EMMA keeps the camp's records."},

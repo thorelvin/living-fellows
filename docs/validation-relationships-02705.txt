@@ -1,0 +1,76 @@
+Living Fellows 0.27.5 - relationship clarity and direct help
+Date: 2026-11-08
+Branch: living_fellows/0.27.5
+
+Implemented
+- Talk shows Cautious, Familiar, Trusted, Close and Family, with progress to
+  the next existing threshold and up to three recent relationship reasons.
+- Relationship conversation is available before recruitment. Ordinary household
+  residents can be focused for Talk without adding their entire household to
+  the companion roster. Existing Strange Folk context conversations stay authored.
+- Offer food and drinking water without requiring the recipient to have trade
+  stock. The item picker checks at most 512 items across the player's inventory
+  and nested bags. Incomplete searches have a different message from no supplies.
+- Confirm one exact item. Water labels disclose its measured litres and that the
+  whole container is being given. Medical help opens the existing native care UI.
+- Retain native food safety, fresh/normal/emergency priorities, favourites,
+  protected possessions and action reservations. Confirmation rechecks the
+  player, recipient, need, ownership, access, safety and carrying capacity.
+- Reuse the trade ownership journal, rollback and recovery for physical gifts.
+  There are no scripted hunger/thirst reductions, replacement items or new scans
+  while the terminal or Talk screen is idle.
+- Food and water each have a rolling 24-game-hour help window: first gift full
+  benefit, second half, later gifts supplies only. Portion size scales benefit.
+  Care is credited at handover; later portions/drinks do not grant it again in
+  that window. Optional care fields persist through the existing save schema.
+- Household joining explains personal relationship versus household standing,
+  contracts, cooldowns, trial status, resident obligations and authored gates.
+  Existing eligibility, scores, thresholds and trial decisions are retained.
+- Stage changes have a nonmodal relationship note; confirmed gifts report their
+  result. Camp setup says Establish camp here, and barter confirmation says Trade.
+- Release metadata and rebuilt bridge are 0.27.5. Native protocol remains
+  42.21-isocompanion-30; world/inventory save schemas are unchanged.
+
+Automated verification
+Command: scripts/Test-Project.ps1 -Serial
+Final evidence: build/test-results/20261108-205303-4e6148
+Result: PROJECT_TEST_PASS checks=5 profile=routine live=false
+Build PASS; Lifecycle PASS; Behaviour PASS; Cargo PASS; Interface PASS.
+- Direct gifts to an unrecruited empty-inventory recipient, nested bags, food
+  priorities, rotten food, favourites, exact transfers, stale clicks, failed
+  native attachment rollback, saved care receipts, same-day limits, multiple
+  portions, new-day benefit, water contents, hostile actors and current distance.
+- Original relationship thresholds, household eligibility and simultaneous
+  standing/contract explanations.
+- Talk layouts at 280/420/760-pixel content widths and 16/22-pixel fonts;
+  meaningful refresh for relationship percentage, household standing, contract
+  progress and satisfied needs. Existing context/story and UI regressions pass.
+
+Live verification - real Project Zomboid 42.21.0, LF only
+Run: SC-Harness-20261108-204618-b19f5780
+One cloned save; isolated source bridge; low-impact single game process.
+Custom receipt: C:/ZOMBOID/outputs/relationship-02705/acceptance.txt
+Result: COMPLETE; real Talk, food picker, water picker and handovers passed.
+- A registered native independent survivor remained unrecruited.
+- A native peach in the player's duffel bag transferred to that exact survivor.
+  Trust/bond matched its native floating-point hunger value and portion scaling.
+- Replaying the stale selection failed. Resetting the native command cache and
+  rereading persisted actor/registry state retained the help receipt and benefit.
+- A real water bottle and its actual contents transferred together. The picker
+  visibly warned that the entire container was being given.
+- Screenshots inspected: talk-after.png, food-picker.png, water-picker.png in
+  C:/ZOMBOID/outputs/relationship-02705. The final console has no new social UI
+  formatting errors. The disposable game process exited after the receipt.
+
+First-run evidence and scope
+- First run: SC-Harness-20261108-204329-11bd1d34. Captured the required blocker
+  screenshot at C:/ZOMBOID/outputs/relationship-02705/first-run-block.png.
+  Found and fixed native translation formatting of the percentage. The trust
+  assertion also needed tolerance for the native peach's float value rather
+  than exact equality to a rounded number; the handover itself had succeeded.
+- The live run covers independent-survivor help and command-cache reload, not
+  a complete household trial or a quit/relaunch cycle. Household gates/layouts,
+  saved care and the final repeated-portion suppression are automated checks.
+- No background service, NPC spawn balance, recruitment threshold or native
+  bridge behavior was added by this feature. The original player save and the
+  installed game launcher/payload were not edited by acceptance.

@@ -12,6 +12,8 @@ local SC = SurvivorCompanion
 
 SC.TerminalWorld = SC.TerminalWorld or {}
 local World = SC.TerminalWorld
+require "SCEmmaBody"
+require "SCEmmaCalendar"
 
 World.ZOMBIE_RADIUS = 40
 World.ZOMBIE_SCAN_LIMIT = 2000
@@ -272,6 +274,12 @@ function World.new(player, object)
     end
     local provider = { player = player, object = object, square = square, origin = origin }
 
+    function provider.body(mode) return SC.EmmaBody.read(player,mode) end
+    function provider.self(mode) return SC.EmmaBody.file(player,mode) end
+    function provider.calendar(kind,query) return SC.EmmaCalendar.read(kind,query) end
+    function provider.calendarClock() return SC.EmmaCalendar.clock() end
+    function provider.daylight() return SC.EmmaCalendar.daylight() end
+
     function provider.camp()
         local life = SC.BaseLife
         if not life or type(life.active) ~= "function" then return { configured = false } end
@@ -312,6 +320,10 @@ function World.new(player, object)
     end
 
     function provider.power()
+        if SC.EmmaJump and SC.Terminal and not SC.Terminal.normalPowered(object) then
+            local borrowed=SC.EmmaJump.power(player,object)
+            if borrowed then return borrowed end
+        end
         local hardware=SC.TerminalHardware and SC.TerminalHardware.state(object,false)
         if hardware and hardware.on==false then return {source="off"} end
         if SC.GridControl and SC.GridControl.yardSupply(object,hardware) then return {source="substation"} end

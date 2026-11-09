@@ -33,10 +33,12 @@ $interfacePanelFiles = @(
     (Join-Path $Client 'SCUIBounds.lua'),
     (Join-Path $Client 'SCActionFeedback.lua'),
     (Join-Path $Client 'SCUIAttention.lua'),
+    (Join-Path $Client 'SCUISocial.lua'),
     (Join-Path $Client 'SCUI.lua'),
     (Join-Path $Essential 'interface_commands.lua'),
     (Join-Path $UI 'SCUIAttentionTests.lua'),
     (Join-Path $UI 'SCUIBaseRefreshTests.lua'),
+    (Join-Path $UI 'SCUISocialTests.lua'),
     (Join-Path $UI 'SCHomeTripObservationTests.lua'),
     (Join-Path $Client 'SCExpeditionTargets.lua'),
     (Join-Path $Client 'SCExpeditionMap.lua'),
@@ -61,11 +63,16 @@ $interfaceContextFiles = @(
 ) }
 
 $interfaceTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'),
-    (Join-Path $Client 'SCContextMenu.lua'))
+    (Join-Path $Client 'SCContextMenu.lua'),
+    (Join-Path $Shared 'SCEmmaCareData.lua'),
+    (Join-Path $Shared 'SCEmmaCare.lua'))
 foreach ($module in @(
     'SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation', 'SCTerminalBrain',
+    'SCEmmaLanguageData', 'SCEmmaWords', 'SCEmmaSurvivalData', 'SCEmmaSurvival',
+    'SCEmmaFollowups', 'SCEmmaMindData', 'SCEmmaMind', 'SCEmmaReadingsData', 'SCEmmaBody',
+    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
     'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',
-    'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil',
+    'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil', 'SCEmmaJump',
     'SCTerminalPersona', 'SCTerminalPersonaSpiffy', 'SCTerminalPersonaEllis', 'SCTerminalPersonaDuty',
     'SCTerminalPersonaDiscovery', 'SCTerminalPersonaUI', 'SCTerminalLockState', 'SCTerminalLockWords',
     'SCTerminalLockSearch', 'SCTerminalLockWheelData', 'SCTerminalLockWheel', 'SCTerminalLockWheelUI',
@@ -81,6 +88,10 @@ foreach ($module in @(
     (Join-Path $UI 'SCTerminalActionTests.lua'),
     (Join-Path $UI 'SCTerminalLockPhase2Tests.lua'),
     (Join-Path $UI 'SCTerminalLockPhase3Tests.lua'),
+    (Join-Path $UI 'SCTerminalConversationTests.lua'),
+    (Join-Path $UI 'SCEmmaConversationTests.lua'),
+    (Join-Path $UI 'SCEmmaMindTests.lua'),
+    (Join-Path $UI 'SCEmmaReadingsTests.lua'),
     (Join-Path $Client 'SCRuntime.lua'),
     (Join-Path $Essential 'interface_terminal_idle.lua')
 ) }

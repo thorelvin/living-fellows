@@ -163,4 +163,76 @@ check(SC.Medical.applyPlayerBandage(patient, player) and wound.isBandaged and no
 check(not SC.Medical.applyPlayerBandage(patient, player), "completed player care cannot consume another dressing")
 check(player.hunger == hunger and player.thirst == thirst and player.body.health == playerHealth
         and not player.lastIntent, "companion needs never change player vitals or actions")
+-- The real ownership gate must poll a floor pickup's parent, including a
+-- completed result; generic visuals must not overwrite that parent identity.
+local oldFloor, oldWork, oldLife, oldNative = SC.FloorSort, SC.BaseWork, SC.BaseLife, SC.NativeActions
+local pickupToken, foreignToken = {}, {}
+local floorJob = { id = "floor:owned", type = "sort_floor" }
+local currentToken, phase, polled, paused, releaseOkay = pickupToken, "active", 0, 0, true
+SC.FloorSort = {
+    pendingPickup = function() return floorJob.id, pickupToken end,
+    pause = function(subject, job)
+        check(subject == worker and (job == floorJob or job == nil), "only matching floor controller is paused")
+        paused = paused + 1
+        if not releaseOkay then return false, "cancel_pending" end
+        currentToken = nil; return true
+    end,
+}
+SC.BaseWork = { update = function() polled = polled + 1; return true, "floor_controller_polled" end }
+SC.BaseLife = { jobFor = function() return floorJob end, isInside = function() return true end }
+SC.NativeActions = { activityStatus = function() return phase, "visual", "loot_container" end,
+    visualToken = function() return currentToken end }
+local floorCommands = { recruited = true, order = "base_duty" }
+for _, value in ipairs({ "active", "result_pending" }) do
+    phase = value
+    local decision = {}
+    local held = SC.Decision._holdOwnedActivityOrPacingForTests(worker, player,
+        quiet, healthy, {}, floorCommands, decision, f.clock + 5000, {})
+    check(held and decision.current == "base_work", "floor result stays with its parent: " .. value)
+end
+check(polled == 2 and paused == 0, "both running and delayed completed pickups are polled")
+releaseOkay = false
+local held = SC.Decision._holdOwnedActivityOrPacingForTests(worker, player,
+    quiet, healthy, { emergency = true }, floorCommands, {}, f.clock, {})
+check(held and currentToken == pickupToken, "urgent handoff waits for exact pickup cancellation")
+releaseOkay = true
+held = SC.Decision._holdOwnedActivityOrPacingForTests(worker, player,
+    quiet, healthy, { emergency = true }, floorCommands, {}, f.clock, {})
+check(not held and currentToken == nil and polled == 2, "released pickup hands control to survival without claiming completion")
+currentToken, phase = foreignToken, "active"
+local beforePause = paused
+SC.Decision._holdOwnedActivityOrPacingForTests(worker, player, quiet, healthy, {}, floorCommands, {}, f.clock, {})
+check(paused == beforePause and polled == 2, "a foreign token is neither polled nor cancelled as a floor pickup")
+SC.FloorSort, SC.BaseWork, SC.BaseLife, SC.NativeActions = oldFloor, oldWork, oldLife, oldNative
+
+-- The native damage callback is deliberately pure Lua even when called from
+-- inside a native operation. Damage and summaries stay isolated by identity.
+local oldIdOf, oldById = SC.Registry.idOf, SC.Registry.byId
+local damaged = f.actor("damage:one", 0, 0, {})
+local second = f.actor("damage:two", 1, 0, {})
+local owned = { [damaged.id] = { actor = damaged }, [second.id] = { actor = second } }
+SC.Registry.idOf = function(subject) return subject == damaged and damaged.id or subject == second and second.id end
+SC.Registry.byId = function(id) return owned[id] end
+local util = SC.GameplayUtil
+SC.GameplayUtil = setmetatable({}, { __index = function() error("native damage callback tried a gameplay/native read") end })
+SC.Medical.noteNativeDamage(damaged, "HUNGRY", 1.5)
+SC.Medical.noteNativeDamage(damaged, "HUNGRY", 1.5)
+SC.Medical.noteNativeDamage(second, "THIRST", 4)
+SC.Medical.noteNativeDamage(player, "POISON", 100)
+SC.GameplayUtil = util
+local summary = SC.Medical.deathSummary(damaged)
+check(string.find(summary, "HUNGRY:3/2", 1, true) and not string.find(summary, "THIRST:", 1, true)
+    and not string.find(summary, "POISON:", 1, true), "death records only the intended companion's native damage")
+check(string.find(SC.Medical.deathSummary(second), "THIRST:4/1", 1, true), "second companion retains its own damage receipt")
+for _, reason in ipairs({ "SICK", "THIRST", "HEAVYLOAD", "INFECTION" }) do SC.Medical.noteNativeDamage(damaged, reason, 1) end
+check(not string.find(SC.Medical.deathSummary(damaged), "HUNGRY:", 1, true), "native damage history is bounded to four coalesced records")
+SC.Medical.releaseActor(damaged)
+check(string.find(SC.Medical.deathSummary(damaged), "recentNativeDamage=unknown", 1, true), "actor retirement explicitly clears damage history")
+local originalPrint, warnings = print, 0
+print = function(line) if string.find(tostring(line), "[SurvivorCompanion/health-decline]", 1, true) then warnings = warnings + 1 end end
+for _, health in ipairs({ 69, 68, 75, 69 }) do damaged.body.health = health; SC.Medical.assess(damaged) end
+print = originalPrint
+check(warnings == 2, "critical snapshots occur once per decline and rearm after recovery")
+SC.Medical.releaseActor(damaged); SC.Medical.releaseActor(second)
+SC.Registry.idOf, SC.Registry.byId = oldIdOf, oldById
 print("BEHAVIOUR_NEEDS_PASS checks=" .. tostring(f.checks()))

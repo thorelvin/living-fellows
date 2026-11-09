@@ -1,0 +1,47 @@
+EMMA self-worth follow-up hardening - 0.27.5
+2026-11-08
+
+Report and scope
+The supplied screenshot is Claude's browser demo based on the plan. This change
+hardens LF's production Lua; the separate web demo was not modified or retested.
+
+The exact post-Y exchange already retained care in the game implementation.
+A new regression reproduced a related production defect: "I dont matter" in a
+fresh session reached news_plain. That pool included "I believe you. Mostly."
+Failing evidence: build/test-results/20261108-224405-c2b194/Interface-lua.log
+
+Changes
+- Recognize personal self-worth disclosures before normal chat, data or actions.
+  A fresh disclosure gets private comfort; an existing care conversation retains
+  its care mode. Strong explicit care cues keep their existing handling.
+- Use a dedicated supportive pool rather than affirming a negative self-belief.
+- Replace generic statement agreement and invented logging claims with neutral
+  clarification questions, providing another safeguard for unmatched statements.
+- Retain the existing once-only support notice, data access, cancellation,
+  logging exclusions and lock/persona protections.
+
+Verification
+Final scripts/Test-Project.ps1 -Serial: PROJECT_TEST_PASS, all five checks.
+Build, Lifecycle, Behaviour, Cargo, Interface: PASS, 67.0 seconds.
+Evidence: build/test-results/20261108-225302-6b701b
+git diff --check: PASS, line-ending notices only.
+
+Actual production replies and state tested in SCEmmaConversationTests.lua:
+- Initial care -> Y -> "I dont matter".
+- The same follow-up after N, uncertainty and an intervening camp-data question.
+- Fresh disclosures, curly apostrophes and typo variants.
+- Ordinary item/value and supply statements remain outside care/comfort.
+- Every generic statement-pool choice asks neutrally instead of agreeing or
+  claiming that a persistent record was written.
+- Locked EMMA retains access restrictions and unchanged argument scores.
+- SPIFFY, ELLIS and DUTY retain their story state during the full exchange and
+  fresh disclosures. Tests inspect actual reply rows, privacy and effects.
+- Private disclosures and later "you misunderstood" do not create a missed log.
+
+This follow-up used headless game-Lua tests; no new live game was launched.
+The previous slice's native rendering acceptance remains separately recorded in
+validation-emma-care-understanding-02705.txt. Changes remain uncommitted.
+
+Primary guidance reviewed for the supportive tone and real-person connection:
+NIMH, 5 Action Steps to Help Someone Having Thoughts of Suicide
+https://www.nimh.nih.gov/health/publications/5-action-steps-to-help-someone-having-thoughts-of-suicide

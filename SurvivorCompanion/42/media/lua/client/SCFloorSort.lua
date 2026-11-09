@@ -556,12 +556,27 @@ function Floor.pause(actor, job, reason)
     return true
 end
 
+-- Decision must poll this controller before a generic visual hold consumes
+-- the turn, including the native action's unclaimed completion result.
+function Floor.pendingPickup(actor)
+    local visual = actor and visuals[actor]
+    if visual then return visual.jobId, visual.token end
+end
+
 local function pickupVisual(actor, job, item, wrapper, square)
     local visual = visuals[actor]
     if visual and visual.item == item and visual.jobId == job.id then
         if visual.token and SC.NativeActions
             and type(SC.NativeActions.visualToken) == "function"
             and SC.NativeActions.visualToken(actor, "loot_container") ~= visual.token then
+            local phase, owner, action = "unknown", "unknown", "unknown"
+            if type(SC.NativeActions.activityStatus) == "function" then
+                phase, owner, action = SC.NativeActions.activityStatus(actor)
+            end
+            print("[SurvivorCompanion/floor-pickup] actor=" .. tostring(U().idOf(actor))
+                .. " job=" .. tostring(job.id) .. " expected=loot_container phase="
+                .. tostring(phase) .. " owner=" .. tostring(owner) .. " action="
+                .. tostring(action) .. " ageMs=" .. tostring(now() - visual.startedAt))
             visuals[actor] = nil
             return false, "floor_pickup_animation_replaced", true
         end

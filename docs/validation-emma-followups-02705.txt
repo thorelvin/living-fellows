@@ -1,0 +1,53 @@
+EMMA contextual follow-ups - 0.27.5
+2026-11-08
+
+Scope
+Production offline Lua, extending the care/understanding/survival-reference slice.
+No browser-demo changes, new save schema, background service or native bridge change.
+
+SCEmmaFollowups resolves common second questions across equipment, people,
+relationships, camp setup, jobs, storage, expeditions, radio, building controls,
+farming and orders. Existing item-count and named-person follow-ups remain active.
+Replies store subject/facet IDs and one parent subject in the existing bounded
+conversation, never actor objects, readings, executable requests or permanent notes.
+
+Read-only instructions reuse the existing guides. Current questions reuse the
+existing world providers and camp-access checks. A generator fuel follow-up
+reads its local power provider once; a vehicle question cannot borrow that gauge.
+The latest subject wins, with its parent available for related details. Unknown
+references clarify rather than reviving an older item or person. A named choice
+answers a short pending clarification; a new question clears it.
+
+Verification
+scripts/Test-Project.ps1 -Serial: PROJECT_TEST_PASS, checks=5.
+Build, Lifecycle, Behaviour, Cargo, Interface: PASS, 70.4 seconds.
+Evidence: build/test-results/20261108-233838-befefe
+git diff --check: PASS.
+
+Actual production replies and state covered by the existing Interface suite:
+- Generator -> fuel type -> fuel sources, and return to a parent subject.
+- Placement, equipment and runtime guidance without invented consumption rates.
+- Current fuel changes from 62% to 17%, then becomes unavailable on grid power.
+- Water safety, food preservation, wood/fishing equipment and physical transport.
+- Injured person -> current needs and the camp's recorded first-aid specialist.
+- Recruitment -> giving supplies, improving trust and understanding progress.
+- Job queue -> current blocked reason, then a changed reason on refresh.
+- Current wood trip -> equipment -> observed trip progress; nearby threat range.
+- Computer upgrades/backup power, radio range/scanning and equipment discovery.
+- A new explicit subject, neutral acknowledgement, unrelated chat, idle expiry,
+  pending-choice interruption and compound read-only questions.
+- Unsupported details and elliptical quantities cannot revive stale nails or Ann.
+- Outside-camp follow-ups cannot read expedition records through an old subject.
+- Reference chains make no camp people/storage reads; temporary topics are absent
+  from exported computer memory. Existing UI computer-isolation tests also pass.
+- Explicit requests retain their checked proposals; instructions create none.
+  Care continues to take priority over ordinary topic context and pending work.
+
+Reproduced defects during this work included the original generator/fuel failure,
+full guide questions being intercepted by a related topic, and old item quantities
+resurfacing after changing subjects. The final gate includes their regressions.
+
+This slice was verified headlessly against production Lua and the existing UI
+fixtures. No new native game session was launched. The earlier native rendering
+acceptance remains separately recorded in validation-emma-care-understanding-02705.txt.
+Changes are in the 0.27.5 working branch.

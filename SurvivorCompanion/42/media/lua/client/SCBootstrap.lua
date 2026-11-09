@@ -565,6 +565,8 @@ local function onTerminalObjectAdded(object)
     end
 end
 local lifecycleDefinitions = {
+    { event = function() return Events and Events.OnPlayerGetDamage end,
+        callback = SC.Medical.noteNativeDamage, name = "OnPlayerGetDamage" },
     { event = function() return Events and Events.OnInitGlobalModData end,
         callback = onInitGlobalModData, name = "OnInitGlobalModData" },
     { event = function() return Events and Events.OnGameStart end,

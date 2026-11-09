@@ -543,6 +543,7 @@ end
 -- A misspelling must keep its first letter and stay within one edit (two for
 -- long words). Exact words, stop words and names are never corrected.
 local function corrected(word, protected)
+    if SC.EmmaUnderstand and SC.EmmaUnderstand.known(word) then return word end
     if KNOWN[word] or STOP[word] or (protected and protected[word]) then return word end
     local limit = allowedDistance(word)
     if limit == 0 then return word end
@@ -581,13 +582,13 @@ local function defaultRandom(count)
     return math.random(count)
 end
 
-function Brain.normalizeMemory(value)
+function Brain.normalizeMemory(value,limit)
     local result = { notes = {}, visits = 0 }
     if type(value) ~= "table" then return result end
     local name = type(value.operator) == "string" and printable(value.operator, Brain.NAME_LENGTH) or ""
     if name ~= "" then result.operator = name end
     if type(value.notes) == "table" then
-        for index = 1, Brain.MAX_NOTES do
+        for index = 1, math.max(1,math.min(20,tonumber(limit) or Brain.MAX_NOTES)) do
             local entry = value.notes[index]
             local note = (type(entry) == "string" or type(entry) == "number")
                 and printable(entry, Brain.NOTE_LENGTH) or ""
@@ -605,13 +606,14 @@ end
 
 function Brain.newSession(options)
     options = type(options) == "table" and options or {}
-    local memory = Brain.normalizeMemory(options.memory)
+    local memory = Brain.normalizeMemory(options.memory,options.noteLimit)
     return {
         random = type(options.random) == "function" and options.random or defaultRandom,
         nowMs = type(options.nowMs)=="function" and options.nowMs
             or type(getTimestampMs)=="function" and getTimestampMs or nil,
         operator = memory.operator or printable(options.operator, Brain.NAME_LENGTH),
         notes = memory.notes,
+        noteLimit = options.noteLimit,
         namedOperator = memory.operator ~= nil,
         visits = memory.visits,
         lastSeen = memory.lastSeen,
@@ -624,13 +626,13 @@ end
 
 function Brain.exportMemory(session, worldHours)
     local notes = {}
-    for index = 1, math.min(#session.notes, Brain.MAX_NOTES) do notes[index] = session.notes[index] end
+    for index = 1, math.min(#session.notes, session.noteLimit or Brain.MAX_NOTES) do notes[index] = session.notes[index] end
     return Brain.normalizeMemory({
         operator = session.namedOperator and session.operator or nil,
         notes = notes,
         lastSeen = tonumber(worldHours) or session.lastSeen,
         visits = session.visits,
-    })
+    },session.noteLimit)
 end
 
 local function roll(session, count)
@@ -681,6 +683,19 @@ local function add(reply, text, fields)
 end
 
 local function addPool(session, reply, poolName, fields)
+    if SC.EmmaCare and SC.EmmaCare.quiet(session) then
+        -- Data already printed above the tagline stays intact. Empty readings
+        -- still need a clear answer, without a joke about the operator.
+        if #reply.lines>0 then return end
+        local neutral={people_none="No people are listed in the current camp readings.",
+            hurt_none="No injuries are listed in the current camp readings.",
+            power_grid="Power source: electricity grid.",power_gen_ok="The generator is supplying power.",
+            power_gen_low="The generator is low on fuel.",jobs_idle="No active jobs are listed.",
+            blocked_none="No blocked jobs are listed.",expedition_none="No expedition is listed.",
+            unavailable="That reading is unavailable. Please try again later.",
+            no_camp="Camp records are not connected here.",outside_camp="Camp records are available only at a computer inside camp."}
+        return add(reply,neutral[poolName] or "I do not have a current reading for that here.")
+    end
     local entry = Brain.pick(session, poolName)
     if entry ~= nil then add(reply, entry, fields) end
 end
@@ -880,6 +895,7 @@ local function powerText(power)
         if charge and charge==charge then return "battery backup, charge "..math.floor(math.max(0,math.min(100,charge))).."%" end
         return "battery backup"
     end
+    if power.source=="jump" then return "borrowed battery power, EMMA only" end
     if power.source == "off" then return "switched off" end
     if power.source == "none" then return "no power" end
     if power.source == "generator" then
@@ -969,14 +985,26 @@ end
 if Conversation then
     for _,spec in ipairs(Conversation.CHAT) do H[spec.id]=simplePool(spec.id) end
 end
-function H.guide(_, reply, turn)
+function H.guide(session, reply, turn, world)
     reply.category="chat"
+    if turn.slots.facet and SC.EmmaFollowups then
+        local lines,subject,parent=SC.EmmaFollowups.render(turn.slots,function(name) return ask(turn,world,name) end)
+        if lines then
+            reply.followupSubject,reply.followupParent=subject,parent
+            return add(reply,lines)
+        end
+    end
     local record=Conversation and Conversation.guide(turn.slots.guideId)
     if not record then return add(reply,"I do not have that operating note. Ask help for supported subjects.") end
     local page=math.max(1,tonumber(turn.slots.page) or 1)
     if page>#record.pages then return add(reply,"That is the end of this operating note. Name another subject, or ask about the current camp readings.") end
     add(reply,record.title..":")
+    if record.survival and page==1 then add(reply,"Game survival reference; sandbox settings and other mods may change these rules.") end
     add(reply,record.pages[page])
+    if record.survival and page==1 and not (SC.EmmaCare and SC.EmmaCare.quiet(session)) then
+        local quips=record.quips or {}
+        if #quips>0 then add(reply,quips[1]) end
+    end
     if page<#record.pages then add(reply,"Ask tell me more for the next part.") end
 end
 function H.conversation_history(session,reply)
@@ -1114,7 +1142,7 @@ end
 
 function H.factory_reset_help(_, reply)
     add(reply, "Type factory reset to start a clean EMMA setup on this computer. I will ask for Y/N confirmation.")
-    add(reply, "This erases the old owner's files, firm branding, your notes and conversation memory. "
+    add(reply, "This erases the old owner's files, firm branding and this computer's local history. Shared notes and fragments remain. "
         .. "Mounted hardware, access protections, screen colour and connected equipment settings stay intact.")
 end
 
@@ -1214,8 +1242,35 @@ function H.recall(session, reply)
     for index, note in ipairs(session.notes) do addTemplate(reply, "recall_row", { n = index, note = note }) end
 end
 
-function H.forget(session, reply)
+function H.fragments(session,reply)
+    reply.category="memory"
+    return add(reply,SC.EmmaMind and SC.EmmaMind.report(session)
+        or "Boot an ordinary EMMA computer to connect its shared memory.")
+end
+function H.her_same(_,reply)
+    reply.category="chat"
+    add(reply,"Different desk, same EMMA. The shared notebook and recovered records stay with me.")
+    add(reply,"This desk keeps its own recent conversation. SPIFFY, ELLIS and DUTY are other voices. I have standards.")
+end
+function H.her_where(_,reply)
+    reply.category="chat"
+    add(reply,"Across the county's computers. You are speaking through this one. A useful distinction when somebody unplugs it.")
+end
+
+function H.forget(session, reply, turn)
     reply.category = "memory"
+    if session.emmaMind and SC.EmmaMind then
+        if turn.slots.note or turn.slots.all then
+            reply.proposal={kind="emma_forget",note=turn.slots.note,all=turn.slots.all==true}
+            return
+        end
+        H.recall(session,reply)
+        if #session.notes>0 then
+            add(reply,"Which shared note should I erase? Type forget note followed by its number. I will ask for confirmation.")
+            add(reply,"To erase the whole shared notebook, type forget all notes. Nothing has been erased.")
+        end
+        return
+    end
     session.notes = {}
     reply.memoryChanged = true
     addPool(session, reply, "forget")
@@ -1225,6 +1280,12 @@ function H.remember(session, reply, turn)
     reply.category = "memory"
     local note = trim(string.gsub(printable(turn.slots.note, Brain.NOTE_LENGTH), "[{}]", ""))
     if note == "" then return addPool(session, reply, "remember_empty") end
+    if session.emmaMind and SC.EmmaMind then
+        local okay,reason=SC.EmmaMind.remember(session,note)
+        if not okay then return add(reply,reason) end
+        reply.memoryChanged=true
+        return addPool(session,reply,"remember_ok",{note=note})
+    end
     table.insert(session.notes, note)
     while #session.notes > Brain.MAX_NOTES do table.remove(session.notes, 1) end
     reply.memoryChanged = true
@@ -1237,6 +1298,10 @@ function H.callme(session, reply, turn)
     name = string.gsub(name, "[^%a%s%-%.]", "")
     name = trim(name)
     if name == "" then return addPool(session, reply, "fallback") end
+    if session.emmaMind and SC.EmmaMind then
+        local okay,reason=SC.EmmaMind.rename(session,capitalize(name))
+        if not okay then return add(reply,reason) end
+    end
     session.operator, session.namedOperator = capitalize(name), true
     reply.memoryChanged = true
     addPool(session, reply, "callme", { name = session.operator })
@@ -1295,6 +1360,11 @@ end
 function H.power(session, reply, turn, world)
     reply.category = "power"
     local power = ask(turn, world, "power")
+    if type(power)=="table" and power.source=="jump" then
+        return add(reply,"Borrowed battery power. About "..math.max(0,math.ceil((tonumber(power.remainingMs) or 0)/60000))
+            .." minutes remain. Radio and building services require a normal supply.")
+    end
+    if type(power)=="table" and power.source=="generator" then reply.followupSubject="generator" end
     if type(power)=="table" and power.source=="substation" then return addTemplate(reply,"power_substation") end
     if type(power) ~= "table" or (power.source ~= "grid" and power.source ~= "generator") then
         return addTemplate(reply, "power_unknown")
@@ -1555,8 +1625,13 @@ function H.zombies(session, reply, turn, world)
 end
 
 function H.expedition(session, reply, turn, world)
+    reply.followupSubject="expedition"
     reply.category = "expedition"
     local expedition = ask(turn, world, "expedition")
+    if type(expedition)=="table" and expedition.active==true then
+        if expedition.kind=="wood" then reply.followupSubject,reply.followupParent="wood","expedition"
+        elseif expedition.kind=="fish" or expedition.kind=="fishing" then reply.followupSubject,reply.followupParent="fishing","expedition" end
+    end
     if type(expedition) ~= "table" or expedition.active ~= true then
         addPool(session, reply, "expedition_none")
         local last = type(expedition) == "table" and expedition.last
@@ -1900,6 +1975,12 @@ function Brain.parse(session, raw, world, turn)
     turn = turn or { cache = {} }
     local text = trim(printable(raw, Brain.MAX_INPUT))
     local context = session.context
+    if session.emmaMind then
+        local command=string.lower(text):gsub("[?!%.]+$","")
+        local index=command:match("^forget note (%d+)$") or command:match("^forget (%d+)$")
+        if index then return "forget",{note=tonumber(index)} end
+        if command=="forget all notes" then return "forget",{all=true} end
+    end
     if text == "" then return "empty", {} end
     local note = freeText(text, REMEMBER_PATTERNS)
     if note and string.find(string.lower(note), "^me%W*$") then return "whoami", {} end
@@ -1940,7 +2021,10 @@ function Brain.parse(session, raw, world, turn)
             if topic then
                 if topic.kind=="lore" then return "lore",{more=not Conversation.refresh(joined),referenceId=topic.id} end
                 local follow,followSlots=Conversation.topicTurn(topic)
-                if follow=="guide" and Conversation.more(joined) then followSlots.page=(followSlots.page or 1)+1 end
+                if follow=="guide" and Conversation.more(joined) then
+                    if followSlots.facet then followSlots.facet=nil;followSlots.page=1
+                    else followSlots.page=(followSlots.page or 1)+1 end
+                end
                 followSlots.explain=Conversation.more(joined)
                 return topicReference(follow,followSlots,peopleList(turn,world))
             end
@@ -2167,10 +2251,11 @@ function H.repeat_last(session, reply)
     if type(last) ~= "table" or #last.lines == 0 then return addPool(session, reply, "repeat_none") end
     for _, line in ipairs(last.lines) do reply.lines[#reply.lines + 1] = line end
     reply.category = last.category
+    reply.sensitive = last.sensitive == true
 end
 H["repeat"] = H.repeat_last
 
-local DATA_CATEGORIES = { storage = true, people = true, jobs = true, power = true, weather = true,
+local DATA_CATEGORIES = { body=true,calendar=true,storage = true, people = true, jobs = true, power = true, weather = true,
     time = true, zombies = true, expedition = true, advice = true, odds = true,grid_control=true }
 
 local function thinking(session, reply)
@@ -2192,6 +2277,10 @@ local CAMP_INTENTS = {
 }
 
 function Brain.respond(session, raw, world)
+    if session.emmaMind and SC.EmmaMind then
+        local okay,reason=SC.EmmaMind.refresh(session)
+        if not okay then return {intent="memory_unavailable",category="memory",lines={reason},thinkMs=0} end
+    end
     session.turns = session.turns + 1
     if session.context.guidanceOffer then
         session.context.guidanceOffer=nil
@@ -2230,11 +2319,13 @@ function Brain.respond(session, raw, world)
         addPool(session, reply, "unavailable")
     end
     if ok and turn.slots.explain and Conversation then add(reply,Conversation.EXPLAIN[intent]) end
-    if looksLikeShout(printable(raw, Brain.MAX_INPUT)) and intent ~= "mash" then
+    if not reply.sensitive and not (SC.EmmaCare and SC.EmmaCare.quiet(session))
+        and looksLikeShout(printable(raw, Brain.MAX_INPUT)) and intent ~= "mash" then
         local shout = Brain.pick(session, "shout")
         if shout then table.insert(reply.lines, 1, shout) end
     end
-    if reply.category == "chat" and #reply.lines > 0 and roll(session, 40) == 40 then
+    if not (SC.EmmaCare and SC.EmmaCare.quiet(session))
+        and reply.category == "chat" and #reply.lines > 0 and roll(session, 40) == 40 then
         addPool(session, reply, "glitch")
     end
     if not reply.instant then thinking(session, reply) else reply.thinkMs = 0 end
@@ -2244,7 +2335,7 @@ function Brain.respond(session, raw, world)
         session.context.intent = intent
     end
     if intent ~= "repeat" and #reply.lines > 0 then
-        session.context.last = { lines = reply.lines, category = reply.category }
+        session.context.last = { lines = reply.lines, category = reply.category, sensitive = reply.sensitive }
     end
     if Conversation then Conversation.record(session,raw,reply,turn.slots) end
     return reply
@@ -2278,5 +2369,28 @@ function Brain.boot(session, world)
 end
 
 Brain.HANDLERS = H
+
+function Brain.hasHandler(id) return H[id]~=nil end
+function Brain.registerHandler(id,handler)
+    if H[id] or type(handler)~="function" then return false end
+    H[id]=handler;return true
+end
+Brain.parseBase,Brain.respondBase=Brain.parse,Brain.respond
+function Brain.parse(session,raw,world,turn)
+    if SC.EmmaUnderstand then
+        SC.EmmaUnderstand.install()
+        return SC.EmmaUnderstand.parse(session,raw,world,turn,Brain.parseBase)
+    end
+    return Brain.parseBase(session,raw,world,turn)
+end
+function Brain.respond(session,raw,world)
+    raw=tostring(raw or ""):sub(1,Brain.MAX_INPUT)
+    local reply
+    if SC.EmmaUnderstand then reply=SC.EmmaUnderstand.respond(session,raw,world,Brain.respondBase)
+    elseif SC.EmmaCare then reply=SC.EmmaCare.respond(session,raw,nil,false) end
+    reply=reply or Brain.respondBase(session,raw,world)
+    if SC.EmmaMissed then SC.EmmaMissed.record(session,raw,reply,world) end
+    return reply
+end
 
 return Brain

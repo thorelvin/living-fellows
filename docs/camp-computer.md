@@ -28,6 +28,23 @@ lines. The operating system and the assistant are distinct.
   typo correction, names from game data and short-term context create the assistant effect.
   Answers use live save facts, concise lists and useful next steps. Unknown
   records get a clear explanation and suggestions for supported questions.
+- **Questions and reference files.** Slang, common typos and ordinary statements
+  have broader replies. Ask two read-only questions together, follow an item
+  count with "is that enough for 300?", or ask about the subject of her last reply.
+  Equipment, people, relationships, jobs, expeditions, radio and building controls
+  have contextual follow-ups. Actions still need separate, checked
+  confirmations. Twenty-six paged survival references cover water, wounds,
+  medicine, food, power, vehicles and shelter. These explain standard game
+  mechanics; they do not diagnose the player or override sandbox settings.
+- **Care and privacy.** Distress and grief get gentle replies, including on
+  locked EMMA and the persona machines. Jokes and automatic remarks pause during
+  care, without advancing the lock or story. A white support notice appears once
+  per session. A check-in on a later visit stores only a character timestamp.
+  Options > Mods > Living Fellows includes **Record misunderstood EMMA messages
+  locally**, enabled by default. At most 600 missed inputs are retained in
+  `Zomboid/Lua/LivingFellows/emma_missed_a.txt` and `emma_missed_b.txt`.
+  Care conversations, saved notes and operator-name changes are excluded;
+  nothing is uploaded. Turning the option off stops new recording.
 - **Presentation.** A centred, full-screen display uses large code text and an
   opaque background. Text scales with the viewport: 28-pixel font height at
   720p, 40 at 1080p and 80 at 4K, without changing the game's font settings.
@@ -60,11 +77,112 @@ lines. The operating system and the assistant are distinct.
   text continues to EMMA, with history and context preserved.
 - **A fresh start.** Ask `factory reset` or `reset this computer to factory
   settings`. EMMA asks for Y/N confirmation before erasing that computer's
-  previous owner's files, firm branding, notes and conversation memory. It
+  previous owner's files, firm branding, local history and unimported old notes. It
   restarts with EMMA branding and an empty personal directory. Mounted radio
   and battery parts, screen colour, access protections and connected equipment
-  settings stay intact. Unlock a protected computer before asking. Other
-  computers keep their data; county and EMMA reference files stay installed.
+  settings stay intact. Shared notes, fragments and operator recognition remain.
+  Unlock a protected computer before asking. County and EMMA reference files stay installed.
+
+## Following up
+
+You can ask a short second question without repeating the whole subject:
+
+| First question | Follow-up |
+| --- | --- |
+| How do I use a generator? | What fuel does it use? Then: Where can I get it? |
+| Who is hurt? | What does she need? Or: Who is best at that? |
+| How do I recruit someone? | What can I give them? How do I increase their trust? |
+| What is everyone doing? | Why are they blocked? |
+| Expedition status | What tools do they need? How is it going? |
+| How do I mount a radio? | How far does it reach? How can I scan with it? |
+| How do I control a building? | How can I discover its devices? |
+
+EMMA follows the most recent subject. Name another subject to switch; if a
+pronoun could mean several things, she asks which one. Current readings are
+looked up again, and unavailable readings are not copied from an earlier reply.
+An instruction such as "How do I refuel it?" explains the steps; `refuel generator`
+uses the normal confirmation. Conversation subjects stay local to this computer's
+short session and are not saved as permanent memories.
+
+## One EMMA across computers
+
+Ordinary EMMA computers share an explicit notebook and recognize your character
+across desks. The shared record belongs to the world, so it survives character
+death. A new character has their own name and conversation; the county's notes
+and recovered computers remain. The notebook is shared information, not a private
+diary. Care conversations are excluded.
+
+Each ordinary computer contributes one fragment when EMMA actually boots.
+Locked machines contribute after unlocking; SPIFFY, ELLIS and DUTY never
+contribute. Moving, reopening or factory-resetting a computer does not count it
+again. Ask `fragments` for progress: "Computer recovery: 1 fragment recovered."
+Memory tiers arrive at 2, 4, 7, 12, 18 and 25 fragments; language understanding
+works fully from the first visit.
+
+The notebook holds 8 notes initially, 12 after two computers, 16 after four and
+20 after twelve. Existing computer notes migrate once without rewriting their
+old record. If there is no room, the remaining old notes stay on that computer;
+free space and reopen it to finish importing them.
+
+Ask `forget everything` to see which notes can be erased. `Forget note 2` proposes
+that specific note; `forget all notes` proposes the whole shared notebook.
+Both require a fresh Y/N confirmation and refuse if the notebook changes.
+`Forget that conversation` clears only this desk's recent thread.
+
+Medical and county-calendar indexes unlock their corresponding readings. A clinic,
+pharmacy or research computer recovers the medical index; a police, emergency,
+security, military, government or media computer recovers the calendar. Twelve
+ordinary fragments recover either index still missing.
+
+## Your condition and the county calendar
+
+With the medical index, ask `how am I?`, `am I infected?`, `am I hungry?` or
+`check my health`. EMMA reads your own native condition, including wounds,
+bandages and needs. She gives the most urgent warnings first. Ordinary wound
+infection, false-infection symptoms and Knox infection remain separate.
+These readings are available outside camp too; they do not open camp records.
+
+The first ordinary login after a confirmed Knox infection gives one warning,
+without a countdown. `How long do I have?` requests a single approximate
+estimate using the character's actual infection timing and mortality rule.
+Missing timing or nonlethal mortality does not produce an invented deadline.
+Care mode suppresses automatic notices, jokes and countdowns; explicit health
+questions still receive plain readings. Moving or resetting the computer does
+not repeat the infection warning.
+
+Your operator file does not require a medical index. Try `my kills`, `days
+survived`, `what are my skills?`, `where am I?` or `what do you know about me?`.
+It reads your character, not the selected companion.
+
+With the calendar index, ask `when is the helicopter?`, `when will the water
+stop?`, `when will the power go out?` or `what is on the calendar?`. Dates come
+from the current world's actual schedules. A possible helicopter window is not
+reported as proof of a helicopter overhead. Never settings, past shutoffs and
+an LF-restored grid have separate replies.
+
+Ask `weather tomorrow`, `forecast in 3 days` or `next storm`. EMMA reads today
+and up to six days ahead, including snow, fog and freezing temperatures. Missing
+forecast records are reported as unknown. `When is dawn?` and `when does it get
+dark?` use the seasonal almanac and work before the calendar index is recovered.
+
+Follow-ups include `how long?` after a power date, `is it here yet?` after the
+helicopter schedule, `what temperature?` after a forecast, and `what should I do?`
+after a health report. Each reads again; old health and weather values are not
+kept as permanent notes. Nothing polls your body or the forecast while the
+computer is closed.
+
+## Jump-start an unpowered computer
+
+Stand beside it with Electrical 2, a screwdriver and an intact car battery
+containing at least 5% charge. **Computer maintenance > Jump-start computer**
+starts the native connection action. Successful connection consumes exactly
+5% charge and opens the terminal for up to ten real minutes, ending early when
+you close it. The battery remains your item; early logoff gives no refund.
+
+Borrowed power supports EMMA and local password entry. It cannot run the radio,
+building controls, camp-action requests or background password recovery. A
+successful unlocked EMMA boot still contributes its fragment. The temporary
+supply does not survive reloading and runs no background service.
 
 ## LARCH/WAVE radio desk
 

@@ -85,10 +85,11 @@ local function current(object,rt,unpowered)
         and call(rt.item,"getDeviceData")==rt.data and (unpowered or call(rt.data,"getIsTurnedOn")==true)
 end
 function R.ready(window)
+    if window and SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) then return nil,"Borrowed power cannot run the radio desk." end
     if not window or window.closed or SC.Terminal.window~=window or not window.system or window.system.locked
         or type(getSpecificPlayer)~="function" or getSpecificPlayer(0)~=window.player
         or call(window.player,"isDead")==true or not U().present(window.object)
-        or not SC.Terminal.near(window.player,window.object) or not SC.Terminal.powered(window.object) then
+        or not SC.Terminal.near(window.player,window.object) or not (SC.Terminal.normalPowered or SC.Terminal.powered)(window.object) then
         return nil,"Stand at an unlocked, powered computer."
     end
     local md=U().data(window.object)

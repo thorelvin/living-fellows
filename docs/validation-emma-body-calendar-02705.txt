@@ -1,0 +1,122 @@
+EMMA body and county calendar - Phase D, 0.27.5
+2026-11-09
+
+Implemented
+Recovering a clinic, pharmacy or research computer enables readings of the
+actual operator's wounds, dressings, needs and infection state. Authority and
+media computers recover county schedules. Twelve ordinary fragments recover
+either missing index. The operator file and seasonal dawn/dusk are ungated.
+Camp records retain their existing access rules.
+
+Wound infection, false-infection symptoms and Knox infection are separate.
+The first ordinary login after infection gives one sober warning per episode.
+An explicit question can request one approximate mortality estimate. Missing
+timing, unknown mortality and nonlethal mortality never invent a deadline.
+Care suppresses automatic notices, jokes and countdowns, while permitting
+plain, explicit health readings. Optional per-operator warning receipts use
+the existing shared-mind bucket without replacing any other data.
+
+Forecasts cover today through six days ahead, with bounded storm/snow/fog/frost
+searches. Utility records distinguish future, imminent, past and Never settings,
+including an LF-restored grid. A helicopter flight window is explicitly not
+proof of an aircraft overhead. Short follow-ups refresh the relevant reading.
+Facts live only within their response; conversation stores a bounded topic,
+not an actor, old measurement or permanent medical record.
+
+No background service, event hook, global wrapper or bridge change was added.
+Reads run at foreground login or on request. Body parts are capped at 32,
+moodles at 24, skills at 128, traits at 64 and forecasts at seven days.
+
+Native research
+Installed Project Zomboid 42.21.0 bytecode was inspected with javap.
+- IsoPlayer infection time uses getHoursSurvived(), not world age. The
+  estimate subtracts the survivor clock; mortality value 7 means Never.
+- Helicopter scheduling uses nights survived and a probabilistic daily window.
+- The raw forecaster array begins ten days in the past. getForecast(1) is
+  tomorrow; the previous raw-list index 1 described nine days ago.
+- Body-part flags, current MoodleType constants and season getters were
+  checked against the installed API before the Lua acceptance.
+Research: C:/ZOMBOID/outputs/emma-body-calendar-02705/research.
+
+Automated verification
+scripts/Test-Project.ps1 -Serial: all five checks PASS, 69.7 seconds.
+Build, Lifecycle, Behaviour, Cargo, Interface.
+Evidence: build/test-results/20261109-010724-cf65d6.
+After final parser/help polish, Interface PASS again, 16.6 seconds.
+Evidence: build/test-results/20261109-011851-f3c36c.
+Existing tests/core/run_oddball_soldier_tests.ps1: PASS with the corrected
+native forecast-offset fixture. git diff --check: PASS.
+
+SCEmmaReadingsTests runs inside the existing Interface check. It exercises
+production readers, handlers and shared-mind normalization: access gating,
+primary-actor ownership, wound/need order, false and ordinary infection,
+once-only warnings/estimates, care, missing readings, surviving-hour timing,
+Never mortality, follow-ups, restored supply, flight windows, forecast
+completeness, bounded horizon, leap dates and excluded exported readings.
+
+Native acceptance
+SC-Harness-20261109-010916-3978f797: custom COMPLETE, LIVE_SANDBOX_PASS.
+One low-impact LF-only game, isolated source Lua/native payload, 120-second
+observation. Source save Rising/2026-11-08_00-37-04 was a read-only input.
+Actual mapped desktops: pharmacy 6672,5251,0; security office 6672,5258,0.
+No computer was spawned. The clone moved the player beside each desktop,
+unlocked those fixture PCs and bypassed their unrelated owner welcome.
+Clone-only fixtures provided stable mains power and native medical states;
+the original save and installed game were unchanged.
+
+Confirmed through the real terminal and native Lua bindings:
+- Both mapped computer types grant their respective domain.
+- Complete native body-part and moodle snapshots are readable.
+- A bleeding forearm is reported; false infection is distinguished.
+- Reopening after a seeded real infection shows one infection lead.
+  A second boot read in that session produces no duplicate warning.
+- The explicit estimate uses the native survivor-time infection duration.
+- Native tomorrow offset, temperature, schedule and dawn/dusk getters work.
+- Answers render without unresolved fields or crossing the menu divider.
+- Runtime save completes, then the game saves and exits normally.
+No LF Lua exception or terminal failure appeared in the successful run.
+Vanilla startup asset/map warnings remain in its console log.
+
+Limits
+Native medical states were seeded, not caused by a natural bite or trait.
+The native helicopter schedule was Never; active/repeating-flight branches
+are fixture-tested, not a completed native flyover scenario. Winter almanac,
+all seven forecast days and operator-file details were not separately staged
+live. Warning persistence across normalization/reload is headless-tested;
+this Phase D native run did not restart with an infected operator.
+
+Evidence and docs
+Five inspected native screenshots, the custom receipt and run manifest:
+C:/ZOMBOID/outputs/emma-body-calendar-02705.
+docs/camp-computer.md, terminal help and CHANGELOG updated. The local Field
+Guide EMMA chapter was rebuilt; its image, anchor and tag checks passed.
+The Field Guide was not published. No commit, push or installation performed.
+Phase E, EMMA's personality and recovered past, remains next.
+
+Post-implementation review - 2026-11-09
+Reproduced and fixed:
+- Bare tomorrow/tonight words could steal food and water queries for forecasts.
+- Sunrise phrasing and accepted dawn/need typos lost their requested facet.
+- Refresh discarded the specific need or next-weather search and could answer
+  about hunger or an old forecast offset instead of the original question.
+- False-infection symptoms could claim a negative Knox result when that reading
+  was unavailable. Partial calendars could substitute another event's date.
+- A missing storm flag could still produce a clear-sky daily forecast. Earlier
+  missing days were not disclosed when a later weather event was found.
+- A provisional infection warning repeated once its native timestamp arrived.
+- An uppercase repeat could prepend a shout joke to a serious medical answer.
+- Plain helicopter answers in care mode omitted the actual date and interval.
+
+Fixes retain existing providers and foreground ownership. Forecast vocabulary
+requires a weather cue; facet extraction shares the parser's guarded matcher.
+Temporary conversation metadata stores only bounded need/weather identifiers.
+Provisional warning receipts are qualified without another announcement.
+
+Regression cases use SCEmmaReadingsTests in the existing Interface check.
+Full gate after the production fixes: all five PASS, 73.0 seconds.
+Evidence: build/test-results/20261109-013213-828540.
+Final Interface confirmation: PASS, 15.9 seconds, including the corrected
+test-report counter. Evidence: build/test-results/20261109-013416-97c88f.
+The existing soldier forecast harness also passes. No additional background
+work, native bridge changes or new test runner was introduced. Native acceptance
+above predates these parser/metadata/partial-reading fixes and was not repeated.

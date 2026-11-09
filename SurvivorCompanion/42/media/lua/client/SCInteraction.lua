@@ -33,7 +33,7 @@ Interaction.actions = {
 }
 Interaction.quickOrders = { "follow", "stay", "regroup", "retreat", "send_home" }
 Interaction.recruitedOnly = {
-    relationship = true, encourage = true, praise = true,
+    encourage = true, praise = true,
 }
 Interaction.sessions = Interaction.sessions or {}
 

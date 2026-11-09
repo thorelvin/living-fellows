@@ -51,6 +51,20 @@ local function runtimeState(actor)
     return state
 end
 
+-- Remember only a visual acquired by this episode, never another owner's
+-- pre-existing visual. Movement and completion still use the native adapter.
+local function moveActor(actor, mode, intent)
+    local native = SC.NativeActions
+    local before = native and native.visualToken and native.visualToken(actor)
+    local accepted, reason = U().move(actor, mode, intent)
+    local episode = states[actor] and states[actor].episode
+    local after = native and native.visualToken and native.visualToken(actor)
+    if accepted == true and episode and not episode.paused and after and after ~= before then
+        episode.visualToken = after
+    end
+    return accepted, reason
+end
+
 local function commandState(actor)
     if SC.Commands and type(SC.Commands.peek) == "function" then
         local ok, state = pcall(SC.Commands.peek, actor)
@@ -250,13 +264,18 @@ local function shouldRequestSupply(actor, mind)
         or hasLowSupplies(actor))
 end
 
-function Autonomy.intentFor(actor, player, snapshot, commands)
+function Autonomy.intentFor(actor, player, snapshot, commands, needs)
     if not actor or type(commands) ~= "table" or commands.recruited ~= true then return nil end
     if player and U().sameFloor(actor, player)
         and U().distance(actor, player) > (U().config("mindDetailedRadius") or 40) then
         return nil
     end
     local runtime = runtimeState(actor)
+    local foodOrWaterDue = type(needs) == "table" and (needs.emergency == true
+        or commands.order == "base_duty" and not commands.expeditionMember
+            and not commands.expeditionMoving and atBase(actor)
+            and (needs.hungry or needs.thirsty or needs.mealInProgress))
+    if foodOrWaterDue or runtime.episode and runtime.episode.paused and needs and needs.active then return nil end
     if runtime.episode then return { kind = "mental_episode", priority = 90, active = true } end
     local reservation = SC.Community.reservationFor(actor)
     if reservation and reservation.ownerId ~= U().idOf(actor) then
@@ -454,7 +473,7 @@ local function approachGroundSpot(actor, episode, reason)
 end
 
 local function relocateGroundPose(actor, episode)
-    local stood, reason = U().move(actor, "walk", {
+    local stood, reason = moveActor(actor, "walk", {
         action = "stand_ground", reason = "quiet_ground_obstructed",
     })
     if stood ~= true then return false, reason or "quiet_ground_stand_rejected" end
@@ -498,15 +517,24 @@ local function buildRestlessRoute(actor)
     return route
 end
 
-local function cancelVisual(actor)
-    if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
-        SC.NativeActions.cancelVisual(actor, "autonomy_episode_ended")
-    elseif SC.NativeActions and type(SC.NativeActions.clearVisual) == "function" then
-        SC.NativeActions.clearVisual(actor)
+local function cancelVisual(actor, episode)
+    local native = SC.NativeActions
+    if episode and episode.visualToken and native and native.cancelVisualOwned then
+        local released, reason = native.cancelVisualOwned(actor, episode.visualToken, "autonomy_episode_ended")
+        if released ~= true then return false, reason end
+        episode.visualToken = nil
+    elseif native and not native.visualToken and not (episode and episode.paused) and native.cancelVisual then
+        -- Legacy adapters without tokens are not used by the live game.
+        local released, reason = native.cancelVisual(actor, "autonomy_episode_ended")
+        if released == false then return false, reason end
     end
+    return true
 end
 
 local function finishEpisode(actor, runtime, reason, kind, completed)
+    local episode = runtime.episode
+    local released, releaseReason = cancelVisual(actor, episode)
+    if released ~= true then return false, releaseReason or "episode_release_pending" end
     local id = U().idOf(actor)
     local mind = SC.Community.mindFor(actor)
     completed = completed ~= false
@@ -535,7 +563,6 @@ local function finishEpisode(actor, runtime, reason, kind, completed)
     end
     if kind ~= "mourning" then SC.Community.finishMajor(actor) end
     SC.Community.release(id)
-    cancelVisual(actor)
     if kind == "restless_break" then runtime.purposeful = nil end
     runtime.episode = nil
     if kind ~= "mourning" then
@@ -543,7 +570,7 @@ local function finishEpisode(actor, runtime, reason, kind, completed)
             episode = kind or "unknown", completed = completed })
     end
     persist(actor)
-    if completed and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
+    if completed and not (episode and episode.paused) and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
         SC.NativeActions.noteResult(actor, "autonomy_" .. tostring(kind or "episode"),
             "completed", { kind = "long", lookChancePercent = kind == "shutdown" and 15 or 35 })
     end
@@ -552,12 +579,42 @@ end
 
 local function interruptEpisode(actor, runtime, reason)
     if not runtime.episode then return false, "no_episode" end
+    if runtime.episode.paused then
+        return finishEpisode(actor, runtime, reason or "episode_interrupted", runtime.episode.kind, false)
+    end
     if runtime.episode.kind == "shutdown" or runtime.episode.kind == "mourning" then
-        U().move(actor, "walk", { action = "stand_ground", reason = "shutdown_interrupted" })
+        moveActor(actor, "walk", { action = "stand_ground", reason = "shutdown_interrupted" })
     end
     U().stop(actor)
     return finishEpisode(actor, runtime, reason or "episode_interrupted",
         runtime.episode.kind, false)
+end
+
+-- Called before Needs acquires an action. Repeated calls after release are
+-- pure reads and cannot stop the new eating/drinking action.
+function Autonomy.pauseForNeeds(actor)
+    local runtime = states[actor]
+    local episode = runtime and runtime.episode
+    if not episode or episode.paused then return true end
+    local passive = episode.kind == "shutdown" or episode.kind == "mourning" or episode.kind == "withdraw"
+    if not passive then return interruptEpisode(actor, runtime, "needs_interrupt") end
+    local released, why = cancelVisual(actor, episode)
+    if released ~= true then return false, why or "episode_release_pending" end
+    if select(1, U().call(actor, "isSitOnGround")) == true then
+        local stood, reason = moveActor(actor, "walk", { action = "stand_ground", reason = "episode_needs_pause" })
+        if stood ~= true or select(1, U().call(actor, "isSitOnGround")) == true then
+            return false, reason or "episode_standing_for_needs"
+        end
+    end
+    if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, "episode_needs_pause") end
+    U().stop(actor)
+    episode.paused = true
+    return true
+end
+
+function Autonomy.episodeStatus(actor)
+    local episode = states[actor] and states[actor].episode
+    if episode then return { kind = episode.kind, stage = episode.stage, paused = episode.paused == true } end
 end
 
 local function startMajor(actor, state)
@@ -666,7 +723,7 @@ local function updateBottle(actor, runtime, episode)
             end
             return finishEpisode(actor, runtime, "wall_unreachable", episode.kind, false)
         end
-        local accepted = U().move(actor, "walk", {
+        local accepted = moveActor(actor, "walk", {
             action = "stress_bottle_smash", item = episode.item,
             targetSquare = episode.square, reason = "stress_outburst",
         })
@@ -700,7 +757,7 @@ local function updateFurniture(actor, runtime, episode)
                 return accepted == true, reason or "approaching_furniture"
             end
         end
-        local accepted = U().move(actor, "walk", {
+        local accepted = moveActor(actor, "walk", {
             action = "stress_furniture_hit", object = episode.object,
             targetSquare = episode.square, reason = "bounded_furniture_outburst",
         })
@@ -759,7 +816,7 @@ local function updateArgument(actor, runtime, episode, snapshot)
                 return accepted == true, reason or "approaching_argument"
             end
         end
-        U().move(actor, "walk", { action = "face_conversation", target = target })
+        moveActor(actor, "walk", { action = "face_conversation", target = target })
         U().move(target, "walk", { action = "face_conversation", target = actor })
         sayDialogue(actor, "stress.argument.open", nil,
             "We need to talk about the last run. You took a risk with all of us.")
@@ -781,7 +838,7 @@ local function updateArgument(actor, runtime, episode, snapshot)
         return true, escalate and "argument_escalating" or "argument_resolving"
     elseif episode.stage == "shove" then
         if U().nowMs() < episode.nextAt then return true, "argument_escalating" end
-        local accepted = U().move(actor, "walk", { action = "shove", target = target,
+        local accepted = moveActor(actor, "walk", { action = "shove", target = target,
             socialFight = true, reason = "bounded_social_fight" })
         episode.stage, episode.nextAt = "fight_check", U().nowMs() + 2400
         episode.attackAccepted = accepted == true
@@ -853,7 +910,7 @@ local function updateShutdown(actor, runtime, episode)
         end
         if progress ~= "ready" then return true, why or "seeking_quiet_room" end
         U().stop(actor)
-        local accepted, reason = U().move(actor, "walk", {
+        local accepted, reason = moveActor(actor, "walk", {
             action = "sit_ground", reason = "depressive_shutdown",
         })
         if accepted ~= true then return false, reason or "ground_sit_rejected" end
@@ -887,7 +944,7 @@ local function updateShutdown(actor, runtime, episode)
         end
         return true, "shutdown_resting"
     end
-    local stood, reason = U().move(actor, "walk", {
+    local stood, reason = moveActor(actor, "walk", {
         action = "stand_ground", reason = "shutdown_recovery",
     })
     if stood ~= true then return false, reason or "shutdown_stand_rejected" end
@@ -925,7 +982,7 @@ local function updateMourning(actor, runtime, episode)
         end
         U().stop(actor)
         if episode.sit == true then
-            local accepted = U().move(actor, "walk", {
+            local accepted = moveActor(actor, "walk", {
                 action = "sit_ground", reason = "mourning_companion",
             })
             if accepted == true then
@@ -936,7 +993,7 @@ local function updateMourning(actor, runtime, episode)
             end
         end
         episode.stage = "mourning"
-        episode.recoverAt = simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
+        episode.recoverAt = episode.recoverAt or simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
         return true, "mourning_quietly"
     end
     if episode.sit == true and (episode.stage == "sitting_down" or episode.stage == "mourning")
@@ -954,7 +1011,7 @@ local function updateMourning(actor, runtime, episode)
         if U().nowMs() >= finite(episode.seatDeadline, 0) then
             episode.stage = "mourning"
             episode.sit = false
-            episode.recoverAt = simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
+            episode.recoverAt = episode.recoverAt or simNow() + minutes(U().config("griefPauseGameMinutes") or 25)
             return true, "mourning_standing_fallback"
         end
         return true, "mourning_sitting_down"
@@ -968,7 +1025,7 @@ local function updateMourning(actor, runtime, episode)
         return true, "mourning_quietly"
     end
     if episode.sit == true then
-        local stood, reason = U().move(actor, "walk", {
+        local stood, reason = moveActor(actor, "walk", {
             action = "stand_ground", reason = "mourning_recovery",
         })
         if stood ~= true then return false, reason or "mourning_stand_rejected" end
@@ -982,6 +1039,15 @@ local function updateEpisode(actor, player, rootRuntime)
     local runtime = runtimeState(actor)
     local episode = runtime.episode
     if not episode then return false, "no_active_episode" end
+    if episode.paused then
+        local deadline = episode.recoverAt or (episode.kind == "withdraw" and episode.nextAt)
+        if deadline and (episode.kind ~= "withdraw" or deadline > episode.startedAt)
+            and (episode.kind == "withdraw" and U().nowMs() or simNow()) >= deadline then
+            return finishEpisode(actor, runtime, "episode_recovered_during_needs", episode.kind)
+        end
+        episode.paused, episode.groundDeadline, episode.seatDeadline = nil, nil, nil
+        episode.stage = "approach"
+    end
     local snapshot = rootRuntime and (rootRuntime.snapshot
         or rootRuntime.senses and rootRuntime.senses.current) or {}
     if threatCount(snapshot) > 0 or U().nativeHealth(actor) < 70 then
@@ -1064,7 +1130,7 @@ function Autonomy.updatePurposeful(actor, runtime, breakdown)
     if purpose.dwellUntil <= 0 then
         purpose.dwellUntil = U().nowMs() + 1500
         local ax, ay, az = U().position(actor)
-        U().move(actor, "walk", {
+        moveActor(actor, "walk", {
             action = "rear_scan",
             targetPosition = { x = ax + ((purpose.index % 2 == 0) and -2 or 2),
                 y = ay + ((purpose.index % 3 == 0) and 2 or -2), z = az },
@@ -1127,7 +1193,7 @@ local function updateParticipant(actor, detail)
         U().stop(actor)
         return false, "social_owner_unavailable"
     end
-    local accepted = U().move(actor, "walk", { action = "face_conversation", target = owner,
+    local accepted = moveActor(actor, "walk", { action = "face_conversation", target = owner,
         reason = "social_participant" })
     return accepted == true, accepted and "holding_social_position" or "social_facing_rejected"
 end

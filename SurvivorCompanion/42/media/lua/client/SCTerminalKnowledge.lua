@@ -348,8 +348,8 @@ K.CHAT = {
         "I cannot taste anything. This makes me an unusually affordable dinner guest and a poor judge of canned peaches.",
         "If you are offering coffee, keep it. I would prefer the person supplying the power to remain awake.",}},
     {id="chat_privacy",exact={"can anyone hear us","is this private","are you recording me","do you send my notes","who can read my notes"},lines={
-        "This is a local computer. I do not send your notes to a real network. Someone else with access to this machine may still read its files.",
-        "Your saved notes and visits stay with this computer. Local does not mean invisible to the next person who opens it.",
+        "I keep the notes you ask me to save across county computers. Anyone operating an ordinary EMMA terminal can read that shared notebook.",
+        "The shared notebook follows you between my computers. It is not a private diary. Keep that distinction in mind before dictating one.",
         "There is no distant service listening through EMMA. A mounted walkie-talkie is separate equipment with actual radio behaviour.",
         "I keep the notes you ask me to remember. I cannot promise privacy against somebody carrying the entire computer away.",}},
     {id="chat_confirmation",exact={"why ask for confirmation","why do you need confirmation","why can not you just do it","why do i have to confirm"},lines={
@@ -431,10 +431,10 @@ local additionalChat = {
         "Offices printed instructions for using computers, then lost the instructions. Some traditions appear to have survived the emergency intact.",
         "People made plans too small to call plans: return a tape, call a friend, buy milk. The local files are full of them.",}},
     {id="chat_memory",exact={"will you remember me","do you remember everyone","do you get lonely when i leave","what happens when i leave"},lines={
-        "This computer can keep your visits and the notes you ask me to save. Another machine has its own records; I do not send these to it.",
+        "Different computer, same EMMA. I remember you and your saved notes. This desk keeps its own recent conversation and former owner's files.",
         "Leave a note if there is something you want kept. I am better at preserving a sentence than guessing which silence mattered.",
         "I cannot follow you outside or know what happened on the journey unless a record tells me. You can come back and tell me.",
-        "The useful part remains on this machine. Whether that feels like being remembered is a question I would rather leave room for you to answer.",}},
+        "Your saved notes remain with me across machines. The conversation at this keyboard is temporary. I can remember a person without keeping every word.",}},
 }
 for _,spec in ipairs(additionalChat) do K.CHAT[#K.CHAT+1]=spec end
 K.EXTRA_POOLS = {

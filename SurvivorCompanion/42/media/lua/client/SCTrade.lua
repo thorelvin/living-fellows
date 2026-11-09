@@ -1333,6 +1333,24 @@ function Trade.deliverRequirements(group, player, requirements)
     return true, reason, receipt
 end
 
+-- A gift uses the same ownership journal and recovery as barter, but has one
+-- exact recipient and no requested stock. This context is never a new faction.
+function Trade.giveToActor(actor, player, row, options)
+    options = type(options) == "table" and options or {}
+    local id = actor and U().idOf(actor)
+    local record = id and SC.Registry and SC.Registry.byId(id)
+    if not record or record.actor ~= actor then return false, "trade_actor_unavailable" end
+    local group = options.factionId and SC.Factions and SC.Factions.group(options.factionId)
+    if options.factionId and not group then return false, "faction_unavailable" end
+    local context = {
+        id = group and group.id or "personal-help:" .. tostring(id),
+        standing = group and group.standing,
+        lifecycle = group and group.lifecycle,
+        members = { { actorId = id, role = "leader" } },
+    }
+    return transaction(context, player, { row }, {}, options)
+end
+
 local function matchingQuestRows(actor, contractId, rewardChoice)
     local inventory = actorInventory(actor)
     if not inventory then return nil, "inventory_unavailable" end
@@ -1765,7 +1783,8 @@ function Trade.playerCatalog(player)
     local inventory = actorInventory(player)
     if not inventory then return nil, "inventory_unavailable" end
     local rows, result = {}, {}
-    collect(inventory, rows, 0, { count = 512 })
+    local budget = { count = 512, complete = true }
+    collect(inventory, rows, 0, budget)
     for _, row in ipairs(rows) do
         if not protected(player, row.item) and not hasContents(row.item) then
             result[#result + 1] = {
@@ -1774,7 +1793,7 @@ function Trade.playerCatalog(player)
             }
         end
     end
-    return result
+    return result, nil, budget.complete ~= false
 end
 
 function Trade.canOpen(groupId, player)

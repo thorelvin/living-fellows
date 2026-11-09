@@ -7,6 +7,34 @@ if not SC.Dialogue and type(require) == "function" then pcall(require, "SCDialog
 
 SC.Medical = SC.Medical or {}
 local Medical = SC.Medical
+local nativeDamage = setmetatable({}, { __mode = "k" })
+local healthSamples = setmetatable({}, { __mode = "k" })
+local noteHealthAssessment
+
+local function ownedRecord(actor)
+    local registry = SC.Registry
+    local id = registry and registry.idOf and registry.idOf(actor)
+    local record = id and registry.byId and registry.byId(id)
+    return record and record.actor == actor and record or nil
+end
+
+-- BodyDamage may emit this inside a Lua-to-native call. Only copy supplied
+-- arguments and Lua registry data here; defer native reads and logging.
+function Medical.noteNativeDamage(actor, reason, amount)
+    if not ownedRecord(actor) or type(reason) ~= "string" or type(amount) ~= "number"
+        or amount ~= amount or amount <= 0 or amount == math.huge then return end
+    local events = nativeDamage[actor]
+    if not events then events = {}; nativeDamage[actor] = events end
+    reason = string.sub(reason, 1, 48)
+    local latest = events[#events]
+    if not latest or latest.reason ~= reason then
+        if #events == 4 then table.remove(events, 1) end
+        latest = { reason = reason, count = 0, amount = 0 }
+        events[#events + 1] = latest
+    end
+    latest.count, latest.amount = latest.count + 1, latest.amount + amount
+    latest.sampledAt = healthSamples[actor] and healthSamples[actor].at
+end
 local downed = setmetatable({}, { __mode = "k" })
 local treatmentState = setmetatable({}, { __mode = "k" })
 local travelRouteProof = setmetatable({}, { __mode = "k" })
@@ -324,6 +352,7 @@ function Medical.assess(character, runtime)
         performance.record("medical.assess", nil,
             math.max(0, performance.preciseNowMs() - started))
     end
+    if noteHealthAssessment then noteHealthAssessment(character, assessment) end
     return assessment
 end
 
@@ -2205,6 +2234,53 @@ function Medical.requestHelp(actor, player, current)
     return true, "help_requested"
 end
 
+-- Deferred context for critical-health and death diagnostics.
+function Medical.healthSummary(actor, assessment)
+    local utility, fields = U(), {}
+    local function field(key, value)
+        fields[#fields + 1] = key .. "=" .. (value == nil and "unknown" or tostring(value))
+    end
+    field("name", utility.nameOf(actor))
+    for _, name in ipairs({ "HUNGER", "THIRST", "FOOD_SICKNESS", "SICKNESS", "POISON", "TEMPERATURE" }) do
+        field(string.lower(name), utility.characterStatValue(actor, name, nil))
+    end
+    local square = utility.squareOf(actor)
+    local building = select(1, utility.call(square, "getBuilding"))
+    field("buildingToxic", select(1, utility.call(building, "isToxic")))
+    field("onFire", select(1, utility.call(actor, "isOnFire")))
+    local body = assessment and assessment.bodyDamage or bodyDamage(actor)
+    field("corpseSicknessRate", select(1, utility.call(body, "GetBaseCorpseSickness")))
+    local x, y, z = utility.position(actor)
+    field("position", x and (tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)))
+    local record = ownedRecord(actor)
+    local runtime = record and record.runtime
+    field("decision", runtime and runtime.decision and runtime.decision.current)
+    local episode = SC.Autonomy and SC.Autonomy.episodeStatus and SC.Autonomy.episodeStatus(actor)
+    field("episode", episode and episode.kind)
+    field("episodeStage", episode and episode.stage)
+    local events = nativeDamage[actor]
+    local damage = {}
+    for _, event in ipairs(events or {}) do
+        damage[#damage + 1] = event.reason .. ":" .. tostring(event.amount)
+            .. "/" .. tostring(event.count) .. "@sample:" .. tostring(event.sampledAt or "unknown")
+    end
+    field("recentNativeDamage", #damage > 0 and table.concat(damage, ",") or nil)
+    return table.concat(fields, " ")
+end
+
+noteHealthAssessment = function(actor, assessment)
+    if not ownedRecord(actor) then return end
+    local sample = healthSamples[actor]
+    if not sample then sample = {}; healthSamples[actor] = sample end
+    sample.at = U().nowMs()
+    if assessment.health >= 75 then sample.warned = nil end
+    if assessment.health > 0 and assessment.health < 70 and not sample.warned then
+        sample.warned = true
+        print("[SurvivorCompanion/health-decline] actor=" .. tostring(SC.Registry.idOf(actor))
+            .. " health=" .. tostring(assessment.health) .. " " .. Medical.healthSummary(actor, assessment))
+    end
+end
+
 -- One line describing a companion's body at death, for the log.
 function Medical.deathSummary(actor)
     local assessment = Medical.assess(actor)
@@ -2232,6 +2308,7 @@ function Medical.deathSummary(actor)
         .. " knox=" .. tostring(assessment.knoxInfected == true)
         .. " infection=" .. tostring(math.floor(tonumber(assessment.infectionLevel) or 0))
         .. " wounds=" .. (#parts > 0 and table.concat(parts, ",") or "none")
+        .. " " .. Medical.healthSummary(actor, assessment)
 end
 
 local function leaveDowned(actor, runtime)
@@ -2496,6 +2573,7 @@ function Medical.reset(actor)
     if actor then
         return Medical.releaseActor(actor)
     else
+        nativeDamage, healthSamples = setmetatable({}, { __mode = "k" }), setmetatable({}, { __mode = "k" })
         assessmentCache = {}
         treatReadiness = setmetatable({}, { __mode = "k" })
         for subject in pairs(receivingCare) do receivingCare[subject] = nil end
@@ -2519,6 +2597,7 @@ end
 
 function Medical.releaseActor(actor)
     if actor == nil then return false end
+    nativeDamage[actor], healthSamples[actor] = nil, nil
     Medical.invalidate(actor)
     receivingCare[actor] = nil
     helpRequestedAt[actor] = nil

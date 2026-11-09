@@ -742,7 +742,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
 
     if commands.recruited and commands.temporaryStay ~= true
         and SC.Autonomy and type(SC.Autonomy.intentFor) == "function" then
-        local okay, intent = pcall(SC.Autonomy.intentFor, actor, player, snapshot, commands)
+        local okay, intent = pcall(SC.Autonomy.intentFor, actor, player, snapshot, commands, needs)
         -- A follower's voluntary idle moments (joy, restless or supply idles,
         -- ordinary rituals) also wait for the leader to settle. Episodes, grief
         -- and urgent ritual recovery are never held back.
@@ -2284,6 +2284,10 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("downtime", actor, function() return SC.Downtime.update(actor, player, rootRuntime) end)
     elseif candidate.kind == "needs" then
         if not SC.Needs or type(SC.Needs.update) ~= "function" then return false, "needs_unavailable" end
+        if SC.Autonomy and type(SC.Autonomy.pauseForNeeds) == "function" then
+            local released, why = SC.Autonomy.pauseForNeeds(actor)
+            if released ~= true then return true, why or "episode_release_pending" end
+        end
         return callSubsystem("needs", actor, function()
             return SC.Needs.update(actor, player, rootRuntime,
                 { expeditionTravel = commands.expeditionMoving == true,
@@ -2982,6 +2986,19 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         actor, player, snapshot, commands)
     local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands, actor, player)
         or factionEmergency
+    local autonomy = SC.Autonomy
+    local episode = autonomy and autonomy.episodeStatus and autonomy.episodeStatus(actor)
+    local campNeeds = commands.order == "base_duty" and not commands.expeditionMember
+        and not commands.expeditionMoving and SC.BaseLife and SC.BaseLife.isInside(actor)
+        and needs and (needs.hungry or needs.thirsty or needs.mealInProgress)
+    if episode and not episode.paused and campNeeds and not urgent
+        and type(autonomy.pauseForNeeds) == "function" then
+        local released, why = autonomy.pauseForNeeds(actor)
+        if released == true then return false end
+        state.current, state.intent, state.lastHandledAt = "mental_episode",
+            why or "episode_release_pending", current
+        return true, state.intent
+    end
     -- The camp alarm calls a resident away from chores, downtime and meals,
     -- never from treatment or a player's own control.
     local alarm = commands.order == "base_duty" and SC.BaseAlert
@@ -3155,6 +3172,35 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         local effectiveOwner = supervisedOwner or owner
         urgent = ownerNeedsImmediatePreemption(effectiveOwner, snapshot, assessment,
             needs, commands, factionEmergency, actor, player) or alarmPreempts(effectiveOwner)
+        local floor = SC.FloorSort
+        local pickupJob, pickupToken
+        if floor and type(floor.pendingPickup) == "function" then
+            pickupJob, pickupToken = floor.pendingPickup(actor)
+        end
+        if pickupJob and pickupToken and type(native.visualToken) == "function"
+            and native.visualToken(actor, "loot_container") == pickupToken then
+            local job = SC.BaseLife and SC.BaseLife.jobFor(U().idOf(actor))
+            local matches = job and job.id == pickupJob and job.type == "sort_floor"
+                and commands.order == "base_duty"
+            if urgent or not matches then
+                local released, why = floor.pause(actor, matches and job or nil,
+                    urgent and "survival_priority" or "floor_job_released")
+                if released == true then return false end
+                state.current, state.currentKey = "base_work", "base_work"
+                state.intent = why or "floor_pickup_cancel_pending"
+                state.lastHandledAt = current
+                return true, state.intent
+            elseif owner == "visual" and (phase == "active" or phase == "result_pending")
+                and SC.BaseWork and type(SC.BaseWork.update) == "function" then
+                local safe, _, why = U().safeSubsystem("floor-sort", actor,
+                    SC.BaseWork.update, actor, player, rootRuntime or {})
+                state.current, state.currentKey = "base_work", "base_work"
+                state.intent = safe and (why or "owned_floor_pickup_polled")
+                    or "owned_floor_pickup_poll_failed"
+                state.lastHandledAt = current
+                return true, state.intent
+            end
+        end
         -- Production owns an indefinite native action (notably tree chopping).
         -- Poll its controller while the animation runs so the 45-second base-job
         -- lease, fallback events and completion proof cannot expire behind this

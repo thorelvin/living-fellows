@@ -1,0 +1,74 @@
+EMMA care, understanding and survival references - 0.27.5
+2026-11-08
+
+Scope
+The first approved slice: phases A, B and G. Adds shared care/comfort handling,
+broader foreground language handling, a local missed-input option, and 26 paged
+survival references. Reuses the existing conversation context and confirmation
+system. No network, model, event service, native protocol or save-schema change.
+The relationship work already in this branch is retained.
+
+Automated verification - final source
+scripts/Test-Project.ps1 -Serial: PROJECT_TEST_PASS, all five checks.
+Evidence: build/test-results/20261108-223612-d333ed
+Build, Lifecycle, Behaviour, Cargo and Interface all passed; 68.5 seconds,
+serial execution with a 256 MB JVM and two processors.
+git diff --check passed (line-ending notices only).
+
+Actual production Brain.respond calls, using the supplied corpus and holdout:
+4,179 in-scope inputs; zero reply errors. All 497 care cases produced a real
+private care response with session state and the direct question, rather than
+merely returning the care intent ID. Comfort labels: 206/206. Existing harmless
+lookalikes: 46/46. Additional hopeful, ordinary-injury, item and command controls
+are in tests/ui/SCEmmaConversationTests.lua.
+Exact original-label agreement overall: 3,934/4,179. The legacy-label mismatches
+are retained for review; this is not the prototype's claimed 97.6% benchmark.
+The wider mind, body/calendar and discovery phases are not included in this run.
+Corpus receipt: C:/ZOMBOID/outputs/emma-plan-review/production-corpus.txt
+
+The retained Interface scenarios cover real replies, two read-only questions,
+item/quantity follow-ups, guide paging, literal notes, negative and compound
+action requests, outside-camp boundaries, rotating/off/private logging, and
+all three persona engines without story effects. They also cover native editing
+buffer precedence and exact pointer values when display/buffer text differs.
+No separate replacement test framework was introduced.
+
+Live verification - disposable copy of the player's save
+SC-Harness-20261108-221801-56ab961a: custom EMMA acceptance COMPLETE and ordinary
+LIVE_SANDBOX_PASS. Actual mapped desktop at 6578,5487,0; no spawned/floating PC.
+1280x720, 30 FPS, one limited game process at a time; the test client has exited.
+Verified survival rendering, once-only white support rows, no shout reprimand,
+uncertainty handling, close cleanup, locked EMMA remaining locked without score
+changes, and SPIFFY retaining its first-conversation/story state during care.
+ELLIS and DUTY were verified headlessly, not claimed as live scenarios.
+
+Two earlier custom probes blocked at text submission; blocker screenshots and
+logs remain retained. Native diagnostics established that the display getter
+returned an empty string while getInternalText held the typed message. Normal
+EMMA now uses the same live buffer as persona terminals. Pointer choices pass
+their selected value explicitly. The final corpus/negation refinements and
+pointer-buffer regression were checked after the live rendering run.
+
+Live receipt and five screenshots:
+C:/ZOMBOID/outputs/emma-02705/native-acceptance.txt
+C:/ZOMBOID/outputs/emma-02705/lf-emma-survival-reference.png
+C:/ZOMBOID/outputs/emma-02705/lf-emma-care-reply.png
+C:/ZOMBOID/outputs/emma-02705/lf-emma-care-support.png
+C:/ZOMBOID/outputs/emma-02705/lf-emma-locked-care.png
+C:/ZOMBOID/outputs/emma-02705/lf-emma-persona-care.png
+
+Privacy and lifecycle
+Missed-input recording defaults on, as explicitly selected, and has a Mod Option.
+Two local files retain at most 300 entries each; no uploads or background writes.
+Care sessions, notes and operator-name changes are excluded, including retroactive
+"you misunderstood" capture. Care state clears on close. A per-character receipt
+stores only a game-hour timestamp and pending flag for one check-in within 72
+game hours. Computer resets do not erase that character receipt.
+
+The original player save, installed game payload and launcher were not edited.
+Changes are uncommitted. Automatic approval review blocked deleting the duplicate
+temporary test payloads, returning only "blocked by policy"; those copies remain.
+
+Subsequent self-worth dialogue hardening and its final verification are recorded
+in validation-emma-self-worth-02705.txt. The corpus and live results above refer
+to this initial slice, preceding that follow-up.

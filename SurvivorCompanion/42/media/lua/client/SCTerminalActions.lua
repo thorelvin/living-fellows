@@ -155,9 +155,18 @@ end
 function Actions.prepare(window, proposal)
     if type(proposal) ~= "table" then return nil, "Request unavailable." end
     local localServices = proposal.kind == "control" or proposal.kind == "factory_reset" or proposal.kind == "radio_desk"
-        or proposal.kind == "grid_control"
+        or proposal.kind == "grid_control" or proposal.kind=="emma_forget"
     local base, reason = context(window, nil, localServices)
     if not base then return nil, reason end
+    if SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) and proposal.kind~="emma_forget"
+        and proposal.kind~="factory_reset" then return nil,"Borrowed power runs EMMA only. Radio and building services need a normal supply." end
+    if proposal.kind=="emma_forget" then
+        local target,prompt=SC.EmmaMind.prepareForget(window.session,proposal)
+        if not target then return nil,prompt end
+        local ticket={}
+        tickets[ticket]={window=window,localServices=true,emmaForget=true,target=target,at=U().nowMs()}
+        return ticket,prompt
+    end
     if proposal.kind == "grid_control" then
         if not SC.GridControl then return nil,"Grid control is unavailable." end
         local target,prompt=SC.GridControl.prepare(window,proposal)
@@ -177,8 +186,8 @@ function Actions.prepare(window, proposal)
         local ticket = {}
         tickets[ticket] = {window=window,localServices=true,factoryReset=true,
             object=window.object,system=window.system,at=U().nowMs()}
-        return ticket, "Factory reset THIS computer? Permanently erase the old owner's files and firm branding, "
-            .. "your notes and conversation memory, then restart EMMA. Mounted hardware, access protections "
+        return ticket, "Factory reset THIS computer? Permanently erase the old owner's files, firm branding, "
+            .. "local history and unimported notes, then restart EMMA. Shared notes and fragments remain. Mounted hardware, access protections "
             .. "and screen colour stay intact. Connected equipment keeps its current settings. [Y/N]"
     end
     if localServices then
@@ -208,6 +217,7 @@ function Actions.execute(window, ticket)
     if not base then return false, reason end
     local age = U().nowMs() - request.at
     if age < 0 or age > Actions.TTL_MS then return false, "That request expired. Please ask again." end
+    if request.emmaForget then return SC.EmmaMind.forget(window.session,request.target) end
     if request.radioDesk then return SC.TerminalRadio.execute(window,request.target) end
     if request.grid then return SC.GridControl.execute(window,request.target) end
     if request.factoryReset then

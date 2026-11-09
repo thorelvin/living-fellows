@@ -141,6 +141,7 @@ local AUTO_RETRY_BLOCKERS = {
     base_storage_unloaded = true, base_storage_changed = true,
     base_storage_withdrawals_disabled = true, base_supply_reserved = true,
     base_supply_moved = true, hauled_item_missing = true,
+    haul_scan_changed = true,
     build_target_unloaded = true, build_approach_missing = true,
     carried_supply_unreachable = true,
     barricade_target_unloaded = true, maintenance_target_unloaded = true,

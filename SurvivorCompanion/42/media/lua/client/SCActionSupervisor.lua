@@ -1078,6 +1078,11 @@ function Supervisor.expectVisual(token, detail)
     return true
 end
 
+function Supervisor.isReserved(resource)
+    local owner = resource ~= nil and reservationOwners[resource] or nil
+    return owner ~= nil and Supervisor.isCurrent(owner)
+end
+
 function Supervisor.reserve(token, resource, label)
     if not Supervisor.isCurrent(token) or resource == nil then return false, "invalid_reservation" end
     local blocked, blockedReason, blockedDetail = rollbackBlocked(token)

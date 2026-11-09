@@ -650,6 +650,37 @@ function Recruitment.summary(groupOrId)
     return copied
 end
 
+-- Explain all household gates together. This reads retained social state only;
+-- it neither scans supplies nor advances a contract or trial.
+function Recruitment.requirements(groupOrId)
+    local group = groupFor(groupOrId)
+    if not group then return { "faction_unavailable" } end
+    local summary = Recruitment.summary(group)
+    local reasons, seen = {}, {}
+    local function add(reason)
+        if not seen[reason] then reasons[#reasons + 1] = reason; seen[reason] = true end
+    end
+    if summary.status == "joined" then add("household_member_already_joined")
+    elseif summary.status == "dead" then add("candidate_died")
+    elseif summary.status == "trial" then add("trial_already_active") end
+    if SC.Config and SC.Config.get("factionRecruitmentEnabled") ~= true then add("faction_recruitment_disabled") end
+    if group.discovered ~= true and not group.oddball then add("faction_not_discovered") end
+    if group.standing == "Hostile" or group.lifecycle == "hostile"
+        or group.permanentHostility == true then add("faction_hostile") end
+    if unresolvedOffenses(group) > 0 then add("unresolved_offenses") end
+    if not group.oddball then
+        if group.standing ~= "Trusted" then add("trusted_standing_required") end
+        if summary.contractsCompleted < summary.contractsRequired then add("more_contracts_required") end
+        if summary.presentResidents <= 1 then add("last_household_resident") end
+    elseif not SC.Oddballs or not SC.Oddballs.canRecruit or not SC.Oddballs.canRecruit(group) then
+        add("oddball_story_incomplete")
+    end
+    if summary.cooldownHours > 0 then add("recruitment_cooldown") end
+    if #reasons == 0 and summary.canAsk ~= true and summary.reason ~= "eligible"
+        and summary.status == "available" then add(summary.reason or "no_willing_candidate") end
+    return reasons
+end
+
 function Recruitment.debugPrepare(groupOrId)
     if not SC.Config or SC.Config.get("debugSpawnEnabled") ~= true then
         return false, "debug_tools_disabled"

@@ -116,7 +116,7 @@ function B.register(object)
     end
 end
 function B.connect(player,object)
-    if not U().near(player,object,3) or not SC.Terminal.powered(object) then return false,"Computer unavailable." end
+    if not U().near(player,object,3) or not (SC.Terminal.normalPowered or SC.Terminal.powered)(object) then return false,"Computer unavailable." end
     if U().skill(player)<2 then return false,"Electrical 2 is required." end
     if not U().hasTool(player,"Base.Screwdriver") then return false,"A screwdriver is required." end
     -- Hardware may be installed before the computer has ever been opened.
@@ -267,7 +267,8 @@ function B.security(object,word,skill)
     return code=="success",code,likeness
 end
 local function authorized(object,panel)
-    return U().present(object) and SC.Terminal.powered(object) and B.connected(object,panel) and panel.security.locked~=true
+    return U().present(object) and (SC.Terminal.normalPowered or SC.Terminal.powered)(object)
+        and B.connected(object,panel) and panel.security.locked~=true
 end
 function B.prepare(object,action,id,player)
     local panel,reason=B.panel(object,false)

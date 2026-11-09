@@ -129,7 +129,7 @@ local function finish(scan)
         cappedControls=scan.cappedControls==true,cappedFinds=scan.cappedFinds==true,status=scan.status}
     -- Mark before an ambiguous native callback, exactly like password XP.
     if scan.player and not scan.panel.scanXpAwarded and scan.baseDone>scan.outOfRange
-        and U().near(scan.player,scan.computer,3) and SC.Terminal.powered(scan.computer)
+        and U().near(scan.player,scan.computer,3) and (SC.Terminal.normalPowered or SC.Terminal.powered)(scan.computer)
         and U().call(scan.player,"isDead")~=true and B().connected(scan.computer,scan.panel) then
         scan.panel.scanXpAwarded=true
         local xp=U().call(scan.player,"getXp")
@@ -171,7 +171,7 @@ function D.step(scan,budget,remaining)
 end
 local function usable(object,player)
     if not U().present(object) or not U().near(player,object,3)
-        or U().call(player,"isDead")==true or not SC.Terminal.powered(object) then return nil,"Computer unavailable." end
+        or U().call(player,"isDead")==true or not (SC.Terminal.normalPowered or SC.Terminal.powered)(object) then return nil,"Computer unavailable." end
     local panel,reason,bounds,definition=B().panel(object,false)
     if not panel then return nil,reason end
     if not B().connected(object,panel) then return nil,"Connect this computer at its current location first." end

@@ -6,26 +6,16 @@ SC.PZOptimizerAdapter = SC.PZOptimizerAdapter or {}
 local Adapter = SC.PZOptimizerAdapter
 local state, reason = "absent", "PZOptimizer has not been checked"
 
--- The bridge can be missing or older than this file. When ZombieBuddy loads the
--- bridge JAR, SCBridge is not published yet at the main menu. Look each method up
--- before calling it: Kahlua prints a full stack trace even for an error that pcall
--- catches, so pcall alone still filled players' logs.
-local function hasNative(...)
-    if SCBridge == nil then return false end
-    local count = select("#", ...)
-    for index = 1, count do
-        if not SCBridge[select(index, ...)] then return false end
-    end
-    return true
-end
-
 function Adapter.initialize()
     local requested = not SC.UserOptions or SC.UserOptions.get("pzOptimizerCompatibility") ~= false
-    local okay, nextState, nextReason = false, nil, nil
-    if hasNative("configurePZOptimizerAdapter", "getPZOptimizerAdapterState", "getPZOptimizerAdapterReason") then
+    local bridge = SCBridge
+    local okay, nextState, nextReason = false
+    if bridge and type(bridge.configurePZOptimizerAdapter) == "function"
+        and type(bridge.getPZOptimizerAdapterState) == "function"
+        and type(bridge.getPZOptimizerAdapterReason) == "function" then
         okay, nextState, nextReason = pcall(function()
-            SCBridge.configurePZOptimizerAdapter(requested)
-            return SCBridge.getPZOptimizerAdapterState(), SCBridge.getPZOptimizerAdapterReason()
+            bridge.configurePZOptimizerAdapter(requested)
+            return bridge.getPZOptimizerAdapterState(), bridge.getPZOptimizerAdapterReason()
         end)
     end
     if not okay then
@@ -43,15 +33,19 @@ end
 
 function Adapter.status()
     local calls = 0
-    if hasNative("getPZOptimizerInlineCalls") then
-        pcall(function() calls = SCBridge.getPZOptimizerInlineCalls() end)
+    local bridge = SCBridge
+    if bridge and type(bridge.getPZOptimizerInlineCalls) == "function" then
+        pcall(function() calls = bridge.getPZOptimizerInlineCalls() end)
     end
     return { state = state, reason = reason, inlineCalls = calls }
 end
 
 function Adapter.reset()
-    if hasNative("configurePZOptimizerAdapter") then
-        pcall(function() SCBridge.configurePZOptimizerAdapter(false) end)
+    -- A Lua reset clears native globals before OnMainMenuEnter. Even a caught
+    -- nil-bridge access is printed as an exception by the game VM.
+    local bridge = SCBridge
+    if bridge and type(bridge.configurePZOptimizerAdapter) == "function" then
+        pcall(function() bridge.configurePZOptimizerAdapter(false) end)
     end
     state, reason = "disabled", "World stopped"
     return true

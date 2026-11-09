@@ -1,0 +1,44 @@
+Frying-pan melee range — 8 November 2026 — living_fellows/0.27.4
+
+Installed 42.21.0 Base.Pan: MinRange 0.61, MaxRange 1.1, MinAngle 0.67,
+WeaponLength 0.21. Live getMaxRange(actor)=1.1 and getRangeMod(actor)=1.
+LF accepts 0.46–1.18 with its existing tolerances and chooses a stance about
+1.002 tiles away. No production weapon/range/combat changes were made.
+
+The existing native squad probe now accepts Base.Pan. A disposable passive
+observer records attack/impact serials, candidate counts, exact native evidence,
+distance, logical facing, native animation angle and target bearing. It replaces
+no combat functions and performs no damage or accuracy adjustments. Fixtures
+use fresh real pans, ordinary native zombies, full endurance, zero tiredness,
+multihit off and native sighting. LF-only save clones run one game at a time.
+
+Three 1v1 trials: SC-Harness-20261108-191241-b621107d, LIVE_SANDBOX_PASS.
+All three companions survived at 100% health and killed their zombie. Ten
+nonzero native collision checks each included one candidate, with target health
+loss/death and no reported no-effect outcome. Impact distances were 0.871–1.140
+tiles. The actors had Small Blunt levels 0–1 and Strength 3–5. Nine outcomes
+reached the Lua report; final death cleanup can end observation before the last
+Lua report, so collision counts and reported outcomes are kept distinct.
+
+Two 2v3 trials: SC-Harness-20261108-191618-796ae113, LIVE_SANDBOX_PASS.
+All four companions survived and all six zombies died. Lowest companion health
+was 93.9% in trial 1 and 100% in trial 2. The reported melee outcomes were
+19 landed and 7 no_effect. Survival PASS does not establish accurate swings.
+Empty native candidate lists occurred at impact distances of 0.440, 0.630,
+1.155, 1.322, 1.556 and 1.574 tiles. One further no-effect result had a native
+candidate at 0.953 tiles without health loss; its cause remains unproven.
+
+The two anticipatory misses were still 1.322 and 1.556 tiles away at impact.
+Three other misses showed native animation-angle errors of about 76, 91 and
+144 degrees while logical forward aim was within 0.03 degrees. These correlate
+with out-of-reach collision timing and incomplete body turns. The pan hits at
+normal engagement distances; the crowded misses do not justify a reach buff.
+Hardening should investigate short-weapon predictive lead and physical body
+alignment before a swing. This investigation has not fixed those combat paths.
+
+Evidence: C:/ZOMBOID/outputs/pan-reach-02704/ contains both native result tables,
+parsed range/angle tables, pan-misses.csv and first-miss screenshots. The observer
+is disposable; the first run's CSV was reconstructed from native console rows.
+Near-observer photos can put fighters behind the minimap; angular findings use
+native measurements rather than visual pose approval. Both games exited; no
+game, Java or compiler process remained. Original save/installation unchanged.

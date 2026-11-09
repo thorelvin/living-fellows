@@ -1,0 +1,105 @@
+Camp work and health hardening - 2026-11-09
+
+Report examined
+LF 0.27.4, PZ 42.21.0, PZO and ZombieBuddy 2.3.4.
+Tester console: 5b16d5c2-dca5-4ea1-9cff-308e8220aa9c/1-console.txt
+Tester archive: e5e3d330-12d8-4635-827a-f5b8cf948e3c/1-logs-6-.zip
+Both are under C:/ZOMBOID/.codex-remote-attachments/
+01a16dd1-0e06-79d1-8ed2-7f5743a89a28/.
+Deacon's recorded death has health 0, no wounds, bites or Knox infection.
+The old log lacks needs and illness readings. His cause remains unknown.
+The archive repeats logs from three distinct sessions; duplicate copies
+are not counted as additional incidents.
+
+Implemented
+- Floor pickups retain their BaseWork parent through native completion.
+  Urgent handoff cancels only that pickup's exact native action token.
+- Haul discovery retains separate cursors and finite work per source,
+  rotates after eight items and preserves progress through count churn.
+  Existing frame, item and container-open limits remain in place.
+  Changed, unmatched sweeps yield a three-minute retry, with manual Retry.
+- Normal hunger, thirst and ongoing meals pause passive camp episodes.
+  Original recovery deadlines continue running. Resumption does not replay
+  dialogue or one-shot outbursts, and cannot cancel a replacement owner.
+- Native damage callbacks copy supplied values using Lua identity only.
+  Four coalesced receipts per owned actor are read later by diagnostics.
+  A snapshot logs on the first decline below 70%, rearming above 75%;
+  death snapshots include native damage, needs, illness and environment.
+  Unknown values remain unknown. No scripted replacement damage is added.
+
+Automated checks
+Focused sorting, ownership, needs and autonomy regressions passed.
+Count-churn regression: a large changing first shelf cannot starve a later
+candidate, including when the frame budget starts exhausted. Discovery
+does not move items. Removed registrations and dirty unmatched sweeps
+retain safe retry behavior.
+Ownership tests cover active and unclaimed completed pickups, delayed
+cancellation and foreign tokens. Episode tests cover repeated pauses,
+original expiry and a newer owner's visual. Medical tests cover actor
+isolation, bounded receipts, callback purity and warning rearming.
+Final five-check gate: PASS, 54.3 seconds, serial 256 MiB/two-CPU JVMs.
+Build, Lifecycle, Behaviour, Cargo and Interface all passed.
+Evidence: build/test-results/20261109-083912-04ff2e/summary.json.
+
+Live functional acceptance (disposable LF-only save)
+SC-Harness-20261109-074904-f6fb0932: harness PASS, eight checks.
+Real Rosewood firehouse, 60 loaded containers and 497 clear floor tiles.
+A normal base-duty companion transferred the exact Money item from a
+later source into Valuables while the first shelf's count changed.
+Urgent thirst interrupted a real floor-pickup visual; afterward the exact
+Hammer was deposited once and its world wrapper was removed.
+Native HUNGRY, THIRST and SICK damage reached distinct companion receipts.
+The illness control later died with no wounds, bites or Knox infection;
+its new death line correctly retained SICK damage and FOOD_SICKNESS.
+This verifies diagnosis, not Deacon's unrecorded cause of death.
+The remote test teleport left the world image black. Functional results
+are valid; visual acceptance requires the separate reload check below.
+
+Native compatibility comparison
+All cells use the same initial save, genuine native actions, no trace
+agent, one client at a time, 2.5 GiB heap and four CPUs at BelowNormal.
+Actions: ten farming-tool/nested-Lua-predicate, exact bag transfer and
+eating cycles, then three driver entry/engine-shutoff/exit cycles.
+LF only: completed. LF + ZombieBuddy 2.3.4: completed, eight-check PASS.
+LF + PZO 1.9.9: all native action cycles completed with no ReturnValues
+exceptions. Input at the start gate consumed the outer timeout; the client
+was stopped after its completed native receipts. No general observer PASS
+is claimed for this cell.
+LF + both: the first cell's observer died from zombie wounds during the
+fourth eating cycle. Its block screenshot is retained; this is not a pass.
+The repeat protects only the stationary test observer, not LF actors.
+Combined repeat: all ten inventory/farming/eating and three vehicle cycles
+completed, followed by an eight-check observer PASS and normal exit.
+Cell IDs in build/live-sandbox-runs/:
+  LF + ZombieBuddy: SC-Harness-Patch-ZB3-20261109
+  LF + PZO: SC-Harness-Patch-PZO-20261109
+  LF + both: SC-Harness-Patch-Both2-20261109
+The historical ReturnValues.put failures have not been assigned a cause.
+No foreign native pool code was patched or exception output suppressed.
+ZombieBuddy comparison approves only the exact LF JAR in a disposable
+profile and retains deny-new. Installed launchers and real presets stay
+unchanged; PZO power/GPU changes are disabled for these private tests.
+
+Native artifacts (SHA256)
+LF bridge: 36da485dc76a841f8009059adcbf407f62cd19b61272a6ed2fed790b5c11e26f
+ZombieBuddy: eb79b9876332010733a8e0d7ce4fe0377846059a9e28859029e2a0fb449f6cf2
+PZO engine: 4afdaf878570ed31812590b9dc2ef0f3f3b88f5fe91a1386d09dc04780a2ecc2
+PZO DLL: 8a73d3260da18ae5ca48ab96678d14a1a47cb627bd6be182e0c9550dd806c16a
+PZO Workshop manifest: 3018701328976225193.
+ZombieBuddy Workshop item: 3619862853, downloaded version 2.3.4.
+
+Visual reload acceptance
+SC-Harness-20261109-083600-f7a3c356: eight checks passed, 60 observation
+samples, four companions present. Main player, firehouse and test vehicle
+render correctly after reload. Screenshot inspected:
+cache/Screenshots/camp-hardening-firehouse-reload
+The initial black teleport image is retained, not counted as visual proof.
+
+Final audit
+All four native cells completed ten inventory and three vehicle cycles,
+with zero ReturnValues.put failures and zero thrown gameplay exceptions.
+The PZO-only observer-summary limitation above remains recorded.
+Installed projectzomboid.jar, launcher JSON and LF bridge match the
+pre-run hashes. Original saves and public mod presets were not edited.
+No test clients or compilers remain running. Validation did not install
+files into the user's game.

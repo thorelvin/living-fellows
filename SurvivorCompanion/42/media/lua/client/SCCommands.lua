@@ -701,6 +701,11 @@ local function markCommand(actor, entry, state)
     if groupStaging then return end
     temporaryStaySuperseded(actor, state)
     writeStable(actor, entry, state)
+    if SC.Autonomy and type(SC.Autonomy.episodeStatus) == "function"
+        and type(SC.Autonomy.interrupt) == "function" then
+        local episode = SC.Autonomy.episodeStatus(actor)
+        if episode and episode.paused then SC.Autonomy.interrupt(actor, "new_command") end
+    end
     if SC.Downtime and type(SC.Downtime.cancel) == "function" then
         pcall(SC.Downtime.cancel, actor, "command")
     end
@@ -2047,6 +2052,10 @@ function Commands.describe(companionId, player)
         morale = relationship.morale or state.morale,
         stress = relationship.stress or state.stress,
         relationshipTier = relationship.relationshipTier or "cautious",
+        relationshipProgress = relationship.progress,
+        relationshipReasons = relationship.reasons,
+        helpFoodMultiplier = relationship.helpFoodMultiplier,
+        helpWaterMultiplier = relationship.helpWaterMultiplier,
         mood = autonomy.grief and "grieving" or relationship.mood or "steady",
         currentNeed = relationship.currentNeed or "ready",
         recentMemory = relationship.recentMemory,
@@ -2104,7 +2113,6 @@ local conversationActions = {
 }
 
 local recruitedConversationActions = {
-    relationship = true,
     encourage = true,
     praise = true,
 }
@@ -3155,6 +3163,42 @@ function Commands.persist(actor)
     return ok == true, ok and "state_persisted" or reason
 end
 
+local function relationshipMilestone(actor, beforeScore, beforeTier, state, player)
+    local relationship = SC.Relationship
+    local tier = relationship.tier(state)
+    if tier == beforeTier or relationship.score(state) <= beforeScore then return end
+    local stage = U().text("UI_SC_State_" .. tier, tier)
+    local name = U().nameOf(actor)
+    local message = U().text("UI_SC_Social_milestone",
+        name .. ": relationship is now " .. stage .. ".", name, stage)
+    if SC.Interaction then pcall(SC.Interaction.note, U().idOf(actor), "system", message) end
+    if player then U().call(player, "setHaloNote", message) end
+end
+
+-- Called only after the transfer journal verifies the exact item in this
+-- recipient's inventory. Persist a staged copy so failed writes can roll back.
+function Commands.recordHelp(actor, kind, item, relief)
+    local id = actor and U().idOf(actor)
+    if not id then return false, "invalid_actor" end
+    local resolved, entry = U().resolveActor(id)
+    if resolved ~= actor or not actor then return false, "invalid_actor" end
+    local inventory = select(1, U().call(actor, "getInventory"))
+    if not inventory or not U().inventoryContains(inventory, item) then
+        return false, "help_transfer_unverified"
+    end
+    local staged, reason = copyCommandState(stateFor(actor, entry))
+    if not staged then return false, reason end
+    local beforeScore, beforeTier = SC.Relationship.score(staged), SC.Relationship.tier(staged)
+    local accepted, result = SC.Relationship.noteHelp(staged, kind, relief)
+    if not accepted then return false, result end
+    local storage = snapshotStorage(actor, entry)
+    local saved, failure = pcall(writeStable, actor, entry, staged)
+    if not saved then restoreStorage(actor, entry, storage); return false, failure end
+    states[actor] = staged
+    pcall(relationshipMilestone, actor, beforeScore, beforeTier, staged)
+    return true, result
+end
+
 local function transitionFactionMembership(actor, specification, player)
     if actor == nil or type(specification) ~= "table" then
         return false, "invalid_faction_transition"
@@ -3361,6 +3405,7 @@ function Commands.observeRelationship(actor, player, snapshot)
     if not actor or not player or not SC.Relationship
         or type(SC.Relationship.observe) ~= "function" then return false end
     local state = stateFor(actor)
+    local beforeScore, beforeTier = SC.Relationship.score(state), SC.Relationship.tier(state)
     local ok, relationshipChanged, reason, observedEvents = pcall(
         SC.Relationship.observe, actor, player, snapshot, state)
     local changed = ok and relationshipChanged == true
@@ -3392,6 +3437,7 @@ function Commands.observeRelationship(actor, player, snapshot)
     if not changed then return false, ok and reason or relationshipChanged end
     local _, entry = U().resolveActor(U().idOf(actor))
     local persisted, persistenceReason = pcall(writeStable, actor, entry, state)
+    if persisted then pcall(relationshipMilestone, actor, beforeScore, beforeTier, state, player) end
     return persisted == true, persisted and reason or persistenceReason
 end
 
