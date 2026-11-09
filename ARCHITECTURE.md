@@ -92,6 +92,23 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   work to daylight, and never plows ground that was not already a farm plot.
   Its event speech uses deterministic chance plus actor/party cooldowns, remains
   silent near threats, and never participates in action admission or completion.
+- `SCAnimalWork` extends that same farm lane for chickens in vanilla animal
+  zones wholly covered by the camp-area union. It adds no scheduler, event,
+  role or storage category. Resumable audits inspect at most 16 squares and
+  32 animals per slice, eight cached zones of at most 256 tiles, and eight
+  hutches/troughs per zone; shared work units and a 1.5 ms yield boundary
+  retain the frontier. Incomplete or mixed/Strange Folk pens cannot authorize
+  work. Two workers per zone and one per device hold expiring runtime claims.
+  `SCFarmWork` retains exact supply loans, egg receipts, delivery and cleanup;
+  `base.farm.animals` version 1 stores only scalar summaries and cooldowns,
+  preserving unknown future versions. Action callbacks read current permission
+  and ownership without rescanning. The Lua adapter binds stock timed actions
+  to the exact companion and native device, independently of player UI/queues.
+  On 42.22.2 a trough holds feed or fluid, so separate devices are required.
+  Fertile eggs are protected. Automatic dusk closing, feed-horizon breeding
+  management and irreversible culling stay disabled until their native evidence
+  and live acceptance pass; the cull policy only proposes an ID and has no
+  kill/butcher dispatcher. See the dated animal probe report for evidence.
 - `SCProduction` owns finite base production orders through a small operation
   registry: `fell_trees`, `saw_planks`, `dig_graves` and `bury_bodies`. Each
   operation is a descriptor plus an adapter; `SCBaseLife` owns the persisted

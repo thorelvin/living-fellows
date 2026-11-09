@@ -2,6 +2,28 @@
 
 # Playtest checklist
 
+## WP02 chicken care — 0.27.7
+
+- [x] Automated: bounded pen coverage, pending/oversized/Strange Folk refusal,
+  exact supply borrowing/cancellation and egg recovery, capacity and ownership
+  checks, crop/animal selection, flock targets, feed horizon and cull exclusions.
+- [x] Cloned 42.22.2 saves: a Farmer transfers 1.8 litres into a separate water
+  trough, deposits the exact feed bag and delivers the exact egg to food storage.
+  Native floor/nest cleaning reaches zero dirt and returns the exact loans.
+- [x] Open-hutch unaided entry and dawn departure observed for all three birds
+  in two runs. A later repeat blocked at two occupants; no three-day claim.
+- [ ] Three normal day/night cycles without early closing or lockout. Keep
+  `animalCloseEnabled=0` until proven, with screenshots of any block.
+- [ ] Natural breeding reaches target and stops using a verified three-day
+  feed forecast and complete fertile-egg census. Keep `animalBreedingEnabled=0`.
+- [ ] Exact native kill/corpse/butcher attribution, predicted output capacity,
+  named/held/led/Strange Folk exclusions and final storage across a full cycle.
+  Keep `animalCullEnabled=0`; no production dispatcher currently exists.
+- [ ] Live interruption, death and reload at every animal-action boundary.
+  Automated receipt coverage is not a completed live scenario.
+
+Evidence and timings: `docs/animal-native-probe-2026-11-09.md`.
+
 ## Mandatory gate before launch
 
 - [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.22.2.

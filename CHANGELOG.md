@@ -2,6 +2,28 @@
 
 # Changelog
 
+## 0.27.7 - Camp chicken care
+
+- Farmers care for chickens in vanilla animal zones wholly inside camp. They
+  refill separate feed and water troughs, collect unfertilised eggs, open
+  hutches after dawn and clean dirty floors and nests with borrowed supplies.
+- Work uses native companion animations and actions, marked farming supplies,
+  exact item receipts and permitted food storage. Unmarked stock and Strange
+  Folk animals stay protected; incomplete searches remain pending.
+- Bounded chicken audits share the existing farming lane with crop work.
+  The Base view explains missing devices or supplies, and verified failures
+  pause before retrying. No additional background service is introduced.
+- Flock targets, feed-horizon admission and culling exclusions have automated
+  coverage. Automatic night closing and breeding management remain disabled
+  pending complete live evidence. Culling has no active kill/butcher path;
+  fertilised eggs are left alone. Night closing remains the player's task.
+- Native watering, feeding, exact egg delivery and hutch cleaning passed in
+  cloned saves. Unaided roosting passed twice but was inconsistent on a later
+  repeat; this does not count as three-day closing acceptance. Results and
+  remaining checks are in `docs/animal-native-probe-2026-11-09.md`.
+- Chicken work is implemented in Lua. Bridge protocol remains
+  `42.22-isocompanion-31`; the unchanged native code carries 0.27.7 metadata.
+
 ## 0.27.6 - Faster expedition preparation
 
 - Expedition packing limits optional stashing and supply top-ups, keeping

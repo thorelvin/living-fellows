@@ -55,6 +55,7 @@ local function fresh(width, height)
     function trough:getMaxFeed() return 100 end
     function trough:getContainer() return self.container end
     function trough:getSquare() return self.square end
+    function trough:getObjectIndex() return self.removed and -1 or 0 end
     local feeder = setmetatable({ x=3,y=2,z=0,water=0,feed=0,
         container=F.container(),square=F.squares["3:2:0"] }, { __index=trough })
     trough.feeder=feeder
@@ -82,6 +83,11 @@ check(not A.isFeed(F.item("Base.Bleach", 51)), "unclassified items are not donat
 local worker = F.actor("farmer", 2, 3)
 local job = F.job("animal_feed", 2, 2, candidate)
 check(A.allowsWorkReach(job), "validated camp pen permits bounded travel between camp areas")
+trough.feeder.removed = true
+local removedHandled, removedReason = SC.FarmWork.update(worker, {}, job, {})
+check(not removedHandled and removedReason == "animal_device_unavailable",
+    "removing a trough invalidates its retained world reference")
+trough.feeder.removed = false
 F.container({ feed }) -- unmarked stock beside the trough is not permission
 local handled, reason = SC.FarmWork.update(worker, {}, job, {})
 check(handled == false and reason == "farm_supply_missing", "unmarked feed is left alone")
@@ -90,6 +96,14 @@ handled, reason = SC.FarmWork.update(worker, {}, job, {})
 check(handled and reason == "farm_supply_taken" and feed.container == worker.inventory,
     "marked feed is borrowed as the exact native item")
 check(SC.FarmWork.isItemProtected(feed), "borrowed feed is reserved against other workers")
+local wasActive, cancelWork = SC.NativeActions.isWorkActive, SC.NativeActions.cancelWork
+SC.NativeActions.isWorkActive = function() return true end
+SC.NativeActions.cancelWork = function() return false, "native_cleanup_pending" end
+local timedOut = { animalWork = { operation="animal_feed", before=0, startedAt=F.clock-120001 } }
+handled, reason = A.update(worker, {}, job, {}, timedOut)
+check(handled and reason=="native_cleanup_pending" and timedOut.animalWork~=nil
+    and SC.FarmWork.isItemProtected(feed), "timeout retains ownership while native cleanup is pending")
+SC.NativeActions.isWorkActive, SC.NativeActions.cancelWork = wasActive, cancelWork
 check(SC.FarmWork.cancelActor(worker, "test_cancel") and feed.container == source,
     "cancellation returns the exact feed to its permitted source")
 bird.modData.lfOddballGroupId = "story"
@@ -118,6 +132,7 @@ end
 function nest:getEggsNb() return #self.eggs end
 local hutch = { x = 2, y = 2, z = 0, square = trough.square }
 function hutch:getHutch() return self end
+function hutch:getObjectIndex() return 0 end
 function hutch:getMaxAnimals() return 20 end
 function hutch:getMaxNestBox() return 0 end
 function hutch:getNestBox() return nest end
@@ -186,4 +201,45 @@ check(A.eggRetention(plan,{5},false)==nil,"unfinished egg census cannot authoriz
 local choices={}
 for id=1,16 do choices[A.choose("farmer:"..id,crop,animal)]=true end
 check(choices[crop] and choices[animal],"crop work and animal work can both win deterministic selection")
+local oldCullConfig=U.config
+U.config=function(name) if name=="animalCullEnabled" then return 1 end return oldCullConfig(name) end
+local function adult(id,female,age)
+    return {id=id,female=female,age=age,baby=false,oddball=false,held=false,led=false,
+        wild=false,cullKnown=true,laying=female==true,name=""}
+end
+local birds={adult(1,false,200),adult(2,false,100),adult(3,true,80),adult(4,true,180),adult(5,true,160)}
+local census={complete=true,hens=3,roosters=2,chicks=0,animals=birds,auditedAt=F.clock}
+local cullTarget={verified=true,hens=2,roosters=1}
+local evidence={populationComplete=true,safe=true,daylight=true,toolsVerified=true,
+    outputCapacityVerified=true,claimAvailable=true,counters={}}
+check(A.cullPlan(census,cullTarget,evidence)==1,"surplus roosters precede hens, oldest first")
+for _,field in ipairs({"held","led","wild","oddball"}) do
+    birds[1][field]=true
+    check(A.cullPlan(census,cullTarget,evidence)==2,field.." bird is excluded")
+    birds[1][field]=false
+end
+birds[1].name="Player's rooster"
+check(A.cullPlan(census,cullTarget,evidence)==2,"player naming protects the exact animal")
+birds[1].name="" birds[1].cullKnown=false
+check(A.cullPlan(census,cullTarget,evidence)==2,"unknown ownership evidence protects the animal")
+birds[1].cullKnown=true birds[1].baby=true
+check(A.cullPlan(census,cullTarget,evidence)==2,"chicks cannot be culled")
+birds[1].baby=false
+for _,field in ipairs({"safe","daylight","toolsVerified","outputCapacityVerified","populationComplete","claimAvailable"}) do
+    evidence[field]=false
+    check(A.cullPlan(census,cullTarget,evidence)==nil,"missing "..field.." stops cull admission")
+    evidence[field]=true
+end
+evidence.counters={cullDay=4,culls=1}
+check(A.cullPlan(census,cullTarget,evidence)==nil,"saved daily counter prevents a second proposal after reload")
+check(A.cullsToday(evidence.counters,120)==0,"a later game day releases the daily allowance")
+check(A.cullsToday({cullDay=9,culls=1},100)==nil,"future or ambiguous counters cannot reset to zero")
+check(A.cullsToday("invalid",100)==nil,"malformed saved counter refuses admission")
+check(A.cullPlan({},cullTarget,evidence)==nil,"incomplete population data cannot propose a bird")
+evidence.counters={} census.roosters=1 table.remove(birds,2)
+birds[3].laying=false
+check(A.cullPlan(census,cullTarget,evidence)==4,"past-laying hens precede laying hens")
+census.hens=2 table.remove(birds,4)
+check(A.cullPlan(census,cullTarget,evidence)==nil,"the last rooster and minimum hens are protected")
+U.config=oldCullConfig
 print("ANIMAL_WORK_PASS checks=" .. checks)

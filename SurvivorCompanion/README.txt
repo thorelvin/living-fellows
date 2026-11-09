@@ -1,4 +1,4 @@
-Living Fellows 0.27.6 - release
+Living Fellows 0.27.7 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -19,6 +19,8 @@ TAKE THE OTHERS WITH YOU
   memories and private diaries. Death is permanent.
 - Living bases: assign jobs, sort loot, farm, cook, build and collect wood.
   Blocked jobs retry automatically, with manual Retry still available.
+- Chicken care: Farmers supply separate feed and water troughs, collect eggs,
+  open hutches after dawn and clean them using real supplies.
 - EMMA computers: ask about camp supplies, people, jobs and expeditions,
   request help with confirmation, and read the previous owners' files.
   Everything runs offline, with readable text on a full-screen 1993 terminal.
@@ -49,6 +51,13 @@ Wood expeditions borrow a usable axe, find nearby woodland and return logs
 to permitted Log Yard, Construction or General storage. Collected, carried
 and stored counts are separate. Full storage preserves the cargo and retries
 every three minutes. Manual Retry is available.
+
+For chicken care, draw a vanilla animal zone wholly inside camp, with a hutch
+and separate feed and water troughs. Mark farming storage for feed, water
+containers and cleaning tools, and allow deposits into food storage. Assign a
+Farmer. Fertilised eggs stay in the nest; automatic night closing, breeding
+management and culling are disabled in this version. Close the hutch yourself
+once the birds are inside at night.
 
 Documentation, updates and bug reports:
 https://github.com/thorelvin/living-fellows

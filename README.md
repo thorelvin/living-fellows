@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.6-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.7-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -36,6 +36,12 @@ Send one to four companions to scout, loot, fish or collect wood, on foot or by 
 </table>
 
 Base Watch, expeditions and Send Home share one companion view. Use one at a time.
+
+**Farmers care for chickens, too.** Put a vanilla animal zone wholly inside camp,
+with a hutch and separate feed and water troughs. Mark farming storage for supplies
+and food storage for eggs. Farmers feed, water, collect eggs, open the hutch after
+dawn and clean it. Fertilised eggs stay untouched. Close the hutch yourself at
+night; automatic closing, breeding management and culling remain disabled.
 
 ## Meet EMMA
 

@@ -147,11 +147,29 @@ local function inspectAnimal(row, animal)
     local age = n(animal, "getAge")
     local animalData = value(animal, "getData")
     local female, femaleOkay = read(animalData, "isFemale")
+    local cullKnown, led, wild, laying = false, nil, nil, nil
+    if C("animalCullEnabled",0)==1 then
+        local player,playerKnown=read(animalData,"getAttachedPlayer")
+        local tree,treeKnown=read(animalData,"getAttachedTree")
+        local wildKnown
+        wild,wildKnown=read(animal,"isWild")
+        local layingKnown=femaleOkay and female==false
+        laying=false
+        if female==true and type(getGameTime)=="function" then
+            local okay,gt=pcall(getGameTime)
+            local calendar=okay and value(gt,"getCalender")
+            if calendar then laying,layingKnown=read(animalData,"isInLayingEggPeriod",calendar) end
+        end
+        led=player~=nil or tree~=nil
+        cullKnown=nameOkay and heldOkay and femaleOkay and playerKnown and treeKnown
+            and wildKnown and layingKnown and age~=nil and age>=0
+    end
     if not babyOkay or not nameOkay or not heldOkay or not femaleOkay or not age then
         row.complete = false
     end
     row.animals[#row.animals + 1] = { id = id, kind = kind, baby = baby == true,
         name = name, held = held, age = age, female = female,
+        cullKnown = cullKnown, led = led, wild = wild, laying = laying,
         oddball = data.lfOddballGroupId ~= nil or data.lfWendellGroupId ~= nil }
     if baby == true then row.chicks = row.chicks + 1
     elseif female == true then row.hens = row.hens + 1
@@ -361,11 +379,71 @@ function A.keepEgg(row, egg)
     -- eggs. Never rearrange nest contents merely to reach another egg.
     if not okay then return true end
     if fertile~=true then return false end
-    local policy=row.eggPolicy
+    local policy=row and row.eggPolicy
     if C("animalBreedingEnabled",0)~=1 or not policy or policy.verified~=true
         or type(policy.keep)~="table" then return true end
     local id=n(egg,"getID")
     return id==nil or policy.keep[tostring(id)]==true
+end
+
+function A.cullsToday(saved,hours)
+    hours=tonumber(hours)
+    if not hours or hours~=hours or hours<0 or hours==math.huge then return nil end
+    if saved==nil then return 0 end
+    if type(saved)~="table" then return nil end
+    if saved.cullDay==nil and saved.culls==nil then return 0 end
+    local day,count=tonumber(saved.cullDay),tonumber(saved.culls)
+    if not day or day~=day or day<0 or day%1~=0 or day>math.floor(hours/24)
+        or not count or count~=count or count<0 or count%1~=0 then return nil end
+    return day==math.floor(hours/24) and count or 0
+end
+
+-- Read-only admission policy, not a kill command. Native corpse attribution,
+-- output forecasts and the irreversible action chain remain unvalidated and
+-- deliberately have no production dispatcher in this release.
+function A.cullPlan(row,plan,evidence)
+    if C("animalCullEnabled",0)~=1 then return nil,"animal_cull_disabled" end
+    if type(row)~="table" or row.complete~=true or row.protected or row.mixed
+        or type(row.animals)~="table" or type(plan)~="table" or plan.verified~=true
+        or type(plan.hens)~="number" or type(plan.roosters)~="number"
+        or plan.hens~=plan.hens or plan.roosters~=plan.roosters
+        or type(row.hens)~="number" or type(row.roosters)~="number" or type(row.chicks)~="number"
+        or plan.hens<A.species.chicken.minimumHens
+        or plan.roosters<A.species.chicken.minimumRoosters then return nil,"animal_audit_incomplete" end
+    local age=tonumber(row.auditedAt) and now()-row.auditedAt
+    if not age or age<0 or age>15000 or #row.animals>128
+        or #row.animals~=row.hens+row.roosters+row.chicks then return nil,"animal_audit_incomplete" end
+    if type(evidence)~="table" or evidence.populationComplete~=true or evidence.safe~=true
+        or evidence.daylight~=true or evidence.toolsVerified~=true
+        or evidence.outputCapacityVerified~=true or evidence.claimAvailable~=true then
+        return nil,"animal_cull_evidence_missing"
+    end
+    local _,hours=time()
+    local used=A.cullsToday(evidence.counters,hours)
+    local limit=math.min(1,math.max(0,math.floor(C("animalCullPerZonePerDay",1))))
+    if used==nil then return nil,"animal_cull_counter_unverified" end
+    if used>=limit then return nil,"animal_cull_daily_limit" end
+    local candidates,seen={},{}
+    for _,bird in ipairs(row.animals) do
+        if type(bird)~="table" or type(bird.id)~="number" or bird.id~=bird.id
+            or bird.id<0 or bird.id==math.huge or seen[bird.id] then return nil,"animal_audit_incomplete" end
+        seen[bird.id]=true
+        if bird.cullKnown==true and bird.baby==false and bird.oddball~=true
+            and bird.held==false and bird.led==false and bird.wild==false
+            and (bird.name==nil or bird.name=="") and type(bird.age)=="number"
+            and bird.age==bird.age and bird.age>=0 and bird.age<math.huge then
+            local rank
+            if bird.female==false and row.roosters>plan.roosters then rank=1
+            elseif bird.female==true and row.hens>plan.hens then rank=bird.laying==false and 2 or 3 end
+            if rank then candidates[#candidates+1]={id=bird.id,rank=rank,age=bird.age} end
+        end
+    end
+    table.sort(candidates,function(a,b)
+        if a.rank~=b.rank then return a.rank<b.rank end
+        if a.age~=b.age then return a.age>b.age end
+        return a.id<b.id
+    end)
+    return candidates[1] and candidates[1].id or nil,"animal_cull_proposal_only"
 end
 
 local function eggCandidate(row, base)
@@ -610,6 +688,7 @@ local function findDevice(target)
     for _, list in ipairs({ row.troughs, row.hutches }) do
         for _, object in ipairs(list) do
             if key(object) == target.deviceKey and U().squareOf(object)
+                and (n(object,"getObjectIndex") or -1)>=0
                 and contains(row, object) and SC.BaseLife.isInside(object) == true then return object, row end
         end
     end
@@ -926,7 +1005,8 @@ function A.update(actor, baseState, job, runtime, state)
         local work = state.animalWork
         if SC.NativeActions.isWorkActive(actor) then
             if now() - work.startedAt > 120000 then
-                A.cancel(actor, job, state, "animal_action_timeout")
+                local cancelled, detail = A.cancel(actor, job, state, "animal_action_timeout")
+                if not cancelled then return true, detail or "animal_cleanup_pending" end
                 return fail(actor, job, "animal_action_timeout")
             end
             return true, "farm_" .. work.operation .. "_active"
