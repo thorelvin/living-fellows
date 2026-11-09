@@ -1,0 +1,39 @@
+[h1]0.27.5 - Getting to know your survivors[/h1]
+
+[b]Updated for Project Zomboid 42.22.2. Single-player.[/b]
+
+[h2]Getting to know people[/h2]
+[list]
+[*]Talk now shows named relationship stages, progress toward the next stage and recent reasons for changes. The former Ally stage is now called Familiar.
+[*]Offer food, drinking water or medical help without opening barter. Choose the exact supply to give; water clearly hands over the whole container. Helping a real need builds trust, with diminishing returns for repeated gifts.
+[*]Ask household members about joining before they are ready. Personal trust, household standing, contracts, trial periods and family obligations now have separate explanations. Recruitment thresholds are unchanged.
+[*]Household previews no longer change recruitment state. Hostile households stay out of the nearby Talk list, and expired gift panels close safely.
+[/list]
+
+[h2]More to talk about with EMMA[/h2]
+[list]
+[*]Broader conversation, better typo and slang handling, two-question answers and 26 pages of survival references.
+[*]Follow up on her replies naturally. Ask about a generator, then its fuel, then where to find it. Follow-ups also cover people, relationships, equipment, jobs, expeditions, radio and building controls.
+[*]Ordinary computers share operator recognition and a notebook. Recover computers for fragments and memory tiers; moving or resetting one never counts it twice. Factory reset affects that computer while preserving shared memories.
+[*]Jump-start an unpowered computer with Electrical 2, a screwdriver and 5% of a car battery. The session lasts up to ten real minutes, without powering building or radio services.
+[*]Improved live health, infection, calendar and weather readings. Forecasts now use the correct day-offset API instead of sometimes describing old weather as tomorrow's forecast.
+[*]More thoughtful replies to distress, grief and self-worth questions. Follow-ups retain context, jokes pause during care conversations, and survival-game slang keeps its ordinary meaning.
+[*]Less repeated Knox lore, clearer answers about infection, and more ways to ask about EMMA's previous operator or her own words.
+[/list]
+
+[h2]Keeping camp work moving[/h2]
+[list]
+[*]Sorting keeps its place when shelves change and checks later shelves before returning to large ones. Full storage and interrupted searches have clearer pause and retry behavior.
+[*]Floor pickups retain ownership of their animation until completion or a verified interruption.
+[*]Hungry residents can request a supply run after an empty search. Hunger and thirst can interrupt passive mental episodes; recovery deadlines survive the interruption.
+[*]Giving supplies no longer prevents later shared meals from building trust. Critical-health diagnostics now record needs, illness, fire and recent damage reasons.
+[/list]
+
+[h2]42.22.2 compatibility[/h2]
+[list]
+[*]Rebuilt the native bridge for the updated game, including world-object lists, combat hit lists and the new rope-climbing entry points.
+[*]Fixed an area-selection script request occurring too early during menu startup, and an adapter error when returning to the main menu.
+[*]Existing LF save schemas are unchanged. Public debug spawning, movement recording and experimental actors remain disabled.
+[/list]
+
+[b]Updating:[/b] Restart the game fully after updating. Workshop requires ZombieBuddy 2.3.3 or newer with its one-time loader setup. Standalone users should run the updated Install.bat. Use one edition at a time.

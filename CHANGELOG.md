@@ -100,8 +100,8 @@
   trust, household standing, contracts, trial periods and family obligations
   have separate, readable explanations. Recruitment thresholds are unchanged.
 - Camp setup now says Establish camp here, and the barter confirmation says Trade.
-- Rebuilt native bridge with 0.27.5 release metadata; protocol remains
-  `42.21-isocompanion-30` and existing save schemas are unchanged.
+- Rebuilt native bridge with 0.27.5 release metadata and protocol
+  `42.22-isocompanion-31`; existing save schemas are unchanged.
 
 ## 0.27.4 - Caleb's vigil, radio watch and clearer feedback
 

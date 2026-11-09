@@ -98,10 +98,28 @@ Log investigation after the first saved-world session
   AFTER SCUIContext, including native one-click area completion and cleanup.
   This source follow-up is not installed; the player's game was not restarted.
 
+Release preparation
+  Test-Project.ps1 -Release -Serial: 5/5 PASS in 265.4 seconds, including
+  16/16 representative installer, rollback and launcher-restoration cases.
+  Both Workshop and standalone packages passed their publication checks.
+  Evidence: build/test-results/20261109-181228-444e60/summary.json
+  The Workshop uploader stage was checked against all 481 source files and
+  retains item ID 3805760339. Public debug settings remain disabled.
+
+  ZombieBuddy 2.3.4 from its official GitHub release was SHA-256 verified:
+  eb79b9876332010733a8e0d7ce4fe0377846059a9e28859029e2a0fb449f6cf2
+  The real agent and LF bridge passed the existing native exposure check
+  together on the game runtime. It ran headlessly with an isolated user.home,
+  policy=deny-new and LF explicitly on the test classpath. It did not exercise
+  normal Workshop discovery, the approval dialog or a saved-world session.
+
+  At the player's request, all three managed local mod generations were
+  uninstalled and the original launcher configuration restored byte-for-byte.
+  The game JAR remained unchanged. Packages and uploader staging remain ready.
+
 Limits
   The automated checks did not launch the game. A later user-played session
   was reviewed through its logs; controlled live acceptance was not repeated.
-  Workshop loader integration, other NPC mods and
-  optimizer combinations have not been revalidated on 42.22.2. The full
-  release installer fault matrix was not repeated; the real standalone
-  installation and its file, ownership and configuration postconditions passed.
+  Full Workshop discovery/approval, other NPC mods and optimizer combinations
+  have not been revalidated on 42.22.2. The release profile covers the 16
+  representative installer cases above, not the separate exhaustive fault suite.
