@@ -8,6 +8,40 @@ User chose to retain living_fellows/0.27.5 and its release metadata.
 Validation retains release 0.27.5. No local installation or Workshop upload
 was performed during this review.
 
+Fifth pass: the user's first playground log, on 314c2484
+-------------------------------------------------------
+The user chatted with the real modules in the browser playground. The log had
+52 entries; about 13 of 35 readable turns went wrong.
+
+Fixed:
+- Follow-ups on her own words. "What state?", "What illness?", "Blood?" and
+  "Whats that?" (after a parity-error line) now explain the subject when her
+  last reply touched it:
+  - state or Kentucky gets the state answer;
+  - illness or a Knox file gets the bite note;
+  - blood or bleeding gets the next page of the bleeding note;
+  - a glitch line gets a glitch answer.
+  A lone word only counts with that context, so "is she bleeding?" still asks
+  which person.
+- "Why did the state run out of money?" is part of the same story.
+- "How does knox transmit?" and other spread questions get the bite note.
+- "Why/how do people bleed / die / get sick" no longer lists the camp. The
+  roster questions ("who is here", "how are people") still do.
+- Claimed titles ("Im the governor", "I am head of state") get banter, not
+  "is there something you want to work through".
+- More ways of asking about her previous operator ("who did you talk to before
+  me").
+- "None" or "nobody" cancels a person choice.
+- A lore file already shown in the session is not repeated word for word. She
+  moves to a related file, or says it is the same one.
+
+Not EMMA bugs: "open radio" and "fragments" need the in-game terminal screen and
+world memory, which the web playground does not include.
+
+Results: the main corpus has 91 wrong (1.68%), down from 96; fitting 96.46%,
+care 528/528, no false alarms. A, B and C pass. Six negative controls were all
+rejected.
+
 Fourth pass: safety net and no jokes, on 463a4f7f
 -------------------------------------------------
 User decisions: add a safety net under the rules with no jokes; ask more

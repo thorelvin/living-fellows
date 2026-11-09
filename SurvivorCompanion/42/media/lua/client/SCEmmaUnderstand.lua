@@ -408,6 +408,81 @@ function M.careSignal(raw)
     local value=trim(tostring(raw or ""):lower())
     if #words(value)<=3 and value:find("</3",1,true) then return "comfort" end
 end
+-- Follow-ups on EMMA's own words: "what state?" right after "the state ran out of money",
+-- "whats that?" right after a parity-error line. Only a lone term counts, so "is she
+-- bleeding" stays a question about a person.
+local Follow={}
+Follow.FILLER=set({"what","whats","is","does","do","a","an","the","mean","means","explain","define",
+    "about","by","you","exactly","so","emma"})
+Follow.TERMS={
+    {words=set({"state","kentucky","commonwealth","governor","frankfort"}),intent="explain_state"},
+    {words=set({"illness","infection","sickness","virus","disease","plague","knox"}),guide="survival_bite",lore=true},
+    {words=set({"blood","bleeding","bandage","bandages","dressing","dressings","wound"}),guide="survival_bleeding"},
+}
+Follow.GLITCH_MARKS={"parity error","memory fault","checksum","disregard that","disregard."}
+Follow.GLITCH_ASKS=set({"what is that","what was that","what","huh","what does that mean","what is that supposed to mean",
+    "what was that about","what is a parity error"})
+function Follow.own(session,toks)
+    local last=session.context and session.context.last
+    if type(last)~="table" or type(last.lines)~="table" or #toks==0 or #toks>12 then return nil end
+    local said=" "..string.lower(table.concat(last.lines," ")).." "
+    if Follow.GLITCH_ASKS[table.concat(toks," ")] then
+        for _,mark in ipairs(Follow.GLITCH_MARKS) do if said:find(mark,1,true) then return "explain_glitch",{} end end
+        return nil
+    end
+    -- "why did the state run out of money", right after she said it did.
+    local money,state=false,false
+    for _,word in ipairs(toks) do
+        if word=="money" or word=="budget" or word=="broke" or word=="funding" or word=="bankrupt" then money=true end
+        if word=="state" or word=="kentucky" then state=true end
+    end
+    if money and state and (said:find(" state ",1,true) or said:find("kentucky",1,true)) then return "explain_state",{} end
+    if #toks>6 then return nil end
+    local rest={}
+    for _,word in ipairs(toks) do if not Follow.FILLER[word] then rest[#rest+1]=word end end
+    if #rest~=1 then return nil end
+    for _,entry in ipairs(Follow.TERMS) do
+        if entry.words[rest[1]] then
+            -- Her last reply must have touched the subject: the word itself, a word of
+            -- the same family ("Kentucky" for "state"), or a Knox file for "illness".
+            local mentioned=entry.lore and last.category=="lore"
+            for word in pairs(entry.words) do
+                if said:find("[^%a]"..word.."[^%a]") then mentioned=true break end
+            end
+            if not mentioned then return nil end
+            if not entry.guide then return entry.intent,{} end
+            -- Asking about the note she just showed moves on to its next page.
+            local record=Conv.guide and Conv.guide(entry.guide)
+            local page=record and said:find(string.lower(record.title)..":",1,true)
+                and said:find("game survival reference",1,true) and 2 or 1
+            return "guide",{guideId=entry.guide,page=page}
+        end
+    end
+end
+-- "how does knox transmit", "can i catch it from a scratch": the bite note answers that.
+Follow.SPREAD=set({"transmit","transmits","transmitted","spread","spreads","spreading","contagious","catch","infectious"})
+Follow.CARRIER=set({"knox","infection","virus","it","sickness","illness","disease","zombie","zombies","bite","plague"})
+function Follow.spreadQuestion(toks)
+    local spread,carrier=false,false
+    for _,word in ipairs(toks) do
+        if Follow.SPREAD[word] then spread=true end
+        if Follow.CARRIER[word] then carrier=true end
+    end
+    return spread and carrier
+end
+-- "why do people bleed" and "how do people die" are questions about the world, not the roster.
+function Follow.people(text)
+    local t=Brain.tokens(text)
+    local at=t[1]=="emma" and 2 or 1
+    if t[at]~="why" and t[at]~="how" then return nil end
+    if t[at+1]=="are" or t[at+1]=="is" or t[at+1]=="many" or t[at+1]=="much" then return nil end
+    local words=" "..table.concat(t," ").." "
+    if words:find(" bleed",1,true) or words:find(" blood ",1,true) then return "guide",{guideId="survival_bleeding",page=1} end
+    if words:find(" die",1,true) or words:find(" dying ",1,true) or words:find(" death",1,true)
+        or words:find(" killed ",1,true) then return "people_die",{} end
+    if words:find(" sick",1,true) then return "guide",{guideId="survival_sickness",page=1} end
+    return "fallback",{}
+end
 function M.parse(session, text, world, turn, baseParse)
     turn=turn or {cache={}}
     text=tostring(text or ""):sub(1,Brain.MAX_INPUT)
@@ -421,6 +496,12 @@ function M.parse(session, text, world, turn, baseParse)
         return baseParse(session,text,world,turn)
     end
     local answer=table.concat(Brain.tokens(text)," ")
+    if session.context and session.context.personChoices and (answer=="none" or answer=="nobody"
+        or answer=="no one" or answer=="neither" or answer=="nothing" or answer=="cancel"
+        or answer=="never mind" or answer=="nevermind" or answer=="none of them") then
+        session.context.personChoices=nil
+        return "nevermind",{}
+    end
     if session.context and (session.context.pending or session.context.personChoices)
         and (answer=="yes" or answer=="no" or answer=="ok" or answer=="y" or answer=="n"
             or answer=="first" or answer=="second" or answer=="third" or tonumber(answer))
@@ -452,6 +533,9 @@ function M.parse(session, text, world, turn, baseParse)
         end
     end
     if worth then return worth,{} end
+    local ownFollow,ownSlots=Follow.own(session,toks)
+    if ownFollow then return ownFollow,ownSlots end
+    if Follow.spreadQuestion(toks) then return "guide",{guideId="survival_bite",page=1} end
     if literal:find("^go back") or literal:find("^back to") then return baseParse(session,text,world,turn) end
     if phraseIn(toks,"scan radio channels",fuzzy) then return "guide",{guideId="scanner",page=1} end
     local direct=Conv.findGuide(text,Brain.tokens,Brain.distance,true)
@@ -613,6 +697,10 @@ end
 local parseCore=M.parse
 function M.parse(session, text, world, turn, baseParse)
     local intent,slots=parseCore(session,text,world,turn,baseParse)
+    if intent=="people_list" then
+        local reroute,rerouteSlots=Follow.people(text)
+        if reroute then intent,slots=reroute,rerouteSlots end
+    end
     local net=SC.EmmaCare.distress and SC.EmmaCare.distress(text,intent)
     if net then return net,{} end
     return intent,slots

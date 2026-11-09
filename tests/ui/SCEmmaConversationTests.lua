@@ -179,6 +179,51 @@ for _,raw in ipairs({"my leg is broken what do i do","im tired of eating beans",
     check(result.intent~="care_gentle" and result.intent~="care_check" and result.intent~="care",
         "safety net leaves game talk and help questions alone: "..raw)
 end
+-- From the user's first playground log: follow-ups on her own words, people questions,
+-- claimed titles, the previous operator, cancelling a choice and repeated lore.
+local function after(lines,category)
+    local s=session();s.context.last={lines=lines,category=category or "chat"};return s
+end
+check(ask(after({"EMMA. Version 0.9.3 beta. The state ran out of money before version one."}),"What state?").intent
+    =="explain_state","a follow-up on her own word explains it")
+check(ask(after({"Kentucky bought me to manage emergencies."}),"what state?").intent=="explain_state",
+    "a word of the same family counts as her subject")
+check(ask(after({"The state ran out of money before version one."}),"why did the state run out of money?").intent
+    =="explain_state","the state's budget is her own story")
+check(ask(session(),"what state?").intent~="explain_state","without her subject, a lone word is not a follow-up")
+check(ask(after({"A dispatcher made the manners.","[PARITY ERROR 0x07] ... disregard that."}),"whats that?").intent
+    =="explain_glitch","asking about a glitch line gets the glitch explained")
+local illness=ask(after({"Accounts of illness and violence do not supply a verified explanation."},"lore"),"what illness?")
+check(illness.intent=="guide" and has(illness,"Bites carry the infection"),"illness after a Knox file gets the infection note")
+local loreOnly=ask(after({"The military perimeter was presented as a means of containing the emergency."},"lore"),
+    "explain illness")
+check(loreOnly.intent=="guide" and has(loreOnly,"Bites carry"),"a Knox file is context for illness without the word")
+local bleeding=session();local firstPage=ask(bleeding,"how do i stop bleeding");local nextPage=ask(bleeding,"blood?")
+check(nextPage.intent=="guide" and table.concat(nextPage.lines,"|")~=table.concat(firstPage.lines,"|"),
+    "asking about the note she just showed moves to its next page")
+check(ask(after({"Kate Miller is bleeding."}),"is she bleeding?").intent~="guide",
+    "a question about a person is not a follow-up on a word")
+check(has(ask(session(),"how does knox transmit?"),"Bites carry the infection"),"how the infection spreads gets the bite note")
+check(has(ask(session(),"why do people bleed?"),"Bandage"),"why people bleed is a bleeding question, not the roster")
+check(ask(session(),"how do people die?").intent=="people_die","how people die is not the roster")
+check(ask(session(),"who is here").intent=="people_list","the roster question still works")
+check(ask(session(),"how are people doing").intent~="people_die","how people are doing is not a death question")
+for _,raw in ipairs({"Im the new governor","im the governor","I am head of state","i am in charge now"}) do
+    local result=ask(session(),raw)
+    check(result.intent=="role_claim" and not has(result,"work through"),"a claimed title gets banter, not therapy: "..raw)
+end
+for _,raw in ipairs({"Who did you talk to before me?","who used you before","who wrote her previously"}) do
+    check(ask(session(),raw).intent=="her_last_operator","previous operator, asked another way: "..raw)
+end
+local choosing=session();choosing.context.personChoices={people={{id="ann",name="Ann"}},turn=0}
+check(ask(choosing,"None").intent=="nevermind" and not choosing.context.personChoices,"none cancels a person choice")
+local loreWorld={camp=function() return {configured=true,inside=true} end,
+    clock=function() return {worldHours=77,hour=14,minute=5,day=12,month=7,year=1993,days=3} end}
+local loreSession=session()
+local firstLore=B.respond(loreSession,"what happened in knox county",loreWorld)
+local againLore=B.respond(loreSession,"what happened in knox county",loreWorld)
+check(firstLore.intent=="lore" and againLore.intent=="lore" and againLore.lines[1]~=firstLore.lines[1],
+    "a lore file is not repeated word for word")
 for _,raw in ipairs({"i hate how weak i am","i am the worst survivor ever","im a terrible leader",
     "i suck at everything","i keep screwing everything up","everything i touch breaks",
     "im so useless, lost my axe again","too stupid to build a wall, as always","nobody likes me at camp"}) do

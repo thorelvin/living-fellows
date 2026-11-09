@@ -1062,6 +1062,23 @@ function H.lore(session,reply,turn,world)
         if query:find("offline",1,true) or query:find("network",1,true) or query:find("internet",1,true) then id="emma_offline" end
         record=archive.reference(id) or archive.reference("county_rumour")
     end
+    -- A file already shown in this conversation is not repeated word for word: move on
+    -- to a related file, or say it is the same one.
+    session.context.loreShown=session.context.loreShown or {}
+    if not turn.slots.more and record and session.context.loreShown[record.id] then
+        local nextRecord
+        for _,id in ipairs(record.related or {}) do
+            local candidate=archive.reference(id)
+            if candidate and archive.available(candidate,clock) and not session.context.loreShown[id] then
+                nextRecord=candidate break
+            end
+        end
+        if not nextRecord then
+            return add(reply,"That is the file I already showed you: "..tostring(record.title)
+                ..". It has not changed. Ask about a town, a broadcaster or another part of the Knox Event.")
+        end
+        record=nextRecord
+    end
     if not record or not archive.available(record,clock) then
         session.context.referenceId=nil
         return add(reply,"I have no dated local file on that subject available for the current clock. I cannot use a later report as if it had already arrived.")
@@ -1075,6 +1092,7 @@ function H.lore(session,reply,turn,world)
     session.context.referenceId=record.id
     session.context.referencesSeen=session.context.referencesSeen or {}
     session.context.referencesSeen[record.id]=true
+    session.context.loreShown[record.id]=true
 end
 H.rescue = simplePool("rescue")
 H.cure = simplePool("cure")

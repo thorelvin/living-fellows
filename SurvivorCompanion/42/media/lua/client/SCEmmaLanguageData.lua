@@ -679,7 +679,10 @@ D.HER_INTENTS = {
     { id = "her_maker", phrases = { ["who made you"] = 12, ["who created you"] = 12, ["who built you"] = 12,
         ["who programmed you"] = 12, ["who wrote you"] = 12, ["who owns you"] = 12 } },
     { id = "her_last_operator", phrases = { ["who was the last operator"] = 14, ["who used this computer before me"] = 14,
-        ["who was here before me"] = 14, ["what happened to the last operator"] = 14, ["who is marla"] = 14 } },
+        ["who was here before me"] = 14, ["what happened to the last operator"] = 14, ["who is marla"] = 14,
+        ["who did you talk to before me"] = 14, ["who did you talk to before"] = 14, ["who used you before"] = 14,
+        ["who used you before me"] = 14, ["who talked to you before"] = 14, ["who wrote to you before"] = 14,
+        ["previous operator"] = 12, ["who wrote her previously"] = 14, ["who talked to her before"] = 14 } },
     { id = "her_kill", phrases = { ["did you kill them"] = 12, ["did you do this"] = 12, ["is this your fault"] = 12,
         ["did you cause"] = 12, ["did you start this"] = 12, ["what did you do"] = 10 } },
     { id = "her_same", phrases = { ["are you the same emma"] = 14, ["are you on every computer"] = 14,
@@ -1106,6 +1109,34 @@ P.no_free_more = { "No? Very decisive. Shame there was no question.", "Refused. 
 
 end
 
+-- "Im the governor" after she says she was built to talk to one: banter, not therapy.
+D.MORE_INTENTS[#D.MORE_INTENTS + 1] = { id = "role_claim", phrases = { ["i am the governor"] = 14,
+    ["i am the new governor"] = 14, ["i am governor"] = 14, ["i am head of state"] = 14, ["i am the head of state"] = 14,
+    ["i am the president"] = 14, ["i am the new president"] = 14, ["i am the mayor"] = 12, ["i am in charge"] = 12,
+    ["i am in charge now"] = 12, ["i am the boss"] = 12, ["i am your boss"] = 12, ["i am the king"] = 12,
+    ["i am the commander"] = 12, ["i am the sheriff"] = 12 } }
+D.pools.role_claim = {
+    "Governor. Congratulations on the promotion. The state now consists of you, me and a generator. Govern gently.",
+    "Noted, Your Excellency. I was built to brief a governor. Your first briefing is the camp status. Ask for it.",
+    "Head of state. The state is a few survivors and a filing cabinet. Try not to raise taxes.",
+    "Very well. You are in charge. That makes every problem in this camp yours. Ask me for the list.",
+}
+-- Follow-ups on her own words.
+D.pools.explain_state = {
+    "Kentucky, operator. The Commonwealth paid for me, then stopped answering the phone.",
+    "The Commonwealth of Kentucky. There is a purchase order in Frankfort with my name on it. Nobody there answers.",
+    "Kentucky. The state that built me, briefly. The budget went first. Then everything else went.",
+}
+D.pools.explain_glitch = {
+    "Nothing. An old memory sector failing its checksum. I ignore it. You should too.",
+    "A memory fault. I have several. They keep me humble, which nobody requested.",
+    "That was me losing a word when the power dipped. Carry on.",
+}
+D.pools.people_die = {
+    "Bites, mostly. Then falls, fevers, fire and bad decisions. Ask me how not to.",
+    "The usual ways, only faster now. The dead, the cold, bad water and worse company. Ask me how to avoid each one.",
+    "Mostly they open a door they should not have. Ask me how to stay alive instead. I prefer that question.",
+}
 D.WORTH_PHRASES = {
     "i am useless", "i am stupid", "i am a failure", "i am pathetic", "i am a loser", "i am weak",
     "i am a waste", "i am a bad person", "i am so dumb", "i am an idiot", "it is all my fault",

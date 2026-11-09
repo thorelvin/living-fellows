@@ -15,6 +15,11 @@
 - When EMMA cannot place a sad or troubled message about you, she answers it
   warmly and points you to someone you trust, instead of a joke or a camp report.
   Game slang like "suicide run" and questions about your character stay ordinary.
+- EMMA follows up on her own words: ask "what state?", "what illness?" or "what
+  was that?" right after she mentions them. She stops repeating the same Knox file,
+  answers how the infection spreads, takes "why do people bleed" as a question about
+  bleeding, has a dry answer for anyone claiming to be governor, and understands
+  more ways of asking about her previous operator.
 - Hungry residents can ask for a supply run after a completed empty search.
   Passive episodes retain their recovery deadline while needs take priority.
 - Sorting reports full storage even when shelves change during its search.
