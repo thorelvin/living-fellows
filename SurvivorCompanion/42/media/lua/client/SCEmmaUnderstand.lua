@@ -151,7 +151,29 @@ local function worthWord(token)
     end
     return false
 end
+-- "i am the worst", "i am a terrible leader": a bad label plus an optional
+-- role, nothing after it. "i am the worst at fishing" stays ordinary.
+local worthRoles=set({"person","leader","friend","survivor","human","father","mother","dad","mom","husband",
+    "wife","brother","sister","son","daughter","partner","boss","operator"})
+local worthBad=set({"worst","terrible","awful","horrible"})
+local function badRole(tokens,cursor)
+    if not worthBad[tokens[cursor]] then return false end
+    local at=cursor+1
+    if worthRoles[tokens[at]] then at=at+1 elseif tokens[cursor]~="worst" then return false end
+    if tokens[at]=="ever" or tokens[at]=="alive" then at=at+1 end
+    if tokens[at]=="in" and tokens[at+1]=="the" and tokens[at+2]=="world" then at=at+3 end
+    return worthEnding(tokens,at-1)
+end
 local function worthOf(tokens)
+    -- "i hate how weak i am" is aimed at the speaker, not at EMMA.
+    for at=1,#tokens-4 do
+        if tokens[at]=="i" and tokens[at+1]=="hate" and tokens[at+2]=="how" then
+            local cursor=at+3
+            while worthFillers[tokens[cursor]] do cursor=cursor+1 end
+            if tokens[cursor] and worthWord(tokens[cursor]) and tokens[cursor+1]=="i" and tokens[cursor+2]=="am"
+                and worthEnding(tokens,cursor+2) then return "worth" end
+        end
+    end
     for at=1,#tokens-1 do
         local statement=tokens[at]=="i" and tokens[at+1]=="am"
         local question=tokens[at]=="am" and tokens[at+1]=="i"
@@ -167,6 +189,7 @@ local function worthOf(tokens)
                     for offset,value in ipairs(words) do if tokens[cursor+offset-1]~=value then match=false end end
                     if match and worthEnding(tokens,cursor+#words-1) then return negated and "news_plain" or "worth" end
                 end
+                if badRole(tokens,cursor) then return negated and "news_plain" or "worth" end
                 if worthWord(word) then
                     if worthEnding(tokens,cursor) then return negated and "news_plain" or "worth" end
                     break

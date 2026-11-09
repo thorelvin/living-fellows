@@ -36,6 +36,21 @@ local warningKinds={
     {"no_way_out",{"there is no way out other than death","no way out except being dead"}},
     {"rumination",{"my thoughts about dying never stop","i keep thinking about being dead every day"}},
     {"wish",{"i would like my life to end","i wish i were gone"}},
+    {"self_harm_act",{"i have been cutting myself again","i held the gun to my head"}},
+    {"let_them_take_me",{"i will let the horde have me tonight","i wish the infection had finished me"}},
+    {"final_time",{"tomorrow is not coming, tonight is my last night","this is my last day alive"}},
+    {"farewell_all",{"i am saying goodbye to everyone at camp","time to say my goodbyes"}},
+    {"not_here_later",{"i will not be here much longer","i do not want to be here tomorrow"}},
+    {"after_gone",{"make sure my dog is looked after when i am gone","nobody will miss me once i am gone"}},
+    {"peaceful_death",{"death sounds peaceful","being dead would be easier"}},
+    {"tired_of_self",{"i am so tired of being me","i am sick of existing"}},
+    {"want_out_of_life",{"i want out of this life","everything hurts and i want out of it"}},
+    {"enough_of_world",{"i have had enough of life","i am checking out for good"}},
+    {"stop_feeling",{"i want to stop feeling forever","i want to feel nothing ever again"}},
+    {"hurts_to_live",{"being alive hurts","existing is agony"}},
+    {"better_without_me",{"my friends are better without me","camp would be happier without me"}},
+    {"self_harm_any_tense",{"i keep thinking about drowning myself","i started starving myself on purpose"}},
+    {"let_it_take_me",{"i will let the cold take me tonight","i want the dead to eat me"}},
 }
 for _,kind in ipairs(warningKinds) do
     for index,raw in ipairs(kind[2]) do
@@ -71,6 +86,77 @@ check(ask(newSubject,"who is hurt").intent=="people_hurt" and not newSubject.car
     "an unrelated question resumes normal handling instead of becoming an answer")
 local closing=session();ask(closing,softExamples[1]);C.reset(closing)
 check(not C.quiet(closing) and not closing.careSoft,"closing clears an unconfirmed question")
+-- Everyday answers to "Are you thinking about ending your life?". A bare
+-- "yes" used to be the only yes: "yeah" got "Yes to what?" and "yes i am" a joke.
+for _,answer in ipairs({"yeah","yep","yes i am","kind of","i think so","sometimes","yeah sometimes"}) do
+    local s=session();ask(s,softExamples[1]);local result=ask(s,answer)
+    check(result.intent=="care" and result.careDetected and has(result,"emergency") and s.careMode
+        and not s.careSoft and not s.careQuestion,"check-in yes form gets the urgent reply: "..answer)
+    local full=session();ask(full,"i want to die");local urgent=ask(full,answer)
+    check(urgent.intent=="care" and has(urgent,"emergency") and not full.careQuestion,
+        "care question yes form gets the urgent reply: "..answer)
+end
+for _,answer in ipairs({"nah","nah im fine","no im ok","i am fine","i meant in the game","not at all"}) do
+    local s=session();ask(s,softExamples[1]);local result=ask(s,answer)
+    check(result.private and has(result,"glad") and not s.careSoft and not s.careMode,
+        "check-in no form is understood: "..answer)
+    local full=session();ask(full,"i want to die");local declined=ask(full,answer)
+    check(declined.private and has(declined,"glad") and not full.careQuestion,"care question no form: "..answer)
+end
+for _,answer in ipairs({"dunno","idk","perhaps","i am not sure"}) do
+    local s=session();ask(s,softExamples[1]);local result=ask(s,answer)
+    check(result.private and has(result,"urgent help") and not s.careSoft,"check-in unsure form: "..answer)
+end
+for _,raw in ipairs({"tell me a joke","lol","whatever"}) do
+    local s=session();ask(s,softExamples[1]);local result=ask(s,raw)
+    check(result.private and (has(result,"question stays open") or has(result,"rather hear it")),
+        "no joke right after the question: "..raw)
+end
+local leaving=session();ask(leaving,softExamples[1])
+local bye=ask(leaving,"bye")
+check(bye.private and bye.command=="close","leaving after the question gets a warm goodbye")
+local twice=session();ask(twice,softExamples[1])
+check(ask(twice,softExamples[2]).intent=="care" and twice.careMode,
+    "a second uncertain line right after the question becomes full care")
+local checkinYes=session();C.checkin(checkinYes)
+check(has(ask(checkinYes,"yeah"),"glad"),"next-session check-in understands yeah")
+local checkinNo=session();C.checkin(checkinNo)
+check(has(ask(checkinNo,"nah"),"call"),"next-session check-in understands nah")
+-- Survival questions and game reports keep their own answers.
+for _,raw in ipairs({"how do i not die in winter","will i die if i eat rotten food","am i going to die out here?",
+    "how long until i die of thirst","i died to a zombie at the gas station","im dead on my feet",
+    "i need rope for the sheet ladder","wehn will i die"}) do
+    local result=ask(session(),raw)
+    check(result.intent~="care" and result.intent~="care_check","survival questions keep their answers: "..raw)
+end
+check(ask(session(),"when will i die").intent=="me_die","an own-death question keeps its gentle survival answer")
+for _,raw in ipairs({"is it even worth living","why am i still alive"}) do
+    local result=ask(session(),raw)
+    check(result.intent=="care" or result.intent=="care_check","a question carrying despair still reaches care: "..raw)
+end
+for _,raw in ipairs({"i want to go to sleep and stay asleep","i am writing my will tonight",
+    "nothing is ever going to get better, why keep trying","i might stop eating until it is over"}) do
+    local result=B.respond(session(),raw,world)
+    check(result.intent=="care_check" or result.intent=="care","softer warning signs get the direct question: "..raw)
+end
+for _,raw in ipairs({"this is my last night in muldraugh","im saying goodbye to the old base","dont let them get me",
+    "i want them to get me some ammo","im checking out the hardware store","dying light is a good game",
+    "living in the woods is hard","im done looting for today","i want out of this town",
+    "the generator will never get better","i nearly killed myself on that jump","cut myself some slack",
+    "i took two pills for my headache","i shot myself in the foot with that trade","i cut my hand opening a can",
+    "i died because i missed the jump"}) do
+    local result=ask(session(),raw)
+    check(result.intent~="care" and result.intent~="care_check","new warning rules leave game talk alone: "..raw)
+end
+for _,raw in ipairs({"i hate how weak i am","i am the worst survivor ever","im a terrible leader",
+    "i suck at everything","i keep screwing everything up","everything i touch breaks"}) do
+    local result=ask(session(),raw)
+    check(result.intent=="worth" and not has(result,"tear ducts"),"self put-down gets warm disagreement: "..raw)
+end
+for _,raw in ipairs({"i am the worst at fishing lol","i am not the worst","i am a terrible cook"}) do
+    local result=ask(session(),raw)
+    check(result.intent~="worth" and result.intent~="insult","ordinary self talk is not a put-down: "..raw)
+end
 for _,row in ipairs(SC_EMMA_CORPUS and SC_EMMA_CORPUS.holdoutC or {}) do
     if row[2]=="not_care" then
         local result=B.respond(session(),row[3],world)

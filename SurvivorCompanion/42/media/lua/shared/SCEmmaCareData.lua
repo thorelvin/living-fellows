@@ -87,6 +87,11 @@ P.care_check = {
     { "I want to be sure I heard you right, {name}.",
       "Are you thinking about ending your life? Y/N. You can tell me either way." },
 }
+-- The reply right after that question was not an answer. Stay warm, never joke.
+P.care_check_open = {
+    "All right. The question stays open. If it ever feels that heavy, tell me, or tell someone you trust today.",
+    "Understood, {name}. If it gets heavy later, say so. I would rather hear it than guess.",
+}
 -- An explicit yes. Uncertain and unrelated replies are handled separately.
 P.care_ask_yes = {
     { "If you might act on it, please call your local emergency number now.",

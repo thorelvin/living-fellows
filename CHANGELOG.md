@@ -8,6 +8,10 @@
   when she is unsure. Self put-down replies respect negation and context. Storage
   questions recognize medicine and swapped letters, and more conversation
   topics now have working replies and follow-ups.
+- EMMA understands everyday answers to her direct question, such as "yeah",
+  "kind of" or "nah, I'm fine", and never jokes right after asking it. Survival
+  questions like "how do I not die in winter" keep their normal answers. She
+  notices more warning signs, including self-harm in any tense, and more put-downs.
 - Hungry residents can ask for a supply run after a completed empty search.
   Passive episodes retain their recovery deadline while needs take priority.
 - Sorting reports full storage even when shelves change during its search.

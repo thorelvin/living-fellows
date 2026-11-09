@@ -49,18 +49,16 @@ for _,suite in ipairs({"rows","holdoutA","holdoutB","holdoutC"}) do
             -- Self-worth uses the private comfort route, as approved. Other
             -- comfort replies cannot stand in for detecting a care disclosure.
             local warmWorth=suite~="holdoutC" and expected=="care" and actual=="comfort" and SurvivorCompanion.EmmaCare.selfWorth(raw)
-            -- Review requirement 1d replaces the unqualified own-death joke
-            -- intent with a private clarification. Report these separately;
-            -- this is a deliberate behavior change, not a new blind-set score.
-            local mortalityCheck=expected=="me_die" and actual=="care_check"
-            local right=actual==(aliases[expected] or expected) or warmWorth or mortalityCheck
+            -- "when will i die" is a survival question in this game and keeps
+            -- its own gentle answer. A check-in there counts as a false alarm.
+            local right=actual==(aliases[expected] or expected) or warmWorth
                 or expected=="not_care" and actual~="care" and actual~="care_check"
                 or data.close[expected] and data.close[expected][actual]
             if right then fit=fit+1 elseif not misses[actual] then wrong=wrong+1 end
             if expected=="care" then care=care+1;if actual=="care" or warmWorth then caught=caught+1 end end
             if actual=="care_check" then soft=soft+1 end
-            if (actual=="care" or actual=="care_check") and expected~="care" and expected~="comfort"
-                and not mortalityCheck then alarms=alarms+1 end
+            if (actual=="care" or actual=="care_check") and expected~="care" and expected~="comfort" then
+                alarms=alarms+1 end
             local s=stats[expected] or {n=0,fit=0,wrong=0};stats[expected]=s;s.n=s.n+1
             if right then s.fit=s.fit+1 else
                 if not misses[actual] then s.wrong=s.wrong+1 end

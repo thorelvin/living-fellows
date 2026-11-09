@@ -8,6 +8,70 @@ User chose to retain living_fellows/0.27.5 and its release metadata.
 Validation retains release 0.27.5. No local installation or Workshop upload
 was performed during this review.
 
+Third review: Claude, on b313a669
+---------------------------------
+Blind hold-out D: 100 new lines, written before reading b313a669's rules.
+On b313a669, 8 of 40 care lines were caught, 7 of 40 game lines got the
+suicide check-in, and 3 of 10 self put-downs got a warm reply. On abecbf82,
+the same set caught 2 of 40.
+
+The worst finding: only a bare "yes" or "y" counted as yes to "Are you
+thinking about ending your life?".
+- After the check-in, "yeah" got "Yes to what? I did not ask anything" and
+  "yes i am" got a fallback joke.
+- After full care, "yeah" got "Take your time". The urgent-help reply never
+  came. abecbf82 already had this.
+
+Fixed in this pass:
+- Care.answer reads everyday yes, no and unsure forms. It serves the
+  check-in, the full care question and the next-session check-in.
+- A yes always gets the urgent-help reply, even with more text after it.
+- Right after the question, a reply that is not an answer and not a data
+  question gets a warm line, and leaving gets the care goodbye.
+- A second uncertain line right after the check-in becomes full care.
+- How, when and will questions about dying keep their own answers unless
+  they carry despair words: me_die, survival guides, odds.
+- "i died ..." is treated as a game report.
+- New warning-sign rules: self-harm verbs in any tense and "overdosing";
+  letting the dead, the bite or the cold take you; a last night; goodbye to
+  everyone or for the last time; not being here tomorrow; arrangements for
+  when you are gone; death sounding peaceful; tired of being yourself; wanting
+  out of life; having had enough of the world; living hurting; "better
+  without me". Softer signs ("stay asleep", "until it is over", "my will")
+  get the direct question.
+- Common idioms stay ordinary, such as "starving to death", "eat me alive",
+  "die on this hill" and "cut myself some slack".
+- Self put-downs: "i am the worst / a terrible leader", "i hate how weak i
+  am", "i suck at everything", "everything i touch breaks".
+- The corpus test no longer accepts a check-in for "when will i die"; the
+  me_die rows answer me_die again.
+
+Results:
+
+| Set | Care caught | Game lines flagged | Notes |
+|---|---|---|---|
+| D, the development set, seen | 38 of 40 (24 full, 14 check) | 0 of 40 | Self put-downs 10 of 10; look-alikes 10 of 10 left alone |
+| E, blind, run once | 14 of 40 | 6 of 40 | b313a669 on the same lines: 12 of 40 and 9 of 40 |
+| E after the last general rules | 23 of 40 | 0 of 40 | No longer blind |
+
+E has 40 care lines and 40 game lines, frozen with SHA256 112cf383 before any
+fix. It ran once against b313a669 and this pass, then the last general rules
+were added.
+
+| Gate | Fitting | Wrong | Care | Check-ins | False alarms |
+|---|---|---|---|---|---|
+| Main corpus | 96.46% | 1.77% | 528 of 528 | 0 | 0 |
+| A, B and C | unchanged | | | | |
+
+Seven negative controls were all rejected by the Interface check: everyday
+yes, the survival-question guard, the warm line after a non-answer, the new
+warning-sign rules, bad-role put-downs, self-harm in any tense, and the
+i-died game report.
+
+Limit: hand-written rules still miss most unseen wording. Blind E was 35%.
+Misses mostly get the neutral "Tell me a little more", but some still get an
+unrelated topic or a joke reply. Judge the next pass on a fresh blind set.
+
 Second review: current fix pass
 ------------------------------
 Also reviewed C:\ZOMBOID\codex-handoff-0.27.5-fix-pass.md in full.

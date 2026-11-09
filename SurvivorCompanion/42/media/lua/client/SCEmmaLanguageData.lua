@@ -1112,6 +1112,8 @@ D.WORTH_PHRASES = {
     "i am not good enough", "i mess everything up", "i always fail", "i can not do anything right",
     "i ruin everything", "i failed them", "i am a bad leader", "i am no good", "i am such a failure",
     "i am a mess", "i am a joke", "mess everything up", "mess it all up", "screw everything up",
+    "i suck at everything", "i suck at this", "i suck at life", "screwing everything up", "messing everything up",
+    "i keep screwing up", "i keep messing up", "everything i touch",
 }
 D.WORTH_WORDS = {"useless", "stupid", "failure", "pathetic", "loser", "weak", "idiot", "dumb",
     "worthless", "hopeless", "burden", "disappointment", "mess", "joke", "waste", "coward", "fraud"}
