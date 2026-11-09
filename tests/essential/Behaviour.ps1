@@ -29,6 +29,9 @@
 @{ Name = 'behaviour.radio-operator'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCRadioWork.lua'),
     (Join-Path $Essential 'radio_work_harness.lua')) }
+@{ Name = 'behaviour.chicken-care'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Core 'farming_lifecycle_fixture.lua'),
+    (Join-Path $Essential 'animal_work_harness.lua')) }
 @{ Name = 'behaviour.first-meeting-visitor'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'first_meeting_visitor_harness.lua') }
 @{ Name = 'behaviour.relationship-help'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'relationship_help_harness.lua') }
 @{ Name = 'behaviour.family-pyre'; Files = @(

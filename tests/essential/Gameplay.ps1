@@ -68,6 +68,7 @@ function Get-ScGameplayFiles {
         'SCJournal.lua',
         'SCBaseLife.lua',
         'SCFarmWork.lua',
+        'SCAnimalWork.lua',
         'SCFishing.lua',
         'SCChefWork.lua',
         'SCQuirks.lua',

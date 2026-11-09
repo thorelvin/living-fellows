@@ -44,6 +44,8 @@ require "Farming/TimedActions/ISWaterPlantAction"
 require "Farming/TimedActions/ISHarvestPlantAction"
 require "Farming/TimedActions/ISFertilizeAction"
 require "Farming/TimedActions/ISCurePlantAction"
+require "TimedActions/ISInventoryTransferAction"
+require "FeedingTrough/TimedActions/ISAddWaterToTrough"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -2675,6 +2677,54 @@ end
 -- timed-action ownership and hand/inventory restoration used by production.
 -- The caller selects policy and supplies; this adapter only validates and
 -- starts the native action. Real Farming skill remains the source of yield.
+function actions.startAnimal(actor, intent)
+    if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
+        or intent.validate() ~= true then return false, "animal_action_invalid" end
+    local item, object = intent.item, intent.object
+    local record, reason = prepareWorkInventory(actor, item and { item } or {}, item, nil)
+    if not record then return false, reason end
+    local action, created
+    if intent.operation == "animal_water" and ISAddWaterToTrough then
+        created, action = pcall(ISAddWaterToTrough.new, ISAddWaterToTrough, actor, object, item, false)
+    elseif intent.operation == "animal_feed" and ISInventoryTransferAction then
+        local okay, destination = invoke(object, "getContainer")
+        if okay and destination then
+            created, action = pcall(ISInventoryTransferAction.new, ISInventoryTransferAction,
+                actor, item, actor:getInventory(), destination, 100)
+        end
+    end
+    if not created or not action then
+        restoreWorkInventory(actor, record)
+        return false, "animal_native_action_unavailable"
+    end
+    local valid = action.isValid
+    action.isValid = function(self)
+        return self.character == actor and intent.validate() == true
+            and (type(valid) ~= "function" or valid(self) == true)
+    end
+    -- Native actions can change resources during update or perform. Validate
+    -- this instance at every effect boundary, never a global vanilla wrapper.
+    for _, method in ipairs({ "update", "perform", "complete" }) do
+        local native = action[method]
+        if type(native) == "function" then
+            action[method] = function(self, ...)
+                if intent.validate() ~= true then self:forceStop() return false end
+                return native(self, ...)
+            end
+        end
+    end
+    if intent.operation == "animal_water" then
+        local native = action.updateAddingWater
+        action.updateAddingWater = function(self)
+            if intent.validate() ~= true or object:getWater() >= intent.high then
+                self:forceStop() return
+            end
+            return native(self)
+        end
+    end
+    return queueTrackedWork(actor, action, record, "farm_" .. intent.operation)
+end
+
 function actions.startFarm(actor, intent)
     if actor == nil or type(intent) ~= "table" then
         return false, "farm intent is required"

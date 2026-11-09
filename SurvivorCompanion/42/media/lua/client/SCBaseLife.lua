@@ -388,6 +388,7 @@ local function emptyFarm()
         nextReceiptSerial = 1,
         recoveryCursor = 1,
         receipts = {},
+        animals = { version = 1, zones = {} },
     }
 end
 
@@ -876,6 +877,12 @@ local function normalizeFarm(source)
         return emptyFarm()
     end
     local result = emptyFarm()
+    if type(source.animals) == "table" then
+        -- Preserve future animal documents exactly and refuse their activation.
+        local copied, reason = stableCopy(source.animals, 8, { count = 2048 })
+        if not copied then error("animal document cannot be preserved: " .. tostring(reason)) end
+        result.animals = copied
+    end
     result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1, 999999)
     result.recoveryCursor = integer(source.recoveryCursor, 1, 1, 999999)
     local limit = U() and U().config("farmReceiptLimit") or 128
@@ -2951,6 +2958,16 @@ end
 local function farmReceiptTerminal(receipt)
     return receipt and (receipt.phase == "returned" or receipt.phase == "delivered"
         or receipt.phase == "consumed")
+end
+
+function BaseLife.animalDocument()
+    local farm = farmFor(activeBase())
+    if not farm then return nil end
+    if farm.animals == nil then farm.animals = { version = 1, zones = {} } end
+    local document = farm.animals
+    if type(document) ~= "table" or document.version ~= 1
+        or type(document.zones) ~= "table" then return nil, "animal_document_unsupported" end
+    return document
 end
 
 function BaseLife.allocateFarmReceipt(spec)

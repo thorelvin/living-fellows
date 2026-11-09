@@ -1307,6 +1307,22 @@ local valueData = {
     farmSeedSpareReserve = 2,
     farmWaterBuffer = 20,
 
+    -- Chickens share the farm lane; unaccepted irreversible operations stay off.
+    animalWorkEnabled = 1,
+    animalFeedLowPercent = 25,
+    animalFeedHighPercent = 90,
+    animalHutchReservePercent = 10,
+    animalSecondRoosterHens = 12,
+    animalFeedHorizonDays = 3,
+    animalDuskGraceMinutes = 60,
+    animalBreedingEnabled = 0,
+    animalCullEnabled = 0,
+    animalCloseEnabled = 0,
+    animalCleanEnabled = 0,
+    animalCullPerZonePerDay = 1,
+    animalMaxZones = 8,
+    animalAuditAnimalBudget = 32,
+
     -- WP01 gathering stays finite, camp-local, and shares the existing scheduler.
     workMaximumOrders = 8,
     workOrderRecordLimit = 32,

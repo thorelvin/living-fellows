@@ -276,6 +276,7 @@ end
 
 function FarmWork.isFarmingSupply(item)
     if not item then return false end
+    if SC.AnimalWork and SC.AnimalWork.isFeed(item) then return true end
     local kind = string.lower(U().itemType(item))
     if U().itemHasTag(item, "DIG_PLOW") or U().itemHasTag(item, "COMPOST") then return true end
     if string.find(kind, "wateringcan", 1, true)
@@ -746,6 +747,7 @@ local function nextScannedSquare(zone)
 end
 
 local function missingBorrowWasConsumed(receipt)
+    if SC.AnimalWork and SC.AnimalWork.borrowWasConsumed(receipt) then return true end
     local job = SC.BaseLife and SC.BaseLife.job and SC.BaseLife.job(receipt.jobId) or nil
     local target = job and type(job.target) == "table" and job.target or nil
     if not target then return false end
@@ -911,7 +913,8 @@ function FarmWork.audit(base)
     recoverPending(math.max(1, math.floor(config("farmRecoveryPerPulse", 4))))
     reopenCarriedWaterJobs(base)
     local farmZones = zones()
-    if #farmZones == 0 then return false, "farm_zone_missing" end
+    local animal = SC.AnimalWork and SC.AnimalWork.candidate(base) or nil
+    if #farmZones == 0 and not animal then return false, "farm_zone_missing" end
     local budget = math.max(1, math.floor(config("farmScanSquaresPerSlice", 16)))
     local carriedWaterId, farmers = nil, {}
     local ids = SC.BaseLife.dutyResidentIds and SC.BaseLife.dutyResidentIds() or {}
@@ -932,7 +935,7 @@ function FarmWork.audit(base)
         if FarmWork.carriedWaterContainer(farmer.actor, true) then carriedWaterId = farmer.id end
     end
     local best
-    for _ = 1, budget do
+    for _ = 1, #farmZones > 0 and budget or 0 do
         -- metrics.scans is already advanced once per square. Adding the loop
         -- index again makes every pass hit the same zone when there are two.
         local zone = farmZones[(metrics.scans % #farmZones) + 1]
@@ -945,6 +948,10 @@ function FarmWork.audit(base)
                 best = candidate
             end
         end
+    end
+    if animal then
+        best = SC.AnimalWork.choose(carriedWaterId or (farmers[1] and farmers[1].id)
+            or "camp", best, animal)
     end
     if not best then return false, "farm_scan_no_work" end
     local spec = { type = "farm", priority = best.priority, target = best }
@@ -1745,6 +1752,8 @@ local function finishAction(actor, baseState, job, state, square)
 end
 
 function FarmWork.jobModifier(actorIdValue, job, resident, record)
+    if job.target and job.target.animal == true
+        and (not resident or resident.role ~= "farmer") then return 0, false end
     local target = type(job.target) == "table" and job.target or nil
     if target and target.harvestStarted == true and target.harvestActorId ~= nil
         and target.harvestActorId ~= actorIdValue then return 0, false end
@@ -1756,6 +1765,10 @@ function FarmWork.jobModifier(actorIdValue, job, resident, record)
 end
 
 function FarmWork.update(actor, baseState, job, runtime)
+    if job.target and job.target.animal == true then
+        if not SC.AnimalWork then return false, "animal_work_unavailable", true end
+        return SC.AnimalWork.update(actor, baseState, job, runtime, stateFor(actor, job))
+    end
     if not SC.NativeActions or type(SC.NativeActions.startFarm) ~= "function" then
         return false, "native_farming_unavailable", true
     end
@@ -1982,6 +1995,10 @@ function FarmWork.cancelActor(actor, reason)
     local state = states[actor]
     if not state then return true, "no_farm_work" end
     local job = SC.BaseLife and SC.BaseLife.job and SC.BaseLife.job(state.jobId) or nil
+    if job and job.target and job.target.animal and SC.AnimalWork then
+        local okay, detail = SC.AnimalWork.cancel(actor, job, state, reason)
+        if okay ~= true then return false, detail end
+    end
     if state.work and SC.NativeActions and SC.NativeActions.isWorkActive(actor) ~= true then
         local square = job and type(job.target) == "table"
             and U().gridSquare(job.target.x, job.target.y, job.target.z) or nil
@@ -2038,7 +2055,7 @@ end
 -- before it starts while any such obligation is still live.
 function FarmWork.canCancelJob(jobId)
     for _, state in pairs(states) do
-        if state.jobId == jobId and (state.work or state.borrowed
+        if state.jobId == jobId and (state.work or state.animalWork or state.borrowed
             or state.collectingHarvest or (state.outputs and #state.outputs > 0)) then
             return false, "farm_recovery_pending"
         end
@@ -2155,6 +2172,7 @@ FarmWork._seedCountForTests = seedCount
 FarmWork._speakForTests = speak
 
 function FarmWork.reset(actor)
+    if SC.AnimalWork then SC.AnimalWork.reset(actor) end
     if actor then
         FarmWork.cancelActor(actor, "farm_reset")
     else
@@ -2184,5 +2202,13 @@ function FarmWork.summary()
     for _ in pairs(knownPlots) do result.knownPlots = result.knownPlots + 1 end
     return result
 end
+
+-- Shared machinery, not a second receipt ledger or scheduler.
+FarmWork.animalSupport = {
+    borrow = borrowSupply, settle = consumeOrReturn, approach = approach,
+    receipt = allocateReceipt, deposit = depositOutputs, waterUses = waterUses,
+    waterPredicate = waterContainerPredicate, findWater = findWaterSource,
+    threat = threatNearby, mark = mark, unmark = unmark, speak = speak,
+}
 
 return FarmWork
