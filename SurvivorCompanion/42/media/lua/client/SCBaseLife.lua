@@ -4717,6 +4717,8 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
         end
     end
     local transientDelay = transientJobDelay(job, reason)
+    local animalDelay = SC.AnimalWork and SC.AnimalWork.retryDelay(job, reason)
+    if animalDelay then transientDelay, retryMs = animalDelay, animalDelay end
     -- Storage-full and missing-floor warnings above already said their piece.
     if worker ~= nil and not storageFull and not transientDelay
         and not (job.type == "sort_floor" and (job.blocker == "floor_storage_missing"

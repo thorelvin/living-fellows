@@ -12,7 +12,7 @@ A.species = {
     chicken = { kinds = { hen = true, cockerel = true, chick = true },
         feeds = { AnimalFeed = true, Grass = true, Hay = true, Vegetables = true,
             Fruits = true, Seeds = true, Nuts = true, Nut = true, Insect = true },
-        hutch = "hutchhen", dawn = 7, dusk = 20 },
+        hutch = "hutchhen", dawn = 7, dusk = 20, minimumHens = 2, minimumRoosters = 1 },
 }
 
 local function U() return SC.GameplayUtil end
@@ -283,11 +283,89 @@ function A.foodDestination(actor, item)
     return nil
 end
 
+-- Pure policy; no animal, egg or inventory mutation. A forecast must come from
+-- verified native evidence before this policy may permit breeding or culling.
+function A.flockTarget(capacity)
+    capacity=tonumber(capacity)
+    if not capacity or capacity~=capacity or capacity==math.huge or capacity<4 then
+        return nil,"animal_roost_capacity_low"
+    end
+    capacity=math.floor(capacity)
+    local minimum=A.species.chicken
+    local reserve=math.min(capacity-3,math.max(1,math.ceil(capacity
+        *math.max(0,math.min(100,C("animalHutchReservePercent",10)))/100)))
+    local roosters=minimum.minimumRoosters
+    local hens=capacity-reserve-roosters
+    if hens>math.max(2,C("animalSecondRoosterHens",12)) then
+        roosters=2
+        hens=capacity-reserve-roosters
+    end
+    return {capacity=capacity,reserve=reserve,hens=hens,roosters=roosters}
+end
+
+function A.breedingPlan(row,forecast)
+    local target,reason=A.flockTarget(row and row.capacity)
+    if not target then return {verified=false,reason=reason} end
+    target.verified=false
+    if not row.complete or row.protected or row.mixed then
+        target.reason="animal_audit_incomplete" return target
+    end
+    local stock=forecast and tonumber(forecast.stock)
+    local rate=forecast and tonumber(forecast.dailyPerBird)
+    if not forecast or forecast.verified~=true or not stock or stock~=stock or stock<0
+        or stock==math.huge or not rate or rate~=rate or rate<=0 or rate==math.huge then
+        target.reason="animal_feed_forecast_unverified" return target
+    end
+    local days=math.max(1,C("animalFeedHorizonDays",3))
+    local supported=math.floor(stock/(rate*days))
+    if supported<target.hens+target.roosters then
+        target.roosters=A.species.chicken.minimumRoosters
+        target.hens=math.max(A.species.chicken.minimumHens,
+            math.min(target.hens,supported-target.roosters))
+    end
+    local chicks=math.max(0,tonumber(row.chicks) or 0)
+    local count=(tonumber(row.hens) or 0)+(tonumber(row.roosters) or 0)+chicks
+    target.verified,target.feedEnough=true,supported>=count
+    -- Count all chicks as potential hens until a complete native sex census
+    -- proves otherwise. Never hatch extra chicks merely to guess their sex.
+    target.retain=target.feedEnough and (tonumber(row.roosters) or 0)>0
+        and math.max(0,math.min(target.hens-(tonumber(row.hens) or 0)-chicks,
+            target.capacity-target.reserve-count,supported-count)) or 0
+    target.reason=not target.feedEnough and "animal_feed_horizon_low" or nil
+    return target
+end
+
+function A.eggRetention(plan,ids,complete)
+    if not plan or plan.verified~=true or complete~=true or type(ids)~="table" or #ids>128 then
+        return nil,"animal_egg_census_incomplete"
+    end
+    local ordered,seen={},{}
+    for index=1,#ids do
+        local id=ids[index]
+        if type(id)~="number" or id~=id or id<0 or id==math.huge or seen[id] then
+            return nil,"animal_egg_census_incomplete"
+        end
+        ordered[#ordered+1],seen[id]=id,true
+    end
+    table.sort(ordered)
+    local keep={}
+    for index=1,math.min(#ordered,math.max(0,tonumber(plan.retain) or 0)) do
+        keep[tostring(ordered[index])]=true
+    end
+    return keep
+end
+
 function A.keepEgg(row, egg)
     local fertile, okay = read(egg, "isFertilized")
     -- Until a breeding/feed-horizon audit can prove otherwise, protect fertile
     -- eggs. Never rearrange nest contents merely to reach another egg.
-    return not okay or fertile == true
+    if not okay then return true end
+    if fertile~=true then return false end
+    local policy=row.eggPolicy
+    if C("animalBreedingEnabled",0)~=1 or not policy or policy.verified~=true
+        or type(policy.keep)~="table" then return true end
+    local id=n(egg,"getID")
+    return id==nil or policy.keep[tostring(id)]==true
 end
 
 local function eggCandidate(row, base)
@@ -450,6 +528,9 @@ function A.candidate(base, squareLimit)
     local saved = doc.zones[row.id] or { cooldowns = {} }
     saved.hens, saved.roosters, saved.chicks = row.hens, row.roosters, row.chicks
     saved.capacity, saved.auditedAt = row.capacity, row.auditedAt
+    local target=A.breedingPlan(row,nil)
+    saved.targetHens,saved.targetRoosters=target.hens,target.roosters
+    saved.breedingBlocker=target.reason
     saved.cooldowns = type(saved.cooldowns) == "table" and saved.cooldowns or {}
     local currentDevices = {}
     for _, objects in ipairs({ row.hutches, row.troughs }) do
@@ -578,11 +659,22 @@ local function fail(actor, job, reason)
         local old = saved.cooldowns[job.target.deviceKey] or { failures = 0 }
         old.failures = math.min(3, old.failures + 1)
         old.at, old.untilMs = now(), now() + 15000 * 2 ^ (old.failures - 1)
+        old.reason = reason
         saved.cooldowns[job.target.deviceKey] = old
         note()
     end
     release(actor, job)
     return false, reason, true
+end
+
+function A.retryDelay(job,reason)
+    local target=job and job.type=="farm" and job.target
+    local doc=target and target.animal and document()
+    local saved=doc and doc.zones[target.nativeZoneId]
+    local cooldown=saved and saved.cooldowns and saved.cooldowns[target.deviceKey]
+    if type(cooldown)=="table" and cooldown.reason==reason then
+        return math.max(15000,(tonumber(cooldown.untilMs) or now())-now())
+    end
 end
 
 function A.borrowWasConsumed(receipt)

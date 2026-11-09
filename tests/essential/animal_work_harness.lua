@@ -160,4 +160,30 @@ U.config = oldConfig
 nest.eggs={}
 F.clock=F.clock+1000
 check(A.candidate(F.base)==nil,"empty native nests are never indexed")
+local target=A.flockTarget(20)
+check(target.hens==16 and target.roosters==2 and target.reserve==2,
+    "all rooster and reserve slots are excluded from the hen target")
+target=A.flockTarget(16)
+check(target.hens==12 and target.roosters==2 and target.reserve==2,
+    "threshold boundary reserves the extra rooster without overbooking")
+check(A.flockTarget(3)==nil,"a tiny hutch does not erase the minimum flock or reserve")
+local flock={capacity=20,complete=true,hens=2,roosters=1,chicks=0}
+check(not A.breedingPlan(flock).verified,"missing native feed forecast cannot permit breeding")
+local plan=A.breedingPlan(flock,{verified=true,stock=100,dailyPerBird=1})
+check(plan.verified and plan.retain==14,"verified supplies limit future hens and roost headroom")
+local low=A.breedingPlan(flock,{verified=true,stock=6,dailyPerBird=1})
+check(low.retain==0 and not low.feedEnough and low.hens==2 and low.roosters==1,
+    "feed shortage pauses breeding without reducing the protected minimum flock")
+low=A.breedingPlan(flock,{verified=true,stock=9,dailyPerBird=1})
+check(low.feedEnough and low.retain==0,"supplies for the current flock do not authorize unfunded chicks")
+flock.chicks=2
+plan=A.breedingPlan(flock,{verified=true,stock=100,dailyPerBird=1})
+check(plan.retain==12,"chicks already in the pen reserve future hen capacity")
+local kept=A.eggRetention({verified=true,retain=2},{99,5,42},true)
+check(kept["5"] and kept["42"] and not kept["99"],"retention is stable by exact native egg identity")
+check(A.eggRetention(plan,{5,5},true)==nil,"duplicate egg identities prohibit selection")
+check(A.eggRetention(plan,{5},false)==nil,"unfinished egg census cannot authorize collection")
+local choices={}
+for id=1,16 do choices[A.choose("farmer:"..id,crop,animal)]=true end
+check(choices[crop] and choices[animal],"crop work and animal work can both win deterministic selection")
 print("ANIMAL_WORK_PASS checks=" .. checks)

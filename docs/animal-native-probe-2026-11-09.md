@@ -139,3 +139,23 @@ used another approximately 0.15 litres of the same donor and returned its loans.
 Phase 3's five essential checks passed at
 `build/test-results/20261109-232415-f3e435` (109.9 seconds, serial). The private
 probe and its screenshots remain separate from the production package.
+
+## Phase 4: flock policy and its gate
+
+Implemented and automatically tested capacity/reserve maths, feed-horizon
+admission, chick headroom, deterministic egg-ID retention and incomplete-census
+refusal. A 20-slot hutch reserves two slots and two roosters, leaving 16 hens.
+At the ambiguous 16-slot boundary, the decision uses the provisional hen count
+to reserve the second rooster, leaving 12 hens; it never overbooks a slot.
+Hutches with fewer than four slots cannot prove both the minimum flock and a
+free reserve. Unknown chick sex conservatively reserves potential hen capacity.
+
+The live controller deliberately supplies no guessed daily feed forecast or
+unverified egg census. `animalBreedingEnabled` stays 0, and fertilised eggs
+remain untouched. Pure policy coverage is not acceptance of natural growth to
+target. Verified animal-action failures now hand their 15/30/60-second pause to
+the existing BaseLife retry mechanism rather than conflicting with its generic
+delay. A new complete audit wakes dormant candidates.
+
+Phase 4's five essential checks passed at
+`build/test-results/20261109-232842-29178b` (110.3 seconds, serial).
