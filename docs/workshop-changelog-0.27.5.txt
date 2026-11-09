@@ -2,6 +2,13 @@
 
 [b]Updated for Project Zomboid 42.22.2. Single-player.[/b]
 
+[h2]A more caring EMMA[/h2]
+[list]
+[*]EMMA recognizes more expressions of distress, grief and self-doubt, and responds gently. When she is unsure, she asks instead of agreeing with a harsh statement or turning it into a joke.
+[*]She keeps track of the care conversation and understands short follow-up answers. Her usual jokes and lore progression pause while that context is active.
+[*]Everything stays offline. Care conversations are excluded from the optional misunderstood-message log.
+[/list]
+
 [h2]Getting to know people[/h2]
 [list]
 [*]Talk now shows named relationship stages, progress toward the next stage and recent reasons for changes. The former Ally stage is now called Familiar.
@@ -17,7 +24,7 @@
 [*]Ordinary computers share operator recognition and a notebook. Recover computers for fragments and memory tiers; moving or resetting one never counts it twice. Factory reset affects that computer while preserving shared memories.
 [*]Jump-start an unpowered computer with Electrical 2, a screwdriver and 5% of a car battery. The session lasts up to ten real minutes, without powering building or radio services.
 [*]Improved live health, infection, calendar and weather readings. Forecasts now use the correct day-offset API instead of sometimes describing old weather as tomorrow's forecast.
-[*]More thoughtful replies to distress, grief and self-worth questions. Follow-ups retain context, jokes pause during care conversations, and survival-game slang keeps its ordinary meaning.
+[*]Survival-game questions and slang keep their ordinary meaning, without being mistaken for personal disclosures.
 [*]Less repeated Knox lore, clearer answers about infection, and more ways to ask about EMMA's previous operator or her own words.
 [/list]
 
