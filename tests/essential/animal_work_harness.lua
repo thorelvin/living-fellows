@@ -10,6 +10,8 @@ local function fresh(width, height)
     SC.FarmWork.reset()
     F.reset()
     SC.Performance = nil
+    getGameTime = function() return { getWorldAgeHours = function() return 100 end,
+        getTimeOfDay = function() return F.hour end } end
     F.base.farm.animals = { version = 1, zones = {} }
     SC.BaseLife.animalDocument = function() return F.base.farm.animals end
     local zone = { x = 2, y = 2, z = 0, width = width or 1, height = height or 1 }
@@ -87,4 +89,42 @@ local crop, animal = {}, {}
 getGameTime = function() return { getWorldAgeHours = function() return 100 end } end
 local choice = A.choose("farmer", crop, animal)
 check(A.choose("farmer", crop, animal) == choice, "choice survives identical clock and identity")
+
+zone, bird, trough = fresh()
+local egg = F.item("Base.Egg", 80, { category = "Food" })
+function egg:isFertilized() return self.fertile == true end
+local nest = { eggs = { egg } }
+function nest:getEgg(index) return self.eggs[index + 1] end
+function nest:getEggsNb() return #self.eggs end
+local hutch = { x = 2, y = 2, z = 0, type = "hutchhen", square = trough.square }
+function hutch:getHutch() return self end
+function hutch:getMaxAnimals() return 20 end
+function hutch:getMaxNestBox() return 0 end
+function hutch:getNestBox() return nest end
+function hutch:getAnimalInside() return { values = function() return { iterator = function()
+    return { hasNext = function() return false end }
+end } end } end
+function zone:getHutchs() return { hutch } end
+trough.water, trough.feed = 100, 100
+candidate = A.candidate(F.base)
+check(candidate and candidate.operation == "animal_egg", "nest work uses the native zero-based box")
+egg.fertile = true
+check(A.keepEgg({}, egg), "unproven breeding protects fertilised eggs")
+egg.fertile = false
+check(not A.keepEgg({}, egg), "unfertilised egg can be collected")
+local worker2 = F.actor("farmer2", 2, 3)
+SC.BaseLife.resident = function() return { role = "farmer", duty = true } end
+SC.WorkTransport = { hasRoom = function(container, actor)
+    return actor ~= nil and container ~= nil and container.full ~= true
+end }
+job = F.job("animal_egg", 2, 2, candidate)
+local result, reason = SC.FarmWork.update(worker2, {}, job, {})
+check(not result and reason == "farm_food_storage_missing" and nest.eggs[1] == egg,
+    "missing food destination leaves the exact egg in the nest: " .. tostring(reason))
+F.addStorage("storage:eggs", "food", {})
+local marked, receipt = SC.FarmWork.animalSupport.receipt(worker2, job, "output", egg, nil, "food")
+check(marked ~= nil, "selected egg can acquire an exact persistent receipt")
+SC.BaseLife.updateFarmReceipt(receipt and receipt.id or marked.id, { phase = "selected" })
+check(A.recoverReceipt(marked) and marked.phase == "consumed" and nest.eggs[1] == egg,
+    "reload reconciliation releases an unpicked egg without cloning or removing it")
 print("ANIMAL_WORK_PASS checks=" .. checks)

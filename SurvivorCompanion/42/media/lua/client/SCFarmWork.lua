@@ -783,6 +783,7 @@ local function receiptActivelyOwned(receipt)
         if receipt.phase ~= "recovery" and actorId(actor) == receipt.actorId
             and state.jobId == receipt.jobId then
             if state.borrowed and state.borrowed.receiptId == receipt.id then return true end
+            if state.animalEgg and state.animalEgg.receiptId == receipt.id then return true end
             for _, output in ipairs(type(state.outputs) == "table" and state.outputs or {}) do
                 if output.receiptId == receipt.id then return true end
             end
@@ -834,6 +835,8 @@ local function recoverPending(limit)
         inspected = inspected + 1
         if not receiptActivelyOwned(receipt)
             and not settleLostCarrier(receipt, U().nowMs()) then
+        local animalRecovered = SC.AnimalWork and SC.AnimalWork.recoverReceipt(receipt) == true
+        if not animalRecovered then
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
         local actor = type(record) == "table" and (record.actor or record) or nil
         local inventory = actor and U().inventory(actor) or nil
@@ -878,6 +881,7 @@ local function recoverPending(limit)
         elseif receipt.kind == "borrowed" and missingBorrowWasConsumed(receipt) then
             SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed", blocker = false })
             metrics.recovered = metrics.recovered + 1
+        end
         end
         end
     end
@@ -2055,7 +2059,7 @@ end
 -- before it starts while any such obligation is still live.
 function FarmWork.canCancelJob(jobId)
     for _, state in pairs(states) do
-        if state.jobId == jobId and (state.work or state.animalWork or state.borrowed
+        if state.jobId == jobId and (state.work or state.animalWork or state.animalEgg or state.borrowed
             or state.collectingHarvest or (state.outputs and #state.outputs > 0)) then
             return false, "farm_recovery_pending"
         end

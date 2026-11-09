@@ -46,6 +46,7 @@ require "Farming/TimedActions/ISFertilizeAction"
 require "Farming/TimedActions/ISCurePlantAction"
 require "TimedActions/ISInventoryTransferAction"
 require "FeedingTrough/TimedActions/ISAddWaterToTrough"
+require "TimedActions/Animals/ISHutchGrabEgg"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -2691,6 +2692,12 @@ function actions.startAnimal(actor, intent)
         if okay and destination then
             created, action = pcall(ISInventoryTransferAction.new, ISInventoryTransferAction,
                 actor, item, actor:getInventory(), destination, 100)
+        end
+    elseif intent.operation == "animal_egg" and ISHutchGrabEgg and intent.nest then
+        created, action = pcall(ISHutchGrabEgg.new, ISHutchGrabEgg, actor, intent.nest, object)
+        if created and action then
+            action.tree = object -- stock waitToStart otherwise faces an unset field
+            action.maxTime = action.timePerEgg + 5
         end
     end
     if not created or not action then

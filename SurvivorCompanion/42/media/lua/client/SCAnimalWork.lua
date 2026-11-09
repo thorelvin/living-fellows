@@ -32,7 +32,8 @@ local function support() return SC.FarmWork.animalSupport end
 local function key(object)
     local x, y, z = U().position(object)
     if not x or not y or not z then return nil end
-    return math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z)
+    local family = value(object, "getHutch") ~= nil and "hutch:" or "trough:"
+    return family .. math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z)
 end
 local function time()
     if type(getGameTime) ~= "function" then return nil, nil end
@@ -49,7 +50,7 @@ local function note()
 end
 
 local function coverageStamp(base)
-    local parts = {}
+    local parts = { tostring(base and base.id) }
     for _, zone in ipairs(base and base.zones or {}) do
         if zone.kind == "area" then
             parts[#parts + 1] = table.concat({ tostring(zone.id), zone.x1, zone.y1,
@@ -233,6 +234,44 @@ local function candidateAt(row, operation, object, priority)
         deviceKey = key(object), x = math.floor(x), y = math.floor(y), z = z }
 end
 
+-- A missing capacity or access reading is a refusal, including before pickup.
+function A.foodDestination(actor, item)
+    if not SC.WorkTransport or not SC.WorkTransport.hasRoom then return nil end
+    for index, storage in ipairs(SC.BaseLife.foodDepositRows(item)) do
+        if index > 32 then break end
+        local container = SC.BaseLife.resolveContainer(storage)
+        if container and SC.BaseLife.storageAcceptsDeposit(storage, container) == true
+            and SC.WorkTransport.hasRoom(container, actor, item) == true then return storage end
+    end
+    return nil
+end
+
+function A.keepEgg(row, egg)
+    local fertile, okay = read(egg, "isFertilized")
+    -- Until a breeding/feed-horizon audit can prove otherwise, protect fertile
+    -- eggs. Never rearrange nest contents merely to reach another egg.
+    return not okay or fertile == true
+end
+
+local function eggCandidate(row, base)
+    for _, hutch in ipairs(row.hutches) do
+        if not openJob(base, hutch) and workDay(hutch) then
+            local maximum = n(hutch, "getMaxNestBox")
+            if maximum and maximum >= 0 and maximum <= 15 then
+                for index = 0, maximum do
+                    local nest = value(hutch, "getNestBox", index)
+                    local egg = value(nest, "getEgg", 0)
+                    if egg and not A.keepEgg(row, egg) then
+                        local result = candidateAt(row, "animal_egg", hutch, 3)
+                        result.nestIndex = index
+                        return result
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function deviceCandidate(row, base)
     local low, high = C("animalFeedLowPercent", 25) / 100,
         C("animalFeedHighPercent", 90) / 100
@@ -256,7 +295,7 @@ local function deviceCandidate(row, base)
             end
         end
     end
-    return best
+    return best or eggCandidate(row, base)
 end
 
 function A.candidate(base)
@@ -306,11 +345,8 @@ function A.candidate(base)
     return selected
 end
 
-local function findDevice(target)
-    local row = snapshots[target.nativeZoneId]
-    local base = SC.BaseLife.active()
-    if not row or now() - row.auditedAt > 30000 or row.coverageStamp ~= coverageStamp(base)
-        or value(row.native, "isFullyStreamed") ~= true then
+local function refreshTarget(target)
+        local base = SC.BaseLife.active()
         if not DesignationZoneAnimal or not DesignationZoneAnimal.getZoneById then
             return nil, "animal_audit_pending"
         end
@@ -326,8 +362,17 @@ local function findDevice(target)
             return nil, "animal_zone_unavailable"
         end
         pending.auditedAt, pending.coverageStamp = now(), coverageStamp(base)
-        snapshots[target.nativeZoneId], row = pending, pending
-    end
+        snapshots[target.nativeZoneId] = pending
+        return true
+end
+
+-- Effect guards are read-only: scans run in the farm decision, never in a
+-- native action's per-frame update/complete callbacks.
+local function findDevice(target)
+    local row = snapshots[target.nativeZoneId]
+    local base = SC.BaseLife.active()
+    if not row or now() - row.auditedAt > 30000 or row.coverageStamp ~= coverageStamp(base)
+        or value(row.native, "isFullyStreamed") ~= true then return nil, "animal_audit_pending" end
     for _, list in ipairs({ row.troughs, row.hutches }) do
         for _, object in ipairs(list) do
             if key(object) == target.deviceKey and U().squareOf(object)
@@ -425,7 +470,11 @@ local function begin(actor, job, state, object, item, operation)
         end
         return SC.NativeActions.startAnimal(actor, { operation = operation, item = item,
             object = object, high = job.target.high,
-            validate = function() return A.canUse(actor, job, object, item) end })
+            nest = state.animalEgg and state.animalEgg.nest,
+            validate = function()
+                return A.canUse(actor, job, object, item)
+                    and (operation ~= "animal_egg" or A.canTakeEgg(actor, job, state, object))
+            end })
     end)
     if not started then supervisor.fail(token, detail) return false, detail end
     supervisor.transition(token, "verifying")
@@ -445,12 +494,67 @@ local function reconcileFeed(job, state)
     return true
 end
 
+function A.canTakeEgg(actor, job, state, object)
+    local selected = state.animalEgg
+    if not selected then return false end
+    local row = snapshots[job.target.nativeZoneId]
+    local data = U().modData(selected.item)
+    return row and value(selected.nest, "getEgg", 0) == selected.item
+        and not A.keepEgg(row, selected.item) and A.foodDestination(actor, selected.item) ~= nil
+        and SC.WorkTransport.hasRoom(U().inventory(actor), actor, selected.item) == true
+        and type(data) == "table" and data[SC.FarmWork.ITEM_MARKER] == selected.receiptId
+end
+
+local function reconcileEgg(actor, job, state)
+    local selected = state.animalEgg
+    if not selected then return false end
+    local inventory = U().inventory(actor)
+    if value(selected.item, "getContainer") ~= inventory
+        or value(inventory, "contains", selected.item) ~= true then return false end
+    SC.BaseLife.updateFarmReceipt(selected.receiptId, { phase = "carried", blocker = false })
+    state.outputs = { { item = selected.item, receiptId = selected.receiptId,
+        category = SC.BaseLife.foodStorageCategory(selected.item) } }
+    state.animalEgg = nil
+    return true
+end
+
+-- Reconcile selected eggs against the exact nest or the exact actor inventory.
+-- No native lookup failure authorizes manufacturing an egg or replaying pickup.
+function A.recoverReceipt(receipt)
+    if receipt.phase ~= "selected" then return false end
+    local job = SC.BaseLife.job(receipt.jobId)
+    local target = job and job.target
+    if not target or target.operation ~= "animal_egg" then return false end
+    local object = findDevice(target)
+    local nest = object and value(object, "getNestBox", target.nestIndex)
+    local count = n(nest, "getEggsNb")
+    if not count or count > 64 then return false end
+    for index = 0, count - 1 do
+        local egg = value(nest, "getEgg", index)
+        local data = egg and U().modData(egg)
+        if data and data[SC.FarmWork.ITEM_MARKER] == receipt.id
+            and tostring(value(egg, "getID")) == tostring(receipt.nativeId) then
+            support().unmark(egg, receipt.id)
+            SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed",
+                blocker = "animal_egg_left_in_nest" })
+            return true
+        end
+    end
+    return false
+end
+
 function A.cancel(actor, job, state, reason)
     if state.animalWork then
         local stopped, detail = SC.NativeActions.cancelWork(actor, reason or "animal_cancelled")
         if not stopped then return false, detail end
         reconcileFeed(job, state)
+        reconcileEgg(actor, job, state)
         state.animalWork = nil
+    end
+    if state.animalEgg then
+        local receipt = SC.BaseLife.farmReceipt(state.animalEgg.receiptId)
+        if not receipt or not A.recoverReceipt(receipt) then return false, "animal_egg_recovery_pending" end
+        state.animalEgg = nil
     end
     release(actor, job)
     return true
@@ -461,9 +565,17 @@ function A.update(actor, baseState, job, runtime, state)
     local object, row = findDevice(target)
     if not object then
         if row ~= "animal_audit_pending" then return fail(actor, job, row) end
+        local _, detail = refreshTarget(target)
+        if detail and detail ~= "animal_audit_pending" then return fail(actor, job, detail) end
         return true, row
     end -- bounded audit re-establishes native references after load
     if not claim(actor, job) then return true, "animal_work_reserved" end
+    if target.eggReceiptId and not state.animalEgg and not state.outputs and not state.animalWork then
+        local receipt = SC.BaseLife.farmReceipt(target.eggReceiptId)
+        if receipt and (receipt.phase == "delivered" or receipt.phase == "consumed") then
+            state.animalReturn = true
+        else return true, "animal_egg_recovery_pending" end
+    end
     if not enabled() or S.threat(actor, runtime) then
         local okay, reason = A.cancel(actor, job, state, "animal_work_interrupted")
         if not okay then return false, reason end
@@ -481,22 +593,45 @@ function A.update(actor, baseState, job, runtime, state)
         local finished, detail = SC.NativeActions.finishWork(actor)
         if not finished then return fail(actor, job, detail) end
         reconcileFeed(job, state)
+        local eggTaken = reconcileEgg(actor, job, state)
         local verified = work.operation == "animal_feed" and not state.borrowed
             or work.operation == "animal_water" and (n(object, "getWater") or -1) > work.before
             or work.operation == "fill_water" and S.waterUses(work.item) > work.before
+            or work.operation == "animal_egg" and eggTaken
         state.animalWork = nil
         if not verified then return fail(actor, job, "animal_action_incomplete") end
         if work.operation == "fill_water" then return true, "animal_water_container_filled" end
+        if work.operation == "animal_egg" then state.animalReturn = true end
         local amount = target.operation == "animal_water" and n(object, "getWater")
             or n(object, "getCurrentFeedAmount")
-        state.animalReturn = amount ~= nil and amount >= target.high
+        if target.high then state.animalReturn = amount ~= nil and amount >= target.high end
     end
+    if state.outputs then return S.deposit(actor, baseState, state) end
     if state.animalReturn then
         local settled, reason, pending = S.settle(actor, baseState, state)
         if not settled then return pending == true, reason end
         release(actor, job)
         SC.BaseLife.completeJob(job.id, U().idOf(actor), "chicken_care")
         return true, "farm_job_complete"
+    end
+    if target.operation == "animal_egg" then
+        local status, detail = S.approach(actor, U().squareOf(object), object)
+        if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
+        local nest = value(object, "getNestBox", target.nestIndex)
+        local egg = value(nest, "getEgg", 0)
+        if not egg or A.keepEgg(row, egg) then return fail(actor, job, "animal_egg_reserved") end
+        if not A.foodDestination(actor, egg) then return fail(actor, job, "farm_food_storage_missing") end
+        if SC.WorkTransport.hasRoom(U().inventory(actor), actor, egg) ~= true then
+            return fail(actor, job, "animal_carry_capacity_low")
+        end
+        local receipt, reason = S.receipt(actor, job, "output", egg, nil,
+            SC.BaseLife.foodStorageCategory(egg))
+        if not receipt then return fail(actor, job, reason) end
+        target.eggReceiptId = receipt.id
+        SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "selected", blocker = false })
+        state.animalEgg = { item = egg, receiptId = receipt.id, nest = nest }
+        note()
+        return begin(actor, job, state, object, nil, "animal_egg")
     end
     local supply = state.borrowed or state.carriedWaterSupply
     if not supply then

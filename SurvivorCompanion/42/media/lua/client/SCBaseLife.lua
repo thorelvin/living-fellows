@@ -841,6 +841,7 @@ local function normalizeProduction(source)
 end
 
 local FARM_RECEIPT_PHASES = {
+    selected = true,
     borrowed = true, carried = true, depositing = true, recovery = true,
     returned = true, delivered = true, consumed = true, quarantined = true,
 }
