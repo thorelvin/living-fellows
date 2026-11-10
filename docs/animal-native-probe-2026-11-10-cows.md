@@ -110,3 +110,27 @@ Phase 0 gate: all five essential checks passed in 102.5 seconds at
 `build/test-results/20261110-160523-3c2ead`. No cattle gameplay is enabled by
 this documentation phase. Companion-specific native action exposure, live
 milk quantities and welfare acceptance remain explicit implementation gates.
+
+## Phase 1: species census
+
+Cattle now have their own species entry and cow/bull/calf counts alongside
+the unchanged hen/rooster/chick census. Retained hutch identities contain
+chickens only; cattle in the native registration set cannot prevent a sheltered
+flock from closing. Missing chickens still prevent closing. Unsupported
+species do not authorize irreversible policy and cannot become milk targets.
+Strange Folk evidence still protects the zone.
+
+Large cattle pastures can retain a frontier up to 1,024 tiles while each call
+keeps its previous square and animal budgets. Larger chicken-only zones do
+not gain cattle permission. The native individual enclosure minimum is an
+informational blocker, never a request to move or modify cattle. Additive
+census data stays inside the existing version-1 animal document; its bounded
+save-copy allowance now accommodates the cattle records without dropping an
+older or unknown future document.
+
+`animalCattleEnabled=0` remains deliberate pending Phase 2 live care proof;
+`animalCattleZoneMaxTiles=1024` defines the retained frontier. All existing
+chicken tests passed unmodified, plus mixed census, shared hutch safety,
+unsupported species, disabled cattle and 1,024-tile slice regressions. The
+five-check gate passed in 103.3 seconds at
+`build/test-results/20261110-161532-52b892`.

@@ -886,7 +886,7 @@ local function normalizeFarm(source)
     local result = emptyFarm()
     if type(source.animals) == "table" then
         -- Preserve future animal documents exactly and refuse their activation.
-        local copied, reason = stableCopy(source.animals, 8, { count = 2048 })
+        local copied, reason = stableCopy(source.animals, 8, { count = 16384 })
         if not copied then error("animal document cannot be preserved: " .. tostring(reason)) end
         result.animals = copied
     end

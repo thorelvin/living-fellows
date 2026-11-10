@@ -1322,6 +1322,9 @@ local valueData = {
     animalCullPerZonePerDay = 1,
     animalMaxZones = 8,
     animalAuditAnimalBudget = 32,
+    -- Cattle stays gated until its native care acceptance is complete.
+    animalCattleEnabled = 0,
+    animalCattleZoneMaxTiles = 1024,
 
     -- WP01 gathering stays finite, camp-local, and shares the existing scheduler.
     workMaximumOrders = 8,
