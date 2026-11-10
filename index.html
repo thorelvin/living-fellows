@@ -320,8 +320,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <h1>Field Manual</h1>
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
-  <p class="edition">Living Fellows — Project Zomboid Build 42.21.0 Edition</p>
-  <p class="version">Release 0.27.3 — First Edition, Twenty-Eighth Printing — You won't die... alone.</p>
+  <p class="edition">Living Fellows — Project Zomboid Build 42.22.2 Edition</p>
+  <p class="version">Release 0.27.8 — First Edition, Twenty-Ninth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -333,8 +333,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma"><strong>Ask EMMA.</strong></a> Check supplies, find out who needs care, read the old files or fit a radio and run expeditions from your camp computer.</li>
   <li><a href="#emma-locks"><strong>Break into a locked computer.</strong></a> Undelete the owner's files, turn the Larchfield code wheel or argue your case with EMMA, then open the drawer beside it.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
+  <li><a href="#ch15_animals"><strong>Keep a working farm.</strong></a> Farmers tend chickens and cattle, collect eggs and deliver milk, leaving a reserve for calves.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.3</strong>, with <a href="#ch2_first">a First steps card and an early first meeting</a>, <a href="#ch4_world">tidier right-click menus</a>, <a href="#ch18c_new">seven new Strange Folk</a>, <a href="#ch17_home">sending someone home on foot or by car</a>, <a href="#ch17_prep">expedition kits packed before they leave</a> and <a href="#ch17_wood">logging areas picked on the map</a>. Need the essentials? Open the <a href="#appF">quick reference card</a>.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.8</strong>: <a href="#ch15_animals">chicken and cattle care</a>, <a href="#ch9d_help">clearer relationships and direct gifts</a>, <a href="#emma-care">a more caring EMMA</a> and <a href="#emma-radio-watch">a companion working the radio desk</a>. Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -381,7 +382,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch14">Ch 14: Base Duty and Jobs</a></li>
         <li><a href="#ch14b">Ch 14b: Running the Camp</a></li>
         <li><a href="#ch14c">Ch 14c: Base Watch</a></li>
-        <li><a href="#ch15">Ch 15: Farming</a></li>
+        <li><a href="#ch15">Ch 15: Farming and Animals</a></li>
         <li><a href="#ch15b">Ch 15b: The Kitchen and the Water</a></li>
         <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
         <li><a href="#emma">Ch 16b: EMMA and Camp Computers</a></li>
@@ -435,49 +436,22 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>Living Fellows turns the survivors you meet into persistent people. They are native human actors with real inventories, injuries, skills and permanent death, and they make their own survival decisions when you are not giving orders. That depth needs a small native bridge beside the usual Lua, which is why installing it takes one step more than an ordinary mod.</p>
 
-<p>The mod targets <strong>Project Zomboid Build 42.21.0</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The exceptions are the mod's own: an expedition or Base Watch may put one companion in a second local view, to keep the area around it loaded.</p>
+<p>The mod targets <strong>Project Zomboid Build 42.22.2</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The exceptions are the mod's own: an expedition or Base Watch may put one companion in a second local view, to keep the area around it loaded.</p>
 
-<h3>Two Ways In</h3>
-<table>
-  <tr><th>Method</th><th>What you need</th><th>Best for</th></tr>
-  <tr><td><strong>Steam Workshop</strong></td><td>Project Zomboid 42.21.0 and <strong>ZombieBuddy 2.3.3 or newer</strong>, including its one-time loader setup</td><td>Automatic Living Fellows updates once ZombieBuddy is installed</td></tr>
-  <tr><td><strong><code>Install.bat</code></strong></td><td>Windows and Project Zomboid 42.21.0</td><td>Everyone else: no ZombieBuddy, no Workshop account needed</td></tr>
-</table>
-
-<div class="callout callout-warn"><span class="callout-label">Take care — </span>Use <strong>only one copy</strong>. The Workshop and standalone editions share the mod ID <code>SurvivorCompanion</code>, and two copies fight over which one loads. If you switch methods, remove the old copy first.</div>
-
-<div class="two-col">
-<div>
-<h4>From the Steam Workshop</h4>
+<h3>Install on 42.22.2</h3>
+<p><strong>The Windows standalone edition is recommended.</strong> It includes Living Fellows' native bridge and needs neither ZombieBuddy nor a Workshop subscription. Download the <a href="https://github.com/thorelvin/living-fellows/releases/latest">standalone Windows ZIP from GitHub Releases</a> that matches your game build.</p>
 <ol class="steps">
-  <li><span class="step-n">1</span>Close Project Zomboid.</li>
-  <li><span class="step-n">2</span>Subscribe to <strong>ZombieBuddy 2.3.3 or newer</strong> and run its one-time loader installation. Subscribing alone does not install its Java loader.</li>
-  <li><span class="step-n">3</span>Subscribe to <strong>Living Fellows</strong>.</li>
-  <li><span class="step-n">4</span>Start the game, open <span class="menu">Mods</span>, and enable both.</li>
-  <li><span class="step-n">5</span>For an existing save, use <span class="menu">More... → Choose Mods</span> and enable both for that save.</li>
+  <li><span class="step-n">1</span>Extract the whole ZIP to a normal folder.</li>
+  <li><span class="step-n">2</span>Close Project Zomboid, then run <strong>Install.bat</strong>. The ordinary installer leaves debug controls off.</li>
+  <li><span class="step-n">3</span>Start the game and enable <strong>Living Fellows</strong> in <span class="menu">Mods</span>.</li>
+  <li><span class="step-n">4</span>For an existing save, enable it in <span class="menu">More... → Choose Mods</span> too.</li>
 </ol>
-</div>
-<div>
-<h4>With <code>Install.bat</code></h4>
-<ol class="steps">
-  <li><span class="step-n">1</span>Download the <code>STANDALONE-WINDOWS</code> ZIP from the project's Releases page on GitHub. If a release has no package yet, use the Workshop for that version.</li>
-  <li><span class="step-n">2</span>Extract the whole ZIP to a normal folder. Don't run it from inside the ZIP viewer.</li>
-  <li><span class="step-n">3</span>Close Project Zomboid.</li>
-  <li><span class="step-n">4</span>Double-click <strong>Install.bat</strong>.</li>
-  <li><span class="step-n">5</span>Start the game and enable <strong>Living Fellows</strong> for your save.</li>
-</ol>
-</div>
-</div>
-
-<p>ZombieBuddy loads approved Java mods outside the game's Lua sandbox. Review its installation preview, and approve Living Fellows only if you trust the repository and the Workshop item.</p>
-
-<p>The standalone installer finds Steam on its own. If Windows refuses access to the game folder, run it as Administrator. For a game in another Steam library, point it there:</p>
-
-<div class="callout callout-recipe"><span class="callout-label">How to — </span>
-<strong>Another Steam library:</strong> <code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code>
-</div>
-
-<p>It installs the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code>, keeps its bridge under <code>%LOCALAPPDATA%\LivingFellows</code>, and backs up <code>ProjectZomboid64.json</code> before changing it. It never edits <code>projectzomboid.jar</code>. <strong>Uninstall.bat</strong>, run from the same folder, removes Living Fellows' files and launcher entries. If another mod has changed the launcher since installation, the uninstaller keeps that mod's settings. With PZO's launcher installed, <code>Install.bat</code> keeps PZO's own start-up and adds Living Fellows to it as a Java agent.</p>
+<p>Keep the extracted folder for <strong>Uninstall.bat</strong>. The installer finds Steam automatically. If Windows refuses access to the game folder, run it as Administrator. For another Steam library:</p>
+<div class="callout callout-recipe"><span class="callout-label">How to — </span><code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code></div>
+<p>The installer puts the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code> and manages its native bridge automatically. It does not edit <code>projectzomboid.jar</code>. With PZO installed, it keeps PZO's launcher and adds Living Fellows alongside it. Uninstall removes Living Fellows' entries while preserving other mods' settings.</p>
+<h4>Using the Workshop Instead</h4>
+<p>The Workshop edition uses <strong>ZombieBuddy 2.3.3 or newer</strong>, including its one-time loader installation; a subscription alone does not install that loader. Subscribe to both mods, complete the loader's setup, then enable both for your save. The loader must support your game build. Use the standalone edition for 42.22.2 if that support is not yet available.</p>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Use <strong>one edition at a time</strong>. Both share the mod ID <code>SurvivorCompanion</code>. When changing installation method, remove the old copy so the game can find the version you intend to use.</div>
 
 <h3>A World That Remembers</h3>
 <p>Companions, households, relationships, contracts, bases and production orders are saved with the world. They remain if your character dies and you start another survivor in the same world.</p>
@@ -1260,18 +1234,26 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 9d -->
 <h2 class="chapter" id="ch9d"><img class="ico" src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">Chapter 9d: Trust, Bonds and Goals<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>A companion's feelings about you rest on two numbers, each from 0 to 100. <strong>Trust</strong> is whether they believe you'll do right by them. <strong>Bond</strong> is how much they care. Beside them run <strong>morale</strong> (55 to start) and <strong>stress</strong> (12 to start). None of it is shown as a bar; you hear it in how they talk and read it in the Journal.</p>
+<p>A survivor's feelings about you rest on <strong>trust</strong> and <strong>bond</strong>. Trust is whether they believe you'll do right by them; bond is how much they care. Open <span class="menu">Talk</span> to see the named relationship stage, progress toward the next one and recent reasons for change. You can see where you stand before they join. The Journal keeps the longer history.</p>
 
 <h3>The Five Tiers</h3>
 <p>The relationship tier comes from a score that weighs trust slightly above bond: <code>trust × 0.55 + bond × 0.45</code>.</p>
 <table>
   <tr><th>Score</th><th>Tier</th><th>Ask "How are we doing?" and you might hear</th></tr>
   <tr><td>under 10</td><td><strong>Cautious</strong></td><td><em>"I am still getting to know you. Give me time."</em></td></tr>
-  <tr><td>10+</td><td><strong>Ally</strong></td><td><em>"We work well together. Trust takes time, but we are getting there."</em></td></tr>
+  <tr><td>10+</td><td><strong>Familiar</strong></td><td><em>"We work well together. Trust takes time, but we are getting there."</em></td></tr>
   <tr><td>30+</td><td><strong>Trusted</strong></td><td><em>"We have been through enough that I know you will be there."</em></td></tr>
   <tr><td>55+</td><td><strong>Close</strong></td><td><em>"I trust you with my life. That is not something I say lightly."</em></td></tr>
   <tr><td>80+</td><td><strong>Family</strong></td><td><em>"You are family to me now. I am not walking away."</em></td></tr>
 </table>
+
+<h3 id="ch9d_help">Help Without Opening a Trade</h3>
+<ol class="steps">
+  <li><span class="step-n">1</span>Open <span class="menu">Talk</span> with the survivor and check what they need.</li>
+  <li><span class="step-n">2</span>Choose <span class="menu">Offer food...</span>, <span class="menu">Offer drinking water...</span> or <span class="menu">Help with injuries...</span>. The matching button appears when they are hungry, thirsty or injured.</li>
+  <li><span class="step-n">3</span>Pick the actual supply to give. Water hands over <strong>the whole container</strong>, not just a sip.</li>
+</ol>
+<p>The survivor does not need anything to sell. Useful help earns trust; repeated gifts have diminishing returns, so feeding someone who needs a meal matters more than handing over unwanted supplies. Personal trust and household standing are separate. Ask about joining to see which requirement is still missing, including contracts, a trial period or family obligations. A good relationship alone does not remove those obligations.</p>
 
 <h3>What Builds It</h3>
 <p>Almost everything that counts happens <strong>close</strong>: within 8 tiles, on the same floor. Each moment is noticed on its own, with a short wait before the same kind counts again.</p>
@@ -1557,15 +1539,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <div class="callout callout-recipe"><span class="callout-label">How to — </span>
-<strong>Set the camp core:</strong> right-click the ground and choose <span class="menu">Living Fellows → Set camp core here</span>.
+<strong>Set the camp core:</strong> right-click the ground and choose <span class="menu">Living Fellows → Establish camp here</span>.
 </div>
 
 <h3>Drawing Zones</h3>
 <ol class="steps">
   <li><span class="step-n">1</span>Right-click the first corner tile and choose <span class="menu">Living Fellows → Areas → Start zone here</span>, then the kind of zone.</li>
   <li><span class="step-n">2</span>Move the mouse to preview the rectangle.</li>
-  <li><span class="step-n">3</span>Right-click the final corner tile. That locks the rectangle, so the preview won't shift while you move through the menu.</li>
-  <li><span class="step-n">4</span>Choose <span class="menu">Finish zone here</span>. Your character's position is never used.</li>
+  <li><span class="step-n">3</span><strong>Left-click the opposite corner</strong> to finish. You do not need to reopen a menu. The clicked tiles, not your character's position, define the area.</li>
+  <li><span class="step-n">4</span>Right-click or press <kbd>Esc</kbd> to cancel. An invalid area stays editable.</li>
 </ol>
 
 <table>
@@ -1744,7 +1726,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""></td><td><strong>Woodcutter</strong></td><td>A lumber area, an axe, and a log yard or marked construction, general or output storage</td><td>Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls the logs to storage. Keeps going while any marked log storage has room for another log, moving to the next container when one fills.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td><strong>Carpenter</strong></td><td>Logs in marked storage or a log yard, a saw, and a second marked container for planks</td><td>Takes one log, saws it into three planks with the vanilla recipe, and stores them. Finished output is recovered after a pause or reload.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with a firestarter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it. A burial takes the body's belongings with it (<a href="#ch16">Ch 16</a>).</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>A farm area over existing plots and marked farming supplies</td><td>Waters, tends and harvests what the field audit finds (<a href="#ch15">Ch 15</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>Existing plots in a Farm area, or a vanilla animal zone wholly inside camp; marked farming supplies</td><td>Tends crops, supplies chickens and cattle, collects eggs, cleans hutches and delivers milk (<a href="#ch15">Ch 15</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td><strong>Maintainer</strong></td><td>Marked maintenance targets</td><td>Repairs damaged barricades that need planks.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Chef</strong></td><td>Food storage or a camp fridge, ingredients and cookware in camp storage</td><td>Keeps safe meals in the fridge, and cooks one for you on request (<a href="#ch15b">Ch 15b</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
@@ -1916,7 +1898,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>If the panel shows <em>Camp view needs attention</em>, note the reason with the Support report (<a href="#appD">Appendix D</a>).</div>
 
 <!-- CH 15 -->
-<h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
+<h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming and Animals<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>Draw one or more <strong>Farm areas</strong> over existing vanilla plots. Companions never turn untouched ground into fields; dig the plots first, and they will keep them. A bounded audit rotates across every marked farm area and queues the most urgent work it finds, with ties broken in a stable order.</p>
 
@@ -1930,6 +1912,38 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 
 <p>Residents borrow and return exact supplies, and route crops and seeds to marked storage. Mark a <strong>Farming supplies</strong> container for seed, tools, compost, water cans and crop treatments. A farmer keeps one watering can of its own and uses it without a trip to the shelf. Dry plots wait for that farmer only while it can do the job: go off duty, leave camp, die or lose the can, and the plots open to the other residents. Farmers comment now and then when preparing ground, sowing, watering, harvesting, treating or losing a crop, or finding the tools unusable. Those remarks never hold up the work.</p>
+
+<h3 id="ch15_animals">A Farmer for Your Animals</h3>
+<p>Chickens and cattle use the same <strong>Farmer</strong> job as crops. The enclosure is a <strong>vanilla animal zone</strong>, created through the game's animal-zone tools, wholly inside your camp boundary. An LF Farm area is for plots; it does not replace the animal zone.</p>
+<ol class="steps">
+  <li><span class="step-n">1</span>Keep a resident on <span class="menu">Base duty</span> and choose <strong>Farmer</strong> as their base job.</li>
+  <li><span class="step-n">2</span>Place <strong>separate feed and water troughs</strong> in the animal zone. A trough holds one or the other; the Farmer will not empty feed to make room for water.</li>
+  <li><span class="step-n">3</span>Mark <strong>Farming supplies</strong> storage for feed, tools and empty milk containers. Keep filled water containers in Farming supplies or Water storage.</li>
+  <li><span class="step-n">4</span>Allow deposits into <strong>Fresh food</strong> or <strong>Regular food</strong> storage for the eggs and milk.</li>
+</ol>
+<p>Feed and water are topped up when troughs fall below 25%, aiming for 90%. A large watering job makes at most two donor trips before letting other work through, then continues on a later check. Chickens and cattle can share an enclosure and its troughs. Chicken-only zones may cover up to 256 tiles; cattle or mixed zones may cover up to 1,024.</p>
+
+<h4 id="ch15_chickens">Chickens, Eggs and the Hutch</h4>
+<p>Add a compatible chicken hutch. Farmers collect <strong>unfertilised eggs</strong>, deliver them to permitted food storage and clean dirty hutch floors and nests using real supplies. Fertilised eggs are left alone. Leave suitable cleaning supplies available in camp storage; a blocked cleaning job explains what is missing.</p>
+<p>After 07:00, the Farmer opens the hutch. At night, they close it only once the known birds are sheltered, including hens in nest boxes. A late or missing bird keeps the door open. Let birds enter and leave through the game's normal animal behaviour.</p>
+
+<h4 id="ch15_cattle">Cattle and the Morning Milk</h4>
+<p>Farmers supply cows, bulls and calves of all vanilla breeds. Automatic cattle donations use <strong>animal feed, hay or cut grass</strong> from Farming supplies; they do not spend your fruit and vegetables. An agitated bull can interrupt work, and a stressed cow waits until she settles.</p>
+<p>Only a healthy, lactating adult cow is milked, between <strong>07:00 and 20:00</strong>. Bulls, calves, dry cows and animals being held or led are skipped. Keep <strong>empty, milk-compatible buckets, pots or bottles</strong> in Farming supplies. The Farmer borrows the largest container they can safely carry.</p>
+<table>
+  <tr><th>Udder condition</th><th>Farmer's response</th></tr>
+  <tr><td>No nursing calf</td><td>Start at 50% full or more.</td></tr>
+  <tr><td>A calf is nursing</td><td>Start at 70%; stop above a 40% reserve for the calf.</td></tr>
+  <tr><td>80% full or more</td><td>Milking becomes urgent and takes priority over routine feed and water work.</td></tr>
+</table>
+<p>There is <strong>one daily milking job per cow</strong>. It can make several trips with separate containers, so a small bucket does not limit the whole day's haul. Milk goes to <strong>Fresh food first, then Regular food</strong> with room and deposits enabled. The filled container stays with its milk; return it to Farming supplies when empty, or let sorting handle it.</p>
+<p>If food storage is full, ordinary milking waits. An urgent load may be protected in its original Farming supplies container until a food destination has room. Delivery retries after <strong>three real minutes</strong>; manual <span class="menu">Retry</span> remains available. Reaching camp is not the same as storing the milk.</p>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>If care stops, check <span class="menu">More → Base</span>: the whole animal zone must be inside camp, supplies must be marked and accessible, and food storage must accept deposits. Keep a clear route beside the animal and its troughs. Strange Folk animals remain protected. Automatic breeding management and culling are disabled.</div>
+
+<figure class="plate terminal-shot">
+  <a href="assets/lf_photo_cattle.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_cattle.webp" width="1280" height="720" alt="A real in-game camp pasture with cattle, a Farmer, separate feed and water troughs, and storage crates inside a fenced animal zone."></a>
+  <figcaption><span class="plate-no">Photo 11</span> Cattle care uses the Farmer job and ordinary animal-zone equipment. Keep supplies and permitted food storage within reach. <span class="credit">In-game capture: Living Fellows, Build 42.22.2</span></figcaption>
+</figure>
 
 <!-- CH 15b -->
 <h2 class="chapter" id="ch15b"><img class="ico" src="https://pzwiki.net/w/images/5/54/Pot.png" alt="">Chapter 15b: The Kitchen and the Water<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -2026,7 +2040,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>There is still someone willing to answer questions at the office. She lives on a desktop, calls herself the <strong>Emergency Management Assistant</strong>, and has rather more confidence in the county's emergency arrangements than the evidence warrants.</p>
 <p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and, inside your camp, an expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
-<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-locks">locked computers</a> · <a href="#emma-files">files</a> · <a href="#emma-reset">factory reset</a>.</p>
+<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-care">caring conversations</a> · <a href="#emma-memory">shared memory</a> · <a href="#emma-jump">jump-starting</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-radio-watch">survivor radio watch</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-locks">locked computers</a> · <a href="#emma-files">files</a> · <a href="#emma-reset">factory reset</a>.</p>
 <p class="tbl-note">The screens below were captured in-game. On the website, select a screen image to open it at full size.</p>
 
 <figure class="plate terminal-shot">
@@ -2036,9 +2050,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3 id="emma-start">Your First Session</h3>
 <ol class="steps">
-  <li><span class="step-n">1</span>Find a <strong>desktop computer</strong>, stand beside it and right-click <span class="menu">Use computer</span>. It needs working grid or generator power, or a fitted battery backup.</li>
+  <li><span class="step-n">1</span>Find a <strong>desktop computer</strong>, stand beside it and right-click <span class="menu">Use computer</span>. It needs working grid or generator power, a fitted battery backup, or a temporary <a href="#emma-jump">jump-start</a>.</li>
   <li><span class="step-n">2</span>Let the Larchfield BIOS and memory test finish, or press <kbd>Enter</kbd> to skip startup. If the machine is locked, recover access first (<a href="#emma-locks">below</a>).</li>
-  <li><span class="step-n">3</span>Choose <strong>Camp report</strong>, or press <kbd>Tab</kbd> and type <code>what should I do?</code>. Press <kbd>Enter</kbd> to send.</li>
+  <li><span class="step-n">3</span>Inside camp, choose <strong>Camp report</strong>. Elsewhere, choose a local file, or press <kbd>Tab</kbd> and ask EMMA a question. Press <kbd>Enter</kbd> to send.</li>
 </ol>
 <p><strong>Camp records stay at home.</strong> A computer inside your camp can read its people, storage, jobs and expeditions. A computer elsewhere still has EMMA, local services and its old files, but cannot look into your camp from across town, and <strong>Camp report</strong> appears only inside camp. You can carry a computer home; its files, locks and mounted parts travel with it.</p>
 <p>The terminal fills your player view and scales to the resolution. Each machine keeps its screen colour: green, golden sand or aquamarine, with purple on about one in a hundred computers. At home, the header uses the EMMA camp emblem; the old owner's files remain until you choose to erase them.</p>
@@ -2075,13 +2089,38 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><code>power</code> · <code>weather</code> · <code>time</code></td><td>Generator readings, conditions outside and the game date</td></tr>
   <tr><td><code>expedition</code> · <code>deliveries</code></td><td>Known mission progress, the last debrief and cargo still awaiting storage</td></tr>
   <tr><td><code>how do I mount a radio?</code> · <code>tell me more</code></td><td>Operating help for the computer's own services, with more detail on request. <code>go back to meds</code> returns to an earlier subject.</td></tr>
-  <tr><td><code>remember the key is in the van</code></td><td>A note on this computer. Ask <code>what did I tell you?</code> to read it back.</td></tr>
+  <tr><td><code>remember the key is in the van</code></td><td>A shared note, available on ordinary EMMA computers. Ask <code>what did I tell you?</code> to read it back.</td></tr>
 </table>
 <p>She also does arithmetic and keeps company. Try <code>are you alive?</code>, <code>tell me a joke</code>, <code>write a poem</code>, <code>do you dream?</code> or <code>tell me something hopeful</code>. Asking about an item you actually own still checks the supplies; a conversation about Spiffo does not conjure a burger.</p>
 
 <h4>Requests Need Your Confirmation</h4>
 <p>Try <code>send medic to Jill</code>, <code>refuel generator</code>, <code>refuel &lt;vehicle name&gt;</code> or <code>retry job &lt;job ID&gt;</code>. EMMA names the proposed helper or target and asks <strong>[Y/N]</strong>. Type <code>yes</code> and press <kbd>Enter</kbd> to proceed, or <code>no</code> to cancel. A different question or menu choice also cancels the request.</p>
 <p>EMMA checks again when you confirm. An occupied medic, missing supplies or a blocked route can still prevent the job. She queues the same work as the normal menus; she does not repair, heal or move supplies by wishing.</p>
+
+<h4>Keep the Question Going</h4>
+<p>Ask about a generator, then <code>what fuel does it use?</code> and <code>where can I find it?</code>. Ask about a companion, then <code>where are they?</code> or <code>what do they need?</code>. The same short follow-ups work for equipment, jobs, expeditions, weather and building controls. EMMA checks the current records again; if a reference is unclear, she asks which person or thing you mean.</p>
+<p>For practical advice, try <code>how do I survive winter?</code>, <code>how do I clean drinking water?</code> or <code>tell me about the Knox infection</code>, then <code>tell me more</code>. Her survival references are stored locally. She can explain what the game records, but missing information stays unknown.</p>
+
+<h3 id="emma-care">When You Are Not All Right</h3>
+<p>EMMA recognizes grief, distress and self-doubt, and asks when she is unsure. You can answer in ordinary words such as <code>yeah</code> or <code>nah, I'm fine</code>. Her jokes and story progress pause while she listens. Questions about your character's injuries or a dangerous supply run still get game advice.</p>
+<p>Care conversations are excluded from the shared notebook and from local misunderstood-input records. Those local records can help improve recognition; nothing is sent to an internet service. EMMA's support is conversation, not a diagnosis.</p>
+
+<h3 id="emma-memory">Different Desks, the Same EMMA</h3>
+<p>Ordinary EMMA computers recognize your character and share the notes you explicitly ask her to remember. Short conversations stay with their own desk; care conversations are excluded from the shared record. The notebook belongs to the world. If your character dies, a new character keeps the recovered computers and shared notes, with their own operator name.</p>
+<p>Each ordinary computer contributes <strong>one fragment</strong> when EMMA boots. Locked machines count after you recover access. Moving, reopening or resetting one never grants another fragment; SPIFFY, ELLIS and DUTY contribute none. Ask <code>fragments</code> for progress: “Computer recovery: 1 fragment recovered.” Memory tiers arrive at 2, 4, 7, 12, 18 and 25 fragments.</p>
+<p>The shared notebook holds <strong>8 notes</strong>, rising to 12 after two machines, 16 after four and 20 after twelve. Existing notes are imported once. If the notebook fills up, the remaining old notes stay on their original computer: make room and reopen it to continue importing.</p>
+<p>Ask <code>forget everything</code> and EMMA lists the notes and asks which to erase. <code>Forget note 2</code> selects one; <code>forget all notes</code> selects the shared notebook. Both need a fresh <strong>[Y/N]</strong> confirmation. <code>Forget that conversation</code> clears only this desk's recent thread.</p>
+
+<h4>Your Condition and the County's Schedule</h4>
+<p>Boot EMMA on a <strong>clinic, pharmacy or research computer</strong> to recover the medical index. Then ask <code>how am I?</code>, <code>am I infected?</code> or <code>am I tired?</code>. She reads your own wounds, dressings and needs, with the urgent warnings first. An ordinary wound infection, false-infection symptoms and Knox infection are different readings. Your kill count, time survived, location and skills are always available through questions such as <code>my kills</code> or <code>what am I good at?</code>.</p>
+<p>Once she has the medical index, a confirmed Knox infection brings <strong>one warning at login</strong>, without a countdown. Ask <code>how long do I have?</code> for a single approximate estimate, if the native timing and mortality rule support one. A nonlethal infection gets no invented death date. Care mode pauses automatic notices, jokes and countdowns. Resetting or moving the computer does not repeat a warning for the same infection.</p>
+<p>A <strong>police, emergency, security, military, government or media computer</strong> recovers the calendar index. Ask <code>when is the helicopter?</code>, <code>when will the water stop?</code> or <code>when will the power go out?</code>. EMMA reads your world's schedule, including Never settings, past shutoffs and a restored grid. A possible flyover window is not proof of an aircraft overhead. <strong>Twelve ordinary fragments</strong> recover either index still missing.</p>
+<p>Try <code>weather tomorrow</code>, <code>forecast in 3 days</code> or <code>next storm</code>. Forecasts cover today and the next six days, with snow, fog and freezing temperatures included. Missing records remain unknown. <code>When is dawn?</code> and <code>when does it get dark?</code> use the seasonal almanac and work on every computer, before either index is recovered.</p>
+<p>Follow a forecast with <code>what temperature?</code>, a helicopter report with <code>is it here yet?</code>, or your health report with <code>what should I do?</code>. These are fresh readings, not old answers carried across questions. Nothing polls your health or the forecast while the computer is closed.</p>
+
+<h3 id="emma-jump">Jump-start a Dead Computer</h3>
+<p>Carry an intact <strong>car battery with at least 5% charge</strong> and a screwdriver, and have <strong>Electrical 2</strong>. Beside an unpowered desktop, choose <span class="menu">Computer maintenance → Jump-start computer</span>. The connection takes about 20 seconds; the battery loses <strong>five percentage points</strong> only when it connects.</p>
+<p>This opens one session for up to <strong>ten real minutes</strong>. Logging off ends it early, without a refund. The battery stays in your inventory. You can use EMMA and the local password screen, and an unlocked EMMA boot still contributes a fragment. Borrowed power cannot run the radio, building controls, camp work requests or background password recovery. For those, use a normal supply or fitted UPS.</p>
 
 <h3 id="emma-radio">Fit a Radio, Run an Expedition</h3>
 <p>Open <span class="menu">Local services → Computer upgrades</span> and mount a usable <strong>two-way walkie-talkie</strong>. You need <strong>Electrical 2, a screwdriver, one electric wire and two electronics scrap</strong>. Your character fits the actual handset to the PC, and its antenna appears on the frame.</p>
@@ -2100,6 +2139,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>From a <strong>camp station</strong>, review and launch Scout, Search, Fish or Collect wood missions, request reports, recall the crew and answer route decisions. <strong>Choose destination on map</strong> opens your map and brings the chosen target back to mission review (<a href="#ch17">Chapter 17</a>). <strong>Team / Marcus</strong> also offers taxi booking and status through the usual service.</p>
 <p>The team's radios must be working, equipped, on the same channel and within range. Fresh progress requires a return transmission. During an active mission, EMMA asks before scanning away from the team channel because you could miss a call.</p>
 <p>When radio and grid control are both available, <strong>More services</strong> holds Computer upgrades and Expedition station. The Expedition station only appears on a computer inside the camp. Each page keeps its numbered choices visible.</p>
+
+<h3 id="emma-radio-watch">Put Someone on Survivor Radio Watch</h3>
+<p>At an <strong>unlocked, powered camp computer with a mounted two-way radio</strong>, open <span class="menu">Local services → LARCH/WAVE radio desk → Survivor radio watch → Assign radio operator</span>. Choose a living companion on base duty who is free for the shift. Keep an accessible chair and clear desk space nearby; the operator sits and uses the computer when a suitable seat is available.</p>
+<p>The radio screen shows the logged-in operator, progress, a moving spectrum and waterfall, and a rolling log. A shift takes <strong>four game hours of actual work</strong>, with a <strong>35% chance</strong> to find a survivor. No contact is guaranteed. If power or work is interrupted, completed progress is preserved.</p>
+<p>When someone answers, choose <span class="menu">Invite survivor to camp</span> or <span class="menu">Pass on this contact</span>. An invitation needs a safe arrival route and space in your roster. You decide whether to send camp directions; finding a contact does not send them straight to your door.</p>
 
 <h4>Battery Backup and Moving Hardware</h4>
 <p>The power report identifies the current supply. On a battery backup, it also shows the remaining charge.</p>
@@ -2286,8 +2330,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>With safe routines enabled, literate companions may read at an accessible, unlocked camp PC during a quiet break. They yield when you use it and do not alter your notes or issue commands.</p>
 
 <h3 id="emma-reset">Give a Computer a Fresh Start</h3>
-<p>Ask <code>factory reset</code> or <code>reset this computer to factory settings</code>. EMMA asks for confirmation before removing <strong>this computer's previous-owner files, firm branding, notes, conversation memory and radio notebook</strong>. It restarts with clean EMMA branding and an empty personal directory.</p>
-<p>Mounted hardware, its presets, screen colour, password protections and connected-equipment settings remain. County and EMMA reference files remain too. Other computers keep their records. Unlock a protected machine before asking; moving it home is not a shortcut.</p>
+<p>Ask <code>factory reset</code> or <code>reset this computer to factory settings</code>. EMMA asks for confirmation before removing <strong>this computer's previous-owner files, firm branding, local history, unimported old notes and radio notebook</strong>. It restarts with clean EMMA branding and an empty personal directory.</p>
+<p><strong>Shared notes, fragments and operator recognition remain.</strong> Mounted hardware, its presets, screen colour, password protections and connected-equipment settings remain too, as do county and EMMA reference files. Unlock a protected machine before asking; moving it home is not a shortcut.</p>
 
 <div class="callout callout-also"><span class="callout-label">See also — </span>For mission choices and delivery rules, see <a href="#ch17">Chapter 17</a>. For storage and the jobs EMMA reports on, see <a href="#ch11">Chapter 11</a> and <a href="#ch14b">Chapter 14b</a>.</div>
 
@@ -2631,9 +2675,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.3 uses native bridge protocol <code>42.21-isocompanion-30</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.8 uses native bridge protocol <code>42.22-isocompanion-31</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
-<p>Not every stranger is a household looking for supplies. Seventy-two hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
+<p>Not every stranger is a household looking for supplies. Seventy-three hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
 <h3>How They Turn Up</h3>
 <ul>
@@ -2718,6 +2762,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Darla Jo Simms</strong> ✚</td><td>Bedroom or motel room</td><td>Sleeping it off: a dancer asleep in bed. Wake her gently or shout, then find her bag at the club.</td></tr>
   <tr><td><strong>Delbert Sloan</strong> ✚</td><td>Motel room or large-house bedroom</td><td>Room 12 has real barricades. Knock or pass party supplies through the door; breaking in ruins the party. Sweet Pea, a sow, is inside.</td></tr>
   <tr><td><strong>Caleb Harker</strong></td><td>A house with a small locked room</td><td>Twenty real zombies behind one locked door. Touch it, open it or break the room's window and he runs.</td></tr>
+  <tr><td><strong>Caleb Hensley</strong></td><td>Open ground</td><td>A grieving man gathering his family's bodies. Listen from a safe distance: his vigil can end in real fire.</td></tr>
   <tr><td><strong>Vera Quill</strong></td><td>A closed bedroom</td><td>That zombie moaning is her. Confront her for the story, then ask for the voice again. She won't turn on you.</td></tr>
   <tr><td><strong>Earl Kessler</strong> ✚</td><td>Any room, with gasoline cans on the floor</td><td>Take one of his cans and he sets the room alight with real fire. If he survives the blaze, he can join.</td></tr>
   <tr><td><strong>Eli Rourke</strong> ✚</td><td>A locked garage</td><td>An engine hoist broke his leg, and he locked himself in. He radios for help (above). The door unlocks when you reach it; treat his leg yourself with a splint and a clean bandage through Medical Check before he can join.</td></tr>
@@ -2796,6 +2841,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Option</th><th>Range</th><th>Default</th><th>Effect</th></tr>
   <tr><td>Spawn independent survivors</td><td>on / off</td><td>on</td><td>Whether new independent survivors appear</td></tr>
   <tr><td>Independent survivor frequency</td><td>Very rare, Rare, Normal, Frequent</td><td>Normal</td><td>The base real-time gap between attempts. Each living recruit lengthens it; the increase grows faster with a large group.</td></tr>
+  <tr><td>Companion hunger and thirst rate</td><td>0–2 times the player's rate</td><td>One-third</td><td>Changes how fast hunger and thirst rise; zero stops their increase. Tiredness has its own pacing.</td></tr>
   <tr><td>Guarantee a first meeting</td><td>on / off</td><td>on</td><td>In a new world, an independent survivor is helped to meet you early (<a href="#ch2_first">Ch 2</a>). Hidden, idle zombies within 30 meters are removed once before they arrive; after that nobody is protected. Needs <strong>Spawn independent survivors</strong>.</td></tr>
   <tr><td>Maximum active companions</td><td>1–16</td><td>16</td><td>Limit for new recruits and encounters</td></tr>
   <tr><td>Companion hunger and thirst rate</td><td>0–2</td><td>0.33</td><td>0 turns it off; 1 matches the player</td></tr>
@@ -2899,8 +2945,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.1</td></tr>
-  <tr><td>Game build / supported build</td><td>42.21.0 on both sides</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.8</td></tr>
+  <tr><td>Game build / supported build</td><td>42.22.2 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
   <tr><td>Suggested action</td><td>Read this first; it names the fix it can see</td></tr>
@@ -2957,6 +3003,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>10</td><td>Convenience store</td><td class="tbl-item">ConvenienceStore_Muldraugh.png</td></tr>
   <tr><td>Photos 1–10</td><td>Companion panel, right-click menu, boarding, a yard fight, Medical Check, sleep, base layout, a barricade, camp work and a grave. The game's world art in them belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures from a test save, Build 42.21.0</td></tr>
   <tr><td>Screens 1–15</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, LARCH/GRID, local services, the building scanner and owner files. Screens 4, 8, 9 and 11 also show the game's world; that art belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
+  <tr><td>Photo 11</td><td>Cattle, a Farmer, separate troughs and storage in a camp pasture. World and animal art belong to The Indie Stone.</td><td>Living Fellows in-game framebuffer capture, Build 42.22.2</td></tr>
 </table>
 <p class="tbl-note">Living Fellows is an unofficial mod, not affiliated with or endorsed by The Indie Stone.</p>
 
@@ -3029,8 +3076,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="card">
 <h4><img src="https://pzwiki.net/w/images/7/71/Locket.png" alt="">Trust</h4>
-<p><span class="k">Score</span> = trust × 0.55 + bond × 0.45: Cautious &lt;10 · Ally 10 · Trusted 30 · Close 55 · Family 80.</p>
-<p><span class="k">Builds when close</span> (8 tiles, same floor): patched up +5 trust / +4 bond · eating or drinking +3/+2 · escaping together +2/+4 · danger to you passing +2/+5.</p>
+<p><span class="k">Score</span> = trust × 0.55 + bond × 0.45: Cautious &lt;10 · Familiar 10 · Trusted 30 · Close 55 · Family 80.</p>
+<p><span class="k">Talk</span> shows stage progress and recent changes. Offer food, drinking water or injury help when needed; no barter required. Repeated gifts earn less.</p>
 <p><span class="k">Their past opens</span> at trust 10 past · 25 home · 40 value · 55 fear · 70 habit · 80 keepsake.</p>
 <p><span class="k">Hitting them</span>: a strike in a quiet moment; at two they keep away, at four they fight. Strikes fade after 6 quiet game hours.</p>
 <p class="tbl-note">Ch 9d</p>
@@ -3055,8 +3102,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <div class="card">
 <h4><img src="https://pzwiki.net/w/images/8/81/Hammer.png" alt="">Setting up camp</h4>
 <ol>
-  <li>Right-click → <span class="k">Living Fellows → Set camp core here</span> (12 meters each way).</li>
-  <li><span class="k">Start zone here</span>, right-click the far corner, <span class="k">Finish zone here</span>.</li>
+  <li>Right-click → <span class="k">Living Fellows → Establish camp here</span> (12 meters each way).</li>
+  <li><span class="k">Start zone here</span>, then left-click the opposite corner to finish. Right-click or Esc cancels.</li>
   <li><span class="k">Living Fellows → Mark storage as...</span>: regular or fresh food, water, medical, tools, construction, valuables, and more.</li>
   <li><span class="k">Living Fellows → Unmark storage</span>: remove the marking.</li>
   <li><span class="k">More → Base</span>: give each resident a base job.</li>
@@ -3071,7 +3118,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage or a log yard for logs</td></tr>
   <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, firestarter and petrol</td></tr>
-  <tr><td class="k">Farmer</td><td>Farm area over existing plots; farming supplies</td></tr>
+  <tr><td class="k">Farmer</td><td>Plots or a camp animal zone; farming supplies; food storage for eggs and milk</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
   <tr><td class="k">Chef</td><td>Food storage or a fridge, food and cookware in storage</td></tr>
   <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
@@ -3140,7 +3187,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.21.0 Edition &nbsp;·&nbsp; Release 0.27.3 &nbsp;·&nbsp; First Edition, Twenty-Eighth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.22.2 Edition &nbsp;·&nbsp; Release 0.27.8 &nbsp;·&nbsp; First Edition, Twenty-Ninth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
