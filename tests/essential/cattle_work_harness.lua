@@ -19,11 +19,12 @@ end}
 getGameTime=function() return {getWorldAgeHours=function() return 100 end,
     getTimeOfDay=function() return F.hour end} end
 local function animal(id,kind,baby,female)
-    return {getAnimalID=function() return id end,getAnimalType=function() return kind end,
+    return {x=4,y=4,z=0,stress=0,getAnimalID=function() return id end,getAnimalType=function() return kind end,
         getModData=function() return {} end,getHealth=function() return 1 end,
         isBaby=function() return baby==true end,getCustomName=function() return "" end,
         isHeld=function() return false end,getAge=function() return baby and 10 or 500 end,
         getData=function() return {isFemale=function() return female==true end} end,
+        getStress=function(self) return self.stress end,isAnimalAttacking=function(self) return self.attacking==true end,
         canBePutInHutch=function() return kind=="hen" end}
 end
 local function fresh(animals,width,height)
@@ -108,5 +109,52 @@ candidate=A.candidate(F.base)
 check(candidate and candidate.operation=="animal_close","registered cattle cannot block sheltered chickens closing")
 hutch.occupants={} F.clock=F.clock+1000
 check(A.candidate(F.base)==nil,"mixed pen still keeps a missing chicken's door open")
+
+zone=fresh({cow})
+zone.troughs[1].water=100
+candidate=A.candidate(F.base)
+local farmer=F.actor("farmer",2,2)
+local feedJob=F.job("animal_feed",3,2,candidate)
+local apple=F.item("Base.Apple",201)
+function apple:getAnimalFeedType() return "Fruits" end
+function apple:getHungerChange() return -.12 end
+F.addStorage("storage:farming","farming",{apple})
+local handled,why=SC.FarmWork.update(farmer,{},feedJob,{})
+check(handled==false and why=="farm_supply_missing","cattle care does not donate human fruit even from farming storage")
+local feed=F.item("Base.AnimalFeedBag",202)
+function feed:getAnimalFeedType() return "AnimalFeed" end
+function feed:getCurrentUses() return 20 end
+local source,sourceContainer=F.addStorage("storage:cattle-feed","farming",{feed})
+handled,why=SC.FarmWork.update(farmer,{},feedJob,{})
+check(handled and feed:getContainer()==farmer.inventory and SC.FarmWork.isItemProtected(feed),
+    "cattle feed uses the exact protected borrowing receipt")
+local seeds=F.item("Base.SunflowerSeeds",203)
+function seeds:getAnimalFeedType() return "Seeds" end
+check(A.isFeed(seeds,"chicken") and not A.isFeed(seeds,"cattle"),"chicken-only feed is not offered to cattle")
+
+zone=fresh({cow})
+candidate=A.candidate(F.base)
+zone.troughs[1].water=30
+local waterJob=F.job("animal_water",2,2,candidate)
+waterJob.target.waterTrips=2
+F.base.farm.animals.zones["42"].refills={[waterJob.target.deviceKey]=true}
+farmer=F.actor("farmer",2,2)
+local state={jobId=waterJob.id}
+handled,why=A.update(farmer,{},waterJob,{},state)
+check(handled and state.animalReturn,"two donor trips yield the cattle water job with cargo intact")
+A.update(farmer,{},waterJob,{},state)
+check(waterJob.state=="completed","yielded water work closes its existing job")
+candidate=A.candidate(F.base)
+check(candidate and candidate.operation=="animal_water","next audit continues the high-water target above the low mark")
+zone.troughs[1].water=90
+candidate=A.candidate(F.base)
+check(candidate and candidate.operation=="animal_feed","reaching high water clears its continuation")
+local risk={cattle={animals={{id=3,kind="bull"}}},members={[3]=bull}}
+check(not A.cattleThreat(farmer,risk),"a calm nearby bull does not invent danger")
+bull.stress=70
+check(A.cattleThreat(farmer,risk),"a stressed nearby bull blocks cattle work")
+bull.stress=0 bull.attacking=true
+check(A.cattleThreat(farmer,risk),"native animal aggression blocks cattle work")
+bull.attacking=false
 U.config=oldConfig
 print("CATTLE_WORK_PASS checks="..checks)

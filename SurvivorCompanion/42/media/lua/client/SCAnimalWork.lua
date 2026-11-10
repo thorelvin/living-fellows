@@ -15,6 +15,7 @@ A.species = {
         hutch = "hutchhen", dawn = 7, dusk = 20, minimumHens = 2, minimumRoosters = 1 },
     cattle = { kinds = { cow = true, bull = true, cowcalf = true },
         feeds = { AnimalFeed = true, Grass = true, Hay = true, Vegetables = true, Fruits = true },
+        supplies = { AnimalFeed = true, Grass = true, Hay = true },
         milk = "CowMilk", adultEnclosure = 80, calfEnclosure = 40, dawn = 7, dusk = 20 },
 }
 
@@ -95,8 +96,29 @@ end
 local function feedCompatible(item,row)
     if #row.animals>0 and not A.isFeed(item,"chicken") then return false end
     if #row.cattle.animals>0 and C("animalCattleEnabled",0)==1
-        and not A.isFeed(item,"cattle") then return false end
+        and (not A.isFeed(item,"cattle")
+            or not A.species.cattle.supplies[value(item,"getAnimalFeedType")]) then return false end
     return true
+end
+
+function A.cattleThreat(actor,row)
+    local inspected=0
+    local ax,ay,az=U().position(actor)
+    for _,entry in ipairs(row and row.cattle and row.cattle.animals or {}) do
+        if entry.kind=="bull" then
+            inspected=inspected+1
+            if inspected>8 then return true end -- Never sweep an unbounded herd in action guards.
+            local bull=row.members[entry.id]
+            local x,y,z=U().position(bull)
+            if not ax or not x then return true end
+            if az==z and (ax-x)^2+(ay-y)^2<=100 then
+                local attack,known=read(bull,"isAnimalAttacking")
+                local stress=n(bull,"getStress")
+                if not known or not stress or attack==true or stress>40 then return true end
+            end
+        end
+    end
+    return false
 end
 
 function A.herdSpace(row)
@@ -399,7 +421,8 @@ local function candidateAt(row, operation, object, priority)
     local x, y, z = U().position(object)
     return { animal = true, operation = operation, priority = priority or 4,
         zoneId = "animal:" .. row.id, nativeZoneId = row.id,
-        deviceKey = key(object), x = math.floor(x), y = math.floor(y), z = z }
+        deviceKey = key(object), cattle = C("animalCattleEnabled",0)==1 and #row.cattle.animals>0 or nil,
+        x = math.floor(x), y = math.floor(y), z = z }
 end
 
 -- A missing capacity or access reading is a refusal, including before pickup.
@@ -711,6 +734,8 @@ local function deviceCandidate(row, base)
     local high = math.min(1, math.max(0.01, C("animalFeedHighPercent", 90) / 100))
     local low = math.min(high, math.max(0, C("animalFeedLowPercent", 25) / 100))
     local best, waterAssigned, empty = nil, false, {}
+    local saved=document() and document().zones[row.id]
+    local refills=saved and type(saved.refills)=="table" and saved.refills or {}
     row.troughRoles = {}
     -- 42.22.2 troughs switch container mode when filled with fluid. Preserve
     -- occupied modes; choose one deterministic empty trough for water and use
@@ -733,8 +758,10 @@ local function deviceCandidate(row, base)
     for _, trough in ipairs(row.troughs) do
         if not openJob(base, trough) and workDay(trough) then
             local water, capacity = n(trough, "getWater"), n(trough, "getMaxWater")
+            if water and capacity and water>=capacity*high then refills[key(trough)]=nil end
             if row.troughRoles[key(trough)] == "water"
-                and water and capacity and capacity > 0 and water < capacity * low then
+                and water and capacity and capacity > 0
+                and (water < capacity * low or refills[key(trough)]==true and water<capacity*high) then
                 local result = candidateAt(row, "animal_water", trough, 5)
                 result.high = capacity * high
                 return result
@@ -998,6 +1025,7 @@ function A.canUse(actor, job, object, item)
         or job.reservedBy ~= U().idOf(actor)
         or not held or held.actor ~= U().idOf(actor) or held.job ~= job.id
         or held.expires <= now() or support().threat(actor) then return false end
+    if job.target.cattle and (C("animalCattleEnabled",0)~=1 or A.cattleThreat(actor,row)) then return false end
     if not workDay(object) and not A.nightClosingJob(job) then return false end
     local resident = SC.BaseLife.resident(U().idOf(actor))
     if not resident or resident.role ~= "farmer" or resident.duty ~= true then return false end
@@ -1091,6 +1119,15 @@ local function begin(actor, job, state, object, item, operation)
             end or nil })
     end)
     if not started then supervisor.fail(token, detail) return false, detail end
+    if operation=="animal_water" and job.target.cattle then
+        job.target.waterTrips=(tonumber(job.target.waterTrips) or 0)+1
+        local doc=document() local saved=doc and doc.zones[job.target.nativeZoneId]
+        if saved then
+            saved.refills=type(saved.refills)=="table" and saved.refills or {}
+            saved.refills[job.target.deviceKey]=true
+        end
+        note()
+    end
     supervisor.transition(token, "verifying")
     supervisor.complete(token, "animal_native_started")
     state.animalWork = { operation = operation, before = before, startedAt = now(),
@@ -1204,6 +1241,14 @@ function A.update(actor, baseState, job, runtime, state)
         return true, row
     end -- bounded audit re-establishes native references after load
     if not claim(actor, job) then return true, "animal_work_reserved" end
+    if target.cattle and (C("animalCattleEnabled",0)~=1 or A.cattleThreat(actor,row)) then
+        local stopped,why=A.cancel(actor,job,state,"animal_cattle_unsafe")
+        if not stopped then return true,why end
+        return fail(actor,job,"animal_cattle_unsafe")
+    end
+    local waterTripLimit=target.cattle and target.operation=="animal_water"
+        and (tonumber(target.waterTrips) or 0)>=math.min(8,math.max(1,C("animalWaterTripsPerJob",2)))
+    if waterTripLimit and not state.animalWork then state.animalReturn=true end
     if not state.animalWork and (target.operation=="animal_open" or target.operation=="animal_close") then
         local hour=time()
         local closed,known=read(object,"isDoorClosed")
@@ -1266,7 +1311,8 @@ function A.update(actor, baseState, job, runtime, state)
         if not target.high then state.animalReturn = true end
         local amount = target.operation == "animal_water" and n(object, "getWater")
             or n(object, "getCurrentFeedAmount")
-        if target.high then state.animalReturn = amount ~= nil and amount + 0.001 >= target.high end
+        if target.high then state.animalReturn = waterTripLimit
+            or amount ~= nil and amount + 0.001 >= target.high end
     end
     if state.outputs then return S.deposit(actor, baseState, state) end
     if state.animalReturn then
@@ -1347,7 +1393,7 @@ function A.update(actor, baseState, job, runtime, state)
             end
         return S.borrow(actor, baseState, job, state, predicate,
             target.operation == "animal_water" and { "farming", "water" } or { "farming" },
-            target.operation == "animal_water" and "water" or "chicken_feed")
+            target.operation == "animal_water" and "water" or target.cattle and "cattle_feed" or "chicken_feed")
     end
     if target.operation == "animal_water" and S.waterUses(supply.item) <= 0 then
         local source, reason = S.findWater(actor, state, row)

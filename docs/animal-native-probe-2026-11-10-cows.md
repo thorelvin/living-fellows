@@ -134,3 +134,46 @@ chicken tests passed unmodified, plus mixed census, shared hutch safety,
 unsupported species, disabled cattle and 1,024-tile slice regressions. The
 five-check gate passed in 103.3 seconds at
 `build/test-results/20261110-161532-52b892`.
+
+## Phase 2: shared trough care
+
+Cattle use the existing exact-item Farming loans and native fluid transfers.
+Automatic cattle donations accept only the proven `AnimalFeed`, `Grass` and
+`Hay` feed tags; native compatibility with fruit/vegetables does not authorize
+donating human food. Mixed pens require feed compatible with both species.
+Chicken-only feed selection is unchanged. Nearby stressed/attacking bulls
+stop admission. A cattle water job counts started donor trips conservatively
+in its persisted target, yields after two, and retains its high-water intent
+so another audit continues even when the trough has passed the low mark.
+
+Two disposable native runs passed feed/water and exact loan return checks:
+
+| Pen | Run | Audit median / p95 / maximum (ms) |
+| --- | --- | --- |
+| Hens + Holstein, Angus, Simmental | `SC-Harness-20261110-163033-a3335947` | 0.650 / 1.338 / 2.950 (65 samples) |
+| Holstein, Angus, Simmental | `SC-Harness-20261110-163338-bb21c3a6` | 0.604 / 1.824 / 2.382 (37 samples) |
+| Hens only | `SC-Harness-20261110-163631-ea08c3c5` | 0.613 / 1.341 / 1.451 (60 samples) |
+
+The ordinary Farmer refilled the real water trough to 1.8 L, reducing the
+exact 8 L water can to 6.2 L, returned it to Farming with its receipt closed,
+and moved the exact feed bag into the feed trough (10 native feed units).
+The mixed run also delivered the exact native egg. Cows retained health 1.0.
+The injected fixture only supplies initial animals/storage; production never
+creates or moves cattle. No animal was teleported during observation.
+
+These measurements include the entire `FarmWork.audit`, including retained
+crop/storage work, at one audit per second under the low-impact client. Their
+p95 is below the 2 ms target, but occasional complete calls exceed it; this
+is not a worst-frame guarantee. Large 1,024-tile continuation and the
+two-trip/high-water continuation are exercised by compact automated checks.
+The native trough test is deliberately small and completes in one pour.
+
+Native getters were readable from Lua for all three breeds: adult female,
+age 180, `CowMilk`, stress and Husbandry level 0. Freshly created cows are
+**dry with zero current capacity**, so milk acceptance needs explicitly
+lactating initial fixture animals; it must not infer lactation from species.
+
+The chicken-only run passed the same trough, exact egg and returned-can
+checks. Cattle care is now enabled by default. Milking remains gated separately.
+All five essential checks passed in 103.7 seconds at
+`build/test-results/20261110-163932-d92e03` before the Phase 2 commit.
