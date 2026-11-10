@@ -178,6 +178,17 @@ function cow:getMilkType() return "CowMilk" end
 function cow:getBabies() return self.babies or {} end
 local milkRow={cattle={animals={}}}
 F.hour=12
+cow.x,cow.y=2.5,2.5
+zone=fresh({cow}) zone.troughs[1].water,zone.troughs[2].feed=100,100
+local ordinary,ordinaryWhy=A.candidate(F.base)
+check(ordinary and ordinary.operation=="animal_milk" and not ordinary.urgent,
+    "ordinary milk job can wait below welfare threshold: op="..tostring(ordinary and ordinary.operation).." reason="..tostring(ordinaryWhy))
+local queued=F.job("animal_milk",2,2,ordinary) queued.priority=3
+queued.state,queued.blocker,queued.retryAt="blocked","animal_milk_food_storage_missing",F.clock+180000
+data.quantity=8
+check(A.candidate(F.base)==nil and queued.priority==5 and queued.target.urgent and queued.retryAt==F.clock,
+    "a waiting milk job upgrades at the live welfare threshold and reconsiders full storage without creating a duplicate")
+data.quantity=5
 check(A.milkPlan(cow,milkRow,{}).reserve==0,"adult lactating cow admits at fifty percent")
 data.quantity=4.99
 check(A.milkPlan(cow,milkRow,{})==nil,"ordinary threshold does not round up")
@@ -245,4 +256,123 @@ check(borrowed and loanState.borrowed and loanState.borrowed.item==bucket,
     "bounded borrowing chooses the largest safe container even within the same item type")
 U.projectedCarryLoad,U.itemWeight=projected,weight
 U.config=oldConfig
+-- Destination fallback, urgent staging and exact postcondition recovery.
+F.reset()
+local storageLookup=SC.BaseLife.storage
+SC.BaseLife.storage=function(id)
+    for _,row in ipairs(F.storages) do if row.id==id then return row end end
+end
+local deliveryActor=F.actor("milk-delivery",4,4)
+local source,sourceItems=F.addStorage("storage:milk-source","farming",{})
+local freshStorage,freshItems=F.addStorage("storage:milk-fresh","fresh_food",{})
+local regular,regularItems=F.addStorage("storage:milk-regular","food",{})
+local bucket=F.item("Base.Bucket",301)
+local fluid={amount=1.9}
+function fluid:getAmount() return self.amount end
+function fluid:isPureFluid(kind) return kind==Fluid.CowMilk end
+function bucket:getFluidContainer() return fluid end
+deliveryActor.inventory:AddItem(bucket)
+local job=F.job("animal_milk",4,4,{cowId=42,nativeZoneId="42",deviceKey="animal:42"})
+local receipt=SC.FarmWork.animalSupport.receipt(deliveryActor,job,"borrowed",bucket,source)
+receipt.milk={version=1,cowId=42,zoneId="42",day=4,fluid="CowMilk",before=0,after=1.9,litres=1.9,lost=0}
+job.target.milkReceiptId=receipt.id
+local deliveryState={outputs={{item=bucket,receiptId=receipt.id,milk=true,category="fresh_food"}}}
+local room=SC.WorkTransport.hasRoom
+SC.WorkTransport.hasRoom=function(container) return container~=freshItems and container.room~=false end
+check(A.milkDestination(deliveryActor,bucket)==regular,"full fresh storage falls back to permitted regular food")
+regularItems.room=false
+check(A.milkDestination(deliveryActor,bucket)==nil,"full stores do not masquerade as a destination")
+local moved,why=A.deliverMilk(deliveryActor,{},job,deliveryState)
+check(not moved and why=="animal_milk_food_storage_missing" and bucket:getContainer()==deliveryActor.inventory,
+    "ordinary full storage preserves the exact carried container")
+receipt.milk.urgent=true
+moved,why=A.deliverMilk(deliveryActor,{},job,deliveryState)
+check(not moved and bucket:getContainer()==sourceItems and receipt.phase=="recovery"
+    and receipt.milk.staged and SC.FarmWork.isItemProtected(bucket),
+    "urgent milk is physically staged and protected in its exact Farming source")
+check(A.retryDelay(job,"animal_milk_food_storage_missing")==180000,"full storage retries after three minutes")
+-- Rebuild only runtime state: the actual item and its fluid are not recreated.
+local state={}
+moved,why=A.updateMilk(deliveryActor,{},job,{},state)
+check(not moved and why=="animal_milk_food_storage_missing" and bucket:getContainer()==sourceItems,
+    "a resumed staged load waits in place while storage remains full")
+regularItems.room=true
+F.returnMode="pending"
+A.updateMilk(deliveryActor,{},job,{},state)
+check(bucket:getContainer()==deliveryActor.inventory and state.outputs[1].item==bucket,
+    "restored staging withdraws only the exact receipted bucket")
+F.returnMode="complete"
+A.updateMilk(deliveryActor,{},job,{},state)
+check(receipt.phase=="delivered" and bucket:getContainer()==regularItems and not SC.FarmWork.isItemProtected(bucket),
+    "verified food deposit closes ownership and releases the same container")
+check(job.target.milkReceiptId==nil,"verified delivery clears its pointer before another worker can compact terminal receipts")
+-- A crash after physical transfer but before receipt commit leaves no marker.
+receipt.phase,receipt.milk.destinationStorageId="depositing",regular.id
+job.target.milkReceiptId=receipt.id
+bucket.modData[SC.FarmWork.ITEM_MARKER]=nil
+state={}
+A.updateMilk(deliveryActor,{},job,{},state)
+check(receipt.phase=="delivered" and bucket:getContainer()==regularItems and fluid.amount==1.9,
+    "reload recognizes the expected native identity already at its destination without replaying milk")
+regularItems:Remove(bucket) sourceItems:AddItem(bucket)
+bucket.modData[SC.FarmWork.ITEM_MARKER]=receipt.id receipt.phase="recovery"
+check(SC.FarmWork.cancelJob(job.id,"cancelled") and receipt.phase=="returned"
+    and bucket:getContainer()==sourceItems and not SC.FarmWork.isItemProtected(bucket) and fluid.amount==1.9,
+    "cancellation after reload releases a verified staged source container without pouring away its milk")
+receipt.phase="recovery" bucket.modData[SC.FarmWork.ITEM_MARKER]=receipt.id
+F.actors[deliveryActor.id]=nil
+check(not SC.FarmWork._settleLostCarrierForTests(receipt,1000),"a missing carrier retains the normal grace period")
+check(SC.FarmWork._settleLostCarrierForTests(receipt,122000) and receipt.phase=="returned"
+    and not SC.FarmWork.isItemProtected(bucket) and bucket:getContainer()==sourceItems and fluid.amount==1.9,
+    "a lost carrier releases the exact staged cargo in camp instead of treating it as lost milk")
+SC.WorkTransport.hasRoom=room
+SC.BaseLife.storage=storageLookup
+
+-- A moving cow is held only for the owned, bounded native-style approach.
+U.config=function(name) return milkSettings[name] or oldConfig(name) end
+zone=fresh({cow},6,6) data.quantity=9
+cow.x,cow.y=4.5,4.5
+local behavior={paused=false}
+function behavior:setBlockMovement(paused) self.paused=paused end
+function cow:getBehavior() return behavior end
+function cow:getAttachmentWorldPos() return {x=function() return 5.5 end,y=function() return 4.5 end} end
+local free=U.isSquareFree
+local request=SC.Navigation.request
+SC.Navigation.request=function() return true,"approaching" end
+U.isSquareFree=function() return true end
+U.projectedCarryLoad=function() return 0,20 end
+U.itemWeight=function() return .5 end
+local approachActor=F.actor("milk-approach",6,6)
+local empty=F.item("Base.Bucket",302)
+function empty:getFluidContainer() return fc end
+fc.amount,fc.capacity,fc.locked=0,10,false
+F.addStorage("storage:approach-bucket","farming",{empty})
+local target
+for _=1,12 do target=A.candidate(F.base) if target then break end end
+check(target and target.operation=="animal_milk","bounded audit admits the approach fixture")
+local approachJob=F.job("animal_milk",4,4,target)
+local approachState={}
+A.updateMilk(approachActor,{},approachJob,{},approachState)
+A.updateMilk(approachActor,{},approachJob,{},approachState)
+check(behavior.paused,"owned approach uses vanilla's movement hold")
+A.cancel(approachActor,approachJob,approachState,"cancelled")
+check(not behavior.paused and fc.amount==0,"cancellation releases the cow without changing milk or cargo")
+A.updateMilk(approachActor,{},approachJob,{},approachState)
+F.clock=F.clock+15001
+local okay,why=A.updateMilk(approachActor,{},approachJob,{},approachState)
+check(not okay and why=="animal_milk_approach_timeout" and not behavior.paused,
+    "a stalled approach times out and releases its exact cow")
+U.isSquareFree,U.projectedCarryLoad,U.itemWeight,U.config=free,projected,weight,oldConfig
+SC.Navigation.request=request
+F.reset()
+F.base.zones={{kind="area",x1=1,y1=1,x2=2,y2=1,z=0}}
+local troughDonor=F.waterSource(F.square(1,1),true)
+function troughDonor:getMaxFeed() return 100 end
+F.square(2,1)
+local searchState,found,reason={},nil,nil
+for _=1,4 do
+    found,reason=SC.FarmWork.animalSupport.findWater(F.actor("trough-water",1,1),searchState,F.base.zones[1])
+    if reason~="water_source_scanning" then break end
+end
+check(not found and reason=="water_source_missing","animal trough water cannot become its own refill donor")
 print("CATTLE_WORK_PASS checks="..checks)

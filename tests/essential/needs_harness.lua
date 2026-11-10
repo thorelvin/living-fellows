@@ -253,4 +253,16 @@ print = originalPrint
 check(warnings == 2, "critical snapshots occur once per decline and rearm after recovery")
 SC.Medical.releaseActor(damaged); SC.Medical.releaseActor(second)
 SC.Registry.idOf, SC.Registry.byId = oldIdOf, oldById
+local milkFarmer=f.actor("milk-loan-refill",1,1,{})
+local milkBucket=f.item("Base.Bucket","Drainable")
+local emptyMilkFluid={getAmount=function() return 0 end,getCapacity=function() return 2 end,
+    isInputLocked=function() return false end,isPoisonous=function() return false end,
+    canAddFluid=function() return true end}
+function milkBucket:getFluidContainer() return emptyMilkFluid end
+milkFarmer.inventory:AddItem(milkBucket)
+milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]="farm:milk-loan"
+check(not SC.Needs.refillDue(milkFarmer,f.clock),"an empty receipted milk bucket cannot trigger hydration refill")
+milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]=nil
+SC.Needs.reset(milkFarmer)
+check(SC.Needs.refillDue(milkFarmer,f.clock+60000),"releasing the same vessel restores ordinary hydration eligibility")
 print("BEHAVIOUR_NEEDS_PASS checks=" .. tostring(f.checks()))

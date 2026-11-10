@@ -12,18 +12,27 @@ local storageOkay,storage=B.registerStorage(owner,"farming")
 check(storageOkay,"real source storage registers")
 local okay,receipt=B.allocateFarmReceipt({jobId="job:1",actorId="farmer",kind="borrowed",
     itemType="Base.Bucket",nativeId="101",sourceStorageId=storage.id,
-    milk={version=1,cowId=42,zoneId="10",day=4,fluid="CowMilk",before=0,after=1.7,litres=1.7,lost=0}})
+    milk={version=1,cowId=42,zoneId="10",day=4,fluid="CowMilk",before=0,after=1.7,litres=1.7,lost=0,
+        urgent=true,staged=true,destinationStorageId=storage.id}})
 check(okay,"exact borrowed milk receipt allocates")
+check(SC.FarmWork.pendingMilkInventory("farmer") and not SC.FarmWork.pendingMilkInventory("another-farmer"),
+    "only the outstanding milk receipt owner requests exact native-ID inventory persistence")
 check(not B.updateFarmReceipt(receipt.id,{phase="delivered",milk={version=99}})
     and receipt.phase=="borrowed","invalid milk metadata cannot partially settle a receipt")
 check(B.updateFarmReceipt(receipt.id,{kind="output",phase="carried",destinationCategory="fresh_food"}),
     "milk loan changes purpose without changing its identity")
 local saved=B.export()
 check(B.restore(saved),"real farm document reloads")
+check(SC.FarmWork.pendingMilkInventory("farmer"),"reload retains the exact-inventory requirement until delivery")
+check(B.updateFarmReceipt(receipt.id,{phase="delivered"}) and not SC.FarmWork.pendingMilkInventory("farmer"),
+    "verified delivery returns the actor to ordinary inventory persistence")
+B.updateFarmReceipt(receipt.id,{phase="carried"})
 local restored=B.farmReceipt(receipt.id)
 check(restored.nativeId=="101" and restored.sourceStorageId==storage.id
     and restored.kind=="output" and restored.milk.cowId==42 and restored.milk.after==1.7
-    and restored.milk.litres==1.7 and restored.milk.day==4,"reload retains owner, source and measured volumes")
+    and restored.milk.litres==1.7 and restored.milk.day==4 and restored.milk.urgent
+    and restored.milk.staged and restored.milk.destinationStorageId==storage.id,
+    "reload retains owner, source, destination, staging and measured volumes")
 B.animalDocument().zones["10"]={milked={["42"]={day=4,jobId="job:1"}}}
 check(B.restore(B.export()) and B.animalDocument().zones["10"].milked["42"].day==4,
     "daily evidence survives in the existing animal schema")
@@ -78,5 +87,17 @@ check(B.jobFor("milk-farmer")==nextMilk and decision.current=="base_work" and S.
         .." expected="..nextMilk.id.." decision="..tostring(decision.current).." intent="..tostring(decision.intent)
         .." owner="..tostring(S.current(worker) and S.current(worker).owner))
 SC.Downtime.peek,SC.Downtime.cancel,SC.Downtime.update,SC.FarmWork.update=peek,cancel,update,work
+local cowMilk=Fluid.CowMilk
+Fluid.CowMilk={name="CowMilk"}
+local milkBottle=f.item("Base.WaterBottle","Drainable")
+local milkFluid={amount=2}
+function milkFluid:getAmount() return self.amount end
+function milkFluid:isPureFluid(kind) return self.amount>0 and kind==Fluid.CowMilk end
+function milkBottle:getFluidContainer() return milkFluid end
+check(SC.Logistics.itemCategory(milkBottle)=="food" and B.foodStorageCategory(milkBottle)=="fresh_food",
+    "native numeric fluid readings classify a milk-filled water bottle as fresh food without tonumber varargs")
+milkFluid.amount=0
+check(SC.Logistics.itemCategory(milkBottle)~="food","an emptied milk bottle loses its food classification")
+Fluid.CowMilk=cowMilk
 SC.GameplayUtil.config=oldConfig
 print("CATTLE_RECEIPT_PASS")

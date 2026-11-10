@@ -274,10 +274,21 @@ function FarmWork.isItemProtected(item, actorOrId, operation)
         and receipt.phase ~= "consumed")
 end
 
+-- Reuse the existing exact native-ID inventory snapshot while a milk loan is
+-- open. Ordinary actor reconstruction otherwise assigns fresh native IDs,
+-- which would orphan an exact milk receipt after a real save/load.
+function FarmWork.pendingMilkInventory(id)
+    for _,receipt in ipairs(SC.BaseLife.farmReceipts(nil,false)) do
+        if receipt.actorId==id and (receipt.milk or receipt.milkInvalid) then return true end
+    end
+    return false
+end
+
 function FarmWork.isFarmingSupply(item)
     if not item then return false end
     if SC.AnimalWork and SC.AnimalWork.isFeed(item) then return true end
-    if SC.AnimalWork and SC.AnimalWork.milkContainer(item) then return true end
+    if config("animalMilkEnabled",0)==1 and SC.AnimalWork
+        and SC.AnimalWork.milkContainer(item) then return true end
     local kind = string.lower(U().itemType(item))
     if U().itemHasTag(item, "DIG_PLOW") or U().itemHasTag(item, "COMPOST") then return true end
     if string.find(kind, "wateringcan", 1, true)
@@ -819,6 +830,11 @@ local function settleLostCarrier(receipt, now)
     carrierLostSince[receipt.id] = carrierLostSince[receipt.id] or now
     if now - carrierLostSince[receipt.id] < config("farmCarrierLostMs", 120000) then
         return false
+    end
+    if receipt.milk and receipt.milk.staged and SC.AnimalWork then
+        -- This cargo stayed in camp, rather than going with the lost carrier.
+        -- Preserve unresolved ownership until its exact source is loaded.
+        return SC.AnimalWork.releaseStagedMilk(receipt)==true
     end
     carrierLostSince[receipt.id] = nil
     SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed", blocker = "carrier_lost" })
@@ -1407,7 +1423,8 @@ local function depositOutputs(actor, baseState, state)
     local output = state.outputs and state.outputs[1] or nil
     if not output then state.outputs = nil return true, "farm_outputs_deposited" end
     local storage, container
-    local rows = (output.category == "food" or output.category == "fresh_food")
+    local rows = output.milk and SC.AnimalWork.milkDepositRows()
+        or (output.category == "food" or output.category == "fresh_food")
         and SC.BaseLife.foodDepositRows(output.item)
         or SC.BaseLife.depositStorageRows(output.category)
     for _, row in ipairs(rows) do
@@ -1417,6 +1434,13 @@ local function depositOutputs(actor, baseState, state)
         if room then storage, container = row, candidate break end
     end
     if not storage then return false, "farm_output_storage_missing", true end
+    if output.milk then
+        local receipt=SC.BaseLife.farmReceipt(output.receiptId)
+        if receipt and receipt.milk then
+            receipt.milk.destinationStorageId=storage.id
+            SC.BaseLife.updateFarmReceipt(receipt.id,{milk=receipt.milk})
+        end
+    end
     unmark(output.item, output.receiptId)
     local deposit = SC.BaseWork.depositToStorage or SC.BaseWork.returnToStorage
     local moved, reason = deposit(actor, baseState, storage, container, output.item)
@@ -1435,6 +1459,11 @@ local function depositOutputs(actor, baseState, state)
 end
 
 local function hasUsableFluid(object)
+    -- A trough is the animals' drinking supply, never a donor for refilling
+    -- that same trough (or crops). Otherwise an empty can shuttles its water
+    -- out and straight back without adding any supply.
+    local _,trough=invoke(object,"getMaxFeed")
+    if trough then return false end
     local amount, amountOk = invoke(object, "getFluidAmount")
     local has, hasOk = invoke(object, "hasFluid")
     return (amountOk and (tonumber(amount) or 0) > 0) or (hasOk and has == true)
@@ -2103,6 +2132,11 @@ function FarmWork.cancelJob(jobId, reason)
             if cancelled ~= true then return false, detail end
         end
     end
+    for _,receipt in ipairs(SC.BaseLife.farmReceipts(jobId,false)) do
+        if SC.AnimalWork and receipt.milk and receipt.milk.staged then
+            SC.AnimalWork.releaseStagedMilk(receipt)
+        end
+    end
     local receipts = SC.BaseLife.farmReceipts(jobId, false)
     return #receipts == 0, #receipts == 0 and "farm_job_cancelled" or "farm_recovery_pending"
 end
@@ -2128,6 +2162,9 @@ function FarmWork.releaseForAbandon(reason)
     end
     for _, receipt in ipairs(SC.BaseLife and SC.BaseLife.farmReceipts
         and SC.BaseLife.farmReceipts(nil, false) or {}) do
+        if receipt.milk and receipt.milk.staged and SC.AnimalWork then
+            SC.AnimalWork.releaseStagedMilk(receipt)
+        end
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
         local actor = type(record) == "table" and (record.actor or record) or nil
         local inventory = actor and U().inventory(actor) or nil

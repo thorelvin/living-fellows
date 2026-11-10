@@ -1322,11 +1322,11 @@ local valueData = {
     animalCullPerZonePerDay = 1,
     animalMaxZones = 8,
     animalAuditAnimalBudget = 32,
-    -- Cattle stays gated until its native care acceptance is complete.
+    -- Native cattle care and exact milk delivery are verified on 42.22.2.
     animalCattleEnabled = 1,
     animalCattleZoneMaxTiles = 1024,
     animalWaterTripsPerJob = 2,
-    animalMilkEnabled = 0,
+    animalMilkEnabled = 1,
     animalMilkStartPercent = 50,
     animalMilkCalfStartPercent = 70,
     animalMilkCalfReservePercent = 40,

@@ -538,7 +538,7 @@ local function openJob(base, object, operation)
             and job.state ~= "completed" and job.state ~= "cancelled" then
             local door=operation=="animal_open" or operation=="animal_close"
             if not door or job.target.operation==operation or job.state=="active"
-                or job.reservedBy~=nil then return true end
+                or job.reservedBy~=nil then return job end
         end
     end
     return false
@@ -564,6 +564,30 @@ function A.foodDestination(actor, item)
     return nil
 end
 
+function A.milkDepositRows()
+    local rows={}
+    for _,category in ipairs({"fresh_food","food"}) do
+        for index,storage in ipairs(SC.BaseLife.depositStorageRows(category)) do
+            if index>32 then break end
+            rows[#rows+1]=storage
+        end
+    end
+    return rows
+end
+
+function A.milkDestination(actor,item,extra)
+    for _,storage in ipairs(A.milkDepositRows()) do
+        local container=SC.BaseLife.resolveContainer(storage)
+        local room=container and SC.BaseLife.storageAcceptsDeposit(storage,container)==true
+            and SC.WorkTransport.hasRoom(container,actor,item)==true
+        if room and extra and extra>0 then
+            local used,capacity=n(container,"getCapacityWeight"),n(container,"getEffectiveCapacity",actor)
+            room=used~=nil and capacity~=nil and used+U().itemWeight(item)+extra<=capacity
+        end
+        if room then return storage,container end
+    end
+end
+
 local function milkCandidate(row,base)
     if C("animalMilkEnabled",0)~=1 then return nil end
     local saved=document() and document().zones[row.id]
@@ -575,16 +599,28 @@ local function milkCandidate(row,base)
         cursor=cursor%count+1
         local entry=row.cattle.animals[cursor]
         local cow=row.members[entry.id]
-        if cow and contains(row,cow) and not openJob(base,cow) then
-            local facts=A.milkPlan(cow,row,saved)
-            local attempt=saved.milkAttempts and saved.milkAttempts[tostring(entry.id)]
-            local _,hours=time()
-            local attemptHour=type(attempt)=="table" and tonumber(attempt.hour)
-            if facts and (not attempt or milkNumber(attemptHour) and attemptHour<math.floor(hours)) then
-                local target=candidateAt(row,"animal_milk",cow,facts.urgent and 6 or 3.5)
-                target.cowId,target.milkDay,target.urgent=entry.id,facts.day,facts.urgent
-                if facts.urgent then saved.milkCursor=cursor return target end
-                best=best or target
+        if cow and contains(row,cow) then
+            local existing=openJob(base,cow)
+            local facts=A.milkPlan(cow,row,saved,existing and existing.id)
+            if existing then
+                -- A queued ordinary job must become urgent when its live udder
+                -- crosses the welfare mark; its creation-time flag is not truth.
+                if facts and facts.urgent and not existing.target.urgent then
+                    existing.target.urgent=true existing.priority=5 existing.updatedAt=now() note()
+                    if existing.state=="blocked" and existing.blocker=="animal_milk_food_storage_missing" then
+                        existing.retryAt=now()
+                    end
+                end
+            else
+                local attempt=saved.milkAttempts and saved.milkAttempts[tostring(entry.id)]
+                local _,hours=time()
+                local attemptHour=type(attempt)=="table" and tonumber(attempt.hour)
+                if facts and (not attempt or milkNumber(attemptHour) and attemptHour<math.floor(hours)) then
+                    local target=candidateAt(row,"animal_milk",cow,facts.urgent and 6 or 3.5)
+                    target.cowId,target.milkDay,target.urgent=entry.id,facts.day,facts.urgent
+                    if facts.urgent then saved.milkCursor=cursor return target end
+                    best=best or target
+                end
             end
         end
     end
@@ -1137,25 +1173,34 @@ function A.allowsWorkReach(job)
         and SC.BaseLife.isInside(target) == true or false
 end
 
+local function releaseMilkHold(held)
+    if held and held.milkBehavior then
+        read(held.milkBehavior,"setBlockMovement",false)
+        held.milkBehavior,held.milkApproachAt=nil,nil
+    end
+end
+
 local function claim(actor, job)
     local target, current = job.target, now()
     local id, active, workers = U().idOf(actor), 0, {}
     for k, held in pairs(claims) do
-        if held.expires <= current then claims[k] = nil
+        if held.expires <= current then releaseMilkHold(held) claims[k] = nil
         elseif held.zone == target.nativeZoneId and held.actor ~= id and not workers[held.actor] then
             active, workers[held.actor] = active + 1, true
         end
     end
     local held = claims[target.deviceKey]
     if held and (held.actor ~= id or held.job ~= job.id) or active >= 2 then return false end
-    claims[target.deviceKey] = { actor = id, job = job.id,
-        zone = target.nativeZoneId, expires = current + 30000 }
+    held=held or {}
+    held.actor,held.job,held.zone,held.expires=id,job.id,target.nativeZoneId,current+30000
+    claims[target.deviceKey]=held
     return true
 end
 
 local function release(actor, job)
     local held = claims[job.target.deviceKey]
     if held and held.actor == U().idOf(actor) and held.job == job.id then
+        releaseMilkHold(held)
         claims[job.target.deviceKey] = nil
     end
 end
@@ -1178,6 +1223,9 @@ local function fail(actor, job, reason)
 end
 
 function A.retryDelay(job,reason)
+    if job and job.target and job.target.operation=="animal_milk"
+        and (reason=="animal_milk_food_storage_missing" or reason=="animal_milk_container_unavailable"
+            or reason=="farm_food_storage_missing") then return 180000 end
     local target=job and job.type=="farm" and job.target
     local doc=target and target.animal and document()
     local saved=doc and doc.zones[target.nativeZoneId]
@@ -1369,6 +1417,26 @@ local function reconcileEgg(actor, job, state)
     return true
 end
 
+-- Cancelling a staged load may close the loan because the same container is
+-- already back at its source. Ordinary logistics can then deliver its milk.
+function A.releaseStagedMilk(receipt)
+    if not receipt.milk or not receipt.milk.staged or receipt.milkInvalid then return false end
+    local source=SC.BaseLife.storage(receipt.sourceStorageId)
+    local container=source and SC.BaseLife.resolveContainer(source)
+    if not source or source.category~="farming" or not container then return false end
+    for _,item in ipairs(U().inventoryItems(container,256)) do
+        local marks=U().modData(item)
+        if marks and marks[SC.FarmWork.ITEM_MARKER]==receipt.id
+            and U().itemType(item)==receipt.itemType
+            and tostring(value(item,"getID"))==tostring(receipt.nativeId)
+            and value(item,"getContainer")==container then
+            support().unmark(item,receipt.id)
+            return SC.BaseLife.updateFarmReceipt(receipt.id,{phase="returned",blocker=false})
+        end
+    end
+    return false
+end
+
 -- Reconcile selected eggs against the exact nest or the exact actor inventory.
 -- No native lookup failure authorizes manufacturing an egg or replaying pickup.
 function A.recoverReceipt(receipt)
@@ -1387,7 +1455,7 @@ function A.recoverReceipt(receipt)
             end
         end
     end
-    if receipt.milk and receipt.phase~="recovery" then
+    if receipt.milk and (receipt.phase~="recovery" or receipt.milk.staged) then
         -- Runtime closures never survive reload. Keep the exact pending loan
         -- attached to its original job; updateMilk reconciles its real owner.
         local job=SC.BaseLife.job(receipt.jobId)
@@ -1496,9 +1564,31 @@ local function resumeMilkLoan(actor,baseState,job,state)
     end
     local source=SC.BaseLife.storage(receipt.sourceStorageId)
     local container=source and SC.BaseLife.resolveContainer(source)
+    local destination=receipt.milk and SC.BaseLife.storage(receipt.milk.destinationStorageId)
+    local deposited=destination and SC.BaseLife.resolveContainer(destination)
+    if deposited and (destination.category=="food" or destination.category=="fresh_food")
+        and SC.BaseLife.storageAcceptsDeposit(destination,deposited)==true then
+        for _,candidate in ipairs(U().inventoryItems(deposited,256)) do
+            local marks=U().modData(candidate)
+            local owned=marks and (marks[SC.FarmWork.ITEM_MARKER]==nil
+                or marks[SC.FarmWork.ITEM_MARKER]==receipt.id)
+            if owned and U().itemType(candidate)==receipt.itemType
+                and tostring(value(candidate,"getID"))==tostring(receipt.nativeId)
+                and value(candidate,"getContainer")==deposited then
+                if item and item~=candidate then return false,"animal_milk_uncertain" end
+                support().unmark(candidate,receipt.id)
+                SC.BaseLife.updateFarmReceipt(receipt.id,{phase="delivered",blocker=false})
+                job.target.milkReceiptId=nil state.milk=nil
+                return true
+            end
+        end
+    end
     if not item and container then
         for _,candidate in ipairs(U().inventoryItems(container,256)) do
             if matches(candidate) then
+                if receipt.milk and receipt.milk.staged and not A.milkDestination(actor,candidate) then
+                    return false,"animal_milk_food_storage_missing"
+                end
                 support().unmark(candidate,receipt.id)
                 local moved,why=SC.BaseWork.withdrawFromStorage(actor,baseState,source,container,candidate)
                 support().mark(candidate,receipt.id)
@@ -1546,6 +1636,42 @@ local function resumeMilkLoan(actor,baseState,job,state)
     return true
 end
 
+function A.deliverMilk(actor,baseState,job,state)
+    local output=state.outputs and state.outputs[1]
+    if not output or A.milkDestination(actor,output.item) then
+        local moved,why,pending=support().deposit(actor,baseState,state)
+        local receipt=output and SC.BaseLife.farmReceipt(output.receiptId)
+        if receipt and receipt.phase=="delivered" and job.target.milkReceiptId==receipt.id then
+            -- Terminal receipts are compacted when any worker borrows again.
+            -- Clear this pointer at the verified deposit, before that can happen.
+            job.target.milkReceiptId=nil state.milk=nil note()
+        end
+        return moved,why,pending
+    end
+    local receipt=SC.BaseLife.farmReceipt(output.receiptId)
+    if not receipt or not receipt.milk or not receipt.milk.urgent then
+        return false,"animal_milk_food_storage_missing",true
+    end
+    local source=SC.BaseLife.storage(receipt.sourceStorageId)
+    local container=source and SC.BaseLife.resolveContainer(source)
+    if not source or source.category~="farming" or not container
+        or SC.BaseLife.storageAcceptsDeposit(source,container)~=true
+        or SC.WorkTransport.hasRoom(container,actor,output.item)~=true then
+        return false,"animal_milk_food_storage_missing",true
+    end
+    support().unmark(output.item,receipt.id)
+    local moved,why=SC.BaseWork.depositToStorage(actor,baseState,source,container,output.item)
+    if not support().mark(output.item,receipt.id) then return false,"animal_milk_uncertain",true end
+    if moved and why=="base_supply_returned" then
+        receipt.milk.staged=true
+        SC.BaseLife.updateFarmReceipt(receipt.id,{phase="recovery",milk=receipt.milk,
+            blocker="animal_milk_food_storage_missing"})
+        state.outputs=nil release(actor,job)
+        return false,"animal_milk_food_storage_missing",true
+    end
+    return moved==true,why,moved~=true
+end
+
 -- One ordinary farm job owns all loads of this cow's daily milking. Delivery
 -- and reconciliation precede any further animal interaction, including reload.
 function A.updateMilk(actor,baseState,job,runtime,state)
@@ -1556,7 +1682,7 @@ function A.updateMilk(actor,baseState,job,runtime,state)
         if not okay then return false,why,true end
         if why then return true,why end
     end
-    if state.outputs then return S.deposit(actor,baseState,state) end
+    if state.outputs then return A.deliverMilk(actor,baseState,job,state) end
     if target.milkStoppedReason then state.animalReturn=true end
     if state.animalReturn then
         local settled,why,pending=S.settle(actor,baseState,state)
@@ -1614,15 +1740,22 @@ function A.updateMilk(actor,baseState,job,runtime,state)
         return true,"animal_milk_delivering"
     end
     if not facts then
+        releaseMilkHold(claims[target.deviceKey])
         if state.borrowed then state.animalReturn=true return true,reason end
         return fail(actor,job,reason)
     end
     if facts.amount-facts.reserve<0.1 then state.animalReturn=true return true,"animal_milk_finished" end
     if S.threat(actor,runtime) or A.cattleThreat(actor,row) then return fail(actor,job,"animal_cattle_unsafe") end
     if not state.borrowed then
-        return S.borrow(actor,baseState,job,state,function(item)
-            return A.milkContainer(item) and A.milkRoom(actor,item,false)>=0.1
+        local handled,why,pending=S.borrow(actor,baseState,job,state,function(item)
+            if not A.milkContainer(item) or A.milkRoom(actor,item,false)<0.1 then return false end
+            state.milkContainerSeen=true
+            return facts.urgent or A.milkDestination(actor,item,.1)~=nil
         end,{"farming"},"animal_milk_container",function(item) return A.milkRoom(actor,item,false) end)
+        if not handled and why=="farm_supply_missing" then
+            why=state.milkContainerSeen and "animal_milk_food_storage_missing" or "animal_milk_container_unavailable"
+        end
+        return handled,why,pending
     end
     local loan=state.borrowed
     if not A.milkContainer(loan.item) then
@@ -1630,21 +1763,47 @@ function A.updateMilk(actor,baseState,job,runtime,state)
     end
     local receipt=SC.BaseLife.farmReceipt(loan.receiptId)
     if not receipt then return fail(actor,job,"animal_milk_receipt_missing") end
+    local destination,destinationContainer=A.milkDestination(actor,loan.item,.1)
+    if not destination and not facts.urgent then
+        target.milkStoppedReason="animal_milk_food_storage_missing" state.animalReturn=true
+        return true,"animal_returning_supplies"
+    end
     if not receipt.milk then
         local milk={version=1,cowId=target.cowId,zoneId=target.nativeZoneId,day=facts.day,
-            fluid="CowMilk",before=0,after=0,litres=0,lost=0}
+            fluid="CowMilk",before=0,after=0,litres=0,lost=0,urgent=facts.urgent}
         local okay=SC.BaseLife.updateFarmReceipt(receipt.id,{milk=milk})
         if not okay then return fail(actor,job,"animal_milk_receipt_missing") end
         target.milkReceiptId=receipt.id note()
     end
+    -- Vanilla holds the animal before walking to its milking attachment. Keep
+    -- that short approach under this exact claim; native action cleanup takes
+    -- over after enqueue. No position, health or production value is changed.
+    local held=claims[target.deviceKey]
+    if not held.milkBehavior then
+        held.milkBehavior=value(cow,"getBehavior")
+        held.milkApproachAt=now()
+    end
+    if now()-held.milkApproachAt>15000 then
+        state.milkSideRight=nil
+        return fail(actor,job,"animal_milk_approach_timeout")
+    end
+    local _,paused=read(held.milkBehavior,"setBlockMovement",true)
+    if not paused then return fail(actor,job,"animal_milk_approach_missing") end
     local side=A.milkSide(actor,cow,state.milkSideRight)
     if not side then return fail(actor,job,"animal_milk_approach_missing") end
     state.milkSideRight=side.right
-    if side.distance>0.16 then
+    -- Use the same unobstructed adjacent-square interaction contract as other
+    -- animal chores. Chasing a sub-tile point inside the cow's collision body
+    -- can never finish; the stock action independently validates its distance.
+    if U().directInteractionAccess(actor,cow,{cardinalOnly=false})~=true then
         local accepted,why=SC.Navigation.request(actor,side.square,"walk",{
             action="move_to_farm_plot",targetSquare=U().squareOf(cow),arrivalDistance=.15,
             interceptPosition={x=side.x,y=side.y,z=side.z},movingFormation=true,
             workCampOnly=true,workReach=A.allowsWorkReach(job)})
+        if accepted~=true then
+            state.milkSideRight=nil
+            return fail(actor,job,why or "animal_milk_approach_missing")
+        end
         return accepted==true,why,accepted~=true
     end
     state.milk={right=side.right}
@@ -1669,6 +1828,16 @@ function A.updateMilk(actor,baseState,job,runtime,state)
             or not current.calf and current.amount<0.1 then return false,"animal_milk_finished" end
         if capacity-amount<0.0999 or A.milkRoom(actor,loan.item,true)<0.0999 then
             return false,"animal_milk_load_full"
+        end
+        if destination then
+            local current=SC.BaseLife.storage(destination.id)
+            local used=n(destinationContainer,"getCapacityWeight")
+            local maximum=n(destinationContainer,"getEffectiveCapacity",actor)
+            if current~=destination or SC.BaseLife.resolveContainer(current)~=destinationContainer
+                or SC.BaseLife.storageAcceptsDeposit(current,destinationContainer)~=true
+                or not used or not maximum or used+U().itemWeight(loan.item)+.1>maximum then
+                return false,"animal_milk_load_full"
+            end
         end
         return true
     end
@@ -1698,7 +1867,12 @@ function A.updateMilk(actor,baseState,job,runtime,state)
     saved.milkAttempts[tostring(target.cowId)]={hour=math.floor(hours),jobId=job.id}
     note()
     local started,why=begin(actor,job,state,cow,loan.item,"animal_milk")
-    if not started then target.milkRetryHour=math.floor(hours)+1 note() end
+    if started then
+        held.milkBehavior,held.milkApproachAt=nil,nil -- Stock stop/complete now owns the hold.
+    else
+        releaseMilkHold(held)
+        target.milkRetryHour=math.floor(hours)+1 note()
+    end
     return started,why
 end
 
@@ -1895,8 +2069,11 @@ end
 
 function A.reset(actor)
     if actor then
-        for k, held in pairs(claims) do if held.actor == U().idOf(actor) then claims[k] = nil end end
+        for k, held in pairs(claims) do
+            if held.actor == U().idOf(actor) then releaseMilkHold(held) claims[k] = nil end
+        end
     else
+        for _,held in pairs(claims) do releaseMilkHold(held) end
         scan, snapshots, claims, refreshes = nil, {}, {}, {}
         knownBase, zoneCursor, lastAudit = nil, 0, -math.huge
         zoneVisited, zoneCycleSize = 0, 0

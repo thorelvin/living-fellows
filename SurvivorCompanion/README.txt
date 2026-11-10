@@ -1,4 +1,4 @@
-Living Fellows 0.27.7 - release
+Living Fellows 0.27.8 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -21,6 +21,9 @@ TAKE THE OTHERS WITH YOU
   Blocked jobs retry automatically, with manual Retry still available.
 - Chicken care: Farmers supply separate feed and water troughs, collect eggs,
   open hutches after dawn and clean them using real supplies.
+- Cattle care: Farmers supply feed and water from marked Farming storage.
+  Cattle pastures support up to 1,024 tiles. Farmers borrow empty milk containers,
+  preserve a calf reserve and deliver milk to Fresh food or Regular food storage.
 - EMMA computers: ask about camp supplies, people, jobs and expeditions,
   request help with confirmation, and read the previous owners' files.
   Everything runs offline, with readable text on a full-screen 1993 terminal.

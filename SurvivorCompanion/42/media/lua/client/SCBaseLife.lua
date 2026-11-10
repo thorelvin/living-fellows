@@ -862,7 +862,8 @@ local function normalizeMilkReceipt(source)
         zoneId=source.zoneId,day=integer(source.day,0,0,999999),
         before=math.max(0,finite(source.before,0)),after=math.max(0,finite(source.after,0)),
         litres=math.max(0,finite(source.litres,0)),lost=math.max(0,finite(source.lost,0)),
-        uncertain=source.uncertain==true,
+        uncertain=source.uncertain==true,urgent=source.urgent==true,staged=source.staged==true,
+        destinationStorageId=validId(source.destinationStorageId,"storage:") and source.destinationStorageId or nil,
         dropX=source.dropX~=nil and integer(source.dropX,0,0,1000000) or nil,
         dropY=source.dropY~=nil and integer(source.dropY,0,0,1000000) or nil,
         dropZ=source.dropZ~=nil and integer(source.dropZ,0,-32,32) or nil}

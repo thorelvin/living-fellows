@@ -2,6 +2,27 @@
 
 # Changelog
 
+## 0.27.8 - Camp cattle care
+
+- Farmers supply cattle feed and water in vanilla camp pastures, including
+  mixed chicken/cattle pens. Human food stays out of automatic cattle donations.
+- Cattle pastures support up to 1,024 tiles through the existing bounded farm
+  scan. Large trough jobs yield after two donor trips and continue on a later audit.
+- Added native milking with exact borrowed-container receipts, daily limits,
+  stress checks and a measured reserve for calves. One daily job supports
+  several delivery trips. Cattle care and milking are enabled by default.
+- Delivery prefers Fresh food, then Regular food with space. Full storage pauses
+  work; urgent milk can remain protected in its Farming source. Retry is automatic
+  after three minutes and manual Retry remains available. Reload reconciles actual
+  item ownership and fluid amounts without replaying transfers.
+- Protected farm vessels stay out of hydration refills. Pending milk loans use
+  the existing exact-ID inventory save path, and delivery clears receipt pointers
+  before ledger compaction. Native adjacent-square access prevents the Farmer
+  chasing an unreachable point inside the cow's collision body.
+- Chicken defaults, roles and storage categories remain unchanged. Native
+  bridge protocol `42.22-isocompanion-31` is unchanged; the 0.27.8 bridge rebuild
+  updates release metadata only.
+
 ## 0.27.7 - Camp chicken care
 
 - Farmers care for chickens in vanilla animal zones wholly inside camp. They

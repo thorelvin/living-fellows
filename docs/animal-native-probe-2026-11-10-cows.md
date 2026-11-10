@@ -243,6 +243,172 @@ correctly tried to fetch an old bucket through the closed test fence. These
 failed fixtures are not welfare acceptance; their logs and blocker screenshots
 remain under the disposable run directories.
 
-Three-day calf welfare acceptance is recorded below when complete.
-`animalMilkEnabled=0` remains intentional until native welfare and final
-delivery acceptance both pass.
+The native calf run `SC-Harness-20261110-184216-6d7e070f` passed after
+**98.367 game hours**, covering three distinct daily milk jobs. Its mother,
+calf, dry cow and bull all retained health **1.0**. The linked calf was detected
+through its actual mother identity; neither the bull nor dry cow started a
+milking action. Measured mother-udder stops were:
+
+| Daily milking | Remaining milk (L) | Required calf reserve (L) |
+| --- | --- | --- |
+| 1 | 2.256817 | 2.195032 |
+| 2 | 2.487582 | 2.450267 |
+| 3 | 2.748541 | 2.699277 |
+
+This longer welfare fixture used a real fenced pasture, an Animal Care 8
+Farmer and the ordinary 60-minute-day calendar at fast-forward. Initial
+fixture setup supplied the animals and lactation; observation never reset
+their health, moved them or changed their milk. Level 0 milking is separately
+proven by the three-breed run above. Zoomed-out native screenshots and logs
+are retained in that run's `cache/Screenshots` and `cache/console.txt`.
+
+The welfare run used the Phase 4 native-style approach hold. It exposed two
+additional scheduling issues: a trough could be selected as its own refill
+donor, and an ordinary milk job could retain its old priority after the cow
+became urgent. Troughs are now excluded as water donors; bounded cattle audits
+promote the existing job at the live urgent threshold. A full-storage wait is
+reconsidered immediately on that transition. Other shortages retain their
+normal retry delay. Automated regressions cover both corrections; the later
+delivery run uses the corrected source.
+
+## Phase 4: delivery, interruption and ownership
+
+Milk destinations are checked Fresh food first, then Regular food, with
+deposits enabled and room revalidated before milking and each increment.
+Pure milk in a water bottle or other compatible fluid container is food,
+rather than farming water. Empty compatible containers return to the Farming
+classification only while milking is enabled. No decanting, combining,
+synthetic milk items or extra fluid deductions are performed.
+
+Ordinary full storage pauses before withdrawal. An urgent load may instead
+return to its exact Farming source, still carrying its receipt marker, and
+retry delivery after three real minutes or manual Retry. Cancellation or a
+lost carrier releases an exact, verified staged container already at source;
+unloaded or ambiguous ownership remains pending. A persisted expected food
+destination lets recovery recognize a physical deposit completed before its
+receipt commit without replaying a transfer.
+
+The cow approach matches vanilla's movement hold before walking to its milk
+attachment. The exact claim releases it on navigation failure, cancellation,
+reset or a 15-second approach deadline. Once the native action starts, its own
+stop/complete cleanup owns the hold. This changes no animal coordinates,
+health or production quantities.
+
+The first combined full-storage scenario was not counted as acceptance: it
+stalled before milking while nighttime work, approach and water-refill chores
+interleaved. Follow-up instrumentation isolated an ownership bug: a small empty
+milk vessel could trigger hydration refill, changing its contents before
+milking. `Needs` now excludes protected farm vessels from refill selection and
+revalidates through the same selector at action time. The close-flank admission
+uses the same unobstructed adjacent-square interaction check as the other
+animal chores, instead of chasing a sub-tile point inside the cow's collision
+body. The stock action still independently validates distance. This requires
+no actor or animal teleport. A regression checks the public refill decision with and
+without the same vessel's receipt marker.
+
+Ordinary full-storage refusal was observed in the earlier full-storage runs;
+it never started a native milking action. Corrected run
+`SC-Harness-20261110-192713-57b93fde` separately tested an initially urgent cow:
+the exact container **244189304** gained **2.0 L**, was physically staged in
+its original Farming source with its marker intact, and was withdrawn after
+Regular food space was opened while Fresh food remained full. The clone then
+saved and quit normally with that same 2.0 L container carried, before deposit.
+Its `animal-care.txt` records the checkpoint PASS; it is not yet a reload PASS.
+The native run also recovered from an initial static-route blocker. Distinct
+blocker and checkpoint screenshots are retained.
+
+The first actual reload (`SC-Harness-20261110-192955-b3366a27`) failed closed:
+the milk receipt survived, but ordinary companion inventory reconstruction had
+assigned a new native item ID. Its blocker screenshot is retained. The fix
+reuses the existing exact-ID inventory snapshot/restore path already used by
+pending Home deliveries. An outstanding milk receipt requests that existing
+flag for its own actor only; verified delivery clears the requirement. No
+save schema or bridge change is needed, and missing old identities are never
+rebound by item type or replaced with new cargo. Automated receipt checks cover
+owner isolation, reload and release of the requirement.
+
+The corrected snapshot run `SC-Harness-20261110-193504-8826fe3f` staged and
+saved **2131359551**, containing **2.0 L**, with exact native inventory IDs
+enabled. Reload `SC-Harness-20261110-193725-f40b7276` verified that same ID,
+unchanged amount, one physical item, a permitted Regular food deposit and a
+closed receipt. Its extended probe then stopped on an incorrect assumption
+that terminal receipts remain in the ledger; allocation deliberately compacts
+them. That probe failure is not a failed physical delivery. It also motivated
+clearing a milk job's terminal receipt pointer immediately on verified deposit,
+before another worker can compact it. A focused regression covers that race.
+
+Final reload `SC-Harness-20261110-194425-4ecc3602` **passed**. It found the
+saved bucket ID **2131359551** exactly once, preserved its **2.0 L** and
+physically delivered it to permitted Regular food storage while Fresh food
+remained full. The same daily **job:2 / day 0** then delivered native containers
+**978555045** (2.0 L) and **570674682** (1.4000002 L), completing normally.
+Total delivered was **5.4 L in three loads**, including native production
+during the trip; none was scripted in. Each transfer closed its receipt after
+the physical postcondition. The final `animal-care.txt` reports:
+`PASS exact milk delivery after real save/load; multiple loads in one daily job; fallback food store`.
+The zoomed-out native screenshot is
+`build/live-sandbox-runs/SC-Harness-20261110-194425-4ecc3602/cache/Screenshots/SC-Harness-20261110-194425-4ecc3602-animal-delivery-reload-passed.png`.
+
+Live probes used explicit private config overrides while the shipping milk
+gate remained off. After these results, cattle care and milking are both
+enabled in the 0.27.8 defaults. Chicken-only tests and defaults are retained.
+Gameplay implementation is Lua only. The rebuilt payload JAR changes release
+metadata, not Java source or protocol; SHA-256 is
+`4e96b6cc9ba4e40b8ebfe95d790cb1c5b9d1ac3d00e04400a87baa5fc3dec71f`.
+
+## Defaults and limits
+
+| Key | Shipped default |
+| --- | --- |
+| `animalCattleEnabled` | 1 |
+| `animalMilkEnabled` | 1 |
+| `animalMilkStartPercent` | 50 |
+| `animalMilkCalfStartPercent` | 70 |
+| `animalMilkCalfReservePercent` | 40 |
+| `animalMilkUrgentPercent` | 80 |
+| `animalMilkMaxStressPercent` | 40 (never above the proven safe native boundary) |
+| `animalCattleZoneMaxTiles` | 1024 |
+| `animalWaterTripsPerJob` | 2 |
+
+No WP03 phase remains disabled. Existing breeding management and irreversible
+culling remain **off**. Calm bulls coexisted in the welfare run; native
+aggressive-bull attacks against a companion were not forced in live acceptance.
+Their native attack contract can target `IsoGameCharacter`, and admission
+checks treat their stress/aggression as a reason to stop work. Do not infer
+companion immunity from the calm test.
+
+Interruption, substitution, measurement mismatch, cancellation, staged-carrier
+loss and ownership normalization have automated coverage. Native forced spills,
+death and player interruption at every boundary have **not** all been completed;
+the checklist deliberately leaves those live scenarios open. Queued ordinary
+milk promotion is automated; the accepted urgent-delivery run starts with an
+urgent fixture rather than claiming an overnight end-to-end promotion pass.
+
+Butter needs a separately verified vanilla processing recipe and exact fluid
+ingredient accounting. Sheep need their own species, milk/shearing contracts,
+young-animal reserve and native acceptance. Safe culling needs proven corpse,
+butchering, authorization and death-attribution ownership before any irreversible
+dispatcher can be enabled. None is part of this release.
+
+## Final verification and handoff
+
+`scripts/Test-Project.ps1 -Serial -Release` passed all five checks in
+**248.2 seconds**, with 23 serial JVM launches, 256 MB heaps and two processors.
+Evidence: `build/test-results/20261110-194735-abef8e/summary.json`. This gate
+does not claim live gameplay; the native runs above provide that evidence.
+Normal/debug Lua compilation, native contracts, lifecycle, behaviour, cargo
+and interface/content passed. The release profile also passed **16/16 installer
+transactions** and built both Workshop review staging and a standalone archive.
+Standalone validation confirms `debug=false`, `dependency=false`; its SHA-256 is
+`c376e9424a7308948bafe23b4294f0dfa95f7b5f0d899546047fc56da28e05e6`.
+No installation, upload or push is part of this work package.
+
+One local commit was made per phase, each after a green five-check gate:
+
+| Phase | Commit / gate evidence |
+| --- | --- |
+| 0: native contracts | `7d868e1d` / `20261110-160523-3c2ead` |
+| 1: species census | `2e20b859` / `20261110-161532-52b892` |
+| 2: cattle trough care | `1227fdd2` / `20261110-163932-d92e03` |
+| 3: guarded native milking | `ad3458ad` / `20261110-182754-e2607d` |
+| 4: delivery and release | final phase commit / `20261110-194735-abef8e` |

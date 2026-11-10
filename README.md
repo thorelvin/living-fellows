@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.7-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.8-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -43,6 +43,13 @@ and food storage for eggs. Farmers feed, water, collect eggs, open the hutch aft
 dawn and clean it. At night they close the hutch once every known bird is
 sheltered; late birds keep the door open. Fertilised eggs stay untouched.
 Breeding management and culling remain disabled.
+
+**Cattle share the same care.** Keep a vanilla pasture wholly inside camp,
+with separate feed and water troughs and supplies in marked Farming storage.
+Farmers use animal feed, hay and cut grass. Cattle pastures can span up to
+1,024 tiles. Farmers borrow empty milk containers from Farming storage, milk
+lactating cows and deliver to Fresh food, then Regular food when needed.
+Calves keep a milk reserve; one daily job can make several delivery trips.
 
 ## Meet EMMA
 

@@ -2,6 +2,34 @@
 
 # Playtest checklist
 
+## WP03 cattle care — 0.27.8
+
+- [x] Automated: species census, unknown/story animals, budgeted large pastures,
+  native feed tags, human-food exclusion and two-trip/high-water continuation.
+- [x] Cloned 42.22.2 saves: cattle-only, chicken-only and mixed trough care,
+  exact feed and water loans, healthy cattle and retained audit timings.
+- [x] Automated: milk thresholds, calf identity fallback/newborn reserve,
+  stress/day limits, exact native increments, mismatch rejection, container
+  ranking, cancellation cleanup and persistence normalization.
+- [x] Cloned three-breed native milking at Animal Care 0: exact containers,
+  measured transfers, final food storage and closed receipts. Controlled starting
+  udders; these measurements are not natural daily breed yields.
+- [x] Three native days with a calf, its mother, a dry cow and a bull: health,
+  reserve, daily receipts and no milking of ineligible animals.
+- [x] Full storage: ordinary milking waits; urgent milk stages in Farming;
+  the same container resumes to Regular food when Fresh food is full.
+- [x] Save/load with the exact milk container carried: one physical item,
+  unchanged milk amount, permitted food deposit and closed receipt.
+- [x] Native reload completion: one daily job delivers three distinct loads
+  (2 L, 2 L and 1.4 L), with Fresh food full and Regular food available.
+- [x] Automated: protected vessels cannot trigger hydration refill; exact-ID
+  saving belongs only to the pending milk owner; verified deposit clears the
+  job pointer before terminal-receipt compaction.
+- [ ] Live player interruption, native spill and death at every action boundary.
+  Automated coverage does not count as those completed native scenarios.
+
+Evidence: `docs/animal-native-probe-2026-11-10-cows.md`.
+
 ## WP02 chicken care — 0.27.7
 
 - [x] Automated: bounded pen coverage, pending/oversized/Strange Folk refusal,

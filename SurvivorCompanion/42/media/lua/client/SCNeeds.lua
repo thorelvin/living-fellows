@@ -1019,6 +1019,11 @@ local function containerLevel(item)
     local capacity = tonumber(tostring(select(1, U().call(fluid, "getCapacity"))))
     if not amount or not capacity or capacity <= 0 or capacity > 3
         or amount < 0 then return nil end
+    -- A borrowed farm vessel belongs to its chore, including while empty.
+    -- Refilling the milk bucket for hydration would interrupt its approach
+    -- and change the exact loan before the native milking action can start.
+    if SC.FarmWork and type(SC.FarmWork.isItemProtected)=="function"
+        and SC.FarmWork.isItemProtected(item) then return nil end
     local canEmpty, canEmptyOk = U().call(fluid, "canPlayerEmpty")
     if canEmptyOk and canEmpty ~= true then return nil end
     local locked = select(1, U().call(fluid, "isInputLocked"))

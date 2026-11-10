@@ -92,13 +92,14 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   work to daylight, and never plows ground that was not already a farm plot.
   Its event speech uses deterministic chance plus actor/party cooldowns, remains
   silent near threats, and never participates in action admission or completion.
-- `SCAnimalWork` extends that same farm lane for chickens in vanilla animal
+- `SCAnimalWork` extends that same farm lane for chickens and cattle in vanilla animal
   zones wholly covered by the camp-area union. It adds no scheduler, event,
   role or storage category. Resumable audits inspect at most 16 squares and
-  32 animals per slice, eight cached zones of at most 256 tiles, and eight
+  32 animals per slice, eight cached zones of at most 256 chicken-only or 1,024 cattle tiles, and eight
   hutches/troughs per zone; shared work units and a 1.5 ms yield boundary
-  retain the frontier. Incomplete or mixed/Strange Folk pens cannot authorize
-  work. Two workers per zone and one per device hold expiring runtime claims.
+  retain the frontier. Supported mixed pens share ordinary care; unknown species
+  cannot authorize irreversible policy, and Strange Folk animals remain protected.
+  Two workers per zone and one per device hold expiring runtime claims.
   `SCFarmWork` retains exact supply loans, egg receipts, delivery and cleanup;
   `base.farm.animals` version 1 stores scalar summaries, cooldowns and up to
   128 known native bird IDs per pen, preserving unknown future versions.
@@ -114,6 +115,21 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   management and irreversible culling stay disabled until their native evidence
   and live acceptance pass; the cull policy only proposes an ID and has no
   kill/butcher dispatcher. See the dated animal probe report for evidence.
+  Cattle donations exclude human food. Water jobs yield after two donor trips,
+  preserving their high-water continuation for the next audit. Milking has one
+  daily cow/job identity, a bounded vanilla movement hold for approach, and a
+  stock `ISMilkAnimal` bound to the exact actor, cow and empty borrowed container.
+  Each 100 ml step checks calf reserve, stress, ownership and capacity before
+  execution, then verifies udder loss against container gain. Additive milk
+  metadata lives in existing farm receipts and the version-1 animal document.
+  Milk delivery tries Fresh food then Regular food with room. Urgent loads may
+  be staged, still protected, in their exact Farming source. A saved expected
+  destination allows reload to recognize a completed physical deposit without
+  replaying milk or recreating missing containers. Outstanding milk receipts
+  opt their own actor into the existing exact native-ID inventory snapshot,
+  and hydration refills exclude these protected vessels even while empty.
+  No animal position, health,
+  production quantity, role, event or bridge protocol is changed by this feature.
 - `SCProduction` owns finite base production orders through a small operation
   registry: `fell_trees`, `saw_planks`, `dig_graves` and `bury_bodies`. Each
   operation is a descriptor plus an adapter; `SCBaseLife` owns the persisted
