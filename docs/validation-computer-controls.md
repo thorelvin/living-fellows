@@ -165,3 +165,31 @@ The siren is original deterministic waveform synthesis; the announcement uses
 local Windows Microsoft Zira Desktop speech. Both are reproduced by
 [generate-building-audio.ps1](../artifacts/emma/generate-building-audio.ps1).
 No audio service, network call or hosted language model is used in game.
+
+## 10 November 2026: 42.22.2 command verification
+
+On `living_fellows/0.27.7`, cloned native run
+`SC-Harness-20261110-142001-25771679` passed all 19 checks. EMMA's normal
+text input and Y/N confirmations switched the native room light at
+`6553,5453,0` off/on and opened/closed the native exterior door at
+`6547,5454,0`, twice. Native device states and displayed replies were checked
+after confirmation. No LF gameplay exceptions occurred. A preceding corrected
+run (`141531-90ef58a5`) also passed both cycles without climate overrides.
+
+This exposed and fixed a feedback defect: successful local-service sentences
+were passed to the job-failure formatter and displayed as a stopped task.
+Successful replies now retain their completion text; failed requests still
+use the failure formatter. Regression coverage includes both light/door
+completion messages and a genuine refusal. Build and Interface checks passed
+at `build/test-results/20261110-141340-b1c868` (68.6 seconds); this was a
+focused two-check run, not another full release gate.
+
+Fixture supplies, Electrical 5, stock grid power and fitted controllers were
+confined to the disposable clone. Controller fitting used the checked install
+backend; native timed installation was not part of this command acceptance.
+The final photographs hold native debug climate values constant to make the
+lighting contrast readable. They do not replace device power or light effects.
+Zoomed-out on/closed, off/open and EMMA completion screenshots, plus a short
+report, are in `C:\ZOMBOID\outputs\emma-building-control-20261110`.
+The first fixture-only reach refusal also has a retained blocker screenshot.
+Original saves and the installed game were unchanged; all test processes exited.

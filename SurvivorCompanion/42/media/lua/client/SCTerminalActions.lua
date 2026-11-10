@@ -230,7 +230,10 @@ function Actions.execute(window, ticket)
     if request.localServices then
         local okay, detail = SC.TerminalServices.execute(window, request.target)
         if type(detail) == "table" then detail = "Service queued. Ask about jobs to check progress." end
-        return okay, reasonText(detail or (okay and "Request accepted." or "Request unavailable."))
+        -- Successful service text is already player-facing; the failure
+        -- formatter turns an unknown success message into a stopped-task warning.
+        if okay == true then return true, tostring(detail or "Request accepted.") end
+        return okay, reasonText(detail or "Request unavailable.")
     end
     local target = request.target
     local okay, detail

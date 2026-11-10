@@ -195,6 +195,30 @@ check(not window.requestTicket and calls==beforeMedic+2,
     "unavailable treatment ownership cannot be assumed idle")
 SC.Medical.peek=savedPeek
 window:close()
+
+-- Building effects may succeed while the general job-failure formatter maps
+-- their completion sentences to "task stopped". Preserve the service outcome.
+window=open()
+local previousServices,previousUI=SC.TerminalServices,SC.UI
+local serviceOkay,serviceDetail=true,"Opening updated."
+SC.TerminalServices={
+    prepare=function() return {},"Confirm local service? [Y/N]" end,
+    execute=function() return serviceOkay,serviceDetail end,
+}
+SC.UI={baseFailureReason=function() return "The task stopped before completion." end}
+for _,message in ipairs({"Opening updated.","Lighting updated."}) do
+    serviceDetail=message
+    local ticket=Actions.prepare(window,{kind="control",request={}})
+    local accepted,reply=Actions.execute(window,ticket)
+    check(accepted==true and reply==message,"successful local service keeps its completion feedback: "..message)
+end
+serviceOkay,serviceDetail=false,"native_operation_failed"
+local refused=Actions.prepare(window,{kind="control",request={}})
+local accepted,reply=Actions.execute(window,refused)
+check(accepted==false and reply=="The task stopped before completion.",
+    "failed local services still use the failure formatter")
+SC.TerminalServices,SC.UI=previousServices,previousUI
+window:close()
 Actions.reset()
 SC.BaseLife,SC.Vehicle,SC.VehicleRefuel,SC.GeneratorRefuel=saved.life,saved.vehicle,saved.refuel,saved.generator
 SC.Medical,SC.Registry,SC.ExpeditionPrototype,SC.TaxiService,SC.UI=saved.medical,saved.registry,saved.expedition,saved.taxi,saved.ui
