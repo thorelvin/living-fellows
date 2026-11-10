@@ -177,3 +177,72 @@ The chicken-only run passed the same trough, exact egg and returned-can
 checks. Cattle care is now enabled by default. Milking remains gated separately.
 All five essential checks passed in 103.7 seconds at
 `build/test-results/20261110-163932-d92e03` before the Phase 2 commit.
+
+## Phase 3: exact native milking
+
+Milking is one farm chore with an animal-ID claim. Its native action is bound
+to the real Farmer, cow, borrowed empty container and existing farm receipt.
+Each stock 0.1 L increment is guarded before execution and measured afterward
+(5 ml tolerance). Native animations, sound, stress, Animal Care XP and fluid
+accounting remain in charge. No scripted milk or compensating deductions are
+added. Guard failure stops the stock action and its normal movement/hand
+cleanup. The live mother-child list also protects a newborn between zone audits.
+
+One daily job may borrow/deliver several containers, as Thor selected. The
+largest safe load is preferred through the retained bounded supply scan; a
+held-bag weight discount is not assumed available while using the bucket.
+Daily cow/job evidence and one-attempt-per-hour admission are additive fields
+in the existing animal document. Exact container identity, source, cow/day,
+fluid, measured litres and any observed loss survive ordinary farm receipt
+normalization. Interruption/reload reads actual contents before continuing;
+unreadable or missing ownership pauses rather than recreating cargo. A dropped
+receipted container can only be recovered by its exact native/world identity.
+
+Native run `SC-Harness-20261110-170212-d59f78bf` passed three breeds at
+Animal Care level 0, delivering three exact milk containers and closing all
+receipts: Holstein **4.8 L**, Angus **5.0 L**, Simmental **5.1 L**, 14.8 L
+total. Every synchronous transfer matched udder loss and no spill was observed.
+These are controlled starting udders (current capacity capped at 5 L, filled
+to 90% initially), with native production/capacity growth afterward. They are
+**not natural 24-hour breed yields**. Post-milking production explains milk
+reappearing before the end-of-run check; emptiness is an action-stop condition,
+not a requirement that the cow remain empty while the other cows are milked.
+
+The first milk run (`SC-Harness-20261110-165157-0526d09e`) collected 9.9 L
+correctly but failed delivery: a milk bucket inherited shelf-food classification
+and selected a store outside the deliberately fenced pen. A native blocker
+screenshot is retained. Filled pure cow milk now classifies as Fresh food;
+the rerun above delivered to permitted storage inside the pen. This early
+classification fix is required for the native milk acceptance, while Phase 4
+finishes destination fallback, urgent staging and reload delivery.
+
+Two disposable fixture errors were corrected: cattle-only setup must never
+index an empty egg nest, and 42.22.2 observer needs use `CharacterStat`, not the
+removed `Stats:getHunger`. Neither is production animal behavior. The failed
+calf fixture `SC-Harness-20261110-170613-d0e83281` stopped and captured its
+native screenshot rather than being counted as acceptance.
+
+Live observation also exposed a moving-cow census gap: tile traversal can miss
+an animal crossing into a tile already scanned. A bounded continuation over
+the zone's registered animals now reconciles cattle still physically inside;
+it shares the existing animal budget and leaves chicken census rules intact.
+Milking uses native left/right attachment points. Urgent milk work participates
+in the existing camp priority hint and outranks a nearer water job, without
+interrupting survival treatment or changing the job priority range.
+
+The final Phase 3 five-check gate passed in 104.8 seconds at
+`build/test-results/20261110-182754-e2607d`. It includes native action identity,
+measured increments, reserve and mismatch guards, largest safe container
+selection, daily-limit repair, real save-normalizer round trips, and a queued
+urgent milk job releasing an optional activity through its cleanup owner.
+
+The longer calf fixture needed corrections to its pen setup: retain ordinary
+ground tiles while clearing decorative clutter, and remove storage registrations
+belonging to the replaced camp footprint. Otherwise the largest-container rule
+correctly tried to fetch an old bucket through the closed test fence. These
+failed fixtures are not welfare acceptance; their logs and blocker screenshots
+remain under the disposable run directories.
+
+Three-day calf welfare acceptance is recorded below when complete.
+`animalMilkEnabled=0` remains intentional until native welfare and final
+delivery acceptance both pass.

@@ -34,6 +34,7 @@
     (Join-Path $Core 'farming_lifecycle_fixture.lua'),
     (Join-Path $Essential 'animal_work_harness.lua')) }
 @{ Name = 'behaviour.cattle-care'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Essential 'cattle_receipt_harness.lua'),
     (Join-Path $Core 'farming_lifecycle_fixture.lua'),
     (Join-Path $Essential 'cattle_work_harness.lua')) }
 @{ Name = 'behaviour.first-meeting-visitor'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'first_meeting_visitor_harness.lua') }

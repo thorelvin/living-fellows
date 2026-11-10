@@ -277,6 +277,7 @@ end
 function FarmWork.isFarmingSupply(item)
     if not item then return false end
     if SC.AnimalWork and SC.AnimalWork.isFeed(item) then return true end
+    if SC.AnimalWork and SC.AnimalWork.milkContainer(item) then return true end
     local kind = string.lower(U().itemType(item))
     if U().itemHasTag(item, "DIG_PLOW") or U().itemHasTag(item, "COMPOST") then return true end
     if string.find(kind, "wateringcan", 1, true)
@@ -470,7 +471,7 @@ local function scanStorage(state, categories, visitor)
     return "pending"
 end
 
-local function findSupply(actor, predicate, categories, scanKey)
+local function findSupply(actor, predicate, categories, scanKey, rank)
     ensureBaseState()
     local key = tostring(scanKey or predicate) .. ":" .. tostring(actorId(actor) or "audit")
     local state = supplyScans[key] or {}
@@ -488,6 +489,7 @@ local function findSupply(actor, predicate, categories, scanKey)
                 state.matches[bucketKey] = bucket
                 state.matchOrder[#state.matchOrder + 1] = bucketKey
             end
+            if rank and rank(candidate)>rank(bucket.item) then bucket.item=candidate end
             bucket.count = bucket.count + 1
         end
         return false
@@ -498,7 +500,10 @@ local function findSupply(actor, predicate, categories, scanKey)
             local bucket = state.matches[bucketKey]
             local reserve = type(SC.BaseLife.storageReserve) == "function"
                 and SC.BaseLife.storageReserve(bucket.storage, bucket.itemType) or 0
-            if bucket.count > reserve then selected = bucket break end
+            if bucket.count > reserve then
+                if not rank then selected=bucket break end
+                if not selected or rank(bucket.item)>rank(selected.item) then selected=bucket end
+            end
         end
         supplyScans[key] = nil
         if selected then
@@ -1115,7 +1120,7 @@ local function allocateReceipt(actor, job, kind, item, storage, category)
     return receipt
 end
 
-local function borrowSupply(actor, baseState, job, state, predicate, categories, scanKey)
+local function borrowSupply(actor, baseState, job, state, predicate, categories, scanKey, rank)
     if scanKey == "water" and not state.fetch then
         local carried = FarmWork.carriedWaterContainer(actor)
         if carried then
@@ -1128,7 +1133,7 @@ local function borrowSupply(actor, baseState, job, state, predicate, categories,
         or not predicate(pending.item)) then state.fetch, pending = nil, nil end
     if not pending then
         local storage, container, item, scanStatus = findSupply(
-            actor, predicate, categories, scanKey)
+            actor, predicate, categories, scanKey, rank)
         if not storage then
             if scanStatus == "scanning" then return true, "farm_supply_scanning", false end
             if scanKey == "water" then
@@ -1778,7 +1783,8 @@ function FarmWork.jobModifier(actorIdValue, job, resident, record)
     local level = actor and U().perkLevel(actor, "Farming", 0) or 0
     local minimum = type(job.target) == "table" and tonumber(job.target.minFarming) or 0
     if level < minimum then return 0, false end
-    return level * 3, true
+    local milkPriority=target and target.operation=="animal_milk" and (target.urgent and 25 or 10) or 0
+    return level * 3+milkPriority, true
 end
 
 function FarmWork.update(actor, baseState, job, runtime)

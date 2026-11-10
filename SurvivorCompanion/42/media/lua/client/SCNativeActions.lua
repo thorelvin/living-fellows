@@ -51,6 +51,7 @@ require "TimedActions/Animals/ISToggleHutchDoor"
 require "TimedActions/Animals/ISToggleHutchEggHatchDoor"
 require "TimedActions/Animals/ISHutchCleanFloor"
 require "TimedActions/Animals/ISHutchCleanNest"
+require "TimedActions/Animals/ISMilkAnimal"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -2734,6 +2735,31 @@ function actions.startAnimal(actor, intent)
                 end
             end
         end
+    elseif intent.operation=="animal_milk" and ISMilkAnimal
+        and type(intent.milkGuard)=="function" and type(intent.milkCommit)=="function"
+        and type(intent.milkResult)=="table" then
+        created,action=pcall(ISMilkAnimal.new,ISMilkAnimal,actor,object,item,intent.right==true,false)
+        if created and action then
+            local milk=action.milk
+            action.milk=function(self)
+                if self.character~=actor or self.animal~=object or self.bucket~=item
+                    or intent.validate()~=true then
+                    intent.milkResult.reason="animal_milk_interrupted" self:forceStop() return
+                end
+                local allowed,detail=intent.milkGuard()
+                if not allowed then
+                    intent.milkResult.reason=detail self:forceStop() return
+                end
+                local donor=object:getData():getMilkQuantity()
+                local amount=item:getFluidContainer():getAmount()
+                local okay=pcall(milk,self)
+                -- Native milk() retains animation, stress, XP, sync and its
+                -- measured animal transfer. Never replay or compensate it.
+                if not okay or self.bucket~=item or intent.milkCommit(donor,amount)~=true then
+                    intent.milkResult.reason="animal_milk_uncertain" self:forceStop()
+                end
+            end
+        end
     elseif intent.operation == "animal_egg" and ISHutchGrabEgg and intent.nest then
         created, action = pcall(ISHutchGrabEgg.new, ISHutchGrabEgg, actor, intent.nest, object)
         if created and action then
@@ -2770,8 +2796,10 @@ function actions.startAnimal(actor, intent)
         if type(native) == "function" then
             action[method] = function(self, ...)
                 if method=="complete" and committed then return true end
-                if not (method=="perform" and committed) and (intent.validate() ~= true
+                local milkCleanup=intent.operation=="animal_milk" and method~="update"
+                if not milkCleanup and not (method=="perform" and committed) and (intent.validate() ~= true
                     or method=="complete" and intent.beforeCommit and intent.beforeCommit()~=true) then
+                    if intent.operation=="animal_milk" then intent.milkResult.reason="animal_milk_interrupted" end
                     self:forceStop() return false
                 end
                 local result=native(self, ...)

@@ -135,4 +135,45 @@ check(SC.Vehicle.safeExitSquares(exitCar, 0) == nil,
     ISTimedActionQueue,ISToggleHutchDoor=queueApi,doorApi
 end)()
 
+;(function()
+    local queueApi,milkApi=ISTimedActionQueue,ISMilkAnimal
+    local queue={queue={}}
+    ISTimedActionQueue={getTimedActionQueue=function() return queue end,
+        add=function(action) queue.current,queue.queue=action,{action} end}
+    local inventory={}
+    local worker={getInventory=function() return inventory end,
+        getPrimaryHandItem=function(self) return self.primary end,
+        setPrimaryHandItem=function(self,item) self.primary=item end,getSecondaryHandItem=function() end}
+    local volume,udder,steps,stops=0,2,0,0
+    local fc={getAmount=function() return volume end}
+    local bucket={getFluidContainer=function() return fc end,getContainer=function() return inventory end}
+    local cow={getData=function() return {getMilkQuantity=function() return udder end} end}
+    ISMilkAnimal={new=function(_,subject,animal,item,right,all)
+        check(right==true and all==false,"native milking keeps the selected side and disables container substitution")
+        return {character=subject,animal=animal,bucket=item,isValid=function() return true end,
+            milk=function() steps=steps+1 volume=volume+.1 udder=udder-.1 end,
+            forceStop=function() stops=stops+1 end,complete=function() return true end}
+    end}
+    local allowed,verified=false,true
+    local result={}
+    local intent={operation="animal_milk",object=cow,item=bucket,milkResult=result,right=true,
+        validate=function() return true end,milkGuard=function() return allowed,"calf_reserve" end,
+        milkCommit=function(beforeMilk,beforeAmount)
+            check(math.abs(beforeMilk-udder-(volume-beforeAmount))<.0001,"native milk and udder deltas match")
+            return verified
+        end}
+    check(SC.NativeActions.startAnimal(worker,intent),"exact native milking instance queues for the companion")
+    local action=queue.current
+    action:milk()
+    check(steps==0 and stops==1 and result.reason=="calf_reserve","reserve guard runs before the native effect")
+    allowed=true action:milk()
+    check(steps==1 and math.abs(volume-.1)<.0001,"one permitted call applies native milk exactly once")
+    action.bucket={} action:milk()
+    check(steps==1 and stops==2,"substitute containers never reach native milk")
+    action.bucket=bucket verified=false action:milk()
+    check(steps==2 and stops==3 and result.reason=="animal_milk_uncertain","measurement failure stops without replay or extra deductions")
+    SC.NativeActions.resetWork(worker)
+    ISTimedActionQueue,ISMilkAnimal=queueApi,milkApi
+end)()
+
 SC_TEST_REPORT = "Essential lifecycle: " .. checks .. " ownership/isolation checks passed"

@@ -67,6 +67,12 @@ check(saved.census.chicken.hens==1 and saved.census.cattle.cows==1
     and saved.census.cattle.bulls==1 and saved.census.cattle.calves==1,"species have separate complete counts")
 check(#saved.flockIds==1 and saved.flockIds[1]==1,"cattle never enter retained chicken identities")
 check(saved.minimumEnclosureTiles==80,"native enclosure minimum is not multiplied by herd count")
+zone=fresh({cow}) cow.x,cow.y=2.5,2.5
+for _,square in pairs(F.squares) do function square:getAnimals() return {} end end
+check(A.candidate(F.base).operation=="animal_water"
+    and F.base.farm.animals.zones["42"].census.cattle.cows==1,
+    "native zone membership recovers a moving cow missed by the tile frontier")
+cow.x,cow.y=4,4
 zone=fresh({cow})
 A.candidate(F.base)
 check(F.base.farm.animals.zones["42"].blocker=="animal_cattle_enclosure_small",
@@ -156,5 +162,87 @@ check(A.cattleThreat(farmer,risk),"a stressed nearby bull blocks cattle work")
 bull.stress=0 bull.attacking=true
 check(A.cattleThreat(farmer,risk),"native animal aggression blocks cattle work")
 bull.attacking=false
+
+local milkSettings={animalCattleEnabled=1,animalMilkEnabled=1}
+U.config=function(name) return milkSettings[name] or oldConfig(name) end
+local data={quantity=5,capacity=10,genetic=20,lactating=true}
+function data:getMilkQuantity() return self.quantity end
+function data:getMaxMilkActual() return self.capacity end
+function data:getMaxMilk() return self.genetic end
+function data:isFemale() return true end
+function data:canHaveMilk() return self.lactating end
+function data:getAttachedPlayer() return self.player end
+function data:getAttachedTree() return nil end
+function cow:getData() return data end
+function cow:getMilkType() return "CowMilk" end
+function cow:getBabies() return self.babies or {} end
+local milkRow={cattle={animals={}}}
+F.hour=12
+check(A.milkPlan(cow,milkRow,{}).reserve==0,"adult lactating cow admits at fifty percent")
+data.quantity=4.99
+check(A.milkPlan(cow,milkRow,{})==nil,"ordinary threshold does not round up")
+data.quantity=8
+check(A.milkPlan(cow,milkRow,{}).urgent,"eighty percent is welfare priority")
+milkRow.cattle.animals={{baby=true,motherId=2}}
+local plan=A.milkPlan(cow,milkRow,{})
+check(plan.calf and plan.reserve==4,"matching calf retains forty percent of current capacity")
+data.quantity=6.99
+check(A.milkPlan(cow,milkRow,{})==nil,"nursing cow waits until seventy percent")
+check(A.milkPlan(cow,milkRow,{},"job:new")==nil,"newly claimed work revalidates its start threshold")
+milkRow.cattle.animals[1].motherId=99
+check(not A.milkPlan(cow,milkRow,{}).calf,"known unrelated mother does not reserve every cow")
+milkRow.cattle.animals[1].motherId=nil
+check(A.milkPlan(cow,milkRow,{})==nil,"unknown mother conservatively reserves every cow")
+data.quantity=7
+check(A.milkPlan(cow,milkRow,{}).calf,"nursing admission includes exact seventy percent")
+cow.stress=40.01
+check(A.milkPlan(cow,milkRow,{})==nil,"native spill stress blocks milking")
+cow.stress=40
+check(A.milkPlan(cow,milkRow,{})~=nil,"exact forty stress remains allowed")
+milkRow.cattle.animals={}
+cow.babies={calf}
+check(A.milkPlan(cow,milkRow,{}).calf,"a native newborn is protected before the next zone census")
+cow.babies=nil
+cow.stress=0 data.player={}
+check(A.milkPlan(cow,milkRow,{})==nil,"led cattle are excluded")
+data.player=nil data.lactating=false
+check(A.milkPlan(cow,milkRow,{})==nil,"dry cows are excluded despite species milkability")
+data.lactating=true
+check(A.milkPlan(bull,milkRow,{})==nil and A.milkPlan(calf,milkRow,{})==nil,"bulls and calves cannot be milked")
+local savedMilk={milked={["2"]={day=4,jobId="job:daily"}}}
+check(A.milkPlan(cow,milkRow,savedMilk)==nil,"saved daily limit survives runtime reset")
+check(A.milkPlan(cow,milkRow,savedMilk,"job:daily")~=nil,"the same daily job may make another delivery trip")
+F.hour=22
+check(A.milkPlan(cow,milkRow,{})==nil,"night policy never permits milking after dark")
+F.hour=12
+Fluid={CowMilk={}}
+local bucket=F.item("Base.Bucket",250)
+local fc={amount=0,capacity=10,locked=false}
+function fc:getAmount() return self.amount end function fc:getCapacity() return self.capacity end
+function fc:isInputLocked() return self.locked end function fc:canAddFluid(fluid) return fluid==Fluid.CowMilk end
+function bucket:getFluidContainer() return fc end
+check(A.milkContainer(bucket) and SC.FarmWork.isFarmingSupply(bucket),"empty compatible milk container is a Farming supply")
+fc.amount=.01
+check(not A.milkContainer(bucket),"part-filled containers never receive borrowed milk")
+fc.amount=0 fc.locked=true
+check(not A.milkContainer(bucket),"input-locked containers fail closed")
+fc.locked=false
+local projected,weight=U.projectedCarryLoad, U.itemWeight
+U.projectedCarryLoad=function() return 8,10 end
+U.itemWeight=function() return .5 end
+check(math.abs(A.milkRoom(farmer,bucket,false)-1.4)<.001,"load projection reserves shell weight and carrying headroom")
+U.projectedCarryLoad=function() return 0,20 end
+local small=F.item("Base.Bucket",251)
+function small:getFluidContainer()
+    return {getAmount=function() return 0 end,getCapacity=function() return 1 end,
+        isInputLocked=function() return false end,canAddFluid=function() return true end}
+end
+F.addStorage("storage:milk-buckets","farming",{small,bucket})
+local loanState={jobId="job:milk"}
+local borrowed=SC.FarmWork.animalSupport.borrow(farmer,{},F.job("animal_milk",2,2),loanState,
+    A.milkContainer,{"farming"},"milk-rank",function(item) return A.milkRoom(farmer,item,false) end)
+check(borrowed and loanState.borrowed and loanState.borrowed.item==bucket,
+    "bounded borrowing chooses the largest safe container even within the same item type")
+U.projectedCarryLoad,U.itemWeight=projected,weight
 U.config=oldConfig
 print("CATTLE_WORK_PASS checks="..checks)

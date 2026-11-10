@@ -1326,6 +1326,12 @@ local valueData = {
     animalCattleEnabled = 1,
     animalCattleZoneMaxTiles = 1024,
     animalWaterTripsPerJob = 2,
+    animalMilkEnabled = 0,
+    animalMilkStartPercent = 50,
+    animalMilkCalfStartPercent = 70,
+    animalMilkCalfReservePercent = 40,
+    animalMilkUrgentPercent = 80,
+    animalMilkMaxStressPercent = 40,
 
     -- WP01 gathering stays finite, camp-local, and shares the existing scheduler.
     workMaximumOrders = 8,

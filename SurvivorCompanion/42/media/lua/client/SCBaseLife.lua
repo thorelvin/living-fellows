@@ -852,6 +852,22 @@ local FARM_RECEIPT_PHASES = {
     returned = true, delivered = true, consumed = true, quarantined = true,
 }
 
+local function normalizeMilkReceipt(source)
+    local cowId=type(source)=="table" and finite(source.cowId,-1) or -1
+    local day=type(source)=="table" and finite(source.day,-1) or -1
+    if type(source)~="table" or source.version~=1 or source.fluid~="CowMilk"
+        or cowId<0 or cowId>2147483647 or cowId%1~=0 or day<0 or day%1~=0
+        or type(source.zoneId)~="string" or #source.zoneId>96 then return nil end
+    return {version=1,fluid="CowMilk",cowId=integer(source.cowId,0,0,2147483647),
+        zoneId=source.zoneId,day=integer(source.day,0,0,999999),
+        before=math.max(0,finite(source.before,0)),after=math.max(0,finite(source.after,0)),
+        litres=math.max(0,finite(source.litres,0)),lost=math.max(0,finite(source.lost,0)),
+        uncertain=source.uncertain==true,
+        dropX=source.dropX~=nil and integer(source.dropX,0,0,1000000) or nil,
+        dropY=source.dropY~=nil and integer(source.dropY,0,0,1000000) or nil,
+        dropZ=source.dropZ~=nil and integer(source.dropZ,0,-32,32) or nil}
+end
+
 local function normalizeFarmReceipt(source)
     if type(source) ~= "table" or not validId(source.id, "farm-receipt:")
         or not validId(source.jobId, "job:") or type(source.actorId) ~= "string"
@@ -860,6 +876,8 @@ local function normalizeFarmReceipt(source)
         return nil
     end
     local kind = source.kind == "output" and "output" or "borrowed"
+    local milk=normalizeMilkReceipt(source.milk)
+    local milkInvalid=source.milkInvalid==true or source.milk~=nil and milk==nil
     return {
         id = source.id,
         jobId = source.jobId,
@@ -871,10 +889,12 @@ local function normalizeFarmReceipt(source)
             and source.sourceStorageId or nil,
         destinationCategory = BaseLife.STORAGE_CATEGORIES[source.destinationCategory]
             and source.destinationCategory or nil,
-        phase = source.phase,
+        phase = milkInvalid and "quarantined" or source.phase,
         blocker = source.blocker ~= nil and cleanText(source.blocker, "blocked", 160) or nil,
         createdAt = math.max(0, finite(source.createdAt, 0)),
         updatedAt = math.max(0, finite(source.updatedAt, 0)),
+        milk = milk,
+        milkInvalid = milkInvalid or nil,
     }
 end
 
@@ -886,7 +906,7 @@ local function normalizeFarm(source)
     local result = emptyFarm()
     if type(source.animals) == "table" then
         -- Preserve future animal documents exactly and refuse their activation.
-        local copied, reason = stableCopy(source.animals, 8, { count = 16384 })
+        local copied, reason = stableCopy(source.animals, 8, { count = 32768 })
         if not copied then error("animal document cannot be preserved: " .. tostring(reason)) end
         result.animals = copied
     end
@@ -2216,6 +2236,9 @@ end
 -- Cans and other shelf-stable food have no finite short expiry. A long-lived
 -- food (for example cured produce) can also stay out of the fridge.
 function BaseLife.foodStorageCategory(item)
+    local fc=select(1,U().call(item,"getFluidContainer"))
+    if Fluid and Fluid.CowMilk and fc
+        and select(1,U().call(fc,"isPureFluid",Fluid.CowMilk))==true then return "fresh_food" end
     local offAgeMax, called = U().call(item, "getOffAgeMax")
     local days = called and tonumber(offAgeMax) or nil
     return days and days > 0 and days <= 30 and "fresh_food" or "food"
@@ -3026,6 +3049,11 @@ end
 function BaseLife.updateFarmReceipt(id, fields)
     local receipt = BaseLife.farmReceipt(id)
     if not receipt or type(fields) ~= "table" then return false, "unknown_farm_receipt" end
+    local milk=fields.milk~=nil and normalizeMilkReceipt(fields.milk) or nil
+    if fields.milk~=nil and not milk then return false,"invalid_milk_receipt" end
+    if fields.kind~=nil and (fields.kind~="output" or not (milk or receipt.milk)) then
+        return false,"invalid_farm_kind_change"
+    end
     if fields.phase ~= nil then
         if not FARM_RECEIPT_PHASES[fields.phase] then return false, "invalid_farm_phase" end
         receipt.phase = fields.phase
@@ -3038,6 +3066,10 @@ function BaseLife.updateFarmReceipt(id, fields)
             return false, "invalid_storage_category"
         end
         receipt.destinationCategory = fields.destinationCategory
+    end
+    if milk then receipt.milk=milk end
+    if fields.kind~=nil then
+        receipt.kind="output" -- The same borrowed container now carries verified milk.
     end
     receipt.updatedAt = now()
     bumpWorkConsistencyRevision()
@@ -4536,12 +4568,13 @@ function BaseLife.priorityWorkFor(actorId)
     for _, job in ipairs(base.jobs) do
         local assigned = job.assignedId == actorId or job.reservedBy == actorId
         local door=SC.AnimalWork and SC.AnimalWork.doorJob(job)
+        local milk=SC.AnimalWork and SC.AnimalWork.urgentMilkJob and SC.AnimalWork.urgentMilkJob(job)
         local wanted = job.priority >= 4 or job.type == "production"
         local due = job.state == "pending" or ((job.state == "reserved" or job.state == "active")
                 and job.reservedBy == actorId and job.leaseUntil > current)
             or (job.state == "blocked" and job.retryAt <= current
                 and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job)))
-        if (assigned or door) and wanted and due then
+        if (assigned or door or milk) and wanted and due then
             local score = jobScore(actorId, job)
             if score > -math.huge and (not bestScore or score > bestScore) then
                 best, bestScore = job, score
