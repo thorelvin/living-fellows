@@ -194,12 +194,15 @@ local function setup(H)
         P.trough:getFluidContainer():addFluid(Fluid.Water,1.8)
         P.feed:getContainer():Remove(P.feedItem)
         P.feeder:getContainer():AddItem(P.feedItem)
-        -- Three natural calendar cycles; no forced hutch entry, door toggles,
-        -- bird relocation or needs resets during observation.
-        getGameTime():setMinutesPerDay(4)
+        -- Fifteen minutes is the shortest supported sandbox day. Shortening
+        -- the calendar to four minutes does not scale native AI/recovery
+        -- timers, and can manufacture missed roost windows. Use the runner's
+        -- ordinary ObserveSpeed fast-forward to accelerate all systems alike.
+        getGameTime():setMinutesPerDay(15)
         getGameTime():setTimeOfDay(19.8)
         P.cycles,P.phase,P.nightAt=0,"night",getTimestampMs()
-        emit("NIGHT_SETUP cycles=3 minutes_per_day=4 physical_fence=true")
+        P.nightDeadline=math.max(180000,(tonumber(H.config.observe_ms) or 2400000)-5000)
+        emit("NIGHT_SETUP cycles=3 minutes_per_day=15 physical_fence=true")
     end
     screenshot("setup")
     emit("SETUP pen="..x..","..y.." worker="..P.record.id.." scheduler=normal")
@@ -211,9 +214,10 @@ local function startRoost(H,current)
     SC.BaseLife.setDuty(P.record.id,false)
     SC.Commands.issue(P.record.id,"stay",nil,H.player)
     if P.hutch:isDoorClosed() then P.hutch:toggleDoor() end
-    getGameTime():setMinutesPerDay(2)
+    getGameTime():setMinutesPerDay(15)
     getGameTime():setTimeOfDay(19.8)
     P.phase,P.roostAt="roost",current
+    P.roostDeadline=math.max(180000,(tonumber(H.config.observe_ms) or 600000)-5000)
 end
 local function shelteredCount()
     local count=P.hutch:getAnimalInside():size()
@@ -238,22 +242,37 @@ local function observe(H, current)
     emit(text)
     if P.phase=="night" then
         SC.FarmWork.audit(SC.BaseLife.active())
+        local night=hour>=20 or hour<7
+        if night and not P.wasNight then
+            if P.closedThisNight then error("previous dawn opening or native departure incomplete") end
+            P.nightNumber=(P.nightNumber or 0)+1
+            emit("NIGHT_STARTED scheduled="..P.nightNumber)
+        end
+        if P.wasNight and not night and not P.closedThisNight then
+            error("scheduled night "..P.nightNumber.." ended without all birds roosting and closing")
+        end
+        P.wasNight=night
         if not P.nextBirdAt or current>=P.nextBirdAt then
             P.nextBirdAt=current+10000
             for _,bird in ipairs(P.birds) do
+                local data=bird:getData()
+                local region,regionKnown=SC.GameplayUtil.call(data,"getRegionHutch")
+                local debug,debugKnown=SC.GameplayUtil.call(data,"getDebugBehaviorString")
                 emit("BIRD id="..bird:getAnimalID().." health="..bird:getHealth()
                     .." hunger="..bird:getHunger().." thirst="..bird:getThirst()
                     .." pos="..bird:getX()..","..bird:getY()
-                    .." hutch="..tostring(bird:getHutch()==P.hutch))
-                if bird:getHealth()<=0 then error("bird died during night acceptance") end
+                    .." hutch="..tostring(bird:getHutch()==P.hutch)
+                    .." regionHutch="..(regionKnown and tostring(region==P.hutch) or "unknown")
+                    .." native="..(debugKnown and tostring(debug):gsub("[\r\n]"," ") or "unexposed"))
+                if bird:getHealth()<1 then error("bird health declined during night acceptance") end
             end
         end
         local closed=P.hutch:isDoorClosed()
         if not closed and hour>=21 and hour<24 and not P.closedBlockShot then
-            P.closedBlockShot=true screenshot("night-close-pending")
+            P.closedBlockShot=true screenshot("night-"..P.nightNumber.."-close-pending")
         end
         if P.closedThisNight and closed and hour>=9 and hour<20 and not P.openBlockShot then
-            P.openBlockShot=true screenshot("dawn-open-pending")
+            P.openBlockShot=true screenshot("night-"..P.nightNumber.."-dawn-open-pending")
         end
         if closed then
             if inside~=#P.birds then error("hutch closed with a bird outside") end
@@ -273,7 +292,7 @@ local function observe(H, current)
                 P.finishAfterShot=true
             end
         end
-        if current-P.nightAt>1200000 then error("night acceptance deadline cycles="..P.cycles) end
+        if current-P.nightAt>P.nightDeadline then error("night acceptance deadline cycles="..P.cycles) end
     elseif P.phase == "baseline" then
         if current-P.startedAt >= 15000 then
             assert(H.placeCombatActor(P.record.actor,P.stand))
@@ -371,9 +390,10 @@ local function observe(H, current)
             emit("ROOST_PASS unaided=true")
             screenshot("roost-passed")
             P.finishAfterShot = true
-        elseif current-P.roostAt>180000 then
+        elseif current-P.roostAt>P.roostDeadline then
             write("BLOCK roost entered="..tostring(P.entered).." "..text)
             emit("BLOCK roost deadline") P.phase = "blocked"
+            P.finishAfterShot=true
             screenshot("roost-block")
         end
     end
@@ -398,6 +418,7 @@ local function tick()
     end)
     if not okay then
         P.phase = "blocked" emit("BLOCK "..tostring(reason)) write("BLOCK "..tostring(reason))
+        P.finishAfterShot=true
         screenshot("fixture-block")
     end
 end

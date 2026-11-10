@@ -365,3 +365,69 @@ The live-harness static check passed 152 assertions, and `git diff --check`
 passed. Tests ran serially after the sole private game client exited; no test
 game or compiler was left running. The shipped bridge JAR was unchanged by
 this review. The gate completed before commit; no local installation was performed.
+
+## 2026-11-10 follow-up: supported-calendar verification
+
+A fresh four-minute repeat (`SC-Harness-20261110-105900-d290d136`) completed
+two close/open cycles across three scheduled nights. On the other night, no
+more than two birds were sheltered simultaneously; the Farmer correctly left
+the door open. All three retained native health 1. The run was stopped after
+that observation, not reported as a passing three-night acceptance. Its
+waiting screenshot and logs remain retained. A later four-minute diagnostic
+(`SC-Harness-20261110-113515-ee31997b`) did pass three consecutive nights, so
+the missed night was not universal.
+
+The probe's accelerated calendar was unsupported: installed
+`media/lua/shared/Translate/EN/Sandbox.json` lists 15 minutes as the shortest
+selectable day. Native `BaseAnimalBehavior` hutch delays, behavior checks and
+recovery timers use `GameTime.getMultiplier()`. Changing minutes per day alone
+does not accelerate those timers. A four-minute calendar can therefore leave
+too little native behavior time within its compressed night. This is evidence
+against that test clock, not proof that every late roost has the same cause.
+
+Both chicken probes now use a 15-minute calendar. Normal `ObserveSpeed 2`
+fast-forward accelerates calendar and native timers together. Night acceptance
+requires three **consecutive scheduled nights**: missing one fails at dawn
+instead of silently counting a later night. Bird identity, health, native
+behavior diagnostics and a separate zoomed-out screenshot for each pending
+night are retained. A failure captures its screenshot and ends promptly.
+These are private harness corrections; gameplay Lua, native bird AI and the
+bridge are unchanged. No forced entry, bird movement or healing was added.
+
+`SC-Harness-20261110-114743-dcae8f5d` passed the corrected 15-minute-calendar
+run with supported game speed 2 (requested multiplier 5). Hens `4364`, `8681`
+and rooster `5201` retained native health 1. The Farmer closed with all three
+sheltered and reopened after 07:00 on each of three consecutive nights; all
+three departed unaided each morning. The report records
+`PASS night_cycles=3 exact_birds=3 healthy=true`, with runner exit 0 and
+`LIVE_SANDBOX_PASS`. Separate pending-night photographs were retained for
+nights 1 and 3. No LF gameplay exception occurred; the console also retains
+the installed game's startup recipe/map warnings. The final dawn was foggy,
+so exact native occupancy and identity logs accompany its photograph.
+
+The care/cleaning repeat `SC-Harness-20261110-115701-3ec66cec` also passed
+with the corrected calendar and normal fast-forward. The exact feed bag
+`16978591` reached the feeder, 1.8 litres reached the separate water trough
+from its eight-litre donor, and egg `915724026` reached permitted `storage:5`.
+Floor and nest dirt reached zero; the exact borrowed mop and cleaner returned
+to source storage. All birds then entered and departed unaided. The runner
+exited 0 with `LIVE_SANDBOX_PASS`, without LF gameplay exceptions.
+
+Reproduce serially from this checkout with the installed game closed:
+
+```powershell
+./scripts/Invoke-LiveSandboxTests.ps1 -AnimalNightProbe -ObserveSeconds 1200 -ObserveMenusClosed -ObserveSpeed 2 -LivingFellowsOnly -LowImpact -NoSteam -IsolatedSourceBridge -TimeoutSeconds 1440
+./scripts/Invoke-LiveSandboxTests.ps1 -AnimalCareProbe -ObserveSeconds 900 -ObserveMenusClosed -ObserveSpeed 2 -LivingFellowsOnly -LowImpact -NoSteam -IsolatedSourceBridge -TimeoutSeconds 1140
+```
+
+Each command uses a separate disposable clone. Run logs, native readings and
+screenshots remain under `build/live-sandbox-runs/<run-id>/cache`. Original
+saves, the installed payload and launcher settings were not modified.
+
+The full release gate passed all five checks at
+`build/test-results/20261110-120117-4ed992`: Build 158.5 s (including all 16
+installer cases and package creation), Lifecycle 26.9 s, Behaviour 3.1 s,
+Cargo 3.0 s and Interface 55.5 s; total 247.1 s. The final probe compiled in
+normal and debug modes; the existing harness static check passed 152 assertions.
+`git diff --check` passed. All runs were serial, with no live game overlapping
+the gate. No test game or compiler was left running.

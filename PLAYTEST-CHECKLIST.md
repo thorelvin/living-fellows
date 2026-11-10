@@ -10,11 +10,12 @@
 - [x] Cloned 42.22.2 saves: a Farmer transfers 1.8 litres into a separate water
   trough, deposits the exact feed bag and delivers the exact egg to food storage.
   Native floor/nest cleaning reaches zero dirt and returns the exact loans.
-- [x] Open-hutch unaided entry and dawn departure observed for all three birds
-  in two runs. A later repeat blocked at two occupants; no three-day claim.
-- [x] Three native close/open/unaided-exit cycles without early closing or
-  lockout in an enclosed cloned pen (four-minute calendar, native actions and
-  roost AI unchanged). `animalCloseEnabled=1`; screenshots and exact IDs retained.
+- [x] Open-hutch unaided entry and dawn departure observed for all three birds.
+- [x] Three consecutive native close/open/unaided-exit cycles without early
+  closing or lockout in an enclosed cloned pen, using the shortest supported
+  15-minute calendar and normal fast-forward. All three birds retained full
+  health. `animalCloseEnabled=1`; screenshots and exact IDs retained. Earlier
+  unsupported four-minute repeats and their missed night remain documented.
 - [ ] Natural breeding reaches target and stops using a verified three-day
   feed forecast and complete fertile-egg census. Keep `animalBreedingEnabled=0`.
 - [ ] Exact native kill/corpse/butcher attribution, predicted output capacity,
