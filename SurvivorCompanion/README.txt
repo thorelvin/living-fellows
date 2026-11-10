@@ -55,9 +55,9 @@ every three minutes. Manual Retry is available.
 For chicken care, draw a vanilla animal zone wholly inside camp, with a hutch
 and separate feed and water troughs. Mark farming storage for feed, water
 containers and cleaning tools, and allow deposits into food storage. Assign a
-Farmer. Fertilised eggs stay in the nest; automatic night closing, breeding
-management and culling are disabled in this version. Close the hutch yourself
-once the birds are inside at night.
+Farmer. The Farmer closes the hutch at night once every known bird is
+sheltered, and opens it after dawn. Late birds keep the door open. Fertilised
+eggs stay in the nest; breeding management and culling remain disabled.
 
 Documentation, updates and bug reports:
 https://github.com/thorelvin/living-fellows

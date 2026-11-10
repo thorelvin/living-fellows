@@ -100,12 +100,17 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   retain the frontier. Incomplete or mixed/Strange Folk pens cannot authorize
   work. Two workers per zone and one per device hold expiring runtime claims.
   `SCFarmWork` retains exact supply loans, egg receipts, delivery and cleanup;
-  `base.farm.animals` version 1 stores only scalar summaries and cooldowns,
-  preserving unknown future versions. Action callbacks read current permission
+  `base.farm.animals` version 1 stores scalar summaries, cooldowns and up to
+  128 known native bird IDs per pen, preserving unknown future versions.
+  Missing birds retain their identities across audits/reloads; only observed
+  deaths retire them. The eight-pen limit never evicts this safety evidence.
+  Action callbacks read current permission
   and ownership without rescanning. The Lua adapter binds stock timed actions
   to the exact companion and native device, independently of player UI/queues.
   On 42.22.2 a trough holds feed or fluid, so separate devices are required.
-  Fertile eggs are protected. Automatic dusk closing, feed-horizon breeding
+  Fertile eggs are protected. Dusk closing requires every retained bird ID in
+  a roost or nest, with a strict native recheck at commit. Late birds keep the
+  door open; native dawn opening remains required. Feed-horizon breeding
   management and irreversible culling stay disabled until their native evidence
   and live acceptance pass; the cull policy only proposes an ID and has no
   kill/butcher dispatcher. See the dated animal probe report for evidence.

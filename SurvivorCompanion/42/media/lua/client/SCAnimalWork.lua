@@ -100,7 +100,7 @@ local function zoneFacts(zone)
         or w < 1 or h < 1 or w * h > 256 then return nil end
     return { id = tostring(id), native = zone, x1 = x, y1 = y, z = z,
         x2 = x + w - 1, y2 = y + h - 1, width = w, total = w * h,
-        index = 0, animals = {}, members = {}, seen = {}, hutches = {}, troughs = {},
+        index = 0, animals = {}, members = {}, deadIds = {}, seen = {}, hutches = {}, troughs = {},
         hutchIndex = 0, complete = true, capacity = 0, hens = 0, roosters = 0, chicks = 0 }
 end
 
@@ -110,7 +110,65 @@ local function contains(row, object)
         and y >= row.y1 and y < row.y2 + 1
 end
 
+local function animalId(id)
+    return type(id)=="number" and id==id and id>=0 and id<math.huge and id%1==0
+end
+
+-- A native zone's live set shrinks when a bird wanders outside it. Preserve
+-- observed identities across audits/reloads: missing is not evidence of death.
+local function rememberFlock(row)
+    local doc=document()
+    local saved=doc and doc.zones[row.id]
+    local savedValid=saved==nil or type(saved)=="table"
+    if not savedValid then saved=nil end
+    local previous=snapshots[row.id]
+    local ids,seen,objects={}, {}, {}
+    local verified=savedValid and not (saved and saved.flockUnverified)
+    local function add(id, bird)
+        if not animalId(id) then verified=false return end
+        if row.deadIds[id] then return end
+        if bird and n(bird,"getAnimalID")==id then
+            local health=n(bird,"getHealth")
+            if health and health<=0 then return end -- Only a positively observed death.
+            objects[id]=bird
+        end
+        if not seen[id] then
+            if #ids>=128 then verified=false return end
+            ids[#ids+1],seen[id]=id,true
+        end
+    end
+    local retained=saved and saved.flockIds
+    if retained~=nil then
+        if type(retained)~="table" or #retained>128 then verified=false
+        else
+            local count=0
+            for index,id in pairs(retained) do
+                count=count+1
+                if count>128 then verified=false break end
+                if type(index)~="number" or index%1~=0 or index<1 or index>#retained
+                    or seen[id] then verified=false
+                else add(id,row.members[id] or previous and previous.knownMembers
+                    and previous.knownMembers[id]) end
+            end
+            if count~=#retained then verified=false end
+        end
+    end
+    for _,bird in ipairs(row.animals) do add(bird.id,row.members[bird.id]) end
+    table.sort(ids)
+    row.flockIds,row.knownMembers,row.rosterVerified=ids,objects,verified
+end
+
+local function saveFlock(row,saved)
+    if row.rosterVerified then
+        saved.flockIds={}
+        for index,id in ipairs(row.flockIds) do saved.flockIds[index]=id end
+    else
+        saved.flockUnverified=true -- Do not replace ambiguous saved evidence with a smaller flock.
+    end
+end
+
 local function remember(row)
+    rememberFlock(row)
     if not snapshots[row.id] then
         local count, oldest, oldestAt = 0, nil, math.huge
         for id, cached in pairs(snapshots) do
@@ -130,7 +188,7 @@ end
 
 local function inspectAnimal(row, animal)
     local id = n(animal, "getAnimalID")
-    if not id or id < 0 then row.complete = false return end
+    if not animalId(id) then row.complete = false return end
     if row.seen[id] then return end
     row.seen[id] = true
     if #row.animals >= 128 then row.complete = false return end
@@ -139,7 +197,9 @@ local function inspectAnimal(row, animal)
     local data, ok = read(animal, "getModData")
     if not ok or type(data) ~= "table" then row.complete = false return end
     if data.lfOddballGroupId ~= nil or data.lfWendellGroupId ~= nil then row.protected = true end
-    if (n(animal, "getHealth") or 0) <= 0 then return end
+    local health=n(animal,"getHealth")
+    if not health or health~=health then row.complete=false return end
+    if health<=0 then row.deadIds[id]=true return end
     row.members[id] = animal -- Runtime only; never copied into the save document.
     local baby, babyOkay = read(animal, "isBaby")
     local name, nameOkay = read(animal, "getCustomName")
@@ -263,21 +323,37 @@ local function advance(row, squareLimit)
             animalBudget = animalBudget - 1
         end
         if row.occupantIndex < size(row.occupants) then return done(false) end
+        local maxNest=n(hutch,"getMaxNestBox")
+        if not maxNest or maxNest<0 or maxNest>15 then row.complete=false return done(true) end
+        row.nestAnimalIndex=row.nestAnimalIndex or 0
+        while row.nestAnimalIndex<=maxNest and animalBudget>0 do
+            if outOfTime(start) then return done(false) end
+            local bird,known=read(hutch,"getAnimalInNestBox",row.nestAnimalIndex)
+            if not known then row.complete=false return done(true) end
+            if bird then inspectAnimal(row,bird) animalBudget=animalBudget-1 end
+            row.nestAnimalIndex=row.nestAnimalIndex+1
+        end
+        if row.nestAnimalIndex<=maxNest then return done(false) end
         local chicken = row.animals[1] and row.members[row.animals[1].id]
         local compatible, exposed = read(chicken, "canBePutInHutch", hutch)
         if not exposed then row.complete = false
         elseif compatible ~= true then row.mixed = true end
         row.occupants, row.occupantIndex, row.hutchIndex = nil, nil, row.hutchIndex + 1
+        row.nestAnimalIndex=nil
     end
     return done(row.hutchIndex >= #row.hutches)
 end
 
-local function openJob(base, object)
+local function openJob(base, object, operation)
     local targetKey = key(object)
     for _, job in ipairs(base.jobs or {}) do
         if job.type == "farm" and job.target and job.target.animal
             and job.target.deviceKey == targetKey
-            and job.state ~= "completed" and job.state ~= "cancelled" then return true end
+            and job.state ~= "completed" and job.state ~= "cancelled" then
+            local door=operation=="animal_open" or operation=="animal_close"
+            if not door or job.target.operation==operation or job.state=="active"
+                or job.reservedBy~=nil then return true end
+        end
     end
     return false
 end
@@ -466,9 +542,16 @@ local function eggCandidate(row, base)
     end
 end
 
+function A.doorJob(job)
+    if not enabled() or not job or job.type~="farm" or not job.target or job.target.animal~=true then
+        return false
+    end
+    return job.target.operation=="animal_open"
+        or job.target.operation=="animal_close" and C("animalCloseEnabled",0)==1
+end
+
 function A.nightClosingJob(job)
-    return enabled() and C("animalCloseEnabled", 0) == 1 and job and job.type == "farm"
-        and job.target and job.target.animal == true and job.target.operation == "animal_close"
+    return A.doorJob(job) and job.target.operation=="animal_close"
 end
 
 function A.hutchOperation(hour, closed, inside, total)
@@ -476,20 +559,94 @@ function A.hutchOperation(hour, closed, inside, total)
     local species = A.species.chicken
     local night = hour >= species.dusk or hour < species.dawn
     if night and not closed and C("animalCloseEnabled", 0) == 1 then
-        local elapsed = ((hour - species.dusk) % 24) * 60
-        if inside ~= nil and total ~= nil and (inside >= total
-            or elapsed >= C("animalDuskGraceMinutes", 60)) then return "animal_close" end
+        -- Grace expiry is a warning, never permission to lock late birds out.
+        if type(total)=="number" and total>0 and inside==total then return "animal_close" end
     elseif not night and closed then return "animal_open" end
     return nil
 end
 
+function A.roostReady(row, strict)
+    if not row or row.complete~=true or row.protected or row.mixed
+        or row.rosterVerified~=true or not row.flockIds
+        or #row.flockIds==0 or #row.flockIds>128 then return false,"population_unknown" end
+    local total, sheltered = 0, {}
+    for _, hutch in ipairs(row.hutches) do
+        if (n(hutch,"getObjectIndex") or -1)<0 then return false,"hutch_removed" end
+        local occupants=value(hutch,"getAnimalInside")
+        local count=n(occupants,"size")
+        if not count or count<0 or total+count>128 then return false,"occupants_unknown" end
+        total=total+count
+        if strict then
+            if not ArrayList or not ArrayList.new then return false,"occupants_unknown" end
+            local made, copy=pcall(ArrayList.new)
+            local _, added=read(made and copy or nil,"addAll",value(occupants,"values"))
+            if not made or not added or size(copy)~=count then return false,"occupants_unknown" end
+            for index=0,count-1 do sheltered[at(copy,index)]=true end
+        end
+        local maxNest=n(hutch,"getMaxNestBox")
+        if not maxNest or maxNest<0 or maxNest>15 then return false,"nest_unknown" end
+        for index=0,maxNest do
+            local bird,known=read(hutch,"getAnimalInNestBox",index)
+            if not known then return false,"nest_unknown" end
+            if bird then
+                total=total+1
+                if strict then sheltered[bird]=true end
+            end
+        end
+        if total>128 then return false,"occupants_unknown" end
+    end
+    if total~=#row.flockIds then return false,"population_changed:"..total..":"..#row.flockIds end
+    if not strict then return true end
+    -- Only candidate admission and the irreversible door commit copy the local
+    -- native roster. Per-frame animation guards read bounded occupancy counts.
+    local shelteredIds={}
+    for bird in pairs(sheltered) do
+        local id=n(bird,"getAnimalID")
+        if not animalId(id) or shelteredIds[id] or (n(bird,"getHealth") or 0)<=0 then
+            return false,"sheltered_identity_unknown"
+        end
+        shelteredIds[id]=true
+    end
+    for _,id in ipairs(row.flockIds) do
+        if not shelteredIds[id] then return false,"known_bird_outside" end
+    end
+    local registered, known=read(row.native,"getAnimalsInZone")
+    local count=known and n(registered,"size")
+    if not count or count>128 then return false,"registered_unknown" end
+    local made, copy=pcall(ArrayList.new)
+    local _, added=read(made and copy or nil,"addAll",registered)
+    if not made or not added or size(copy)~=count then return false,"registered_unknown" end
+    for index=0,count-1 do
+        local bird=at(copy,index)
+        if not sheltered[bird] then return false,"registered_bird_outside" end
+    end
+    return true
+end
+
+local function roostWaiting()
+    local hour=time()
+    if hour and ((hour-A.species.chicken.dusk)%24)*60>=C("animalDuskGraceMinutes",60) then
+        return "animal_roost_delayed"
+    end
+    return "animal_roost_waiting"
+end
+
 local function hutchCandidate(row, base)
     local hour = time()
+    local waiting
     for _, hutch in ipairs(row.hutches) do
-        if not openJob(base, hutch) then
+        do
+            local ready=A.roostReady(row,false)
             local operation = A.hutchOperation(hour, value(hutch, "isDoorClosed"),
-                n(value(hutch, "getAnimalInside"), "size"), #row.animals)
-            if operation then return candidateAt(row, operation, hutch, 4) end
+                ready and #row.animals or nil, #row.animals)
+            if (operation=="animal_open" or operation=="animal_close" and A.roostReady(row,true))
+                and not openJob(base,hutch,operation) then
+                return candidateAt(row, operation, hutch, 4)
+            end
+            if hour and (hour>=A.species.chicken.dusk or hour<A.species.chicken.dawn)
+                and value(hutch,"isDoorClosed")==false and C("animalCloseEnabled",0)==1 then
+                waiting=roostWaiting()
+            end
         end
     end
     local egg = eggCandidate(row, base)
@@ -505,6 +662,7 @@ local function hutchCandidate(row, base)
             end
         end
     end
+    return nil,waiting
 end
 
 local function deviceCandidate(row, base)
@@ -550,7 +708,8 @@ local function deviceCandidate(row, base)
             end
         end
     end
-    return best or hutchCandidate(row, base)
+    if best then return best end
+    return hutchCandidate(row, base)
 end
 
 function A.candidate(base, squareLimit)
@@ -587,23 +746,21 @@ function A.candidate(base, squareLimit)
             or row.mixed and "animal_species_not_supported" or "animal_flock_not_loaded"
         return nil, reason
     end
-    row.auditedAt, row.coverageStamp = now(), coverageStamp(base)
-    remember(row)
     local doc = document()
-    local count, oldest, oldestAt = 0, nil, math.huge
+    local count = 0
     for id, saved in pairs(doc.zones) do
         if type(saved) ~= "table" then doc.zones[id] = nil
-        else
-            count = count + 1
-            if (tonumber(saved.auditedAt) or 0) < oldestAt then
-                oldest, oldestAt = id, tonumber(saved.auditedAt) or 0
-            end
-        end
+        else count = count + 1 end
     end
     if not doc.zones[row.id] and count >= math.min(8, math.max(1, C("animalMaxZones", 8))) then
-        doc.zones[oldest], snapshots[oldest] = nil, nil
+        -- Retained flock identities are safety evidence, not an LRU cache.
+        -- Replacing one would silently forget birds still outside its hutch.
+        return nil,"animal_zone_limit"
     end
+    row.auditedAt, row.coverageStamp = now(), coverageStamp(base)
+    remember(row)
     local saved = doc.zones[row.id] or { cooldowns = {} }
+    saveFlock(row,saved)
     saved.hens, saved.roosters, saved.chicks = row.hens, row.roosters, row.chicks
     saved.capacity, saved.auditedAt = row.capacity, row.auditedAt
     local target=A.breedingPlan(row,nil)
@@ -621,18 +778,20 @@ function A.candidate(base, squareLimit)
         end
     end
     doc.zones[row.id] = saved
-    local selected = deviceCandidate(row, base)
+    local selected, deviceReason = deviceCandidate(row, base)
     local water, feed = false, false
     for _, mode in pairs(row.troughRoles or {}) do
         water,feed=water or mode=="water",feed or mode=="feed"
     end
     saved.blocker = #row.hutches==0 and "animal_hutch_missing"
         or not water and "animal_water_trough_missing"
-        or not feed and "animal_feed_trough_missing" or nil
+        or not feed and "animal_feed_trough_missing" or deviceReason
     note()
     if selected then
         local cooldown = saved.cooldowns[selected.deviceKey]
-        if cooldown and (tonumber(cooldown.untilMs) or 0) > now() then return nil end
+        local door=selected.operation=="animal_open" or selected.operation=="animal_close"
+        if cooldown and (not door or cooldown.operation==selected.operation)
+            and (tonumber(cooldown.untilMs) or 0) > now() then return nil end
     end
     return selected
 end
@@ -647,7 +806,8 @@ function A.blocker()
         local age=type(saved)=="table" and now()-(tonumber(saved.auditedAt) or 0)
         local code=type(saved)=="table" and saved.blocker
         if age and age>=0 and age<=180000 and (code=="animal_hutch_missing"
-            or code=="animal_water_trough_missing" or code=="animal_feed_trough_missing") then return code end
+            or code=="animal_water_trough_missing" or code=="animal_feed_trough_missing"
+            or code=="animal_roost_delayed") then return code end
     end
 end
 
@@ -674,6 +834,9 @@ local function refreshTarget(target)
         end
         pending.auditedAt, pending.coverageStamp = now(), coverageStamp(base)
         remember(pending)
+        local doc=document()
+        local saved=doc and doc.zones[pending.id]
+        if type(saved)=="table" then saveFlock(pending,saved) note() end
         return true
 end
 
@@ -736,9 +899,11 @@ local function fail(actor, job, reason)
     local saved = doc and doc.zones[job.target.nativeZoneId]
     if saved then
         local old = saved.cooldowns[job.target.deviceKey] or { failures = 0 }
+        if old.operation~=job.target.operation then old={failures=0} end
         old.failures = math.min(3, old.failures + 1)
         old.at, old.untilMs = now(), now() + 15000 * 2 ^ (old.failures - 1)
         old.reason = reason
+        old.operation = job.target.operation
         saved.cooldowns[job.target.deviceKey] = old
         note()
     end
@@ -813,7 +978,7 @@ function A.canHutchWork(actor, job, state, object, operation)
     if operation == "animal_open" or operation == "animal_close" then
         local row = snapshots[job.target.nativeZoneId]
         return row and A.hutchOperation(time(), value(object, "isDoorClosed"),
-            n(value(object, "getAnimalInside"), "size"), #row.animals) == operation
+            A.roostReady(row,false) and #row.animals or nil, #row.animals) == operation
     elseif operation == "animal_hatch_open" then
         return value(object, "isEggHatchDoorClosed") == true
     elseif operation == "animal_clean_floor" then
@@ -869,7 +1034,10 @@ local function begin(actor, job, state, object, item, operation)
                 return A.canUse(actor, job, object, item)
                     and A.canHutchWork(actor, job, state, object, operation)
                     and (operation ~= "animal_egg" or A.canTakeEgg(actor, job, state, object))
-            end })
+            end,
+            beforeCommit = operation=="animal_close" and function()
+                return A.roostReady(snapshots[job.target.nativeZoneId],true)
+            end or nil })
     end)
     if not started then supervisor.fail(token, detail) return false, detail end
     supervisor.transition(token, "verifying")
@@ -985,6 +1153,16 @@ function A.update(actor, baseState, job, runtime, state)
         return true, row
     end -- bounded audit re-establishes native references after load
     if not claim(actor, job) then return true, "animal_work_reserved" end
+    if not state.animalWork and (target.operation=="animal_open" or target.operation=="animal_close") then
+        local hour=time()
+        local closed,known=read(object,"isDoorClosed")
+        local night=hour and (hour>=A.species.chicken.dusk or hour<A.species.chicken.dawn)
+        if known and (closed==(target.operation=="animal_close")
+            or hour and (target.operation=="animal_close" and not night
+                or target.operation=="animal_open" and night)) then
+            state.animalReturn=true -- Already satisfied or superseded by dawn/dusk.
+        end
+    end
     if target.high and not state.animalWork then
         local amount = target.operation == "animal_water" and n(object, "getWater")
             or n(object, "getCurrentFeedAmount")
@@ -998,8 +1176,13 @@ function A.update(actor, baseState, job, runtime, state)
     end
     if not enabled() or S.threat(actor, runtime) then
         local okay, reason = A.cancel(actor, job, state, "animal_work_interrupted")
-        if not okay then return false, reason end
+        if not okay then return true, reason end
         state.animalReturn = true
+    end
+    if not workDay(object) and not A.nightClosingJob(job) then
+        local okay,reason=A.cancel(actor,job,state,"farm_outside_night")
+        if not okay then return true,reason end
+        state.animalReturn=true
     end
     if state.animalWork then
         local work = state.animalWork
@@ -1012,7 +1195,7 @@ function A.update(actor, baseState, job, runtime, state)
             return true, "farm_" .. work.operation .. "_active"
         end
         local finished, detail = SC.NativeActions.finishWork(actor)
-        if not finished then return fail(actor, job, detail) end
+        if not finished then return true,detail end -- Native hand/loan cleanup still owns the actor.
         reconcileFeed(job, state)
         local eggTaken = reconcileEgg(actor, job, state)
         local verified = work.operation == "animal_feed" and not state.borrowed
@@ -1039,7 +1222,7 @@ function A.update(actor, baseState, job, runtime, state)
         return true, "animal_returning_supplies"
     end
     if target.operation == "animal_egg" then
-        local status, detail = S.approach(actor, U().squareOf(object), object)
+        local status, detail = S.approach(actor, U().squareOf(object), object,A.allowsWorkReach(job))
         if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
         if value(object, "isEggHatchDoorClosed") == true then
             return begin(actor, job, state, object, nil, "animal_hatch_open")
@@ -1063,7 +1246,10 @@ function A.update(actor, baseState, job, runtime, state)
     end
     if target.operation == "animal_open" or target.operation == "animal_close"
         or target.operation == "animal_clean_nest" then
-        local status, detail = S.approach(actor, U().squareOf(object), object)
+        if target.operation=="animal_close" and not A.roostReady(row,true) then
+            return true,roostWaiting()
+        end
+        local status, detail = S.approach(actor, U().squareOf(object), object,A.allowsWorkReach(job))
         if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
         return begin(actor, job, state, object, nil, target.operation)
     end
@@ -1090,7 +1276,7 @@ function A.update(actor, baseState, job, runtime, state)
                 return S.borrow(actor, baseState, job, loan, spec.predicate, spec.categories, spec.key)
             end
         end
-        local status, detail = S.approach(actor, U().squareOf(object), object)
+        local status, detail = S.approach(actor, U().squareOf(object), object,A.allowsWorkReach(job))
         if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
         return begin(actor, job, state, object, state.animalLoans[1].borrowed.item, target.operation)
     end
@@ -1115,11 +1301,11 @@ function A.update(actor, baseState, job, runtime, state)
     if target.operation == "animal_water" and S.waterUses(supply.item) <= 0 then
         local source, reason = S.findWater(actor, state, row)
         if not source then return reason == "water_source_scanning", reason, reason ~= "water_source_scanning" end
-        local status, detail = S.approach(actor, U().squareOf(source), source)
+        local status, detail = S.approach(actor, U().squareOf(source), source,A.allowsWorkReach(job))
         if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
         return begin(actor, job, state, source, supply.item, "fill_water")
     end
-    local status, detail = S.approach(actor, U().squareOf(object), object)
+    local status, detail = S.approach(actor, U().squareOf(object), object,A.allowsWorkReach(job))
     if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
     return begin(actor, job, state, object, supply.item, target.operation)
 end

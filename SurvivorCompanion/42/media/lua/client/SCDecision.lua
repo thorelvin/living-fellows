@@ -3104,6 +3104,15 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     and activity and activity.kind ~= "rest_bed"
                     and SC.BaseLife and type(SC.BaseLife.jobFor) == "function"
                     and SC.BaseLife.jobFor(U().idOf(actor)) or nil
+                if not job and commands.order=="base_duty" and activity
+                    and activity.kind~="rest_bed" and activity.kind~="clean_base"
+                    and SC.BaseLife and SC.BaseLife.priorityWorkFor and SC.AnimalWork
+                    and U().isDue(actor,"ambient_hutch_door",1000,current) then
+                    local priority=SC.BaseLife.priorityWorkFor(U().idOf(actor))
+                    if SC.AnimalWork.doorJob(priority) then
+                        job=select(1,SC.BaseLife.claimJob(U().idOf(actor),SC.AnimalWork.doorJob))
+                    end
+                end
                 if not job and commands.order == "base_duty"
                     and activity and activity.kind == "sit"
                     and SC.BaseWork

@@ -2740,15 +2740,16 @@ function actions.startAnimal(actor, intent)
             action.tree = object -- stock waitToStart otherwise faces an unset field
             action.maxTime = action.timePerEgg + 5
         end
-    elseif intent.operation == "animal_open" or intent.operation == "animal_close" then
+    elseif (intent.operation == "animal_open" or intent.operation == "animal_close")
+        and ISToggleHutchDoor and type(ISToggleHutchDoor.new)=="function" then
         created, action = pcall(ISToggleHutchDoor.new, ISToggleHutchDoor, actor, object)
-    elseif intent.operation == "animal_hatch_open" then
+    elseif intent.operation == "animal_hatch_open" and ISToggleHutchEggHatchDoor then
         created, action = pcall(ISToggleHutchEggHatchDoor.new, ISToggleHutchEggHatchDoor, actor, object)
-    elseif intent.operation == "animal_clean_floor" then
+    elseif intent.operation == "animal_clean_floor" and ISHutchCleanFloor then
         created, action = pcall(ISHutchCleanFloor.new, ISHutchCleanFloor,
             actor, object, intent.water, item, intent.cleaner)
         if created and action then action.tree = object end
-    elseif intent.operation == "animal_clean_nest" then
+    elseif intent.operation == "animal_clean_nest" and ISHutchCleanNest then
         created, action = pcall(ISHutchCleanNest.new, ISHutchCleanNest, actor, object, nil)
         if created and action then action.tree = object end
     end
@@ -2763,12 +2764,19 @@ function actions.startAnimal(actor, intent)
     end
     -- Native actions can change resources during update or perform. Validate
     -- this instance at every effect boundary, never a global vanilla wrapper.
+    local committed=false
     for _, method in ipairs({ "update", "perform", "complete" }) do
         local native = action[method]
         if type(native) == "function" then
             action[method] = function(self, ...)
-                if intent.validate() ~= true then self:forceStop() return false end
-                return native(self, ...)
+                if method=="complete" and committed then return true end
+                if not (method=="perform" and committed) and (intent.validate() ~= true
+                    or method=="complete" and intent.beforeCommit and intent.beforeCommit()~=true) then
+                    self:forceStop() return false
+                end
+                local result=native(self, ...)
+                if method=="complete" and result==true then committed=true end
+                return result
             end
         end
     end

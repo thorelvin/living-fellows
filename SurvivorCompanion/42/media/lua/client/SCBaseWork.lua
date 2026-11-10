@@ -2610,6 +2610,11 @@ function BaseWork.update(actor, player, runtime)
             return returnInsideAtNight(actor, state)
         end
     end
+    if not job and resident.role=="farmer" and SC.AnimalWork then
+        -- Claim door safety before optional downtime and the night return-
+        -- inside branch. Ordinary scoring and restrictions remain authoritative.
+        job=select(1,SC.BaseLife.claimJob(id,SC.AnimalWork.doorJob))
+    end
     if SC.BaseLife.outdoorNightRestricted() then
         if SC.Fishing and SC.Fishing.active(actor) then
             SC.Fishing.cancel(actor, "outdoor_night")

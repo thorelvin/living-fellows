@@ -86,8 +86,9 @@ Without a proven three-day feed estimate, breeding retention and culling stay
 off. When retention is enabled later, a retained first egg blocks that nest's
 collection rather than rearranging or copying eggs.
 
-Evening closing and culling remain disabled pending their full live acceptance.
-Cleaning was enabled after the native test below. Opening an
+Evening closing was enabled after the 2026-11-10 acceptance recorded below;
+breeding management and culling remain disabled. Cleaning was enabled after
+the native test below. Opening an
 already-open hutch is never queued. Unloaded or over-budget evidence is pending,
 never proof of an empty flock. No animal is spawned, moved or reconstructed.
 
@@ -111,7 +112,7 @@ never proof of an empty flock. No animal is spawned, moved or reconstructed.
    count as a three-day automatic-closing acceptance. Its later open-pen
    roost repeat recorded at most two birds inside at once and ended blocked;
    the third bird's location/health was not captured. Therefore the overall
-   run is not a full pass and automatic closing stays off. Earlier autonomous
+   run was not a full pass, so automatic closing stayed off at that point. Earlier autonomous
    cycles did record all three entering and leaving.
 4. Natural breeding to the computed target with measured feed-horizon evidence.
 5. Before enabling culling: a full day/night cycle above target, named/held/led
@@ -193,7 +194,7 @@ service was added. The rebuilt existing bridge changes release metadata only.
 threshold 12 hens, feed horizon three days, dusk grace 60 game minutes, one
 cull per zone/day, eight zones and 32 animals/slice retain the proposed defaults.
 `animalCleanEnabled=1` follows exact native cleaning proof.
-`animalCloseEnabled=0` is an additional gate for inconsistent roosting evidence.
+`animalCloseEnabled=1` follows the three-cycle acceptance on 2026-11-10 below.
 `animalBreedingEnabled=0` and `animalCullEnabled=0` override the draft's enabled
 defaults because their required evidence is unproven. Even manually changing
 the latter switches cannot invent the missing evidence or enable a kill path.
@@ -213,15 +214,16 @@ rates or roost assumptions for another animal.
 These are queued harness scenarios, not requests for the player to run them.
 Use a cloned save, one game client, and a zoomed-out screenshot at every block.
 
-**LIVE TEST 3 — Three normal days of hutch door safety**
+**LIVE TEST 3 — Hutch door safety (completed 2026-11-10)**
 Setup: a physically fenced camp animal zone, native hutch, two hens and one
 rooster; feed/water supplied, one Farmer.
-Steps: 1. Observe three ordinary dusk/dawn cycles with automatic closing still
-off. 2. Verify every bird's native identity, location and health. 3. Only then
-enable closing in the private clone and repeat.
+Steps: 1. Observe unaided dusk/dawn entry and departure. 2. Enable closing in
+the private clone and observe three native cycles. 3. Verify every bird's
+identity, location and health. The final repeat used a four-minute calendar;
+native roost AI, timed actions and the ordinary Farmer scheduler were unchanged.
 Expect: no early close, no bird trapped outside, native opening after dawn.
 Send: door/occupant/time logs and blocker/recovery screenshots.
-Blocks: `animalCloseEnabled` default remains 0.
+Result: passed in `SC-Harness-20261110-085134-05dd24f7`; default now 1.
 
 **LIVE TEST 4 — Natural growth stops at the supported target**
 Setup: the proven pen above with a measured native feed forecast and complete
@@ -255,3 +257,111 @@ The base and rebuilt JARs were compared entry by entry: only
 `META-INF/MANIFEST.MF` changed. All native class bytes remain identical; protocol
 `42.22-isocompanion-31` is unchanged. Source, shipped metadata and Support report
 0.27.7. No install or publication was performed by this work package.
+
+## 2026-11-10 review: night-closing corrections
+
+Review and follow-up cloned runs found independent problems:
+
+- A hen laying in a nest is removed from `getAnimalInside()` and is held by
+  `getAnimalInNestBox(index)` instead. The native `addAnimalInNestBox` method
+  proves this transition. The bounded census and shelter checks now include
+  both locations; roost-map size alone is not the sheltered population.
+- The draft's grace expiry permitted closing with known birds still outside.
+  It now produces a waiting explanation, never permission to lock them out.
+  Shelter is checked across all hutches, then exact native occupants and the
+  zone's registered birds are revalidated at the door action's commit boundary.
+- A daytime egg job queued before dusk could retain the hutch overnight while
+  refusing its outdoor native action. Daytime animal work now cancels safely,
+  reconciles effects and returns loans at night. Idle jobs and another
+  operation's cooldown cannot suppress required door work.
+- The general outdoor-night gate sent idle Farmers indoors before queue
+  admission. It now attempts only authorized hutch-closing work first, using
+  the existing claim scorer and all ordinary role/restriction checks. It does
+  not extend the exception to other jobs or workers.
+- A created dawn-opening job could still lose arbitration to optional supply
+  searches. Eligible door jobs now receive the existing urgent-work hint, even
+  without an assigned worker. Farmers claim them before optional downtime;
+  combat, medical care, emergency needs and an already-owned bed remain higher
+  priority. The real claim scorer still rejects other roles and restrictions.
+- Stale door work retires once satisfied or superseded by dawn/dusk. A native
+  completion commits once; its subsequent cleanup is not rejected because the
+  door has just reached the desired state. Pending hand restoration retains
+  the actor, work state and receipts until cleanup succeeds.
+- The animal job's bounded transit permission was not carried into the shared
+  farm approach intent. Animal approaches now pass that verified permission;
+  ordinary crop approaches keep their previous camp-only rules. Device effects
+  remain restricted to the fully validated pen inside camp.
+- A Farmer between camp areas was omitted from chicken discovery, so dawn
+  opening could not be queued until a separate return-inside route finished.
+  Discovery now includes on-duty Farmers within the existing bounded work
+  reach. Distant or absent Farmers still cannot trigger a scan.
+
+Focused Behaviour coverage passed at
+`build/test-results/20261110-073514-a9d74f`, including the real BaseWork night
+admission path. The private probe now uses physical fences, per-bird identity,
+location and health readings, and includes nesting-box occupants. Its first
+new setup incorrectly left the native new hutch closed; the fixture was
+corrected to begin open before observation. Intermediate runs are diagnostic
+evidence, not completed night-closing acceptance.
+
+The open-gateway repeat `SC-Harness-20261110-081243-f6e2fbbf` completed two
+close/open/unaided-exit cycles. On the third night rooster `7052` wandered
+outside the native zone, disappeared from its live set and current tile
+census, and the hutch incorrectly closed for hens `5294` and `5969` alone.
+The probe blocked and captured `animal-fixture-block.png`; all three birds
+still had native health 1. This was a real closing-safety bug, not a passing run.
+
+The zone save now retains a bounded native-ID roster across audits and reload.
+Door commit requires every retained ID to be sheltered. Unknown/missing birds
+keep the door open; a positively observed death may retire an ID. Invalid or
+overflowing rosters prohibit closing, and reaching the eight-pen limit cannot
+evict an older pen's safety evidence. No bird is reconstructed or moved by this
+logic. Tests cover disappearance from both native lists, reload, return,
+confirmed death, malformed IDs and the pen limit. Interrupted work also retains
+ownership while native cancellation/hand restoration is pending.
+
+The first fully fenced repeat (`084045-7df564dd`) passed one cycle. Its next
+daytime egg chose the source save's fresh-food fridge outside the closed fence,
+holding that work slot on delivery. The final fixture provides fresh-food
+storage inside its own pen and retains only that pen's camp area/rally. Those
+are private fixture changes; production storage priorities remain intact.
+
+### Final live door acceptance
+
+`SC-Harness-20261110-085134-05dd24f7` passed three full native close/open cycles
+in an enclosed camp pen. The same hens `8764` and `4885`, and rooster `2469`,
+entered and departed unaided; each retained native health 1 throughout. The
+Farmer closed only after all three were sheltered, and opened after 07:00.
+The third night included a late rooster; the door remained open until he
+returned. Daytime egg collection continued between nights and delivered inside
+the pen, without holding the next door job.
+
+This was a private four-minute calendar, not three days at default game-day
+length. Native roost delays and door action durations were not shortened. No
+bird relocation, forced hutch entry, scripted healing or door toggle occurred
+during observation. The idle player observer's hunger/thirst damage is separate
+from bird health; the fixture did not make the observer invulnerable.
+
+The probe wrote `PASS night_cycles=3 exact_birds=3 healthy=true`, and the runner
+returned `LIVE_SANDBOX_PASS`. Six zoomed-out door-state screenshots, the pending
+shot, console and report remain under that run's ignored build directory. The
+final morning had natural fog, so native identity/occupancy readings accompany
+the photographs. There were no LF gameplay exceptions in this final run.
+
+Automatic closing is now enabled. Breeding management and culling remain off;
+live interruption/death/reload at every action boundary remains listed above.
+Missing-bird reload safety and native commit/cleanup isolation have automated
+regressions; those are not claims of completed live reload scenarios.
+
+### Final review gate
+
+All five essential checks passed on the reviewed source at
+`build/test-results/20261110-090410-0937ff`: Build 14.5 s, Lifecycle 26.6 s,
+Behaviour 3.1 s, Cargo 3.0 s, Interface 57.4 s; total 104.7 s. The lifecycle
+group exercises the real animal-action adapter's invalidated commit proof,
+single door toggle and post-commit cleanup. The Behaviour group covers the
+Farmer's real night admission and the retained-flock regressions.
+The live-harness static check passed 152 assertions, and `git diff --check`
+passed. Tests ran serially after the sole private game client exited; no test
+game or compiler was left running. The shipped bridge JAR was unchanged by
+this review. The gate completed before commit; no local installation was performed.

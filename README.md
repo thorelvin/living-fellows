@@ -40,8 +40,9 @@ Base Watch, expeditions and Send Home share one companion view. Use one at a tim
 **Farmers care for chickens, too.** Put a vanilla animal zone wholly inside camp,
 with a hutch and separate feed and water troughs. Mark farming storage for supplies
 and food storage for eggs. Farmers feed, water, collect eggs, open the hutch after
-dawn and clean it. Fertilised eggs stay untouched. Close the hutch yourself at
-night; automatic closing, breeding management and culling remain disabled.
+dawn and clean it. At night they close the hutch once every known bird is
+sheltered; late birds keep the door open. Fertilised eggs stay untouched.
+Breeding management and culling remain disabled.
 
 ## Meet EMMA
 

@@ -103,4 +103,36 @@ check(exits and #exits == 1 and exits[1] == clearExit,
 clearExit.vehicle = neighborCar
 check(SC.Vehicle.safeExitSquares(exitCar, 0) == nil,
     "a fully blocked passenger door waits instead of placing the companion inside a car")
+;(function()
+    -- Exercise the real instance adapter at the irreversible hutch boundary.
+    local queueApi,doorApi=ISTimedActionQueue,ISToggleHutchDoor
+    local queue={queue={}}
+    ISTimedActionQueue={getTimedActionQueue=function() return queue end,
+        add=function(action) queue.current,queue.queue=action,{action} end}
+    local toggles,cleanups,stops=0,0,0
+    local closed,allow=false,true
+    local worker={getInventory=function() return {} end,
+        getPrimaryHandItem=function() end,getSecondaryHandItem=function() end}
+    ISToggleHutchDoor={new=function(_,subject)
+        return {character=subject,isValid=function() return true end,
+            complete=function() toggles=toggles+1 closed=true return true end,
+            perform=function() cleanups=cleanups+1 end,
+            forceStop=function() stops=stops+1 end}
+    end}
+    local intent={operation="animal_close",object={},validate=function() return not closed end,
+        beforeCommit=function() return allow end}
+    check(SC.NativeActions.startAnimal(worker,intent),"native door adapter queues the exact Farmer action")
+    local action=queue.current
+    allow=false
+    check(action:complete()==false and toggles==0 and stops==1,
+        "an invalidated roost proof stops the native door effect")
+    allow=true
+    check(action:complete()==true and action:complete()==true and toggles==1,
+        "repeated native completion cannot toggle a closed hutch back open")
+    action:perform()
+    check(cleanups==1 and stops==1,"successful commit still permits native queue and sound cleanup")
+    SC.NativeActions.resetWork(worker)
+    ISTimedActionQueue,ISToggleHutchDoor=queueApi,doorApi
+end)()
+
 SC_TEST_REPORT = "Essential lifecycle: " .. checks .. " ownership/isolation checks passed"

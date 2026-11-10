@@ -65,6 +65,7 @@ param(
     [switch]$BaseMaintenanceProbe,
     [switch]$CleaningMixturesProbe,
     [switch]$AnimalCareProbe,
+    [switch]$AnimalNightProbe,
     [switch]$BedExitTablesProbe,
     [switch]$DoorwayStallProbe,
     [switch]$DoorwayStallBaseline,
@@ -1900,7 +1901,8 @@ $config = @(
     ('medical_check_probe=' + $MedicalCheckProbe.IsPresent.ToString().ToLowerInvariant()),
     ('base_maintenance_probe=' + $BaseMaintenanceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('cleaning_mixtures_probe=' + $CleaningMixturesProbe.IsPresent.ToString().ToLowerInvariant()),
-    ('animal_care_probe=' + $AnimalCareProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('animal_care_probe=' + ($AnimalCareProbe.IsPresent -or $AnimalNightProbe.IsPresent).ToString().ToLowerInvariant()),
+    ('animal_night_probe=' + $AnimalNightProbe.IsPresent.ToString().ToLowerInvariant()),
     ('bed_exit_tables_probe=' + $BedExitTablesProbe.IsPresent.ToString().ToLowerInvariant()),
     ('doorway_stall_probe=' + $DoorwayStallProbe.IsPresent.ToString().ToLowerInvariant()),
     ('doorway_stall_baseline=' + $DoorwayStallBaseline.IsPresent.ToString().ToLowerInvariant()),
@@ -3092,7 +3094,7 @@ if ($captureOddballScene -and $status -eq 'PASS') {
     if (-not $oddballSceneCaptured) { throw 'Missing oddball scene screenshot capture.' }
     Write-Output "Oddball scene screenshot: $OddballSceneScreenshot"
 }
-if ($AnimalCareProbe) {
+if ($AnimalCareProbe -or $AnimalNightProbe) {
     $animalReportPath = Join-Path $SandboxLua 'animal-care.txt'
     if (-not (Test-Path -LiteralPath $animalReportPath -PathType Leaf) -or
         (Get-Content -LiteralPath $animalReportPath -Raw) -notmatch '^PASS ') {

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
+import json
 import re
 
 
@@ -16,6 +17,7 @@ runner = RUNNER.read_text(encoding="utf-8")
 driving = DRIVING.read_text(encoding="utf-8")
 root_info = ROOT_INFO.read_text(encoding="utf-8")
 version_info = VERSION_INFO.read_text(encoding="utf-8")
+game_version = json.loads((ROOT / "tests/core/pz-runtime.json").read_text(encoding="utf-8"))["gameVersion"]
 
 checks = 0
 
@@ -35,7 +37,7 @@ require("('bandits_enabled=' + ($BanditsAdapterProbe.IsPresent -or $BanditsEnabl
 for info in (root_info, version_info):
     require("id=SCRealSandboxHarness" in info, "harness mod id must be isolated")
     require("require=SurvivorCompanion" in info, "harness must load after the production mod")
-    require("versionMin=42.21.0" in info and "versionMax=42.21.0" in info,
+    require(f"versionMin={game_version}" in info and f"versionMax={game_version}" in info,
             "harness must use the same exact game-family gate")
 
 require("-cachedir=" in runner, "runner must redirect the complete user cache")

@@ -921,7 +921,7 @@ function FarmWork.audit(base)
     reopenCarriedWaterJobs(base)
     local farmZones = zones()
     local budget = math.max(1, math.floor(config("farmScanSquaresPerSlice", 16)))
-    local carriedWaterId, farmers = nil, {}
+    local carriedWaterId, farmers, animalFarmerId = nil, {}, nil
     local ids = SC.BaseLife.dutyResidentIds and SC.BaseLife.dutyResidentIds() or {}
     for index, id in ipairs(ids) do
         if index > 32 then break end
@@ -929,12 +929,15 @@ function FarmWork.audit(base)
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id)
         local actor = record and record.actor
         if resident and resident.role == "farmer" and resident.duty == true
-            and actor and not U().isDead(actor) and SC.BaseLife.isInside(actor) == true then
-            farmers[#farmers + 1] = { id = id, actor = actor }
+            and actor and not U().isDead(actor) then
+            local inside=SC.BaseLife.isInside(actor)==true
+            if inside then farmers[#farmers + 1] = { id = id, actor = actor } end
+            if not animalFarmerId and (inside or SC.BaseLife.withinWorkReach
+                and SC.BaseLife.withinWorkReach(actor)==true) then animalFarmerId=id end
         end
     end
     local animal, animalReason, animalPending
-    if #farmers > 0 and SC.AnimalWork then
+    if animalFarmerId and SC.AnimalWork then
         animal, animalReason, animalPending = SC.AnimalWork.candidate(base, #farmZones > 0 and 8 or 16)
         if #farmZones > 0 then budget = math.min(budget, 8) end
     end
@@ -964,7 +967,7 @@ function FarmWork.audit(base)
         end
     end
     if animal then
-        best = SC.AnimalWork.choose(carriedWaterId or (farmers[1] and farmers[1].id)
+        best = SC.AnimalWork.choose(carriedWaterId or animalFarmerId
             or "camp", best, animal)
     end
     if not best then return false, "farm_scan_no_work" end
@@ -1028,7 +1031,7 @@ local function farmingRole(actor)
     return resident and resident.role == "farmer"
 end
 
-local function approach(actor, square, object)
+local function approach(actor, square, object, workReach)
     local ax, ay, az = U().position(actor)
     local sx, sy, sz = U().position(square)
     if ax and sx and math.floor(az or 0) == math.floor(sz or 0) then
@@ -1055,7 +1058,7 @@ local function approach(actor, square, object)
             local accepted, reason = SC.Navigation.request(actor, target, "walk", {
                 action = "move_to_farm_plot", targetSquare = square,
                 arrivalDistance = 0.2, workCampOnly = true,
-                workReach = SC.BaseLife.isInside(square) ~= true,
+                workReach = workReach==true or SC.BaseLife.isInside(square) ~= true,
                 movingFormation = true,
                 interceptPosition = { x = math.floor(tx) + 0.5,
                     y = math.floor(ty) + 0.5, z = tz },
@@ -1066,7 +1069,7 @@ local function approach(actor, square, object)
     end
     local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
         action = "move_to_farm_plot", targetSquare = square, arrivalDistance = 0.2,
-        workCampOnly = true, workReach = SC.BaseLife.isInside(square) ~= true,
+        workCampOnly = true, workReach = workReach==true or SC.BaseLife.isInside(square) ~= true,
     })
     if accepted ~= true then return "failed", reason or "farm_approach_failed" end
     return "pending", reason or "farm_approaching"

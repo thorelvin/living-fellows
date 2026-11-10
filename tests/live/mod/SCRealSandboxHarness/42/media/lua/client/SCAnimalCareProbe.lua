@@ -24,6 +24,12 @@ local function crate(square, category)
     assert(SurvivorCompanion.BaseLife.registerStorage(object, category))
     return object
 end
+local function fence(x,y,north)
+    local square=getSquare(x,y,0)
+    local object=IsoThumpable.new(getCell(),square,north and "fencing_01_1" or "fencing_01_2",north,{})
+    object:setIsHoppable(true) object:setCanPassThrough(false) object:setIsThumpable(false)
+    square:AddSpecialObject(object) square:RecalcAllWithNeighbours(true)
+end
 local function setup(H)
     local SC, U, player = SurvivorCompanion, SurvivorCompanion.GameplayUtil, H.player
     local records = SC.Registry.records()
@@ -54,8 +60,30 @@ local function setup(H)
         assert(SC.BaseLife.beginZone("rally",getSquare(x+5,y+7,0)))
         assert(SC.BaseLife.finishZone(getSquare(x+5,y+7,0),"Animal acceptance rally"))
     end
+    if H.config.animal_night_probe=="true" then
+        local zones=SC.BaseLife.active().zones
+        -- This isolated fixture's Farmer lives inside the fenced pen. Keep
+        -- its new camp area/rally, rather than routing to the source house
+        -- through a deliberately closed animal fence.
+        for index=#zones,1,-1 do
+            local zone=zones[index]
+            if zone.kind=="area" and (zone.x1~=x or zone.y1~=y) then table.remove(zones,index) end
+        end
+        for _,zone in ipairs(zones) do
+            if zone.kind=="rally" then
+                zone.x1,zone.x2,zone.y1,zone.y2,zone.z=x+5,x+5,y+7,y+7,0
+            end
+        end
+        SC.BaseLife.noteWorkOwnershipMutation()
+    end
     P.zone = DesignationZoneAnimal.new("LF chicken acceptance", x+1,y+1,0,x+9,y+9,true)
-    P.zone:createSurroundingFence()
+    if H.config.animal_night_probe=="true" then
+        for i=1,8 do
+            fence(x+i,y+1,true)
+            fence(x+i,y+9,true)
+            fence(x+1,y+i,false) fence(x+9,y+i,false)
+        end
+    end
     local def = HutchDefinitions.hutchs.hutchhen
     P.hutch = IsoHutch.new(getSquare(x+3,y+4,0),false,def.baseSprite,def,nil)
     P.trough = IsoFeedingTrough.new(getSquare(x+6,y+5,0),"location_farm_accesories_01_14",nil)
@@ -77,7 +105,8 @@ local function setup(H)
     P.feeder:setMaxFeed(10) P.feeder:updateLuaObject()
     P.feeder:checkContainer()
     P.feed = crate(getSquare(x+6,y+3,0), "farming")
-    P.food = crate(getSquare(x+6,y+2,0), "food")
+    P.food = crate(getSquare(x+6,y+2,0), "fresh_food")
+    for _=1,12 do P.food:getContainer():AddItem("Base.Bread") end
     P.feedItem = P.feed:getContainer():AddItem("Base.AnimalFeedBag")
     P.mop=P.feed:getContainer():AddItem("Base.Mop")
     P.cleaner=P.feed:getContainer():AddItem("Base.Bleach")
@@ -106,7 +135,8 @@ local function setup(H)
             zombie:removeFromWorld() zombie:removeFromSquare() cleared=cleared+1
         end
     end
-    P.settings = { baseAlertEnabled=false, animalWorkEnabled=0 }
+    P.settings = { baseAlertEnabled=false, animalWorkEnabled=0,
+        productionEncounterEnabled=false, factionEnabled=false, oddballsEnabled=false }
     local originalGet=SC.Config.get
     SC.Config.get=function(section,key)
         local flat=key and SC.Config._aliases[section] and SC.Config._aliases[section][key] or section
@@ -140,9 +170,37 @@ local function setup(H)
         end
         return result,reason
     end
+    if H.config.animal_night_probe=="true" then
+        local roostReady=SC.AnimalWork.roostReady
+        SC.AnimalWork.roostReady=function(row,strict)
+            local ready,reason=roostReady(row,strict)
+            local current=getTimestampMs()
+            if not P.nextRoostLog or current>=P.nextRoostLog then
+                P.nextRoostLog=current+10000
+                emit("ROOST_CHECK ready="..tostring(ready).." strict="..tostring(strict)
+                    .." reason="..tostring(reason).." census="..tostring(row and #row.animals)
+                    .." config="..tostring(SC.GameplayUtil.config("animalCloseEnabled")))
+            end
+            return ready,reason
+        end
+    end
     SC.BaseLife.assign(P.record.id,"farmer",true)
     SC.Commands.issue(P.record.id,"base_duty",nil,player)
     P.startedAt, P.phase = getTimestampMs(), "baseline"
+    if H.config.animal_night_probe=="true" then
+        if P.hutch:isDoorClosed() then P.hutch:toggleDoor() end -- Initial fixture state only.
+        P.hutch:setHutchDirt(0) P.hutch:setNestBoxDirt(0)
+        P.settings.animalWorkEnabled,P.settings.animalCloseEnabled=1,1
+        P.trough:getFluidContainer():addFluid(Fluid.Water,1.8)
+        P.feed:getContainer():Remove(P.feedItem)
+        P.feeder:getContainer():AddItem(P.feedItem)
+        -- Three natural calendar cycles; no forced hutch entry, door toggles,
+        -- bird relocation or needs resets during observation.
+        getGameTime():setMinutesPerDay(4)
+        getGameTime():setTimeOfDay(19.8)
+        P.cycles,P.phase,P.nightAt=0,"night",getTimestampMs()
+        emit("NIGHT_SETUP cycles=3 minutes_per_day=4 physical_fence=true")
+    end
     screenshot("setup")
     emit("SETUP pen="..x..","..y.." worker="..P.record.id.." scheduler=normal")
     return true
@@ -157,9 +215,16 @@ local function startRoost(H,current)
     getGameTime():setTimeOfDay(19.8)
     P.phase,P.roostAt="roost",current
 end
+local function shelteredCount()
+    local count=P.hutch:getAnimalInside():size()
+    for index=0,P.hutch:getMaxNestBox() do
+        if P.hutch:getAnimalInNestBox(index) then count=count+1 end
+    end
+    return count
+end
 local function observe(H, current)
     local SC = SurvivorCompanion
-    local inside = P.hutch:getAnimalInside():size()
+    local inside = shelteredCount()
     local hour = getGameTime():getTimeOfDay()
     local text = "phase="..P.phase.." hour="..hour.." inside="..inside
         .." water="..P.trough:getWater().." feed="..P.feeder:getCurrentFeedAmount()
@@ -171,7 +236,45 @@ local function observe(H, current)
         .." actionLastTimer="..tostring(P.lastAction and P.lastAction.lastTimer)
         .." multiplier="..getGameTime():getMultiplier()
     emit(text)
-    if P.phase == "baseline" then
+    if P.phase=="night" then
+        SC.FarmWork.audit(SC.BaseLife.active())
+        if not P.nextBirdAt or current>=P.nextBirdAt then
+            P.nextBirdAt=current+10000
+            for _,bird in ipairs(P.birds) do
+                emit("BIRD id="..bird:getAnimalID().." health="..bird:getHealth()
+                    .." hunger="..bird:getHunger().." thirst="..bird:getThirst()
+                    .." pos="..bird:getX()..","..bird:getY()
+                    .." hutch="..tostring(bird:getHutch()==P.hutch))
+                if bird:getHealth()<=0 then error("bird died during night acceptance") end
+            end
+        end
+        local closed=P.hutch:isDoorClosed()
+        if not closed and hour>=21 and hour<24 and not P.closedBlockShot then
+            P.closedBlockShot=true screenshot("night-close-pending")
+        end
+        if P.closedThisNight and closed and hour>=9 and hour<20 and not P.openBlockShot then
+            P.openBlockShot=true screenshot("dawn-open-pending")
+        end
+        if closed then
+            if inside~=#P.birds then error("hutch closed with a bird outside") end
+            if not P.closedThisNight then
+                P.closedThisNight=true
+                emit("NIGHT_CLOSED cycle="..(P.cycles+1).." inside="..inside)
+                screenshot("night-"..(P.cycles+1).."-closed")
+            end
+        elseif P.closedThisNight and hour>=7 and hour<20 and inside==0 then
+            P.cycles=P.cycles+1 P.closedThisNight=false
+            P.closedBlockShot,P.openBlockShot=nil,nil
+            emit("NIGHT_CYCLE_PASS cycles="..P.cycles.." native_exit=true")
+            screenshot("night-"..P.cycles.."-open")
+            if P.cycles>=3 then
+                P.phase="passed"
+                write("PASS night_cycles=3 exact_birds="..#P.birds.." healthy=true")
+                P.finishAfterShot=true
+            end
+        end
+        if current-P.nightAt>1200000 then error("night acceptance deadline cycles="..P.cycles) end
+    elseif P.phase == "baseline" then
         if current-P.startedAt >= 15000 then
             assert(H.placeCombatActor(P.record.actor,P.stand))
             P.settings.animalWorkEnabled = 1

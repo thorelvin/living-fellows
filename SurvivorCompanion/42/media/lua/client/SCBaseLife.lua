@@ -4524,7 +4524,7 @@ local function jobScore(actorId, job, settlementId)
     return score
 end
 
--- Read-only arbitration hint. Assigned urgent work must not wait behind
+-- Read-only arbitration hint. Assigned urgent work and hutch door safety must not wait behind
 -- repeated optional shelving/packing trips. The ordinary claim still performs
 -- all ownership, expiry, order and policy checks before anything is changed.
 function BaseLife.priorityWorkFor(actorId)
@@ -4535,12 +4535,13 @@ function BaseLife.priorityWorkFor(actorId)
     local best, bestScore
     for _, job in ipairs(base.jobs) do
         local assigned = job.assignedId == actorId or job.reservedBy == actorId
+        local door=SC.AnimalWork and SC.AnimalWork.doorJob(job)
         local wanted = job.priority >= 4 or job.type == "production"
         local due = job.state == "pending" or ((job.state == "reserved" or job.state == "active")
                 and job.reservedBy == actorId and job.leaseUntil > current)
             or (job.state == "blocked" and job.retryAt <= current
                 and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job)))
-        if assigned and wanted and due then
+        if (assigned or door) and wanted and due then
             local score = jobScore(actorId, job)
             if score > -math.huge and (not bestScore or score > bestScore) then
                 best, bestScore = job, score
@@ -4550,7 +4551,7 @@ function BaseLife.priorityWorkFor(actorId)
     return best
 end
 
-function BaseLife.claimJob(actorId)
+function BaseLife.claimJob(actorId, accept)
     local base, current = activeBase(), now()
     local resident = ensure().residents[actorId]
     if not base or not resident or resident.duty ~= true then return nil, "not_on_base_duty" end
@@ -4599,8 +4600,9 @@ function BaseLife.claimJob(actorId)
             and job.leaseUntil <= current then
             releaseExpiredJob(job)
         end
-        if job.state == "pending" or (job.state == "blocked" and job.retryAt <= current
-            and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job))) then
+        if (job.state == "pending" or (job.state == "blocked" and job.retryAt <= current
+            and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job))))
+            and (accept==nil or accept(job)==true) then
             -- A restored or expired unload may still name its first worker.
             -- Let another resident claim it once that worker is loaded and
             -- the exact cargo/action recovery check says there is no owner.

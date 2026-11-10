@@ -43,6 +43,12 @@ local function fresh(width, height)
     function bird:getAge() return 100 end
     function bird:getData() return { isFemale = function() return true end } end
     function bird:canBePutInHutch() return true end
+    zone.registered={bird}
+    function zone:getAnimalsInZone()
+        local rows=self.registered
+        rows.size=function(self) return #self end
+        return rows
+    end
     for x = 2, 1 + zone.width do for y = 2, 1 + zone.height do
         local square = F.square(x, y)
         function square:getAnimals() return x == 2 and y == 2 and { bird } or {} end
@@ -96,6 +102,16 @@ handled, reason = SC.FarmWork.update(worker, {}, job, {})
 check(handled and reason == "farm_supply_taken" and feed.container == worker.inventory,
     "marked feed is borrowed as the exact native item")
 check(SC.FarmWork.isItemProtected(feed), "borrowed feed is reserved against other workers")
+local requestAny,route=SC.Navigation.requestAny,nil
+SC.Navigation.requestAny=function(subject,targets,mode,intent)
+    route=intent return true,"farm_approaching"
+end
+SC.FarmWork.update(worker,{},job,{})
+check(route and route.workReach==true and route.workCampOnly==true,
+    "animal approach carries its validated bounded-transit permission into navigation")
+SC.FarmWork.animalSupport.approach(worker,trough.feeder.square,trough.feeder)
+check(route.workReach==false,"ordinary crop approaches retain camp-only travel")
+SC.Navigation.requestAny=requestAny
 local wasActive, cancelWork = SC.NativeActions.isWorkActive, SC.NativeActions.cancelWork
 SC.NativeActions.isWorkActive = function() return true end
 SC.NativeActions.cancelWork = function() return false, "native_cleanup_pending" end
@@ -103,6 +119,20 @@ local timedOut = { animalWork = { operation="animal_feed", before=0, startedAt=F
 handled, reason = A.update(worker, {}, job, {}, timedOut)
 check(handled and reason=="native_cleanup_pending" and timedOut.animalWork~=nil
     and SC.FarmWork.isItemProtected(feed), "timeout retains ownership while native cleanup is pending")
+local interruptedConfig=U.config
+U.config=function(name) if name=="animalWorkEnabled" then return 0 end return interruptedConfig(name) end
+handled,reason=A.update(worker,{},job,{},timedOut)
+check(handled and reason=="native_cleanup_pending" and timedOut.animalWork~=nil,
+    "disabling or interrupting chicken work also retains pending native cleanup")
+U.config=interruptedConfig
+local finishWork=SC.NativeActions.finishWork
+SC.NativeActions.isWorkActive=function() return false end
+SC.NativeActions.finishWork=function() return false,"native_hand_cleanup_pending" end
+timedOut.animalWork.startedAt=F.clock
+handled,reason=A.update(worker,{},job,{},timedOut)
+check(handled and reason=="native_hand_cleanup_pending" and timedOut.animalWork~=nil,
+    "completed effects wait for native hand restoration without releasing the job")
+SC.NativeActions.finishWork=finishWork
 SC.NativeActions.isWorkActive, SC.NativeActions.cancelWork = wasActive, cancelWork
 check(SC.FarmWork.cancelActor(worker, "test_cancel") and feed.container == source,
     "cancellation returns the exact feed to its permitted source")
@@ -130,14 +160,16 @@ function nest:getEgg(index)
     return self.eggs[index + 1]
 end
 function nest:getEggsNb() return #self.eggs end
-local hutch = { x = 2, y = 2, z = 0, square = trough.square }
+local hutch = { x = 2, y = 2, z = 0, square = trough.square, occupants={} }
 function hutch:getHutch() return self end
 function hutch:getObjectIndex() return 0 end
 function hutch:getMaxAnimals() return 20 end
 function hutch:getMaxNestBox() return 0 end
+function hutch:getAnimalInNestBox() return self.nestingBird end
 function hutch:getNestBox() return nest end
-function hutch:getAnimalInside() return { values = function() return {} end,
-    size = function() return 0 end } end
+function hutch:getAnimalInside() return { values = function() return self.occupants end,
+    size = function() return #self.occupants end } end
+function hutch:isDoorClosed() return self.closed==true end
 function zone:getHutchs() return { hutch } end
 trough.water, trough.feed, trough.feeder.feed = 100, 0, 100
 candidate = A.candidate(F.base)
@@ -168,13 +200,98 @@ U.config = function(name)
 end
 check(A.hutchOperation(20.25, false, 0, 3) == nil, "birds outside retain the dusk grace period")
 check(A.hutchOperation(20.25, false, 3, 3) == "animal_close", "all birds inside permits dusk closing")
-check(A.hutchOperation(21.1, false, 0, 3) == "animal_close", "grace expiry permits closing")
+check(A.hutchOperation(21.1, false, 0, 3) == nil, "grace expiry cannot lock birds out")
+check(A.hutchOperation(23, false, nil, 3) == nil, "unknown occupancy cannot authorize closing")
 check(A.hutchOperation(7, true, 3, 3) == "animal_open", "native dawn opens a closed hutch")
 check(A.hutchOperation(10, false, 0, 3) == nil, "already open is an idempotent no-op")
+local anotherBird=setmetatable({}, {__index=bird})
+function anotherBird:getAnimalID() return 101 end
+local anotherHutch=setmetatable({occupants={anotherBird}}, {__index=hutch})
+function anotherHutch:getAnimalInNestBox() return nil end
+hutch.occupants={bird}
+zone.registered={bird,anotherBird}
+local roost={complete=true,animals={{id=100},{id=101}},members={[100]=bird,[101]=anotherBird},
+    native=zone,hutches={hutch,anotherHutch},flockIds={100,101},rosterVerified=true}
+check(A.roostReady(roost,true),"birds sheltered across two hutches can close either door")
+hutch.occupants={} hutch.nestingBird=bird
+check(A.roostReady(roost,true),"a laying hen in a nesting box is sheltered even outside the roost map")
+hutch.occupants={bird} hutch.nestingBird=nil
+anotherHutch.occupants={}
+check(not A.roostReady(roost,true),"one late bird keeps both hutch doors open")
+anotherHutch.occupants={anotherBird}
+zone.registered={bird,anotherBird,{}}
+check(not A.roostReady(roost,true),"a new outside bird invalidates the closing commit")
+zone.registered={bird}
+hutch.occupants={}
+F.hour=7
+local staleJob=F.job("animal_close",2,2,candidate)
+staleJob.target.operation="animal_close"
+local staleState={}
+local beforeStarts=F.nativeStarts
+local waiting,why=A.update(worker2,{},staleJob,{},staleState)
+check(waiting and staleState.animalReturn and F.nativeStarts==beforeStarts,
+    "dawn supersedes an unfinished night-close job without toggling the door")
+A.update(worker2,{},staleJob,{},staleState)
+F.hour=22
+local dayState={}
+local dayHandled= A.update(worker2,{},job,{},dayState)
+check(dayHandled and dayState.animalReturn and F.nativeStarts==beforeStarts,
+    "daytime egg work yields and settles at night instead of reserving the hutch forever")
+local previousJobs=F.base.jobs
+F.base.jobs={{id="old:egg",type="farm",state="blocked",target=job.target}}
+hutch.occupants={bird}
+local doorCandidate=A.candidate(F.base)
+check(doorCandidate and doorCandidate.operation=="animal_close",
+    "an idle blocked egg job cannot prevent nighttime door work")
+F.base.jobs=previousJobs
+hutch.occupants={} F.hour=7
 U.config = oldConfig
+local nestOnlyBird=setmetatable({}, {__index=bird})
+function nestOnlyBird:getAnimalID() return 102 end
+hutch.nestingBird=nestOnlyBird
 nest.eggs={}
 F.clock=F.clock+1000
 check(A.candidate(F.base)==nil,"empty native nests are never indexed")
+check(F.base.farm.animals.zones["42"].hens==2,"nesting hens remain included in the persisted flock census")
+hutch.nestingBird=nil
+F.hour=22
+F.base.jobs={}
+U.config=function(name) if name=="animalCloseEnabled" then return 1 end return oldConfig(name) end
+F.clock=F.clock+1000
+check(A.candidate(F.base)==nil and #F.base.farm.animals.zones["42"].flockIds==2,
+    "a formerly seen bird missing from both the zone set and tiles stays in the saved flock")
+A.reset() -- Reload discards native references, not the persisted identities.
+check(A.candidate(F.base)==nil,"reload cannot shrink the flock and lock a missing bird outside")
+hutch.occupants={bird} hutch.nestingBird=nestOnlyBird
+F.clock=F.clock+1000
+check(A.candidate(F.base).operation=="animal_close","the exact missing bird returning permits closing")
+function nestOnlyBird:getHealth() return 0 end
+hutch.nestingBird=nil
+F.clock=F.clock+1000
+check(A.candidate(F.base).operation=="animal_close"
+    and #F.base.farm.animals.zones["42"].flockIds==1,
+    "a positively observed death retires its identity without reconstructing an animal")
+local reloadBird=setmetatable({health=100},{__index=bird})
+function reloadBird:getAnimalID() return 103 end
+function reloadBird:getHealth() return self.health end
+hutch.nestingBird=reloadBird
+A.candidate(F.base)
+reloadBird.health=0
+A.reset()
+check(A.candidate(F.base)==nil and #F.base.farm.animals.zones["42"].flockIds==1,
+    "an observed dead bird after reload retires its ID while its occupied nest still blocks closing")
+hutch.nestingBird=nil
+check(A.candidate(F.base).operation=="animal_close","native removal of the dead occupant releases closing")
+F.base.farm.animals.zones["42"].flockIds={100,100}
+A.reset()
+check(A.candidate(F.base)==nil,"ambiguous saved identities prohibit automatic closing")
+zone,bird,trough=fresh()
+for index=1,8 do F.base.farm.animals.zones[tostring(index)]={flockIds={index}} end
+local capped,capReason=A.candidate(F.base)
+check(capped==nil and capReason=="animal_zone_limit"
+    and F.base.farm.animals.zones["1"].flockIds[1]==1,
+    "the zone limit never evicts retained flock safety evidence")
+U.config=oldConfig
 local target=A.flockTarget(20)
 check(target.hens==16 and target.roosters==2 and target.reserve==2,
     "all rooster and reserve slots are excluded from the hen target")
