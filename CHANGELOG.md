@@ -4,6 +4,9 @@
 
 ## 0.27.8 - Camp cattle care
 
+- Chicken and cattle pens may extend up to 30 tiles beyond camp, matching crop,
+  woodcutting and burial work. The whole enclosure must remain in reach; native
+  milking sides, hutch work and interrupted milk recovery use the same boundary.
 - Farmers supply cattle feed and water in vanilla camp pastures, including
   mixed chicken/cattle pens. Human food stays out of automatic cattle donations.
 - Cattle pastures support up to 1,024 tiles through the existing bounded farm

@@ -37,14 +37,15 @@ Send one to four companions to scout, loot, fish or collect wood, on foot or by 
 
 Base Watch, expeditions and Send Home share one companion view. Use one at a time.
 
-**Farmers care for chickens, too.** Put a vanilla animal zone wholly inside camp,
-with a hutch and separate feed and water troughs. Mark farming storage for supplies
+**Farmers care for chickens, too.** Put a vanilla animal zone inside camp or
+within 30 tiles of its boundary, keeping the whole pen in reach. Add a hutch
+and separate feed and water troughs. Mark farming storage for supplies
 and food storage for eggs. Farmers feed, water, collect eggs, open the hutch after
 dawn and clean it. At night they close the hutch once every known bird is
 sheltered; late birds keep the door open. Fertilised eggs stay untouched.
 Breeding management and culling remain disabled.
 
-**Cattle share the same care.** Keep a vanilla pasture wholly inside camp,
+**Cattle share the same care.** Keep the whole vanilla pasture within the same camp work reach,
 with separate feed and water troughs and supplies in marked Farming storage.
 Farmers use animal feed, hay and cut grass. Cattle pastures can span up to
 1,024 tiles. Farmers borrow empty milk containers from Farming storage, milk

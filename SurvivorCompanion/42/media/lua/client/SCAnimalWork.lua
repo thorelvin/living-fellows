@@ -223,7 +223,7 @@ function A.milkSide(actor,cow,preferred)
         local vector=value(cow,"getAttachmentWorldPos",side.name)
         local x,y=n(vector,"x"),n(vector,"y")
         local square=x and y and U().gridSquare(math.floor(x),math.floor(y),math.floor(z))
-        if square and U().isSquareFree(square)==true and SC.BaseLife.isInside(square)==true then
+        if square and U().isSquareFree(square)==true and SC.BaseLife.withinWorkReach(square)==true then
             local candidate={x=x,y=y,z=math.floor(z),right=side.right,square=square,distance=(ax-x)^2+(ay-y)^2}
             if preferred~=nil and side.right==preferred then return candidate end
             if not best or candidate.distance<best.distance then best=candidate end
@@ -428,7 +428,7 @@ local function advance(row, squareLimit)
         if outOfTime(start) then return done(false) end
         local x = row.x1 + row.index % row.width
         local y = row.y1 + math.floor(row.index / row.width)
-        if SC.BaseLife.isInside({ x = x, y = y, z = row.z }) ~= true then
+        if SC.BaseLife.withinWorkReach({ x = x, y = y, z = row.z }) ~= true then
             row.rejected = true return done(true)
         end
         local square = U().gridSquare(x, y, row.z)
@@ -997,7 +997,7 @@ function A.candidate(base, squareLimit)
             zoneCursor = zoneCursor % count
             local row = zoneFacts(at(zones, zoneCursor))
             zoneCursor, zoneVisited = zoneCursor + 1, zoneVisited + 1
-            if row and SC.BaseLife.isInside({x=row.x1,y=row.y1,z=row.z}) == true then
+            if row and SC.BaseLife.withinWorkReach({x=row.x1,y=row.y1,z=row.z}) == true then
                 scan = row break
             end
         end
@@ -1147,21 +1147,21 @@ local function findDevice(target)
     if target.operation=="animal_milk" then
         local cow=row.members[target.cowId]
         if cow and n(cow,"getAnimalID")==target.cowId and contains(row,cow)
-            and SC.BaseLife.isInside(cow)==true then return cow,row end
+            and SC.BaseLife.withinWorkReach(cow)==true then return cow,row end
         return nil,"animal_milk_cow_unavailable"
     end
     for _, list in ipairs({ row.troughs, row.hutches }) do
         for _, object in ipairs(list) do
             if key(object) == target.deviceKey and U().squareOf(object)
                 and (n(object,"getObjectIndex") or -1)>=0
-                and contains(row, object) and SC.BaseLife.isInside(object) == true then return object, row end
+                and contains(row, object) and SC.BaseLife.withinWorkReach(object) == true then return object, row end
         end
     end
     return nil, "animal_device_unavailable"
 end
 
--- Travel between camp areas may cross the existing bounded reach band.
--- This never grants permission to interact with a device outside camp.
+-- A fully checked animal zone may use the same bounded reach as crop fields,
+-- lumber and burial areas. Devices must still belong to that exact zone.
 function A.allowsWorkReach(job)
     local target = job and job.type == "farm" and job.target
     local row = target and target.animal and snapshots[target.nativeZoneId]
@@ -1170,7 +1170,7 @@ function A.allowsWorkReach(job)
     return enabled() and row ~= nil and row.coverageStamp == coverageStamp(SC.BaseLife.active())
         and zoneUnchanged(row)
         and value(row.native, "isFullyStreamed") == true
-        and SC.BaseLife.isInside(target) == true or false
+        and SC.BaseLife.withinWorkReach(target) == true or false
 end
 
 local function releaseMilkHold(held)
@@ -1602,7 +1602,7 @@ local function resumeMilkLoan(actor,baseState,job,state)
     if not item and milk and milk.dropX and milk.dropY and milk.dropZ then
         local square=U().gridSquare(milk.dropX,milk.dropY,milk.dropZ)
         local objects=value(square,"getWorldObjects")
-        if size(objects)<=32 and SC.BaseLife.isInside(square)==true then
+        if size(objects)<=32 and SC.BaseLife.withinWorkReach(square)==true then
             for index=0,size(objects)-1 do
                 local candidateWorld=at(objects,index)
                 local candidate=value(candidateWorld,"getItem")

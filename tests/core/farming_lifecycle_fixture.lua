@@ -261,6 +261,14 @@ SC.BaseLife = {
     active = function() return F.base end,
     policies = function() return F.base.settings end,
     isOutdoorSquare = function(square) return square and square:isOutside() or nil end,
+    withinWorkReach = function(square)
+        for _, zone in ipairs(F.base.zones) do
+            if zone.kind == "area" and square and square.z == zone.z
+                and square.x >= zone.x1 - 30 and square.x <= zone.x2 + 30
+                and square.y >= zone.y1 - 30 and square.y <= zone.y2 + 30 then return true end
+        end
+        return false
+    end,
     isInside = function(square)
         for _, zone in ipairs(F.base.zones) do
             if zone.kind == "area" and square and square.z == zone.z

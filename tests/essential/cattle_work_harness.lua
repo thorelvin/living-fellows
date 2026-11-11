@@ -340,6 +340,14 @@ local free=U.isSquareFree
 local request=SC.Navigation.request
 SC.Navigation.request=function() return true,"approaching" end
 U.isSquareFree=function() return true end
+F.base.zones[1].x1,F.base.zones[1].x2=-40,-25
+local reachSide=A.milkSide(F.actor("milk-reach",4,4),cow)
+check(reachSide and reachSide.x==5.5,
+    "a cow outside camp retains its usable milking side inside thirty-tile work reach")
+F.base.zones[1].x2=-26
+check(A.milkSide(F.actor("milk-too-far",4,4),cow)==nil,
+    "a milking attachment beyond thirty tiles is never approached")
+F.base.zones[1].x1,F.base.zones[1].x2=0,40
 U.projectedCarryLoad=function() return 0,20 end
 U.itemWeight=function() return .5 end
 local approachActor=F.actor("milk-approach",6,6)

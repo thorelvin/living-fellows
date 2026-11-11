@@ -141,7 +141,18 @@ F.clock = F.clock + 1000
 check(A.candidate(F.base) == nil, "Strange Folk animals suppress automatic pen work")
 fresh(2, 1)
 F.base.zones[1].x2 = 2
-check(A.candidate(F.base) == nil, "a pen crossing the camp-area union is rejected")
+candidate=A.candidate(F.base)
+check(candidate and A.allowsWorkReach(F.job("animal_water",2,2,candidate)),
+    "a pen straddling the camp boundary can work through the bounded reach band")
+fresh(2,1)
+F.base.zones[1].x1,F.base.zones[1].x2=-40,-27
+candidate=A.candidate(F.base)
+check(candidate and A.allowsWorkReach(F.job("animal_water",2,2,candidate)),
+    "the whole pen may reach exactly thirty tiles beyond camp")
+F.base.zones[1].x2=-28
+check(not A.allowsWorkReach(F.job("animal_water",2,2,candidate)),
+    "changing the camp boundary immediately invalidates an old animal route")
+check(A.candidate(F.base)==nil,"a pen with its far edge thirty-one tiles out is rejected")
 fresh(16, 16)
 check(A.candidate(F.base) == nil, "256-tile audit yields after sixteen squares")
 fresh(17, 16)
