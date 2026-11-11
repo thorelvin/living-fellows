@@ -321,7 +321,10 @@ function Transport.isCargoProtected(item, actorOrId, operation)
         and SC.FarmWork.isItemProtected(item, actorOrId, operation) then return true end
     local data = itemData(item)
     if not data then return false end
-    if data.LF_LogYardSplit ~= nil then return true end
+    if data.LF_LogYardSplit ~= nil and (not SC.LogYard or not SC.LogYard.splitReserved
+        or SC.LogYard.splitReserved(item)) then return true end
+    if data.LF_LogYardBundle ~= nil and SC.LogYard and SC.LogYard.reserved
+        and SC.LogYard.reserved(item) then return true end
     if data.LF_FloorSortJob ~= nil then
         if not SC.BaseLife or type(SC.BaseLife.job) ~= "function" then return true end
         local job = SC.BaseLife.job(data.LF_FloorSortJob)
@@ -393,7 +396,10 @@ function Transport.foreignProtected(item, actor)
     end
     local data = itemData(item)
     if not data then return true, "item_mod_data_unavailable" end
-    if data.LF_LogYardSplit ~= nil then return true, "log_yard_split_pending" end
+    if data.LF_LogYardSplit ~= nil and (not SC.LogYard or not SC.LogYard.splitReserved
+        or SC.LogYard.splitReserved(item)) then return true, "log_yard_split_pending" end
+    if data.LF_LogYardBundle ~= nil and SC.LogYard and SC.LogYard.reserved
+        and SC.LogYard.reserved(item) then return true, "log_yard_work_pending" end
     if data.LF_TradeRecoveryId ~= nil or data.LF_TradeRecoveryBuildId ~= nil then
         return true, "trade_recovery_owned"
     end

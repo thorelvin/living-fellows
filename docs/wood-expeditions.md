@@ -43,8 +43,14 @@ camp work reach. Distant or unavailable cargo remains pending.
 Log Yards arrange up to four physical logs per tile in aligned stacks and rows,
 finishing a partial stack before starting another tile. Each log stays available
 for normal pickup and use. Already loaded yard stock straightens when inspected;
-the placement is saved with the original items. Tying a stack still uses the
-existing four-log, two-rope recipe.
+the placement is saved with the original items. Full tiles queue a **Stack logs**
+camp job. A worker fetches two ropes from permitted storage and uses the native
+four-log crafting action, keeping the logs on the ground. Rope-tagged variants
+work too. Missing rope pauses the job for three minutes before another attempt.
+When construction or sawing needs a log, workers untie two-, three- or four-log
+bundles with the native action. They take one log, leave the others on the same
+yard tile and recover the original rope types. Interrupted work keeps its exact
+item receipts; missing or uncertain items are never recreated.
 
 Full or inaccessible storage pauses delivery for three minutes, preserves the
 exact cargo and automatically tries again. **Retry wood delivery** allows an

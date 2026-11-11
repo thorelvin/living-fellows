@@ -1727,24 +1727,25 @@ do
         "idle guard joins watch")
     local oldGuardStatus = SC.BaseLife.guardStatus
     local oldNightRestricted = SC.BaseLife.outdoorNightRestricted
-    local oldBundle = SC.LogYard.updateBundle
+    local oldBundle = SC.LogYard.update
     local bundleCalls = 0
     SC.BaseLife.guardStatus = function() return true end
     SC.BaseLife.outdoorNightRestricted = function() return false end
-    SC.LogYard.updateBundle = function()
+    SC.LogYard.update = function()
         bundleCalls = bundleCalls + 1
-        return true, "log_yard_bundled"
+        return true, "log_yard_bundled", false, true
     end
+    SC.BaseLife.enqueueJob({ type = "stack_logs", target = { x = 2, y = 1, z = 0 } })
     SC.BaseWork.update(ctx.actor, nil, {})
     check(bundleCalls == 0, "idle on-shift guard does not leave watch to bundle")
     check(SC.BaseLife.assign(id, "generalist", true) == true,
         "idle worker leaves guard role")
     SC.BaseLife.guardStatus = function() return false end
     SC.BaseWork.update(ctx.actor, nil, {})
-    check(bundleCalls == 1, "idle non-guard can bundle yard logs")
+    check(bundleCalls == 1, "a queued native stack job runs through normal non-guard base work")
     SC.BaseLife.guardStatus = oldGuardStatus
     SC.BaseLife.outdoorNightRestricted = oldNightRestricted
-    SC.LogYard.updateBundle = oldBundle
+    SC.LogYard.update = oldBundle
 end
 
 -- The marked yard must preserve four exact logs through bundling and
@@ -1862,9 +1863,9 @@ do
         and logs[1].modData[SC.WorkTransport.MARKERS.id] == claim,
         "cosmetic arrangement cannot consume a claimed pending log")
     logs[1].modData[SC.WorkTransport.MARKERS.id] = nil
-    check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare)) == "log_yard_rope_missing"
+    check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare)) == "log_yard_bundle_queued"
         and #SC.LogYard.contents(yardSquare).logs == 4,
-        "an orderly four-log pile remains four usable raw logs when rope is missing")
+        "queuing work leaves an orderly four-log pile as four usable raw logs")
     local fifth = makeItem("Base.Log")
     ctx.actor.inventory:AddItem(fifth)
     check(select(2, SC.LogYard.deposit(ctx.actor, fifth,
@@ -2040,9 +2041,9 @@ do
         "four loose logs fill exactly one yard tile")
     ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
     check(select(2, SC.LogYard.bundleAt(ctx.actor, yardSquare))
-            == "log_yard_rope_missing"
+            == "log_yard_bundle_queued"
             and SC.LogYard.contents(yardSquare).units == 4,
-        "missing rope leaves all four loose logs untouched")
+        "queued native work leaves all four loose logs untouched")
     local ropeObject = makeStorage(addSquare(3, 0, 0))
     local ropeOk = SC.BaseLife.registerStorage(ropeObject, "crafting")
     check(ropeOk == true, "rope storage registers")
@@ -2056,13 +2057,20 @@ do
         "a pending work receipt prevents the yard from consuming its log")
     claimed.modData[SC.WorkTransport.MARKERS.id] = nil
     local bundled, bundleReason = SC.LogYard.bundleAt(ctx.actor, yardSquare)
+    check(bundled == true and bundleReason == "log_yard_bundle_queued"
+            and #SC.LogYard.contents(yardSquare).logs == 4 and #ropeObject.container.items == 2,
+        "delivery queues native stacking without consuming anyone's ingredients")
+    -- Native crafting and interruption are covered by essential/log_yard_harness.
+    -- Supply a tied fixture here to retain the original withdrawal regressions.
+    for _, row in ipairs(SC.LogYard.contents(yardSquare).logs) do
+        check(SC.GameplayUtil.takeWorldItemVerified(row.world, ctx.actor.inventory, row.item),
+            "remove exact loose fixture before setting up bundle withdrawal")
+        ctx.actor.inventory:Remove(row.item)
+    end
+    putOnGround(yardSquare, makeItem("Base.LogStacks4", {
+        modData = { ropeItems = { [0] = "Base.Rope", [1] = "Base.Rope" } },
+    }))
     local afterBundle = SC.LogYard.contents(yardSquare)
-    check(bundled == true and bundleReason == "log_yard_bundled"
-            and afterBundle.units == 4 and #afterBundle.bundles == 1
-            and #afterBundle.logs == 0 and #ropeObject.container.items == 0
-            and afterBundle.bundles[1].item.modData.ropeItems[0] == "Base.Rope"
-            and afterBundle.bundles[1].item.modData.ropeItems[1] == "Base.Rope",
-        "two ropes and four logs become one vanilla tied bundle")
     local tiedItem = afterBundle.bundles[1].item
     local tiedWorld = tiedItem.worldItem
     local tiedAdds = yardSquare.worldAdds
@@ -2071,105 +2079,11 @@ do
         and SC.LogYard.arrange(yardSquare) == true and tiedItem.worldItem == tiedWorld
         and tiedWorld:getItem() == tiedItem and yardSquare.worldAdds == tiedAdds,
         "the vanilla tied bundle is aligned on its same native world wrapper")
-    local taken, takeReason, log = SC.LogYard.takeOne(ctx.actor,
-        { x = 2, y = 1, z = 0, zoneId = zone.id })
-    local afterTake = SC.LogYard.contents(yardSquare)
-    local returnedRopes = 0
-    for _, item in ipairs(ctx.actor.inventory.items) do
-        if item.fullType == "Base.Rope" then returnedRopes = returnedRopes + 1 end
-    end
-    check(taken == true and takeReason == "log_yard_log_taken"
-            and ctx.actor.inventory:contains(log)
-            and afterTake.units == 3 and #afterTake.logs == 3
-            and returnedRopes == 2,
-        "building opens one bundle, leaves three logs and returns both ropes")
-    local compacted = true
-    for _, row in ipairs(afterTake.logs) do
-        compacted = compacted and row.world:getOffX() == 0.5 and row.world:getOffZ() == 0
-            and row.item:getWorldZRotation() == 0
-    end
-    check(compacted, "opening the tied bundle compacts its three raw remainders into the lower pile layer")
+    -- Native unstacking and remainder layout are exercised in the essential yard harness.
+
 end
 
--- A refused bundle drop must restore the exact original items regardless of
--- whether its ropes came from the worker, storage, or both.
-for carried = 0, 2 do
-    local ctx = setup("logs", 1)
-    local yardSquare = addSquare(2, 1, 0)
-    function yardSquare:isOutside() return true end
-    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
-        "failed-bundle yard begins")
-    check(SC.BaseLife.finishZone(yardSquare, "Drop-fault yard") == true,
-        "failed-bundle yard registers")
-    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
-    local logs, ropes = {}, {}
-    for index = 1, 4 do
-        logs[index] = makeItem("Base.Log")
-        putOnGround(yardSquare, logs[index])
-    end
-    local ropeObject = makeStorage(addSquare(3, 0, 0))
-    check(SC.BaseLife.registerStorage(ropeObject, "crafting") == true,
-        "failed-bundle rope storage registers")
-    for index = 1, 2 do
-        ropes[index] = makeItem("Base.Rope")
-        local home = index <= carried and ctx.actor.inventory or ropeObject.container
-        home:AddItem(ropes[index])
-    end
-    local originalDrop = yardSquare.AddWorldInventoryItem
-    yardSquare.AddWorldInventoryItem = function(self, item)
-        if item.fullType == "Base.LogStacks4" then return nil end
-        return originalDrop(self, item)
-    end
-    local bundled, reason = SC.LogYard.bundleAt(ctx.actor, yardSquare)
-    yardSquare.AddWorldInventoryItem = originalDrop
-    local contents = SC.LogYard.contents(yardSquare)
-    check(bundled == false and reason == "log_yard_bundle_drop_failed"
-            and #contents.logs == 4 and #contents.bundles == 0,
-        "failed bundle drop leaves four exact ground logs: carried=" .. carried)
-    for _, log in ipairs(logs) do
-        check(log.worldItem and SC.GameplayUtil.worldItemPresent(yardSquare,
-                log.worldItem) == true,
-            "failed bundle drop restores exact log identity")
-    end
-    for index, rope in ipairs(ropes) do
-        local home = index <= carried and ctx.actor.inventory or ropeObject.container
-        check(home:contains(rope), "failed bundle drop restores exact rope owner")
-    end
-    check(SC.LogYard.bundleAt(ctx.actor, yardSquare) == true,
-        "bundle retries successfully after drop fault")
-end
-
--- Yard withdrawal must refuse a log before moving its exact world item when
--- Rope selection rotates through late container entries, recognizes the
--- construction category, and combines a carried rope with stored stock.
-do
-    local ctx = setup("logs", 1)
-    local yardSquare = addSquare(2, 1, 0)
-    function yardSquare:isOutside() return true end
-    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
-        "late-rope yard begins")
-    local marked = SC.BaseLife.finishZone(yardSquare, "Late-rope yard")
-    check(marked == true, "late-rope yard registers")
-    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
-    for _ = 1, 4 do putOnGround(yardSquare, makeItem("Base.Log")) end
-    local ropeObject = makeStorage(addSquare(3, 0, 0))
-    check(SC.BaseLife.registerStorage(ropeObject, "construction") == true,
-        "construction storage registers for rope")
-    for _ = 1, 120 do ropeObject.container:AddItem(makeItem("Base.Nails")) end
-    ropeObject.container:AddItem(makeItem("Base.Rope"))
-    ctx.actor.inventory:AddItem(makeItem("Base.Rope"))
-    local bundled = false
-    for _ = 1, 3 do
-        bundled = SC.LogYard.bundleAt(ctx.actor, yardSquare)
-        if bundled == true then break end
-    end
-    check(bundled == true and SC.LogYard.contents(yardSquare).units == 4
-            and #SC.LogYard.contents(yardSquare).bundles == 1,
-        "one carried and one late construction rope make the tied bundle")
-end
-
--- Yard withdrawal must refuse a log before moving its exact world item when
--- the builder would cross the saw action's 85% load limit.
+-- Yard withdrawal refuses an overloaded worker before moving a world item.
 do
     local ctx = setup("logs", 1)
     local yardSquare = addSquare(2, 1, 0)
@@ -2222,121 +2136,7 @@ do
         "overloaded worker leaves tied stack and rope metadata untouched")
 end
 
--- A rejected remainder drop must not consume the original tied stack or
--- leave provisional split outputs in the world or worker inventory.
-do
-    local ctx = setup("logs", 1)
-    local yardSquare = addSquare(2, 1, 0)
-    function yardSquare:isOutside() return true end
-    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
-        "split failure yard begins")
-    local marked, zone = SC.BaseLife.finishZone(yardSquare, "Split failure yard")
-    check(marked == true, "split failure yard registers")
-    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
-    local bundle = makeItem("Base.LogStacks4", {
-        modData = { ropeItems = { [0] = "Base.Rope", [1] = "Base.Rope" } },
-    })
-    local wrapper = putOnGround(yardSquare, bundle)
-    local originalDrop = yardSquare.AddWorldInventoryItem
-    local logDrops = 0
-    yardSquare.AddWorldInventoryItem = function(self, item)
-        if item.fullType == "Base.Log" then
-            logDrops = logDrops + 1
-            if logDrops == 2 then return nil end
-        end
-        return originalDrop(self, item)
-    end
-    local taken, reason = SC.LogYard.takeOne(ctx.actor,
-        { x = 2, y = 1, z = 0, zoneId = zone.id })
-    yardSquare.AddWorldInventoryItem = originalDrop
-    local contents = SC.LogYard.contents(yardSquare)
-    local carriedLogs, carriedRopes = 0, 0
-    for _, item in ipairs(ctx.actor.inventory.items) do
-        if item.fullType == "Base.Log" then carriedLogs = carriedLogs + 1 end
-        if item.fullType == "Base.Rope" then carriedRopes = carriedRopes + 1 end
-    end
-    check(taken == false and reason == "log_yard_unbundle_drop_failed"
-            and bundle.worldItem == wrapper and contents.units == 4
-            and #contents.bundles == 1 and #contents.logs == 0
-            and carriedLogs == 0 and carriedRopes == 0,
-        "failed split rolls back to the exact original bundle")
-end
-
--- A gather receipt can be retargeted from its original container to the yard
--- Every supported vanilla stack size must be retrievable, with exact rope
--- restitution and without treating a counted yard tile as unusable stock.
-for _, size in ipairs({ 2, 3 }) do
-    local ctx = setup("logs", 1)
-    local yardSquare = addSquare(2, 1, 0)
-    function yardSquare:isOutside() return true end
-    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
-        "small-stack yard begins")
-    local marked, zone = SC.BaseLife.finishZone(yardSquare, "Small-stack yard")
-    check(marked == true, "small-stack yard registers")
-    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
-    local bundle = makeItem("Base.LogStacks" .. size, {
-        modData = { ropeItems = { [0] = "Base.Rope", [1] = "Base.Rope" } },
-    })
-    putOnGround(yardSquare, bundle)
-    local destination = SC.LogYard.source(ctx.actor, zone.id)
-    check(destination ~= nil and SC.LogYard.contents(yardSquare).units == size,
-        "small tied stack is counted and selected")
-    local taken, reason, log = SC.LogYard.takeOne(ctx.actor, destination)
-    local ropes = 0
-    for _, item in ipairs(ctx.actor.inventory.items) do
-        if item.fullType == "Base.Rope" then ropes = ropes + 1 end
-    end
-    check(taken == true and reason == "log_yard_log_taken"
-            and ctx.actor.inventory:contains(log)
-            and SC.LogYard.contents(yardSquare).units == size - 1
-            and ropes == 2,
-        "small tied stack splits into one carried and remaining ground logs")
-end
-
--- Failed output creation and failed source consumption leave the original
--- identity in place; a world-removal failure may require one recovery pulse.
-for _, failure in ipairs({ "create", "consume", "world" }) do
-    local ctx = setup("logs", 1)
-    local yardSquare = addSquare(2, 1, 0)
-    function yardSquare:isOutside() return true end
-    check(SC.BaseLife.beginZone("log_yard", yardSquare) == true,
-        "fault yard begins")
-    local marked, zone = SC.BaseLife.finishZone(yardSquare, "Fault yard")
-    check(marked == true, "fault yard registers")
-    ctx.actor.square, ctx.actor.x, ctx.actor.y = yardSquare, 2.5, 1.5
-    local bundle = makeItem("Base.LogStacks4", {
-        modData = { ropeItems = { [0] = "Base.Rope", [1] = "Base.Rope" } },
-    })
-    local wrapper = putOnGround(yardSquare, bundle)
-    if failure == "create" then
-        ctx.actor.inventory.rejectAddAt = (ctx.actor.inventory.addCalls or 0) + 2
-    elseif failure == "consume" then
-        ctx.actor.inventory.rejectRemoveTypeOnce = "Base.LogStacks4"
-    else
-        yardSquare.rejectRemove = true
-    end
-    local destination = { x = 2, y = 1, z = 0, zoneId = zone.id }
-    local taken, reason = SC.LogYard.takeOne(ctx.actor, destination)
-    check(taken == false, "injected split fault is reported")
-    if reason == "log_yard_split_recovery_pending" then
-        check(SC.LogYard.select(ctx.actor) == nil
-                and SC.LogYard.contents(yardSquare).splitPending == true,
-            "a split awaiting recovery reserves its yard tile")
-    end
-    yardSquare.rejectRemove = false
-    if reason == "log_yard_split_recovery_pending" then
-        SC.LogYard.takeOne(ctx.actor, destination)
-    end
-    local contents = SC.LogYard.contents(yardSquare)
-    check(bundle.worldItem ~= nil
-            and SC.GameplayUtil.worldItemPresent(yardSquare, bundle.worldItem) == true
-            and contents.units == 4
-            and #contents.bundles == 1 and #contents.logs == 0,
-        "injected split fault recovers the exact original bundle: " .. failure
-            .. "/" .. tostring(reason) .. "/" .. tostring(contents.units)
-            .. "/" .. tostring(#contents.bundles) .. "/" .. tostring(#contents.logs)
-            .. "/" .. tostring(bundle.worldItem == wrapper))
-end
+-- Native unstack/drop/variant tests replace the former scripted-split fault cases.
 
 -- A gather receipt can be retargeted from its original container to the yard
 -- and still account for exactly one delivered world item after save/load.

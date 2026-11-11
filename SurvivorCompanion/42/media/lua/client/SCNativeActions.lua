@@ -2301,7 +2301,13 @@ local function restoreWorkInventory(actor, record)
     for index = #(record.moved or {}), 1, -1 do
         local transfer = record.moved[index]
         local containerOk, current = invoke(transfer.item, "getContainer")
-        if containerOk and current == inventory and transfer.container ~= nil then
+        local survives = true
+        if record.verifySurvivingItems then
+            local readable, present = invoke(inventory, "contains", transfer.item)
+            survives = readable and present == true
+            if not readable then restoredAll = false end
+        end
+        if survives and containerOk and current == inventory and transfer.container ~= nil then
             local removedOk, removed = invoke(inventory, "Remove", transfer.item)
             if removedOk and removed ~= false then
                 local addedOk, added = invoke(transfer.container, "AddItem", transfer.item)
@@ -2327,6 +2333,11 @@ local function restoreWorkInventory(actor, record)
         end
         local containerOk, container = invoke(item, "getContainer")
         if not containerOk or container == nil then return true end
+        if record.verifySurvivingItems then
+            local readable, present = invoke(container, "contains", item)
+            if not readable then return false end
+            if present ~= true then return true end
+        end
         local setOk = invoke(actor, setter, item)
         if not setOk then return false end
         local getter = setter == "setPrimaryHandItem" and "getPrimaryHandItem"
@@ -3371,6 +3382,98 @@ local function startBashDoor(actor, intent, provider)
     end
     return queueTrackedWork(actor, timedAction, record, "bash_door")
 end
+
+-- Keep bulky recipe inputs on the ground. This private floor view contains
+-- references to only this job's
+-- inputs, never a local player's loot panel or inventory.
+local function startLogCraft(actor, intent, unstack)
+    if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
+        or intent.validate() ~= true then
+        return false, "log_yard_inputs_changed"
+    end
+    if type(require) == "function" then pcall(require, "Entity/TimedActions/ISHandcraftAction") end
+    local names = { [2] = "Two", [3] = "Three", [4] = "Four" }
+    local ground, carried, recipeName
+    if unstack then
+        if not names[intent.count] or not intent.bundle then return false, "log_yard_inputs_changed" end
+        ground, carried = { intent.bundle }, {}
+        recipeName = "Base.Unstack" .. names[intent.count] .. "Logs"
+    else
+        if type(intent.logs) ~= "table" or #intent.logs ~= 4
+            or type(intent.ropes) ~= "table" or #intent.ropes ~= 2 then
+            return false, "log_yard_inputs_changed"
+        end
+        ground, carried, recipeName = intent.logs, intent.ropes, "Base.MakeFourLogStack"
+    end
+    local recipe = craftRecipe(recipeName)
+    if not recipe or not ISHandcraftAction or not ItemContainer then
+        return false, "log_yard_native_recipe_unavailable"
+    end
+    local inputsOk, inputs = invoke(recipe, "getInputs")
+    if not inputsOk or nativeListSize(inputs) ~= (unstack and 1 or 2) then
+        return false, "log_yard_native_recipe_changed"
+    end
+    local manual, seen = {}, {}
+    for index = 0, nativeListSize(inputs) - 1 do
+        local input = nativeListGet(inputs, index)
+        local _, count = invoke(input, "getIntAmount")
+        local _, keep = invoke(input, "isKeep")
+        local _, io = invoke(recipe, "getIndexForIO", input)
+        count = tonumber(count)
+        if keep ~= false or (unstack and count ~= 1)
+            or (not unstack and count ~= 4 and count ~= 2) or seen[count]
+            or tonumber(io) == nil then return false, "log_yard_native_recipe_changed" end
+        seen[count] = true
+        manual[io] = newJavaList((unstack or count == 4) and ground or carried)
+        if not manual[io] then return false, "log_yard_native_list_unavailable" end
+    end
+    local made, floor = pcall(ItemContainer.new, "floor", intent.square, nil)
+    if not made or not floor then return false, "log_yard_floor_unavailable" end
+    local _, floorItems = invoke(floor, "getItems")
+    for _, item in ipairs(ground) do
+        if not invoke(floorItems, "add", item) then return false, "log_yard_floor_unavailable" end
+    end
+    local record, why = prepareWorkInventory(actor, carried, nil, nil)
+    if not record then return false, why end
+    local containers = newJavaList({ actor:getInventory(), floor })
+    local madeAction, action = pcall(ISHandcraftAction.new, ISHandcraftAction, actor,
+        recipe, containers, nil, nil, manual, nil, nil, 1, 0)
+    if not madeAction or not action then
+        restoreWorkInventory(actor, record)
+        return false, "log_yard_native_action_unavailable"
+    end
+    record.baseJobId = intent.jobId
+    -- Craft consumption can leave a stale getContainer() reference. Only
+    -- physically surviving rope may return to its bag or previous hand.
+    record.verifySurvivingItems = true
+    local valid, performRecipe = action.isValid, action.performRecipe
+    action.isValid = function(self)
+        return intent.validate() == true and valid(self) == true
+    end
+    -- Vanilla owns animations, sounds, consumption, the output and ropeItems.
+    -- A persisted attempt receipt forbids replay after an ambiguous interruption.
+    action.performRecipe = function(self)
+        if self.lfStackAttempted or intent.validate() ~= true then return end
+        self.lfStackAttempted = true
+        intent.onAttempt()
+        local okay, failure = pcall(performRecipe, self)
+        local output = unstack and {} or nil
+        if self.logic then
+            local created = newJavaList({})
+            if created and invoke(self.logic, "getCreatedOutputItems", created) then
+                if unstack then
+                    for i = 0, nativeListSize(created) - 1 do output[#output + 1] = nativeListGet(created, i) end
+                elseif nativeListSize(created) == 1 then output = nativeListGet(created, 0) end
+            end
+        end
+        intent.onResult(output, okay)
+        if not okay then error(failure) end
+    end
+    return queueTrackedWork(actor, action, record, unstack and "unstack_logs" or "stack_logs")
+end
+
+function actions.startLogStack(actor, intent) return startLogCraft(actor, intent, false) end
+function actions.startLogUnstack(actor, intent) return startLogCraft(actor, intent, true) end
 
 local function startSawLogs(actor, intent, provider)
     local log, saw = intent.log, intent.saw

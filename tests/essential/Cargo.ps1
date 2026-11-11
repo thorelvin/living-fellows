@@ -27,6 +27,17 @@
     (Join-Path $Client 'SCExpeditionFuel.lua'),
     (Join-Path $Essential 'fuel_expedition_harness.lua')) }
 
+@{ Name = 'log-yard-native-stacking'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCNativeTraversalActions.lua'),
+    (Join-Path $Client 'SCNativeVisualActions.lua'),
+    (Join-Path $Client 'SCNativeCombatActions.lua'),
+    (Join-Path $Client 'SCNativeWorkActions.lua'),
+    (Join-Path $Client 'SCNativeMovementActions.lua'),
+    (Join-Path $Client 'SCNativeActions.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\Entity\TimedActions\ISHandcraftAction.lua'),
+    (Join-Path $Client 'SCLogYard.lua'),
+    (Join-Path $Essential 'log_yard_harness.lua')) }
+
 @{ Name = 'packing-and-camp-preparation'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'loadout_harness.lua'),
     (Join-Path $Essential 'sorting_scan_harness.lua')) }

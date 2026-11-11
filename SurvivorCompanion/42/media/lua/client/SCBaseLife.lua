@@ -31,7 +31,7 @@ BaseLife.STORAGE_CATEGORIES = {
     output = true, memorial = true, farming = true,
 }
 BaseLife.JOB_TYPES = {
-    haul = true, sort = true, sort_floor = true, fetch = true, unload_vehicle = true,
+    haul = true, sort = true, sort_floor = true, fetch = true, unload_vehicle = true, stack_logs = true,
     refuel_vehicle = true, refuel_generator = true, generator_service = true,
     inflate_tires = true, wash_vehicle = true,
     repair = true, replace_bandage = true, clean = true,
@@ -206,6 +206,8 @@ local function transientJobDelay(job, reason)
     if upkeepDelay then return upkeepDelay end
     if reason == "destination_full" or reason == "haul_destinations_full"
         or reason == "car_unload_storage_full_or_missing" then return 30000 end
+    if job.type == "stack_logs" and (reason == "log_yard_rope_missing"
+        or reason == "log_yard_rope_moved" or reason == "log_yard_unloaded") then return 180000 end
     if job.type == "farm" then return TRANSIENT_FARM_BLOCKERS[reason] end
     if job.type == "sort" or job.type == "sort_floor" then
         return TRANSIENT_SORT_BLOCKERS[reason]
@@ -214,7 +216,7 @@ local function transientJobDelay(job, reason)
     return nil
 end
 local roleAffinity = {
-    generalist = { haul = 4, sort = 4, sort_floor = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
+    generalist = { stack_logs = 5, haul = 4, sort = 4, sort_floor = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
         clean = 3,
         repair = 3, replace_bandage = 2,
         craft_supply = 3, barricade = 2, maintain = 2, build = 2, production = 5 },
@@ -222,14 +224,14 @@ local roleAffinity = {
         production = 1 },
     builder = { build = 10, barricade = 9, maintain = 8, repair = 5,
         gather_materials = 6, fetch = 3, production = 7 },
-    quartermaster = { haul = 10, sort = 10, sort_floor = 10, fetch = 9, unload_vehicle = 12,
+    quartermaster = { stack_logs = 10, haul = 10, sort = 10, sort_floor = 10, fetch = 9, unload_vehicle = 12,
         gather_materials = 8,
         craft_supply = 4, production = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
     farmer = { farm = 30, haul = 3, sort = 2, sort_floor = 2, fetch = 3, production = 2 },
     chef = { cook = 30, haul = 2, sort = 2, sort_floor = 2, fetch = 2 },
     angler = { haul = 3, sort = 2, sort_floor = 2, fetch = 3, production = 1 },
-    woodcutter = { production = 30, gather_materials = 8, haul = 3 },
+    woodcutter = { stack_logs = 30, production = 30, gather_materials = 8, haul = 3 },
     corpsekeeper = { production = 30, maintain = 2, clean = 2 },
     maintainer = { maintain = 30, barricade = 25, repair = 15, fetch = 4, clean = 10 },
 }
@@ -3215,7 +3217,10 @@ function BaseLife.jobAllowsWorkReach(job)
     if type(job) ~= "table" or type(job.target) ~= "table" then return false end
     local base = activeBase()
     local order
-    if job.type == "refuel_generator" or job.type == "generator_service" then
+    if job.type == "stack_logs" then
+        local target = job.target
+        return SC.LogYard and SC.LogYard.tile(target.x, target.y, target.z) ~= nil
+    elseif job.type == "refuel_generator" or job.type == "generator_service" then
         local target = job.target
         return type(target.objectId) == "string"
             and BaseLife.withinWorkReach(target)
@@ -4545,6 +4550,9 @@ local function jobScore(actorId, job, settlementId)
     if job.id == settlementId then score = score + 500 end
     if job.assignedId == actorId then score = score + 100 end
     if job.assignedId ~= nil and job.assignedId ~= actorId then return -math.huge end
+    if job.type == "stack_logs" and SC.LogYard and not SC.LogYard.canClaim(job) then
+        return -math.huge
+    end
     local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId) or nil
     if job.type == "clean" then
         local target = type(job.target) == "table" and U().gridSquare(
@@ -4671,7 +4679,8 @@ function BaseLife.claimJob(actorId, accept)
             -- A restored or expired unload may still name its first worker.
             -- Let another resident claim it once that worker is loaded and
             -- the exact cargo/action recovery check says there is no owner.
-            local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
+            local fuelWork = job.type == "stack_logs" and SC.LogYard
+                or job.type == "unload_vehicle" and SC.VehicleUnload
                 or job.type == "refuel_vehicle" and SC.VehicleRefuel
                 or job.type == "generator_service" and SC.GeneratorServices
         or job.type == "refuel_generator" and SC.GeneratorRefuel
@@ -4680,6 +4689,9 @@ function BaseLife.claimJob(actorId, accept)
             if fuelWork and job.assignedId ~= nil
                 and type(fuelWork.releaseAffinity) == "function" then
                 fuelWork.releaseAffinity(U().resolveActor(job.assignedId), job)
+            end
+            if job.target and job.target.yardUnstack and SC.LogYard and SC.LogYard.releaseUnstackAffinity then
+                SC.LogYard.releaseUnstackAffinity(U().resolveActor(job.assignedId), job)
             end
             local score = jobScore(actorId, job, settlement and settlement.id)
             if bestScore == nil or score > bestScore
@@ -4713,7 +4725,8 @@ end
 function BaseLife.releaseJob(id, actorId, reason)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
-    local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
+    local fuelWork = job.type == "stack_logs" and SC.LogYard
+                or job.type == "unload_vehicle" and SC.VehicleUnload
         or job.type == "refuel_vehicle" and SC.VehicleRefuel
         or job.type == "generator_service" and SC.GeneratorServices
         or job.type == "refuel_generator" and SC.GeneratorRefuel
@@ -4739,7 +4752,8 @@ function BaseLife.blockJob(id, actorId, reason, retryMs)
     -- Keep the worker for the report: a playtest log said a barricade timed
     -- out twice but not whose approach failed.
     local worker = actorId or job.reservedBy
-    local fuelWork = job.type == "unload_vehicle" and SC.VehicleUnload
+    local fuelWork = job.type == "stack_logs" and SC.LogYard
+                or job.type == "unload_vehicle" and SC.VehicleUnload
         or job.type == "refuel_vehicle" and SC.VehicleRefuel
         or job.type == "generator_service" and SC.GeneratorServices
         or job.type == "refuel_generator" and SC.GeneratorRefuel
@@ -4864,6 +4878,11 @@ function BaseLife.cancelJob(id)
     if base then job, index = findById(base.jobs, id) end
     if not job then return false, "unknown_job" end
     if job.state == "manual" then return false, "player_build_in_progress" end
+    if job.target and job.target.yardUnstack and SC.LogYard then
+        local actor = U().resolveActor(job.target.yardUnstack.ownerId)
+        local stopped, reason = SC.LogYard.cancelUnstack(actor, job)
+        if stopped ~= true then return false, reason end
+    end
     if job.type == "barricade" then
         if not SC.Commands or type(SC.Commands.cancelBaseJob) ~= "function" then
             return false, "barricade_cancel_unavailable"
@@ -4882,7 +4901,7 @@ function BaseLife.cancelJob(id)
         local okay, reason = SC.ChefWork.cancelJob(job, job.reservedBy)
         if okay ~= true then return false, reason or "chef_recovery_pending" end
     end
-    local transferJob = job.type == "haul" or job.type == "sort"
+    local transferJob = job.type == "stack_logs" or job.type == "haul" or job.type == "sort"
         or job.type == "sort_floor"
         or job.type == "clean" or job.type == "radio_work"
         or job.type == "fetch" or job.type == "unload_vehicle"

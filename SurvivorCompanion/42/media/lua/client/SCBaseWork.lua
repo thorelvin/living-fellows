@@ -1179,6 +1179,10 @@ local function prepareCleaningMixture(actor, state, job)
 end
 
 local function prepareBuild(actor, state, job, info)
+    if job.target.yardUnstack and SC.LogYard then
+        local taken, reason, _, terminal = SC.LogYard.takeOne(actor, SC.LogYard.source(actor, nil, job), job)
+        return taken, reason, terminal
+    end
     local requirements, recipeOrReason = recipeRequirements(info)
     if not requirements then return false, recipeOrReason end
     for _, requirement in ipairs(requirements) do
@@ -1187,8 +1191,8 @@ local function prepareBuild(actor, state, job, info)
             if missingType == "Base.Log" and SC.LogYard and SC.LogYard.source then
                 local yard = SC.LogYard.source(actor)
                 if yard then
-                    local taken, reason = SC.LogYard.takeOne(actor, yard)
-                    return taken, reason or "build_log_yard_unavailable"
+                    local taken, reason, _, terminal = SC.LogYard.takeOne(actor, yard, job)
+                    return taken, reason or "build_log_yard_unavailable", terminal
                 end
             end
             return false, "missing_build_supply:" .. tostring(missingType)
@@ -1511,8 +1515,8 @@ local function updateBuild(actor, state, job)
     local info = BaseWork.recipeInfo(job.recipeId)
     if not info then return false, "build_recipe_missing", true end
     if state.phase ~= "building" then
-        local prepared, reason = prepareBuild(actor, state, job, info)
-        if not prepared or reason ~= "build_supplies_ready" then return prepared, reason end
+        local prepared, reason, terminal = prepareBuild(actor, state, job, info)
+        if not prepared or reason ~= "build_supplies_ready" then return prepared, reason, terminal end
         local approaches = SC.Navigation and SC.Navigation.interactionTargets
             and SC.Navigation.interactionTargets(actor, square) or {}
         local adjacent = approaches[1] or freeAdjacent(square, actor)
@@ -2795,18 +2799,7 @@ function BaseWork.update(actor, player, runtime)
     end
     if job then clearGuardPatrol(actor, state, "guard_job_assigned") end
     if not job then
-        if not activeGuard and SC.LogYard
-            and type(SC.LogYard.updateBundle) == "function"
-            and not SC.BaseLife.outdoorNightRestricted() then
-            if state.nextLogYardAt == nil or now() >= state.nextLogYardAt then
-                state.nextLogYardAt = now() + 30000
-                local handled, reason = SC.LogYard.updateBundle(actor)
-                if handled then
-                    if reason ~= "log_yard_bundled" then state.nextLogYardAt = now() + 2000 end
-                    return true, reason
-                end
-            end
-        end
+
         if activeGuard then
             local handled, reason = guardRoutine(actor, state)
             if handled or reason ~= "guard_zone_missing" then return handled, reason end
@@ -2889,6 +2882,14 @@ function BaseWork.update(actor, player, runtime)
         handled, reason, terminal, completed = updateCleaning(actor,
             state, job, player, runtime)
         if completed then
+            state.jobId = nil
+            return true, reason
+        end
+    elseif job.type == "stack_logs" then
+        local complete
+        handled, reason, terminal, complete = SC.LogYard.update(actor, state, job)
+        if complete then
+            SC.BaseLife.completeJob(job.id, id, reason)
             state.jobId = nil
             return true, reason
         end
@@ -3254,6 +3255,9 @@ local function auditMaintenanceStep(player, remainingBudget, scan)
         end
         return false, "generator_refuel_unavailable"
     end
+    if auditPhase == 11 then
+        return SC.LogYard.audit(remainingBudget)
+    end
     if auditPhase == 10 then
         if SC.VehicleUpkeep and type(SC.VehicleUpkeep.audit) == "function" then
             return SC.VehicleUpkeep.audit()
@@ -3308,7 +3312,7 @@ function BaseWork.auditMaintenance(player, remainingBudget)
     if not scan or scan.base ~= base then
         scan = { base = base, stage = "family" }
         maintenanceAudit = scan
-        auditPhase = (auditPhase % 10) + 1
+        auditPhase = (auditPhase % 11) + 1
         if SC.WorkTransport and type(SC.WorkTransport.recoverPending) == "function" then
             pcall(SC.WorkTransport.recoverPending, U().config("workRecoveryPerPulse") or 2)
         end
@@ -3345,6 +3349,10 @@ function BaseWork.auditMaintenance(player, remainingBudget)
 end
 
 function BaseWork.cancel(actor, reason)
+    if SC.LogYard and SC.LogYard.cancelActorUnstack then
+        local stopped, why = SC.LogYard.cancelActorUnstack(actor)
+        if stopped ~= true then return false, why end
+    end
     if SC.RadioWork then
         local okay, why = SC.RadioWork.pause(actor, reason or "base_work_cancelled")
         if not okay then return false, why end
@@ -3387,7 +3395,8 @@ function BaseWork.cancel(actor, reason)
             local returned, why = returnCleaningLoans(actor, state, job, true)
             if returned ~= true then return false, why or "cleaning_return_pending" end
         end
-        local fuelWork = job and (job.type == "unload_vehicle" and SC.VehicleUnload
+        local fuelWork = job and (job.type == "stack_logs" and SC.LogYard
+            or job.type == "unload_vehicle" and SC.VehicleUnload
             or job.type == "refuel_vehicle" and SC.VehicleRefuel
             or job.type == "generator_service" and SC.GeneratorServices
                 or job.type == "refuel_generator" and SC.GeneratorRefuel
@@ -3450,6 +3459,12 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
         return SC.RadioWork.pause(actor, reason or "base_job_cancelled", jobId)
     end
     local unloadJob = SC.BaseLife and SC.BaseLife.job(jobId) or nil
+    if unloadJob and unloadJob.target and unloadJob.target.yardUnstack and SC.LogYard then
+        local receipt = unloadJob.target.yardUnstack
+        local worker = U().resolveActor(receipt.ownerId)
+        local stopped, why = SC.LogYard.cancelUnstack(worker, unloadJob)
+        if stopped ~= true then return false, why end
+    end
     if unloadJob and unloadJob.target and unloadJob.target.stockBatch and SC.SortBatch then
         if SC.SortBatch.releaseGone(unloadJob) then return true,"sort_worker_gone" end
         local worker=unloadJob.target.stockBatch.owner
@@ -3513,7 +3528,7 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
         if state and state.jobId == jobId then states[actor] = nil end
         return true, "cleaning_cancelled"
     end
-    if unloadJob and (unloadJob.type == "unload_vehicle"
+    if unloadJob and (unloadJob.type == "stack_logs" or unloadJob.type == "unload_vehicle"
         or unloadJob.type == "refuel_vehicle"
         or unloadJob.type == "generator_service"
         or unloadJob.type == "refuel_generator"
@@ -3521,7 +3536,8 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
         or unloadJob.type == "wash_vehicle") then
         local worker = ownerId or unloadJob.assignedId
         local owner = worker and U().resolveActor(worker) or nil
-        local fuelWork = unloadJob.type == "unload_vehicle"
+        local fuelWork = unloadJob.type == "stack_logs" and SC.LogYard
+            or unloadJob.type == "unload_vehicle"
             and SC.VehicleUnload or unloadJob.type == "refuel_vehicle"
             and SC.VehicleRefuel or unloadJob.type == "generator_service"
             and SC.GeneratorServices or unloadJob.type == "refuel_generator"
@@ -3600,6 +3616,14 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
     if type(job) ~= "table" or type(ownerId) ~= "string" then
         return false, "expired_job_owner_missing"
     end
+    if job.target and job.target.yardUnstack and SC.LogYard then
+        local actor = U().resolveActor(job.target.yardUnstack.ownerId)
+        if actor and SC.NativeActions.isWorkActive(actor) then
+            return false, "expired_log_unstack_native_active"
+        end
+        local settled, why = SC.LogYard.cancelUnstack(actor, job)
+        if settled ~= true then return false, why end
+    end
     if SC.SortBatch and SC.SortBatch.releaseGone(job) then return true,"expired_job_worker_gone" end
     if job.type == "production" then
         if SC.Production and type(SC.Production.reconcileExpiredJob) == "function" then
@@ -3618,12 +3642,13 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
             return false, "expired_cleaning_loan_pending" end
         job.target.cleanLoans, job.target.cleanPreparation, job.assignedId = nil, nil, nil
     end
-    if (job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"
+    if (job.type == "stack_logs" or job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"
         or job.type == "inflate_tires" or job.type == "wash_vehicle")
         and type(job.target) == "table"
         and job.target.stage ~= nil then
         -- Only the chore can release a receipt whose worker is gone for good.
-        local work = job.type == "refuel_vehicle" and SC.VehicleRefuel
+        local work = job.type == "stack_logs" and SC.LogYard
+            or job.type == "refuel_vehicle" and SC.VehicleRefuel
             or job.type == "generator_service" and SC.GeneratorServices
                 or job.type == "refuel_generator" and SC.GeneratorRefuel
             or SC.VehicleUpkeep

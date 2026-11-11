@@ -2284,6 +2284,16 @@ local function plankKeys(inventory)
 end
 
 local function withdrawLog(actor, order, state)
+    if state.job and state.job.target.yardUnstack and SC.LogYard then
+        local yard = SC.LogYard.source(actor, order.sourceZoneId, state.job)
+        local taken, reason, item, terminal = SC.LogYard.takeOne(actor, yard, state.job)
+        if taken and item and reason == "log_yard_log_taken" then
+            if not markCargo(item, order.id) then return false, "production_marker_failed" end
+            return true, "production_log_taken"
+        end
+        if terminal then return blockOrder(order, reason) end
+        return taken, reason
+    end
     if not SC.BaseWork or type(SC.BaseWork.withdrawFromStorage) ~= "function" then
         return blockOrder(order, "base_work_unavailable")
     end
@@ -2310,15 +2320,15 @@ local function withdrawLog(actor, order, state)
         if log then state.pendingLog = log end
     end
     if not log and order.sourceZoneId and SC.LogYard then
-        local yard = SC.LogYard.source(actor, order.sourceZoneId)
+        local yard = SC.LogYard.source(actor, order.sourceZoneId, state.job)
         if yard then
             state.phase = "withdrawing"
-            local taken, reason, item = SC.LogYard.takeOne(actor, yard)
+            local taken, reason, item, terminal = SC.LogYard.takeOne(actor, yard, state.job)
             if taken == true and reason == "log_yard_log_taken" then
                 if not markCargo(item, order.id) then return false, "production_marker_failed" end
                 return true, "production_log_taken"
             end
-            if reason == "worker_overloaded" then return blockOrder(order, reason) end
+            if terminal or reason == "worker_overloaded" then return blockOrder(order, reason) end
             return taken, reason or "production_log_yard_unavailable"
         end
     end
@@ -5781,6 +5791,10 @@ function Production.retryOrder(orderId)
 end
 
 function Production.cancelActor(actor, reason)
+    if SC.LogYard and SC.LogYard.cancelActorUnstack then
+        local stopped, why = SC.LogYard.cancelActorUnstack(actor, "production")
+        if stopped ~= true then return false, why end
+    end
     local state = actor and actorStates[actor] or nil
     local receipt = actor and U().modData(actor) or nil
     receipt = type(receipt) == "table" and receipt[Production.SAW_RECEIPT] or nil
