@@ -279,7 +279,7 @@ end
 -- which would orphan an exact milk receipt after a real save/load.
 function FarmWork.pendingMilkInventory(id)
     for _,receipt in ipairs(SC.BaseLife.farmReceipts(nil,false)) do
-        if receipt.actorId==id and (receipt.milk or receipt.milkInvalid) then return true end
+        if receipt.actorId==id and (receipt.milk or receipt.milkInvalid or receipt.wool or receipt.woolInvalid) then return true end
     end
     return false
 end
@@ -288,7 +288,10 @@ function FarmWork.isFarmingSupply(item)
     if not item then return false end
     if SC.AnimalWork and SC.AnimalWork.isFeed(item) then return true end
     if config("animalMilkEnabled",0)==1 and SC.AnimalWork
-        and SC.AnimalWork.milkContainer(item) then return true end
+        and (SC.AnimalWork.milkContainer(item)
+            or config("animalSheepEnabled",0)==1 and config("animalSheepMilkEnabled",0)==1
+                and SC.AnimalWork.milkContainer(item,"SheepMilk")) then return true end
+    if config("animalShearEnabled",0)==1 and U().itemHasTag(item,"SHEAR") then return true end
     local kind = string.lower(U().itemType(item))
     if U().itemHasTag(item, "DIG_PLOW") or U().itemHasTag(item, "COMPOST") then return true end
     if string.find(kind, "wateringcan", 1, true)
@@ -836,6 +839,13 @@ local function settleLostCarrier(receipt, now)
         -- Preserve unresolved ownership until its exact source is loaded.
         return SC.AnimalWork.releaseStagedMilk(receipt)==true
     end
+    if (receipt.wool or receipt.woolInvalid) and SC.AnimalShearing
+        and SC.AnimalShearing.retainAfterCarrierLoss(receipt) then
+        -- Sheared wool may still be on the pasture floor, independently of
+        -- its former Farmer. Let its job hand it to the next worker, or let
+        -- exact cancelled-output recovery release it for camp sorting.
+        return false
+    end
     carrierLostSince[receipt.id] = nil
     SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed", blocker = "carrier_lost" })
     return true
@@ -866,7 +876,10 @@ local function recoverPending(limit)
         local inventory = actor and U().inventory(actor) or nil
         local item
         for _, candidate in ipairs(inventory and U().inventoryItems(inventory, 256) or {}) do
-            if marker(candidate) == receipt.id then item = candidate break end
+            if marker(candidate) == receipt.id and (not receipt.wool
+                or U().itemType(candidate)==receipt.itemType
+                    and tostring((invoke(candidate,"getID")))==tostring(receipt.nativeId)
+                    and select(1,invoke(candidate,"getContainer"))==inventory) then item = candidate break end
         end
         if item then
             local storage, container
@@ -875,7 +888,8 @@ local function recoverPending(limit)
                 container = storage and SC.BaseLife.resolveContainer(storage) or nil
             else
                 local category = receipt.destinationCategory or "food"
-                local rows = (category == "food" or category == "fresh_food")
+                local rows = receipt.wool and SC.AnimalShearing.depositRows()
+                    or (category == "food" or category == "fresh_food")
                     and SC.BaseLife.foodDepositRows(item)
                     or SC.BaseLife.depositStorageRows(category)
                 for _, row in ipairs(rows) do
@@ -887,6 +901,10 @@ local function recoverPending(limit)
                 end
             end
             if storage and container and SC.BaseWork and SC.BaseWork.restoreToStorage then
+                if receipt.wool then
+                    receipt.wool.destinationStorageId=storage.id
+                    SC.BaseLife.updateFarmReceipt(receipt.id,{wool=receipt.wool})
+                end
                 unmark(item, receipt.id)
                 local restore = receipt.kind == "output"
                     and SC.BaseWork.restoreDepositToStorage or SC.BaseWork.restoreToStorage
@@ -1423,7 +1441,8 @@ local function depositOutputs(actor, baseState, state)
     local output = state.outputs and state.outputs[1] or nil
     if not output then state.outputs = nil return true, "farm_outputs_deposited" end
     local storage, container
-    local rows = output.milk and SC.AnimalWork.milkDepositRows()
+    local rows = output.wool and SC.AnimalShearing.depositRows()
+        or output.milk and SC.AnimalWork.milkDepositRows()
         or (output.category == "food" or output.category == "fresh_food")
         and SC.BaseLife.foodDepositRows(output.item)
         or SC.BaseLife.depositStorageRows(output.category)
@@ -1431,9 +1450,15 @@ local function depositOutputs(actor, baseState, state)
         local candidate = SC.BaseLife.resolveContainer(row)
         local room = candidate and (not SC.WorkTransport or not SC.WorkTransport.hasRoom
             or SC.WorkTransport.hasRoom(candidate, actor, output.item) == true)
-        if room then storage, container = row, candidate break end
+        if room and SC.BaseLife.storageAcceptsDeposit(row,candidate)==true then storage, container = row, candidate break end
     end
     if not storage then return false, "farm_output_storage_missing", true end
+    if output.wool then
+        local receipt=SC.BaseLife.farmReceipt(output.receiptId)
+        if not receipt or not receipt.wool then return false,"animal_shear_uncertain",true end
+        receipt.wool.destinationStorageId=storage.id
+        SC.BaseLife.updateFarmReceipt(receipt.id,{wool=receipt.wool})
+    end
     if output.milk then
         local receipt=SC.BaseLife.farmReceipt(output.receiptId)
         if receipt and receipt.milk then
@@ -2275,6 +2300,7 @@ end
 
 -- Shared machinery, not a second receipt ledger or scheduler.
 FarmWork.animalSupport = {
+    protected = protected,
     borrow = borrowSupply, settle = consumeOrReturn, approach = approach,
     receipt = allocateReceipt, deposit = depositOutputs, waterUses = waterUses,
     restore = restoreBorrowed,

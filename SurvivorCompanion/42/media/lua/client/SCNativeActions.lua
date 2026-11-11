@@ -52,6 +52,7 @@ require "TimedActions/Animals/ISToggleHutchEggHatchDoor"
 require "TimedActions/Animals/ISHutchCleanFloor"
 require "TimedActions/Animals/ISHutchCleanNest"
 require "TimedActions/Animals/ISMilkAnimal"
+require "TimedActions/Animals/ISShearAnimal"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -2760,6 +2761,58 @@ function actions.startAnimal(actor, intent)
                 end
             end
         end
+    elseif intent.operation=="animal_shear" and ISShearAnimal and type(intent.shearResult)=="table"
+        and type(intent.shearResult.before)=="function" and type(intent.shearResult.after)=="function"
+        and type(intent.shearOwns)=="function" then
+        created,action=pcall(ISShearAnimal.new,ISShearAnimal,actor,object,item)
+        if created and action then
+            local update=action.update
+            local result=intent.shearResult
+            local function cleanup(self)
+                if self.character~=actor or self.animal~=object then return end
+                pcall(self.stopSound,self)
+                invoke(actor,"setVariable","shearanimal",false)
+                if intent.shearOwns() then
+                    local _,behavior=invoke(object,"getBehavior")
+                    invoke(behavior,"setBlockMovement",false)
+                end
+            end
+            result.cleanup=function() cleanup(action) end
+            for _,method in ipairs({"stop","forceStop","perform","complete"}) do
+                local native=action[method]
+                action[method]=function(self,...)
+                    local okay,value
+                    if intent.shearOwns() then okay,value=pcall(native,self,...)
+                    elseif method=="complete" then okay,value=true,true
+                    else okay,value=pcall(ISBaseTimedAction[method],self,...) end
+                    cleanup(self)
+                    if not okay then result.reason="animal_shear_uncertain" return false end
+                    return value
+                end
+            end
+            action.update=function(self)
+                if self.character~=actor or self.animal~=object or self.shear~=item
+                    or intent.validate()~=true then result.reason="animal_shear_interrupted" self:forceStop() return end
+                local due=math.floor((self.timer+getGameTime():getMultiplier())/self.timePerLiter)>self.lastTimer
+                local proof,why
+                if due then
+                    local checked
+                    checked,proof,why=pcall(result.before)
+                    if not checked or not proof then
+                        result.reason=checked and why or "animal_shear_uncertain"
+                        self:forceStop() return
+                    end
+                end
+                local okay=pcall(update,self)
+                if proof then
+                    local checked,captured,reason=pcall(result.after,proof)
+                    if not checked or not captured then
+                        result.reason="animal_shear_uncertain" okay=false
+                    end
+                end
+                if not okay then result.reason="animal_shear_uncertain" self:forceStop() end
+            end
+        end
     elseif intent.operation == "animal_egg" and ISHutchGrabEgg and intent.nest then
         created, action = pcall(ISHutchGrabEgg.new, ISHutchGrabEgg, actor, intent.nest, object)
         if created and action then
@@ -2796,7 +2849,7 @@ function actions.startAnimal(actor, intent)
         if type(native) == "function" then
             action[method] = function(self, ...)
                 if method=="complete" and committed then return true end
-                local milkCleanup=intent.operation=="animal_milk" and method~="update"
+                local milkCleanup=(intent.operation=="animal_milk" or intent.operation=="animal_shear") and method~="update"
                 if not milkCleanup and not (method=="perform" and committed) and (intent.validate() ~= true
                     or method=="complete" and intent.beforeCommit and intent.beforeCommit()~=true) then
                     if intent.operation=="animal_milk" then intent.milkResult.reason="animal_milk_interrupted" end

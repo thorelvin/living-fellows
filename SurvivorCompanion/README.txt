@@ -1,4 +1,4 @@
-Living Fellows 0.27.8 - release
+Living Fellows 0.27.9 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -24,6 +24,8 @@ TAKE THE OTHERS WITH YOU
 - Cattle care: Farmers supply feed and water from marked Farming storage.
   Cattle pastures support up to 1,024 tiles. Farmers borrow empty milk containers,
   preserve a calf reserve and deliver milk to Fresh food or Regular food storage.
+- Sheep care: Farmers feed and water the flock, milk ewes with a lamb reserve,
+  shear mature sheep and gather their real wool into Crafting or General storage.
 - EMMA computers: ask about camp supplies, people, jobs and expeditions,
   request help with confirmation, and read the previous owners' files.
   Everything runs offline, with readable text on a full-screen 1993 terminal.

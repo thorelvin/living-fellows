@@ -1332,6 +1332,13 @@ local valueData = {
     animalMilkCalfReservePercent = 40,
     animalMilkUrgentPercent = 80,
     animalMilkMaxStressPercent = 40,
+    -- Native 42.22.2 sheep/milk/wool acceptance: 2026-11-11.
+    animalSheepEnabled = 1,
+    animalSheepMilkEnabled = 1,
+    animalShearEnabled = 1,
+    animalShearStartPercent = 80,
+    animalShearMaxStressPercent = 40,
+    animalSheepZoneMaxTiles = 1024,
 
     -- WP01 gathering stays finite, camp-local, and shares the existing scheduler.
     workMaximumOrders = 8,

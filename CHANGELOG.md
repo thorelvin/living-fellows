@@ -2,6 +2,25 @@
 
 # Changelog
 
+## 0.27.9 - Camp sheep care
+
+- Farmers feed and water ewes, rams and lambs of all three vanilla breeds,
+  sharing existing pasture care with chickens and cattle. The whole enclosure
+  stays within 30 tiles of camp; sheep pastures support up to 1,024 tiles.
+- Healthy mature sheep are sheared in daylight once fleece reaches 80% of its
+  native maximum. Manual shears are preferred, with charged electric shears as
+  a fallback. Native animations, stress, wear, battery use and XP are retained.
+- Each native fleece debit is matched to its real raw-wool drop. Farmers gather
+  safe batches, deliver to Crafting then General storage, and return borrowed
+  shears. Full storage stops new cutting and preserves existing cargo for retry.
+  The Base view separates collected, carried and stored wool.
+- Ewe milking uses SheepMilk, the existing daily/multiple-load workflow and a
+  reserve for nursing lambs. SheepMilk and CowMilk remain separate through
+  delivery and reload. Missing or ambiguous output is never recreated.
+- Existing farm claims, bounded scans and receipts handle sheep work; no new
+  background service, role, area or storage category is added. Bridge protocol
+  `42.22-isocompanion-31` is unchanged; its rebuild updates release metadata only.
+
 ## 0.27.8 - Camp cattle care
 
 - Chicken and cattle pens may extend up to 30 tiles beyond camp, matching crop,

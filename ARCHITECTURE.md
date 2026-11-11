@@ -92,14 +92,22 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   work to daylight, and never plows ground that was not already a farm plot.
   Its event speech uses deterministic chance plus actor/party cooldowns, remains
   silent near threats, and never participates in action admission or completion.
-- `SCAnimalWork` extends that same farm lane for chickens and cattle in vanilla animal
-  zones wholly covered by the camp-area union. It adds no scheduler, event,
+- `SCAnimalWork` extends that same farm lane for chickens, cattle and sheep in vanilla animal
+  zones wholly within the camp's 30-tile work reach. It adds no scheduler, event,
   role or storage category. Resumable audits inspect at most 16 squares and
-  32 animals per slice, eight cached zones of at most 256 chicken-only or 1,024 cattle tiles, and eight
+  32 animals per slice, eight cached zones of at most 256 chicken-only or 1,024 livestock tiles, and eight
   hutches/troughs per zone; shared work units and a 1.5 ms yield boundary
   retain the frontier. Supported mixed pens share ordinary care; unknown species
   cannot authorize irreversible policy, and Strange Folk animals remain protected.
   Two workers per zone and one per device hold expiring runtime claims.
+  `SCAnimalShearing` uses that same lane for mature ewes/rams. It validates
+  each native shearing increment against a bounded before/after ground snapshot,
+  binds one exact `Base.WoolRaw` ID per fleece unit, and shares farm output
+  receipts and tool loans. Carry/storage/receipt room is reserved before another
+  native debit. Ground and carried receipts survive reload; cancellation releases
+  proven ground items for normal sorting. Unknown output is never recreated.
+  Optional version-1 wool metadata and species-aware CowMilk/SheepMilk fields
+  retain the existing farm and animal save schemas. No new per-frame service runs.
   `SCFarmWork` retains exact supply loans, egg receipts, delivery and cleanup;
   `base.farm.animals` version 1 stores scalar summaries, cooldowns and up to
   128 known native bird IDs per pen, preserving unknown future versions.

@@ -4079,6 +4079,16 @@ function SCUIDetail:buildBase(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Visual_Hint"))
         local jobs = base.jobs or {}
+        local woolRows=0
+        for _,job in ipairs(base.rows or {}) do
+            if job.target and job.target.operation=="animal_shear" and SC.AnimalShearing then
+                local progress=SC.AnimalShearing.progress(job)
+                y=self:addInformationLine(panel,y,"UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_SheepWool",progress.collected,progress.carried,progress.stored))
+                woolRows=woolRows+1
+                if woolRows>=4 then break end
+            end
+        end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Jobs", jobs.pending or 0, jobs.active or 0, jobs.blocked or 0))
         if base.farm and base.farm.chickenBlocker and SC.ActionFeedback then

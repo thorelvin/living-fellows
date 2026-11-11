@@ -855,10 +855,14 @@ local FARM_RECEIPT_PHASES = {
 local function normalizeMilkReceipt(source)
     local cowId=type(source)=="table" and finite(source.cowId,-1) or -1
     local day=type(source)=="table" and finite(source.day,-1) or -1
-    if type(source)~="table" or source.version~=1 or source.fluid~="CowMilk"
+    if type(source)~="table" or source.version~=1
+        or (source.fluid~="CowMilk" and source.fluid~="SheepMilk")
+        or source.species~=nil and source.species~=(source.fluid=="SheepMilk" and "sheep" or "cattle")
         or cowId<0 or cowId>2147483647 or cowId%1~=0 or day<0 or day%1~=0
         or type(source.zoneId)~="string" or #source.zoneId>96 then return nil end
-    return {version=1,fluid="CowMilk",cowId=integer(source.cowId,0,0,2147483647),
+    -- cowId remains the legacy stable animal-ID field for both species.
+    return {version=1,fluid=source.fluid,species=source.fluid=="SheepMilk" and "sheep" or "cattle",
+        cowId=integer(source.cowId,0,0,2147483647),
         zoneId=source.zoneId,day=integer(source.day,0,0,999999),
         before=math.max(0,finite(source.before,0)),after=math.max(0,finite(source.after,0)),
         litres=math.max(0,finite(source.litres,0)),lost=math.max(0,finite(source.lost,0)),
@@ -867,6 +871,19 @@ local function normalizeMilkReceipt(source)
         dropX=source.dropX~=nil and integer(source.dropX,0,0,1000000) or nil,
         dropY=source.dropY~=nil and integer(source.dropY,0,0,1000000) or nil,
         dropZ=source.dropZ~=nil and integer(source.dropZ,0,-32,32) or nil}
+end
+
+local function normalizeWoolReceipt(source)
+    if type(source)~="table" or source.version~=1 then return nil end
+    local id=finite(source.animalId,-1)
+    local x,y,z=finite(source.x,-1),finite(source.y,-1),finite(source.z,-99)
+    local before,after=finite(source.before,-1),finite(source.after,-1)
+    if id<0 or id%1~=0 or id>2147483647 or x<0 or y<0 or z< -32 or z>32
+        or x>1000000 or y>1000000 or x%1~=0 or y%1~=0 or z%1~=0
+        or before<1 or after<0 or math.abs(before-after-1)>.005 then return nil end
+    return {version=1,animalId=id,x=x,y=y,z=z,
+        destinationStorageId=validId(source.destinationStorageId,"storage:") and source.destinationStorageId or nil,
+        before=before,after=after}
 end
 
 local function normalizeFarmReceipt(source)
@@ -879,6 +896,10 @@ local function normalizeFarmReceipt(source)
     local kind = source.kind == "output" and "output" or "borrowed"
     local milk=normalizeMilkReceipt(source.milk)
     local milkInvalid=source.milkInvalid==true or source.milk~=nil and milk==nil
+    local wool=normalizeWoolReceipt(source.wool)
+    local woolInvalid=source.woolInvalid==true or source.wool~=nil
+        and (wool==nil or source.itemType~="Base.WoolRaw" or kind~="output"
+            or source.nativeId==nil or source.milk~=nil)
     return {
         id = source.id,
         jobId = source.jobId,
@@ -890,12 +911,14 @@ local function normalizeFarmReceipt(source)
             and source.sourceStorageId or nil,
         destinationCategory = BaseLife.STORAGE_CATEGORIES[source.destinationCategory]
             and source.destinationCategory or nil,
-        phase = milkInvalid and "quarantined" or source.phase,
+        phase = (milkInvalid or woolInvalid) and "quarantined" or source.phase,
         blocker = source.blocker ~= nil and cleanText(source.blocker, "blocked", 160) or nil,
         createdAt = math.max(0, finite(source.createdAt, 0)),
         updatedAt = math.max(0, finite(source.updatedAt, 0)),
         milk = milk,
         milkInvalid = milkInvalid or nil,
+        wool = wool,
+        woolInvalid = woolInvalid or nil,
     }
 end
 
@@ -2238,8 +2261,10 @@ end
 -- food (for example cured produce) can also stay out of the fridge.
 function BaseLife.foodStorageCategory(item)
     local fc=select(1,U().call(item,"getFluidContainer"))
-    if Fluid and Fluid.CowMilk and fc
-        and select(1,U().call(fc,"isPureFluid",Fluid.CowMilk))==true then return "fresh_food" end
+    for _,name in ipairs({"CowMilk","SheepMilk"}) do
+        if Fluid and Fluid[name] and fc
+            and select(1,U().call(fc,"isPureFluid",Fluid[name]))==true then return "fresh_food" end
+    end
     local offAgeMax, called = U().call(item, "getOffAgeMax")
     local days = called and tonumber(offAgeMax) or nil
     return days and days > 0 and days <= 30 and "fresh_food" or "food"
@@ -3052,6 +3077,11 @@ function BaseLife.updateFarmReceipt(id, fields)
     if not receipt or type(fields) ~= "table" then return false, "unknown_farm_receipt" end
     local milk=fields.milk~=nil and normalizeMilkReceipt(fields.milk) or nil
     if fields.milk~=nil and not milk then return false,"invalid_milk_receipt" end
+    local wool=fields.wool~=nil and normalizeWoolReceipt(fields.wool) or nil
+    if fields.wool~=nil and (not wool or receipt.itemType~="Base.WoolRaw"
+        or receipt.kind~="output" or receipt.nativeId==nil or receipt.milk~=nil) then
+        return false,"invalid_wool_receipt"
+    end
     if fields.kind~=nil and (fields.kind~="output" or not (milk or receipt.milk)) then
         return false,"invalid_farm_kind_change"
     end
@@ -3069,6 +3099,7 @@ function BaseLife.updateFarmReceipt(id, fields)
         receipt.destinationCategory = fields.destinationCategory
     end
     if milk then receipt.milk=milk end
+    if wool then receipt.wool=wool end
     if fields.kind~=nil then
         receipt.kind="output" -- The same borrowed container now carries verified milk.
     end

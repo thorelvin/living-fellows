@@ -100,4 +100,28 @@ milkFluid.amount=0
 check(SC.Logistics.itemCategory(milkBottle)~="food","an emptied milk bottle loses its food classification")
 Fluid.CowMilk=cowMilk
 SC.GameplayUtil.config=oldConfig
+-- Species and native floor-output extensions use the same real normalizer.
+B.reset() B.create({x=10,y=10,z=0},"Sheep receipts")
+local sheepOkay,sheepReceipt=B.allocateFarmReceipt({jobId="job:1",actorId="shepherd",kind="output",
+    itemType="Base.Bucket",nativeId="201",phase="carried",destinationCategory="fresh_food",
+    milk={version=1,cowId=202,zoneId="10",day=4,fluid="SheepMilk",before=0,after=1.5,litres=1.5,lost=0}})
+check(sheepOkay and sheepReceipt.milk.species=="sheep","legacy animal ID supports verified sheep milk")
+local woolOkay,woolReceipt=B.allocateFarmReceipt({jobId="job:2",actorId="shepherd",kind="output",
+    itemType="Base.WoolRaw",nativeId="301",phase="selected",destinationCategory="crafting",
+    wool={version=1,animalId=202,x=11,y=12,z=0,before=16,after=15}})
+check(woolOkay and woolReceipt.wool.animalId==202,"exact native floor wool receipt allocates")
+check(SC.FarmWork.pendingMilkInventory("shepherd") and not SC.FarmWork.pendingMilkInventory("other"),
+    "pending sheep outputs enable exact native-ID saving only for their owner")
+check(B.restore(B.export()),"cow-compatible farm schema reloads sheep outputs")
+check(B.farmReceipt(woolReceipt.id).wool.x==11 and B.farmReceipt(woolReceipt.id).nativeId=="301"
+    and B.farmReceipt(sheepReceipt.id).milk.fluid=="SheepMilk","reload retains floor identity and distinct sheep milk")
+check(not B.updateFarmReceipt(woolReceipt.id,{phase="delivered",wool={version=99}})
+    and B.farmReceipt(woolReceipt.id).phase=="selected","invalid wool update cannot partially settle output")
+check(not B.updateFarmReceipt(woolReceipt.id,{phase="delivered",wool={version=1,animalId=202,x=11,y=12,z=0,before=16,after=16}})
+    and B.farmReceipt(woolReceipt.id).phase=="selected","wool evidence must contain an actual native unit debit")
+local damaged=B.export()
+damaged.bases[damaged.activeBaseId].farm.receipts[2].wool.version=99
+check(B.restore(damaged) and B.farmReceipt(woolReceipt.id).woolInvalid
+    and B.farmReceipt(woolReceipt.id).phase=="quarantined","unsupported wool evidence quarantines without fabrication")
+B.reset()
 print("CATTLE_RECEIPT_PASS")

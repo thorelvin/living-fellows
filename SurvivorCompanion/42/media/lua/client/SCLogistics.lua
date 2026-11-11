@@ -188,10 +188,13 @@ function Logistics.itemCategory(item)
     local utility = U()
     if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools" end
     local fluid=select(1,utility.call(item,"getFluidContainer"))
-    if Fluid and Fluid.CowMilk and fluid
-        and (tonumber((select(1,utility.call(fluid,"getAmount")))) or 0)>0
-        and select(1,utility.call(fluid,"isPureFluid",Fluid.CowMilk))==true then return "food" end
+    for _,name in ipairs({"CowMilk","SheepMilk"}) do
+        if Fluid and Fluid[name] and fluid
+            and (tonumber((select(1,utility.call(fluid,"getAmount")))) or 0)>0
+            and select(1,utility.call(fluid,"isPureFluid",Fluid[name]))==true then return "food" end
+    end
     local itemType = lower(utility.itemType(item))
+    if itemType=="base.woolraw" then return "crafting" end
     local category, categoryOk = utility.call(item, "getCategory")
     category = categoryOk and lower(category) or ""
     local display, displayOk = utility.call(item, "getDisplayCategory")

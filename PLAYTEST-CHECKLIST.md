@@ -2,6 +2,29 @@
 
 # Playtest checklist
 
+## WP04 sheep care — 0.27.9
+
+- [x] Automated: sheep eligibility, age 200 guard, stress/daylight, broken and
+  depleted tools, nursing reserves/daily milk limits, exact output identity,
+  carry/storage limits, competing claims/reservations and ambiguous refusal.
+- [x] Automated: optional sheep receipts retain existing save schemas; cancelled
+  floor output is released exactly, carried tools use cancellation return,
+  missing/dead carriers cannot consume wool proven to remain on the ground.
+- [x] Native mixed chicken/sheep trough care, exact SheepMilk to Fresh food,
+  manual shearing, nine exact wool drops delivered and borrowed tool returned.
+- [x] Native Suffolk/Rambouillet/Friesian, electric shearing at Husbandry 0,
+  actual lamb/mother reserve check and exact floor/carried wool save checkpoint.
+- [x] Actual reload: five saved output IDs delivered once, thirteen total wool
+  stored via General with Crafting full, three jobs complete, tool returned.
+- [x] Final native full-storage stop, retry and mid-shear cancellation; manual
+  shears preferred over electric, exact tool returned and floor receipt released.
+- [x] Final five-check serial release gate and standalone packaging: 5/5,
+  16 installer transactions, debug off and no ZombieBuddy dependency.
+- [ ] Live death/corpse recovery at every action boundary; not claimed by the
+  focused death/receipt tests above.
+
+Evidence: `docs/animal-native-probe-2026-11-11-sheep.md`.
+
 ## WP03 cattle care — 0.27.8
 
 - [x] Automated: whole pens within 30 tiles of camp are accepted, an enclosure
