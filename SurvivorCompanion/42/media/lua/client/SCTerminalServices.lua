@@ -207,6 +207,14 @@ function S.menu(window)
     elseif p=="expedition_plan" then
         local draft=window.stationDraft or {kind="wood",travelMode="road",quantity=12,category="food",hours=4,crew={}}
         window.stationDraft=draft
+        if draft.kind=="fuel" then
+            draft.travelMode="drive"
+            local amount=draft.quantity=="full" and "Full load" or draft.quantity=="car" and "Top up car only" or tostring(draft.quantity).." cans"
+            return {option("Mission: Collect fuel","cycle","kind"),option("Choose gas station on map","map_pick"),
+                option(draft.mapTarget and ("Destination: "..draft.mapTarget.label) or "Nearest known gas station","places"),
+                option("Crew and leader","page","station_crew"),option("Requested: "..amount,"cycle","quantity"),
+                option("Return after "..draft.hours.." hours","cycle","hours"),option("Review mission","review"),option("Back","page","station")}
+        end
         return {option("Mission: "..draft.kind,"cycle","kind"),
             option("Choose destination on map","map_pick"),
             option(draft.mapTarget and ("Destination: "..draft.mapTarget.label) or "Destination","places"),
@@ -240,7 +248,8 @@ local function rowsForDraft(window)
 end
 local function tripOptions(draft)
     return {mapTarget=draft.mapTarget,turnHomeAfterHours=draft.hours,doctrine="close_defense",travelMode=draft.travelMode,restockBaseDuty=true,
-        request=draft.kind=="wood" and (draft.quantity=="full" and {mode="full"} or {mode="count",quantity=draft.quantity})
+        request=(draft.kind=="wood" or draft.kind=="fuel") and (draft.quantity=="full" and {mode="full"}
+            or draft.quantity=="car" and {mode="car"} or {mode="count",quantity=draft.quantity})
             or (draft.kind=="search" or draft.kind=="fish") and {category=draft.kind=="fish" and "fish" or draft.category,quantity=draft.quantity} or nil}
 end
 function S.review(window)
@@ -258,6 +267,7 @@ function S.review(window)
             SC.ExpeditionTargets.context(records[1].actor,draft.travelMode))
         if not target or target.kind~=draft.kind then return false,SC.ExpeditionMap.reason(reason or "map_target_changed") end
         preview,reason=expedition.previewMapTarget(records,target,tripOptions(draft))
+    elseif draft.kind=="fuel" then preview,reason=expedition.previewFuelCollection(records,tripOptions(draft))
     elseif draft.kind=="wood" then preview,reason=expedition.previewWoodCollection(records,tripOptions(draft))
     else
         if not draft.placeId then return false,"Choose a destination first." end
@@ -272,6 +282,7 @@ function S.review(window)
         else preview,reason=fn(records[1],place,draft.travelMode) end
     end
     if not preview then
+        if draft.kind=="fuel" then return false,SC.ExpeditionFuel.reason(reason) end
         return false,type(reason)=="string" and reason:match("^wood_area_")
             and SC.ExpeditionMap.reason(reason) or U().error(reason)
     end
@@ -454,7 +465,9 @@ function S.execute(window,request)
             local report=trip.lastProgressReport
             if report then
                 if SC.TerminalRadio then SC.TerminalRadio.acknowledged(window.object,trip.radioSession,report) end
-                local counts=report.kind=="scout" and "Scouting" or tostring(report.collected).." collected of "..tostring(report.requested).." requested"
+                local counts=report.kind=="fuel" and string.format("Car topped up %.1f L; %d/%d cans full; %.1f L carried; %.1f L stored",
+                    report.carFuelAdded or 0,report.filled or 0,report.cans or 0,report.carriedLitres or 0,report.storedLitres or 0)
+                    or report.kind=="scout" and "Scouting" or tostring(report.collected).." collected of "..tostring(report.requested).." requested"
                 if report.carried then counts=counts.."; "..report.carried.." carried; "..tostring(report.stored or 0).." stored" end
                 return true,"Radio report: "..counts.."; "..tostring(report.phase or "working")..". Last heard at "..tostring(report.at or U().hours()).." hours."
             end
@@ -489,6 +502,7 @@ function S.execute(window,request)
         window.stationReviewed=nil
         local accepted,result
         if draft.kind=="wood" then accepted,result=SC.ExpeditionPrototype.startWoodCollection(records,options)
+        elseif draft.kind=="fuel" then accepted,result=SC.ExpeditionPrototype.startFuelCollection(records,options)
         elseif draft.kind=="fish" then accepted,result=SC.ExpeditionPrototype.startAtFishingBank(records,draft.placeId,options)
         else accepted,result=SC.ExpeditionPrototype.startAtPlace(records,draft.placeId,draft.kind,options) end
         return accepted,accepted and "Expedition launched. Use the station to request progress or recall the crew." or result
@@ -620,9 +634,10 @@ function S.input(window,raw,chosen)
         if not found then if #window.stationDraft.crew>=4 then show(window,"Choose at most four companions.") else window.stationDraft.crew[#window.stationDraft.crew+1]=value end end
         window.stationReviewed=nil
     elseif action=="cycle" then
-        local sets={kind={"wood","search","scout","fish"},travelMode={"road","drive"},quantity={1,2,4,8,12,24,"full"},category={"useful","food","water","medicine","tools","construction","ammunition","clothing"},hours={1,2,4,8,12,24}}
+        local sets={kind={"wood","search","scout","fish","fuel"},travelMode={"road","drive"},quantity={1,2,4,8,12,24,"full"},category={"useful","food","water","medicine","tools","construction","ammunition","clothing"},hours={1,2,4,8,12,24}}
         local list=sets[value] local draft=window.stationDraft local index=1
-        if value=="quantity" and draft.kind~="wood" then list={1,2,4,8} end
+        if value=="quantity" and draft.kind=="fuel" then list={"full","car",1,2,4,8,12,24}
+        elseif value=="quantity" and draft.kind~="wood" then list={1,2,4,8} end
         for i,row in ipairs(list) do if row==draft[value] then index=i%#list+1 break end end
         draft[value]=list[index] window.stationReviewed=nil
         if value=="kind" then
@@ -632,7 +647,10 @@ function S.input(window,raw,chosen)
                 draft.mapTarget.kind=draft.kind
                 draft.placeId=draft.mapTarget.id
             end
-            if draft.kind~="wood" and (draft.quantity=="full" or draft.quantity>8) then draft.quantity=4 end
+            if draft.kind=="fuel" then draft.quantity,draft.travelMode="full","drive"
+            elseif draft.kind~="wood" and (type(draft.quantity)~="number" or draft.quantity>8) then draft.quantity=4
+            elseif draft.kind=="wood" and draft.quantity=="car" then draft.quantity=12 end
+            if draft.mapTarget and draft.mapTarget.kind~=draft.kind then draft.mapTarget=nil end
         end
     elseif action=="map_pick" then
         local draft=window.stationDraft
@@ -665,7 +683,10 @@ function S.input(window,raw,chosen)
         if not opened then show(window,SC.ExpeditionMap.reason(why)) end
     elseif action=="places" or action=="places_more" then
         window.stationPlacePage=action=="places" and 1 or math.max(1,(window.stationPlacePage or 1)+(tonumber(value) or 1))
-        if window.stationDraft.kind=="wood" then
+        if window.stationDraft.kind=="fuel" then
+            window.stationDraft.mapTarget=nil window.stationDraft.placeId=nil window.stationReviewed=nil
+            show(window,"Nearest known gas station selected. Review checks the car, cans and route. Pumps and electricity are checked on arrival.")
+        elseif window.stationDraft.kind=="wood" then
             window.stationDraft.mapTarget=nil window.stationDraft.placeId=nil window.stationReviewed=nil
             show(window,"Automatic woodland discovery selected. Woodland is selected during review.")
         else

@@ -85,6 +85,7 @@ local function copyRow(row)
 end
 
 function Integration.valid(value)
+    if type(value)=="table" and value.kind=="fuel" then return SC.ExpeditionFuel and SC.ExpeditionFuel.validDelivery(value) or false end
     local wood = woodRecord(value)
     if type(value) ~= "table" or (value.version ~= 1 and not wood)
         or not validId(value.tripId, 128)
@@ -191,6 +192,7 @@ function Integration.valid(value)
 end
 
 function Integration.copy(value)
+    if type(value)=="table" and value.kind=="fuel" then return SC.ExpeditionFuel.copyDelivery(value) end
     if not Integration.valid(value) then return nil end
     local copy = { version = value.version, kind = value.kind,
         requestedMode = value.requestedMode, tripId = value.tripId,
@@ -221,6 +223,7 @@ function Integration.copy(value)
 end
 
 function Integration.create(mission)
+    if mission and mission.scout and mission.scout.fuel then return SC.ExpeditionFuel.delivery(mission) end
     local scout = mission and mission.scout
     local wood = scout and scout.kind == "wood"
     local search = scout and (wood and scout.wood or scout.search
@@ -559,6 +562,7 @@ local function returnedCarrierNearBase(record, actor)
 end
 
 function Integration.refresh(record)
+    if record and record.kind=="fuel" then return SC.ExpeditionFuel.settleDelivery(record) end
     if not Integration.valid(record) then return false end
     for _, row in ipairs(record.items) do
         if not row.stored and not row.released then
@@ -640,6 +644,7 @@ function Integration.woodReturnShuttleAvailable(actor, carId)
 end
 
 function Integration.summary(record)
+    if record and record.kind=="fuel" then return SC.ExpeditionFuel.deliverySummary(record) end
     if not Integration.valid(record) then return nil end
     local result = { version = record.version, kind = record.kind, tripId = record.tripId,
         carId = record.carId, trunkPending = 0,
@@ -746,6 +751,11 @@ end
 -- restocking member, or a camp that was moved. Without this the bounded
 -- delivery list fills with records that can never finish.
 function Integration.settle(record)
+    if record and record.kind=="fuel" then
+        local summary=SC.ExpeditionFuel.settleDelivery(record)
+        if not summary or summary.pending>0 then return false end
+        if not record.restock then return true end
+    end
     if not Integration.valid(record) then return true end
     local wood = woodRecord(record)
     -- Exact logs follow the same evidence rule as supply rows below: a log
@@ -1095,6 +1105,7 @@ local function itemForWorker(record, actor, state)
 end
 
 function Integration.retry(record, receiptId)
+    if record and record.kind=="fuel" then return SC.ExpeditionFuel.retryDelivery(record) end
     if not Integration.valid(record) then return false, "invalid_delivery_record" end
     local found = receiptId == nil
     if receiptId ~= nil then
@@ -1376,6 +1387,9 @@ local function restock(actor, member, record, state)
 end
 
 function Integration.wants(record, actor)
+    if record and record.kind=="fuel" then
+        if SC.ExpeditionFuel.deliveryPending(record) then return SC.ExpeditionFuel.deliveryWants(record,actor) end
+    end
     if not Integration.valid(record) or not actor or U().isDead(actor)
         or not memberFor(record, actor) then return false end
     local base = SC.BaseLife and SC.BaseLife.active()
@@ -1421,6 +1435,9 @@ function Integration.wants(record, actor)
 end
 
 function Integration.update(record, actor)
+    if record and record.kind=="fuel" then
+        if SC.ExpeditionFuel.deliveryPending(record) then return SC.ExpeditionFuel.deliveryUpdate(record,actor) end
+    end
     if not Integration.wants(record, actor) then return false, "delivery_not_ready" end
     local state = stateFor(record, actor, true)
     if record.kind == "home" then
@@ -1595,6 +1612,8 @@ function Integration.update(record, actor)
 end
 
 function Integration.reset()
+    if SC.ExpeditionFuel then SC.ExpeditionFuel.reset() end
+    if SC.FuelStations then SC.FuelStations.reset() end
     states = setmetatable({}, { __mode = "k" })
     locationCache = setmetatable({}, { __mode = "k" })
     retryClocks = setmetatable({}, { __mode = "k" })

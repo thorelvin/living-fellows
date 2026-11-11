@@ -37,6 +37,7 @@ function Fuel.liveMarker(item, key)
 end
 
 function Fuel.reserved(item)
+    if SC.ExpeditionFuel and SC.ExpeditionFuel.reserved(item) then return true end
     return Fuel.liveMarker(item, Fuel.MARKER) ~= nil
         or Fuel.liveMarker(item, Fuel.UPKEEP_MARKER) ~= nil
 end

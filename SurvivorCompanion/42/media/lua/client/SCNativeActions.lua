@@ -2439,6 +2439,126 @@ local function queueTrackedWork(actor, timedAction, record, kind)
     return true, tostring(kind) .. "_timed_action_started"
 end
 
+-- Fuel trips use the native actions without borrowing a camp job or changing
+-- global player/queue bindings. Every callback retains its exact mission guard.
+function actions.startExpeditionFuel(actor, intent)
+    if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
+        or intent.validate() ~= true then return false, "fuel_action_stale" end
+    local paths = { pump_can="TimedActions/ISTakeFuel", pump_car="Vehicles/TimedActions/ISRefuelFromGasPump",
+        can_car="Vehicles/TimedActions/ISAddGasolineToVehicle", generator_fuel="TimedActions/ISAddFuel",
+        generator_start="TimedActions/ISActivateGenerator", generator_stop="TimedActions/ISActivateGenerator",
+        generator_connect="TimedActions/ISPlugGenerator", generator_disconnect="TimedActions/ISPlugGenerator",
+        starter="Fluids/ISFluidTransferAction" }
+    if paths[intent.kind] and type(require)=="function" then pcall(require,paths[intent.kind]) end
+    local item, donor = intent.item, intent.donor
+    local record, reason = prepareWorkInventory(actor, donor and {item,donor} or item and {item} or {}, item, donor)
+    if not record then return false,reason end
+    local okay, action
+    if intent.kind=="pump_can" and ISTakeFuel then
+        okay,action=pcall(ISTakeFuel.new,ISTakeFuel,actor,intent.pump,item)
+        if okay and action then
+            -- ISTakeFuel's final remainder currently adds to pump stock. Its
+            -- integer pump API also needs cumulative, rather than per-beat,
+            -- rounding. Only this LF-owned instance uses the corrected path.
+            action.lfDelivered,action.lfCharged=0,0
+            action.updateUse=function(self,delta)
+                if intent.validate()~=true then self:forceStop() return end
+                local fc=item:getFluidContainer()
+                local present=fc:getAmount()
+                local desired=math.min(self.itemTarget,self.itemStart+self.amount*math.max(0,math.min(1,delta)))
+                local stock=intent.pump:getPipedFuelAmount()
+                local infinite=SandboxVars and SandboxVars.FuelStationGasInfinite==true
+                local available=infinite and desired-present or stock+self.lfCharged-self.lfDelivered
+                local amount=math.min(math.max(0,desired-present),math.max(0,available),fc:getFreeCapacity())
+                if amount>0 then
+                    fc:addFluid(Fluid.Petrol,amount)
+                    local actual=math.max(0,fc:getAmount()-present)
+                    self.lfDelivered=self.lfDelivered+actual
+                    local charged=math.ceil(self.lfDelivered-0.00001)
+                    if not infinite and charged>self.lfCharged then
+                        intent.pump:setPipedFuelAmount(math.max(0,stock-(charged-self.lfCharged)))
+                    end
+                    self.lfCharged=charged
+                    item:syncItemFields()
+                    if sendItemStats then sendItemStats(item) end
+                end
+            end
+            action.complete=function(self)
+                self:updateUse(1)
+                return true
+            end
+        end
+    elseif intent.kind=="pump_car" and ISRefuelFromGasPump then
+        okay,action=pcall(ISRefuelFromGasPump.new,ISRefuelFromGasPump,actor,intent.part,intent.pump)
+        if okay and action then
+            -- The checked LF approach uses the same 1.6-tile fuel inlet reach
+            -- as camp refuelling, rather than requiring a tile centre to fit
+            -- inside the vehicle script's narrow area rectangle.
+            action.isValid=function(self) return self.character==actor and intent.validate()==true end
+        end
+    elseif intent.kind=="can_car" and ISAddGasolineToVehicle then
+        okay,action=pcall(ISAddGasolineToVehicle.new,ISAddGasolineToVehicle,actor,intent.part,item)
+    elseif intent.kind=="generator_fuel" and ISAddFuel then
+        okay,action=pcall(ISAddFuel.new,ISAddFuel,actor,intent.generator,item)
+        if okay and action then
+            action.complete=function(self)
+                if intent.validate()~=true then return false end
+                local fc=item:getFluidContainer()
+                local amount=math.min(fc:getAmount(),math.max(0,(intent.targetFuel or 2)-intent.generator:getFuel()),
+                    math.max(0,intent.generator:getMaxFuel()-intent.generator:getFuel()))
+                if amount>0 then
+                    fc:adjustAmount(fc:getAmount()-amount)
+                    item:syncItemFields()
+                    intent.generator:setFuel(intent.generator:getFuel()+amount)
+                    intent.generator:sync()
+                end
+                return true
+            end
+        end
+    elseif (intent.kind=="generator_start" or intent.kind=="generator_stop") and ISActivateGenerator then
+        okay,action=pcall(ISActivateGenerator.new,ISActivateGenerator,actor,intent.generator,intent.kind=="generator_start")
+    elseif (intent.kind=="generator_connect" or intent.kind=="generator_disconnect") and ISPlugGenerator then
+        okay,action=pcall(ISPlugGenerator.new,ISPlugGenerator,actor,intent.generator,intent.kind=="generator_connect")
+    elseif intent.kind=="starter" and ISFluidTransferAction and ISFluidContainer then
+        local source,target=donor:getFluidContainer(),item:getFluidContainer()
+        okay,action=pcall(ISFluidTransferAction.new,ISFluidTransferAction,actor,
+            ISFluidContainer:new(source),source,ISFluidContainer:new(target),target,intent.amount)
+        if okay and action then
+            action.isValid=function(self)
+                return self.character==actor and intent.validate()==true
+                    and self.source:getOwner()==donor and self.target:getOwner()==item
+                    and FluidContainer.CanTransfer(source,target)==true
+            end
+            action.start=function(self)
+                self:setActionAnim("MixFluids")
+                self:setOverrideHandModels(donor:getStaticModel(),item:getStaticModel())
+                self.sound=actor:playSound("TransferLiquid")
+            end
+        end
+    end
+    if not okay or not action then restoreWorkInventory(actor,record) return false,"fuel_native_action_unavailable" end
+    local valid,complete=action.isValid,action.complete
+    action.isValid=function(self)
+        if self.character~=actor or intent.validate()~=true then return false end
+        -- The stock stop validator also rejects an empty/damaged generator.
+        -- Shutting down our exact generator must still work in those states.
+        if intent.kind=="generator_stop" then return intent.generator:isActivated() end
+        return not valid or valid(self)==true
+    end
+    action.complete=function(self)
+        if intent.validate()~=true then return false end
+        local running=intent.generator and intent.generator:isActivated()
+        local connected=intent.generator and intent.generator:isConnected()
+        if intent.kind=="generator_start" or intent.kind=="generator_connect" then
+            if self:isValid()~=true then return false end
+        end
+        local result=complete(self)
+        if result~=false and intent.completed then intent.completed(running,connected) end
+        return result
+    end
+    return queueTrackedWork(actor,action,record,"expedition_fuel")
+end
+
 -- Use the same stock timed action as a player. Its fluid and tank updates are
 -- performed by the game; VehicleRefuel verifies both readings afterwards.
 function actions.startVehicleRefuel(actor, vehicle, part, item, jobId)

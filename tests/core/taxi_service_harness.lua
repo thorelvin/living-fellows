@@ -52,9 +52,11 @@ function gunItems:get(index) return self.values[index + 1] end
 local driverInventory = { items = gunItems }
 function driverInventory:getItems() return self.items end
 function driverInventory:AddItem(fullType)
-    check(fullType == "Base.Pistol", "Markus receives only his service pistol")
+    check(fullType == "Base.Pistol2" or fullType == "Base.45Clip",
+        "Markus receives only his M1911 and compatible magazines")
     local item = { data = {}, container = self, ammo = 0 }
-    function item:getFullType() return "Base.Pistol" end
+    function item:getFullType() return fullType end
+    function item:getMaxAmmo() return 7 end
     function item:getModData() return self.data end
     function item:getContainer() return self.container end
     function item:getCurrentAmmoCount() return self.ammo end
@@ -264,9 +266,19 @@ check(Service.restore(parked) and Service.canDefend(chauffeur, car),
     "parked Markus may defend the waiting cab")
 local defense = {}
 check(Service.pulseDefense(chauffeur, caller, defense, 1000) == true
-    and defensiveShots == 1 and chauffeur.primary.ammo == 14
-    and Service.export().serviceRounds == 14,
+    and defensiveShots == 1 and chauffeur.primary.ammo == 6
+    and Service.export().serviceRounds == 6,
     "real service pistol fires through open driver window and spends ammo")
+check(#gunItems.values == 5, "one loaded M1911 and four spare magazines are issued once")
+for i = 2, 5 do
+    check(gunItems.values[i]:getFullType() == "Base.45Clip"
+        and gunItems.values[i]:getCurrentAmmoCount() == 7,
+        "each spare is a physical full seven-round M1911 magazine")
+end
+local spentKit = Service.export()
+check(Service.restore(spentKit) and Service.pulseDefense(chauffeur, caller, defense, 1001)
+    and #gunItems.values == 5 and chauffeur.primary.ammo == 5,
+    "reload of the same visit preserves spent ammunition without resupplying")
 car.speed = 1
 check(not Service.canDefend(chauffeur, car), "moving taxi driver cannot shoot")
 car.speed = 0

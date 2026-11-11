@@ -913,6 +913,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             end
         end
         if threatCount == 0 and not bleeding and humanThreat == nil and SC.ExpeditionPrototype then
+            local fuel=type(SC.ExpeditionPrototype.fuelRequestFor)=="function" and SC.ExpeditionPrototype.fuelRequestFor(actor)
+            if fuel then add("expedition_fuel",87,false,fuel) end
             local departure = type(SC.ExpeditionPrototype.departurePreparationFor) == "function"
                 and SC.ExpeditionPrototype.departurePreparationFor(actor) or nil
             local woodPreparation = type(SC.ExpeditionPrototype.woodPreparationFor) == "function"
@@ -929,7 +931,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 local request = SC.ExpeditionPrototype.fishingRequestFor(actor)
                 if request then add("fishing", 86, false, request) end
             end
-            if departure and not woodPreparation and not preparation then
+            if departure and not woodPreparation and not preparation and not fuel then
                 add("departure_preparation", 86, false, departure)
             end
         end
@@ -2329,6 +2331,8 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         return callSubsystem("field-work", actor, function()
             return SC.FieldWork.update(actor, player)
         end)
+    elseif candidate.kind == "expedition_fuel" then
+        return callSubsystem("fuel-expedition",actor,function() return SC.ExpeditionPrototype.updateFuel(actor,snapshot) end)
     elseif candidate.kind == "departure_preparation" then
         if not SC.ExpeditionPrototype
             or type(SC.ExpeditionPrototype.updateDeparturePreparation) ~= "function" then

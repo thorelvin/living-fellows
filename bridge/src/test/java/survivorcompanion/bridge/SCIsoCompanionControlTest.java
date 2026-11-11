@@ -2199,6 +2199,13 @@ public final class SCIsoCompanionControlTest {
         require((Boolean) invoke(actor, "isAiming")
                         && !((SCNativeCompanion) actor).isCompanionTacticalMovement(),
                 "locomotion synchronization cancelled an ordinary combat aiming state");
+        var suspendWalking = SCNativeCompanion.class.getDeclaredMethod("suspendBridgeLocomotion");
+        suspendWalking.setAccessible(true);
+        suspendWalking.invoke(actor);
+        require((Boolean) invoke(actor, "isAiming")
+                        && !((SCNativeCompanion) actor).hasPendingMovement()
+                        && !((SCNativeCompanion) actor).isAimControlActive(),
+                "passenger aim was cancelled or borrowed local mouse input");
         actor.getClass().getMethod("setIsAiming", boolean.class).invoke(actor, false);
         actor.getClass().getMethod("setMoving", boolean.class).invoke(actor, false);
         require(!(Boolean) invoke(actor, "isMoving"),

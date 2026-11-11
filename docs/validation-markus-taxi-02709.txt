@@ -1,0 +1,132 @@
+SPDX-License-Identifier: MIT
+
+Markus taxi acceptance — 2026-11-11, Project Zomboid 42.22.2
+
+Candidate: living_fellows/0.27.9, working changes after e46f3ae8.
+Bridge SHA256: c35c044630af880b0b5c0bada226721ac0564613cf1bd5460a6f5f494f8a4c56.
+Protocol remains 42.22-isocompanion-31.
+
+Live PASS: SC-Harness-20261111-112618-d6a26853, 25 passed / 0 failed.
+One isolated client at a time, LF alone, 30 FPS / low-impact settings.
+The original Rising/2026-11-08_00-37-04 save and normal installation were
+read-only inputs. No live testing or debug harness was installed publicly.
+
+Verified native behaviour
+- A powered walkie-talkie request creates one booking; repeating it does not
+  create a second cab. Markus boards and drives 36.59 tiles to pickup.
+- Parked loadout: Base.Pistol2 / M1911, seven rounds in the loaded magazine,
+  four real Base.45Clip spares containing 28 rounds, plus the chambered round.
+  The original marked M9 from an older saved visit is retained until that visit
+  ends. A fresh visit gets the new kit; resuming a visit does not reissue it.
+- Twenty parked gunshot sound receipts were observed. Real ammo was consumed;
+  native eject/insert/rack actions replenished the loaded count from spares.
+  Native OnHitZombie callbacks identify Markus, Base.Pistol2 and hit body parts.
+  The defense assertion additionally requires actual native zombie health loss.
+- M1911Shoot returned positive native sound handles with isPlaying=true.
+  A 12-second, 48 kHz stereo Windows speaker-loopback recording overlaps the
+  firing timestamps: peak 0.0255545. Effects volume was 8; music, ambience and
+  engine volume were muted only in the isolated sound-test options.
+- Native passenger boarding, a 28-tile ride, destination stop and native exit
+  passed. The first-ride free-fare receipt was committed once. This run did not
+  exercise a cash-paid fare; existing focused fare tests cover that path.
+- The empty cab drove another 37.57 tiles, stopped and retired. The cab, driver
+  registration and service booking were all released. No forced taxi completion,
+  scripted zombie damage, replacement car or simulated gunshot was used.
+
+Fixes / boundaries
+The former loadout was an M9. Seated locomotion cleared aim every frame; vanilla
+vehicle update also sampled local mouse aim. Native collision adaptation excluded
+seated actors. The new path preserves explicit companion aim, rejects local aim
+input, aligns the native seated muzzle and allows one native firearm collision.
+The selected, in-range target's stock ballistic body is prepared while aiming;
+native occlusion, hit rolls, armour, damage and target expiry remain authoritative.
+Lua passenger-window, stopped-car and protected-firing-lane checks remain active.
+
+Fixture corrections were private, not product changes. A parked saved car at
+6533,5447 blocked the original straight-road fixture; its screenshot was kept,
+then only the cloned observer was moved to a clear segment at 6531,5550. Natural
+zombies drew fire before four inert probe targets, so the final damage assertion
+also tracked nearby original zombies (17 entries including probe targets).
+The 45-second defense window accommodates finite-magazine reloads. The normal
+service still controls target choice. Pickup/ride/departure use production code.
+
+Evidence directory (ignored build output)
+build/live-sandbox-runs/SC-Harness-20261111-112618-d6a26853/
+- cache/console.txt; run-manifest.json
+- markus-parked-gunfire.wav; markus-audio-metrics.json
+- cache/Screenshots/*-markus-parked-shot-*.png
+- cache/Screenshots/*-markus-in_transit.png
+- cache/Screenshots/*-markus-waiting_exit.png
+- cache/Screenshots/*-markus-departing.png
+Distinct blockers in earlier attempts were captured at zoom >= 1.5.
+
+Automated checks
+The four focused taxi suites pass: service, fare/recovery, pickup and context.
+The context fixture now loads the actual SCContextMenu module and searches its
+current Radio submenu. Compact native control/API checks cover preserved aim,
+local-input isolation and the stock ballistic/animation interfaces.
+Full routine project gate: PASS, all five checks, 106.5 seconds / 23 direct JVMs.
+Evidence: build/test-results/20261111-112907-02c81f. This is an automated gate;
+the live scenarios above and below were separate game-client runs.
+
+On-foot shared-adapter control: SC-Harness-20261111-113203-82b93cff, PASS,
+25 passed / 0 failed. Two fresh companions with crowbars naturally acquired
+three zombies, killed all three in 19.737 seconds, and both retained 100% health.
+Native multi-hit was off; no manual target injection or scripted damage.
+
+Stricter matching-build taxi repeat
+SC-Harness-20261111-113431-cdf5575a: PASS, 25 passed / 0 failed.
+Defense additionally required the SAME native zombie from Markus's OnHitZombie
+callback to lose health on the following observation, with native ID unchanged.
+Zombie 43: 0.725339949131012 -> 0 health after Base.Pistol2 impact at timestamp
+1794393412082. This confirms a kill, rather than inferring damage from a sound,
+hit event or an unrelated nearby zombie's health change.
+The run observed 24 native gunshot receipts and native magazine reloads.
+Initial kit again contained four physical full spares (28 rounds) plus the
+loaded seven-round magazine and chambered round. M1911Shoot was playing with
+positive native handles; speaker-loopback peak was 0.0238435.
+Radio booking, pickup, a 28.02-tile passenger ride, free-fare settlement and
+37.80 tiles of empty departure all passed. The native cab and driver retired.
+Its console, 12-second WAV, audio metrics and screenshots are retained under
+build/live-sandbox-runs/SC-Harness-20261111-113431-cdf5575a/.
+
+All test game processes and audio-capture helpers exited. The public install,
+main save and Git history were not changed by these acceptance runs.
+
+Focused reload acceptance — subsequent request, 2026-11-11
+SC-Harness-20261111-115433-1a346964: PASS, 25 passed / 0 failed, same bridge.
+The private runner's final label check initially expected a renamed proof while
+the engine retained taxi_driver_defended_pickup. Its exit was 1 despite the
+25/0 engine result. The private check was corrected; read-only revalidation of
+the original, unmodified events/console passed all taxi proofs plus both exact
+insertion receipts and reload sounds (RELOAD_ACCEPTANCE_PASS).
+No shipped code changes were made for this test. Two full native reload cycles
+were required before the reload-specific probe allowed passenger boarding.
+- Cycle 1: 6.108 s, native magazine 1969900667 transferred its seven rounds;
+  that exact item left inventory, full spares 4 -> 3, empty magazines 0 -> 1.
+  Native racking chambered a round, and gunshot receipt 9 proved resumed fire.
+- Cycle 2: 6.212 s, native magazine 463227198 transferred its seven rounds;
+  that exact item left inventory, full spares 3 -> 2, empty magazines 1 -> 2.
+  Racking completed and receipt 16 proved resumed fire.
+- Loaded, chambered and spare ammunition plus native shots remained at the
+  initial 36-round total throughout the two reloads. No replacement ammunition
+  or scripted reload effects were supplied. Markus stayed in stopped seat 0.
+- Native ISEjectMagazine, ISInsertMagazine and ISRackFirearm owned the actions;
+  WeaponReloadType was handgun. M1911EjectAmmo, M1911InsertAmmo, their stop
+  sounds and M1911Rack were observed playing on Markus's emitter.
+- Native insertion was observed on each queued action instance by delegating
+  its unchanged loadAmmo method exactly once, then checking the real magazine
+  identity and transfer. This instrumentation exists only in the private clone.
+- An 18-second speaker-loopback WAV and zoomed-out action screenshots are kept
+  in the run directory as markus-reload.wav, markus-reload-audio.json and
+  cache/Screenshots/*-reload-*.png. The normal taxi ride, fare settlement and
+  37.66-tile empty departure also completed after the two reloads.
+
+Earlier reload observers sampled a transitional queue.current pointer and
+missed insertion stages. Native direct-transfer observation resolved that gap.
+An overextended observer also mistook a later jam-clearing rack for a third
+reload and counted a native ejected/discarded round as lost ammunition. Those
+failed observer runs are retained as 114552-5f86e3f6 and 115016-b04f77f0; they
+are not passing full-cycle results. Final scope ends reload observation after
+two proven cycles. Jam recovery and boarding mid-unjam need a separate focused
+scenario; the prior immediate-departure fixture did not wait for that owner.

@@ -1371,6 +1371,21 @@ do
     local completed=SC.Persistence.captureRecord(SC.Registry.byId(exact.id))
     check(completed and completed.inventory.preserveNativeIds==nil and not hasNative(completed.inventory.roots),
         "a completed Home delivery returns to ordinary inventory capture without altering legacy save semantics")
+    SC.ExpeditionPrototype.pendingFuelInventory = function(id)
+        if failQuery then error("injected Fuel ownership failure") end
+        return id==captured.id
+    end
+    local fuelSnapshot=SC.Persistence.captureRecord(SC.Registry.byId(exact.id))
+    check(fuelSnapshot and fuelSnapshot.inventory.preserveNativeIds==true
+            and nativeMap(fuelSnapshot.inventory.roots)[expectedCargoId]==restoredKnife:getFullType(),
+        "active or pending Fuel delivery captures exact native cargo IDs through the real inventory serializer")
+    failQuery=true
+    check(SC.Persistence.captureRecord(SC.Registry.byId(exact.id))==nil,
+        "a failed Fuel ownership query cannot silently discard native cargo identities")
+    failQuery=false
+    ordinary=SC.Persistence.captureRecord(other)
+    check(ordinary and ordinary.inventory.preserveNativeIds==nil and not hasNative(ordinary.inventory.roots),
+        "Fuel identity scope does not leak to unrelated companions")
     SC.Commands.reset(otherActor)
     SC.Registry.unregister(otherActor)
     SC.ExpeditionPrototype,instanceItem=priorExpedition,priorInstance

@@ -167,7 +167,7 @@ function M.fillContext(map, context, at)
     local actor=row and row.actor or getSpecificPlayer(0)
     local count=0
     local planning
-    for _,kind in ipairs({"scout","search","fish","wood"}) do
+    for _,kind in ipairs({"scout","search","fish","wood","fuel"}) do
         local ctx=SC.ExpeditionTargets.context(actor,"drive")
         local target
         if kind=="wood" then

@@ -553,4 +553,47 @@ do
     T.known,F.verify,W.status=oldKnown,oldVerify,oldStatus
     leader.x,leader.y=oldX,oldY
 end
+do
+    local fuelModule=SC.ExpeditionFuel
+    local priorCar,priorVehicle,priorDriving=SC.ExpeditionCar,SC.Vehicle,SC.Driving
+    local priorNative=SC.NativeActions
+    SC.NativeActions={workKind=function() end}
+    local function carCopy(value) return value and value.sqlId==41 and value or nil end
+    SC.ExpeditionCar={copyDescriptor=carCopy,exportDescriptor=carCopy,restoreDescriptor=carCopy,pulse=function() return false end}
+    SC.Vehicle={prepareDriverKeyReset=function() return true end}
+    SC.Driving={release=function() return true end}
+    prepared=true
+    local priorPreview=F.preview
+    F.preview=function() return {candidates={site}} end
+    local okay,trip=E.startWoodCollection(roster,{travelMode="straight"})
+    check(okay,"shared itinerary available for fuel persistence: "..tostring(trip))
+    trip.scout.kind,trip.scout.wood,trip.scout.travelMode="fuel",nil,"drive"
+    trip.scout.phase="fuel_working"
+    trip.scout.vehicle={sqlId=41,state="parked_at_site",leg="outbound",fuelMultiSite=true}
+    trip.scout.fuel=fuelModule.create({mode="count",quantity=2},{{id="132:92:148:108",label="Gas station",
+        anchor={x=140,y=100,z=0},bounds={x=132,y=92,x2=148,y2=108}}},false)
+    trip.scout.fuel.tripId,trip.scout.fuel.workerId,trip.scout.fuel.startedHour=trip.radioSession,leader.id,hour
+    trip.scout.fuel.pumpLitres=4.5
+    check(E.pendingFuelInventory(leader.id) and not E.pendingFuelInventory("unrelated-actor"),
+        "fuel preserves exact inventory identities for its crew only")
+    local priorSenses=SC.Senses
+    SC.Senses={cached=function() return {valid=true,reflexTime=SC_TEST_CLOCK,threats={
+        {visible=true,x=leader.x+5,y=leader.y,distanceSq=25}}} end}
+    E.pulse()
+    check(trip.scout.fuel.cleanupRequested and trip.scout.fuel.emergency,"mission danger detection runs even when combat prevents selection of the fuel worker")
+    SC.Senses=priorSenses
+    local saved=E.export()
+    check(saved.schema==10 and saved.scout.fuel.pumpLitres==4.5,"fuel uses schema 10 with physical work progress")
+    check(E.prepareReset() and E.reset() and E.restore(saved),"fuel itinerary restores through the shared travel validator")
+    local roundtrip=E.export()
+    check(roundtrip.scout.kind=="fuel" and roundtrip.scout.phase=="fuel_working"
+        and roundtrip.scout.fuel.workerId==leader.id and roundtrip.scout.vehicle.fuelMultiSite,"fuel reload preserves worker and original-home travel state")
+    check(E.prepareReset() and E.reset(),"fuel teardown settles owned work")
+    check(not E.pendingFuelInventory(leader.id),"ended fuel work without cargo releases native identity scope")
+    saved.scout.vehicle.sqlId=999
+    check(not E.restore(saved) and E.current()==nil,"invalid fuel car cannot silently restore as an incompatible walking mission")
+    SC.ExpeditionCar,SC.Vehicle,SC.Driving=priorCar,priorVehicle,priorDriving
+    SC.NativeActions=priorNative
+    F.preview=priorPreview
+end
 print("EXPEDITION_WOOD_MISSION_KAHLUA_PASS checks=" .. checks)

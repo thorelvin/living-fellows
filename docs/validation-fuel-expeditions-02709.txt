@@ -1,0 +1,100 @@
+SPDX-License-Identifier: MIT
+
+Fuel collection expeditions — 2026-11-11, Project Zomboid 42.22.2
+
+Candidate: living_fellows/0.27.9, working changes after e46f3ae8.
+Fuel implementation is Lua only. No new bridge API or protocol change.
+The pre-existing Markus changes are retained. Bridge SHA256:
+c35c044630af880b0b5c0bada226721ac0564613cf1bd5460a6f5f494f8a4c56.
+
+Automated verification
+- Latest post-review gate PASS: build/test-results/20261111-202518-67660d,
+  all five checks in 107.1 s. Review fixes and their scope are recorded below.
+- Full five-check gate PASS: build/test-results/20261111-172327-fc46b1.
+  Build, Lifecycle, Behaviour, Cargo and Interface passed, serially, in 124.1 s.
+  Java heap 256 MB, two processors; no live client ran alongside the gate.
+- Cargo coverage includes installed native fuel/generator/transfer action bodies,
+  finite pump accounting, repeated completion, full and protected supplies,
+  measured starter-fuel loans, car top-up, physical trunk loading, bag staging,
+  storage full/retry/reload, exact delivery and missing-cargo reconciliation.
+  An unresolved receipt does not block another verified can's delivery.
+- Existing camp-refuelling tests and the new station path share the inlet goal
+  geometry. Every goal includes the navigation stopping margin within the
+  existing 1.6-tile interaction radius. Camp chore boundaries remain enforced.
+- The real inventory serializer tests exact native-ID capture for Fuel work,
+  query failures and unrelated-actor isolation. Shared expedition tests cover
+  schema 10, worker/home state and danger detection while combat owns the actor.
+
+Live evidence, preserved under build/live-sandbox-runs
+1. SC-Harness-20261111-170600-a343021b: fresh departure and station checkpoint.
+   Real camp withdrawal, native driving, generator fuel/connect/start, an empty
+   pump followed by another pump, and the first 10 L car transfer completed.
+   The saved companion inventory has preserveNativeIds=true; its can's saved
+   native ID equals its fuel receipt. The raw run is FAIL (89 pass / 1 fail):
+   one diagnostic passed a roster entry to captureRecord instead of the registry
+   record. The probe is corrected; the saved checkpoint was independently read
+   and verified, not rewritten or relabelled.
+2. SC-Harness-20261111-172550-ac8a2282: resumed that actual checkpoint, completed
+   top-up, filled both cans, loaded them, stopped/disconnected the generator and
+   drove home. Native view-restore logs confirm primary-view teardown. The
+   normal automatic arrival finished before the probe's expected manual
+   handover. Its raw FAIL (97 pass / 1 fail) is retained. The probe now accepts
+   both actual handover paths; no production completion was forced.
+3. SC-Harness-20261111-173754-fe155f0b: reloaded the returned save and observed
+   automatic delivery. PASS: 23 passed / 0 failed / 0 skipped.
+   No fixture items were created or repositioned during this delivery resume.
+   Native car engine off; one local view; companion health 100; order Base duty.
+   Both requested cans are full and physically in permitted storage: 20.0 L.
+   Exact native item IDs 2118379469 and 681836731, destination storage:4.
+
+Final accounting: 46.758617 L pumped; 26.758617 L added to the car; 20.0 L stored.
+The 2.0 L of camp starter gasoline went to the generator and was not counted
+as newly pumped fuel. The return drive consumed normal tank fuel.
+
+Live fixes included preserving native inventory IDs during Fuel ownership,
+staging bag cargo only at storage, reserving native fluid-inclusive weight,
+and replacing a short-arrival inlet stall with the existing precise refuel path.
+Earlier interrupted and diagnostic runs remain distinguishable from acceptance.
+
+Fixture and scope
+- One disposable clone/client at a time, LF alone, low-impact 30 FPS, no Steam.
+  Original Rising/2026-11-08_00-37-04 and the normal installation were untouched.
+- The clone supplied two real cans, 2 L starter fuel, a worn bag, a real parked
+  car/key and an outdoor storage crate. A real generator was placed off, empty
+  and disconnected at a real station before service. The expedition did not
+  spawn or transport a generator. No journey teleport or scripted fuel reward.
+- Nearby zombies were removed only in the private fixture for a calm service
+  test. This does not validate dangerous-station combat or multiplayer.
+- Multi-crew trips, car-only requests, direct pump-to-car filling, full-storage
+  waits and cancellation/death at every stage were not all run live. Automated
+  results above are separate from the completed live sequence.
+- Blocker, generator, return and delivery screenshots are retained. Final image:
+  SC-Harness-20261111-173754-fe155f0b/cache/Screenshots/
+  SC-Harness-20261111-173754-fe155f0b-fuel-delivered.png.
+  The existing history button refreshes on its five-second pruning poll; the
+  final image captures the confirmed 20 L receipt before that label catches up.
+- Attempted cleanup of 13 duplicate development payloads (~918 MiB) was rejected
+  by automatic approval review: "blocked by policy". They remain; saves, logs
+  and screenshots were not deleted. Final acceptance payloads are retained.
+
+Player instructions: docs/fuel-expeditions.txt.
+
+Post-acceptance code review — 2026-11-11
+Reviewed the last four commits (e46f3ae8, 7c3f2d21, e431c971, 0243c7cf)
+and current fuel/Markus changes. No additional confirmed animal-care or native
+taxi bugs were found. Four Fuel recovery failures were reproduced and fixed:
+- Normal asynchronous donor-can return incorrectly triggered the three-minute
+  shortage delay. The delay now applies only to an actual blocked return.
+- An unloaded hauler's missing inventory was treated as lost. Its ownership now
+  survives streaming; replacement also waits for native action removal.
+- Cleanup discarded native transfer evidence before its can/tank was readable.
+  Evidence remains pending and is reconciled exactly once when available.
+  Confirmed death can retire missing cargo with a warning, without recreating it
+  or permanently preventing survivors from proceeding.
+- A queued native fill could still commit after its mission ended. Each action
+  now verifies the current mission instance and designated worker before effects.
+
+Reproductions failed before each correction and pass afterward in the existing
+compact Cargo harness, including real installed native action completion bodies.
+The full five-check gate passes. No new live expedition was run for this review;
+the live sequence above predates these additional recovery fixes.

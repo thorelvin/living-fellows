@@ -363,6 +363,7 @@ end
 
 local function copyDebrief(value)
     if value == nil then return nil end
+    if value.kind == "fuel" then return SC.ExpeditionFuel and SC.ExpeditionFuel.copyDebrief(value) end
     if value.kind == "home" then return SC.HomeTrip and SC.HomeTrip.copyDebrief(value) end
     if value.kind == "search" or value.kind == "wood" then
         local returned = {}
@@ -395,6 +396,7 @@ local function copyDebrief(value)
 end
 
 local function validDebrief(value)
+    if type(value)=="table" and value.kind=="fuel" then return SC.ExpeditionFuel and SC.ExpeditionFuel.copyDebrief(value)~=nil end
     if type(value) == "table" and value.kind == "home" then
         return SC.HomeTrip and SC.HomeTrip.validDebrief(value) or false
     end
@@ -491,7 +493,7 @@ local function queueDelivery(record)
     while #pendingDeliveries >= DELIVERY_LIMIT do
         local removable
         for index, pending in ipairs(pendingDeliveries) do
-            if pending.kind ~= "wood" and pending.kind ~= "home" then removable = index break end
+            if pending.kind ~= "wood" and pending.kind ~= "home" and pending.kind ~= "fuel" then removable = index break end
         end
         if not removable then return false, "wood_delivery_queue_full" end
         table.remove(pendingDeliveries, removable)
@@ -515,6 +517,7 @@ function Expedition.retryDelivery(tripId, receiptId)
 end
 
 local function validProgressReport(value)
+    if type(value)=="table" and value.kind=="fuel" then return SC.ExpeditionFuel and SC.ExpeditionFuel.validReport(value) end
     return value == nil or type(value) == "table"
         and validWorldHour(value.at)
         and type(value.collected) == "number"
@@ -534,6 +537,12 @@ end
 
 local function copyProgressReport(value)
     if value == nil then return nil end
+    if value.kind=="fuel" then
+        if not SC.ExpeditionFuel.validReport(value) then return nil end
+        return {kind="fuel",at=value.at,phase=value.phase,requested=value.requested,collected=value.collected,
+            carFuelAdded=value.carFuelAdded,generatorFuelUsed=value.generatorFuelUsed,carriedLitres=value.carriedLitres,
+            storedLitres=value.storedLitres,filled=value.filled,cans=value.cans,reason=value.reason,source="radio"}
+    end
     return { at = value.at, collected = value.collected,
         requested = value.requested, phase = value.phase,
         kind = value.kind, mode = value.mode, carried = value.carried, stored = value.stored }
@@ -879,6 +888,7 @@ function Expedition._syncDeparturePreparation(active)
     local preparation = scout and scout.departurePreparation
     if not preparation then return end
     local gearPending = scout.fishingPreparation ~= nil or scout.wood and scout.wood.preparation == true
+        or scout.fuel and scout.fuel.preparation == true
     for _, row in ipairs(preparation.members) do
         row.gearPending = gearPending == true
         if gearPending then row.stage = "gear"
@@ -897,7 +907,7 @@ end
 
 function Expedition._beginDeparturePreparation(active)
     local scout = active and active.scout
-    if not scout or (scout.kind ~= "wood" and scout.kind ~= "search" and scout.kind ~= "scout")
+    if not scout or (scout.kind ~= "wood" and scout.kind ~= "search" and scout.kind ~= "scout" and scout.kind ~= "fuel")
         or not SC.Logistics or type(SC.Logistics.prepareLoadout) ~= "function" then return end
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
     local origin = base and SC.BaseLife.isInside and SC.BaseLife.isInside(active.leader.actor) and base.id or nil
@@ -926,7 +936,8 @@ end
 function Expedition._finishDeparturePreparation(active, waiting)
     local scout = active and active.scout
     local preparation = scout and scout.departurePreparation
-    if not preparation or scout.fishingPreparation or scout.wood and scout.wood.preparation then return false end
+    if not preparation or scout.fishingPreparation or scout.wood and scout.wood.preparation
+        or scout.fuel and scout.fuel.preparation then return false end
     local total = 0
     for _, member in ipairs(active.roster) do
         if alive(member) then
@@ -937,8 +948,16 @@ function Expedition._finishDeparturePreparation(active, waiting)
         elseif member.actor == nil and (not active.survivors or active.survivors[member.id]) then return false end
     end
     if total == 0 or not alive(active.leader) then return false end
+    if scout.fuel and not scout.fuel.prepared then
+        scout.fuel.preparation=true
+        scout.fuel.stage="finding_cans"
+        Expedition._syncDeparturePreparation(active)
+        return false
+    end
     local cargoReady, issue = scout.kind == "scout", "departure_cargo_capacity"
-    if scout.wood and SC.ExpeditionWood and SC.ExpeditionWood.departureReady then
+    if scout.fuel then
+        cargoReady,issue=scout.fuel.prepared==true,"fuel_preparation_pending"
+    elseif scout.wood and SC.ExpeditionWood and SC.ExpeditionWood.departureReady then
         local allowed = {}
         for _, row in ipairs(preparation.members) do allowed[row.id] = row.allowHeldBag ~= false end
         cargoReady, issue = SC.ExpeditionWood.departureReady(active.roster, scout.wood,
@@ -1052,7 +1071,7 @@ function Expedition.updateDeparturePreparation(actor, runtime)
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
     local camp = row.campStaging and base and base.id == preparation.originCampId
         and SC.BaseLife.isInside and SC.BaseLife.isInside(actor) == true or false
-    local cargoWeight = scout.kind == "wood" and 9 or scout.kind == "scout" and 0 or 1
+    local cargoWeight = scout.kind == "wood" and 9 or (scout.kind == "scout" or scout.kind == "fuel") and 0 or 1
     local keepItems, allowHeldBag = {}, true
     if scout.wood and SC.ExpeditionWood and SC.ExpeditionWood.departureGear then
         keepItems, allowHeldBag = SC.ExpeditionWood.departureGear(actor, scout.wood)
@@ -1077,6 +1096,7 @@ function Expedition.retryDeparturePreparation(tripId)
     if not preparation or mission.radioSession ~= tripId or mission.restoring or mission.terminal then
         return false, "departure_preparation_stale"
     end
+    if mission.scout.fuel and mission.scout.fuel.preparation then SC.ExpeditionFuel.retryPreparation(mission) end
     for _, row in ipairs(preparation.members) do
         if not row.ready and row.stage == "blocked" then row.retryRequested = true end
     end
@@ -1196,6 +1216,7 @@ function Expedition.start(records, plan)
         end
         local searchPlan = type(plan) == "table" and plan.kind == "search"
         local woodPlan = type(plan) == "table" and plan.kind == "wood"
+        local fuelPlan = type(plan) == "table" and plan.kind == "fuel"
         -- Home validation lives in its own module to keep this file below
         -- Kahlua's file-scope local limit.
         local player = type(getSpecificPlayer) == "function"
@@ -1204,7 +1225,7 @@ function Expedition.start(records, plan)
             x = math.floor(player:getX()), y = math.floor(player:getY()),
             z = math.floor(player:getZ()),
         } or nil
-        local homeBase = (searchPlan or woodPlan or plan.kind == "home") and SC.BaseLife
+        local homeBase = (searchPlan or woodPlan or fuelPlan or plan.kind == "home") and SC.BaseLife
             and SC.BaseLife.active() or nil
         if homeBase and validPoint(homeBase.core)
             and homeBase.core.z == plan.destination.z then
@@ -1255,16 +1276,20 @@ function Expedition.start(records, plan)
                 if plan.destination.x ~= mapTarget.anchor.x or plan.destination.y ~= mapTarget.anchor.y then
                     return false, "map_target_changed"
                 end
+            elseif fuelPlan then
+                if plan.fuel.sites[1].id~=mapTarget.id then return false,"map_target_changed" end
             elseif not plan.site or plan.site.id ~= mapTarget.id then return false, "map_target_changed" end
         end
         local destinationRadius = mapTarget and SC.ExpeditionTargets.limit(travelMode)
+            or fuelPlan and 5000
             or plan.kind == "home" and (travelMode == "drive" and 5000 or 1000)
             or woodPlan and 1000 or SC.Config and SC.Config.get(fishingPlan
             and "expeditionFishingRadius" or "expeditionDestinationRadius")
             or (fishingPlan and 1000 or 200)
         if type(plan) ~= "table"
-            or (plan.kind ~= "scout" and plan.kind ~= "home" and not searchPlan and not woodPlan)
+            or (plan.kind ~= "scout" and plan.kind ~= "home" and not searchPlan and not woodPlan and not fuelPlan)
             or (woodPlan and not validWood(plan.wood))
+            or (fuelPlan and (travelMode~="drive" or not SC.ExpeditionFuel.valid(plan.fuel)))
             or not validPoint(plan.destination)
             or not validPoint(returnPoint)
             or plan.destination.z ~= returnPoint.z
@@ -1330,6 +1355,7 @@ function Expedition.start(records, plan)
                 radius = plan.radius or 5,
             } or nil,
             wood = woodPlan and copyWood(plan.wood) or nil,
+            fuel = fuelPlan and SC.ExpeditionFuel.copy(plan.fuel) or nil,
             homeBaseId = homeBase and homeBase.id or nil,
             home = plan.kind == "home" and SC.HomeTrip.copyState(plan.home) or nil,
             fishingPreparation = fishingPlan and SC.Fishing
@@ -1402,6 +1428,7 @@ function Expedition.start(records, plan)
             tonumber(state and state.commandSerial) or 0
     end
     Expedition._beginDeparturePreparation(mission)
+    if scout and scout.fuel then scout.fuel.tripId=mission.radioSession end
     if Events and Events.OnDeviceText then
         Events.OnDeviceText.Add(radioTextReceived)
         mission.radioTextHooked = true
@@ -1416,6 +1443,45 @@ end
 function Expedition.startHome(records, plan)
     if type(plan) ~= "table" or plan.kind ~= "home" then return false, "home_invalid_plan" end
     return Expedition.start(records, plan)
+end
+
+function Expedition.previewFuelCollection(records,options)
+    return SC.ExpeditionFuel.preview(records,options)
+end
+function Expedition.startFuelCollection(records,options)
+    if mission then return false,"expedition_already_active" end
+    options=options or {}
+    if not SC.BaseLife or not SC.BaseLife.active() then return false,"fuel_base_missing" end
+    pruneCompletedDeliveries()
+    if #pendingDeliveries>=DELIVERY_LIMIT then return false,"fuel_delivery_queue_full" end
+    local fuel,why=SC.ExpeditionFuel.plan(records,options)
+    if not fuel then return false,why end
+    return Expedition.start(records,{kind="fuel",fuel=fuel,destination=fuel.sites[1].anchor,
+        turnHomeAfterHours=options.turnHomeAfterHours or 4,doctrine=options.doctrine,travelMode="drive",
+        parkingZoneId=options.parkingZoneId,vehicleSqlId=options.vehicleSqlId,
+        restockBaseDuty=options.restockBaseDuty==true,mapTarget=options.mapTarget})
+end
+function Expedition.fuelRequestFor(actor)
+    return SC.ExpeditionFuel and SC.ExpeditionFuel.requestFor(mission,actor)
+end
+function Expedition.updateFuel(actor,snapshot)
+    local context=Expedition.fuelRequestFor(actor)
+    if not context then return false,"fuel_work_unavailable" end
+    local handled,why,done=SC.ExpeditionFuel.update(actor,context,snapshot)
+    context.fuel.blocker=why
+    if context.fuel.prepared and mission.scout.departurePreparation then
+        Expedition._finishDeparturePreparation(mission)
+    end
+    return handled,why,done
+end
+function Expedition.fuelMarkerLive(marker)
+    if SC.ExpeditionFuel.markerLive(mission,marker) then return true end
+    for _,record in ipairs(pendingDeliveries) do
+        if record.kind=="fuel" and marker and marker.tripId==record.tripId then
+            return SC.ExpeditionFuel.markerLive({scout={fuel=record.fuelWork}},marker)
+        end
+    end
+    return false
 end
 
 function Expedition.homeDeliveryAvailable()
@@ -1460,6 +1526,28 @@ function Expedition.pendingHomeInventory(id)
                     end
                     break
                 end
+            end
+        end
+    end
+    return false
+end
+
+-- Fuel receipts compare both the LF token and the native item ID. Preserve
+-- those IDs while a can/donor can be in a crew inventory, including delivery
+-- paused by a new player order. This is a bounded ledger query, not a scan.
+function Expedition.pendingFuelInventory(id)
+    if type(id) ~= "string" or id == "" then return false end
+    if mission and mission.scout and mission.scout.fuel then
+        for _, member in ipairs(mission.roster or {}) do
+            if member.id == id then return true end
+        end
+    end
+    for index, record in ipairs(pendingDeliveries) do
+        if index > DELIVERY_LIMIT then break end
+        if record.kind == "fuel" and SC.ExpeditionFuel.deliveryPending(record) then
+            for memberIndex, member in ipairs(record.members or {}) do
+                if memberIndex > 4 then break end
+                if member.id == id then return true end
             end
         end
     end
@@ -2245,11 +2333,54 @@ function Expedition.export()
         saved.schema = 9
         saved.scout.home = SC.HomeTrip.copyState(mission.scout.home)
     end
+    if mission.scout and mission.scout.fuel then
+        saved.schema,saved.baseSchema=10,nil
+        saved.scout.fuel=SC.ExpeditionFuel.copy(mission.scout.fuel)
+    end
     return saved
 end
 
 function Expedition.restore(saved)
     if mission ~= nil then return false, "expedition is already active" end
+    if type(saved)=="table" and saved.schema==10 then
+        local scout=saved.scout
+        if type(saved.roster)~="table" or #saved.roster<1 or #saved.roster>4
+            or type(scout)~="table" or scout.kind~="fuel" or not SC.ExpeditionFuel.valid(scout.fuel)
+            or scout.fuel.tripId~=saved.radioSession or scout.travelMode~="drive" or not scout.vehicle then
+            return false,"saved fuel itinerary is invalid"
+        end
+        local ids={}
+        for _,id in ipairs(saved.roster or {}) do ids[id]=true end
+        if not SC.ExpeditionCar.copyDescriptor(scout.vehicle,saved.roster,saved.roster[1]) then return false,"saved fuel car is invalid" end
+        if scout.phase~="fuel_working" and scout.phase~="outbound" and scout.phase~="inbound"
+            and scout.phase~="awaiting_player" and scout.phase~=scout.vehicle.state then return false,"saved fuel phase is invalid" end
+        if scout.phase=="fuel_working" and not scout.fuel.startedHour then return false,"saved fuel work start is invalid" end
+        if scout.fuel.workerId and not ids[scout.fuel.workerId] then return false,"saved fuel worker outside roster" end
+        if scout.fuel.donor and not ids[scout.fuel.donor.memberId] then return false,"saved fuel donor outside roster" end
+        for _,row in ipairs(scout.fuel.acquisitions) do if not ids[row.memberId] then return false,"saved fuel cargo outside roster" end end
+        if scout.mapTarget and (not SC.ExpeditionTargets.valid(scout.mapTarget)
+            or not SC.ExpeditionTargets.matchesMission(scout.mapTarget,scout)) then return false,"saved fuel target invalid" end
+        local shared={}
+        for k,v in pairs(saved) do shared[k]=v end
+        shared.schema,shared.baseSchema=6,nil
+        shared.scout={}
+        for k,v in pairs(scout) do shared.scout[k]=v end
+        shared.scout.kind,shared.scout.fuel,shared.scout.mapTarget="search",nil,nil
+        shared.scout.site=nil
+        if scout.phase=="fuel_working" then shared.scout.phase="searching" end
+        local begun=scout.fuel.startedHour
+        shared.scout.search={request={category="tools",quantity=1},acquisitions={},radius=5,
+            startedHour=begun,deadlineHour=begun and begun+24 or nil,
+            endReason=(scout.phase=="inbound" or scout.phase=="awaiting_player") and "radio_return" or nil}
+        local restored,why=Expedition.restore(shared)
+        if not restored then return false,why end
+        mission.scout.kind,mission.scout.search="fuel",nil
+        mission.scout.fuel=SC.ExpeditionFuel.copy(scout.fuel)
+        mission.scout.phase=scout.phase
+        mission.scout.mapTarget=scout.mapTarget and SC.ExpeditionTargets.copy(scout.mapTarget) or nil
+        Expedition._syncDeparturePreparation(mission)
+        return true
+    end
     if type(saved) == "table" and saved.schema == 9 then
         local legacy, reason
         if SC.HomeTrip then legacy, reason = SC.HomeTrip.savedLegacy(saved) end
@@ -2682,7 +2813,7 @@ function Expedition.current() return mission end
 function Expedition.lastOutcome() return lastOutcome end
 function Expedition.lastDebrief()
     local copy = copyDebrief(lastDebrief)
-    if copy and (copy.kind == "search" or copy.kind == "wood" or copy.kind == "home") and copy.integration then
+    if copy and (copy.kind == "search" or copy.kind == "wood" or copy.kind == "home" or copy.kind == "fuel") and copy.integration then
         for _, record in ipairs(pendingDeliveries) do
             if record.tripId == copy.integration.tripId then
                 copy.integration = SC.ExpeditionIntegration.copy(record)
@@ -2720,7 +2851,7 @@ end
 
 local function homecomingRecord()
     if mission == nil or mission.scout == nil
-        or (mission.scout.search == nil and mission.scout.wood == nil)
+        or (mission.scout.search == nil and mission.scout.wood == nil and mission.scout.fuel == nil)
         or mission.scout.phase ~= "awaiting_player"
         or (mission.scout.kind == "home" and mission.scout.home.recalling)
         or mission.integration ~= nil
@@ -2757,6 +2888,8 @@ end
 
 function Expedition.receiptPending(item)
     if not item then return false end
+    local data=SC.GameplayUtil.modData(item)
+    if data and data.LF_ExpeditionFuel and Expedition.fuelMarkerLive(data.LF_ExpeditionFuel) then return true end
     local id = SC.GameplayUtil.itemStableId(item, false)
     if not id then return false end
     if mission and mission.scout and (mission.scout.search or mission.scout.wood) then
@@ -2814,6 +2947,10 @@ end
 -- Runtime calls this before disposing native actors. Keep the mission's stable
 -- descriptor available to the save owner until world teardown commits.
 function Expedition.prepareReset()
+    if mission and mission.scout and mission.scout.fuel then
+        local okay,why=SC.ExpeditionFuel.stop(mission,"expedition_world_exit")
+        if not okay then return false,why end
+    end
     if mission == nil then return true end
     if mission.suspended then return true end
     cancelFishingPreparation()
@@ -3062,12 +3199,15 @@ function Expedition.describeForPlayer(viewer)
             and itinerary.fishingPreparation and leader.id or nil,
         departurePreparation = leaderVisible and Expedition._departurePreparationSummary(mission) or nil,
         kind = itinerary and itinerary.kind or nil,
+        fuelProgress = leaderVisible and itinerary and itinerary.fuel and SC.ExpeditionFuel.progress(mission)
+            or mission.lastProgressReport and mission.lastProgressReport.kind=="fuel" and copyProgressReport(mission.lastProgressReport) or nil,
         plannedSite = itinerary and (itinerary.mapTarget and itinerary.mapTarget.label or itinerary.site
             and itinerary.site.label or itinerary.search
             and itinerary.search.request.category == "fish"
             and ("Fishing bank " .. itinerary.destination.x .. ", "
                 .. itinerary.destination.y) or itinerary.wood
-                and itinerary.wood.sites[itinerary.wood.siteIndex].label) or nil,
+                and itinerary.wood.sites[itinerary.wood.siteIndex].label or itinerary.fuel
+                and itinerary.fuel.sites[itinerary.fuel.siteIndex].label) or nil,
         turnHomeAtHour = itinerary and itinerary.turnHomeAtHour or nil,
         vehicleState = itinerary and itinerary.vehicle
             and itinerary.vehicle.state or nil,
@@ -3393,6 +3533,17 @@ function Expedition.sendRadioOrder(player, command, payload, endpoint)
         return false, "radio_no_ack"
     end
     if progressRequest then
+        if mission.scout and mission.scout.fuel then
+            local report=SC.ExpeditionFuel.progress(mission)
+            report.at,report.phase,report.source=scoutWorldHour() or 0,mission.scout.phase,"radio"
+            report.requested=mission.scout.fuel.request.quantity or report.cans
+            local message=string.format("%s: car topped up %.1f L; %d of %d cans full; %.1f L carried; %.1f L stored. %s",
+                mission.leader.name or "Squad leader",report.carFuelAdded,report.filled,report.cans,
+                report.carriedLitres,report.storedLitres,SC.ExpeditionFuel.reason(report.reason) or "Working.")
+            if not stationAcknowledgement(player,endpoint,message,"REPORT-"..sequence) then return false,"radio_no_return_ack" end
+            mission.lastProgressReport=report
+            return true,"progress_acknowledged"
+        end
         local search = mission.scout and (mission.scout.search or mission.scout.wood)
         local scouting=not search and mission.scout and mission.scout.kind=="scout"
         if not search and not scouting then return false, "no_supply_request" end
@@ -4400,6 +4551,13 @@ local function playerMetSearchSquad(player, leader)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if itinerary.fuel then
+        if not SC.ExpeditionFuel.requestReturn(mission,reason) then return false,"fuel_generator_cleanup_pending" end
+        itinerary.fuel.preparation=nil
+        local okay,why=SC.ExpeditionCar.requestReturn(mission,SC.GameplayUtil.nowMs(),reason)
+        if okay then itinerary.fuel.cleanupRequested=nil itinerary.fuel.stage="returning" end
+        return okay,why
+    end
     local prepared, preparationReason = Expedition._cancelDeparturePreparation(mission, "expedition_return")
     if prepared ~= true then
         if itinerary.departurePreparation then itinerary.departurePreparation.returnReason = reason end
@@ -4742,6 +4900,15 @@ local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
     if scout.kind == "home" and SC.HomeTrip.pulse(mission) then return end
+    if scout.fuel and (scout.fuel.cleanupRequested or scout.fuel.preparation) then
+        if scout.fuel.emergency and scout.fuel.cleanupDeadline and SC.GameplayUtil.nowMs()>=scout.fuel.cleanupDeadline then
+            SC.ExpeditionFuel.stop(mission,"fuel_emergency_retreat")
+            scout.fuel.warning="Emergency retreat: station generator shutdown could not be confirmed."
+            scout.fuel.cleaned=true
+        end
+        if scout.fuel.cleaned then startReturnFromSite(scout,scout.fuel.endReason or "fuel_finished") end
+        return
+    end
     local now = SC.GameplayUtil.nowMs()
     if scout.wood and scout.wood.pendingCarReturnReason and SC.ExpeditionCar then
         local reason = scout.wood.pendingCarReturnReason
@@ -4775,6 +4942,12 @@ local function pulseScout()
         return
     end
     if scout.fishingPreparation or scout.wood and scout.wood.preparation then return end
+    if scout.fuel and scout.vehicle and scout.vehicle.state=="parked_at_site" and scout.phase=="outbound" then
+        scout.fuel.startedHour=scout.fuel.startedHour or scoutWorldHour()
+        scout.phase="fuel_working"
+        if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
+        return
+    end
     if scout.wood and scout.wood.pendingReturnReason then
         startReturnFromSite(scout, scout.wood.pendingReturnReason)
         return
@@ -5075,6 +5248,18 @@ local function pulseScout()
             end
             return
         end
+    end
+    if scout.phase == "fuel_working" then
+        mission.cohesionHold=nil
+        if now>=(scout.nextFuelSafetyAt or 0) then
+            scout.nextFuelSafetyAt=now+1000
+            local unsafe=SC.ExpeditionWood.safety(mission.leader.actor,{snapshot=squadRoadSnapshot(now)})
+            if unsafe then SC.ExpeditionFuel.requestReturn(mission,unsafe:gsub("^wood_","fuel_"),unsafe~="wood_night") end
+        end
+        if scout.turnHomeAtHour and scoutWorldHour()>=scout.turnHomeAtHour then
+            SC.ExpeditionFuel.requestReturn(mission,"fuel_return_timer")
+        end
+        return
     end
     if scout.phase == "wood_working" then
         mission.cohesionHold = nil
@@ -5579,7 +5764,11 @@ local function pulseScout()
     if scout.phase == "outbound" and close <= 4
         and (scout.roadRoute == nil
             or scout.roadRoute.index > #scout.roadRoute.points) then
-        if scout.wood then
+        if scout.fuel then
+            scout.fuel.startedHour=scout.fuel.startedHour or scoutWorldHour()
+            scout.phase="fuel_working"
+            if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
+        elseif scout.wood then
             local ready, reason = SC.ExpeditionForests.verify(
                 scout.wood.sites[scout.wood.siteIndex], mission.leader.actor)
             if ready == nil then return end
@@ -5729,7 +5918,8 @@ end
 -- Hysteresis gives delayed followers room to rejoin without toggling the
 -- leader's route every decision beat. Survival decisions still run while held.
 local function updateWaypointCohesion()
-    if mission and mission.scout and (mission.scout.phase == "wood_working"
+    if mission and mission.scout and (mission.scout.phase == "fuel_working" or mission.scout.fuel and mission.scout.fuel.preparation
+        or mission.scout.phase == "wood_working"
         or mission.scout.wood and mission.scout.wood.preparation) then
         mission.cohesionHold = nil
         return
@@ -5983,7 +6173,7 @@ function Expedition.finishAtPlayer(player)
         and not SC.BaseLife.isInside(mission.leader.actor, "parking") then
         return false, "return_to_camp_for_delivery"
     end
-    if mission.homeBaseId and mission.scout and (mission.scout.search or mission.scout.wood)
+    if mission.homeBaseId and mission.scout and (mission.scout.search or mission.scout.wood or mission.scout.fuel)
         and mission.scout.phase ~= "awaiting_player" then
         return false, "return_route_not_finished"
     end
@@ -6061,8 +6251,8 @@ function Expedition.finishAtPlayer(player)
         or type(destroyPlayerData) ~= "function" then
         return false, "return_primary_area_unavailable"
     end
-    local pendingDebrief = mission.scout and (mission.scout.search or mission.scout.wood)
-        and searchDebrief(mission.scout) or nil
+    local pendingDebrief = mission.scout and (mission.scout.fuel and SC.ExpeditionFuel.debrief(mission)
+        or (mission.scout.search or mission.scout.wood) and searchDebrief(mission.scout)) or nil
     if pendingDebrief and mission.integration then
         SC.ExpeditionIntegration.refresh(mission.integration)
         pendingDebrief.integration = SC.ExpeditionIntegration.copy(
@@ -6522,6 +6712,14 @@ function Expedition.pulse()
         woodRecovery = mission.integration or SC.ExpeditionIntegration.create(mission)
         if not woodRecovery then return false, "wood_recovery_record_unavailable" end
         SC.ExpeditionIntegration.refresh(woodRecovery)
+    elseif mission.scout and mission.scout.fuel then
+        local stopped,why=SC.ExpeditionFuel.stop(mission,"all_dead")
+        if not stopped then return false,why end
+        mission.scout.fuel.endReason="all_dead"
+        if mission.scout.fuel.generator then mission.scout.fuel.generatorWarning="fuel_generator_left_for_manual_recovery" end
+        woodRecovery=mission.integration or SC.ExpeditionIntegration.create(mission)
+        if not woodRecovery then return false,"fuel_recovery_record_unavailable" end
+        SC.ExpeditionIntegration.refresh(woodRecovery)
     end
     -- Stock split-screen teardown removes all slot-1 panels and their update
     -- callbacks. They otherwise keep dereferencing a cleared player slot.
@@ -6558,7 +6756,7 @@ function Expedition.pulse()
         mission.radioTextHooked = false
     end
     if woodRecovery then
-        lastDebrief = searchDebrief(mission.scout)
+        lastDebrief = mission.scout.fuel and SC.ExpeditionFuel.debrief(mission) or searchDebrief(mission.scout)
         lastDebrief.integration = SC.ExpeditionIntegration.copy(woodRecovery)
         queueDelivery(woodRecovery)
     end

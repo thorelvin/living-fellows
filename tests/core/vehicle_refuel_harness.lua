@@ -87,6 +87,17 @@ working, reason = update(job)
 check(working and reason == "arrived"
     and Refuel.atFuelSide(T.actor, T.car, T.part) == true,
     "a worker outside fuel range reaches a usable fuel-side goal")
+local savedReach=SC.BaseLife.withinWorkReach
+SC.BaseLife.withinWorkReach=function() return false end
+local remoteTargets=Refuel.physicalTargets(T.actor,T.car,T.part)
+check(#remoteTargets>0 and Refuel.physicalAccess(T.actor,T.car,T.part)==true
+        and Refuel.atFuelSide(T.actor,T.car,T.part)==false,
+    "station refuelling reuses safe inlet goals without granting camp chore access")
+for _,goal in ipairs(remoteTargets) do
+    check(math.sqrt((goal.x+0.5-10)^2+(goal.y+0.5-10)^2)+0.15<=1.600001,
+        "remote inlet goals retain the movement stopping margin")
+end
+SC.BaseLife.withinWorkReach=savedReach
 SC.GameplayUtil.position, SC.GameplayUtil.gridSquare, SC.Navigation.requestAny =
     savedPosition, savedGrid, savedNavigation
 working, reason = update(job)

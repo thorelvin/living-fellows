@@ -306,7 +306,14 @@ public final class SCNativeApiSignatureTest {
         require(companion.getDeclaredMethod("setCompanionFloorAttackInput", boolean.class, boolean.class)
                         .getReturnType() == boolean.class
                         && method(character, "isManualFloorAtkButtonDown").getReturnType() == boolean.class
-                        && method(character, "isMeleeButtonDown").getReturnType() == boolean.class,
+                        && method(character, "isMeleeButtonDown").getReturnType() == boolean.class
+                        && method(player, "isAimControlActive").getReturnType() == boolean.class
+                        && method(Class.forName("zombie.core.skinnedmodel.animation.AnimationPlayer"),
+                            "setTargetAndCurrentDirection", float.class, float.class).getReturnType() == void.class
+                        && method(character, "ensureExistsBallisticsTarget", character).getReturnType()
+                            == Class.forName("zombie.core.physics.BallisticsTarget")
+                        && method(Class.forName("zombie.core.physics.BallisticsTarget"), "add")
+                            .getReturnType() == void.class,
                 "actor-owned native manual floor-attack input contract changed");
         Class<?> stateParam = Class.forName("zombie.ai.State$Param");
         Class<?> openWindowState = Class.forName("zombie.ai.states.OpenWindowState");

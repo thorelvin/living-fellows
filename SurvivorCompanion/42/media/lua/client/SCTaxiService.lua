@@ -15,7 +15,9 @@ local nextDepartureAt, retiringCar = 0, nil
 local destinationReminderAt = nil
 local lastTraceSignature = nil
 local lastDefenseTrace = nil
-local serviceRounds, driverGun = 15, nil
+local SERVICE_WEAPON, SERVICE_ROUNDS = "Base.Pistol2", 7 -- Native M1911 magazine.
+local SERVICE_MAGAZINE, SERVICE_SPARES = "Base.45Clip", 4 -- Five full magazines including the loaded one.
+local serviceRounds, driverGun = SERVICE_ROUNDS, nil
 local PICKUP_LINES = {
     "Markus Sloane. Your ride's here. Mind the paint; it's mostly blood.",
     "Get in. The meter's broken, but my prices aren't.",
@@ -107,8 +109,10 @@ local function markedGun(actor)
     for index = 0, math.min(count, 64) - 1 do
         local item = call(items, "get", index)
         local data = item and call(item, "getModData")
+        local kind = call(item, "getFullType")
+        -- An existing saved visit keeps its original, real M9 and ammunition.
         if type(data) == "table" and data.LF_MarkusServiceGun == true
-            and call(item, "getFullType") == "Base.Pistol" then
+            and (kind == SERVICE_WEAPON or kind == "Base.Pistol") then
             driverGun = item
             return item
         end
@@ -120,7 +124,9 @@ local function updateRounds(actor)
     local gun = actor and markedGun(actor)
     local count = gun and tonumber(call(gun, "getCurrentAmmoCount"))
     if count and count >= 0 then
-        serviceRounds = math.min(serviceRounds, math.floor(count))
+        -- A native magazine swap can increase the loaded count. Inventory,
+        -- including the finite spare magazines, remains authoritative.
+        serviceRounds = math.floor(count)
     end
     return gun
 end
@@ -133,19 +139,31 @@ local function armDriver(actor)
     if not gun then
         if data.LF_MarkusArmed == true then return false, "driver_gun_missing" end
         local inventory = call(actor, "getInventory")
-        gun = inventory and call(inventory, "AddItem", "Base.Pistol")
+        gun = inventory and call(inventory, "AddItem", SERVICE_WEAPON)
         if not gun then return false, "driver_gun_unavailable" end
         local gunData = call(gun, "getModData")
         if type(gunData) ~= "table" then return false, "driver_gun_marker_missing" end
         gunData.LF_MarkusServiceGun = true
+        serviceRounds = math.min(serviceRounds,
+            tonumber(call(gun, "getMaxAmmo")) or SERVICE_ROUNDS)
         call(gun, "setContainsClip", true)
         call(gun, "setCurrentAmmoCount", serviceRounds)
         call(gun, "setRoundChambered", serviceRounds > 0)
         call(gun, "setJammed", false)
+        -- Commit issuance before creating spares, so a failed/partial setup or
+        -- recovered actor never manufactures replacement ammunition.
         data.LF_MarkusArmed = true
         driverGun = gun
+        for _ = 1, SERVICE_SPARES do
+            local magazine = call(inventory, "AddItem", SERVICE_MAGAZINE)
+            if not magazine then return false, "driver_magazine_unavailable" end
+            call(magazine, "setCurrentAmmoCount", SERVICE_ROUNDS)
+            if call(magazine, "getCurrentAmmoCount") ~= SERVICE_ROUNDS then
+                return false, "driver_magazine_not_loaded"
+            end
+        end
     end
-    if serviceRounds <= 0 then return false, "driver_out_of_ammo" end
+    -- Let normal vehicle combat reload from the real spares when empty.
     if call(actor, "getPrimaryHandItem") ~= gun then
         call(actor, "setPrimaryHandItem", gun)
         if call(actor, "getPrimaryHandItem") ~= gun then
@@ -736,7 +754,7 @@ function Service.request(actor, radio)
     if not accepted then return false, reason end
     if visit then return true, "already_booked", snapshot() end
     -- The next physical pickup is a new fare with a fresh, finite magazine.
-    serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
+    serviceRounds, driverGun, lastDefenseTrace = SERVICE_ROUNDS, nil, nil
     visit = { bookingGeneration = booking.generation,
         phase = "searching", driverId = persistentDriverId }
     nextSearchAt, pickupSearch = 0, nil
@@ -1562,7 +1580,7 @@ function Service.restore(saved)
         nextDepartureAt, retiringCar = 0, nil
         destinationReminderAt = nil
         lastTraceSignature = nil
-        serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
+        serviceRounds, driverGun, lastDefenseTrace = SERVICE_ROUNDS, nil, nil
         return true
     end
     if type(saved) ~= "table" or saved.schema ~= 1
@@ -1671,7 +1689,7 @@ function Service.restore(saved)
     nextDepartureAt, retiringCar = 0, nil
     destinationReminderAt = nil
     lastTraceSignature = nil
-    serviceRounds, driverGun, lastDefenseTrace = saved.serviceRounds or 15, nil, nil
+    serviceRounds, driverGun, lastDefenseTrace = saved.serviceRounds or SERVICE_ROUNDS, nil, nil
     return true
 end
 
@@ -1684,7 +1702,7 @@ function Service.reset()
     nextDepartureAt, retiringCar = 0, nil
     destinationReminderAt = nil
     lastTraceSignature = nil
-    serviceRounds, driverGun, lastDefenseTrace = 15, nil, nil
+    serviceRounds, driverGun, lastDefenseTrace = SERVICE_ROUNDS, nil, nil
     return true
 end
 

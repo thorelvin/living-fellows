@@ -186,6 +186,7 @@ Logistics.isManualOnlyFilterMask = Logistics.manualOnlyFilterMask
 
 function Logistics.itemCategory(item)
     local utility = U()
+    if SC.ExpeditionFuel and SC.ExpeditionFuel.canInfo(item) then return "tools" end
     if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools" end
     local fluid=select(1,utility.call(item,"getFluidContainer"))
     for _,name in ipairs({"CowMilk","SheepMilk"}) do

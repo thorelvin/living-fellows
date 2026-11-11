@@ -30,6 +30,7 @@ public class IsoPlayer extends IsoLivingCharacter {
     public static boolean getCoopPVP() { return false; }
     public static void setCoopPVP(boolean enabled) {}
     public boolean isLocalPlayer() { return false; }
+    public boolean isAimControlActive() { return false; }
     public boolean isPlayerMoving() { return false; }
     public boolean isNpc() { return false; }
     public boolean isInitiateAttack() { return initiateAttack; }

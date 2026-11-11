@@ -4,6 +4,17 @@
 
 ## 0.27.9 - Camp sheep care
 
+- Added Collect fuel expeditions by car. Choose a known gas station on the map
+  or use the nearest known station, bring permitted empty or partly filled cans,
+  top up the car and return filled cans to Tools or General storage. Full loads
+  respect filled-can weight and trunk capacity; car-only trips are also available.
+- Fuel crews can connect, refuel and start a suitable generator already at an
+  unpowered station. They restore its original running and connection state
+  before leaving. Pumped fuel, car fuel, generator use and stored cargo have
+  separate receipts; blocked preparation and delivery retain automatic and manual retry.
+- Fuel recovery preserves reservations and unfinished transfers when a hauler is
+  unloaded. Ended trips cannot complete stale actions, and borrowed-can returns
+  pause for retry only after an actual blocker.
 - Farmers feed and water ewes, rams and lambs of all three vanilla breeds,
   sharing existing pasture care with chickens and cattle. The whole enclosure
   stays within 30 tiles of camp; sheep pastures support up to 1,024 tiles.
@@ -18,8 +29,13 @@
   reserve for nursing lambs. SheepMilk and CowMilk remain separate through
   delivery and reload. Missing or ambiguous output is never recreated.
 - Existing farm claims, bounded scans and receipts handle sheep work; no new
-  background service, role, area or storage category is added. Bridge protocol
-  `42.22-isocompanion-31` is unchanged; its rebuild updates release metadata only.
+  background service, role, area or storage category is added.
+- Markus carries an M1911 with five magazines per fresh taxi visit, using native
+  reloads without replenishing ammunition on retry or reload. Fixed seated aim
+  being cleared by local input, missing vehicle attack collisions and muzzle
+  alignment. Gunfire uses the weapon's native sound and verified ammunition use.
+  Bridge protocol `42.22-isocompanion-31` is unchanged; ship the rebuilt bridge
+  together with the Lua changes.
 
 ## 0.27.8 - Camp cattle care
 

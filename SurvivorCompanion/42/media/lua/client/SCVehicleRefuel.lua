@@ -126,7 +126,7 @@ function Refuel.audit()
 end
 
 local sourceFor, itemFor = Fuel.sourceFor, Fuel.itemFor
-local function accessSquares(actor, vehicle, part)
+local function accessSquares(actor, vehicle, part, outsideCamp)
     local area = call(part, "getArea")
     local centre = area and call(vehicle, "getAreaCenter", area) or nil
     local x = tonumber(centre and (call(centre, "getX") or centre.x))
@@ -144,7 +144,7 @@ local function accessSquares(actor, vehicle, part)
                         math.floor(y) + dy, math.floor(z))
                     if square and U().isSquareFree(square)
                         and not U().safehouseBlocker(square, actor)
-                        and SC.BaseLife.withinWorkReach(square)
+                        and (outsideCamp or SC.BaseLife.withinWorkReach(square))
                         -- requestAny can stop 0.15 tiles from the square's
                         -- centre. Every accepted arrival must still be within
                         -- the 1.6-tile fuel interaction radius.
@@ -162,7 +162,10 @@ local function accessSquares(actor, vehicle, part)
     end)
     return result
 end
-function Refuel.atFuelSide(actor, vehicle, part)
+function Refuel.physicalTargets(actor, vehicle, part)
+    return accessSquares(actor, vehicle, part, true)
+end
+function Refuel.physicalAccess(actor, vehicle, part)
     local area = call(part, "getArea")
     local centre = area and call(vehicle, "getAreaCenter", area) or nil
     local x = tonumber(centre and (call(centre, "getX") or centre.x))
@@ -182,13 +185,17 @@ function Refuel.atFuelSide(actor, vehicle, part)
     if distance > 1.6 then
         return false, "fuel_side_distance:" .. tostring(distance)
     end
-    if SC.BaseLife.withinWorkReach(actor) ~= true then
-        return false, "fuel_side_outside_work_reach"
-    end
     if U().safehouseBlocker(U().squareOf(actor), actor) then
         return false, "fuel_side_safehouse_blocked"
     end
     return true, "fuel_side_reached"
+end
+
+function Refuel.atFuelSide(actor, vehicle, part)
+    local reached,why=Refuel.physicalAccess(actor,vehicle,part)
+    if not reached then return false,why end
+    if SC.BaseLife.withinWorkReach(actor)~=true then return false,"fuel_side_outside_work_reach" end
+    return true,"fuel_side_reached"
 end
 
 function Refuel.canContinue(actor, vehicle, part, item, jobId)

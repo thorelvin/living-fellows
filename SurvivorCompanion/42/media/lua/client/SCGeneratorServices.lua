@@ -50,6 +50,9 @@ function G.requestLocal(player,generator,operation)
     return true,"Asked "..SC.GameplayUtil.nameOf(selected.actor).." to "..operation.." the generator."
 end
 function G.request(player,generator,operation,row)
+    if SC.ExpeditionFuel and SC.ExpeditionFuel.generatorReserved(generator) then
+        return false,"The fuel expedition is using this generator."
+    end
     if operation~="start" and operation~="stop" and operation~="repair" then return false,"Unsupported generator service." end
     if not U().present(generator) then return false,"Generator unavailable." end
     local running=U().call(generator,"isActivated")==true

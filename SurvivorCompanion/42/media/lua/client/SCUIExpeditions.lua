@@ -245,6 +245,8 @@ end
 
 function Planner.refreshZoom(detail)
     local draft = detail and detail.expeditionDraft
+    if detail and detail.tab~="groups" and draft and draft.kind=="fuel" and Planner.refreshFuelPreview
+        and Planner.refreshFuelPreview(detail) then return false end
     if detail and detail.tab ~= "groups" and draft and draft.kind == "wood" and Planner.refreshForestPreview
         and Planner.refreshForestPreview(detail) then return false end
     local slider = detail and detail.expeditionZoomSlider
@@ -352,6 +354,7 @@ end
 local function selectedPlace(draft)
     if draft.mapTarget and draft.kind ~= "wood" then return draft.mapPlace end
     if draft.kind == "wood" then return draft.forestSite end
+    if draft.kind == "fuel" then return draft.fuelSite end
     for _, place in ipairs(draft.places or {}) do
         if place.id == draft.placeId then return place end
     end
@@ -368,6 +371,7 @@ local function woodOptions(draft)
 end
 
 local function woodReason(reason)
+    if type(reason)=="string" and reason:match("^fuel_") and SC.ExpeditionFuel then return SC.ExpeditionFuel.reason(reason) end
     if type(reason)=="string" and reason:match("^wood_area_") and SC.ExpeditionMap then
         return SC.ExpeditionMap.reason(reason)
     end
@@ -434,6 +438,28 @@ function Planner.refreshForestPreview(detail)
     return previous ~= tostring(reason) .. ":" .. tostring(draft.forestSite and draft.forestSite.id)
 end
 
+local function fuelOptions(draft)
+    local value=draft.fuelQuantity or "full"
+    return {mapTarget=draft.mapTarget,turnHomeAfterHours=draft.hours,doctrine=draft.style,travelMode="drive",
+        restockBaseDuty=draft.restockBaseDuty==true,parkingZoneId=draft.parkingZoneId,vehicleSqlId=draft.vehicleSqlId,
+        request=value=="full" and {mode="full"} or value=="car" and {mode="car"} or {mode="count",quantity=tonumber(value)}}
+end
+function Planner.refreshFuelPreview(detail)
+    local draft=detail and detail.expeditionDraft
+    local expedition=SC.ExpeditionPrototype
+    if not draft or draft.kind~="fuel" or draft.fuelPreviewComplete or not expedition or expedition.current() then return false end
+    local now=SC.GameplayUtil.nowMs()
+    if draft.fuelPreviewAt and now<draft.fuelPreviewAt then return false end
+    draft.fuelPreviewAt=now+100
+    local records,why=currentTeam(detail)
+    local before=tostring(draft.previewError)..":"..tostring(draft.fuelSite and draft.fuelSite.id)
+    local preview,reason
+    if records then preview,reason=expedition.previewFuelCollection(records,fuelOptions(draft)) else reason=why end
+    draft.preview,draft.previewError,draft.fuelSite=preview,reason,preview and preview.site
+    draft.fuelPreviewComplete=preview~=nil or reason~="fuel_station_scan_pending"
+    return before~=tostring(reason)..":"..tostring(draft.fuelSite and draft.fuelSite.id)
+end
+
 local function optionLabel(option)
     return option.label or tr(option.key)
 end
@@ -445,6 +471,9 @@ local function onSelect(detail, combo)
     draft[combo.scField] = option.value
     draft.preview, draft.previewError = nil, nil
     draft.woodPreviewComplete, draft.forestSite = nil, nil
+    draft.fuelPreviewComplete,draft.fuelSite=nil,nil
+    if draft.kind=="fuel" then draft.travelMode="drive" draft.fuelQuantity=draft.fuelQuantity or "full" end
+    if combo.scField=="kind" and draft.mapTarget and draft.mapTarget.kind~=draft.kind then draft.mapTarget,draft.mapPlace=nil,nil end
     if draft.kind == "wood" and draft.woodQuantity == nil then draft.woodQuantity = 12 end
     if combo.scField == "group" then
         draft.leaderId = nil
@@ -688,6 +717,7 @@ end
 
 local function tripOptions(draft)
     if draft.kind=="wood" then return woodOptions(draft) end
+    if draft.kind=="fuel" then return fuelOptions(draft) end
     return {mapTarget=draft.mapTarget,turnHomeAfterHours=draft.hours,doctrine=draft.style,
         travelMode=draft.travelMode,restockBaseDuty=draft.restockBaseDuty==true,
         parkingZoneId=draft.parkingZoneId,vehicleSqlId=draft.vehicleSqlId,
@@ -704,6 +734,8 @@ function Planner.applyMapTarget(detail,target,review)
     draft.placeId=target.id
     draft.review,draft.preview,draft.previewError=false,nil,nil
     draft.woodPreviewComplete,draft.forestSite=nil,nil
+    draft.fuelPreviewComplete,draft.fuelSite=nil,nil
+    if draft.kind=="fuel" then draft.travelMode="drive" end
     draft.mapPlace=nil
     local fresh,reason=SC.ExpeditionTargets.validate(target,mapContext(detail))
     draft.mapPlace=fresh and fresh.place or nil
@@ -715,7 +747,7 @@ end
 
 local function dispatch(detail)
     local draft = detail.expeditionDraft
-    if draft.kind ~= "wood" and not selectedPlace(draft) then return false, "destination_changed" end
+    if draft.kind ~= "wood" and draft.kind~="fuel" and not selectedPlace(draft) then return false, "destination_changed" end
     local expedition = SC.ExpeditionPrototype
     if not expedition or type(expedition.startAtPlace) ~= "function"
         or SCSplitScreenProbe == nil then
@@ -742,6 +774,10 @@ local function dispatch(detail)
         if type(expedition.startWoodCollection) ~= "function" then return false, "wood_expedition_unavailable" end
         local called, accepted, failure = pcall(expedition.startWoodCollection, records, woodOptions(draft))
         return called and accepted == true, called and woodReason(failure) or tostring(accepted)
+    end
+    if draft.kind=="fuel" then
+        local called,accepted,failure=pcall(expedition.startFuelCollection,records,fuelOptions(draft))
+        return called and accepted==true,called and woodReason(failure) or tostring(accepted)
     end
     if draft.kind == "search" or draft.kind == "fish" then
         options.request = { category = draft.kind == "fish" and "fish"
@@ -780,6 +816,15 @@ function Planner.onButton(detail, button)
     elseif action == "automatic_wood" then
         draft.mapTarget,draft.mapPlace=nil,nil
         draft.woodPreviewComplete,draft.forestSite=nil,nil
+        draft.review=false
+    elseif action=="automatic_fuel" then
+        draft.mapTarget,draft.mapPlace=nil,nil
+        draft.fuelPreviewComplete,draft.fuelSite=nil,nil
+        draft.review=false
+    elseif action=="refresh" and draft.kind=="fuel" then
+        local records=currentTeam(detail)
+        if records then SC.FuelStations.candidates(records[1].actor,true) end
+        draft.fuelPreviewComplete,draft.fuelSite=nil,nil
         draft.review=false
     elseif action == "toggle_reports" then
         draft.showReports=not draft.showReports
@@ -835,6 +880,9 @@ function Planner.onButton(detail, button)
             draft.preview,draft.previewError=SC.ExpeditionPrototype.previewMapTarget(team,fresh,options)
             draft.forestSite=draft.preview and draft.preview.site or nil
             draft.reviewFingerprint=SC.ExpeditionTargets.reviewFingerprint(draft.mapTarget,options,team)
+        elseif draft.kind=="fuel" and team then
+            draft.fuelPreviewComplete=nil
+            Planner.refreshFuelPreview(detail)
         elseif draft.kind == "wood" and team then
             Planner.refreshForestPreview(detail)
             draft.review = true
@@ -896,7 +944,17 @@ function Planner.onButton(detail, button)
 end
 
 local function addDeliveryItems(detail, panel, y, report)
-    if report.kind == "wood" or report.version == 2 then
+    if report.kind=="fuel" then
+        y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelProgress",
+            report.filled or 0,report.requested or report.cans or 0,string.format("%.1f",report.carFuelAdded or 0),
+            string.format("%.1f",report.carriedLitres or 0),string.format("%.1f",report.storedLitres or 0)))
+        y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelAccounting",
+            string.format("%.1f",report.collected or 0),string.format("%.1f",report.generatorFuelUsed or 0)))
+        if report.warning then y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",SC.ExpeditionFuel.reason(report.warning)) end
+        if report.deliveryPending then
+            y=addButton(detail,panel,y,"UI_SC_Expedition_WoodRetryDelivery","retry_delivery",report.tripId)
+        end
+    elseif report.kind == "wood" or report.version == 2 then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_WoodDeliveryCounts", report.collected or 0,
                 report.carried or 0, report.stored or 0, report.pending or 0))
@@ -927,7 +985,8 @@ local function addDeliveryItems(detail, panel, y, report)
         end
         y = detail:addInformationLine(panel, y,
             "UI_SC_Info_Message", tr("UI_SC_Expedition_DeliveryItem",
-                report.kind == "wood" and tr("UI_SC_Expedition_WoodLog") or row.itemType,
+                report.kind == "wood" and tr("UI_SC_Expedition_WoodLog") or report.kind=="fuel"
+                    and tr("UI_SC_Expedition_FuelCan",string.format("%.1f",row.amount or 0)) or row.itemType,
                 memberName(row.finderName, row.finderId),
                 row.carrierKind == "trunk"
                     and (row.carrierName == "Car trunk"
@@ -936,7 +995,7 @@ local function addDeliveryItems(detail, panel, y, report)
                             memberName(row.carrierName, row.carrierId)))
                     or memberName(row.carrierName, row.carrierId),
                 row.stored and tr("UI_SC_Expedition_Stored")
-                    or row.reason and (report.kind == "wood" and woodReason(row.reason)
+                    or row.reason and ((report.kind == "wood" or report.kind=="fuel") and woodReason(row.reason)
                         or SC.UI.baseFailureReason(row.reason))
                     or tr("UI_SC_Expedition_Pending")))
     end
@@ -961,7 +1020,7 @@ local function addReturnReports(detail, panel, y, expedition)
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_SiteEntryBlocked"))
     end
-    if debrief and debrief.kind == "wood" and debrief.endReason then
+    if debrief and (debrief.kind == "wood" or debrief.kind=="fuel") and debrief.endReason then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             woodReason(debrief.endReason))
     end
@@ -1034,6 +1093,18 @@ function Planner.build(detail, panel)
         if view and view.plannedSite then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PlannedDestination", view.plannedSite))
+        end
+        if view and view.fuelProgress then
+            local progress=view.fuelProgress
+            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelProgress",
+                progress.filled,progress.requested or progress.cans,string.format("%.1f",progress.carFuelAdded),
+                string.format("%.1f",progress.carriedLitres),string.format("%.1f",progress.storedLitres)))
+            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",SC.ExpeditionFuel.reason(progress.reason)
+                or tr("UI_SC_Expedition_FuelWorking"))
+            if progress.warning then y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",SC.ExpeditionFuel.reason(progress.warning)) end
+            if mission.scout.fuel.preparation then
+                y=addButton(detail,panel,y,"UI_SC_Expedition_PreparationRetry","retry_preparation",mission.radioSession)
+            end
         end
         if view and view.vehicleState and not view.departurePreparation then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -1149,7 +1220,10 @@ function Planner.build(detail, panel)
         end
         if not found then draft.leaderId = initialMembers[1].id end
     end
-    if draft.kind == "wood" and not draft.mapTarget then
+    if draft.kind=="fuel" then
+        draft.travelMode="drive"
+        Planner.refreshFuelPreview(detail)
+    elseif draft.kind == "wood" and not draft.mapTarget then
         if draft.woodQuantity == nil then draft.woodQuantity = 12 end
         Planner.refreshForestPreview(detail)
     elseif (not draft.mapTarget or draft.browsePlaces) and not draft.placesLoaded then
@@ -1179,7 +1253,10 @@ function Planner.build(detail, panel)
                 leaderName, #team,
                 place and place.label or "?", draft.hours,
                 styleName))
-        if draft.kind == "wood" then
+        if draft.kind=="fuel" then
+            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelPlan"))
+            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelGeneratorPlan"))
+        elseif draft.kind == "wood" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 draft.woodQuantity == "full" and tr("UI_SC_Expedition_WoodFullPlan")
                     or tr("UI_SC_Expedition_WoodCountPlan", tonumber(draft.woodQuantity) or 12))
@@ -1263,7 +1340,7 @@ function Planner.build(detail, panel)
                 draft.restockBaseDuty and tr("UI_SC_Expedition_Yes")
                     or tr("UI_SC_Expedition_No")))
         y = addButton(detail, panel, y + 4, "UI_SC_Expedition_Edit", "edit")
-        if (draft.kind == "wood" or draft.mapTarget) and not draft.preview then
+        if (draft.kind == "wood" or draft.kind=="fuel" or draft.mapTarget) and not draft.preview then
             return detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(draft.previewError))
         end
         return addButton(detail, panel, y, "UI_SC_Expedition_Launch", "launch")
@@ -1295,6 +1372,7 @@ function Planner.build(detail, panel)
         { value = "search", key = "UI_SC_Expedition_Search" },
         { value = "fish", key = "UI_SC_Expedition_Fish" },
         { value = "wood", key = "UI_SC_Expedition_Wood" },
+        { value = "fuel", key = "UI_SC_Expedition_Fuel" },
     })
     if SC.ExpeditionMap then
         y=detail:addSection(panel,y+4,"UI_SC_Expedition_Destination")
@@ -1309,8 +1387,8 @@ function Planner.build(detail, panel)
             y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Map_WoodTreesHint"))
         end
         y=addButton(detail,panel,y,draft.kind=="wood" and "UI_SC_Map_WoodChoose" or "UI_SC_Map_Choose","choose_map")
-        y=addButton(detail,panel,y,draft.kind=="wood" and "UI_SC_Map_AutomaticWood" or "UI_SC_Map_Browse",
-            draft.kind=="wood" and "automatic_wood" or "browse_places")
+        y=addButton(detail,panel,y,draft.kind=="fuel" and "UI_SC_Expedition_FuelAutomatic" or draft.kind=="wood" and "UI_SC_Map_AutomaticWood" or "UI_SC_Map_Browse",
+            draft.kind=="fuel" and "automatic_fuel" or draft.kind=="wood" and "automatic_wood" or "browse_places")
     end
     if draft.kind == "search" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Supplies",
@@ -1319,6 +1397,11 @@ function Planner.build(detail, panel)
     if draft.kind == "wood" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_WoodQuantity",
             "woodQuantity", WOOD_QUANTITIES)
+    end
+    if draft.kind=="fuel" then
+        y=addSelector(detail,panel,y,"UI_SC_Expedition_FuelQuantity","fuelQuantity",{
+            {value="full",key="UI_SC_Expedition_FuelFull"},{value="car",key="UI_SC_Expedition_FuelCarOnly"},
+            {value=1,label="1"},{value=2,label="2"},{value=4,label="4"},{value=8,label="8"},{value=12,label="12"},{value=24,label="24"}})
     end
     if draft.kind == "search" or draft.kind == "fish" or draft.kind == "wood" then
         if draft.kind ~= "wood" then
@@ -1335,8 +1418,9 @@ function Planner.build(detail, panel)
         "hours", TIMES)
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Combat",
         "style", STYLES)
-    y = addSelector(detail, panel, y, "UI_SC_Expedition_Travel",
-        "travelMode", TRAVEL)
+    if draft.kind~="fuel" then
+        y = addSelector(detail, panel, y, "UI_SC_Expedition_Travel", "travelMode", TRAVEL)
+    end
     if draft.travelMode == "drive" then
         local areas = SC.ExpeditionCar and SC.ExpeditionCar.parkingAreas()
             or {}
@@ -1391,7 +1475,15 @@ function Planner.build(detail, panel)
     if draft.mapTarget and not draft.browsePlaces then
         return addButton(detail,panel,y,"UI_SC_Expedition_Review","review")
     end
-    if draft.kind~="wood" and not draft.browsePlaces then
+    if draft.kind~="wood" and draft.kind~="fuel" and not draft.browsePlaces then
+        return addButton(detail,panel,y,"UI_SC_Expedition_Review","review")
+    end
+    if draft.kind=="fuel" then
+        if draft.fuelSite then y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",draft.fuelSite.label) end
+        if draft.previewError then y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",woodReason(draft.previewError)) end
+        y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelPlan"))
+        y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelGeneratorPlan"))
+        y=addButton(detail,panel,y,"UI_SC_Expedition_FuelRefresh","refresh")
         return addButton(detail,panel,y,"UI_SC_Expedition_Review","review")
     end
     if draft.kind == "wood" then

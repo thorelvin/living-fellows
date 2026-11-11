@@ -1,5 +1,32 @@
 # SPDX-License-Identifier: MIT
 # Ordered production sources and compact outcomes; each group gets a fresh Lua environment.
+@{ Name = 'fuel-inlet-and-camp-refuel-recovery'; Files = @(
+    (Join-Path $Core 'vehicle_refuel_fixture.lua'),
+    (Join-Path $Client 'SCBaseFuel.lua'),
+    (Join-Path $Client 'SCVehicleRefuel.lua'),
+    (Join-Path $Core 'vehicle_refuel_harness.lua')) }
+
+@{ Name = 'fuel-native-transfers-generator-and-delivery'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISTakeFuel.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISAddFuel.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISActivateGenerator.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISPlugGenerator.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\Vehicles\TimedActions\ISAddGasolineToVehicle.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\Fluids\ISFluidTransferAction.lua'),
+    (Join-Path $Client 'SCNativeTraversalActions.lua'),
+    (Join-Path $Client 'SCNativeVisualActions.lua'),
+    (Join-Path $Client 'SCNativeCombatActions.lua'),
+    (Join-Path $Client 'SCNativeWorkActions.lua'),
+    (Join-Path $Client 'SCNativeMovementActions.lua'),
+    (Join-Path $Client 'SCNativeActions.lua'),
+    (Join-Path $Client 'SCFuelStations.lua'),
+    (Join-Path $Client 'SCExpeditionFuel.lua'),
+    (Join-Path $Essential 'fuel_expedition_harness.lua')) }
+
 @{ Name = 'packing-and-camp-preparation'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'loadout_harness.lua'),
     (Join-Path $Essential 'sorting_scan_harness.lua')) }
@@ -67,6 +94,7 @@
     (Join-Path $Client 'SCExpeditionForests.lua'),
     (Join-Path $Client 'SCExpeditionWood.lua'),
     (Join-Path $Client 'SCExpeditionTargets.lua'),
+    (Join-Path $Client 'SCExpeditionFuel.lua'),
     (Join-Path $Client 'SCExpeditionPrototype.lua'),
     (Join-Path $Core 'expedition_wood_mission_harness.lua')) }
 

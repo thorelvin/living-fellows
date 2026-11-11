@@ -18,6 +18,13 @@ local function option(items, label)
     for _, entry in ipairs(items.options) do
         if entry.label == label then return entry end
     end
+    -- Radio services share the Radio submenu in the current context layout.
+    for _,entry in ipairs(items.options) do
+        if entry.subMenu then
+            local nested=option(entry.subMenu,label)
+            if nested then return nested end
+        end
+    end
     return nil
 end
 local function check(value, label)

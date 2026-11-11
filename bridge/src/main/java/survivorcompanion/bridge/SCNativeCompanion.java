@@ -204,6 +204,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      * state while the bridge itself is loading. No lookups run per aim tick. */
     private static final class BallisticAccess {
         static final Class<?> CONTROLLER = resolveBallisticClass("zombie.core.physics.BallisticsController");
+        static final Class<?> TARGET = resolveBallisticClass("zombie.core.physics.BallisticsTarget");
         static final Class<?> VECTOR = resolveBallisticClass("zombie.iso.Vector3");
         static final Class<?> BULLET = resolveBallisticClass("zombie.core.physics.Bullet");
         static final Method GET_CONTROLLER = resolveBallisticMethod(IsoGameCharacter.class, "getBallisticsController");
@@ -219,6 +220,9 @@ public final class SCNativeCompanion extends IsoPlayer {
                 int.class, float.class, float.class, float.class);
         static final Method MAX_RANGE = resolveBallisticMethod(HandWeapon.class, "getMaxRange", IsoGameCharacter.class);
         static final Method RANGE_MOD = resolveBallisticMethod(HandWeapon.class, "getRangeMod", IsoGameCharacter.class);
+        static final Method ENSURE_TARGET = resolveBallisticMethod(IsoGameCharacter.class,
+                "ensureExistsBallisticsTarget", IsoGameCharacter.class);
+        static final Method ADD_TARGET = resolveBallisticMethod(TARGET, "add");
 
         static void requireReticle() throws ReflectiveOperationException {
             if (GET_CONTROLLER == null || GET_RETICLE == null || SET_VECTOR == null
@@ -1603,7 +1607,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         // Tracks whether the native collision call itself had begun when a
         // throw arrived: only then can a hit have been partially applied.
         boolean inFlight = false;
-        if (bridgeDisabled || getVehicle() != null || isDead()) return false;
+        if (bridgeDisabled || isDead()) return false;
         if (COMBAT_MANAGER_INSTANCE == null || ATTACK_COLLISION_CHECK == null
                 || SWIPE_STATE_INSTANCE == null || GET_USE_HAND_WEAPON == null
                 || GET_ATTACK_TYPE == null) {
@@ -1621,6 +1625,12 @@ public final class SCNativeCompanion extends IsoPlayer {
                     Boolean.TRUE.equals(get(SwipeStatePlayer.ATTACKED)))) return false;
             Object weapon = GET_USE_HAND_WEAPON.invoke(this);
             if (weapon == null) return false;
+            // Vehicle ranged animations use the same SwipeState collision
+            // event, whose vanilla handler also excludes non-local actors.
+            // Keep seated melee excluded; authorized passenger firearm shots
+            // still need this one native collision to spend ammo and fire.
+            if (getVehicle() != null && (WEAPON_IS_AIMED_FIREARM == null
+                    || !Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon)))) return false;
             // The AttackType that gates CombatManager's stance filter is carried
             // by the swing's AttackCollisionCheck anim event (its parameter is the
             // enum id, e.g. "MeleeSwing"), not by the actor's getAttackType()
@@ -2348,6 +2358,12 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /** Companion aim is issued by its action owner, never the player's mouse. */
+    @Override
+    public boolean isAimControlActive() {
+        return false;
+    }
+
     /**
      * Select the stock IsoPlayer backward/diagonal/side-step animations while
      * translation remains owned by the bridge. Values are local to the facing
@@ -2792,6 +2808,15 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (!target.isAddedToModelManager() && target.hasActiveModel()) {
                 target.setAddedToModelManager(ModelManager.instance, true);
             }
+            // The local player's aiming pass registers candidate skeletons
+            // before Bullet's next simulation step. This non-local actor has
+            // no such pass; register only its actual, in-range selected body.
+            // Native collision, occlusion and hit rolls still select the hit.
+            if (getVehicle() != null && isAiming()
+                    && BallisticAccess.ENSURE_TARGET != null && BallisticAccess.ADD_TARGET != null) {
+                Object body = BallisticAccess.ENSURE_TARGET.invoke(target, target);
+                if (body != null) BallisticAccess.ADD_TARGET.invoke(body);
+            }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
             // The stock attack remains authoritative. A missing model must
             // never become a synthetic hit or a second damage callback.
@@ -2810,7 +2835,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void applyCompanionAim() {
         zombie.iso.IsoMovingObject target = bridgeAimTarget;
-        if (target == null || getVehicle() != null) return;
+        if (target == null || getVehicle() != null && !isAiming()) return;
         if (!target.isExistInTheWorld()) {
             bridgeAimTarget = null;
             return;
@@ -2837,6 +2862,12 @@ public final class SCNativeCompanion extends IsoPlayer {
         float length = (float) Math.sqrt(dx * dx + dy * dy);
         if (length > 0.0001f) {
             setForwardDirection(dx / length, dy / length);
+            if (getVehicle() != null && hasAnimationPlayer()) {
+                // Vanilla aligns a non-aiming passenger model to the car.
+                // Our local-input-free vehicle pass must instead align the
+                // native muzzle to this actor's explicit world-space aim.
+                getAnimationPlayer().setTargetAndCurrentDirection(dx / length, dy / length);
+            }
         }
     }
 
@@ -3583,13 +3614,16 @@ public final class SCNativeCompanion extends IsoPlayer {
         setRunning(false);
         setSprinting(false);
         setSneaking(false);
-        setIsAiming(false);
+        // Sitting suspends walking, not an authorized passenger firearm aim.
+        // Clearing aim each frame prevents player-vehicle from ever entering
+        // its ranged substate, leaving DoAttack started without a collision.
         setVariable("DeltaX", 0.0f);
         setVariable("DeltaY", 0.0f);
     }
 
     private void updatePlayerVehicleState() {
         if (PLAYER_VEHICLE_UPDATE == null) return;
+        boolean requestedAim = isAiming();
         try {
             PLAYER_VEHICLE_UPDATE.invoke(this);
         } catch (IllegalAccessException failure) {
@@ -3599,6 +3633,11 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
             if (cause instanceof Error error) throw error;
             throw new IllegalStateException("player vehicle update failed", cause);
+        } finally {
+            // Vanilla polls local aim input even for a non-local passenger.
+            // Retain the explicit action request for the subsequent animation
+            // update; isAimControlActive keeps mouse-driven attacks out of it.
+            setIsAiming(requestedAim && !isDead() && getVehicle() != null);
         }
     }
 

@@ -520,7 +520,7 @@ end
 
 local function preparingSupplies(scout)
     return scout and (scout.departurePreparation ~= nil or scout.fishingPreparation ~= nil
-        or scout.wood and scout.wood.preparation == true)
+        or scout.wood and scout.wood.preparation == true or scout.fuel and scout.fuel.preparation==true)
 end
 
 local function activeSeat(actor)
@@ -1222,6 +1222,8 @@ local function recordReturnIntent(scout, reason)
 end
 
 function Car.requestReturn(mission, now, reason)
+    if mission and mission.scout and mission.scout.fuel
+        and not SC.ExpeditionFuel.requestReturn(mission,reason) then return true,"fuel_generator_cleanup_pending" end
     local scout = mission and mission.scout
     local trip = scout and scout.vehicle
     if not trip or trip.state == "abandoned" then return false, "no_car_trip" end
@@ -1290,6 +1292,33 @@ function Car.requestReturn(mission, now, reason)
         return true, "returning_to_car"
     end
     return false, "car_return_state_unavailable"
+end
+
+-- An automatic fuel trip may reject one forecourt. Preserve its original home
+-- attachment and seats while reusing normal boarding and driving recovery.
+function Car.retargetFuelStation(mission,site)
+    local scout=mission and mission.scout
+    local trip=scout and scout.vehicle
+    local car=trip and carLoaded(trip)
+    if not scout or not scout.fuel or not car or trip.state~="parked_at_site"
+        or not site or not site.anchor then return false,"fuel_station_retarget_unavailable" end
+    local at=point(car)
+    local route,why,native=Car.planRoadAccess(car,at,site.anchor,true)
+    if not route or not native or not finite(native.exitX) or not finite(native.exitY) then return false,why or "no_route" end
+    local fuelOkay,tank=call(car,"getPartById","GasTank")
+    local amountOkay,amount=call(fuelOkay and tank or nil,"getContainerContentAmount")
+    local home=trip.homeRoadEntry or trip.departure
+    local back=math.sqrt((site.anchor.x-home.x)^2+(site.anchor.y-home.y)^2)*3
+    local required=((finite(route.roadLength) or 0)+back+60)*fuelRate(trip.script)*1.5
+    if not amountOkay or not finite(amount) or amount<required then return false,"fuel_insufficient" end
+    trip.siteStop={x=native.exitX,y=native.exitY,z=0}
+    trip.fuelMultiSite=true
+    trip.leg,trip.state="outbound","returning_to_car"
+    trip.boardStartedAt=SC.GameplayUtil.nowMs()
+    scout.phase,scout.destination="returning_to_car",{x=site.anchor.x,y=site.anchor.y,z=0}
+    scout.roadRoute,scout.road,scout.travelBudget=nil,nil,nil
+    if SC.ExpeditionPrototype.testWaypointFor(mission.leader.actor) then SC.ExpeditionPrototype.clearTestWaypoint(mission.leader.actor) end
+    return true,"fuel_next_station"
 end
 
 function Car.fitsParking(car, zone, seats)
@@ -1777,7 +1806,7 @@ function Car.pulse(mission, now, worldHour)
             trip.state, trip.blocker = "boarding_rollback", why
             return true
         end
-        if trip.leg == "outbound" then
+        if trip.leg == "outbound" and not trip.fuelMultiSite then
             trip.homeRoadEntry = { x = roadEntry.x, y = roadEntry.y, z = 0 }
         end
         local goal = trip.leg == "home"
@@ -2149,6 +2178,7 @@ function Car.copyDescriptor(value, roster, leaderId)
         return nil, "vehicle_anchor_invalid"
     end
     local homeStop
+    if value.fuelMultiSite~=nil and type(value.fuelMultiSite)~="boolean" then return nil,"vehicle_invalid" end
     if value.field~=nil and type(value.field)~="boolean" then return nil,"vehicle_field_invalid" end
     if value.field==true then
         homeStop=Car.copyFieldStop and Car.copyFieldStop(value.homeStop)
@@ -2222,6 +2252,7 @@ function Car.copyDescriptor(value, roster, leaderId)
         parkingZoneId = value.parkingZoneId, parking = parking,
         departure = departure, home = home, siteStop = siteStop,
         homeRoadEntry = homeRoadEntry,
+        fuelMultiSite = value.fuelMultiSite == true or nil,
         position = pointCopy(value.position),
         sitePoint = pointCopy(value.sitePoint),
         abandonedAt = pointCopy(value.abandonedAt),

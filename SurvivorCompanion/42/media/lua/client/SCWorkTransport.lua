@@ -379,6 +379,11 @@ function Transport.marker(item)
 end
 
 function Transport.foreignProtected(item, actor)
+    local fuelData=itemData(item)
+    if fuelData and fuelData.LF_ExpeditionFuel and SC.ExpeditionFuel and SC.ExpeditionFuel.reserved(item)
+        and tostring(fuelData.LF_ExpeditionFuel.ownerId or "")~=tostring(actor and SC.GameplayUtil.idOf(actor) or "") then
+        return true,"expedition_fuel_owned"
+    end
     if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then
         return true, "chore_item_owned"
     end

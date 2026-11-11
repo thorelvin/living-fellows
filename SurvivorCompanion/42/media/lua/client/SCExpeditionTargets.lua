@@ -5,7 +5,7 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.ExpeditionTargets = SC.ExpeditionTargets or {}
 local T = SC.ExpeditionTargets
-local kinds = { scout = true, search = true, fish = true, wood = true }
+local kinds = { scout = true, search = true, fish = true, wood = true, fuel = true }
 
 local function call(object, method, ...)
     if object == nil then return nil end
@@ -180,8 +180,9 @@ function T.valid(target)
     end
     local x,y,x2,y2=target.id:match("^(%d+):(%d+):(%d+):(%d+)$")
     x,y,x2,y2=tonumber(x),tonumber(y),tonumber(x2),tonumber(y2)
-    if not x or target.anchor.x<x or target.anchor.y<y
-        or target.anchor.x>x2 or target.anchor.y>y2 then return false end
+    local margin=target.kind=="fuel" and 64 or 0
+    if not x or target.anchor.x<x-margin or target.anchor.y<y-margin
+        or target.anchor.x>x2+margin or target.anchor.y>y2+margin then return false end
     return target.workBounds == nil
 end
 
@@ -237,7 +238,7 @@ local function eligible(target, context)
     local distance = T.distance(target.anchor, context)
     if not distance then return nil, "leader_unavailable" end
     if distance > T.limit(context.travelMode) then return nil, "map_target_out_of_range" end
-    local strict = (target.kind == "scout" or target.kind == "search")
+    local strict = (target.kind == "scout" or target.kind == "search" or target.kind == "fuel")
         and SC.Config and SC.Config.get("expeditionDestinationScope") == "known_only"
     local known = T.known(target.anchor)
     if (distance > 200 or strict) and not known then return nil, "map_target_unexplored" end
@@ -305,6 +306,13 @@ function T.resolveAtPoint(kind, at, context)
         local admitted, why = eligible({kind=kind,anchor=at}, context)
         if not admitted then return nil, why end
         target, reason = forestAt(at, context)
+    elseif kind == "fuel" then
+        if not context or context.travelMode~="drive" then return nil,"fuel_requires_car" end
+        local admitted,why=eligible({kind=kind,anchor=at},context)
+        if not admitted then return nil,why end
+        local place=SC.FuelStations and SC.FuelStations.atPoint(at,context.actor)
+        if place then target={version=1,kind=kind,id=place.id,anchor=at,label=place.label,place=place}
+        else reason="fuel_station_missing" end
     elseif kind == "fish" then
         if not SC.Fishing or not SC.Fishing.bankNearPoint then return nil, "fishing_bank_lookup_unavailable" end
         local bank
@@ -346,6 +354,10 @@ function T.reset() T.mapData = nil end
 
 function T.matchesMission(target, scout)
     if not T.valid(target) or type(scout) ~= "table" then return false end
+    if target.kind=="fuel" then
+        return scout.kind=="fuel" and type(scout.fuel)=="table" and scout.fuel.selected==true
+            and scout.fuel.sites and scout.fuel.sites[1] and scout.fuel.sites[1].id==target.id
+    end
     if target.kind == "wood" then
         if target.version==2 then
             return scout.kind=="wood" and type(scout.wood)=="table" and scout.wood.version==2

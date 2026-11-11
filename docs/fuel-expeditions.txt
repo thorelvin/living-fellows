@@ -1,0 +1,41 @@
+Collect fuel
+
+Choose Expeditions > Collect fuel, or select a gas station on your explored map.
+Fuel collection requires a car in marked parking and a camp. Automatic selection
+uses known stations within the normal 5,000-tile driving limit.
+
+Choose Full load, 1/2/4/8/12/24 cans, or Top up car only. Before departure the crew
+packs permitted empty and partly filled gasoline cans from camp storage or the
+car. Full cans and protected supplies stay home. Filled-can weight, the worker's
+carrying space and trunk capacity limit the load; Full load is capped at 256 cans.
+Missing cans pause preparation rather than changing a collection trip to car-only.
+Top up car only still brings one utility can for shuttling fuel if the car cannot
+stop beside the pump; it does not request additional filled cargo.
+
+The car is filled first. When it cannot stop beside the pump, a crew member
+shuttles gasoline in a can. Cans are then filled and loaded one at a time. Grid
+power is preferred. With the grid off, the crew can use a suitable outdoor
+generator already at the station, connect it and add starter fuel if necessary.
+They may prepare up to two litres of starter fuel at home from permitted stock,
+returning the exact donor can before departure. They do not bring a generator.
+
+A generator the crew starts is stopped before leaving; a connection they add is
+removed. An already running or connected generator retains its original state.
+If immediate danger prevents cleanup, the report warns that inspection is needed.
+Automatic trips may try up to three stations. A map-selected trip stays at your
+chosen station and can try its other pumps.
+
+The expedition reports pumped litres, fuel added to the car, generator use,
+carried fuel and stored fuel separately. Driving home consumes real tank fuel.
+Returning alone does not count cans as delivered. The stopped car is unloaded
+into permitted Tools, then General storage, regardless of the restock setting.
+Full or inaccessible storage pauses delivery with the actual cargo preserved;
+automatic retry runs after three minutes, and Retry remains available.
+An unresolved can receipt does not prevent delivery of other verified cans.
+
+Uses native Lua timed actions, actual pump stock, gasoline and item identities.
+No added background service or native bridge protocol change. Fuel trips use
+expedition save schema 10 and delivery integration version 3; older trips retain
+their existing formats. Ambiguous missing cargo is never recreated.
+Crew inventories retain exact native item IDs until fuel delivery is settled,
+including saves during refuelling, carrying, loading and paused home delivery.

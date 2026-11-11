@@ -1207,6 +1207,11 @@ function persistence.captureRecord(record, vehicleState, options)
         if not called or type(owned) ~= "boolean" then return nil,"Home delivery inventory ownership is unavailable" end
         context.preserveNativeIds = owned
     end
+    if not context.preserveNativeIds and expedition and type(expedition.pendingFuelInventory) == "function" then
+        local called, owned = pcall(expedition.pendingFuelInventory, record.id)
+        if not called or type(owned) ~= "boolean" then return nil,"Fuel delivery inventory ownership is unavailable" end
+        context.preserveNativeIds = owned
+    end
     local farm=SC.FarmWork
     if not context.preserveNativeIds and farm and type(farm.pendingMilkInventory)=="function" then
         local called,owned=pcall(farm.pendingMilkInventory,record.id)

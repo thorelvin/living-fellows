@@ -18,7 +18,7 @@ Companions, working bases and survivor stories for Project Zomboid. Find your pe
 
 ![An expedition shown beside the player's own view: send one to four companions to scout, loot, fish or collect logs.](assets/features/expeditions.jpg)
 
-Send one to four companions to scout, loot, fish or collect wood, on foot or by car. Pick a map target and return time, then watch their trip in a second view while you play. They bring back actual cargo and unload it into camp storage.
+Send one to four companions to scout, loot, fish or collect wood, on foot or by car. Fuel runs top up the car and bring filled gas cans home from a known station. Pick a map target and return time, then watch their trip in a second view while you play. They bring back actual cargo and unload it into camp storage.
 
 ## Base Watch and Markus's taxi
 
