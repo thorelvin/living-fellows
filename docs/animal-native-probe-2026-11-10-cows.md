@@ -412,3 +412,53 @@ One local commit was made per phase, each after a green five-check gate:
 | 2: cattle trough care | `1227fdd2` / `20261110-163932-d92e03` |
 | 3: guarded native milking | `ad3458ad` / `20261110-182754-e2607d` |
 | 4: delivery and release | final phase commit / `20261110-194735-abef8e` |
+
+## Final 0.27.8 work-reach acceptance — 2026-11-11
+
+The post-package refinement allows chicken and cattle pens within the existing
+30-tile camp work reach. The entire enclosure, its devices, milking sides and
+interrupted-item recovery must stay within that bound. Automated cases cover
+tile 30, refusal of tile 31 and invalidation after camp edits. The native runs
+below exercise a mixed pen extending five tiles beyond its camp area; they do
+not claim a native test at the exact 30-tile limit.
+
+The private fixtures used one real 42.22.2 client at a time, below-normal CPU
+priority, four processors, 1280×720 rendering capped at 30 FPS, and a cloned
+save. The ordinary Farmer scheduler and native actions performed all work.
+Fixtures placed the animals and supplies and set initial lactation; they did
+not script successful item transfers. The production harness was unchanged.
+
+- `SC-Harness-20261111-013917-acffe76f` passed mixed chicken/cattle care beyond
+  camp: native opening, water, feed, nest access and egg collection, followed
+  by native milking and physical deposit into Fresh food storage. Water reached
+  1.7999996 L, feed reached 10 native units, egg **1104764880** was delivered,
+  and container **410166449** held **1.700000286 L** of milk. Delivered items
+  had no active loan marker; birds and cow retained full health. The world was
+  saved normally. Screenshot:
+  `build/live-sandbox-runs/SC-Harness-20261111-013917-acffe76f/cache/Screenshots/SC-Harness-20261111-013917-acffe76f-animal-mixed-milk-saved.png`.
+- `SC-Harness-20261111-014234-b2a19e8b` restarted that saved world and passed.
+  Both exact native item IDs occurred once across registered storage and loaded
+  companion inventories; the milk remained in Fresh food with the same measured
+  quantity and no loan marker. The original cow and loaded birds were healthy.
+  Screenshot:
+  `build/live-sandbox-runs/SC-Harness-20261111-014234-b2a19e8b/cache/Screenshots/SC-Harness-20261111-014234-b2a19e8b-animal-mixed-reload-passed.png`.
+
+Both runners exited 0 with `LIVE_SANDBOX_PASS`. Console inspection found no
+new LF gameplay exception or animal-work blocker. The vanilla map warning
+about a mannequin zone at `(13583,1299)` is unchanged and unrelated to these
+fixtures. This focused pass required no further gameplay change. The remaining
+unexecuted spill/death/interruption scenarios listed above are still unclaimed.
+
+The final `scripts/Test-Project.ps1 -Serial -Release` passed all five checks
+in **258.9 seconds**, using 23 serial JVM launches with 256 MB heaps and two
+processors. Evidence: `build/test-results/20261111-014443-b415ec/summary.json`.
+All **16/16** installer transactions passed. The standalone package validated
+`debug=false`, `dependency=false`; its SHA-256 is
+`b7c19c168b4f03008352fed074f7cb69d59ebd1e25f046beb78e9a59431846b1`.
+
+The public standalone was installed locally after both game clients exited.
+Both installed metadata files report 0.27.8 without a ZombieBuddy requirement;
+debug spawn and the movement recorder are off. Installed payload and launcher
+bridge hashes match the committed 0.27.8 bridge. The previous 0.27.5 Workshop
+staging folder was preserved under `build/retired-workshop-staging` outside
+the game's mod search path, leaving one local LF installation.

@@ -4,6 +4,14 @@
 
 ## WP03 cattle care — 0.27.8
 
+- [x] Automated: whole pens within 30 tiles of camp are accepted, an enclosure
+  extending to tile 31 is refused, camp edits invalidate coverage, and milking
+  sides and interrupted cargo recovery obey the same work-reach boundary.
+- [x] Cloned mixed pen extending five tiles beyond camp: native trough filling,
+  feeding, exact egg delivery and 1.7 L milk delivery to Fresh food storage.
+- [x] Restart that mixed-pen world: the same native egg and milk-container IDs
+  appear exactly once, the milk quantity is unchanged, delivered items have no
+  outstanding loan marker, and the saved animals remain healthy.
 - [x] Automated: species census, unknown/story animals, budgeted large pastures,
   native feed tags, human-food exclusion and two-trip/high-water continuation.
 - [x] Cloned 42.22.2 saves: cattle-only, chicken-only and mixed trough care,

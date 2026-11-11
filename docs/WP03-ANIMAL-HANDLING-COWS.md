@@ -50,6 +50,12 @@ updated, and any phase left disabled is named in the final report.
 
 ## Scope
 
+Shipped 0.27.8 refinement: chicken and cattle pens may extend up to 30 tiles
+beyond camp, using the same bounded work reach as crop fields. The complete
+enclosure, devices and interaction sides must remain in reach. This supersedes
+the original inside-camp-only requirement below; supplies still come from
+permitted marked storage.
+
 - Build 42 single-player, pinned game version from `tests/core/pz-runtime.json`.
 - Species: cattle — cow, bull and calf of every vanilla breed.
 - In: feed troughs, water troughs, milking, milk delivery, herd census.
