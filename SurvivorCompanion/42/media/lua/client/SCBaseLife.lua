@@ -6,6 +6,7 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 if not SC.BaseObjectRef and type(require) == "function" then pcall(require, "SCBaseObjectRef") end
 if not SC.Topology and type(require) == "function" then pcall(require, "SCTopology") end
+if not SC.FarmStorage and type(require) == "function" then require "SCFarmStorage" end
 
 SC.BaseLife = SC.BaseLife or {}
 local BaseLife = SC.BaseLife
@@ -28,7 +29,7 @@ BaseLife.STORAGE_CATEGORIES = {
     food = true, fresh_food = true, water = true, medical = true, tools = true, construction = true,
     crafting = true, literature = true, weapons = true, ammunition = true, clothing = true,
     general = true, valuables = true,
-    output = true, memorial = true, farming = true,
+    output = true, memorial = true, farming = true, milk = true, manure = true,
 }
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, sort_floor = true, fetch = true, unload_vehicle = true, stack_logs = true,
@@ -862,6 +863,9 @@ local function normalizeMilkReceipt(source)
         or source.species~=nil and source.species~=(source.fluid=="SheepMilk" and "sheep" or "cattle")
         or cowId<0 or cowId>2147483647 or cowId%1~=0 or day<0 or day%1~=0
         or type(source.zoneId)~="string" or #source.zoneId>96 then return nil end
+    if source.pour~=nil and (type(source.pour)~="table"
+        or not validId(source.pour.storageId,"storage:") or finite(source.pour.source,-1)<0
+        or finite(source.pour.target,-1)<0) then return nil end
     -- cowId remains the legacy stable animal-ID field for both species.
     return {version=1,fluid=source.fluid,species=source.fluid=="SheepMilk" and "sheep" or "cattle",
         cowId=integer(source.cowId,0,0,2147483647),
@@ -872,7 +876,11 @@ local function normalizeMilkReceipt(source)
         destinationStorageId=validId(source.destinationStorageId,"storage:") and source.destinationStorageId or nil,
         dropX=source.dropX~=nil and integer(source.dropX,0,0,1000000) or nil,
         dropY=source.dropY~=nil and integer(source.dropY,0,0,1000000) or nil,
-        dropZ=source.dropZ~=nil and integer(source.dropZ,0,-32,32) or nil}
+        dropZ=source.dropZ~=nil and integer(source.dropZ,0,-32,32) or nil,
+        poured=math.max(0,finite(source.poured,0)),
+        pour=type(source.pour)=="table" and validId(source.pour.storageId,"storage:")
+            and finite(source.pour.source,-1)>=0 and finite(source.pour.target,-1)>=0
+            and {storageId=source.pour.storageId,source=source.pour.source,target=source.pour.target} or nil}
 end
 
 local function normalizeWoolReceipt(source)
@@ -2105,12 +2113,16 @@ function BaseLife.registerStorage(object, category)
     else
         descriptorReason = "base_object_ref_unavailable"
     end
-    if not base or not descriptor or not BaseLife.isInside(descriptor) then
+    local extended=category=="milk" or category=="manure"
+    if not base or not descriptor or not (extended and BaseLife.withinWorkReach(descriptor)
+        or BaseLife.isInside(descriptor)) then
         return false, not base and "base_missing"
             or descriptorReason or "storage_outside_base"
     end
     local container, ok = U().call(object, "getContainer")
-    if not ok or not container then return false, "object_has_no_container" end
+    if category=="milk" then
+        if not SC.FarmStorage.canMarkMilk(object) then return false,"milk_storage_incompatible" end
+    elseif not ok or not container then return false, "object_has_no_container" end
     for _, storage in ipairs(base.storages) do
         if storage.objectId == descriptor.objectId
             or (storage.objectId == nil and storage.x == descriptor.x
@@ -2161,7 +2173,8 @@ function BaseLife.removeStorage(id)
     for _, receipt in ipairs(base.farm and base.farm.receipts or {}) do
         local terminal = receipt.phase == "returned" or receipt.phase == "delivered"
             or receipt.phase == "consumed"
-        if receipt.sourceStorageId == id and not terminal then
+        if (receipt.sourceStorageId == id or receipt.milk and receipt.milk.pour
+            and receipt.milk.pour.storageId==id) and not terminal then
             return false, "farm_receipt_uses_storage"
         end
     end
@@ -2196,6 +2209,13 @@ function BaseLife.setStorageCategory(id, category)
     local base = activeBase()
     local storage = base and findById(base.storages, id) or nil
     if not storage then return false, "unknown_storage" end
+    local object=BaseLife.resolveObject(storage)
+    if category~="milk" and category~="manure" and not BaseLife.isInside(storage) then
+        return false,"storage_outside_base"
+    end
+    if category=="milk" then
+        if not SC.FarmStorage.canMarkMilk(object) then return false,"milk_storage_incompatible" end
+    elseif not select(1,U().call(object,"getContainer")) then return false,"object_has_no_container" end
     storage.category = category
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
@@ -2206,7 +2226,7 @@ end
 -- withdrawal ask this, as SCEncounter.baseStorageAccess does for scavenging.
 function BaseLife.withdrawable(storage)
     return type(storage) == "table" and storage.withdrawals ~= false
-        and storage.category ~= "memorial"
+        and storage.category ~= "memorial" and storage.category ~= "milk"
 end
 
 function BaseLife.storageRows(category, withdrawals)
@@ -2371,11 +2391,21 @@ function BaseLife.blueprintsVisible()
 end
 
 function BaseLife.resolveContainer(storage)
+    if storage and storage.category=="milk" then return nil,nil,"fluid_storage" end
     local object, reason = BaseLife.resolveObject(storage)
     if not object then return nil, nil, reason end
     local container, ok = U().call(object, "getContainer")
     return ok and container or nil, object,
         (not ok) and "object_has_no_container" or nil
+end
+
+function BaseLife.resolveFluidContainer(storage)
+    if not storage or storage.category~="milk" or BaseLife.storage(storage.id)~=storage then
+        return nil,nil,"base_storage_changed"
+    end
+    local object,reason=BaseLife.resolveObject(storage)
+    if not object then return nil,nil,reason end
+    return select(1,U().call(object,"getFluidContainer")),object
 end
 
 function BaseLife.availableCount(storage, itemType)
@@ -3028,6 +3058,15 @@ function BaseLife.animalDocument()
     return document
 end
 
+local function clearSettledMilkPointer(base, receipt)
+    if receipt.phase~="returned" and receipt.phase~="delivered" then return end
+    for _,job in ipairs(base.jobs or {}) do
+        if job.target and job.target.milkReceiptId==receipt.id then
+            job.target.milkReceiptId=nil
+        end
+    end
+end
+
 function BaseLife.allocateFarmReceipt(spec)
     local base, current = activeBase(), now()
     spec = type(spec) == "table" and spec or {}
@@ -3035,7 +3074,13 @@ function BaseLife.allocateFarmReceipt(spec)
     local farm = farmFor(base)
     local limit = U().config("farmReceiptLimit") or 128
     for index = #farm.receipts, 1, -1 do
-        if farmReceiptTerminal(farm.receipts[index]) then table.remove(farm.receipts, index) end
+        if farmReceiptTerminal(farm.receipts[index]) then
+            -- A safely returned empty milking bucket can leave a retrying job.
+            -- Retire its pointer while the terminal receipt still proves the
+            -- return; missing or ambiguous cargo remains unreconciled.
+            clearSettledMilkPointer(base,farm.receipts[index])
+            table.remove(farm.receipts, index)
+        end
     end
     if #farm.receipts >= limit then return false, "farm_receipt_limit" end
     local serial = integer(farm.nextReceiptSerial, 1, 1, 999999)
@@ -3116,6 +3161,7 @@ function BaseLife.removeFarmReceipt(id)
     if farm then receipt, index = findById(farm.receipts, id) end
     if not receipt then return false, "unknown_farm_receipt" end
     if not farmReceiptTerminal(receipt) then return false, "farm_receipt_not_terminal" end
+    clearSettledMilkPointer(activeBase(),receipt)
     table.remove(farm.receipts, index)
     bumpWorkConsistencyRevision()
     return true
@@ -4610,6 +4656,7 @@ function BaseLife.priorityWorkFor(actorId)
         local door=SC.AnimalWork and SC.AnimalWork.doorJob(job)
         local milk=SC.AnimalWork and SC.AnimalWork.urgentMilkJob and SC.AnimalWork.urgentMilkJob(job)
         local wanted = job.priority >= 4 or job.type == "production"
+            or assigned and job.type == "farm"
         local due = job.state == "pending" or ((job.state == "reserved" or job.state == "active")
                 and job.reservedBy == actorId and job.leaseUntil > current)
             or (job.state == "blocked" and job.retryAt <= current

@@ -3,6 +3,7 @@
 local SC = SurvivorCompanion
 SC.AnimalWork = SC.AnimalWork or {}
 local A = SC.AnimalWork
+require "SCManureWork"
 local scan, zoneCursor, knownBase, lastAudit = nil, 0, nil, -math.huge
 local zoneVisited, zoneCycleSize = 0, 0
 local snapshots, claims = {}, {}
@@ -411,6 +412,7 @@ local function inspectAnimal(row, animal)
     end
     local entry = { id = id, kind = kind, species = species, baby = baby == true,
         name = name, held = held, age = age, female = female,
+        stress = n(animal, "getStress"),
         cullKnown = cullKnown, led = led, wild = wild, laying = laying,
         oddball = data.lfOddballGroupId ~= nil or data.lfWendellGroupId ~= nil }
     if species=="cattle" or species=="sheep" then
@@ -447,6 +449,23 @@ local function advance(row, squareLimit)
     local start = SC.Performance and SC.Performance.preciseNowMs() or 0
     local squares, unitClaim = allowedBudget("scavengeSquares", squareLimit or 16)
     local usedSquares = 0
+    -- Both admission and assigned work must advance despite earlier frame
+    -- consumers. A retained census gets one bounded slice twice per second;
+    -- urgent units remain shared and the hard local 1.5 ms cap still applies.
+    local rescue = now() >= (row.nextProgressAt or 0)
+    if rescue then
+        row.nextProgressAt = now() + 500
+        if squares == 0 and SC.Performance and SC.Performance.claimUnits then
+            squares, unitClaim = SC.Performance.claimUnits("scavengeSquares", squareLimit or 16, true, true)
+        end
+    end
+    local function yielded()
+        local P = SC.Performance
+        if not P then return false end
+        if P.preciseNowMs() - start >= 1.5 then return true end
+        local remaining = P.remainingBudgetMs()
+        return remaining ~= nil and remaining <= 0 and not rescue
+    end
     local function done(complete)
         if unitClaim and SC.Performance and SC.Performance.settleUnits then
             SC.Performance.settleUnits(unitClaim, usedSquares)
@@ -455,13 +474,14 @@ local function advance(row, squareLimit)
     end
     local animalBudget = math.min(32, math.max(1, C("animalAuditAnimalBudget", 32)))
     while row.index < row.total and squares > 0 and animalBudget > 0 do
-        if outOfTime(start) then return done(false) end
+        if yielded() then return done(false) end
         local x = row.x1 + row.index % row.width
         local y = row.y1 + math.floor(row.index / row.width)
         if SC.BaseLife.withinWorkReach({ x = x, y = y, z = row.z }) ~= true then
             row.rejected = true return done(true)
         end
         local square = U().gridSquare(x, y, row.z)
+        if square and SC.ManureWork then SC.ManureWork.inspectSquare(row,square) end
         usedSquares=usedSquares+1
         if not square then row.complete = false end
         local animals, available = read(square, "getAnimals")
@@ -490,7 +510,7 @@ local function advance(row, squareLimit)
         -- tile. Reconcile the native zone set with the same animal budget;
         -- never expand the read-only action guards into another world scan.
         while row.registeredIndex<size(row.registeredAnimals) and animalBudget>0 do
-            if outOfTime(start) then return done(false) end
+            if yielded() then return done(false) end
             local animal=at(row.registeredAnimals,row.registeredIndex)
             local kind=value(animal,"getAnimalType")
             if not kind then row.complete=false
@@ -517,7 +537,7 @@ local function advance(row, squareLimit)
         row.objectsRead = true
     end
     while row.hutchIndex < #row.hutches and animalBudget > 0 do
-        if outOfTime(start) then return done(false) end
+        if yielded() then return done(false) end
         local hutch = row.hutches[row.hutchIndex + 1]
         if not row.occupants then
             local capacity = n(hutch, "getMaxAnimals")
@@ -544,11 +564,12 @@ local function advance(row, squareLimit)
         if not maxNest or maxNest<0 or maxNest>15 then row.complete=false return done(true) end
         row.nestAnimalIndex=row.nestAnimalIndex or 0
         while row.nestAnimalIndex<=maxNest and animalBudget>0 do
-            if outOfTime(start) then return done(false) end
+            if yielded() then return done(false) end
             local bird,known=read(hutch,"getAnimalInNestBox",row.nestAnimalIndex)
             if not known then row.complete=false return done(true) end
             if bird then inspectAnimal(row,bird) animalBudget=animalBudget-1 end
             row.nestAnimalIndex=row.nestAnimalIndex+1
+            progressed = true
         end
         if row.nestAnimalIndex<=maxNest then return done(false) end
         local chicken = row.animals[1] and row.members[row.animals[1].id]
@@ -556,6 +577,7 @@ local function advance(row, squareLimit)
         if chicken and (not exposed or compatible~=true) then row.complete = false end
         row.occupants, row.occupantIndex, row.hutchIndex = nil, nil, row.hutchIndex + 1
         row.nestAnimalIndex=nil
+        progressed = true
     end
     return done(row.hutchIndex >= #row.hutches)
 end
@@ -566,9 +588,13 @@ local function openJob(base, object, operation)
         if job.type == "farm" and job.target and job.target.animal
             and job.target.deviceKey == targetKey
             and job.state ~= "completed" and job.state ~= "cancelled" then
-            local door=operation=="animal_open" or operation=="animal_close"
-            if not door or job.target.operation==operation or job.state=="active"
-                or job.reservedBy~=nil then return job end
+            local soothingPausedMilk=operation=="animal_soothe" and job.target.operation=="animal_milk"
+                and job.state=="blocked" and job.blocker=="animal_milk_stressed" and job.reservedBy==nil
+            if not soothingPausedMilk then
+                local door=operation=="animal_open" or operation=="animal_close"
+                if not door or job.target.operation==operation or job.state=="active"
+                    or job.reservedBy~=nil then return job end
+            end
         end
     end
     return false
@@ -581,6 +607,42 @@ local function candidateAt(row, operation, object, priority)
         deviceKey = key(object), cattle = A.speciesEnabled("cattle") and #row.cattle.animals>0 or nil,
         sheep = A.speciesEnabled("sheep") and #row.sheep.animals>0 or nil,
         x = math.floor(x), y = math.floor(y), z = z }
+end
+
+function A.canSoothe(row, animal)
+    local id = n(animal, "getAnimalID")
+    local data = value(animal, "getData")
+    return row and not row.protected and id and row.members[id] == animal
+        and (n(animal, "getHealth") or 0) > 0
+        and value(animal, "canBePet") == true and value(animal, "isHeld") == false
+        and value(animal, "isAnimalAttacking") ~= true
+        and data and value(data, "getAttachedPlayer") == nil
+        and value(data, "getAttachedTree") == nil and contains(row, animal)
+        and SC.BaseLife.withinWorkReach(animal) == true or false
+end
+
+local function sootheCandidate(row, base)
+    local saved = document() and document().zones[row.id]
+    local _, hours = time()
+    if not saved or not hours then return nil end
+    saved.soothed = type(saved.soothed) == "table" and saved.soothed or {}
+    local count = #row.animals + #row.herd
+    for _ = 1, math.min(4, count) do
+        local cursor = tonumber(saved.sootheCursor) or 0
+        if cursor ~= cursor or cursor < 0 or cursor > 128 then cursor = 0 end
+        local index = (math.floor(cursor) % count) + 1
+        saved.sootheCursor = index
+        local entry = index <= #row.animals and row.animals[index] or row.herd[index - #row.animals]
+        local animal = row.members[entry.id]
+        local previous = tonumber(saved.soothed[tostring(entry.id)])
+        if (tonumber(entry.stress) or 0) >= 25 and (not previous or hours - previous >= 1)
+            and A.canSoothe(row, animal) and workDay(animal)
+            and (n(animal, "getStress") or 0) >= 25 and not openJob(base, animal, "animal_soothe") then
+            local target = candidateAt(row, "animal_soothe", animal, 3.6)
+            target.animalId = entry.id
+            return target
+        end
+    end
 end
 
 -- A missing capacity or access reading is a refusal, including before pickup.
@@ -607,6 +669,7 @@ function A.milkDepositRows()
 end
 
 function A.milkDestination(actor,item,extra)
+    if SC.FarmStorage and SC.FarmStorage.milkDestination(actor,item) then return true end
     for _,storage in ipairs(A.milkDepositRows()) do
         local container=SC.BaseLife.resolveContainer(storage)
         local room=container and SC.BaseLife.storageAcceptsDeposit(storage,container)==true
@@ -930,6 +993,8 @@ end
 
 local function hutchCandidate(row, base, milk)
     if #row.animals==0 then
+        local soothe=sootheCandidate(row,base)
+        if soothe then return soothe end
         if milk then return milk end
         return SC.AnimalShearing and SC.AnimalShearing.candidate(row,base)
     end -- Grazers never create chicken housing work.
@@ -950,6 +1015,8 @@ local function hutchCandidate(row, base, milk)
             end
         end
     end
+    local soothe = sootheCandidate(row, base)
+    if soothe then return soothe end
     if milk then return milk end
     local egg = eggCandidate(row, base)
     if egg then return egg end
@@ -973,7 +1040,7 @@ local function deviceCandidate(row, base)
     local milk=milkCandidate(row,base)
     local high = math.min(1, math.max(0.01, C("animalFeedHighPercent", 90) / 100))
     local low = math.min(high, math.max(0, C("animalFeedLowPercent", 25) / 100))
-    local best, waterAssigned, empty = nil, false, {}
+    local best, topup, waterAssigned, empty = nil, nil, false, {}
     local saved=document() and document().zones[row.id]
     local refills=saved and type(saved.refills)=="table" and saved.refills or {}
     row.troughRoles = {}
@@ -1005,21 +1072,25 @@ local function deviceCandidate(row, base)
                 and (water < capacity * low or refills[key(trough)]==true and water<capacity*high) then
                 local result = candidateAt(row, "animal_water", trough, 5)
                 result.high = capacity * high
-                return result
+                if water < capacity*low then return result end
+                result.priority=2
+                topup=topup or result
             end
             local container = value(trough, "getContainer")
             local items = value(container, "getItems")
             if row.troughRoles[key(trough)] == "feed" and container and size(items) <= 64 then
                 local feed, maxFeed = n(trough, "getCurrentFeedAmount"), n(trough, "getMaxFeed")
                 if feed and maxFeed and maxFeed > 0 and feed < maxFeed * low and not best then
-                    best = candidateAt(row, "animal_feed", trough)
+                    best = candidateAt(row, "animal_feed", trough, 5)
                     best.high = maxFeed * high
                 end
             end
         end
     end
     if best then return best end
-    return hutchCandidate(row, base, milk)
+    local result,reason=hutchCandidate(row, base, milk)
+    if result and (result.operation=="animal_close" or result.operation=="animal_open") then return result,reason end
+    return result or SC.ManureWork.candidate(row,base) or topup,reason
 end
 
 function A.candidate(base, squareLimit)
@@ -1094,9 +1165,15 @@ function A.candidate(base, squareLimit)
         for _, object in ipairs(objects) do currentDevices[key(object)] = true end
     end
     for _,entry in ipairs(row.herd) do currentDevices["animal:"..tostring(entry.id)]=true end
+    for _,entry in ipairs(row.animals) do currentDevices["animal:"..tostring(entry.id)]=true end
     -- Expired evidence for animals that left the pen must not accumulate
     -- forever. Current-day milk evidence remains even for a missing cow.
     local _,hours=time()
+    for id, stamp in pairs(type(saved.soothed) == "table" and saved.soothed or {}) do
+        if not row.seen[tonumber(id)] and hours and (tonumber(stamp) or 0) < hours - 1 then
+            saved.soothed[id] = nil
+        end
+    end
     for _,spec in ipairs({{"milked","day",hours and math.floor(hours/24)},
         {"milkAttempts","hour",hours and math.floor(hours)}}) do
         local records=saved[spec[1]]
@@ -1191,12 +1268,24 @@ local function findDevice(target)
     if not row or now() - row.auditedAt > 30000 or row.coverageStamp ~= coverageStamp(base)
         or not zoneUnchanged(row)
         or value(row.native, "isFullyStreamed") ~= true then return nil, "animal_audit_pending" end
-    if target.operation=="animal_milk" or target.operation=="animal_shear" then
+    if target.operation=="animal_milk" or target.operation=="animal_shear"
+        or target.operation=="animal_soothe" then
         local id=target.cowId or target.animalId
         local cow=row.members[id]
         if cow and n(cow,"getAnimalID")==id and contains(row,cow)
             and SC.BaseLife.withinWorkReach(cow)==true then return cow,row end
-        return nil,target.operation=="animal_shear" and "animal_shear_not_ready" or "animal_milk_cow_unavailable"
+        return nil,target.operation=="animal_soothe" and "animal_soothe_unavailable"
+            or target.operation=="animal_shear" and "animal_shear_not_ready" or "animal_milk_cow_unavailable"
+    end
+    if target.operation=="animal_manure" then
+        local square=U().gridSquare(target.x,target.y,target.z)
+        if square and contains(row,square) and SC.BaseLife.withinWorkReach(square) then return square,row end
+        return nil,"animal_zone_unavailable"
+    elseif target.operation=="animal_manure_move" then
+        local storage=SC.BaseLife.storage(target.sourceStorageId)
+        local _,object=SC.BaseLife.resolveContainer(storage)
+        if object and SC.BaseLife.withinWorkReach(object) then return object,row end
+        return nil,"animal_manure_storage_missing"
     end
     for _, list in ipairs({ row.troughs, row.hutches }) do
         for _, object in ipairs(list) do
@@ -1222,6 +1311,10 @@ function A.allowsWorkReach(job)
 end
 
 local function releaseMilkHold(held)
+    if held and held.sootheCleanup then
+        held.sootheCleanup()
+        held.sootheCleanup = nil
+    end
     if held and held.shearCleanup then
         held.shearCleanup()
         held.shearCleanup=nil
@@ -1275,6 +1368,7 @@ local function fail(actor, job, reason)
 end
 
 function A.retryDelay(job,reason)
+    if job and job.target and string.sub(job.target.operation or "",1,13)=="animal_manure" then return 180000 end
     if job and job.target and job.target.operation=="animal_shear"
         and (reason=="animal_wool_storage_missing" or reason=="animal_shear_tool_unavailable"
             or reason=="farm_supply_missing") then return 180000 end
@@ -1324,6 +1418,7 @@ function A.canUse(actor, job, object, item)
         if not A.milkPlan(object,row,saved,job.id)
             or U().directInteractionAccess(actor,object,{cardinalOnly=false})~=true then return false end
     end
+    if job.target.operation == "animal_soothe" and not A.canSoothe(row, object) then return false end
     if not workDay(object) and not A.nightClosingJob(job) then return false end
     local resident = SC.BaseLife.resident(U().idOf(actor))
     if not resident or resident.role ~= "farmer" or resident.duty ~= true then return false end
@@ -1398,7 +1493,12 @@ local function begin(actor, job, state, object, item, operation)
     local started, detail = supervisor.commit(token, function()
         if operation == "fill_water" then
             return SC.NativeActions.startFarm(actor, { operation = "fill_water",
-                item = item, object = object })
+                item = item, object = object, validate = function()
+                    return SC.BaseLife.job(job.id) == job and job.reservedBy == U().idOf(actor)
+                        and state.waterSource == object and support().waterSourceUsable(object)
+                        and SC.BaseLife.withinWorkReach(object) == true
+                        and U().directInteractionAccess(actor, object) == true and not support().threat(actor)
+                end })
         end
         local items = {}
         for _, loan in ipairs(state.animalLoans or {}) do
@@ -1412,6 +1512,7 @@ local function begin(actor, job, state, object, item, operation)
             milkCommit = state.milk and state.milk.commit,
             milkResult = state.milk,
             shearResult = state.shear,
+            sootheResult = state.soothe,
             shearOwns = function()
                 local held=claims[job.target.deviceKey]
                 return held and held.actor==U().idOf(actor) and held.job==job.id or false
@@ -1435,7 +1536,13 @@ local function begin(actor, job, state, object, item, operation)
             held.shearCleanup=state.shear and state.shear.cleanup
         end
     end
-    if operation=="animal_water" and (job.target.cattle or job.target.sheep) then
+    if operation == "animal_soothe" then
+        local held = claims[job.target.deviceKey]
+        if held and held.actor == U().idOf(actor) and held.job == job.id then
+            held.sootheCleanup = state.soothe and state.soothe.cleanup
+        end
+    end
+    if operation=="animal_water" then
         job.target.waterTrips=(tonumber(job.target.waterTrips) or 0)+1
         local doc=document() local saved=doc and doc.zones[job.target.nativeZoneId]
         if saved then
@@ -1509,6 +1616,7 @@ end
 -- Reconcile selected eggs against the exact nest or the exact actor inventory.
 -- No native lookup failure authorizes manufacturing an egg or replaying pickup.
 function A.recoverReceipt(receipt)
+    if receipt.destinationCategory=="manure" then return SC.ManureWork.recoverReceipt(receipt) end
     if receipt.wool or receipt.woolInvalid then
         return SC.AnimalShearing and SC.AnimalShearing.recoverReceipt(receipt)==true
     end
@@ -1560,6 +1668,13 @@ function A.recoverReceipt(receipt)
 end
 
 function A.cancel(actor, job, state, reason)
+    if job.target.operation=="animal_manure" or job.target.operation=="animal_manure_move" then
+        return SC.ManureWork.cancel(actor,job,state,reason)
+    end
+    if SC.FarmStorage then
+        local okay,why=SC.FarmStorage.cancelPour(actor,job,state,reason)
+        if okay~=true then return false,why end
+    end
     if job.target.operation=="animal_shear" and SC.AnimalShearing then
         return SC.AnimalShearing.cancel(actor,job,state,reason)
     end
@@ -1704,7 +1819,7 @@ local function resumeMilkLoan(actor,baseState,job,state)
     if not amount then return false,"animal_milk_uncertain" end
     if amount>0.0001 then
         A.reconcileMilk(actor,job,state)
-    elseif receipt.milk and receipt.milk.litres>0 then
+    elseif receipt.milk and receipt.milk.litres>0 and (receipt.milk.poured or 0)+0.005<receipt.milk.litres then
         state.milk={reason="animal_milk_uncertain"}
         state.animalReturn=true
     end
@@ -1713,6 +1828,10 @@ end
 
 function A.deliverMilk(actor,baseState,job,state)
     local output=state.outputs and state.outputs[1]
+    if output and SC.FarmStorage then
+        local handled,why,pending=SC.FarmStorage.deliverMilk(actor,baseState,job,state,output)
+        if handled~=nil then return handled,why,pending end
+    end
     if not output or A.milkDestination(actor,output.item) then
         local moved,why,pending=support().deposit(actor,baseState,state)
         local receipt=output and SC.BaseLife.farmReceipt(output.receiptId)
@@ -1823,12 +1942,15 @@ function A.updateMilk(actor,baseState,job,runtime,state)
     if S.threat(actor,runtime) or A.cattleThreat(actor,row) then return fail(actor,job,"animal_cattle_unsafe") end
     if not state.borrowed then
         local handled,why,pending=S.borrow(actor,baseState,job,state,function(item)
-            if not A.milkContainer(item,facts.fluid) or A.milkRoom(actor,item,false)<0.1 then return false end
+            if not A.milkContainer(item,facts.fluid) then return false end
+            state.milkContainerAvailable=true
+            if A.milkRoom(actor,item,false)<0.1 then return false end
             state.milkContainerSeen=true
             return facts.urgent or A.milkDestination(actor,item,.1)~=nil
         end,{"farming"},"animal_milk_container",function(item) return A.milkRoom(actor,item,false) end)
         if not handled and why=="farm_supply_missing" then
-            why=state.milkContainerSeen and "animal_milk_food_storage_missing" or "animal_milk_container_unavailable"
+            why=state.milkContainerSeen and "animal_milk_food_storage_missing"
+                or state.milkContainerAvailable and "animal_carry_capacity_low" or "animal_milk_container_unavailable"
         end
         return handled,why,pending
     end
@@ -1858,7 +1980,7 @@ function A.updateMilk(actor,baseState,job,runtime,state)
         held.milkBehavior=value(cow,"getBehavior")
         held.milkApproachAt=now()
     end
-    if now()-held.milkApproachAt>15000 then
+    if now()-held.milkApproachAt>25000 then
         state.milkSideRight=nil
         return fail(actor,job,"animal_milk_approach_timeout")
     end
@@ -1871,15 +1993,12 @@ function A.updateMilk(actor,baseState,job,runtime,state)
     -- animal chores. Chasing a sub-tile point inside the cow's collision body
     -- can never finish; the stock action independently validates its distance.
     if U().directInteractionAccess(actor,cow,{cardinalOnly=false})~=true then
-        local accepted,why=SC.Navigation.request(actor,side.square,"walk",{
-            action="move_to_farm_plot",targetSquare=U().squareOf(cow),arrivalDistance=.15,
-            interceptPosition={x=side.x,y=side.y,z=side.z},movingFormation=true,
-            workCampOnly=true,workReach=A.allowsWorkReach(job)})
-        if accepted~=true then
+        local status,why=S.approach(actor,U().squareOf(cow),cow,A.allowsWorkReach(job))
+        if status=="failed" then
             state.milkSideRight=nil
             return fail(actor,job,why or "animal_milk_approach_missing")
         end
-        return accepted==true,why,accepted~=true
+        if status~="arrived" then return true,why end
     end
     state.milk={right=side.right}
     state.milk.guard=function()
@@ -1953,6 +2072,9 @@ end
 
 function A.update(actor, baseState, job, runtime, state)
     local target, S = job.target, support()
+    if target.operation=="animal_manure" or target.operation=="animal_manure_move" then
+        return SC.ManureWork.update(actor,baseState,job,runtime,state)
+    end
     if target.operation=="animal_shear" and SC.AnimalShearing then
         return SC.AnimalShearing.update(actor,baseState,job,runtime,state)
     end
@@ -1985,7 +2107,7 @@ function A.update(actor, baseState, job, runtime, state)
         return fail(actor,job,"animal_cattle_unsafe")
     end
     if target.sheep and (not A.speciesEnabled("sheep") or A.cattleThreat(actor,row)) then return fail(actor,job,"animal_sheep_unsafe") end
-    local waterTripLimit=(target.cattle or target.sheep) and target.operation=="animal_water"
+    local waterTripLimit=target.operation=="animal_water"
         and (tonumber(target.waterTrips) or 0)>=math.min(8,math.max(1,C("animalWaterTripsPerJob",2)))
     if waterTripLimit and not state.animalWork then state.animalReturn=true end
     if not state.animalWork and (target.operation=="animal_open" or target.operation=="animal_close") then
@@ -2042,6 +2164,7 @@ function A.update(actor, baseState, job, runtime, state)
             or work.operation == "animal_hatch_open" and value(object, "isEggHatchDoorClosed") == false
             or work.operation == "animal_clean_floor" and (n(object, "getHutchDirt") or math.huge) < work.before
             or work.operation == "animal_clean_nest" and (n(object, "getNestBoxDirt") or math.huge) < work.before
+            or work.operation == "animal_soothe" and state.soothe and state.soothe.applied == true
         state.animalWork = nil
         if not verified then return fail(actor, job, "animal_action_incomplete") end
         if work.operation == "fill_water" then return true, "animal_water_container_filled" end
@@ -2056,6 +2179,27 @@ function A.update(actor, baseState, job, runtime, state)
     if state.outputs then return S.deposit(actor, baseState, state) end
     if state.animalReturn then
         return true, "animal_returning_supplies"
+    end
+    if target.operation == "animal_soothe" then
+        -- An interrupted/reloaded attempt is not replayed. The native effect
+        -- may already have happened; the next audit can offer a new visit later.
+        if target.sootheStarted then state.animalReturn = true return true, "animal_soothe_finished" end
+        if not A.canSoothe(row, object) then return fail(actor, job, "animal_soothe_unavailable") end
+        local status, detail = S.approach(actor, U().squareOf(object), object, A.allowsWorkReach(job))
+        if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
+        state.soothe = {}
+        local started, why = begin(actor, job, state, object, nil, "animal_soothe")
+        if started then
+            target.sootheStarted = true
+            local saved = document() and document().zones[target.nativeZoneId]
+            local _, hours = time()
+            if saved and hours then
+                saved.soothed = type(saved.soothed) == "table" and saved.soothed or {}
+                saved.soothed[tostring(target.animalId)] = hours
+            end
+            note()
+        end
+        return started, why
     end
     if target.operation == "animal_egg" then
         local status, detail = S.approach(actor, U().squareOf(object), object,A.allowsWorkReach(job))
@@ -2130,14 +2274,27 @@ function A.update(actor, baseState, job, runtime, state)
                 return amount and amount > 0 and feedCompatible(item,row) and current and maximum and current < target.high
                     and current + amount <= maximum
             end
-        return S.borrow(actor, baseState, job, state, predicate,
+        local handled,why,pending=S.borrow(actor, baseState, job, state, predicate,
             target.operation == "animal_water" and { "farming", "water" } or { "farming" },
             target.operation == "animal_water" and "water" or target.cattle and "cattle_feed" or "chicken_feed")
+        if not handled and why=="farm_supply_missing" and target.operation=="animal_feed" then
+            local amount,maximum=n(object,"getCurrentFeedAmount"),n(object,"getMaxFeed")
+            local low=math.max(0,math.min(1,C("animalFeedLowPercent",25)/100))
+            -- Whole bags need not fit the final space below the high mark.
+            -- Only finish after a conclusive supply search and a live reading;
+            -- genuinely low/empty troughs retain their shortage and retry.
+            if amount and maximum and maximum>0 and amount>0 and amount>=maximum*low then
+                state.animalReturn=true
+                return true,"animal_returning_supplies"
+            end
+        end
+        return handled,why,pending
     end
     if target.operation == "animal_water" and S.waterUses(supply.item) <= 0 then
         local source, reason = S.findWater(actor, state, row)
         if not source then return reason == "water_source_scanning", reason, reason ~= "water_source_scanning" end
         local status, detail = S.approach(actor, U().squareOf(source), source,A.allowsWorkReach(job))
+        if status == "failed" then state.waterSource = nil end
         if status ~= "arrived" then return status ~= "failed", detail, status == "failed" end
         return begin(actor, job, state, source, supply.item, "fill_water")
     end
@@ -2162,4 +2319,5 @@ end
 -- Shared lifecycle for the optional shearing worker, without another scheduler.
 A.shearingSupport={findDevice=findDevice,refresh=refreshTarget,claim=claim,release=release,
     fail=fail,begin=begin,candidateAt=candidateAt,openJob=openJob}
+A.manureSupport={claim=claim,release=release,findDevice=findDevice,refreshTarget=refreshTarget}
 return A

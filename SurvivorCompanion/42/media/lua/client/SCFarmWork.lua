@@ -279,7 +279,8 @@ end
 -- which would orphan an exact milk receipt after a real save/load.
 function FarmWork.pendingMilkInventory(id)
     for _,receipt in ipairs(SC.BaseLife.farmReceipts(nil,false)) do
-        if receipt.actorId==id and (receipt.milk or receipt.milkInvalid or receipt.wool or receipt.woolInvalid) then return true end
+        if receipt.actorId==id and (receipt.milk or receipt.milkInvalid or receipt.wool or receipt.woolInvalid
+            or receipt.destinationCategory=="manure") then return true end
     end
     return false
 end
@@ -982,7 +983,8 @@ function FarmWork.audit(base)
     end
     -- Finish the bounded pass through the scheduler's continuation path rather
     -- than waiting for all other maintenance families between every 16 tiles.
-    if animalPending then return false, animalReason, true end
+    -- Pending animal discovery must not hide an already actionable crop.
+    -- Keep its continuation when neither family can offer work this slice.
     if #farmZones == 0 and not animal then return false, animalReason or "farm_scan_no_work" end
     -- One bounded inventory inspection per audit, even in a large camp.
     if #farmers > 0 then
@@ -1009,12 +1011,12 @@ function FarmWork.audit(base)
         best = SC.AnimalWork.choose(carriedWaterId or animalFarmerId
             or "camp", best, animal)
     end
-    if not best then return false, "farm_scan_no_work" end
+    if not best then return false, animalPending and animalReason or "farm_scan_no_work", animalPending end
     local spec = { type = "farm", priority = best.priority, target = best }
     if best.operation == "water" and carriedWaterId then spec.assignedId = carriedWaterId end
     local queued, job = SC.BaseLife.enqueueJob(spec)
     if queued == true then metrics.jobsQueued = metrics.jobsQueued + 1 end
-    return queued, job
+    return queued, job, animalPending
 end
 
 local function stateFor(actor, job)
@@ -1081,7 +1083,10 @@ local function approach(actor, square, object, workReach)
         -- A tile match alone can leave the actor at the far edge of the use
         -- square. Stock water/farming actions then finish without touching the
         -- source or crop. Reach the centre of an accessible use side first.
-        if accessible == true and dx * dx + dy * dy <= 1.25 * 1.25 then
+        -- Navigation settles within 0.35 of a use-tile centre. Accept that
+        -- whole settled band; a 1.25 radius otherwise endlessly requests a
+        -- micro-move which navigation has already satisfied.
+        if accessible == true and dx * dx + dy * dy <= 1.4 * 1.4 then
             return "arrived", "farm_in_range"
         end
     end
@@ -1160,6 +1165,29 @@ local function borrowSupply(actor, baseState, job, state, predicate, categories,
         if carried then
             state.carriedWaterSupply = { item = carried, container = U().inventory(actor) }
             return true, "farm_carried_water_ready"
+        end
+    end
+    if scanKey == "water" then
+        rank=rank or function(item)
+            local kind=string.lower(U().itemType(item))
+            local can=kind:find("wateredcan",1,true) or kind:find("wateringcan",1,true)
+            local uses=waterUses(item)
+            -- Reuse prepared water, then refill purpose-made watering cans.
+            -- Do not turn every empty milk bucket into a water loan merely
+            -- because it appeared earlier in storage inventory order.
+            return (uses>0 and 10000 or 0)+(can and 1000 or 0)+math.min(100,uses)
+        end
+        local accepts = predicate
+        predicate = function(item)
+            if not accepts(item) then return false end
+            local weight, limit = U().projectedCarryLoad(actor, false)
+            -- getActualWeight is the dry shell for fluid items. Use the
+            -- native unequipped weight, with fluid mass as a conservative floor.
+            local actual = select(1, invoke(item, "getUnequippedWeight"))
+            local fluid = SC.CleaningSupplies and SC.CleaningSupplies.inspect(item)
+            local incoming = math.max(tonumber(actual) or 0,
+                U().itemWeight(item) + (fluid and fluid.amount or 0))
+            return weight + incoming <= limit - 0.15
         end
     end
     local pending = state.fetch
@@ -1441,7 +1469,8 @@ local function depositOutputs(actor, baseState, state)
     local output = state.outputs and state.outputs[1] or nil
     if not output then state.outputs = nil return true, "farm_outputs_deposited" end
     local storage, container
-    local rows = output.wool and SC.AnimalShearing.depositRows()
+    local rows = output.manure and SC.FarmStorage.manureRows(output.item,actor,output.compostOnly)
+        or output.wool and SC.AnimalShearing.depositRows()
         or output.milk and SC.AnimalWork.milkDepositRows()
         or (output.category == "food" or output.category == "fresh_food")
         and SC.BaseLife.foodDepositRows(output.item)
@@ -1484,6 +1513,10 @@ local function depositOutputs(actor, baseState, state)
 end
 
 local function hasUsableFluid(object)
+    local fluid = SC.CleaningSupplies and SC.CleaningSupplies.inspect(object)
+    if fluid and (not fluid.known or not fluid.waterOnly) then return false end
+    local milk=SC.FarmStorage and SC.FarmStorage.milkInfo(object)
+    if milk and milk.fluid then return false end
     -- A trough is the animals' drinking supply, never a donor for refilling
     -- that same trough (or crops). Otherwise an empty can shuttles its water
     -- out and straight back without adding any supply.
@@ -1503,7 +1536,9 @@ local function waterSourceObjects(square)
 end
 
 local function waterSourceUsable(object)
-    return object ~= nil and U().squareOf(object) ~= nil and hasUsableFluid(object)
+    local index, known = invoke(object, "getObjectIndex")
+    return object ~= nil and (not known or (tonumber(index) or -1) >= 0)
+        and U().squareOf(object) ~= nil and hasUsableFluid(object)
 end
 
 local function waterSearchZones(activeZone)
@@ -1515,6 +1550,13 @@ local function waterSearchZones(activeZone)
 end
 
 local function findWaterSource(actor, state, activeZone)
+    -- Keep the exact donor across movement updates. Restarting discovery on
+    -- every step can leave a worker searching forever without reaching it.
+    if waterSourceUsable(state.waterSource)
+        and SC.BaseLife.withinWorkReach(state.waterSource) == true then
+        return state.waterSource
+    end
+    state.waterSource = nil
     local rows = waterSearchZones(activeZone)
     state.waterCursor = state.waterCursor or { zone = 1, index = 0 }
     state.waterCandidates = state.waterCandidates or {}
@@ -1545,6 +1587,7 @@ local function findWaterSource(actor, state, activeZone)
                     state.waterCandidateSeen, state.waterScanComplete = nil, nil
                     state.waterPreferredCount, state.waterCleanCount = nil, nil
                     state.waterScanned = nil
+                    state.waterSource = object
                     return object
                 end
                 if not state.waterCandidateSeen[object] then
@@ -1602,6 +1645,7 @@ local function findWaterSource(actor, state, activeZone)
         state.waterCandidateSeen, state.waterScanComplete = nil, nil
         state.waterPreferredCount, state.waterCleanCount = nil, nil
         state.waterScanned = nil
+        state.waterSource = selected.object
         return selected.object
     end
     local source = choices[1].object
@@ -1609,6 +1653,7 @@ local function findWaterSource(actor, state, activeZone)
     state.waterCandidateSeen, state.waterScanComplete = nil, nil
     state.waterPreferredCount, state.waterCleanCount = nil, nil
     state.waterScanned = nil
+    state.waterSource = source
     return source
 end
 
@@ -1696,6 +1741,12 @@ local function startAction(actor, job, state, square, plant, operation)
             uses = operation == "water" and math.min(target.uses or 1, waterUses(item))
                 or target.uses or 1,
             cure = target.cure, farmerRole = farmingRole(actor),
+            validate = operation == "fill_water" and function()
+                return SC.BaseLife.job(job.id) == job and job.reservedBy == actorId(actor)
+                    and waterSourceUsable(state.waterSource)
+                    and SC.BaseLife.withinWorkReach(state.waterSource) == true
+                    and U().directInteractionAccess(actor, state.waterSource) == true
+            end or nil,
         })
     end)
     if started ~= true then
@@ -1842,6 +1893,28 @@ function FarmWork.jobModifier(actorIdValue, job, resident, record)
 end
 
 function FarmWork.update(actor, baseState, job, runtime)
+    local previous = states[actor]
+    if previous and previous.jobId ~= job.id then
+        -- A blocked/reassigned chore must not erase the old runtime and its
+        -- loans. Settle those exact items before borrowing for the next job.
+        local cleared, why = FarmWork.cancelActor(actor, "farm_job_changed")
+        if not cleared then
+            if not previous.work and not previous.animalWork and not previous.outputs
+                and not previous.milkPour and not previous.collectingHarvest then
+                local loans = {}
+                for _, loan in ipairs(previous.animalLoans or {}) do loans[#loans+1] = loan end
+                loans[#loans+1] = previous
+                for _, loan in ipairs(loans) do
+                    if loan.borrowed and U().inventoryContains(U().inventory(actor), loan.borrowed.item) then
+                        local returned, detail, pending = consumeOrReturn(actor, baseState, loan)
+                        if not returned then return pending == true, detail, pending ~= true end
+                    end
+                end
+            end
+            return true, why or "farm_recovery_pending"
+        end
+        return true, "farm_previous_supplies_returned"
+    end
     if job.target and job.target.animal == true then
         if not SC.AnimalWork then return false, "animal_work_unavailable", true end
         return SC.AnimalWork.update(actor, baseState, job, runtime, stateFor(actor, job))
@@ -2132,7 +2205,7 @@ end
 -- before it starts while any such obligation is still live.
 function FarmWork.canCancelJob(jobId)
     for _, state in pairs(states) do
-        if state.jobId == jobId and (state.work or state.animalWork or state.animalEgg
+        if state.jobId == jobId and (state.work or state.animalWork or state.animalEgg or state.manureWork or state.milkPour
             or state.animalLoans or state.borrowed
             or state.collectingHarvest or (state.outputs and #state.outputs > 0)) then
             return false, "farm_recovery_pending"
@@ -2305,6 +2378,7 @@ FarmWork.animalSupport = {
     receipt = allocateReceipt, deposit = depositOutputs, waterUses = waterUses,
     restore = restoreBorrowed,
     waterPredicate = waterContainerPredicate, findWater = findWaterSource,
+    waterSourceUsable = waterSourceUsable,
     threat = threatNearby, mark = mark, unmark = unmark, speak = speak,
 }
 

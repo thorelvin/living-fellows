@@ -31,7 +31,8 @@ local function fresh(width, height)
     function zone:isFullyStreamed() return true end
     function zone:getHutchs() return {} end
     function zone:getTroughs() return self.troughs or {} end
-    DesignationZoneAnimal = { getAllZones = function() return { zone } end }
+    DesignationZoneAnimal = { getAllZones = function() return { zone } end,
+        getZoneById = function(id) return id==42 and zone or nil end }
     local bird = { modData = {} }
     function bird:getAnimalID() return 100 end
     function bird:getAnimalType() return "hen" end
@@ -370,4 +371,51 @@ check(A.cullPlan(census,cullTarget,evidence)==4,"past-laying hens precede laying
 census.hens=2 table.remove(birds,4)
 check(A.cullPlan(census,cullTarget,evidence)==nil,"the last rooster and minimum hens are protected")
 U.config=oldCullConfig
+-- An active job must renew its audit even when earlier scans exhaust the frame.
+fresh(2,1)
+candidate=A.candidate(F.base)
+local auditWorker=F.actor("audit-worker",1,1)
+local auditJob=F.job(candidate.operation,candidate.x,candidate.y,candidate)
+auditJob.reservedBy=auditWorker.id
+F.clock=F.clock+30001
+local rescued=0
+SC.Performance={preciseNowMs=function() return 0 end,remainingBudgetMs=function() return 0 end,
+    claimUnits=function(_,requested,urgent)
+        if urgent then rescued=rescued+1 return math.min(1,requested) end return 0
+    end}
+local auditReason
+for _=1,20 do
+    _,auditReason=A.update(auditWorker,{},auditJob,{}, {})
+    F.clock=F.clock+501
+    if auditReason~="animal_audit_pending" then break end
+end
+check(rescued>0 and auditReason~="animal_audit_pending","assigned audit makes bounded progress despite an exhausted frame")
+fresh(2,1)
+candidate=nil
+for _=1,20 do
+    candidate=A.candidate(F.base)
+    F.clock=F.clock+501
+    if candidate then break end
+end
+check(candidate~=nil,"admission census also makes bounded progress despite an exhausted frame")
+SC.Performance=nil
+local bagZone,_,bagTrough=fresh()
+bagTrough.water=100
+local feeder=bagTrough.feeder
+function feeder:getMaxFeed() return 25 end
+local bag=F.item("Base.AnimalFeedBag",991)
+function bag:getAnimalFeedType() return "AnimalFeed" end
+function bag:getCurrentUses() return 100 end
+F.addStorage("feed-bags","farming",{bag})
+local bagTarget=A.candidate(F.base)
+check(bagTarget and bagTarget.operation=="animal_feed" and bagTarget.high==22.5,"vanilla-sized trough refill is admitted")
+local bagActor=F.actor("bag-feeder",2,3)
+local bagJob=F.job("animal_feed",3,2,bagTarget)
+local bagState={}
+feeder.feed=20
+local bagOkay,bagWhy=A.update(bagActor,{},bagJob,{},bagState)
+check(bagOkay and bagState.animalReturn,"an adequately fed trough finishes when another whole bag will not fit: "..tostring(bagWhy))
+A.update(bagActor,{},bagJob,{},bagState)
+check(bagJob.state=="completed" and feeder.feed==20 and bag:getContainer()~=bagActor.inventory,
+    "partial refill completes without moving or consuming the spare bag")
 print("ANIMAL_WORK_PASS checks=" .. checks)

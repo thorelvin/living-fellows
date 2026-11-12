@@ -544,9 +544,10 @@ do
     local job = queue(ctx)
     local completed, why = run(ctx, job, 600)
     check(completed, "an unreachable water source settles loans and falls back: " .. tostring(why))
-    check(#job.target.cleanRejectedWater == 1 and native.starts == 0
-        and near(concentrate.fc:getAmount(), 1 - C.dose()) and bucket.fc:getAmount() == 0,
-        "a perpetually pending water route eventually falls back without pouring or replaying preparation")
+    check(#job.target.cleanRejectedWater == 1 and native.starts == 1
+        and near(concentrate.fc:getAmount()+bucket.fc:getAmount(), 1 - C.dose())
+        and near(bucket.fc:getAmount(),0.1),
+        "a pending water route preserves the concentrate-first pour and falls back without replay")
     SC.GameplayUtil.directInteractionAccess, SC.Navigation.requestAny = oldAccess, oldRequest
 end
 
@@ -607,6 +608,7 @@ do
         return { character = actor, source = a, target = b, amount = amount }
     end }
     FluidContainer = { CanTransfer = function() return true end }
+    job.target.cleanPreparation.stage = "water" -- Exercise the water adapter after concentrate-first preparation.
     local before = bucket.fc:getAmount()
     local started, why = actualTransfer(ctx.actor, donor, bucket, 0.95, job.id, false)
     check(started, "measured native adapter queues successfully: " .. tostring(why))
@@ -633,6 +635,22 @@ do
     queue.current, queue.queue = nil, {}
     check(actualFinish(ctx.actor), "native adapter restores the worker's original hands")
     check(ctx.actor.primary == nil and ctx.actor.secondary == nil, "temporary bucket equipment is released")
+    ISFluidTransferAction.new=function(_,actor,a,_,b,_,amount)
+        return {character=actor,source=a,target=b,amount=amount,
+            update=function(self) transfer(self.source:getOwner(),self.target:getOwner(),0.2) end,
+            complete=function(self) transfer(self.source:getOwner(),self.target:getOwner(),0.1) return true end,
+            forceStop=function(self) self.stopped=true end}
+    end
+    local proof={version=1,credit=0}
+    check(actualTransfer(ctx.actor,donor,bucket,0.95,job.id,false,proof),"paired native transfer starts")
+    action=queue.current; action:update()
+    donor.fc.contents.Water=donor.fc.contents.Water-0.25 -- Native auto-drinking between callbacks.
+    action:complete()
+    check(near(proof.credit,0.3) and not proof.uncertain,
+        "paired receipt measures only native pours, excluding independent donor consumption")
+    queue.current,queue.queue=nil,{}
+    check(actualFinish(ctx.actor),"paired pour releases its original hands")
+    before=bucket.fc:getAmount()
     local oldTake = ISTakeWaterAction
     local source = { square = ctx.actor.square }
     function source:getSquare() return self.square end

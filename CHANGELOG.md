@@ -2,6 +2,34 @@
 
 # Changelog
 
+## 0.27.10 - Farm supplies and reliable care
+
+- Added marked Milk barrels for native fluid delivery. Farmers keep cow and
+  sheep milk separate, continue across partly filled barrels, and return the
+  original borrowed container. Full or inaccessible storage preserves cargo
+  for retry.
+- Added manure collection for marked composters and Manure storage. Farmers
+  use native collection and transfers, with overflow storage when composters
+  are full and later recovery when space becomes available.
+- Medics pack and retain a first aid kit with clean dressings and a splint,
+  then use those actual supplies for treatment. Personal equipment keeps its
+  existing ownership.
+- Farmers soothe stressed chickens, cattle and sheep with the native petting
+  action, releasing movement and restoring their held equipment afterward.
+- Fixed crop and animal work starving each other's scans and productive jobs
+  losing priority to optional scavenging. Urgent care takes priority over
+  routine trough top-ups; feed refills can finish when another whole bag will
+  not fit and the trough already has enough food.
+- Hardened native water fills against carrying limits, milk approaches and
+  receipts, borrowed-supply returns, worker rest handoffs and low-fence routes.
+- Fixed overhead names snapping vertically during camera panning when nearby
+  names crossed a screen-grid boundary. Names now separate only when their
+  actual text bounds overlap, independently in each view.
+- Recorded a three-day mixed-farm run, save/reload inspection and focused
+  native-action checks. See the farm validation reports for results and limits.
+- Bridge protocol `42.22-isocompanion-31` is unchanged. The rebuilt bridge
+  updates release metadata only; ship it with the Lua changes.
+
 ## 0.27.9 - Camp sheep care
 
 - Added Collect fuel expeditions by car. Choose a known gas station on the map

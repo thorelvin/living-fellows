@@ -191,6 +191,9 @@ handled, reason = FarmWork.update(actor, {}, refill, {})
 check(handled == true and reason == "farm_approaching"
         and #F.nativeStarts == 0,
     "standing at the far edge of the shower use tile still approaches")
+actor.preciseX = 1.23
+check(FarmWork._approachForHarness(actor,sinkSquare,sink)=="arrived",
+    "a native settled use position is accepted without endless micro-moves")
 actor.preciseX = 1.5
 handled, reason = FarmWork.update(actor, {}, refill, {})
 check(handled == true and F.nativeStarts[#F.nativeStarts].intent.operation == "fill_water"
@@ -962,4 +965,47 @@ for _, case in ipairs({
     SC.BaseLife.resident, SC.BaseLife.dutyResidentIds = originalResidents, originalDuty
 end
 
+fresh()
+actor=F.actor("handoff-farmer",0,1)
+F.square(1,1,F.plant({waterLvl=10,waterNeeded=60}))
+local oldCan=can(990,2)
+local _,oldSource=F.addStorage("storage:handoff","farming",{oldCan})
+local oldJob=F.job("water",1,1,{id="job:old-water",actorId=actor.id,uses=1})
+check(FarmWork.update(actor,{},oldJob,{}),"handoff fixture borrows its original can")
+local restore=SC.BaseWork.restoreToStorage
+SC.BaseWork.restoreToStorage=function() return false,"storage_out_of_reach" end
+F.returnMode="pending"
+local nextJob=F.job("water",1,1,{id="job:new-water",actorId=actor.id,uses=1})
+handled,reason=FarmWork.update(actor,{},nextJob,{})
+check(handled and reason=="base_storage_looting" and #F.receipts==1 and oldCan.container==actor.inventory,
+    "a new job retains the old loan while its native return is pending")
+F.returnMode="complete"
+FarmWork.update(actor,{},nextJob,{})
+check(oldCan.container==oldSource and F.receipts[1].phase=="returned","handoff returns the exact old can before taking another")
+SC.BaseWork.restoreToStorage=restore
+FarmWork.update(actor,{},nextJob,{})
+FarmWork.update(actor,{},nextJob,{})
+check(F.receipts[2] and F.receipts[2].jobId==nextJob.id,"the next job only borrows after previous ownership settles")
+fresh()
+actor=F.actor("watering-tools",0,1)
+local emptyBucket=F.item("Base.Bucket",9990,{fluidAmount=0,fluidCapacity=10})
+local preparedCan=can(9992,5)
+F.addStorage("storage:mixed-tools","farming",{emptyBucket,preparedCan})
+local wateringJob=F.job("water",1,1,{id="job:tool-choice",actorId=actor.id,uses=1})
+F.square(1,1,F.plant({waterLvl=10,waterNeeded=60,harvestable=false}))
+FarmWork.update(actor,{},wateringJob,{})
+check(preparedCan.container==actor.inventory and emptyBucket.container~=actor.inventory,
+    "watering reuses a prepared can instead of appropriating the first empty milk bucket")
+fresh()
+actor=F.actor("mixed-farmer",0,1)
+actor.inventory:AddItem(can(9991,8))
+F.square(1,1,F.plant({waterLvl=10,waterNeeded=60,harvestable=false}))
+local oldAnimal,oldResidents,oldDuty=SC.AnimalWork,SC.BaseLife.resident,SC.BaseLife.dutyResidentIds
+SC.BaseLife.resident=function(id) return {role="farmer",duty=true} end
+SC.BaseLife.dutyResidentIds=function() return {actor.id} end
+SC.AnimalWork={candidate=function() return nil,"animal_audit_pending",true end}
+local mixedQueued,mixedJob,mixedPending=FarmWork.audit(F.base)
+check(mixedQueued and mixedJob.target.operation=="water" and mixedPending==true,
+    "a crop is offered while animal discovery continues, without losing its continuation")
+SC.AnimalWork,SC.BaseLife.resident,SC.BaseLife.dutyResidentIds=oldAnimal,oldResidents,oldDuty
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

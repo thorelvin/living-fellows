@@ -369,6 +369,9 @@ function C.plan(actor, job, remainingBudget)
             -- Sort retained metadata, not thousands of native fluid queries.
             table.sort(selection.choices, function(a, b)
                 if a.tainted ~= b.tainted then return a.tainted == true end
+                -- A fixed source cannot be auto-drunk from the worker's
+                -- inventory while its measured preparation pour is running.
+                if (a.object ~= nil) ~= (b.object ~= nil) then return a.object ~= nil end
                 return (a.rank or 10000) < (b.rank or 10000)
             end)
             table.insert(selection.choices, 1, false) -- Try the bucket's own existing water first.

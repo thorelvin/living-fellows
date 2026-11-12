@@ -53,7 +53,9 @@ require "TimedActions/Animals/ISToggleHutchEggHatchDoor"
 require "TimedActions/Animals/ISHutchCleanFloor"
 require "TimedActions/Animals/ISHutchCleanNest"
 require "TimedActions/Animals/ISMilkAnimal"
+require "TimedActions/ISPickupDung"
 require "TimedActions/Animals/ISShearAnimal"
+require "TimedActions/Animals/ISPetAnimal"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -2816,6 +2818,77 @@ end
 -- timed-action ownership and hand/inventory restoration used by production.
 -- The caller selects policy and supplies; this adapter only validates and
 -- starts the native action. Real Farming skill remains the source of yield.
+function actions.startFarmFluidDeposit(actor,item,object,amount,jobId,validate,observe)
+    if not actor or type(validate)~="function" or type(observe)~="function"
+        or validate()~=true or not amount or amount<=0 then return false,"farm_fluid_invalid" end
+    local record,reason=prepareWorkInventory(actor,{item},item,nil)
+    if not record then return false,reason end
+    local _,donor=invoke(item,"getFluidContainer")
+    local _,receiver=invoke(object,"getFluidContainer")
+    local made,action=pcall(ISFluidTransferAction.new,ISFluidTransferAction,actor,
+        ISFluidContainer:new(donor),donor,ISFluidContainer:new(receiver),receiver,amount)
+    if not made or not action then restoreWorkInventory(actor,record) return false,"farm_fluid_unavailable" end
+    action.isValid=function(self)
+        return self.character==actor and self.source:getOwner()==item and self.target:getOwner()==object
+            and validate()==true and FluidContainer.CanTransfer(donor,receiver)==true
+    end
+    local update,complete=action.update,action.complete
+    local function effect(self,fn)
+        if not self:isValid() then self:forceStop() return false end
+        local a,b=donor:getAmount(),receiver:getAmount()
+        local result=fn(self)
+        if observe(a,b)~=true then self:forceStop() return false end
+        return result
+    end
+    action.update=function(self) return effect(self,update) end
+    action.complete=function(self) return effect(self,complete) end
+    record.baseJobId=jobId
+    return queueTrackedWork(actor,action,record,"farm_milk_store")
+end
+
+function actions.startMedicKitTransfer(actor,item,source,destination,kit,validate)
+    if type(validate)~="function" or validate()~=true
+        or not SC.GameplayUtil.inventoryContains(source,item) then return false,"medic_kit_transfer_changed" end
+    local record,reason=prepareWorkInventory(actor,{},nil,nil)
+    if not record then return false,reason end
+    local made,action=pcall(ISInventoryTransferAction.new,ISInventoryTransferAction,
+        actor,item,source,destination,100)
+    if not made or not action then restoreWorkInventory(actor,record) return false,"medic_kit_action_missing" end
+    local original,start=action.isValid,action.start
+    action.canMergeAction=function() return false end
+    action.isValid=function(self)
+        return self.character==actor and validate()==true and SC.GameplayUtil.inventoryContains(source,item)
+            and SC.GameplayUtil.containerHasRoom(destination,actor,item)==true and original(self)==true
+    end
+    action.start=function(self)
+        start(self)
+        self.selectedContainer=nil
+        local model=select(2,invoke(kit,"getStaticModel"))
+        if model then self:setOverrideHandModels(nil,model) end
+    end
+    return queueTrackedWork(actor,action,record,"medic_kit")
+end
+
+function actions.startFarmManure(actor,tool,square,jobId,validate,commit)
+    if not actor or not ISPickupDung or type(validate)~="function" or validate(true)~=true then
+        return false,"animal_manure_changed"
+    end
+    local record,reason=prepareWorkInventory(actor,{tool},tool,nil)
+    if not record then return false,reason end
+    local made,action=pcall(ISPickupDung.new,ISPickupDung,actor,tool,square,1)
+    if not made or not action then restoreWorkInventory(actor,record) return false,"animal_manure_action_missing" end
+    local original=action.complete
+    action.isValid=function(self) return self.character==actor and self.item==tool and validate(false)==true end
+    action.complete=function(self)
+        if not self:isValid() or validate(true)~=true then return false end
+        local result=original(self)
+        if result~=true then return false end
+        return commit()==true
+    end
+    record.baseJobId=jobId
+    return queueTrackedWork(actor,action,record,"farm_animal_manure")
+end
+
 function actions.startAnimal(actor, intent)
     if not actor or type(intent) ~= "table" or type(intent.validate) ~= "function"
         or intent.validate() ~= true then return false, "animal_action_invalid" end
@@ -2945,6 +3018,51 @@ function actions.startAnimal(actor, intent)
                 if not okay then result.reason="animal_shear_uncertain" self:forceStop() end
             end
         end
+    elseif intent.operation == "animal_soothe" and ISPetAnimal
+        and type(intent.sootheResult) == "table" and type(intent.shearOwns) == "function" then
+        -- Empty real hands before stock forceDropHeavyItems: retain bags/tools
+        -- in their inventory and restore them using the ordinary work record.
+        local a = invoke(actor, "setPrimaryHandItem", nil)
+        local b = invoke(actor, "setSecondaryHandItem", nil)
+        if a and b then created, action = pcall(ISPetAnimal.new, ISPetAnimal, actor, object) end
+        if created and action then
+            local result, nativeComplete = intent.sootheResult, action.complete
+            local attempted = false
+            local function cleanup()
+                if not intent.shearOwns() then return end
+                invoke(actor, "setVariable", "petanimal", false)
+                invoke(object, "clearVariable", "idleAction")
+                local _, behavior = invoke(object, "getBehavior")
+                invoke(behavior, "setBlockMovement", false)
+            end
+            result.cleanup = cleanup
+            local start = action.start
+            action.start = function(self)
+                if intent.validate() ~= true then self:forceStop() return end
+                return start(self)
+            end
+            action.complete = function(self)
+                if attempted then return result.applied == true end
+                if self.character ~= actor or self.animal ~= object or intent.validate() ~= true then return false end
+                attempted = true -- A failed native call is never replayed.
+                local okay, value = pcall(nativeComplete, self)
+                result.applied = okay and value == true
+                if not result.applied then result.reason = "animal_soothe_uncertain" end
+                cleanup()
+                return result.applied
+            end
+            -- Stock petting can commit from both the animation event and
+            -- complete(). Route both through that same once-only native call.
+            action.animEvent = function(self, event)
+                if event == "pettingFinished" then self:complete() self:forceStop() end
+            end
+            for _, method in ipairs({ "stop", "forceStop", "perform" }) do
+                action[method] = function(self, ...)
+                    cleanup()
+                    return ISBaseTimedAction[method](self, ...)
+                end
+            end
+        end
     elseif intent.operation == "animal_egg" and ISHutchGrabEgg and intent.nest then
         created, action = pcall(ISHutchGrabEgg.new, ISHutchGrabEgg, actor, intent.nest, object)
         if created and action then
@@ -2981,7 +3099,8 @@ function actions.startAnimal(actor, intent)
         if type(native) == "function" then
             action[method] = function(self, ...)
                 if method=="complete" and committed then return true end
-                local milkCleanup=(intent.operation=="animal_milk" or intent.operation=="animal_shear") and method~="update"
+                local milkCleanup=(intent.operation=="animal_milk" or intent.operation=="animal_shear"
+                    or intent.operation=="animal_soothe") and method~="update"
                 if not milkCleanup and not (method=="perform" and committed) and (intent.validate() ~= true
                     or method=="complete" and intent.beforeCommit and intent.beforeCommit()~=true) then
                     if intent.operation=="animal_milk" then intent.milkResult.reason="animal_milk_interrupted" end
@@ -2994,6 +3113,52 @@ function actions.startAnimal(actor, intent)
         end
     end
     return queueTrackedWork(actor, action, record, "farm_" .. intent.operation)
+end
+
+-- Water weighs a kilogram per litre, including tainted water. The stock
+-- action uses inventory capacity (often 50), rather than safe carry weight.
+-- Cap its own transfers; never remove fluid or replay a partially filled can.
+function actions.limitWorkWaterFill(actor, action, maximum, validate)
+    local U = SC.GameplayUtil
+    if not U or not U.projectedCarryLoad or not action.item then return false end
+    -- Native hand models still show the bucket. Keep its real weight in the
+    -- root inventory until completion, without a temporary equipped discount.
+    if select(2, invoke(actor, "getPrimaryHandItem")) == action.item then
+        invoke(actor, "setPrimaryHandItem", nil)
+    end
+    if select(2, invoke(actor, "getSecondaryHandItem")) == action.item then
+        invoke(actor, "setSecondaryHandItem", nil)
+    end
+    local function room()
+        local weight, limit = U.projectedCarryLoad(actor, false)
+        return math.max(0, (tonumber(limit) or 0) - (tonumber(weight) or math.huge) - 0.15)
+    end
+    action.waterUnit = math.min(tonumber(action.waterUnit) or 0,
+        tonumber(maximum) or math.huge, room())
+    if action.waterUnit < math.min(tonumber(maximum) or 0.2, 0.2) - 0.0001 then return false end
+    action.endUsedAmount = (tonumber(action.startUsedAmount) or 0) + action.waterUnit
+    action.maxTime = action:getDuration()
+    local transfer, valid = action.transferFluid, action.isValid
+    local item, source = action.item, action.waterObject
+    local function current(self)
+        return self.character == actor and self.item == item and self.waterObject == source
+            and U.inventoryContains(U.inventory(actor), item)
+            and select(2, invoke(actor, "isDead")) ~= true
+            and (not validate or validate() == true)
+    end
+    action.isValid = function(self)
+        return current(self) and valid(self) == true
+    end
+    action.transferFluid = function(self, amount)
+        if not current(self) then return end
+        local _, fluid = invoke(item, "getFluidContainer")
+        local _, present = invoke(fluid, "getAmount")
+        if not present then return end
+        local remaining = math.max(0, self.endUsedAmount - present)
+        amount = math.min(math.max(0, tonumber(amount) or 0), remaining, room())
+        if amount > 0 then return transfer(self, amount) end
+    end
+    return true
 end
 
 function actions.startFarm(actor, intent)
@@ -3052,6 +3217,11 @@ function actions.startFarm(actor, intent)
         restoreWorkInventory(actor, record)
         return false, created and "farm action was not created" or tostring(timedAction)
     end
+    if operation == "fill_water" and not actions.limitWorkWaterFill(
+        actor, timedAction, intent.amount, intent.validate) then
+        restoreWorkInventory(actor, record)
+        return false, "farm_water_carry_capacity_low"
+    end
     if intent.farmerRole == true and tonumber(timedAction.maxTime) ~= nil
         and tonumber(timedAction.maxTime) > 1 then
         local multiplier = tonumber(SC.Config.get("farmFarmerDurationMultiplier")) or 0.60
@@ -3066,7 +3236,7 @@ end
 -- Stock Build 42 cleaning chooses its own wall/floor scrub pose and commits
 -- the bleach/cleaning-liquid cost and stain removal. Keep its native queue
 -- ownership and restore the companion's previous hand items afterward.
-function actions.startCleaningFluidTransfer(actor, source, bucket, amount, jobId, fromWorld)
+function actions.startCleaningFluidTransfer(actor, source, bucket, amount, jobId, fromWorld, proof)
     amount = tonumber(amount)
     if not actor or not source or not bucket or not amount or amount ~= amount
         or amount <= 0 or amount > 2.001 or not SC.BaseWork
@@ -3081,10 +3251,9 @@ function actions.startCleaningFluidTransfer(actor, source, bucket, amount, jobId
         created, action = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
             actor, bucket, source, select(2, invoke(source, "isTaintedWater")) == true)
         if created and action then
-            action.waterUnit = math.min(tonumber(action.waterUnit) or 0, amount)
-            action.endUsedAmount = (tonumber(action.startUsedAmount) or 0) + action.waterUnit
-            action.maxTime = action:getDuration()
-            if action.waterUnit + 0.0001 < amount then
+            if not actions.limitWorkWaterFill(actor, action, amount, function()
+                return SC.BaseWork.canMixCleaning(actor, jobId, source, bucket, true)
+            end) or action.waterUnit + 0.0001 < amount then
                 restoreWorkInventory(actor, record)
                 return false, "cleaning_carry_capacity_low"
             end
@@ -3113,6 +3282,37 @@ function actions.startCleaningFluidTransfer(actor, source, bucket, amount, jobId
         end
         if self.source:getOwner() ~= source or self.target:getOwner() ~= bucket then return false end
         return FluidContainer.CanTransfer(self.source:getFluidContainer(), self.target:getFluidContainer()) == true
+    end
+    if proof then
+        -- Observe native accounting at each effect boundary, without changing
+        -- its transfer algorithm or replacing fluid lost between callbacks.
+        proof.observed = type(action.update) == "function" and type(action.complete) == "function"
+        for _, method in ipairs({ "update", "complete" }) do
+            local native = action[method]
+            if type(native) == "function" then
+                action[method] = function(self, ...)
+                    if proof.uncertain or proof.inFlight or not self:isValid() then
+                        self:forceStop() return false
+                    end
+                    local before = SC.CleaningSupplies.inspect(bucket)
+                    local donor = not fromWorld and SC.CleaningSupplies.inspect(source) or nil
+                    if not before or not fromWorld and not donor then proof.uncertain = true return false end
+                    proof.inFlight = true
+                    local okay, result = pcall(native, self, ...)
+                    local after = SC.CleaningSupplies.inspect(bucket)
+                    local debit = not fromWorld and SC.CleaningSupplies.inspect(source) or nil
+                    local credit = after and after.amount - before.amount
+                    if not okay or not credit or credit < -0.0001
+                        or credit > amount + 0.001
+                        or not fromWorld and (not debit or math.abs(donor.amount - debit.amount - credit) > 0.001) then
+                        proof.uncertain = true
+                    else proof.observed = true proof.credit = (proof.credit or 0) + credit end
+                    proof.inFlight = nil
+                    if proof.uncertain then self:forceStop() return false end
+                    return result
+                end
+            end
+        end
     end
     record.baseJobId = jobId
     return queueTrackedWork(actor, action, record, fromWorld and "cleaning_fill" or "cleaning_mix")

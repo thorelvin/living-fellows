@@ -449,7 +449,7 @@ check(mark and unmark and markParent == lfStorage and unmarkParent == lfStorage
     "storage marking and removal stay inside Living Fellows without Camp/Storage wrappers")
 check(lfStorage.options[1] == mark and lfStorage.options[2] == unmark
     and campMenu.options[#campMenu.options] == lfStorageOption
-    and child(lfStorage, mark) and #child(lfStorage, mark).options == 16,
+    and child(lfStorage, mark) and #child(lfStorage, mark).options == 17,
     "a container click puts storage first inside LF while keeping LF at the bottom of the main menu")
 
 -- Use vanilla's actual press/release dispatcher with the real LF menu action.

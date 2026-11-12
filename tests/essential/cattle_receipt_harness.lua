@@ -59,6 +59,19 @@ local queued,milkJob=B.enqueueJob({type="farm",priority=6,target={animal=true,ca
     operation="animal_milk",urgent=true,cowId=42,nativeZoneId="10",x=11,y=10,z=0}})
 check(queued and milkJob.priority==5,"milking respects the existing job priority range")
 check(B.priorityWorkFor("milk-farmer")==milkJob,"unassigned urgent milking interrupts optional camp activity")
+local oldPriority,oldAssignment=milkJob.priority,milkJob.assignedId
+milkJob.priority,milkJob.assignedId=1,"milk-farmer"
+check(B.priorityWorkFor("milk-farmer")==milkJob,"assigned farm work retains priority through optional scavenging searches")
+milkJob.priority,milkJob.assignedId=oldPriority,oldAssignment
+local allocated,returnedLoan=B.allocateFarmReceipt({jobId=milkJob.id,actorId="milk-farmer",kind="borrowed",
+    itemType="Base.Bucket",nativeId="202",sourceStorageId=storage.id})
+check(allocated,"interrupted milking has an exact bucket loan")
+milkJob.target.milkReceiptId=returnedLoan.id
+B.updateFarmReceipt(returnedLoan.id,{phase="returned"})
+B.allocateFarmReceipt({jobId="job:other-farm",actorId="another-farmer",kind="borrowed",
+    itemType="Base.Bucket",nativeId="203",sourceStorageId=storage.id})
+check(milkJob.target.milkReceiptId==nil and B.farmReceipt(returnedLoan.id)==nil,
+    "compacting a verified returned bucket clears its retry pointer without recreating cargo")
 check(B.claimJob("milk-farmer")==milkJob,"urgent milking scores above the nearer water job")
 B.releaseJob(milkJob.id,"milk-farmer","fixture")
 B.cancelJob(milkJob.id)
@@ -106,6 +119,14 @@ local sheepOkay,sheepReceipt=B.allocateFarmReceipt({jobId="job:1",actorId="sheph
     itemType="Base.Bucket",nativeId="201",phase="carried",destinationCategory="fresh_food",
     milk={version=1,cowId=202,zoneId="10",day=4,fluid="SheepMilk",before=0,after=1.5,litres=1.5,lost=0}})
 check(sheepOkay and sheepReceipt.milk.species=="sheep","legacy animal ID supports verified sheep milk")
+sheepReceipt.milk.poured=0
+sheepReceipt.milk.pour={storageId="storage:99",source=1.5,target=0.5}
+check(B.updateFarmReceipt(sheepReceipt.id,{milk=sheepReceipt.milk}) and B.restore(B.export()),
+    "optional native-pour checkpoint survives the real save normalizer")
+sheepReceipt=B.farmReceipt(sheepReceipt.id)
+check(sheepReceipt.milk.poured==0 and sheepReceipt.milk.pour.source==1.5
+    and sheepReceipt.milk.pour.target==0.5 and sheepReceipt.milk.pour.storageId=="storage:99",
+    "reload retains the exact receiver and both measured quantities")
 local woolOkay,woolReceipt=B.allocateFarmReceipt({jobId="job:2",actorId="shepherd",kind="output",
     itemType="Base.WoolRaw",nativeId="301",phase="selected",destinationCategory="crafting",
     wool={version=1,animalId=202,x=11,y=12,z=0,before=16,after=15}})

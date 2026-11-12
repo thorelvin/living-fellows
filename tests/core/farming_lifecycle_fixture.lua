@@ -95,6 +95,7 @@ end
 function F.actor(id, x, y)
     local actor = { id = id, x = x or 0, y = y or 0, z = 0, inventory = F.container() }
     function actor:getInventory() return self.inventory end
+    function actor:getMaxWeight() return self.maxWeight or 50 end
     function actor:getX() return self.x end
     function actor:getY() return self.y end
     function actor:getZ() return self.z end

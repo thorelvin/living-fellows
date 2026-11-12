@@ -151,8 +151,13 @@ check(handled and state.animalReturn,"two donor trips yield the cattle water job
 A.update(farmer,{},waterJob,{},state)
 check(waterJob.state=="completed","yielded water work closes its existing job")
 candidate=A.candidate(F.base)
-check(candidate and candidate.operation=="animal_water","next audit continues the high-water target above the low mark")
+check(candidate and candidate.operation=="animal_feed","empty feed outranks topping up a safely supplied trough")
+zone.troughs[2].feed=50
+candidate=A.candidate(F.base)
+check(candidate and candidate.operation=="animal_water" and candidate.high==90,
+    "routine top-up resumes with the original high-water target after urgent feed is supplied")
 zone.troughs[1].water=90
+zone.troughs[2].feed=0
 candidate=A.candidate(F.base)
 check(candidate and candidate.operation=="animal_feed","reaching high water clears its continuation")
 local risk={cattle={animals={{id=3,kind="bull"}}},members={[3]=bull}}
@@ -366,10 +371,10 @@ check(behavior.paused,"owned approach uses vanilla's movement hold")
 A.cancel(approachActor,approachJob,approachState,"cancelled")
 check(not behavior.paused and fc.amount==0,"cancellation releases the cow without changing milk or cargo")
 A.updateMilk(approachActor,{},approachJob,{},approachState)
-F.clock=F.clock+15001
+F.clock=F.clock+25001
 local okay,why=A.updateMilk(approachActor,{},approachJob,{},approachState)
 check(not okay and why=="animal_milk_approach_timeout" and not behavior.paused,
-    "a stalled approach times out and releases its exact cow")
+    "a stalled approach times out and releases its exact cow: "..tostring(okay).."/"..tostring(why).."/"..tostring(behavior.paused))
 U.isSquareFree,U.projectedCarryLoad,U.itemWeight,U.config=free,projected,weight,oldConfig
 SC.Navigation.request=request
 F.reset()
@@ -383,4 +388,43 @@ for _=1,4 do
     if reason~="water_source_scanning" then break end
 end
 check(not found and reason=="water_source_missing","animal trough water cannot become its own refill donor")
+local donor=F.waterSource(F.square(2,1),true)
+donor.x,donor.y,donor.z=2,1,0
+for _=1,4 do
+    found,reason=SC.FarmWork.animalSupport.findWater(F.actor("trough-water",1,1),searchState,F.base.zones[1])
+    if found then break end
+end
+check(found==donor,"bounded water search selects an actual donor")
+searchState.waterCandidates=nil
+check(SC.FarmWork.animalSupport.findWater(F.actor("trough-water",1,1),searchState,F.base.zones[1])==donor
+    and searchState.waterCandidates==nil,"walking keeps the selected donor without scanning again")
+donor.fluidAmount=0
+check(SC.FarmWork.animalSupport.findWater(F.actor("trough-water",1,1),searchState,F.base.zones[1])~=donor,
+    "a drained retained donor is invalidated")
+-- A stressed grazer must receive care even when milking is paused for stress.
+local calmCow=animal(901,"cow",false,true)
+calmCow.stress=50
+function calmCow:canBePet() return true end
+U.config=function(name) if name=="animalCattleEnabled" then return 1 end return oldConfig(name) end
+local calmZone=fresh({calmCow},10,10)
+calmCow.square=F.squares["4:4:0"]
+for _,trough in ipairs(calmZone.troughs) do trough.water,trough.feed=100,100 end
+local function careCandidate()
+    for _=1,24 do
+        local result=A.candidate(F.base)
+        F.clock=F.clock+501
+        if result then return result end
+    end
+end
+local calmTarget=careCandidate()
+check(calmTarget and calmTarget.operation=="animal_soothe","cattle-only pens admit native soothing")
+local pausedMilk=F.job("animal_milk",4,4,{animal=true,deviceKey=calmTarget.deviceKey,state="blocked"})
+pausedMilk.blocker="animal_milk_stressed"
+calmTarget=careCandidate()
+check(calmTarget and calmTarget.operation=="animal_soothe","stress-paused milking permits a calming visit")
+local calming=F.job("animal_soothe",4,4,calmTarget)
+check(not careCandidate(),"an existing calming visit prevents duplicate jobs")
+calming.state="completed" pausedMilk.state="active" pausedMilk.reservedBy="milker"
+check(not careCandidate(),"active milking still excludes simultaneous animal handling")
+U.config=oldConfig
 print("CATTLE_WORK_PASS checks="..checks)

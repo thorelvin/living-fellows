@@ -6,6 +6,7 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 
 SC.Logistics = SC.Logistics or {}
 local Logistics = SC.Logistics
+require "SCMedicKit"
 local states = setmetatable({}, { __mode = "k" })
 local pendingGifts = setmetatable({}, { __mode = "k" })
 local storageFor
@@ -186,6 +187,9 @@ Logistics.isManualOnlyFilterMask = Logistics.manualOnlyFilterMask
 
 function Logistics.itemCategory(item)
     local utility = U()
+    if SC.MedicKit.isKit(item) then return "container" end
+    if U().itemType(item)=="Base.Splint" then return "medicine" end
+    if SC.FarmStorage and SC.FarmStorage.isManure(item) then return "manure" end
     if SC.ExpeditionFuel and SC.ExpeditionFuel.canInfo(item) then return "tools" end
     if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools" end
     local fluid=select(1,utility.call(item,"getFluidContainer"))
@@ -624,6 +628,7 @@ function Logistics.clothingUpgrade(actor, item)
 end
 
 local function bagScore(item)
+    if SC.MedicKit.isKit(item) then return nil end
     local nested, nestedOk = nestedInventory(item)
     local location = nestedOk and nested and wearableLocation(item) or nil
     if not location then return nil, nil, nil end
@@ -960,6 +965,7 @@ end
 -- keptHarvestDeposit admits one case: a harvest kept for pickup because no
 -- car was chosen may go into camp storage. It is still never dropped.
 local function isProtected(actor, item, keptHarvestDeposit)
+    if SC.MedicKit.retained(actor,item) then return true end
     if not actor or not item then return true end
     if workCargo(actor, item, keptHarvestDeposit) then return true end
     local manualData = select(1, U().call(item, "getModData"))
@@ -1257,7 +1263,8 @@ function Logistics.selectSurplus(actor, audit, skip)
         and select(2, SC.Combat.weaponAvailability(actor)) or nil
     for _, record in ipairs(audit.items) do
         local item = record.item
-        if item ~= audit.farmWaterCan and not isProtected(actor, item) and not (skip and skip(item)) then
+        if item ~= audit.farmWaterCan and item~=(audit.medicKit and audit.medicKit.splintItem)
+            and not isProtected(actor, item) and not (skip and skip(item)) then
             local category = record.category or Logistics.itemCategory(item)
             local count = (audit.gearCounts or audit.counts)[category] or 0
             local target = tonumber(audit.profile.target[category]) or 0
@@ -1467,6 +1474,8 @@ function Logistics.status(actor)
         if not usable and audit.giftWeapon == true then audit.weaponReady = true end
         if state then state.nextWeaponAt = current + 1500 end
     end
+    audit.medicKit=SC.MedicKit.view(actor,audit)
+    audit.medicKitDue=SC.MedicKit.needsWork(actor,audit)
     audit.packMove = selectPackMove(actor, audit)
     -- A move that just failed cools down instead of being proposed again.
     if audit.bagUpgrade and moveMemory.cooling(actor, "wear", audit.bagUpgrade.item, current) then
@@ -1529,7 +1538,7 @@ function Logistics.status(actor)
     audit.surplus = surplus
     audit.fieldReturnCargo = surplus ~= nil and surplus.keptHarvest == true
     audit.shouldUnload = surplus ~= nil
-    audit.shouldManage = audit.weaponReady == true
+    audit.shouldManage = audit.weaponReady == true or audit.medicKitDue==true
         or audit.manualMaskRemoval ~= nil
         or audit.bagUpgrade ~= nil or audit.clothingUpgrade ~= nil
         or audit.packMove ~= nil or audit.shouldUnload or audit.cleanupDone
@@ -2230,6 +2239,15 @@ end
 
 function Preparation.kit(actor, audit, requirements)
     local keep, tools, missing, exact = {}, {}, {}, {}
+    if Logistics.roleOf(actor)=="medic" then
+        local facts=SC.MedicKit.view(actor,audit)
+        local dressings=0
+        for _,record in ipairs(audit.items) do
+            if SC.MedicKit.retained(actor,record.item,record.source) or record.item==facts.splintItem then keep[record.item]=true end
+            if SC.Medical and SC.Medical.dressingRank and SC.Medical.dressingRank(record.item,false)
+                and dressings<9 then keep[record.item]=true dressings=dressings+1 end
+        end
+    end
     local supplied = requirements.keepItems or {}
     local hasSupplied = false
     for _ in pairs(supplied) do hasSupplied = true break end
@@ -2931,6 +2949,7 @@ function Logistics.update(actor, player, runtime)
         end
     end
     if not safe then
+        SC.MedicKit.cancel(actor,"logistics_unsafe")
         cancelTransaction(actor, existing, "logistics_unsafe")
         if existing then states[actor] = nil end
         return false, "logistics_unsafe"
@@ -2941,6 +2960,10 @@ function Logistics.update(actor, player, runtime)
         end
         return executeTransaction(actor, existing)
     end
+    -- A native kit transfer may already have stocked the last dressing. Its
+    -- owner still needs a cleanup update even when a new audit prefers gear
+    -- or downtime instead of more kit work.
+    if SC.MedicKit.busy(actor) then return SC.MedicKit.step(actor, {}) end
     local audit = Logistics.status(actor)
     if audit.manualMaskRemoval then
         local record = audit.manualMaskRemoval
@@ -2979,6 +3002,11 @@ function Logistics.update(actor, player, runtime)
             end
         end
         return equipped, reason
+    end
+    if audit.medicKitDue then
+        local accepted,reason=SC.MedicKit.step(actor,audit)
+        if existing then existing.auditAt=-math.huge end
+        return accepted,reason
     end
     local fieldDelivery = audit.fieldReturnCleanup and audit.shouldUnload
     if audit.bagUpgrade and not fieldDelivery then
@@ -3198,6 +3226,8 @@ end
 -- Routine shelving may yield before its transfer starts. Never discard an
 -- animating/committing transaction to make a higher-scoring chore look ready.
 function Logistics.yieldToWork(actor)
+    local released,why=SC.MedicKit.cancel(actor,"priority_base_work")
+    if released~=true then return false,why end
     local state = actor and states[actor]
     local transaction = state and state.transaction
     if not transaction then return true end
@@ -3219,11 +3249,16 @@ end
 
 -- True while a pack, wear, deposit or drop holds this actor's action owner.
 function Logistics.busy(actor)
+    if SC.MedicKit.busy(actor) then return true end
     local state = actor and states[actor] or nil
     return state ~= nil and state.transaction ~= nil
 end
 
 function Logistics.reset(actor)
+    if actor then
+        local okay,why=SC.MedicKit.cancel(actor,"logistics_reset")
+        if okay~=true then return false,why end
+    end
     if SC.Encounter and type(SC.Encounter.cancelPlayerSupply) == "function" and actor then
         SC.Encounter.cancelPlayerSupply(actor)
     end

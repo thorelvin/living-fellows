@@ -1,0 +1,101 @@
+Mixed farm acceptance — 2026-11-12
+Project Zomboid 42.22.2 | living_fellows/0.27.9 working tree
+
+Result
+PASS for the three-day mixed-farm scenario, followed by normal-speed save/reload
+inspection and focused native-action acceptance. Original save untouched.
+This replaces the earlier incomplete/productivity-failed conclusion below the
+same filename. Earlier trial logs remain available; they are not passing runs.
+
+Three-day observation
+Run: build/live-sandbox-runs/SC-Harness-20261112-173027-41fd511d
+72.00035095 continuous game hours, 73 hourly samples, one low-impact client.
+Outdoor Rosewood camp, two Farmers and one Medic, six native carrot plots,
+10 native animals: two hens, cockerel, chick, cow, bull, calf, ewe, ram, lamb.
+Native hutch, fenced pens, paired water/feed troughs, milk barrels, composter,
+marked stock and sleeping bags. Five-times clock, 120-minute day setting.
+No scripted worker/animal replenishment after setup. The player supplied melee
+weapons during the run; forced equipment was retained. Residual native zombies
+caused real safety holds. This is not a normal-speed throughput benchmark.
+
+Observed results
+- All ten animals and all three monitored workers survived at full sampled
+  health. No gameplay exceptions. All three workers slept and recovered to
+  about 8% tiredness; maximum sampled tiredness was 31.1%, 37.6%, 36.3%.
+- All six crops were watered and remained healthy. Final crop health ranged
+  92.8–98.5; water ranged 76–96.
+- Actual food and water delivered to every pen. Ending water was about
+  36 L chicken, 34.04 L cattle, 36 L sheep. No carry-limit excess during any
+  observed native water fill (maximum excess 0).
+- Ten eggs and 13 native WoolRaw items reached marked storage.
+- Six native dung collections completed; reload found three Dung_Cow and
+  three Dung_Sheep items stored. Native compost processing was not accelerated.
+- Three safe hutch closures and two morning reopenings occurred before the
+  endpoint. All four birds entered the hutch. The third closure was still
+  closed at the final 08:00 sample; no claim of exact dawn timing is made.
+- Autonomous native cow petting reduced stress from 39.0431 to 34.6353.
+- Completed unique job IDs: animal water 17, crop water 9, cleaning 17, eggs 10,
+  shearing 4, milk 2, manure 6, hutch close 3/open 2, soothing 1, feeding 1.
+  These are job completions, not counts of native transfers or individual bags.
+
+Save/reload verification
+Run: build/live-sandbox-runs/SC-Harness-20261112-184707-a1d3ce0d
+Actual native fluid inspection confirmed 16.199997 L CowMilk and 2.9000003 L
+SheepMilk, plus the stored eggs, wool and manure above. The original soak's
+milk column labels followed barrel order; the logger now reads actual fluid
+types. No active farm receipts remained at the last inspection. The medic was
+performing ordinary kit packing, not asserted idle. No gameplay exceptions.
+
+The lab feeders had been configured to 50 feed units, which the native reload
+restored to its default 25. The fixture now retains native feed capacity.
+This exposed the whole-bag/high-mark edge case, verified separately below.
+The three-day run is not presented as a second 72-hour default-capacity run.
+
+Final native-action acceptance
+Run: build/live-sandbox-runs/SC-Harness-20261112-190313-f818dc17
+- Native default 25-unit trough: two original 10-unit bags transferred;
+  20/25 supplied, job completed, third original bag remained at source.
+- Two litres of milk became 0.75 L and 1.25 L in separate real barrels;
+  original bucket emptied and returned to its Farming source.
+- Identical native dung moved from ground to overflow when compost was full,
+  then one-way into the composter after room was available.
+- Original medical kit stocked with nine clean dressings and one splint;
+  a real wound was bandaged and bleeding stopped using the nested kit.
+- Managed-pen census admitted hen and cattle-only soothing. Native ISPetAnimal
+  reduced hen stress 35 -> 31.1018 and cow stress 35 -> 30.4974. Native pose,
+  movement holds and original hand equipment were released/restored.
+All checks passed. Native captures, including blocks, are in cache/Screenshots.
+A preceding focused run 184950-1b3ea81a independently confirmed the same native
+milk/manure/medic and hen/cow effects before the feed-edge addition.
+
+Implemented hardening
+- Native fills respect safe projected load, including fluid and falling limits.
+- Retain/revalidate water donors; agree on approach and interaction distance.
+- Bound census work while guaranteeing progress for admission and active jobs;
+  continue animal audits even when crop work is also admitted.
+- Assigned farm work outranks optional scavenging. Urgent feed and care precede
+  routine water top-ups; workers retain normal rest and danger behavior.
+- Player-built hoppable fences use native fence traversal, retaining camp reach
+  and destination intent, instead of the native window-only IsoThumpable path.
+- Retire settled milk receipt pointers safely; approach a clear cow interaction
+  tile and bound stalled approaches without recreating cargo.
+- Prefer prepared water and watering cans, preserving empty milk buckets.
+- Discover soothing in cattle/sheep-only pens and permit it while an unowned
+  milking job is blocked specifically for stress. Active handling stays exclusive.
+- After a conclusive search, finish partial feeding above the low mark when
+  no further compatible supply can be taken; low/empty troughs still retry.
+
+Automated verification
+Full five-check gate: build/test-results/20261112-185907-cb373a
+Build, Lifecycle, Behaviour, Cargo, Interface: PASS, 107.3 seconds, serial.
+Focused feed regression: 185733-410ad6. Earlier farm/cleaning specialists and
+279 navigation-traversal checks passed. Native sources/JAR remain unchanged:
+C35C044630AF880B0B5C0BADA226721AC0564613CF1BD5460A6F5F494F8A4C56
+No installation, commit, push or version change was performed.
+
+Historical failed/interrupted observations
+121033-c1bfb9f7 / 123023-6cc7c5f5 / 135853-c66bf475: useful initial failures,
+not acceptance passes. Later 20x trials compressed biological time too much.
+170017-6fb63f9f exposed old map fencing across pens; 171114-ee641d4c exposed
+cattle-only soothing discovery. The final run cleared pre-existing non-floor
+objects in its disposable grass footprint before constructing test pens.

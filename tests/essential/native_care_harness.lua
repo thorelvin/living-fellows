@@ -260,4 +260,59 @@ SC_TEST_CLOCK=clockBefore; state.active=nil; a.cancelled=true; N.cancelWork(acto
 weapon.condition=2; tape.protected=true
 check(C.repairCandidate(actor,{weapon,tape})==nil,"current repair recipes cannot pin protected ingredients")
 check(C.repairCandidate(actor,{item("Base.Unrepairable"),tape})==nil,"unsupported equipment is skipped")
+-- Run the installed fill code, including incremental updates and its final
+-- catch-up, against a changing safe carry limit rather than inventory size.
+local bucket=item("Base.Bucket") root:AddItem(bucket)
+local fluid={amount=0,getAmount=function(self) return self.amount end,getCapacity=function() return 10 end}
+function bucket:getFluidContainer() return fluid end
+function bucket:isEquipped() return false end
+function bucket:syncItemFields() end
+function actor:getFreeInventoryCapacity() return 40 end
+function actor:isEquippedClothing() return false end
+function actor:hasFullInventory() return false end
+function sink:hasFluid() return self.water>0 end
+function sink:transferFluidTo(target,amount) target.amount=target.amount+amount self.water=self.water-amount end
+function sendItemStats() end
+local oldLoad,limit=U.projectedCarryLoad,8
+sink.water=100
+U.projectedCarryLoad=function(who) check(who==actor,"water uses the exact worker") return 6+fluid.amount,limit end
+local fillAction=ISTakeWaterAction:new(actor,bucket,sink,false)
+check(N.limitWorkWaterFill(actor,fillAction),"native fill has safe headroom")
+fillAction:updateUse(0.5)
+check(math.abs(fluid.amount-0.925)<0.0001,"native incremental transfer respects the initial cap: "..tostring(fluid.amount).." / "..tostring(fillAction.waterUnit))
+limit=7.4; fillAction:complete(); fillAction:complete()
+check(math.abs(fluid.amount-1.25)<0.0001,"completion cannot exceed a lower carry limit or replay water")
+limit=8
+local denied=ISTakeWaterAction:new(actor,bucket,sink,false)
+check(N.limitWorkWaterFill(actor,denied,nil,function() return false end),"guarded fill can be staged")
+local prior=fluid.amount; denied:complete(); check(fluid.amount==prior,"stale job cannot fill")
+U.projectedCarryLoad=oldLoad
+
+-- Real petting commits from either animation event or complete, only once.
+local behavior={blocked=false,setBlockMovement=function(self,b) self.blocked=b end}
+local animal={pets=0,getSquare=function() return actor:getSquare() end,getBehavior=function() return behavior end,
+    getAnimalType=function() return "cow" end,hasGeneticDisorder=function() return false end,
+    getData=function() return {getMinSize=function() return 0 end,getMaxSize=function() return 1 end,getSize=function() return 1 end} end,
+    setVariable=function() end,clearVariable=function() end,
+    petAnimal=function(self,who) check(who==actor,"native pet targets the worker") self.pets=self.pets+1 end}
+function actor:getSquare() return {DistTo=function() return 0 end} end
+function actor:setVariable(name,value) self[name]=value end
+function actor:setIsAiming() end
+function forceDropHeavyItems(who) check(who:getPrimaryHandItem()==nil and who:getSecondaryHandItem()==nil,"petting cannot drop held property") end
+local eligible=true
+local result={}
+local queued,why=N.startAnimal(actor,{operation="animal_soothe",object=animal,sootheResult=result,
+    shearOwns=function() return true end,validate=function() return eligible end})
+check(queued,"native pet action queued: "..tostring(why))
+local pet=ISTimedActionQueue.getTimedActionQueue(actor).current
+pet:start(); check(behavior.blocked,"stock pet animation holds the animal")
+pet:complete(); pet:complete(); pet:animEvent("pettingFinished")
+check(animal.pets==1 and result.applied,"native pet applies once across completion and animation callbacks")
+pet:perform(); check(N.finishWork(actor) and not behavior.blocked,"petting releases movement and hands")
+result={}
+check(N.startAnimal(actor,{operation="animal_soothe",object=animal,sootheResult=result,
+    shearOwns=function() return true end,validate=function() return eligible end}),"second pet action queued")
+pet=ISTimedActionQueue.getTimedActionQueue(actor).current; pet:start(); eligible=false
+pet:complete(); pet:stop(); N.finishWork(actor)
+check(animal.pets==1 and not behavior.blocked,"cancellation restores movement without a pet effect")
 print("NATIVE_CARE_PASS checks="..checks)

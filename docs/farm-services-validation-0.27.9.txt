@@ -1,0 +1,90 @@
+Farm services — current validation
+2026-11-12 | living_fellows/0.27.9 | Project Zomboid 42.22.2
+
+PASS: mixed farm for 72 continuous game hours, normal-speed save/reload
+inspection, focused native-action acceptance and all five project checks.
+See farm-soak-analysis-2026-11-12.txt for scope, exact counts and limitations.
+
+Implemented behavior
+- Compatible marked milk barrels; measured native pours, separate cow/sheep
+  milk, partial-barrel continuation and exact borrowed-container returns.
+- Marked composters and manure storage; native dung collection, overflow and
+  one-way recovery to composters. Native processing times remain authoritative.
+- One original medical kit, nine clean dressings and one splint; native packing
+  and existing real wound treatment. Personal equipment retains its ownership.
+- Native animal soothing for chickens and grazers; bounded census admission,
+  handling claims, cooldowns, safe interruption and original-hand restoration.
+- Safe water fills, retained donors, productive crop/animal scheduling, native
+  fence traversal, milk receipt/approach recovery and reasonable feed completion
+  when whole bags cannot reach the configured high mark.
+No new background service, item recreation or native bridge change.
+
+Live evidence
+SC-Harness-20261112-173027-41fd511d: 72.00035 game hours, 73 samples.
+All 10 native animals and 3 monitored workers remained at full sampled health.
+All 6 crops healthy and watered; all pens received water and feed. Sleep and
+recovery occurred for every worker. Eggs, wool, milk, manure and hutch operations
+progressed. Autonomous native cow soothing reduced stress 39.0431 -> 34.6353.
+No excess load during native water fills; no gameplay exceptions.
+
+SC-Harness-20261112-184707-a1d3ce0d: saved farm reloaded at normal speed.
+Actual stored fluids: 16.2 L CowMilk, 2.9 L SheepMilk. Other native output:
+10 eggs, 13 WoolRaw, 3 Dung_Cow and 3 Dung_Sheep. No active farm receipts remained
+at the last sample; the medic was doing ordinary packing. No exceptions.
+
+SC-Harness-20261112-190313-f818dc17: final focused native acceptance.
+PASS: real 25-unit feeder, 20 units delivered in two original bags, spare bag
+untouched, refill completed rather than falsely blocked; native 2 L split pour
+and original bucket return; exact dung overflow/recovery; stocked original kit
+and actual treatment/consumption; native hen and cow soothing with released
+poses/holds and restored hand equipment. Block and action screenshots retained.
+
+Automated evidence
+scripts/Test-Project.ps1 -Serial
+build/test-results/20261112-185907-cb373a: PASS 5/5, 107.3 seconds.
+Existing combat, ownership, persistence, needs, farming, cargo and interface
+checks passed; meaningful regressions cover the field failures above.
+Additional specialist evidence: build/farm-hardening-focused-latest.log
+(392 cleaning-mixture checks plus farm lifecycle), and the 279-check native
+fence/traversal group. No tests or compilers ran alongside a live client.
+
+Scope and qualifications
+One low-impact game process at a time. Original save untouched. No scripted
+worker/animal replenishment after setup; the player supplied melee weapons.
+Five-times simulation is not a normal-speed productivity benchmark. The soak
+used lab feeders set to 50; reload restored native 25. The fixture now retains
+native capacity, and the final focused case validates that default explicitly.
+The soak milk logger previously named columns by barrel order; actual contents
+were verified after reload, and the logger now classifies native fluid contents.
+Historical failed/interrupted runs are retained as investigation evidence.
+Separate earlier cleaning-mixture live run 143503-66a14d12 passed two eight-dose
+preparations and seven stored-mixture cleanings before timeout; that separate
+four-scenario cleaning acceptance is not claimed complete by this farm result.
+
+Lua-only changes. Native JAR SHA-256 unchanged:
+C35C044630AF880B0B5C0BADA226721AC0564613CF1BD5460A6F5F494F8A4C56
+
+Follow-up: overhead name movement
+Reproduced a 13-pixel name snap when camera panning moved two non-overlapping
+names across a shared screen-grid cell. Names now resolve actual text overlap
+in each viewport; the base overlay retains its existing grid. Genuine overlaps
+still separate, with no new world scan or background service.
+The regression fails on the old code at camera shift -15 and passes the fix.
+The existing Interface check passed after this change (59.5 seconds):
+build/test-results/20261112-192315-49050d. Split views, viewport clipping,
+selected names, speech clearance and optional 3D suppression remain covered.
+This is automated UI evidence; a new live moving-camera comparison was not run.
+Desktop input had been stopped with Escape; no further desktop input was sent.
+No install, commit, push or version change during this acceptance pass.
+
+Release preparation: 0.27.10
+The live candidate above used 0.27.9 metadata. Release identity was then updated
+to 0.27.10; all 100 packaged native class files remain byte-identical to that
+candidate. Only the bridge manifest's release label changed. Release JAR SHA-256:
+67276454211EB6C70CC67724CD147E51751724658452382A2B75601A7316089A
+Final scripts/Test-Project.ps1 -Release -Serial: PASS 5/5, 258.2 seconds,
+23 direct JVM launches; build/test-results/20261112-195602-2c2838.
+All 16 essential installer cases passed. Workshop and standalone packages built;
+standalone has debug disabled and no ZombieBuddy dependency. Packaging did not
+install the release or publish it to Workshop. No additional live comparison
+is claimed by this release gate.

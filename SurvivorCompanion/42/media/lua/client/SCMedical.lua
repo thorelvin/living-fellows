@@ -534,6 +534,7 @@ local function findBandage(character, allowDirty)
     return best, bestContainer or rootInventory
 end
 Medical._bandageRankForTests = bandageRank
+Medical.dressingRank = bandageRank
 Medical._findBandageForTests = findBandage
 
 local function findSplint(character)

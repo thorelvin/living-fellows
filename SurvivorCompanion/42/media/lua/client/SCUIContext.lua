@@ -879,7 +879,8 @@ local function findTarget(worldObjects, player)
             and safeMethod(object, "isDismantable") == true then
             dismantleTarget = object
         end
-        if not containerTarget and safeMethod(object, "getContainer") ~= nil
+        if not containerTarget and (safeMethod(object, "getContainer") ~= nil
+            or SC.FarmStorage and SC.FarmStorage.canMarkMilk(object))
             and safeMethod(object, "getObjectIndex") ~= nil then
             containerTarget = object
         end
@@ -1286,7 +1287,8 @@ end
 local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)
     if not square or not SC.BaseLife then return false end
     local storage = storageForObject(containerTarget)
-    if not baseMenuRelevant(square) and not storage then return false end
+    if not baseMenuRelevant(square) and not storage
+        and not (containerTarget and SC.BaseLife.withinWorkReach and SC.BaseLife.withinWorkReach(square)) then return false end
     -- These are already inside Living Fellows. A second Camp wrapper makes
     -- storage marking needlessly deep, especially with native cascading menus.
     local menu = context
@@ -1425,13 +1427,17 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         end
     end
     menu:addOption(text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext, player)
-    if inside and containerTarget then
+    if containerTarget and (inside or SC.BaseLife.withinWorkReach and SC.BaseLife.withinWorkReach(square)) then
         local storageMenu = Menus.group(menu, "camp.storage", text("UI_SC_Base_MarkStorage"))
         for _, category in ipairs({ "food", "fresh_food", "water", "medical", "tools", "construction",
             "crafting", "literature", "weapons", "ammunition", "clothing", "valuables", "general", "output",
-            "memorial", "farming" }) do
-            storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
-                "storage", { object = containerTarget, category = category }, player)
+            "memorial", "farming", "milk", "manure" }) do
+            if category=="milk" and SC.FarmStorage and SC.FarmStorage.canMarkMilk(containerTarget)
+                or category~="milk" and safeMethod(containerTarget,"getContainer")~=nil
+                    and (inside or category=="manure") then
+                storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
+                    "storage", { object = containerTarget, category = category }, player)
+            end
         end
     end
     if storage then
@@ -2183,6 +2189,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         and type(SC.Oddballs.sealedDoorGroup) == "function"
         and SC.Oddballs.sealedDoorGroup(door, player) or nil
     local baseRelevant = baseMenuRelevant(clickSquare) or storageForObject(containerTarget) ~= nil
+        or containerTarget and SC.BaseLife and SC.BaseLife.active() and SC.BaseLife.withinWorkReach
+            and SC.BaseLife.withinWorkReach(clickSquare)
     local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
         and SC.ViewControl.status() or {}
     if #rows == 0 and #factions == 0 and #oddballs == 0 and not baseRelevant

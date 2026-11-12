@@ -121,6 +121,33 @@ fixture.splitScreen = false
 SurvivorCompanion.UI = nil
 fixture.labels = {}
 
+-- Panning the camera must not re-stack separated stationary names when a
+-- screen-grid boundary passes between them.
+local neighbor=setmetatable({x=20,y=11,z=0},{__index=fixture.companion})
+fixture.otherCompanion=neighbor
+fixture.records[2]={id="sc-beth",actor=neighbor,recruited=true,
+    identity={forename="Beth"},runtime={}}
+Events.OnPreUIDraw.callback()
+local baseNameY=fixture.labels[4].y
+for shift=0,-40,-1 do
+    fixture.cameraShift[0]=shift fixture.labels={}
+    Events.OnPreUIDraw.callback()
+    assert(#fixture.labels==4 and fixture.labels[4].y==baseNameY,
+        "camera pan must not make non-overlapping names jump; shift="..shift)
+end
+-- Genuine overlap still needs separation, and the spacing must survive panning.
+neighbor.x=13
+fixture.cameraShift[0]=0 fixture.labels={}
+Events.OnPreUIDraw.callback()
+local stackedY=fixture.labels[4].y
+assert(stackedY+14<fixture.labels[2].y,"overlapping names retain readable separation")
+for shift=0,-40,-1 do
+    fixture.cameraShift[0]=shift fixture.labels={}
+    Events.OnPreUIDraw.callback()
+    assert(fixture.labels[4].y==stackedY,"overlap layout stays stable during camera pan")
+end
+fixture.records[2]=nil fixture.otherCompanion=nil fixture.cameraShift[0]=nil fixture.labels={}
+
 Events.OnRenderTick.callback()
 assert(#fixture.lines == 0, "the persistent layout must be opt-in")
 assert(#fixture.foodObject.calls == 0, "disabled visualization must not touch storage")

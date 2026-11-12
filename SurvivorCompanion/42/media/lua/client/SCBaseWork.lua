@@ -1092,7 +1092,7 @@ local function prepareCleaningMixture(actor, state, job)
                 end
             end
         end
-        prep.stage = "water"
+        prep.cleanerFirst, prep.stage = true, "concentrate"
     end
     if prep.stage == "return_donors" then
         local returned, why = returnCleaningLoans(actor, state, job, false, { "water", "concentrate" })
@@ -1112,28 +1112,54 @@ local function prepareCleaningMixture(actor, state, job)
         if SC.NativeActions.isWorkActive(actor) then return nil, "cleaning_preparing_mixture" end
         local finished, finishReason = SC.NativeActions.finishWork(actor)
         if finished ~= true then return nil, finishReason, true end
+        -- Hand restoration can finish on a later update. Re-read the actual
+        -- bucket after cleanup rather than reconciling a pre-cleanup snapshot.
+        info = C.inspect(bucket)
+        if not info or not info.known then return nil, "cleaning_mixture_transfer_unverified", true end
+        if prep.transferProof and (prep.transferProof.uncertain or prep.transferProof.inFlight) then
+            return nil, "cleaning_mixture_transfer_unverified", true
+        end
         -- Native transfers can be partially committed when interrupted. The
         -- current components, not a replay flag, determine the remaining dose.
         local change = info.amount - (prep.beforeAmount or info.amount)
         if change < -0.0001 or change > (prep.requested or 0) + 0.001 then
             return nil, "cleaning_mixture_transfer_unverified", true
         end
+        if prep.transferProof and prep.transferProof.observed == true
+            and math.abs((tonumber(prep.transferProof.credit) or 0) - change) > 0.001 then
+            return nil, "cleaning_mixture_transfer_unverified", true
+        end
         if prep.donorBefore ~= nil then
             local donor = BaseWork.cleaningPreparationItem(actor, job,
                 prep.stage == "water" and "water" or "concentrate")
             local donorInfo = C.inspect(donor)
-            if not donorInfo or math.abs(prep.donorBefore - donorInfo.amount - change) > 0.001 then
+            local proof = prep.transferProof
+            -- AutoDrink can debit an ordinary water donor between native
+            -- callbacks. Only a synchronous, paired pour receipt can separate
+            -- that debit from the actual cleaning transfer. Legacy saves keep
+            -- their stricter whole-action comparison.
+            local paired = proof and proof.version == 1 and proof.observed == true
+                and not proof.inFlight and not proof.uncertain
+                and math.abs((tonumber(proof.credit) or 0) - change) <= 0.001
+            if not donorInfo or not paired and math.abs(prep.donorBefore - donorInfo.amount - change) > 0.001 then
+                U().diagnostic("cleaning", actor, "mixture debit mismatch job="..tostring(job.id)
+                    .." stage="..tostring(prep.stage).." before="..tostring(prep.beforeAmount)
+                    .." after="..tostring(info.amount).." donorBefore="..tostring(prep.donorBefore)
+                    .." donorAfter="..tostring(donorInfo and donorInfo.amount))
                 return nil, "cleaning_mixture_transfer_unverified", true
             end
         end
         prep.noProgress = change <= 0.0001 and (prep.noProgress or 0) + 1 or 0
         if prep.noProgress >= 3 then return nil, "cleaning_transfer_no_progress", true end
         prep.nativePending, prep.beforeAmount, prep.requested, prep.donorBefore = nil, nil, nil, nil
+        prep.transferProof = nil
     end
     local needed = prep.stage == "water" and prep.volume * 0.95 - info.waterAmount
         or prep.volume * 0.05 - info.cleanerAmount
     if needed <= 0.0001 then
-        prep.stage = prep.stage == "water" and "concentrate" or "return_donors"
+        if prep.cleanerFirst then
+            prep.stage = prep.stage == "concentrate" and "water" or "return_donors"
+        else prep.stage = prep.stage == "water" and "concentrate" or "return_donors" end
         return nil, "cleaning_preparing_mixture"
     end
     local source
@@ -1170,11 +1196,13 @@ local function prepareCleaningMixture(actor, state, job)
     -- Only inventory donors have a finite source debit to reconcile. Fixed
     -- sources can be plumbed and keep their native available-water reading.
     if not (prep.stage == "water" and prep.waterSource) then donorInfo = C.inspect(source) else donorInfo = nil end
+    local proof = { version = 1, credit = 0 }
     local accepted, actionReason = SC.NativeActions.startCleaningFluidTransfer(
-        actor, source, bucket, needed, job.id, prep.stage == "water" and prep.waterSource ~= nil)
+        actor, source, bucket, needed, job.id, prep.stage == "water" and prep.waterSource ~= nil, proof)
     if accepted ~= true then return nil, actionReason, true end
     prep.nativePending, prep.beforeAmount, prep.requested = true, info.amount, needed
     prep.donorBefore = donorInfo and donorInfo.amount or nil
+    prep.transferProof = proof
     return nil, "cleaning_preparing_mixture"
 end
 
@@ -1586,6 +1614,7 @@ end
 -- Returns the category and whether it is certain. Only the final crafting
 -- fallback is a guess.
 local function classifyItem(item)
+    if SC.FarmStorage and SC.FarmStorage.isManure(item) then return "manure",true end
     if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools", true end
     local itemType = string.lower(U().itemType(item))
     local category = select(1, invoke(item, "getCategory"))
@@ -2700,10 +2729,21 @@ function BaseWork.update(actor, player, runtime)
     -- carried cargo and loans before the job is released for later pickup.
     if job and U().characterStatValue(actor, "FATIGUE", 0)
             >= (tonumber(U().config("needsFatigueEmergency")) or 0.82)
-        and now() >= (state.nextSleepProbeAt or 0)
+        and (state.restSearchPending or now() >= (state.nextSleepProbeAt or 0))
         and SC.Downtime and type(SC.Downtime.canPerform) == "function" then
         state.nextSleepProbeAt = now() + 5000
-        if SC.Downtime.canPerform(actor, "rest_bed") == true then
+        local available, bedReason = SC.Downtime.canPerform(actor, "rest_bed")
+        state.restSearchPending = bedReason == "bed_searching" or nil
+        if state.restSearchPending then
+            -- Moving toward the next chore resets the bounded bed search's
+            -- origin. Let it finish here, keeping the job and its exact loans.
+            if not (SC.NativeActions and SC.NativeActions.isWorkActive(actor)) then
+                if SC.Navigation then SC.Navigation.cancel(actor, "exhausted_bed_search") end
+                U().stop(actor)
+            end
+            return true, "bed_searching"
+        end
+        if available == true then
             local cancelled = BaseWork.cancel(actor, "exhausted_sleep")
             if cancelled == true then
                 if job.reservedBy == id then

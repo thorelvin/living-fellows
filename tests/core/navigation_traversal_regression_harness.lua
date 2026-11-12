@@ -546,19 +546,26 @@ check(T.window(frameActor, "climb_window", { object = {}, emptyFrame = true,
         and frameActor.frameClimb == true,
     "empty window frames use the engine's dedicated climbThroughWindowFrame entry point")
 T.reset(frameActor)
-local thumpableFenceActor, thumpableFence = actor(), {}
+local thumpableFenceActor, thumpableFence = actor(), { __class="IsoThumpable" }
+function thumpableFence:isWindow() return false end
+function thumpableFence:isHoppable() return true end
+function thumpableFenceActor.square:getHoppableThumpableTo() return thumpableFence end
 function thumpableFence:canClimbOver(candidate) return candidate == thumpableFenceActor end
 function thumpableFenceActor:climbThroughWindow(object)
     self.climbedObject = object
     return self:request()
 end
-check(T.window(thumpableFenceActor, "climb_window", {
-        object = thumpableFence, hoppableThumpable = true,
-        fromSquare = thumpableFenceActor.square, toSquare = square(1, 0),
-    }, provider)
-        and thumpableFenceActor.climbedObject == thumpableFence
-        and thumpableFenceActor.contextualAction == nil,
-    "hoppable IsoThumpables use ISClimbThroughWindow's native entry, never the player's contextual hook")
+local moveBeforeFence,fenceSubmission=U.move,nil
+U.move=function(_,_,intent) fenceSubmission=intent return true end
+SC.NavTraversal.handleFence(thumpableFenceActor,thumpableFence,thumpableFenceActor.square,square(1,0),
+    {workCampOnly=true},{directionBetween=function() return "east" end})
+U.move=moveBeforeFence
+check(fenceSubmission and fenceSubmission.action=="climb_fence"
+        and fenceSubmission.toSquare==fenceSubmission.nextSquare and fenceSubmission.workCampOnly==true,
+    "player-built fences retain work bounds and submit a fence climb instead of a window climb")
+check(T.fence(thumpableFenceActor,"climb_fence",fenceSubmission,provider)
+        and thumpableFenceActor.event==true and thumpableFenceActor.climbedObject==nil,
+    "hoppable IsoThumpables use the native fence entry point")
 T.reset(thumpableFenceActor)
 local lowFenceActor = actor()
 lowFenceActor.running, lowFenceActor.sprinting = true, true

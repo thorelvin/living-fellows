@@ -7,7 +7,7 @@ param(
     [string]$UserCache = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid'),
     [string]$SeedSave,
     [string]$GameMode,
-    [ValidateRange(45, 4500)]
+    [ValidateRange(45, 7200)]
     # Large mod lists can spend more than three minutes in script, map and
     # asset loading before Build 42 exposes its click-to-start gate. The
     # in-game harness retains its own bounded deadline once play begins.
@@ -85,6 +85,9 @@ param(
     [switch]$FieldCargoProbe,
     [switch]$LogYardProbe,
     [switch]$NativeCareProbe,
+    [switch]$FarmServicesProbe,
+    [ValidateRange(0, 7)][int]$FarmServicesDays = 0,
+    [switch]$FarmServicesInspect,
     [switch]$GuardFollowProbe,
     [switch]$GeneratorRefuelProbe,
     [switch]$PyreBurnProbe,
@@ -1924,6 +1927,9 @@ $config = @(
     ('field_cargo_probe=' + $FieldCargoProbe.IsPresent.ToString().ToLowerInvariant()),
     ('log_yard_probe=' + $LogYardProbe.IsPresent.ToString().ToLowerInvariant()),
     ('native_care_probe=' + $NativeCareProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('farm_services_probe=' + ($FarmServicesProbe.IsPresent -or $FarmServicesDays -gt 0 -or $FarmServicesInspect.IsPresent).ToString().ToLowerInvariant()),
+    ('farm_services_days=' + $FarmServicesDays),
+    ('farm_services_inspect=' + $FarmServicesInspect.IsPresent.ToString().ToLowerInvariant()),
     ('guard_follow_probe=' + $GuardFollowProbe.IsPresent.ToString().ToLowerInvariant()),
     ('generator_refuel_probe=' + $GeneratorRefuelProbe.IsPresent.ToString().ToLowerInvariant()),
     ('pyre_burn_probe=' + $PyreBurnProbe.IsPresent.ToString().ToLowerInvariant()),

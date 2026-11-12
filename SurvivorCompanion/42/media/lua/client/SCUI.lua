@@ -190,6 +190,8 @@ local BASE_STORAGE_CATEGORIES = {
     { id = "output", key = "UI_SC_Base_Storage_output" },
     { id = "memorial", key = "UI_SC_Base_Storage_memorial" },
     { id = "farming", key = "UI_SC_Base_Storage_farming" },
+    { id = "milk", key = "UI_SC_Base_Storage_milk" },
+    { id = "manure", key = "UI_SC_Base_Storage_manure" },
 }
 local BASE_RESERVE_LEVELS = {
     { id = 0, key = "UI_SC_Base_Reserve_0" },
@@ -3859,6 +3861,14 @@ function SCUIDetail:buildLoadout(panel, row)
             end))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Supplies",
             selectedRowValue(self, function(value) return UI.formatSupplies(value.supplies) end))
+        if row and row.actor and SC.MedicKit and SC.Logistics.roleOf(row.actor)=="medic" then
+            y = self:addInformationLine(panel,y,"UI_SC_Info_Message",function()
+                local facts,message=SC.MedicKit.summary(row.actor)
+                return UI.text(facts.kit and "UI_SC_MedicKit_Stock" or "UI_SC_MedicKit_Missing",
+                    facts.kitDressings,facts.splints) .. (message and message~="medic_kit_ready"
+                        and (" | " .. UI.stateText(message)) or "")
+            end)
+        end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Ammunition",
             selectedRowValue(self, function(value)
                 return UI.formatAmmunition(value.ammunition)
@@ -4362,6 +4372,17 @@ function SCUIDetail:buildBase(panel, row)
                 UI.text("UI_SC_Base_NoStorages"))
         else
             for _, storage in ipairs(base.storageRows) do
+                if storage.category=="milk" or storage.category=="manure" then
+                    local record=SC.BaseLife.storage(storage.id)
+                    local object=record and SC.BaseLife.resolveObject(record)
+                    local milk=storage.category=="milk" and SC.FarmStorage.milkInfo(object)
+                    y=self:addInformationLine(panel,y,"UI_SC_Info_Message",
+                        milk and (milk.amount<=0.0001 or milk.fluid) and UI.text("UI_SC_Base_MilkAmount",string.format("%.1f",milk.amount),
+                            string.format("%.1f",milk.capacity))
+                        or storage.category=="manure" and UI.text("UI_SC_Base_ManureAmount",
+                            record and SC.FarmStorage.manureCount(record) or UI.text("UI_SC_State_unavailable"))
+                        or milk and UI.text("UI_SC_Base_MilkIncompatible") or UI.text("UI_SC_State_unavailable"))
+                end
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
                         storage.x, storage.y, storage.z, storage.reserve or 0))
@@ -4372,9 +4393,9 @@ function SCUIDetail:buildBase(panel, row)
                 y = self:addBaseRecordSelector(panel, y,
                     "UI_SC_Base_StorageCategorySelector", storage.category,
                     BASE_STORAGE_CATEGORIES, "set_storage_category", storage.id, "category")
-                y = self:addBaseRecordSelector(panel, y,
+                if storage.category~="milk" then y = self:addBaseRecordSelector(panel, y,
                     "UI_SC_Base_StorageReserveSelector", tonumber(storage.reserve) or 0,
-                    BASE_RESERVE_LEVELS, "set_storage_reserve", storage.id, "amount")
+                    BASE_RESERVE_LEVELS, "set_storage_reserve", storage.id, "amount") end
                 y = self:addBaseManagementAction(panel, y,
                     UI.text("UI_SC_Base_RemoveStorage", storage.x, storage.y, storage.z),
                     "remove_storage", { id = storage.id },

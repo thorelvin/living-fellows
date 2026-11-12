@@ -744,38 +744,12 @@ end
 
 function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, context)
     local utility = U()
-    local isHoppable, hoppableObserved = utility.call(object, "isHoppable")
-    local canClimb, climbObserved = utility.call(object, "canClimbOver", actor)
-    if object ~= nil and utility.instanceOf(object, "IsoThumpable")
-        and hoppableObserved and isHoppable == true
-        and climbObserved and canClimb == true then
-        -- The player's E action climbs hoppable IsoThumpable objects with
-        -- ISClimbThroughWindow, whose perform() calls climbThroughWindow(),
-        -- not hopFence/climbOverWall. This covers player-built and modded
-        -- climbable fence objects whose collision stays active while that climb
-        -- is legal; SCNativeTraversalActions submits the same native call.
-        local climbIntent = {
-            action = "climb_window",
-            object = object,
-            fromSquare = fromSquare,
-            targetSquare = toSquare,
-            nextSquare = toSquare,
-            direction = invoke(context, "directionBetween", fromSquare, toSquare),
-            nativeAffordance = "fence",
-            hoppableThumpable = true,
-            humanAnimationOnly = true,
-            supervisorToken = intent and intent.supervisorToken,
-        }
-        local accepted, reason = utility.move(actor, "walk", climbIntent)
-        if accepted ~= true then return false, reason or "thumpable_climb_rejected" end
-        invoke(context, "record", actor, "fence_climb", {
-            targetSquare = toSquare,
-            nextSquare = toSquare,
-            status = "climb_thumpable",
-        })
-        return true, "climbing_thumpable"
-    end
+    -- A hoppable IsoThumpable is a fence, not a window. In 42.22 the
+    -- inherited window entry checks canClimbThrough(), which rejects it.
+    -- Use the native fence affordance and verified walking climb below.
     local tall, tallOk = utility.call(object, "isTallHoppable")
+    local low, lowKnown = utility.call(object, "isHoppable")
+    if lowKnown and low==true and not (tallOk and tall==true) then tall,tallOk=false,true end
     local direction = invoke(context, "directionBetween", fromSquare, toSquare)
     local nativeDirection = cardinalDirection(direction)
     if (not tallOk or object == nil) and nativeDirection ~= nil then
@@ -788,10 +762,12 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
         if climbableOk and climbable == true then tall, tallOk = true, true end
     end
     local action = tallOk and tall == true and "climb_wall" or "climb_fence"
-    local climbIntent = {
+    local climbIntent = utility.copyShallow(intent)
+    for key,value in pairs({
         action = action,
         object = object,
         fromSquare = fromSquare,
+        toSquare = toSquare,
         targetSquare = toSquare,
         nextSquare = toSquare,
         direction = direction,
@@ -799,7 +775,7 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
         objectlessFenceFallback = object == nil,
         humanAnimationOnly = true,
         supervisorToken = intent and intent.supervisorToken,
-    }
+    }) do climbIntent[key]=value end
     local accepted, reason = utility.move(actor, "walk", climbIntent)
     if accepted ~= true then return false, reason or (action .. "_rejected") end
     invoke(context, "record", actor, "fence_climb", {

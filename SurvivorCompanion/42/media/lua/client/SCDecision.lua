@@ -898,7 +898,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                     and SC.Production.settlementFor(actor) or nil
                 -- These two only lift work above routine upkeep (logistics 74).
                 -- A zombie that is close but not yet attacking scores 72 and an
-                -- alarm 64-70, so neither may apply while either is about. At 76
+                -- alarm 64-70, so neither may apply while either is about. At 77
                 -- a resident with an assigned job still stops to dress a wound
                 -- (rescue starts at 78).
                 local priorityWork = quietHere and not alarm
@@ -909,7 +909,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                     and SC.BaseWork.cleaningSettlement(actor)
                 -- Exact borrowed supplies must finish/return before optional
                 -- loadout searches.
-                add("base_work", (settlement or cleaningSettlement) and 86 or priorityWork and 76 or 58, false)
+                add("base_work", (settlement or cleaningSettlement) and 86 or priorityWork and 77 or 58, false)
             end
         end
         if threatCount == 0 and not bleeding and humanThreat == nil and SC.ExpeditionPrototype then

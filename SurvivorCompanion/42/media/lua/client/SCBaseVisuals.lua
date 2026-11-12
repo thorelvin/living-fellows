@@ -46,6 +46,8 @@ local ZONE_COLORS = {
 }
 
 local STORAGE_COLORS = {
+    milk = { r = 0.92, g = 0.95, b = 0.80 },
+    manure = { r = 0.58, g = 0.40, b = 0.21 },
     food = { r = 0.25, g = 0.86, b = 0.25 },
     fresh_food = { r = 0.12, g = 0.80, b = 0.62 },
     water = { r = 0.12, g = 0.72, b = 1.00 },
@@ -628,7 +630,7 @@ local function screenPosition(x, y, z, playerIndex)
     return sx / zoom, sy / zoom, zoom
 end
 
-local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirection, viewport)
+local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirection, viewport, metrics)
     local core = type(getCore) == "function" and getCore() or nil
     local width = core and numberMethod(core, "getScreenWidth") or 0
     local height = core and numberMethod(core, "getScreenHeight") or 0
@@ -636,25 +638,53 @@ local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirec
     if sx < 0 or sy < 0 or (width > 0 and sx > width) or (height > 0 and sy > height) then
         return false
     end
-    local lane = math.floor(sx / 96) .. ":" .. math.floor(sy / 14)
-    local collision = tonumber(occupied[lane]) or 0
+    local lane = occupied and (math.floor(sx / 96) .. ":" .. math.floor(sy / 14))
+    local collision = occupied and tonumber(occupied[lane]) or 0
     sy = sy + collision * 13 * (tonumber(stackDirection) or 1)
     local manager = type(getTextManager) == "function" and getTextManager() or nil
     if not manager or type(manager.DrawStringCentre) ~= "function" then return false end
     if viewport then
-        local measured = safeMethod(manager, "MeasureStringX", UIFont.Small, value)
+        local measured = metrics and metrics.width or safeMethod(manager, "MeasureStringX", UIFont.Small, value)
         local halfWidth = math.max(0, (tonumber(measured) or 0) / 2)
-        local fontHeight = safeMethod(manager, "getFontHeight", UIFont.Small)
+        local fontHeight = metrics and metrics.height or safeMethod(manager, "getFontHeight", UIFont.Small)
         if sx - halfWidth < viewport.left or sx + halfWidth + 1 > viewport.right
             or sy < viewport.top or sy + (tonumber(fontHeight) or 14) + 1 > viewport.bottom then
             return false
         end
     end
-    occupied[lane] = collision + 1
+    if occupied then occupied[lane] = collision + 1 end
     manager:DrawStringCentre(UIFont.Small, sx + 1, sy + 1, value,
         0.02, 0.02, 0.02, math.min(0.94, alpha))
     manager:DrawStringCentre(UIFont.Small, sx, sy, value,
         color.r, color.g, color.b, alpha)
+    return true
+end
+
+local function drawCompanionScreenLabel(value, sx, sy, color, rectangles, alpha, viewport)
+    local manager = type(getTextManager) == "function" and getTextManager() or nil
+    if not manager then return false end
+    local width = safeMethod(manager, "MeasureStringX", UIFont.Small, value)
+    local height = safeMethod(manager, "getFontHeight", UIFont.Small)
+    width, height = math.max(0, tonumber(width) or #value * 8), math.max(1, tonumber(height) or 14)
+    local bounds = { left = sx - width / 2, right = sx + width / 2 + 1,
+        width = width, height = height }
+    -- Equal-height name rectangles are kept bottom-to-top. A single pass
+    -- resolves actual overlap; camera translation cannot change that overlap
+    -- merely by crossing the floor labels' screen-grid boundaries.
+    for _, other in ipairs(rectangles) do
+        if bounds.left < other.right + 2 and bounds.right + 2 > other.left
+            and sy < other.bottom + 2 and sy + height + 1 > other.top - 2 then
+            sy = other.top - height - 3
+        end
+    end
+    if not drawScreenLabel(value, sx, sy, color, nil, alpha, -1, viewport, bounds) then return false end
+    bounds.top, bounds.bottom = sy, sy + height + 1
+    local index = #rectangles + 1
+    while index > 1 and rectangles[index - 1].top < sy do
+        rectangles[index] = rectangles[index - 1]
+        index = index - 1
+    end
+    rectangles[index] = bounds
     return true
 end
 
@@ -771,7 +801,7 @@ local function visibleCompanionLabel(record, subject, px, py, pz, playerIndex)
     }
 end
 
-local function renderCompanionLabels(occupied)
+local function renderCompanionLabels()
     if configured("companionNameLabels", true) ~= true
         or type(SC.Registry) ~= "table" or type(SC.Registry.records) ~= "function" then
         return 0
@@ -799,6 +829,7 @@ local function renderCompanionLabels(occupied)
         local px, py, pz = playerPosition(subject)
         if subject and px ~= nil then
             local viewport = playerViewport(index)
+            local rectangles = {}
             for _, record in ipairs(records) do
                 local row = visibleCompanionLabel(record, subject, px, py, pz, index)
                 if row then
@@ -806,9 +837,8 @@ local function renderCompanionLabels(occupied)
                         row.actor, row.x, row.y, row.z, index)
                     local color = record.id == selectedId
                         and SELECTED_COMPANION_NAME_COLOR or COMPANION_NAME_COLOR
-                    if sx and drawScreenLabel(row.name, sx, sy,
-                        color, occupied,
-                        row.alpha, -1, viewport) then
+                    if sx and drawCompanionScreenLabel(row.name, sx, sy,
+                        color, rectangles, row.alpha, viewport) then
                         drawn = drawn + 1
                     end
                 end
@@ -930,7 +960,7 @@ function Visuals.renderLabels()
         end
         drawLegend()
     end
-    renderCompanionLabels(occupied)
+    renderCompanionLabels()
     return true
 end
 
