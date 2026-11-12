@@ -18,6 +18,15 @@
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
+@{ Name = 'behaviour.native-personal-care'; Files = @(Get-ScGameplayFiles) + @(
+    'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
+    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua'
+    | ForEach-Object { Join-Path $Client $_ }) + @(
+    'TimedActions\ISFixAction.lua', 'TimedActions\ISCleanBandage.lua',
+    'TimedActions\ISWashYourself.lua', 'TimedActions\ISWashClothing.lua',
+    'Entity\TimedActions\ISHandcraftAction.lua'
+    | ForEach-Object { Join-Path (Join-Path $GameRoot 'media\lua\shared') $_ }) + @(
+    (Join-Path $Essential 'native_care_harness.lua')) }
 @{ Name = 'behaviour.autonomy-ground-and-needs'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

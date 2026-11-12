@@ -9,6 +9,7 @@ require "SCNativeTraversalActions"
 require "SCNativeVisualActions"
 require "SCNativeCombatActions"
 require "SCNativeWorkActions"
+require "SCNativeCareActions"
 require "SCNativeMovementActions"
 require "TimedActions/ISBaseTimedAction"
 require "TimedActions/ISTimedActionQueue"
@@ -3474,6 +3475,82 @@ end
 
 function actions.startLogStack(actor, intent) return startLogCraft(actor, intent, false) end
 function actions.startLogUnstack(actor, intent) return startLogCraft(actor, intent, true) end
+
+-- Quiet chores use the same per-actor queue ownership as other native work.
+-- Every guard and effect wrapper belongs to this action instance only.
+function actions.startDowntimeAction(actor, activity, validate)
+    local care = SC.NativeCareActions
+    if not care or not care.handles(activity.kind) or type(validate) ~= "function"
+        or validate() ~= true or not care.valid(actor, activity) then return false, "native_care_stale" end
+    if activeWork[actor] then return false, "native_work_already_owned" end
+    local record, reason = prepareWorkInventory(actor, activity.nativeInputs, nil, nil)
+    if not record then return false, reason end
+    record.verifySurvivingItems, record.downtimeActivity = true, activity
+    local context = { recipe = craftRecipe, list = newJavaList }
+    local made, action, effect = pcall(care.create, actor, activity, context)
+    if not made or not action then
+        restoreWorkInventory(actor, record)
+        return false, made and effect or tostring(action)
+    end
+    local originalValid, originalEffect, originalStop = action.isValid, action[effect], action.stop
+    action.stop = function(self)
+        if not activity.nativeCompleted then
+            local _, dark = invoke(actor, "tooDarkToRead")
+            activity.nativeFailure = dark == true and "native_care_too_dark" or "native_care_interrupted"
+        end
+        return originalStop(self)
+    end
+    action.isValid = function(self)
+        return validate() == true and care.valid(actor, activity)
+            and originalValid(self) == true
+    end
+    action[effect] = function(self)
+        if activity.nativeAttempted then return activity.nativeCompleted == true end
+        if self.character ~= actor or not self:isValid() then activity.nativeFailure = "native_care_inputs_changed"; return false end
+        activity.nativeAttempted = true
+        local logic = self.logic
+        if effect == "performRecipe" then
+            if not logic then activity.nativeFailure = "native_care_recipe_unavailable"; return false end
+            -- Observe the stock effect's own native result. Re-running the UI
+            -- preflight here can invalidate prepared recipe input data. This
+            -- proxy exists only inside this synchronous action callback.
+            self.logic = setmetatable({ performCurrentRecipe = function()
+                local result = logic:performCurrentRecipe()
+                activity.nativeRecipeSucceeded = result == true
+                return result
+            end }, { __index = function(_, key)
+                local value = logic[key]
+                if type(value) == "function" then return function(_, ...) return value(logic, ...) end end
+                return value
+            end })
+        end
+        local okay, result = pcall(originalEffect, self)
+        self.logic = logic
+        local afterOkay, verified = false, false
+        if okay and (effect == "performRecipe" and activity.nativeRecipeSucceeded == true
+            or effect ~= "performRecipe" and result == true) then
+            afterOkay, verified = pcall(care.after, actor, activity, self, context)
+        end
+        activity.nativeCompleted = okay and afterOkay and verified == true
+        if not activity.nativeCompleted then activity.nativeFailure = effect == "performRecipe"
+            and activity.nativeRecipeSucceeded ~= true and "native_care_recipe_requirements_changed"
+            or "native_care_effect_unverified" end
+        if activity.kind == "wash_bandage" and activity.nativeOutput
+            and activity.itemContainer and activity.itemContainer ~= actor:getInventory() then
+            record.moved[#record.moved + 1] = { item = activity.nativeOutput, container = activity.itemContainer }
+        end
+        if not okay then error(result) end
+        return result
+    end
+    local started, why = queueTrackedWork(actor, action, record, activity.kind)
+    if started then activity.nativeStarted, activity.nativeStartedAt = true, nowMs() end
+    return started, why
+end
+
+function actions.ownsDowntimeAction(actor, activity)
+    local record = actor and activeWork[actor]
+    return record ~= nil and record.downtimeActivity == activity
+end
 
 local function startSawLogs(actor, intent, provider)
     local log, saw = intent.log, intent.saw

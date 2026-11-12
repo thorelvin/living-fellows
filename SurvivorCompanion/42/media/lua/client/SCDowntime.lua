@@ -4,14 +4,14 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Background and type(require) == "function" then pcall(require, "SCBackground") end
+if not SC.NativeCareActions and type(require) == "function" then pcall(require, "SCNativeCareActions") end
 
 SC.Downtime = SC.Downtime or {}
 local Downtime = SC.Downtime
 local states = setmetatable({}, { __mode = "k" })
 local reservations = setmetatable({}, { __mode = "k" })
 local visualActivities = {
-    read = true, repair = true, craft_supply = true,
-    wash_self = true, wash_equipment = true, wash_bandage = true, shower = true,
+    read = true,
     study_corpse = true, pay_respects = true,
     workout = true, write_diary = true, gear_check = true,
     radio_check = true, tidy_camp = true, weather_recovery = true,
@@ -299,12 +299,14 @@ local function releaseActivity(actor, activity)
     end
     returnBorrowedReadingItem(actor, activity)
     release(activity.object, actor)
+    release(activity.craftSurface, actor)
     release(activity.watchSquare, actor)
     release(activity.item, actor)
     release(activity.material, actor)
     if activity.scraps then
         for _, item in ipairs(activity.scraps) do release(item, actor) end
     end
+    for _, item in ipairs(activity.nativeInputs or {}) do release(item, actor) end
     for _, segment in ipairs(activity.bedSegments or {}) do release(segment, actor) end
 end
 
@@ -962,36 +964,7 @@ local function availableReadActivity(actor, carriedItems)
 end
 
 local function repairActivity(actor, items)
-    local utility = U()
-    local damaged
-    for _, item in ipairs(items) do
-        local condition, conditionOk = utility.call(item, "getCondition")
-        local maximum, maxOk = utility.call(item, "getConditionMax")
-        if conditionOk and maxOk and type(condition) == "number" and type(maximum) == "number"
-            and maximum > 0 and condition / maximum < 0.65
-            and (utility.instanceOf(item, "HandWeapon") or utility.hasMethod(item, "getMaxDamage")) then
-            damaged = item
-            break
-        end
-    end
-    if not damaged then return nil end
-    for _, material in ipairs(items) do
-        local itemType = string.lower(utility.itemType(material))
-        local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
-            material, actor, "craft_material")
-        if not protected and material ~= damaged and (string.find(itemType, "ducttape", 1, true)
-            or string.find(itemType, "woodglue", 1, true)
-            or string.find(itemType, "glue", 1, true)) then
-            return {
-                kind = "repair",
-                score = 43,
-                item = damaged,
-                material = material,
-                fact = { activity = "repair", itemType = utility.itemType(damaged) },
-            }
-        end
-    end
-    return nil
+    return SC.NativeCareActions and SC.NativeCareActions.repairCandidate(actor, items)
 end
 
 local function dirtyBandageActivity(actor)
@@ -1014,52 +987,7 @@ local function dirtyBandageActivity(actor)
 end
 
 local function craftActivity(actor, items)
-    local utility = U()
-    local inventory = utility.inventory(actor)
-    local rag, wood, splints
-    splints = 0
-    local rags = {
-        ["base.rippedsheets"] = true, ["base.denimstrips"] = true,
-        ["base.leatherstrips"] = true,
-    }
-    local woods = {
-        ["base.plank"] = true, ["base.treebranch2"] = true,
-        ["base.woodenstick2"] = true,
-    }
-    for _, item in ipairs(items) do
-        local itemType = string.lower(utility.itemType(item))
-        if utility.inventoryContains(inventory, item) then
-            if itemType == "base.splint" then splints = splints + 1 end
-            local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
-                item, actor, "craft_material")
-            if not protected then
-                if rag == nil and rags[itemType] then rag = item end
-                if wood == nil and woods[itemType] then wood = item end
-            end
-        end
-    end
-    if splints < 2 and rag and wood then
-        return {
-            kind = "craft_supply", score = 51,
-            scraps = { rag, wood }, outputType = "Base.Splint",
-            fact = { activity = "craft_supply", itemType = "Base.Splint" },
-        }
-    end
-    for _, item in ipairs(items) do
-        local itemType = string.lower(utility.itemType(item))
-        local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
-            item, actor, "craft_material")
-        if not protected and (itemType == "sheet" or itemType == "base.sheet") then
-            return {
-                kind = "craft_supply",
-                score = 27,
-                scraps = { item },
-                outputType = "Base.SheetRope",
-                fact = { activity = "craft_supply", itemType = "Base.SheetRope" },
-            }
-        end
-    end
-    return nil
+    return SC.NativeCareActions and SC.NativeCareActions.craftCandidate(actor, items)
 end
 
 local function washSourceValid(object)
@@ -4146,7 +4074,7 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
     if activity then filtered[#filtered + 1] = activity end
     -- Older saves may retain a manual idle/craft setting. Quiet activity is
     -- now chosen by the companion's scored candidates, not that old setting.
-    activity = repairActivity(actor, items)
+    activity = not ambientCooling(state, "repair", current) and repairActivity(actor, items)
     if activity then filtered[#filtered + 1] = activity end
     activity = availableReadActivity(actor, items)
     if activity then filtered[#filtered + 1] = activity end
@@ -4360,6 +4288,7 @@ local function reserveActivity(actor, activity, now)
     -- A switched-on receiver is shared room ambience: several seated
     -- companions may listen without claiming the radio from one another.
     if (activity.kind ~= "radio_listen" and not take(activity.object))
+        or not take(activity.craftSurface)
         or not take(activity.watchSquare)
         or not take(activity.item) or not take(activity.material) then
         for _, value in ipairs(held) do release(value, actor) end
@@ -4388,6 +4317,12 @@ local function reserveActivity(actor, activity, now)
             end
         end
     end
+    for _, item in ipairs(activity.nativeInputs or {}) do
+        if not take(item) then
+            for _, value in ipairs(held) do release(value, actor) end
+            return false
+        end
+    end
     return true
 end
 
@@ -4407,6 +4342,11 @@ end
 local function releaseDowntimeResources(actor, state, activity, reason)
     activity = activity or state and state.active
     if not activity then return true, reason or "no_activity" end
+    if activity.nativeStarted and SC.NativeActions
+        and SC.NativeActions.ownsDowntimeAction(actor, activity) then
+        local okay, stopped, why = pcall(SC.NativeActions.cancelWork, actor, reason or "downtime_cancelled")
+        if not okay or stopped ~= true then return false, why or "native_care_release_pending" end
+    end
     if activity.kind == "shower" then restoreShowerClothes(actor, activity) end
     if activity.kind == "window_watch" and activity.watchCrouched == true then
         U().call(actor, "setSneaking", activity.wasSneaking == true)
@@ -4469,7 +4409,8 @@ local function failActivity(actor, state, reason, detail)
                 + (tonumber(U().config("downtimeFurnitureFailureCooldownMs")) or 60000)
         end
     end
-    releaseDowntimeResources(actor, state, activity, reason)
+    local released, releaseReason = releaseDowntimeResources(actor, state, activity, reason)
+    if released ~= true then return true, releaseReason or "native_care_release_pending" end
     state.nextEvaluationAt = U().nowMs() + (U().config("downtimeIntervalMs") or 1500)
     local service = supervisor()
     if service and activity.supervisorToken
@@ -4558,6 +4499,30 @@ local function transitionActivity(activity, phase, detail)
     local service = supervisor()
     if not service or not activity.supervisorToken then return true, phase end
     return service.transition(activity.supervisorToken, phase, detail)
+end
+
+local function startNativeCare(actor, state, activity, current)
+    if not SC.NativeActions or not SC.NativeActions.startDowntimeAction then
+        return false, "native_care_unavailable"
+    end
+    state.active = activity
+    local accepted, reason = SC.NativeActions.startDowntimeAction(actor, activity, function()
+        if states[actor] ~= state or state.active ~= activity
+            or (commandState(actor).commandSerial or 0) ~= activity.commandSerial then return false end
+        if activity.object and (not washSourceValid(activity.object)
+            or not washSourceInReach(actor, activity)) then return false end
+        if activity.craftSurface and (not reservations[activity.craftSurface]
+            or reservations[activity.craftSurface].actor ~= actor) then return false end
+        for _, item in ipairs(activity.nativeInputs or {}) do
+            if not reservations[item] or reservations[item].actor ~= actor then return false end
+        end
+        return true
+    end)
+    if accepted ~= true then return false, reason end
+    activity.startedAt, activity.actionAccepted, activity.approaching = current, true, nil
+    local transitioned, why = transitionActivity(activity, "animating", { action = activity.kind, native = true })
+    if transitioned ~= true then return false, why or "native_care_phase_rejected" end
+    return true, activity.kind
 end
 
 local function approachBorrowedReadingSource(actor, activity)
@@ -4921,6 +4886,11 @@ local function beginActivity(actor, state, activity, commands, now)
         end
         return SC.Medical.replaceDirtyBandage(actor)
     end
+    if SC.NativeCareActions and SC.NativeCareActions.handles(activity.kind) then
+        local prepared, reason = SC.NativeCareActions.prepare(actor, activity)
+        if not prepared then return false, reason end
+        activity.deadlines = { animating = 180000 }
+    end
     if not reserveActivity(actor, activity, now) then return false, "reserved" end
     if restPostures[activity.kind] then
         if activity.kind == "sit" or activity.kind == "rest_bed" then
@@ -5159,7 +5129,7 @@ local function beginActivity(actor, state, activity, commands, now)
             state.active = activity
             return failActivity(actor, state, "navigation_unavailable")
         end
-    else
+    elseif SC.NativeCareActions and SC.NativeCareActions.handles(activity.kind) then
         if activity.kind == "shower" then
             if not showerSourceValid(activity.object)
                 or not undressForShower(actor, activity) then
@@ -5168,6 +5138,9 @@ local function beginActivity(actor, state, activity, commands, now)
             end
             showerStartSpeech(actor)
         end
+        local started, reason = startNativeCare(actor, state, activity, now)
+        if not started then return failActivity(actor, state, reason) end
+    else
         if visualActivities[activity.kind] then
             local expected, expectedReason = startSupervisedVisual(actor, activity, {
                 action = activity.kind,
@@ -5223,64 +5196,15 @@ local function beginActivity(actor, state, activity, commands, now)
     return true, activity.kind
 end
 
-local function useWashWater(source, amount)
-    amount = math.max(0, tonumber(amount) or 0)
-    if amount <= 0 then return true end
-    local available, availableOk = U().call(source, "getFluidAmount")
-    if not availableOk or (tonumber(available) or 0) < amount then return false end
-    local result, usedOk = U().call(source, "useFluid", amount)
-    if not usedOk or result == false then return false end
-    U().call(source, "transmitModData")
-    return true
+-- Native completion is an observed result; quiet chores never apply their
+-- effects a second time when the downtime supervisor commits its report.
+local function nativeCareFinished(activity)
+    return activity.nativeCompleted == true and activity.nativeSettled == true
 end
-
-local function completeWashSelf(actor, activity)
-    if not washSourceValid(activity.object) then return false end
-    if not washSourceInReach(actor, activity) then return false end
-    local visual, visualOk = U().call(actor, "getHumanVisual")
-    if not visualOk or not visual then return false end
-    local dirty = {}
-    local inspected = pcall(function()
-        for index = 0, BloodBodyPartType.MAX:index() - 1 do
-            local part = BloodBodyPartType.FromIndex(index)
-            if (tonumber(visual:getBlood(part)) or 0) + (tonumber(visual:getDirt(part)) or 0) > 0 then
-                dirty[#dirty + 1] = part
-            end
-        end
-    end)
-    if not inspected or #dirty == 0 then return false end
-    local amount, amountOk = U().call(activity.object, "getFluidAmount")
-    local available = amountOk and math.floor(tonumber(amount) or 0) or 0
-    local count = math.min(#dirty, available)
-    if count <= 0 or not useWashWater(activity.object, count) then return false end
-    for index = 1, count do
-        U().call(visual, "setBlood", dirty[index], 0)
-        U().call(visual, "setDirt", dirty[index], 0)
-    end
-    U().call(actor, "resetModelNextFrame")
-    if type(sendHumanVisual) == "function" then pcall(sendHumanVisual, actor) end
-    return true
-end
+local function completeWashSelf(actor, activity) return nativeCareFinished(activity) end
 
 local function completeShower(actor, activity)
-    if not showerSourceValid(activity.object)
-        or not washSourceInReach(actor, activity) then return false end
-    local visual = select(1, U().call(actor, "getHumanVisual"))
-    if not visual then return false end
-    local parts = {}
-    local inspected = pcall(function()
-        for index = 0, BloodBodyPartType.MAX:index() - 1 do
-            parts[#parts + 1] = BloodBodyPartType.FromIndex(index)
-        end
-    end)
-    if not inspected or #parts == 0 then return false end
-    if not useWashWater(activity.object, 10) then return false end
-    for _, part in ipairs(parts) do
-        U().call(visual, "setBlood", part, 0)
-        U().call(visual, "setDirt", part, 0)
-    end
-    U().call(actor, "resetModelNextFrame")
-    if type(sendHumanVisual) == "function" then pcall(sendHumanVisual, actor) end
+    if not nativeCareFinished(activity) then return false end
     if not restoreShowerClothes(actor, activity) then return false end
     local record = showerRecord(actor)
     if record then record.lastShowerHour = gameHours() end
@@ -5289,142 +5213,11 @@ local function completeShower(actor, activity)
     end
     return true
 end
-
-local function completeWashEquipment(actor, activity)
-    local item = activity.item
-    if not item or itemDirt(item) <= 0.01 then return false end
-    if CLEAN_DRESSING_TYPES[string.lower(U().itemType(item))]
-        and washBandageProtected(actor, item) then return false end
-    if not washSourceValid(activity.object) then return false end
-    if not washSourceInReach(actor, activity) then return false end
-    local required = math.max(U().config("downtimeWashMinimumWater") or 4,
-        math.min(20, math.ceil(4 + itemDirt(item) / 25)))
-    if not useWashWater(activity.object, required) then return false end
-    pcall(function()
-        local clothingType = item:getBloodClothingType()
-        local parts = BloodClothingType.getCoveredParts(clothingType)
-        if parts then
-            for index = 0, parts:size() - 1 do
-                item:setBlood(parts:get(index), 0)
-                item:setDirt(parts:get(index), 0)
-            end
-        end
-    end)
-    U().call(item, "setBloodLevel", 0)
-    U().call(item, "setDirtiness", 0)
-    U().call(item, "setWetness", 100)
-    U().call(actor, "resetModelNextFrame")
-    if type(syncVisuals) == "function" then pcall(syncVisuals, actor) end
-    return itemDirt(item) <= 0.01
-end
-
-local function consumeExact(inventory, item)
-    local utility = U()
-    local result, ok = utility.call(inventory, "Remove", item)
-    if ok then return result ~= false and not utility.inventoryContains(inventory, item) end
-    if type(inventory) == "table" and type(inventory.items) == "table" then
-        for index, value in ipairs(inventory.items) do
-            if value == item then table.remove(inventory.items, index) return true end
-        end
-    end
-    return false
-end
-
-local function completeWashBandage(actor, activity)
-    local utility = U()
-    local inventory = carriedBandageContainer(actor, activity.item)
-    if not inventory or not activity.item or not activity.cleanType
-        or (activity.itemContainer ~= nil and activity.itemContainer ~= inventory)
-        or CLEAN_DRESSING_TYPES[string.lower(utility.itemType(activity.item))]
-            ~= activity.cleanType
-        or washBandageProtected(actor, activity.item)
-        or not washSourceValid(activity.object)
-        or not washSourceInReach(actor, activity) then return false end
-    local clean = utility.addItem(inventory, activity.cleanType)
-    if not clean then return false end
-    local favorite, favoriteOk = utility.call(activity.item, "isFavorite")
-    if favoriteOk and favorite == true then
-        local setResult, setOk = utility.call(clean, "setFavorite", true)
-        local retained, retainedOk = utility.call(clean, "isFavorite")
-        if not setOk or setResult == false or retainedOk and retained ~= true then
-            consumeExact(inventory, clean)
-            return false
-        end
-    end
-    local customName, customOk = utility.call(activity.item, "isCustomName")
-    if customOk and customName == true then
-        local name, nameOk = utility.call(activity.item, "getName")
-        if not nameOk or type(name) ~= "string" or name == "" then
-            consumeExact(inventory, clean)
-            return false
-        end
-        local setResult, setOk = utility.call(clean, "setName", name)
-        if not setOk or setResult == false then
-            consumeExact(inventory, clean)
-            return false
-        end
-    end
-    -- The stock ISCleanBandage action spends one unit for one dressing.
-    if not useWashWater(activity.object, 1) then
-        consumeExact(inventory, clean)
-        return false
-    end
-    if not consumeExact(inventory, activity.item) then
-        consumeExact(inventory, clean)
-        return false
-    end
-    utility.touchInventoryIndex(inventory)
-    return utility.inventoryContains(inventory, clean)
-end
-
-local function completeRepair(actor, activity)
-    local utility = U()
-    local condition, conditionOk = utility.call(activity.item, "getCondition")
-    local maximum, maxOk = utility.call(activity.item, "getConditionMax")
-    if not conditionOk or not maxOk or not maximum then return false end
-    local inventory = utility.inventory(actor)
-    local restored = math.min(maximum, condition + math.max(1, math.floor(maximum * 0.25)))
-    local setResult, setOk = utility.call(activity.item, "setCondition", restored)
-    if not setOk or setResult == false then return false end
-    local actual, actualOk = utility.call(activity.item, "getCondition")
-    if actualOk and actual ~= restored then
-        utility.call(activity.item, "setCondition", condition)
-        return false
-    end
-    if consumeExact(inventory, activity.material) then return true end
-    utility.call(activity.item, "setCondition", condition)
-    return false
-end
-
+local function completeWashEquipment(actor, activity) return nativeCareFinished(activity) end
+local function completeWashBandage(actor, activity) return nativeCareFinished(activity) end
+local function completeRepair(actor, activity) return nativeCareFinished(activity) end
 local function completeCraft(actor, activity)
-    local utility = U()
-    local inventory = utility.inventory(actor)
-    if not inventory then return false end
-    local seen = {}
-    for _, scrap in ipairs(activity.scraps or {}) do
-        local holder = reservations[scrap]
-        if seen[scrap] or not holder or holder.actor ~= actor
-            or not utility.inventoryContains(inventory, scrap)
-            or (SC.PersonalItems and type(SC.PersonalItems.isProtected) == "function"
-                and SC.PersonalItems.isProtected(scrap, actor, "craft_material")) then
-            return false
-        end
-        seen[scrap] = true
-    end
-    -- The player can protect or move a selected scrap while the animation is
-    -- running. Recheck exact items before creating output or consuming either.
-    local output = utility.addItem(inventory, activity.outputType)
-    if not output then return false end
-    local removed = {}
-    for _, item in ipairs(activity.scraps or {}) do
-        if not consumeExact(inventory, item) then
-            consumeExact(inventory, output)
-            for _, previous in ipairs(removed) do utility.addItem(inventory, previous) end
-            return false
-        end
-        removed[#removed + 1] = item
-    end
-    return true
+    return nativeCareFinished(activity) and activity.nativeOutput ~= nil
 end
 
 local function finishActivity(actor, state, now)
@@ -5620,6 +5413,12 @@ local function finishActivity(actor, state, now)
             SC.RadioListening.finish(actor, activity)
         end
         state.lastFact = fact
+        if activity.kind == "repair" and fact.repairImproved == false then
+            -- A real failed repair is a completed attempt, not permission to
+            -- burn every remaining repair material on consecutive idle ticks.
+            state.ambientLastAt = state.ambientLastAt or {}
+            state.ambientLastAt.repair = now
+        end
         if activity.kind == "read" and SC.Dialogue
             and type(SC.Dialogue.say) == "function" then
             local before, after, total = tonumber(fact.pagesBefore) or 0,
@@ -5697,17 +5496,20 @@ function Downtime.cancel(actor, reason)
     local changed = clearCurtainTask(actor, state)
     if state.active then
         local activity = state.active
+        activity.cancelRequestedReason = reason or "downtime_cancelled"
         local service = supervisor()
         if service and activity.supervisorToken and service.isCurrent(activity.supervisorToken) then
             local cancelled, cancelReason = service.cancel(actor,
                 reason or "downtime_cancelled", nil, false)
             if cancelled ~= true then
-                debugTrace(actor, "cancel_blocked", activity, cancelReason)
+                debugTrace(actor, "cancel_blocked", activity,
+                    tostring(reason or "downtime_cancelled") .. ":" .. tostring(cancelReason))
                 return false, cancelReason or "downtime_cancel_rejected"
             end
         else
-            releaseDowntimeResources(actor, state, activity,
+            local released, why = releaseDowntimeResources(actor, state, activity,
                 reason or "downtime_cancelled")
+            if released ~= true then return false, why end
         end
         debugTrace(actor, "cancel", activity, reason)
         changed = true
@@ -5845,6 +5647,37 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         if (commands.commandSerial or 0) ~= state.active.commandSerial then
             Downtime.cancel(actor, "new_order")
             return false, "cancelled_for_order"
+        end
+        if state.active.nativeStarted then
+            local activity, native = state.active, SC.NativeActions
+            if not native or not native.ownsDowntimeAction(actor, activity) then
+                -- The status facade may already have returned the staged items
+                -- after its five-second result window. A verified effect is
+                -- still complete; never mistake that cleanup for lost work.
+                if native and activity.nativeCompleted == true and native.workKind(actor) == nil then
+                    activity.nativeSettled = true
+                    return finishActivity(actor, state, current)
+                end
+                return failActivity(actor, state, "native_care_ownership_lost")
+            end
+            if current - (activity.nativeStartedAt or current) > 180000 then
+                return failActivity(actor, state, "native_care_timeout")
+            end
+            if native.isWorkActive(actor) then
+                if not reserveActivity(actor, activity, current) then
+                    return failActivity(actor, state, "native_care_reservation_lost")
+                end
+                local service = supervisor()
+                if service and activity.supervisorToken then
+                    service.progress(activity.supervisorToken, "native_care:" .. tostring(current), { action = activity.kind })
+                end
+                return true, activity.kind
+            end
+            local released, reason = native.finishWork(actor)
+            if released ~= true then return true, reason or "native_care_release_pending" end
+            activity.nativeSettled = true
+            if activity.nativeCompleted ~= true then return failActivity(actor, state, activity.nativeFailure or "native_care_incomplete") end
+            return finishActivity(actor, state, current)
         end
         if state.active.kind == "leader_check_in" then
             local visit = state.active
@@ -6047,25 +5880,8 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                 end
                 showerStartSpeech(actor)
             end
-            local expected, expectedReason = startSupervisedVisual(actor, state.active, {
-                action = state.active.kind,
-            })
-            if expected ~= true then return failActivity(actor, state,
-                expectedReason or "visual_registration_failed") end
-            if not utility.move(actor, "walk", {
-                action = state.active.kind,
-                item = state.active.item,
-                object = state.active.object,
-                downtime = true,
-                durationMs = utility.config("downtimeActivityMs") or 6000,
-                supervisorToken = state.active.supervisorToken,
-            }) then
-                return failActivity(actor, state, "animation_rejected")
-            end
-            state.active.approaching = nil
-            state.active.actionAccepted = true
-            state.active.startedAt = current
-            transitionActivity(state.active, "animating", { action = state.active.kind })
+            local started, reason = startNativeCare(actor, state, state.active, current)
+            if not started then return failActivity(actor, state, reason) end
             return true, state.active.kind
         end
         local studying = state.active.kind == "study_corpse" or state.active.kind == "pay_respects"
@@ -6319,6 +6135,9 @@ end
 function Downtime.prepareForSave(actor)
     local state = actor and states[actor]
     local activity = state and state.active
+    -- These native chores commit their inventory effects synchronously. A
+    -- background snapshot may capture the actual staged inventory without
+    -- stopping work. Showers still restore their temporary outfit first.
     if not activity or activity.kind ~= "shower" then return true end
     local cancelled, reason = Downtime.cancel(actor, "save_capture")
     if cancelled ~= true then return false, reason or "shower_cancel_failed" end

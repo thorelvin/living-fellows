@@ -51,6 +51,7 @@ function Get-ScGameplayFiles {
         'SCTVWatching.lua',
         'SCComputerUse.lua',
         'SCRadioListening.lua',
+        'SCNativeCareActions.lua',
         'SCDowntime.lua',
         'SCPersonality.lua',
         'SCPersonalItems.lua',
