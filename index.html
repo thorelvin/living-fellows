@@ -243,7 +243,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   table { display: block; max-width: 100%; overflow-x: auto; }
   .two-col { grid-template-columns: minmax(0, 1fr); }
   .two-col > div { min-width: 0; }
-  .language-switcher { top: 0.65rem; right: 0.65rem; }
+  .language-switcher { position: absolute; top: 0.65rem; right: 0.65rem; }
   #cover h1 { font-size: 2.1rem; }
   #cover .kit img { height: 30px; }
   .card-grid { grid-template-columns: minmax(0, 1fr); }
@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.22.2 Edition</p>
-  <p class="version">Release 0.27.8 — First Edition, Twenty-Ninth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.27.10 — First Edition, Thirtieth Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -335,7 +335,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
   <li><a href="#ch15_animals"><strong>Keep a working farm.</strong></a> Farmers tend chickens and cattle, collect eggs and deliver milk, leaving a reserve for calves.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.8</strong>: <a href="#ch15_animals">chicken and cattle care</a>, <a href="#ch9d_help">clearer relationships and direct gifts</a>, <a href="#emma-care">a more caring EMMA</a> and <a href="#emma-radio-watch">a companion working the radio desk</a>. Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.10</strong>: <a href="#ch15_animals">chickens, cattle and sheep</a>, <a href="#ch15_milk">milk barrels and manure collection</a>, <a href="#ch14_medic">a stocked Medic's kit</a> and <a href="#ch17_fuel">fuel expeditions</a>. New here? Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -383,6 +383,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch14b">Ch 14b: Running the Camp</a></li>
         <li><a href="#ch14c">Ch 14c: Base Watch</a></li>
         <li><a href="#ch15">Ch 15: Farming and Animals</a></li>
+        <li><a href="#ch15_animals">Chickens, cattle and sheep</a></li>
+        <li><a href="#ch14_medic">Stocking the Medic's kit</a></li>
         <li><a href="#ch15b">Ch 15b: The Kitchen and the Water</a></li>
         <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
         <li><a href="#emma">Ch 16b: EMMA and Camp Computers</a></li>
@@ -393,6 +395,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch17">Ch 17: Expeditions</a></li>
         <li><a href="#ch17_home">Sending someone home</a></li>
         <li><a href="#ch17_prep">Getting ready to leave</a></li>
+        <li><a href="#ch17_fuel">Collecting fuel</a></li>
         <li><a href="#ch18">Ch 18: Households, Trade and Bandits</a></li>
         <li><a href="#ch18b">Ch 18b: Contracts, Quests and Recruitment</a></li>
         <li><a href="#ch18c">Ch 18c: Strange Folk</a></li>
@@ -439,6 +442,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The mod targets <strong>Project Zomboid Build 42.22.2</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The exceptions are the mod's own: an expedition or Base Watch may put one companion in a second local view, to keep the area around it loaded.</p>
 
 <h3>Install on 42.22.2</h3>
+<p>This guide covers <strong>Living Fellows 0.27.10</strong>. If a menu choice is missing, check your installed version in <span class="menu">More &rarr; Support</span>.</p>
 <p><strong>The Windows standalone edition is recommended.</strong> It includes Living Fellows' native bridge and needs neither ZombieBuddy nor a Workshop subscription. Download the <a href="https://github.com/thorelvin/living-fellows/releases/latest">standalone Windows ZIP from GitHub Releases</a> that matches your game build.</p>
 <ol class="steps">
   <li><span class="step-n">1</span>Extract the whole ZIP to a normal folder.</li>
@@ -951,6 +955,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>If you start bandaging or splinting yourself, they step back at once and leave your supplies alone.</li>
   <li>You can treat them yourself: <span class="menu">Medical Check</span> opens their body-part panel for your own supplies (<a href="#ch3b">Chapter 3b</a>).</li>
   <li>They treat each other. A rescuer picks the most urgent casualty it can actually treat, so a patient who needs a splint the helper doesn't carry won't hide another who is bleeding.</li>
+  <li>A resident with the <strong>Medic</strong> job carries a stocked first aid kit when supplies are available. See <a href="#ch14_medic">Stocking the Medic's Kit</a> for what to leave on the medical shelf.</li>
   <li>A helper pinned down by nearby threats doesn't keep choosing an unsafe rescue, and a failed treatment says what stopped it.</li>
 </ul>
 
@@ -1596,7 +1601,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <h3>Marking Storage</h3>
-<p>Right-click a container inside the camp, choose <span class="menu">Living Fellows → Mark storage as...</span> and pick a category. Companions help themselves from marked storage and leave unmarked containers to you. Sorting empties General and Work output storage into the right categories, including clothing into Clothes, and fixes clear mistakes elsewhere: a pistol filed under Tools moves to Weapons. The car-unloading job also files clothing under Clothes. Shelf sorting carries matching items together too, up to twenty a trip; items held back as a reserve stay out of the batch. A trip in progress survives a reload, and a cancelled one puts the rest of the stack back. A shelf keeps anything that could belong on it, so hammers, axes and shovels may stay in Tools or Weapons, and shells, magazines and medicine stay where you put them. You can give each marked container a reserve, and companions leave that many items in it (<a href="#ch14b">Chapter 14b</a>).</p>
+<p>Right-click a container and choose <span class="menu">Living Fellows &rarr; Mark storage as...</span>, then pick a category. Ordinary storage belongs inside camp. Companions can use what you mark and leave unmarked containers to you.</p>
+<p><strong>General source</strong> and <strong>Work output</strong> are shared sorting points. Residents move their contents into the matching marked categories, and correct clear mistakes on other shelves. A shelf keeps items that belong there, so an axe can stay in Tools or Weapons. Clothing goes to Clothes.</p>
+<p>Matching items travel together, up to twenty per trip within the worker's carrying limit. Set a reserve if you want a number left on that shelf. Reserved supplies, personal belongings and keepsakes in Memorial storage stay protected.</p>
 <p>Camp jobs, car unloading and expedition deliveries try every container of the right category before they pause for lack of space. The Base panel names each full destination, and the worker says so once, then waits for room.</p>
 <p>To remove a marking, right-click the container and choose <span class="menu">Living Fellows → Unmark storage</span>. This removes the camp registration; the container and everything in it stay where they are. Storage management is at the bottom of the Base panel, below the daily job controls.</p>
 
@@ -1617,7 +1624,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/b/b1/Backpack.png" alt=""></td><td><strong>General source</strong></td><td>Anything the camp may draw from</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2d/Logs.png" alt=""></td><td><strong>Work output</strong></td><td>Where finished work goes, such as a carpenter's planks</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/48/Whiskey.png" alt=""></td><td><strong>Memorial</strong></td><td>Keepsakes of the dead. Nothing is ever taken out of it: no sorting, cooking or fetching.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt=""></td><td><strong>Farming supplies</strong></td><td>Seed, tools, compost, water cans, crop treatments</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt=""></td><td><strong>Farming supplies</strong></td><td>Seed, tools, compost, water cans, crop treatments, animal feed, empty milk containers and shears</td></tr>
+  <tr><td class="icon-cell"></td><td><strong>Milk</strong></td><td>Compatible fluid barrels for cow or sheep milk. Keep the two types in separate barrels (<a href="#ch15_milk">setup</a>).</td></tr>
+  <tr><td class="icon-cell"></td><td><strong>Manure</strong></td><td>Composters first, with marked crates or other containers as overflow (<a href="#ch15_manure">setup</a>).</td></tr>
 </table>
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Residents may use marked storage on another camp floor, and may stand just outside the boundary to reach it. Assign residents, roles and policies in <span class="menu">More → Base</span>.</div>
@@ -1739,13 +1748,22 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th></th><th>Base job</th><th>Reaches first for</th><th>Also</th></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Generalist</strong></td><td>Nothing in particular; a little more often hauling, sorting and unloading cars</td><td>The all-rounder: it fills in wherever no specialist is free, in a camp of any size. Its kit is balanced: a couple of meals and drinks, some medicine and a spare weapon.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt=""></td><td><strong>Quartermaster</strong></td><td>Sorting, the sorting floor, hauling, fetching and unloading cars, more strongly than anyone</td><td>Lets its pack fill to about four-fifths of its carrying limit before it puts surplus away (<a href="#ch7_carry">Ch 7</a>), and keeps more food, water, medicine, ammunition and building stock on it. A camp of four or more needs one (<a href="#ch14b">Ch 14b</a>).</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medic</strong></td><td>Fetching</td><td>Counts up to ten medical items as its kit, and keeps five even when overloaded. A Medic who comes within four tiles of a bitten companion examines it: the bite comes out, unless the companion refuses, and a refusal says nearly as much (<a href="#ch8">Ch 8</a>). A camp of three or more needs one.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medic</strong></td><td>Medical supplies and a stocked first aid kit</td><td>Keeps clean dressings and a splint ready for treatment. Give them supplies using the <a href="#ch14_medic">kit setup below</a>. A Medic can also examine a nearby bitten companion, unless that companion refuses (<a href="#ch8">Ch 8</a>). A camp of three or more needs one.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Guard</strong></td><td>Barricades, between shifts</td><td>On its shift it keeps watch and walks its rounds instead of doing chores (<a href="#ch14b">Ch 14b</a>), and the guard on watch is the first to answer the camp alarm (<a href="#ch14_alarm">below</a>). Its kit has more weapons and ammunition. A camp of two or more needs one.</td></tr>
 </table>
 <p>Put on duty with Stay inside the camp, a companion starts in its natural role the first time and in its last job after that; Guard makes it a Guard. How much of the work residents take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
 <p>Any available resident on base duty can also take the shared car and generator chores; you do not assign a separate refueller or mechanic role. Park a car in the marked Parking area, stock the needed supplies, and read its job status in the camp ledger (<a href="#ch14b">Chapter 14b</a>).</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Three planks from one log. The math still works.<span class="who">— a carpenter</span></div>
+
+<h3 id="ch14_medic">Stocking the Medic's Kit</h3>
+<p>Choose <strong>Medic</strong> as a resident's base job in <span class="menu">More &rarr; Base</span>, and keep them on duty. They will prepare a first aid kit during their normal supply runs.</p>
+<ol class="steps">
+  <li><span class="step-n">1</span>Put a <strong>First Aid Kit</strong>, clean bandages or clean rags, and a <strong>splint</strong> in marked <strong>Medical</strong> storage.</li>
+  <li><span class="step-n">2</span>Allow withdrawals and make sure the Medic can reach the storage.</li>
+  <li><span class="step-n">3</span>Let them pack. They aim to carry <strong>nine clean dressings and one splint</strong> in the kit, using what the camp actually has.</li>
+</ol>
+<p>The kit stays with the Medic rather than being sorted back onto a shelf. Treatment uses its real contents, so keep the medical shelf stocked as supplies are used. A kit does not replace your own first aid: you can still use <span class="menu">Medical Check</span> to treat someone yourself.</p>
 
 <h3>Safety Rules for Camp Work</h3>
 <ul>
@@ -1852,7 +1870,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3 id="ch14b_clean">Cleaning a Stain</h3>
 <p>Right-click a stained tile inside the camp and choose <span class="menu">Ask companion to clean this stain</span>. A resident on base duty comes and scrubs it with the game's own cleaning action. It needs a dry towel, sponge, cleaning brush, broom or mop, plus bleach, cleaning liquid or a prepared mixture: its own, or borrowed from marked camp storage and put back afterwards.</p>
-<p>A cleaner reaches for a stored mixture first. With none about, and a bucket and water to hand, it mixes one kind of cleaner into a bucket at 5%, normally two litres, using tainted water before clean. That batch cleans eight stains on a tenth of a litre of cleaner, where one stain done with the cleaner straight costs a quarter of a litre. Without a bucket or water it uses the cleaner straight and says so. Soap bars don't count, and no companion drinks a mixture, waters a crop or washes a car with one.</p>
+<p>The resident uses a stored cleaning mixture first. If there is none, they can prepare a bucket with <strong>5% bleach or Cleaning Liquid and 95% water</strong>, using tainted water before clean. A normal two-litre batch cleans about eight tiles with only 100 ml of cleaner. Borrowed tools and the remaining mixture go back to their source storage.</p>
+<p>If dilution is not possible, they can use the cleaner straight and tell you so. Soap bars do not count for floor cleaning. Cleaning mixtures stay out of drinking water, crop watering and car washing.</p>
 <p>When the option is greyed out it says why: no supplies, nobody on duty, no route to the spot from where the cleaner is, or the spot is already clean.</p>
 
 <h3>Zones, Storage and Maintenance</h3>
@@ -1900,7 +1919,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 15 -->
 <h2 class="chapter" id="ch15"><img class="ico" src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Chapter 15: Farming and Animals<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>Draw one or more <strong>Farm areas</strong> over existing vanilla plots. Companions never turn untouched ground into fields; dig the plots first, and they will keep them. A bounded audit rotates across every marked farm area and queues the most urgent work it finds, with ties broken in a stable order.</p>
+<p>Dig your crop plots, then draw a <strong>Farm area</strong> over them. Residents on base duty look after the plots you have made; they do not dig a new field on untouched ground. A Farmer gets first choice of the work, and urgent watering takes priority over routine chores.</p>
 
 <table>
   <tr><th></th><th>Rule</th><th>Detail</th></tr>
@@ -1914,18 +1933,19 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Residents borrow and return exact supplies, and route crops and seeds to marked storage. Mark a <strong>Farming supplies</strong> container for seed, tools, compost, water cans and crop treatments. A farmer keeps one watering can of its own and uses it without a trip to the shelf. Dry plots wait for that farmer only while it can do the job: go off duty, leave camp, die or lose the can, and the plots open to the other residents. Farmers comment now and then when preparing ground, sowing, watering, harvesting, treating or losing a crop, or finding the tools unusable. Those remarks never hold up the work.</p>
 
 <h3 id="ch15_animals">A Farmer for Your Animals</h3>
-<p>Chickens and cattle use the same <strong>Farmer</strong> job as crops. The enclosure is a <strong>vanilla animal zone</strong>, created through the game's animal-zone tools. Like crop fields, lumber and burial areas, it may extend <strong>up to 30 tiles beyond the camp boundary</strong>; the whole pen must stay within that reach, on a camp floor. An LF Farm area is for plots; it does not replace the animal zone.</p>
+<p>One <strong>Farmer</strong> can look after crops, chickens, cattle and sheep. For animals, use the game's own <strong>animal zone</strong>. An LF Farm area marks crop plots and does not replace it.</p>
+<p>The whole animal zone must be on a camp floor and within <strong>30 tiles of the camp boundary</strong>. You can keep the pen outside the main camp, just as you can with a crop field or lumber area. Keep a clear route to the animals and leave room to stand beside each trough.</p>
 <ol class="steps">
-  <li><span class="step-n">1</span>Keep a resident on <span class="menu">Base duty</span> and choose <strong>Farmer</strong> as their base job.</li>
+  <li><span class="step-n">1</span>Open <span class="menu">More &rarr; Base</span>, put a resident on <strong>Base duty</strong> and choose the <strong>Farmer</strong> job.</li>
   <li><span class="step-n">2</span>Place <strong>separate feed and water troughs</strong> in the animal zone. A trough holds one or the other; the Farmer will not empty feed to make room for water.</li>
-  <li><span class="step-n">3</span>Mark <strong>Farming supplies</strong> storage for feed, tools and empty milk containers. Keep filled water containers in Farming supplies or Water storage.</li>
-  <li><span class="step-n">4</span>Allow deposits into <strong>Fresh food</strong> or <strong>Regular food</strong> storage for the eggs and milk.</li>
+  <li><span class="step-n">3</span>Mark <strong>Farming supplies</strong> storage for feed, tools, shears and empty milk containers. Keep filled water containers in Farming supplies or Water storage.</li>
+  <li><span class="step-n">4</span>Leave room in <strong>Fresh food</strong> or <strong>Regular food</strong> storage for eggs. For milk and manure, mark the destinations described below.</li>
 </ol>
-<p>Feed and water are topped up when troughs fall below 25%, aiming for 90%. A large watering job makes at most two donor trips before letting other work through, then continues on a later check. Chickens and cattle can share an enclosure and its troughs. Chicken-only zones may cover up to 256 tiles; cattle or mixed zones may cover up to 1,024.</p>
+<p>Farmers refill troughs below 25%, aiming for 90%. A feed job can finish a little short when another whole bag will not fit and the animals already have enough food. Large water refills leave time for other work between trips. Chicken-only zones may cover up to <strong>256 tiles</strong>; cattle, sheep and mixed zones may cover up to <strong>1,024</strong>.</p>
 
 <h4 id="ch15_chickens">Chickens, Eggs and the Hutch</h4>
 <p>Add a compatible chicken hutch. Farmers collect <strong>unfertilised eggs</strong>, deliver them to permitted food storage and clean dirty hutch floors and nests using real supplies. Fertilised eggs are left alone. Leave suitable cleaning supplies available in camp storage; a blocked cleaning job explains what is missing.</p>
-<p>After 07:00, the Farmer opens the hutch. At night, they close it only once the known birds are sheltered, including hens in nest boxes. A late or missing bird keeps the door open. Let birds enter and leave through the game's normal animal behaviour.</p>
+<p>Opening the hutch becomes a morning task from <strong>07:00</strong>. At night, the Farmer closes it once the known birds are sheltered, including hens in nest boxes. A late or missing bird keeps the door open. The birds enter and leave through the game's normal animal behaviour.</p>
 
 <h4 id="ch15_cattle">Cattle and the Morning Milk</h4>
 <p>Farmers supply cows, bulls and calves of all vanilla breeds. Automatic cattle donations use <strong>animal feed, hay or cut grass</strong> from Farming supplies; they do not spend your fruit and vegetables. An agitated bull can interrupt work, and a stressed cow waits until she settles.</p>
@@ -1936,9 +1956,30 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>A calf is nursing</td><td>Start at 70%; stop above a 40% reserve for the calf.</td></tr>
   <tr><td>80% full or more</td><td>Milking becomes urgent and takes priority over routine feed and water work.</td></tr>
 </table>
-<p>There is <strong>one daily milking job per cow</strong>. It can make several trips with separate containers, so a small bucket does not limit the whole day's haul. Milk goes to <strong>Fresh food first, then Regular food</strong> with room and deposits enabled. The filled container stays with its milk; return it to Farming supplies when empty, or let sorting handle it.</p>
-<p>If food storage is full, ordinary milking waits. An urgent load may be protected in its original Farming supplies container until a food destination has room. Delivery retries after <strong>three real minutes</strong>; manual <span class="menu">Retry</span> remains available. Reaching camp is not the same as storing the milk.</p>
-<div class="callout callout-tip"><span class="callout-label">Note — </span>If care stops, check <span class="menu">More → Base</span>: the whole animal zone must stay within 30 tiles of a camp boundary on the same floor, supplies must be marked and accessible, and food storage must accept deposits. Keep a clear route beside the animal and its troughs. Strange Folk animals remain protected. Automatic breeding management and culling are disabled.</div>
+<p>Each cow gets <strong>one milking job a day</strong>, with several delivery trips if needed. A small bucket does not limit the whole day's collection. The Farmer leaves a reserve for nursing calves and takes the milk to the destinations below.</p>
+
+<h4 id="ch15_sheep">Sheep, Wool and Ewe Milk</h4>
+<p>Sheep use the same pens, troughs and Farming supplies as cattle. Farmers care for ewes, rams and lambs of all vanilla breeds. Healthy adult sheep are sheared in daylight once their fleece is at least <strong>80% grown</strong>.</p>
+<p>Put <strong>manual shears</strong> in Farming supplies, or charged electric shears if that is what you have. The Farmer borrows them, shears the animal and carries the wool to <strong>Crafting</strong>, then <strong>General</strong> storage. When storage is full, new shearing waits and wool already collected stays protected.</p>
+<p>Lactating ewes can be milked too, with a reserve for nursing lambs and several trips within one daily job. <strong>Sheep milk and cow milk stay separate.</strong></p>
+
+<h4 id="ch15_milk">Where the Milk Goes</h4>
+<ol class="steps">
+  <li><span class="step-n">1</span>Place an <strong>empty barrel that accepts milk</strong> within camp work reach. The Milk option appears only on a compatible vessel that is empty or already holds pure milk.</li>
+  <li><span class="step-n">2</span>Right-click it and choose <span class="menu">Living Fellows &rarr; Mark storage as... &rarr; Milk</span>. Allow deposits.</li>
+  <li><span class="step-n">3</span>Leave another empty barrel available if you keep both cows and sheep. Farmers will not pour one type into the other, or into water.</li>
+</ol>
+<p>The Farmer pours into marked <strong>Milk</strong> barrels first, using another compatible barrel when the first fills up. Once delivery is finished, the borrowed bucket goes back to its original storage. If no barrel is available, filled containers can go to <strong>Fresh food</strong>, then <strong>Regular food</strong> storage instead.</p>
+<p>A full destination does not make the milk disappear. The job keeps its cargo and retries after <strong>three real minutes</strong>. Make room or fix access, then use <span class="menu">Retry</span> if you want to try again straight away. Keep an eye on storage conditions as you would for any other milk.</p>
+
+<h4 id="ch15_manure">Manure and Compost</h4>
+<p>Right-click a composter and mark it as <strong>Manure</strong>. You can also mark a crate or another ordinary container as Manure storage. Keep these within camp work reach, including up to 30 tiles beyond the boundary.</p>
+<p>Farmers collect droppings from managed pens and take them to a marked composter first. If it has no room, they use marked Manure storage. When a composter has space again, they can move the stored manure into it. Compost still takes the game's normal time to process.</p>
+
+<h4 id="ch15_soothing">Helping Animals Settle</h4>
+<p>When it is safe and the animal will accept it, a Farmer can stop to pet a stressed chicken, cow or sheep. This uses the game's petting action. A stressed animal or an agitated bull may still make other care wait; soothing does not force an animal to cooperate.</p>
+
+<div class="callout callout-tip"><span class="callout-label">If care pauses — </span>Read the job in <span class="menu">More &rarr; Base</span>. Check the whole zone is in reach, the Farmer is on duty, supplies can be withdrawn and output storage accepts deposits. Leave a clear place beside the animal and troughs. Strange Folk animals stay protected; automatic breeding management and culling are disabled.</div>
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_photo_farm_pasture.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_farm_pasture.webp" width="1280" height="720" alt="Carla milking a cow in a grass pasture behind a wooden fence, with another cow, a calf, separate troughs and storage crates. Crop fields surround the enclosure."></a>
@@ -2395,8 +2436,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <ol class="steps">
   <li><span class="step-n">1</span>On <span class="menu">Squad</span>, assign one to four companions to a squad.</li>
   <li><span class="step-n">2</span>Open <span class="menu">Expeditions</span> and choose the squad's <strong>leader</strong>.</li>
-  <li><span class="step-n">3</span>Choose the mission: <strong>Scout</strong>, <strong>Search</strong>, <strong>Fish nearby water</strong> or <strong>Collect wood</strong>. Search also lets you request a supply type and quantity, including <strong>Everything useful</strong> for supplies across categories.</li>
-  <li><span class="step-n">4</span>Choose <span class="menu">Choose on map</span>, right-click a building or shoreline, then select the highlighted destination. For wood, choose <span class="menu">Choose logging area on map</span> and click two opposite corners. You can also browse nearby places or let Collect wood find woodland automatically.</li>
+  <li><span class="step-n">3</span>Choose <strong>Scout</strong>, <strong>Search</strong>, <strong>Fish nearby water</strong>, <strong>Collect wood</strong> or <strong>Collect fuel</strong>. For Search, choose what supplies you want and how many, or ask for <strong>Everything useful</strong>.</li>
+  <li><span class="step-n">4</span>Choose a destination on the map or browse nearby places. Right-click a building, shoreline or known gas station. For wood, choose <span class="menu">Choose logging area on map</span> and click two opposite corners. Wood and fuel trips can also find a suitable destination automatically.</li>
   <li><span class="step-n">5</span>Choose how to travel, how long before they turn home, and the combat style.</li>
   <li><span class="step-n">6</span>Review the plan and select <span class="menu">Send squad</span>.</li>
 </ol>
@@ -2408,9 +2449,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th>Option</th><th>Choices</th></tr>
   <tr><td><strong>Squad</strong></td><td>A group from the Squad tab, one to four companions</td></tr>
   <tr><td><strong>Team leader</strong></td><td>The member who gets the second view and leads the column</td></tr>
-  <tr><td><strong>Task</strong></td><td>Scout the location, Search for supplies, Fish nearby water, or Collect wood</td></tr>
+  <tr><td><strong>Task</strong></td><td>Scout the location, Search for supplies, Fish nearby water, Collect wood or Collect fuel</td></tr>
   <tr><td><strong>Supplies</strong> (Search)</td><td>Food, Water, Medicine, Ammunition, Tools, Clothing, or Everything useful, and how many items</td></tr>
-  <tr><td><strong>Target location</strong></td><td>Map-selected buildings, fishing banks or woodland: up to 1,000 tiles walking or 5,000 driving. Nearby browsing and automatic woodland discovery remain available.</td></tr>
+  <tr><td><strong>Target location</strong></td><td>Map-selected buildings, fishing banks or woodland: up to 1,000 tiles walking or 5,000 driving. Fuel trips use known gas stations within driving range. Nearby browsing and automatic discovery remain available.</td></tr>
   <tr><td><strong>Travel route</strong></td><td>Follow roads, Head straight for target, or Drive car</td></tr>
   <tr><td><strong>Parking area and vehicle</strong> (Drive car)</td><td>A marked ground-floor parking area and a usable car fully inside it</td></tr>
   <tr><td><strong>Restock and resume base duty</strong> (Search, Fish, Wood)</td><td>Yes or No: on return, refill from camp storage and go back to base jobs (<a href="#ch17_delivery">below</a>)</td></tr>
@@ -2437,6 +2478,19 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h4><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt="">Fish nearby water</h4>
 <p>Set how many fish to bring home, and the planner lists <strong>fishing banks</strong> instead of buildings: confirmed shores in the loaded world, and possible shores from the map's water up to 1,000 tiles away, which the leader checks on arrival. A remote shore is only a suggestion until the squad reaches it. Paging through the list reuses one scan; <span class="menu">Refresh</span> looks again. Before departure, the leader collects a usable rod and bait from permitted camp storage. Missing supplies pause preparation and retry automatically, without spending the trip's relative return timer. Other members with their own gear fish too, and the rest stand guard. Only fish caught near the chosen bank count. The squad heads home with the catch, after about two hours at the water, or at the turn-home time, and earlier if the bank has no usable water or the bait runs out.</p>
+
+<h4 id="ch17_fuel">Collect Fuel</h4>
+<p>A fuel expedition <strong>drives to a gas station, tops up its car and brings filled cans home</strong>. You need a camp, a usable car in marked parking and a station the crew knows about.</p>
+<ol class="steps">
+  <li><span class="step-n">1</span>Choose <strong>Collect fuel</strong> in Expeditions. Pick a known gas station on the map, or let the crew find a known station within <strong>5,000 tiles</strong>.</li>
+  <li><span class="step-n">2</span>Choose <strong>1, 2, 4, 8, 12 or 24 cans</strong>, <strong>Full load</strong>, or <strong>Top up car only</strong>. Full load is limited by safe carrying and trunk space, with a ceiling of 256 cans.</li>
+  <li><span class="step-n">3</span>Leave empty or partly filled gasoline cans in permitted camp storage. The crew gathers and packs them before departure. Missing cans pause preparation; they do not turn a collection trip into a car-only run.</li>
+  <li><span class="step-n">4</span>Review the car, station and return time, then choose <span class="menu">Send squad</span>.</li>
+</ol>
+<p>At the station, the crew fills the car first, then the cans one at a time. If the car cannot park beside the pump, a companion carries fuel across in a can. Even <strong>Top up car only</strong> needs one suitable can for this possibility.</p>
+<p><strong>Power out?</strong> The crew can use a suitable outdoor generator already at the station. They can connect it, add starter fuel and switch it on. Leave a little permitted gasoline at camp so they can prepare starter fuel before departure. They do not bring a generator with them.</p>
+<p>A generator they start is switched off before they leave, and a connection they add is removed. One that was already running or connected keeps that state. If danger prevents cleanup, the expedition report warns you to inspect the station.</p>
+<p>On return, the stopped car is unloaded into <strong>Tools</strong>, then <strong>General</strong> storage. The report separates fuel pumped, fuel added to the car, carried cans and stored cargo. Returning home alone does not count as delivery, and switching off <strong>Restock and resume base duty</strong> does not skip unloading. Full storage keeps the cargo safe for the usual three-minute retry.</p>
 
 <h4 id="ch17_wood"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt="">Collect wood</h4>
 <p>Send the crew on foot or by car. Choose <strong>1, 2, 4, 8, 12 or 24 logs</strong> (12 by default), or <strong>Full load</strong>, limited by real carrying space and a ceiling of 256 logs per trip. Automatic discovery finds woodland within 1,000 tiles. Or choose <span class="menu">Choose logging area on map</span> and click two opposite corners, up to <strong>128 × 128 tiles</strong>. Drag to pan, scroll to zoom, then choose <strong>Use area</strong>. Redraw starts over; Cancel keeps your previous destination. The whole area must be within 1,000 tiles walking or 5,000 driving; ground beyond 200 tiles must be visited or revealed by reading maps. Protected camp ground cannot be included. The crew checks actual mature trees on arrival and works through the rectangle, even on maps without Forest tags. It cuts only inside the outline, stops at the requested log count or carrying limit, and returns partial cargo if it runs out of usable trees.</p>
@@ -2675,7 +2729,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.8 uses native bridge protocol <code>42.22-isocompanion-31</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.10 uses native bridge protocol <code>42.22-isocompanion-31</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Seventy-three hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2945,7 +2999,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.8</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.10</td></tr>
   <tr><td>Game build / supported build</td><td>42.22.2 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -3093,7 +3147,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <ul>
   <li>Clean water only; they eat if no water is in reach.</li>
-  <li>They treat you when it's safe: bleeding first, then wounds, then splints.</li>
+  <li>They treat you when it's safe: bleeding first, then wounds, then splints. A Medic stocks a real first aid kit from camp supplies.</li>
   <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy and bleach wait for your authorization.</li>
 </ul>
 <p class="tbl-note">Ch 8</p>
@@ -3118,7 +3172,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage or a log yard for logs</td></tr>
   <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, firestarter and petrol</td></tr>
-  <tr><td class="k">Farmer</td><td>Plots or a camp animal zone; farming supplies; food storage for eggs and milk</td></tr>
+  <tr><td class="k">Farmer</td><td>Crops, chickens, cattle and sheep; see Animal care below</td></tr>
+  <tr><td class="k">Medic</td><td>First aid kit, clean dressings and a splint in Medical storage</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
   <tr><td class="k">Chef</td><td>Food storage or a fridge, food and cookware in storage</td></tr>
   <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
@@ -3126,6 +3181,20 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Outdoor work pauses 21:00–06:00 unless allowed. Tired residents sleep before the next job.</p>
 <p>Any available base-duty resident can refuel parked cars and camp generators, inflate tires and wash cars from marked supplies.</p>
 <p class="tbl-note">Ch 14, 15, 15b, 16</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Animal care</h4>
+<p><span class="k">Farmer on Base duty</span> + the game's animal zone. The whole pen must be within 30 tiles of camp on a camp floor.</p>
+<ul>
+  <li>Separate feed and water troughs. Stock feed, water cans, empty milk containers and shears in <span class="k">Farming supplies</span>.</li>
+  <li><span class="k">Eggs</span> &rarr; Fresh food or Regular food. Fertilised eggs stay in the hutch.</li>
+  <li><span class="k">Milk</span> &rarr; a compatible barrel marked Milk; separate cow and sheep milk. Food storage is a fallback.</li>
+  <li><span class="k">Wool</span> &rarr; Crafting, then General storage.</li>
+  <li><span class="k">Manure</span> &rarr; marked composters, then marked Manure containers.</li>
+</ul>
+<p>Farmers also soothe stressed animals when safe. If work pauses, check the Base job, supplies, space and access.</p>
+<p class="tbl-note">Ch 15</p>
 </div>
 
 <div class="card">
@@ -3151,12 +3220,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Journeys</span></h4>
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
-  <li><span class="k">Expeditions</span>: choose a leader, Scout, Search, Fish or Collect wood, walking or car route, return time and combat style.</li>
-  <li><span class="k">Choose on map</span>: right-click a building, shore or woodland. Known map targets allow 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
+  <li><span class="k">Expeditions</span>: choose Scout, Search, Fish, Collect wood or Collect fuel, then the leader, travel plan and return time. Fuel trips need a car.</li>
+  <li><span class="k">Choose on map</span>: pick a building, shore, logging rectangle or known gas station. Limits: 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
   <li><span class="k">Review mission</span>, then <span class="k">Send squad</span>.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Living Fellows radio → Expedition → Return immediately</em>.</p>
 <p><span class="k">Wood</span>: 1/2/4/8/12/24 logs or Full load (up to 256). Keep permitted Log Yard, Construction or General storage ready.</p>
+<p><span class="k">Fuel</span>: known gas station, permitted empty or partly filled cans, and trunk space. The car is topped up first. A suitable generator already at the station can power the pump; one the crew starts is stopped before leaving. Filled cans go to Tools, then General storage.</p>
 <p class="tbl-note">Ch 17</p>
 </div>
 
@@ -3187,7 +3257,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.22.2 Edition &nbsp;·&nbsp; Release 0.27.8 &nbsp;·&nbsp; First Edition, Twenty-Ninth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.22.2 Edition &nbsp;·&nbsp; Release 0.27.10 &nbsp;·&nbsp; First Edition, Thirtieth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {

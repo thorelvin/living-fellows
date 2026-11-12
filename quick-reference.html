@@ -243,7 +243,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   table { display: block; max-width: 100%; overflow-x: auto; }
   .two-col { grid-template-columns: minmax(0, 1fr); }
   .two-col > div { min-width: 0; }
-  .language-switcher { top: 0.65rem; right: 0.65rem; }
+  .language-switcher { position: absolute; top: 0.65rem; right: 0.65rem; }
   #cover h1 { font-size: 2.1rem; }
   #cover .kit img { height: 30px; }
   .card-grid { grid-template-columns: minmax(0, 1fr); }
@@ -277,7 +277,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </head>
 <body>
 <!-- CARD START -->
-<p class="appendix-label">Living Fellows · Release 0.27.8</p>
+<p class="appendix-label">Living Fellows · Release 0.27.10</p>
 <h2 class="chapter" id="appF">Quick Reference Card</h2>
 <p class="card-intro">The Field Manual on two printed pages. Each panel names the manual chapter with the detail.</p>
 
@@ -361,7 +361,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 <ul>
   <li>Clean water only; they eat if no water is in reach.</li>
-  <li>They treat you when it's safe: bleeding first, then wounds, then splints.</li>
+  <li>They treat you when it's safe: bleeding first, then wounds, then splints. A Medic stocks a real first aid kit from camp supplies.</li>
   <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy and bleach wait for your authorization.</li>
 </ul>
 <p class="tbl-note">Ch 8</p>
@@ -386,7 +386,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage or a log yard for logs</td></tr>
   <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, firestarter and petrol</td></tr>
-  <tr><td class="k">Farmer</td><td>Plots or a camp animal zone; farming supplies; food storage for eggs and milk</td></tr>
+  <tr><td class="k">Farmer</td><td>Crops, chickens, cattle and sheep; see Animal care below</td></tr>
+  <tr><td class="k">Medic</td><td>First aid kit, clean dressings and a splint in Medical storage</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
   <tr><td class="k">Chef</td><td>Food storage or a fridge, food and cookware in storage</td></tr>
   <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
@@ -394,6 +395,20 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Outdoor work pauses 21:00–06:00 unless allowed. Tired residents sleep before the next job.</p>
 <p>Any available base-duty resident can refuel parked cars and camp generators, inflate tires and wash cars from marked supplies.</p>
 <p class="tbl-note">Ch 14, 15, 15b, 16</p>
+</div>
+
+<div class="card">
+<h4><img src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Animal care</h4>
+<p><span class="k">Farmer on Base duty</span> + the game's animal zone. The whole pen must be within 30 tiles of camp on a camp floor.</p>
+<ul>
+  <li>Separate feed and water troughs. Stock feed, water cans, empty milk containers and shears in <span class="k">Farming supplies</span>.</li>
+  <li><span class="k">Eggs</span> &rarr; Fresh food or Regular food. Fertilised eggs stay in the hutch.</li>
+  <li><span class="k">Milk</span> &rarr; a compatible barrel marked Milk; separate cow and sheep milk. Food storage is a fallback.</li>
+  <li><span class="k">Wool</span> &rarr; Crafting, then General storage.</li>
+  <li><span class="k">Manure</span> &rarr; marked composters, then marked Manure containers.</li>
+</ul>
+<p>Farmers also soothe stressed animals when safe. If work pauses, check the Base job, supplies, space and access.</p>
+<p class="tbl-note">Ch 15</p>
 </div>
 
 <div class="card">
@@ -419,12 +434,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h4><img src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Expeditions <span class="stage stage-end" style="margin-left:auto">Journeys</span></h4>
 <ol>
   <li>Put 1–4 companions in a group on <span class="k">Squad</span>.</li>
-  <li><span class="k">Expeditions</span>: choose a leader, Scout, Search, Fish or Collect wood, walking or car route, return time and combat style.</li>
-  <li><span class="k">Choose on map</span>: right-click a building, shore or woodland. Known map targets allow 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
+  <li><span class="k">Expeditions</span>: choose Scout, Search, Fish, Collect wood or Collect fuel, then the leader, travel plan and return time. Fuel trips need a car.</li>
+  <li><span class="k">Choose on map</span>: pick a building, shore, logging rectangle or known gas station. Limits: 1,000 tiles walking or 5,000 driving; nearby browsing stays available.</li>
   <li><span class="k">Review mission</span>, then <span class="k">Send squad</span>.</li>
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Living Fellows radio → Expedition → Return immediately</em>.</p>
 <p><span class="k">Wood</span>: 1/2/4/8/12/24 logs or Full load (up to 256). Keep permitted Log Yard, Construction or General storage ready.</p>
+<p><span class="k">Fuel</span>: known gas station, permitted empty or partly filled cans, and trunk space. The car is topped up first. A suitable generator already at the station can power the pump; one the crew starts is stopped before leaving. Filled cans go to Tools, then General storage.</p>
 <p class="tbl-note">Ch 17</p>
 </div>
 
