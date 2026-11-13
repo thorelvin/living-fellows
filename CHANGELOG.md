@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.27.14 - Holding the stairs
+
+- Companions no longer step onto a staircase to fight. They meet a zombie at
+  the top landing or at the foot, never on the steps, and never back away or
+  dodge onto the stairs.
+- A zombie knocked down on the steps is left there rather than chased onto
+  the stairs.
+- When a companion at the top and a zombie on the top step trade blows
+  without either landing, the companion steps back off the landing for a
+  moment so the zombie comes up onto level ground.
+- One companion now calls it when the group's plan changes: holding, giving
+  ground, pulling out, more on the way, or a zombie on you that nobody can
+  reach. At most one call every few seconds per group; chatter settings and
+  mute apply.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.13 - Squads that fight together
 
 - Companions in a group share out the zombies that can reach them. Every

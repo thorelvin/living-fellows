@@ -1,0 +1,22 @@
+Horde plan release 2 (stairs S1/S2, call-outs) -- live checks -- 2026-11-13
+
+Disposable clones, isolated source bridge, one game at a time; the installed
+game, launcher and saves were not changed.
+
+Squad arena (same settings as docs/horde-release1-arena-0.27.12.txt):
+  Invoke-LiveSandboxTests.ps1 -SquadCombatProbe -SquadCombatCompanions 3
+      -SquadCombatZombieCounts 2,6 -SquadCombatTrials 3
+      -LivingFellowsOnly -IsolatedSourceBridge -TimeoutSeconds 1500
+
+3 companions vs 6 zombies
+              survivors  kills          health lost
+  0.27.12     8/9        14/18 (6,2,6)  0, 112.9, 4.4
+  0.27.13     9/9        13/18 (6,2,5)  4.1, 0, 88.5
+  release 2   9/9        18/18 (6,6,6)  0, 6.2, 0      (125d0932)
+3 companions vs 2 zombies: 9/9, 6/6 kills, no health lost, 8.6-11.7 s.
+
+Stair probe (docs/stair-combat-facts-0.27.12.txt, section "After S1 and S2"):
+the companion never stood on the slope in six trials; 4 of 6 zombies killed;
+one harmless shove loop at the top; one zombie never came down.
+
+Three trials per case is a small sample.
