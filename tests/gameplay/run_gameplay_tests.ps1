@@ -173,6 +173,7 @@ try {
             $encounterHandoffFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $TestRoot 'encounter_handoff_harness.lua')
             )
@@ -181,6 +182,7 @@ try {
             $expeditionContainerFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $TestRoot 'expedition_container_search_harness.lua')
             )
@@ -190,6 +192,7 @@ try {
                 (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $ClientRoot 'SCExpeditionPrototype.lua'),
                 (Join-Path $TestRoot 'expedition_search_deadline_harness.lua')
@@ -221,6 +224,7 @@ try {
             $needsPriorityFiles = @(
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
                 (Join-Path $ClientRoot 'SCEncounter.lua'),
                 (Join-Path $ClientRoot 'SCNeeds.lua'),
                 (Join-Path $TestRoot 'needs_priority_harness.lua')

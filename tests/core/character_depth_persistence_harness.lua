@@ -521,6 +521,8 @@ original:setWornItem("Back", bag)
 original:setWornItem("Jacket", jacket)
 original:setAttachedItem("Belt Left", knife)
 original.data.SC_ManualWeaponSerial = 7
+original.data.LF_LootReturnPending = true
+original.data.LF_LootReturnRetryAt = 180000
 weapon:getModData().SC_ManualEquipFor = record.id
 weapon:getModData().SC_ManualEquipSerial = 7
 knife:getModData().SC_ManualEquipFor = record.id
@@ -530,6 +532,8 @@ check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
 check(captured.order.manualWeaponSerial == 7,
     "weapon choice generation is captured explicitly alongside the weapon priority")
+check(captured.lootReturnPending == true and captured.lootReturnRetryAt == 180000,
+    "pending loot delivery is explicitly captured for a reconstructed companion")
 
 do
     original.data.LF_ProductionSawReceipt = {
@@ -1208,6 +1212,8 @@ local function findType(inventory, itemType)
     return nil
 end
 local restoredBag = findType(restored.inventory, "Base.Bag_Schoolbag")
+check(restored:getModData().LF_LootReturnPending == true and restored:getModData().LF_LootReturnRetryAt == 180000,
+    "pending loot delivery survives reconstruction without persisting transient take-lists")
 local restoredBottle = findType(restored.inventory, "Base.WaterBottleFull")
 local restoredWeapon = findType(restored.inventory, "Base.VarmintRifle")
 local restoredJacket = findType(restored.inventory, "Base.Jacket_Police")

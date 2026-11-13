@@ -2680,6 +2680,14 @@ end
 
 local function onSupportButton(target, button)
     local action = button and button.scSupportAction or "refresh"
+    if action == "loot_retry" then
+        local row = target.root and target.root.selectedRow
+        local accepted = row and SC.Logistics and SC.Logistics.retryLootDelivery
+            and SC.Logistics.retryLootDelivery(row.actor)
+        setButtonFeedback(target, UI.text(accepted and "UI_SC_Loot_RetryQueued" or "UI_SC_Support_Unavailable"), accepted == true)
+        UI.refresh()
+        return
+    end
     -- The combat tracer is a developer switch, not a support action, so it does
     -- not require the support module to be present.
     local traceSwitches = {
@@ -3562,6 +3570,30 @@ function SCUIDetail:buildTalk(panel, row)
             UI.text("UI_SC_NoSelection"))
     end
     local metrics = self.metrics or UI.layoutMetrics()
+    y = self:addSection(panel, y, "UI_SC_Section_Talk")
+    local topic = self.talkTopic or "check_in"
+    local topicWidth = math.floor((panel:getWidth() - 16) / #SC.Interaction.categories)
+    for index, category in ipairs(SC.Interaction.categories) do
+        local title = UI.text(category.key)
+        local button = ISButton:new(8 + (index - 1) * topicWidth, y,
+            topicWidth - 2, metrics.buttonHeight,
+            fitText(UIFont.Small, title, topicWidth - 12), self, onTalkTopicButton)
+        button:initialise()
+        makeButtonTranslucent(button)
+        button.scTalkTopic = category.id
+        button.tooltip = title
+        if topic == category.id then
+            button.backgroundColor = { r = 0.34, g = 0.38, b = 0.27, a = 0.8 }
+        end
+        panel:addChild(button)
+    end
+    y = y + metrics.buttonHeight + 6
+    for _, choice in ipairs(SC.Interaction.choices(topic, row)) do
+        local descriptor = SC.Interaction.descriptor(choice.action)
+        y = self:addCommand(panel, y, descriptor.key, choice.action)
+    end
+    if SC.UISocial then y = SC.UISocial.build(self, panel, y + 4, row) end
+    local portraitY = y
     local portraitHeight = 104
     local portraitDrawn = false
     if row.actor and ISUI3DModel then
@@ -3599,30 +3631,7 @@ function SCUIDetail:buildTalk(panel, row)
         panel:addChild(header)
         y = y + metrics.infoLineHeight
     end
-    y = math.max(7 + portraitHeight, y) + 6
-    if SC.UISocial then y = SC.UISocial.build(self, panel, y, row) end
-    y = self:addSection(panel, y, "UI_SC_Section_Talk")
-    local topic = self.talkTopic or "check_in"
-    local topicWidth = math.floor((panel:getWidth() - 16) / #SC.Interaction.categories)
-    for index, category in ipairs(SC.Interaction.categories) do
-        local title = UI.text(category.key)
-        local button = ISButton:new(8 + (index - 1) * topicWidth, y,
-            topicWidth - 2, metrics.buttonHeight,
-            fitText(UIFont.Small, title, topicWidth - 12), self, onTalkTopicButton)
-        button:initialise()
-        makeButtonTranslucent(button)
-        button.scTalkTopic = category.id
-        button.tooltip = title
-        if topic == category.id then
-            button.backgroundColor = { r = 0.34, g = 0.38, b = 0.27, a = 0.8 }
-        end
-        panel:addChild(button)
-    end
-    y = y + metrics.buttonHeight + 6
-    for _, choice in ipairs(SC.Interaction.choices(topic, row)) do
-        local descriptor = SC.Interaction.descriptor(choice.action)
-        y = self:addCommand(panel, y, descriptor.key, choice.action)
-    end
+    y = math.max(portraitY + portraitHeight, y) + 6
     local conversation = SC.Interaction.state(row.id)
     y = self:addSection(panel, y + 4, "UI_SC_Talk_Recent")
     if conversation.state ~= "idle" then
@@ -3684,6 +3693,11 @@ function SCUIDetail:buildStatus(panel, row)
         y = y + 4
     end
     y = self:addSection(panel, y, "UI_SC_Section_Status")
+    local data = row and row.actor and SC.GameplayUtil.modData(row.actor)
+    if data and data.LF_LootReturnPending and SC.BaseLife and SC.BaseLife.isInside(row.actor) then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_Loot_Pending"))
+        y = self:addSupportAction(panel, y, "UI_SC_Loot_Retry", "loot_retry")
+    end
     if not row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
     else

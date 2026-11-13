@@ -1,0 +1,85 @@
+Loot batches and home shelving — 0.27.12 — 2026-11-13
+
+Implemented against living_fellows/0.27.11, base 09277f2c, PZ 42.22.2.
+Promoted to living_fellows/0.27.12 after acceptance; the bridge is rebuilt
+with matching release metadata. Bridge protocol and save schema are unchanged.
+
+Behaviour
+Companions approach before reading contents, check every compartment and one
+bag level, meet personal needs first, then take useful extras outside camp.
+Filled bag shells and deeper contents stay behind. Exact items, parent bags,
+the physical object, permissions, native capacity and mission quotas remain
+protected. One supervisor commit follows each verified native animation.
+
+The shipped ceiling is six items per animation, reduced from the proposed
+eight after profiling. Five items use one animation; twelve use two.
+Scanning retains the shared 40-unit/1.5 ms slice and bounded candidate pages.
+Carrying checks retain real bag space, item restrictions and a 72% ceiling.
+Redraws coalesce per changed container; ownership receipts remain per item.
+
+One reaction describes the haul's best verified find. Existing chatter chance,
+mute/cooldown, sleep/danger silence and a 15-second party gap are preserved.
+Ordinary home shelving retains role supplies, good rations and protected gear.
+Moving Follow and new orders yield safely. Missing/full storage retains cargo;
+pending delivery and its three-minute retry deadline survive reconstruction.
+Status provides Retry putting loot away. No new background service was added.
+
+Automated
+Full five-check gate PASS, 105.1 seconds, serial and memory limited:
+  build/test-results/20261113-174631-89f7e0/
+  Build, Lifecycle, Behaviour, Cargo, Interface all passed.
+The existing Cargo group includes one compact loot scenario file, 72 checks:
+  tests/gameplay/loot_haul_harness.lua
+Covers batch cancellation, mutations, unreadable APIs, depth limits, parent
+movement, freezer contention, four carriers, exact quotas, capacity, lighter
+alternatives, needs priority, haul silence, uncertain rollback, full storage,
+manual retry, moving Follow, route timeout and native animation pacing.
+The existing character_depth_persistence_harness passed separately, including
+capture and reconstruction of both optional delivery fields. Static gameplay
+contracts passed all 921 assertions. git diff --check passed.
+
+Native cloned-save evidence
+  build/live-sandbox-runs/SC-Harness-20261113-174342-afc0e783/
+    PASS: 25 checks, zero failures. Actual Rosewood store, native companion,
+    real fridge/freezer and duffel, normal animations and exact physical items.
+    Five items / one pose; twelve / two six-item poses; freezer and bag contents
+    collected; filled shells and depth-two item left behind. Full storage kept
+    all sixteen tracked cargo identities and captured pending delivery.
+  build/live-sandbox-runs/SC-Harness-20261113-172938-7e5b8947/
+    PASS: 31 checks, zero failures. Cold reload of the full-storage fixture
+    restored all sixteen identities without replaying a batch. A slow unresolved
+    route paused after fifteen seconds with a saved retry deadline. Marking a
+    nearby native shelf and using the retry API finished delivery: thirteen
+    original items stored, three retained, sixteen unique identities in total.
+
+Evidence in each run: cache/Lua/SurvivorCompanionHarness/loot-acceptance.txt,
+summary.txt, events.log, cache/console.txt and cache/Screenshots/*-loot-*.png.
+Blockers were captured after zooming out. Screenshots were inspected.
+Only one game/JVM ran at a time; no compiling alongside a live client.
+The original save and local installation were not changed.
+
+Performance and findings
+The initial eight-item commit measured 8.93 ms. Removing duplicate scoring and
+capacity checks and deferring redundant shelf redraws reduced eight to 4.17 ms.
+The final six-item commits measured 1.92 and 2.13 ms. The first five-item commit
+measured 3.11 ms; full completion calls, including existing native visual cleanup
+and surrounding work, measured 8.23–11.92 ms. These are observed timings, not a
+guarantee that every native action fits the 3 ms soft work budget. Read-only
+timing instrumentation exists only in disposable test payloads.
+Live delivery also exposed native action_pacing being treated as a failed
+deposit. It now waits under the same owner instead of cooling cargo for three
+minutes. An unresolved route is reported as unknown, not proven unreachable.
+
+Scope of evidence
+Native runs seed real shop fixtures and drive production Encounter/Logistics
+APIs with native actors; they do not simulate inventory transfers or animations.
+Full mission travel, four live carriers, bag carrying limits and all speech
+variants were not rerun live; their coverage here is automated.
+README, changelog and the external Field Guide source were updated. The guide
+preview builds at C:/ZOMBOID/outputs/loot-live-02711/field-guide-preview/.
+Implementation acceptance did not publish, install, commit or push changes.
+The separate release-preparation step commits and pushes 0.27.12.
+Release metadata Build check passed in 13.5 seconds:
+  build/test-results/20261113-183526-a212a6/
+Test-Source -Scope All passed release synchronization and content checks for
+0.27.12 / PZ 42.22.2. The packaged bridge matches the reproducible build.

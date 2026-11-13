@@ -195,7 +195,29 @@ end
 
 function Social.addJoiningLink(detail, panel, y, row)
     local id = row.id
-    return addButton(detail, panel, y, text("ask", "Ask about joining"), function() SC.UI.open("talk", id) end)
+    local recruitment, _, group = Social.joining(row)
+    if recruitment then
+        local action, title
+        if recruitment.canAsk then action, title = "ask", text("ask", "Ask about joining")
+        elseif recruitment.canStartTrial then action, title = "startTrial", SC.UI.text("UI_SC_Faction_RecruitmentStartTrial")
+        elseif recruitment.canDecide then action, title = "decide", SC.UI.text("UI_SC_Faction_RecruitmentAskDecision") end
+        return addButton(detail, panel, y, title or text("ask", "Ask about joining"), function()
+            if not action then
+                local lines = {}
+                for _, why in ipairs(SC.FactionRecruitment.requirements(group.id)) do
+                    lines[#lines+1] = Social.reason(why)
+                end
+                if #lines == 0 then lines[1] = text("household_panel", "Open the household panel to review their current recruitment decision.") end
+                Social.message(table.concat(lines, "\n")); return
+            end
+            local accepted, why = SC.FactionRecruitment[action](group.id, player(), false)
+            report(id, accepted and text("joining_updated", "The household's recruitment decision has been updated.") or Social.reason(why))
+        end)
+    elseif row.factionId then
+        return addButton(detail, panel, y, text("review_joining", "Review joining conditions..."),
+            function() SC.UI.open("talk", id) end)
+    end
+    return detail:addCommand(panel, y, "UI_SC_Social_ask", "recruit", nil)
 end
 
 function Social.signature(row)
@@ -259,23 +281,12 @@ function Social.build(detail, panel, y, row)
         if recruitment.cooldownHours > 0 then line(text("cooldown", "Ask again in about %1 game hours.", math.ceil(recruitment.cooldownHours))) end
         if recruitment.candidateName then line(text("candidate", "Prospective recruit: %1", recruitment.candidateName)) end
         if recruitment.status == "trial" then line(text("trial", "Field trial: about %1 game hours until a decision.", math.ceil(recruitment.hoursUntilDecision))) end
-        local action, title
-        if recruitment.canAsk then action, title = "ask", text("ask", "Ask about joining")
-        elseif recruitment.canStartTrial then action, title = "startTrial", SC.UI.text("UI_SC_Faction_RecruitmentStartTrial")
-        elseif recruitment.canDecide then action, title = "decide", SC.UI.text("UI_SC_Faction_RecruitmentAskDecision") end
-        y = addButton(detail, panel, y, title or text("ask", "Ask about joining"), function()
-            if not action then Social.message(table.concat((function()
-                local lines = {}; for _, why in ipairs(SC.FactionRecruitment.requirements(group.id)) do lines[#lines+1] = Social.reason(why) end
-                if #lines == 0 then lines[1] = text("household_panel", "Open the household panel to review their current recruitment decision.") end
-                return lines end)(), "\n")); return end
-            local accepted, why = SC.FactionRecruitment[action](group.id, player(), false)
-            report(id, accepted and text("joining_updated", "The household's recruitment decision has been updated.") or Social.reason(why))
-        end)
+        y = Social.addJoiningLink(detail, panel, y, row)
     elseif row.factionId then
         line(text("story", "This person has their own joining conditions. Ask about their situation."))
     else
         line(text("independent", "This survivor is independent. You can invite them without a household contract."))
-        y = detail:addCommand(panel, y, "UI_SC_Social_ask", "recruit", nil)
+        y = Social.addJoiningLink(detail, panel, y, row)
     end
     return y + 4
 end

@@ -56,6 +56,52 @@ assert(SC.UISocial.signature(row) ~= signature, "personal progress refreshes wit
 signature = SC.UISocial.signature(row)
 row.thirst = .2
 assert(SC.UISocial.signature(row) ~= signature, "a satisfied need refreshes its help action")
+do
+    local commands, interaction, refresh, message = SC.Commands, SC.Interaction, UI.refresh, SC.UISocial.message
+    local issued, householdCalls, explained = 0, 0, 0
+    SC.Interaction=nil; UI.refresh=function() end
+    SC.GameplayUtil.call=function() end
+    SC.Commands={issue=function(id,command,payload,who)
+        assert(id=="independent" and command=="recruit" and who==getSpecificPlayer(0),
+            "both invitation buttons retain the selected survivor and local player")
+        issued=issued+1; return true,"recruited"
+    end}
+    local solo={id="independent",recruited=false,available=true,alive=true,distance=2,
+        hunger=.2,thirst=.2,wounds={},relationshipProgress=row.relationshipProgress}
+    detail.root={selectedRow=solo}; detail.metrics=UI.layoutMetrics()
+    local statusButton
+    for _,builder in ipairs({SC.UISocial.addJoiningLink,SC.UISocial.build}) do
+        local panel=ISPanel:new(0,0,420,700)
+        builder(detail,panel,8,solo)
+        local invite
+        for _,child in ipairs(panel.childrenInOrder) do if child.scCommand=="recruit" then invite=child end end
+        assert(invite and invite.enable,"Status and Talk expose the checked recruit command, not a navigation link")
+        statusButton=statusButton or invite
+        invite.onClick(invite.target,invite)
+    end
+    assert(issued==2,"one click on either invitation actually sends exactly one recruit command")
+    solo.distance=17; statusButton.onClick(statusButton.target,statusButton)
+    solo.distance=2; solo.recruited=true; statusButton.onClick(statusButton.target,statusButton)
+    assert(issued==2,"stale distance and already-joined selections still reject recruitment")
+    detail.root.selectedRow=row
+    SC.UISocial.message=function() explained=explained+1 end
+    SC.FactionRecruitment.ask=function(id,who,force)
+        assert(id==group.id and who==getSpecificPlayer(0) and force==false)
+        householdCalls=householdCalls+1; return false,"more_contracts_required"
+    end
+    for _,allowed in ipairs({false,true}) do
+        summary.canAsk=allowed
+        local panel=ISPanel:new(0,0,420,700)
+        SC.UISocial.addJoiningLink(detail,panel,8,row)
+        local invite=panel.childrenInOrder[1]
+        invite.onClick(invite.target,invite)
+    end
+    assert(householdCalls==1 and explained==1 and issued==2,
+        "Status explains blocked household joining and uses its household service when available")
+    summary.canAsk=false; SC.FactionRecruitment.ask=nil
+    SC.Commands,SC.Interaction,UI.refresh,SC.UISocial.message=commands,interaction,refresh,message
+    SC.GameplayUtil.call=nil; detail.root=nil
+end
 local help,commands,interaction,refresh,combo=SC.RelationshipHelp,SC.Commands,SC.Interaction,UI.refresh,ISComboBox
 local methods={}
 for _,key in ipairs({"instantiate","addToUIManager","removeFromUIManager","setAlwaysOnTop","setHeight"}) do

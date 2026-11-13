@@ -1,0 +1,35 @@
+Status invitation and Talk layout validation — 2026-11-13
+
+Cause: Status called UI.open("talk", id), so its invitation only changed
+tabs. The normal-play log ran LF 0.27.8 without a Join Lua exception; the
+same navigation-only callback also existed in the 0.27.11 source.
+
+Change: share joining action construction between Status and Talk.
+Independent survivors use the checked recruit command. Household actions
+retain the existing recruitment service and requirements. Story-specific
+navigation is labelled "Review joining conditions...".
+Talk now shows conversation choices, relationship progress, then details.
+
+Automated: Status and Talk callbacks issue one recruit command for the
+selected survivor; stale range/already-joined rows reject the command.
+Blocked household actions explain requirements; eligible actions use the
+household service. All five routine project checks passed in 108.0 s:
+build/test-results/20261113-155127-c4ce71 (Build, Lifecycle, Behaviour,
+Cargo, Interface). git diff --check passed.
+
+Live: SC-Harness-20261113-154543-97d4098a, PASS, 17 passes, 0 failures.
+Used an isolated source-bridge clone of Rising/2026-11-13_15-25-26 on
+42.22.2. Two actual independent native survivors were invited through
+the real Status and Talk buttons. Each click recruited its selected
+actor without changing tabs or recruiting the other actor. Talk prompt
+positions preceded the relationship bar; native screenshots were checked.
+Household recruitment gates were automated checks, not a live household run.
+
+Evidence: build/live-sandbox-runs/SC-Harness-20261113-154543-97d4098a/
+  cache/Lua/SurvivorCompanionHarness/join-acceptance.txt
+  cache/Lua/SurvivorCompanionHarness/summary.txt
+  cache/Screenshots/*-join-status-after.png
+  cache/Screenshots/*-join-talk-final-layout.png
+The disposable acceptance driver was copied into the cloned test mod only.
+The harness exited; the original save and local install were not changed.
+No bridge, save-schema or recruitment-balance change was needed.

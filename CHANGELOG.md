@@ -2,6 +2,22 @@
 
 # Changelog
 
+## 0.27.12 - Useful loot and easier conversations
+
+- Scavenging checks every compartment, including freezers, and one level
+  inside bags. Companions take up to six useful items per rummage, meeting
+  their own needs first and keeping a safe margin below their carrying limit.
+- Loot reactions happen once per haul, about the best verified find.
+  Returning followers put extra supplies into marked storage when you stop.
+  Full or inaccessible storage keeps cargo pending through save/reload,
+  with a three-minute retry and a manual Retry on Status.
+- The Status invitation now asks an independent survivor to join with one
+  click. Household invitations use the same joining rules as Talk.
+- Talk puts conversation choices first, relationship progress next, and
+  the remaining companion details below them.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release metadata.
+
 ## 0.27.11 - Bathroom routines and companion conversations
 
 - Companions remove pants and underwear before using a toilet, then put the

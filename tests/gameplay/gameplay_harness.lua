@@ -63,28 +63,24 @@ check((player.movementCalls or 0) == playerMoves and player.body.health == playe
 do
     local items, visits = {}, {}
     for index = 1, 20 do items[index] = f.item("Base.SearchSlice" .. index, "Item", {}) end
-    local cupboard = f.containerObject(follower.square, items)
-    local search, precise, count, found = {}, 0, 0, nil
-    local clock, score, inside = SC.Performance.preciseNowMs, SC.Logistics.itemNeedScore, SC.BaseLife.isInside
+    local cupboard, owner = f.containerObject(follower.square, items)
+    local precise, count, found = 0, 0, nil
+    local clock = SC.Performance.preciseNowMs
     SC.Performance.preciseNowMs = function() precise = precise + .6 return precise end
-    SC.BaseLife.isInside = function() return false end
-    SC.Logistics.itemNeedScore = function(_, item)
-        count, visits[item] = count + 1, (visits[item] or 0) + 1
-        return item == items[20] and 100 or 0, "general"
-    end
-    SC.Encounter._noteContainerOpened(search, cupboard, f.clock)
-    for _ = 1, 20 do
+    local visit = SC.ScavengeLoot.new(follower, owner, cupboard)
+    for _ = 1, 30 do
         count = 0
-        local _, selected = SC.Encounter.stickyContainer(follower, search, {}, {},
-            { items = {}, shouldUnload = false }, f.clock)
-        check(count > 0 and count <= 3, "expensive scavenging yields after a bounded item slice")
-        if selected then found = selected break end
-        check(search.openContainer == cupboard, "a partly read cupboard remains open for the next slice")
+        local complete = SC.ScavengeLoot.scan(visit, function(item)
+            count, visits[item] = count + 1, (visits[item] or 0) + 1
+            return item == items[20] and 100 or 0, "general", 1
+        end)
+        check(count <= 3, "expensive scavenging yields after a bounded item slice")
+        if complete then found = SC.ScavengeLoot.rows(visit)[1].item break end
     end
     check(found == items[20] and #cupboard.items == 20,
         "time-sliced scavenging reaches the late useful item without moving stock")
     for _, item in ipairs(items) do check(visits[item] == 1, "scavenging resumes without rescoring the prefix") end
-    SC.Performance.preciseNowMs, SC.Logistics.itemNeedScore, SC.BaseLife.isInside = clock, score, inside
+    SC.Performance.preciseNowMs = clock
 end
 do
     local originalFaction = SC.FactionBehavior

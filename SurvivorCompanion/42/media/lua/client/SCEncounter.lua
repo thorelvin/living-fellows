@@ -4,6 +4,8 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
+require "SCScavengeLoot"
+local Loot = SC.ScavengeLoot
 
 SC.Encounter = SC.Encounter or {}
 local Encounter = SC.Encounter
@@ -14,14 +16,16 @@ local failedContainers = setmetatable({}, { __mode = "k" })
 local supplyCacheGeneration = 0
 local stopScavengeMovement
 local cleanupScavengeTarget
+local finishHaul
+local nextPartyLootAt = 0
 
 local function U()
     return SC.GameplayUtil
 end
 
 local function manualEquipmentOnly(item)
-    return SC.Logistics and type(SC.Logistics.isManualOnlyFilterMask) == "function"
-        and SC.Logistics.isManualOnlyFilterMask(item) == true
+    return SC.Logistics and type(SC.Logistics.manualOnlyFilterMask) == "function"
+        and SC.Logistics.manualOnlyFilterMask(item) == true
 end
 
 local function matchesSupplyRequest(requestedCategory, category)
@@ -318,11 +322,13 @@ local function registeredStorage(container, index)
     local x, y, z = U().position(U().squareOf(containerOwner(container)))
     if x == nil then return nil end
     local rows = index[math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z or 0)]
+    local sameOwner
     for _, storage in ipairs(rows or {}) do
         local ok, resolved = pcall(baseLife.resolveContainer, storage)
         if ok and resolved == container then return storage end
+        if ok and resolved and containerOwner(resolved) == containerOwner(container) then sameOwner = storage end
     end
-    return nil
+    return sameOwner
 end
 
 local function insideBase(value)
@@ -378,9 +384,7 @@ local function storageAllows(storage, item)
 end
 
 local containerItems
--- Forward declaration: stickyContainer scores the container it already has
--- open, and is defined above the ranking helper it calls.
-local scoreContainer
+local chooseDestination
 
 local function supplyStillPresent(supply)
     return type(supply) == "table" and supply.container ~= nil and supply.item ~= nil
@@ -939,6 +943,7 @@ function Encounter.needsMeleeWeapon(actor)
     if not actor then return false end
     local audit = SC.Logistics and type(SC.Logistics.status) == "function"
         and SC.Logistics.status(actor) or nil
+    local needsUnloading = audit and audit.shouldUnload
     return actorNeedsMeleeWeapon(actor, audit)
 end
 
@@ -1313,37 +1318,16 @@ end
 -- a companion took one thing, walked away, took one thing there, and so on. Two
 -- steps from an open cupboard beats twenty to the next one.
 function Encounter.stickyContainer(actor, state, needs, commands, audit, time, context)
-    if type(state) ~= "table" then return nil end
-    local container = state.openContainer
-    if container == nil then return nil end
-    if not Encounter._alreadyOpened(state, container) then return nil end
-    local utility = U()
-    if time ~= nil and time >= (tonumber(state.openContainerUntil) or 0) then
-        state.openContainer = nil
+    local container = state and state.openContainer
+    if not container or not Encounter._alreadyOpened(state, container) then return nil end
+    if time >= (tonumber(state.openContainerUntil) or 0) or containerOnCooldown(container, time)
+        or ownerDistance(actor, containerOwner(container)) > 2.5
+        or not Encounter.mayTakeFrom(container, context and context.storages) then
+        state.openContainer, state.visit = nil, nil
         return nil
     end
-    -- And a container this companion has already written off stays written
-    -- off. Without this the sticky window re-read a cupboard it had just
-    -- finished with, once per tick, for the whole minute.
-    if time ~= nil and containerOnCooldown(container, time) then
-        state.openContainer = nil
-        return nil
-    end
-    -- A full companion has finished with this container whatever is left in it.
-    if SC.Logistics and type(SC.Logistics.audit) == "function" then
-        local current = audit or SC.Logistics.audit(actor)
-        if type(current) == "table" and current.shouldUnload == true then
-            state.openContainer = nil
-            return nil
-        end
-    end
-    local score, item, category, owner, complete = scoreContainer(
-        actor, container, needs, commands and commands.objectives, commands, audit, state, context)
-    if item == nil or score <= 0 then
-        if complete ~= false then state.openContainer = nil end
-        return nil, nil, nil, nil, nil, complete
-    end
-    return container, item, category, owner, score
+    -- Contents are inspected only at physical contact, even on a return visit.
+    return container, Encounter.UNOPENED, nil, containerOwner(container), 1
 end
 
 function Encounter._alreadyOpened(state, container)
@@ -1365,133 +1349,113 @@ function Encounter._noteContainerOpened(state, container, time)
     return true
 end
 
--- Where the next slice of this container's contents starts.
---
--- Scoring read the first `scavengeItemBudget` items and no further, from the
--- beginning, every time. Forty unwanted things in front of a bandage meant the
--- bandage did not exist: the pass found nothing, the container was written off
--- as "nothing needed", and the next pass read the same forty. Waiting did not
--- help because nothing remembered how far it had got.
---
--- Returns the start index and whether this slice reaches the end, so a caller
--- can tell "nothing in this slice" from "nothing in this container".
--- Stands in for the item of a container nobody has opened yet. Selection is
--- allowed to choose such a container; it is not allowed to know what is in it.
+-- Selection carries a sentinel until the companion reaches the source.
 Encounter.UNOPENED = setmetatable({}, { __tostring = function() return "unopened" end })
 
-function Encounter._itemScanSlice(state, container, size, budget)
-    if type(state) ~= "table" then return 0, size <= budget end
-    local cursors = state.itemCursors
-    if size <= budget and not (cursors and cursors[container]) then return 0, true end
-    if type(cursors) ~= "table" then
-        cursors = setmetatable({}, { __mode = "k" })
-        state.itemCursors = cursors
+local function lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
+    if manualEquipmentOnly(item) then return 0 end
+    local itemData = select(1, U().call(item, "getModData"))
+    if type(itemData) == "table" and itemData.SC_LootTransferUncertain then return 0 end
+    local allowed, _, storage = Encounter.mayTakeFrom(node.root, storages)
+    if not allowed or storage and not storageAllows(storage, item) then return 0 end
+    local score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
+    local supplyCategory = SC.Logistics and SC.Logistics.itemCategory
+        and SC.Logistics.itemCategory(item) or category
+    local band = 1
+    if SC.Logistics and SC.Logistics.lootChoice then
+        local choice = SC.Logistics.lootChoice(actor, item, supplyCategory, projection,
+            commands, storage, not insideBase(node.root and containerOwner(node.root)))
+        if not choice then return 0 end
+        score, category, band = choice.score, choice.category, choice.band
     end
-    local record = cursors[container]
-    -- A changed item count means the container was disturbed; start again
-    -- rather than resume into a list that has shifted under us.
-    if type(record) ~= "table" or record.size ~= size then
-        record = { index = 0, size = size }
-        cursors[container] = record
+    if category == "weapon" and priorityMeleeAllowed(actor, item, audit, commands) then
+        score, band = math.max(140, score), 2
     end
-    local start = record.index
-    local complete = start + budget >= size
-    record.index = complete and 0 or start + budget
-    return start, complete
+    if SC.Objectives and SC.Objectives.itemBonus then
+        local bonus = SC.Objectives.itemBonus(commands.objectives, item, actor)
+        score = score + bonus
+        if bonus > 0 and not category then category = "personal" end
+    end
+    if SC.Quirks and SC.Quirks.itemDesireBonus then
+        local value, wanted = SC.Quirks.itemDesireBonus(actor, item, commands)
+        if (tonumber(value) or 0) > score then score, category = value, wanted or "personal" end
+    end
+    if commands.scavengeRequestedCategory ~= nil then
+        if not matchesSupplyRequest(commands.scavengeRequestedCategory, supplyCategory) then return 0 end
+        category = supplyCategory
+    end
+    return score, category, band
 end
 
-scoreContainer = function(actor, container, needs, objectives, commands, audit, state, context)
-    local utility = U()
-    local performance = SC.Performance
-    local clock = performance and performance.preciseNowMs or utility.nowMs
-    context = context or { deadline = clock() + 1.5, storages = storageIndex() }
-    local bestItem, bestCategory, bestScore = nil, nil, 0
+local function scanVisit(actor, container, needs, commands, audit, state, context)
     local owner = containerOwner(container)
-    -- Marked base storage gives up nothing below its reserve, and storage the
-    -- player has taken back gives up nothing at all.
-    local allowed, _, storage = Encounter.mayTakeFrom(container, context.storages)
-    if not allowed then return 0, nil, nil, owner, true end
-    -- A survivor with nothing to fight with should walk toward the places that
-    -- hold weapons, whether or not the player has said so out loud. The
-    -- explicit order still applies; it is no longer the only thing that does.
-    if context.wantsWeapon == nil then
-        context.wantsWeapon = type(commands) == "table" and commands.prioritizeMeleeWeapon == true
-        if not context.wantsWeapon and SC.Combat
-            and type(SC.Combat.weaponAvailability) == "function" then
-            local _, usable = SC.Combat.weaponAvailability(actor)
-            context.wantsWeapon = tonumber(usable) ~= nil and tonumber(usable) <= 0
-        end
+    local visit = state.visit
+    if not visit or visit.container ~= container then
+        visit = Loot.new(actor, owner, container)
+        state.visit = visit
     end
-    local weaponLocationBonus = context.wantsWeapon
-        and logicalWeaponLocationBonus(container, owner) or 0
-    local budget = utility.config("scavengeItemBudget") or 40
-    local items = containerItems(container)
-    local size, processed = utility.listSize(items), 0
-    local start, complete = Encounter._itemScanSlice(state, container, size, budget)
-    utility.each(items, budget, function(item)
-        -- A container quota alone permits hundreds of expensive item scores.
-        -- Always make progress, then retain the exact next item when this
-        -- slice's time is spent. An unfinished cupboard is never "empty".
-        if processed > 0 and clock() >= context.deadline then return false end
-        processed = processed + 1
-        local protected = SC.PersonalItems
-            and SC.PersonalItems.isProtected(item, actor, "return_to_owner")
-        local score, category = 0, nil
-        if not protected and not manualEquipmentOnly(item) then
-            score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
-            local supplyCategory = category
-            local supplyScore = score
-            if category == "weapon" and usableMeleeWeapon(item)
-                and priorityMeleeAllowed(actor, item, audit, commands) then
-                score = score + weaponLocationBonus
-            end
-            if SC.Objectives and type(SC.Objectives.itemBonus) == "function" then
-                local bonus = SC.Objectives.itemBonus(objectives, item, actor)
-                score = score + bonus
-                if bonus > 0 and not category then category = "personal" end
-            end
-            if SC.Quirks and type(SC.Quirks.itemDesireBonus) == "function" then
-                local ritualScore, ritualCategory = SC.Quirks.itemDesireBonus(
-                    actor, item, commands)
-                if (tonumber(ritualScore) or 0) > score then
-                    score, category = ritualScore, ritualCategory or "personal"
-                end
-            end
-            -- Objectives and quirks cannot turn another category into the
-            -- explicitly requested supply, even when they add a large bonus.
-            if commands and commands.scavengeRequestedCategory ~= nil then
-                local request = commands.scavengeRequestedCategory
-                if not matchesSupplyRequest(request, supplyCategory)
-                    or (request == "useful" and (tonumber(supplyScore) or 0) <= 0) then
-                    score = 0
+    local projection = SC.Logistics and SC.Logistics.lootProjection
+        and SC.Logistics.lootProjection(actor, audit) or nil
+    local storages = context and context.storages or storageIndex()
+    local complete, why = Loot.scan(visit, function(item, node)
+        return lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
+    end, context and context.deadline, U().config("scavengeItemBudget") or 40)
+    visit.reason = why
+    if not complete then return 0, nil, nil, owner, false end
+    local rows = Loot.rows(visit)
+    local first = rows[1]
+    return first and first.score or 0, first and first.item, first and first.category, owner, true
+end
+
+local function prepareBatch(actor, state, task, commands, needs, audit)
+    local score, _, _, _, complete = scanVisit(actor, task.container, needs, commands, audit, state)
+    local visit = state.visit
+    if not complete then return nil, visit.reason or "container_slice_pending" end
+    local rows, batch, chosen = Loot.rows(visit), {}, {}
+    local projection = SC.Logistics and SC.Logistics.lootProjection
+        and SC.Logistics.lootProjection(actor, audit) or nil
+    local storages = storageIndex()
+    local service, token = supervisor(), task.supervisorToken
+    for _ = 1, Loot.batchLimit do
+        if projection then
+            for _, row in ipairs(rows) do row.band = SC.Logistics.lootBand(projection, row.category) end
+            table.sort(rows, Loot.better)
+        end
+        local picked
+        for _, row in ipairs(rows) do
+            if not chosen[row.item] and Loot.valid(visit, row) then
+                local allowed, _, storage = Encounter.mayTakeFrom(row.root, storages)
+                if not allowed then return nil, "storage_withdrawn" end
+                local choice
+                if SC.Logistics and SC.Logistics.lootChoice then
+                    choice = SC.Logistics.lootChoice(actor, row.item, row.category, projection,
+                        commands, storage, not insideBase(task.owner))
                 else
-                    category = supplyCategory
+                    local destination, kind, name = chooseDestination(actor, row.item, row.category, audit)
+                    if destination then choice = { destination = destination, destinationKind = kind,
+                        destinationName = name, score = row.score, band = row.band } end
                 end
+                if choice and (not storage or storageAllows(storage, row.item)) then
+                    local reserved = true
+                    if token and service and service.reserve then
+                        for _, resource in ipairs({ row.root, row.source, row.parentBag or row.item, row.item }) do
+                            if not service.reserve(token, resource, "source_item") then reserved = false break end
+                        end
+                    end
+                    if reserved then
+                        for key, value in pairs(choice) do row[key] = value end
+                        batch[#batch + 1], chosen[row.item], picked = row, true, true
+                        if projection then SC.Logistics.projectLoot(projection, row) end
+                        break
+                    end
+                end
+                chosen[row.item] = true
             end
         end
-        if storage and score>0 and SC.Logistics and SC.Logistics.canTake
-            and not (SC.Quirks and SC.Quirks.acceptsLoot and SC.Quirks.acceptsLoot(actor,item,commands)) then
-            local accepted=SC.Logistics.canTake(actor,item,category,audit,
-                commands and commands.scavengeRequestedCategory,storage)
-            if accepted~=true and not priorityMeleeAllowed(actor,item,audit,commands) then score=0 end
-        end
-        if score > bestScore and (storage == nil or storageAllows(storage, item)) then
-            bestItem, bestCategory, bestScore = item, category, score
-        end
-    end, start)
-    complete = start + processed >= size
-    if type(state) == "table" then
-        state.itemCursors = state.itemCursors or setmetatable({}, { __mode = "k" })
-        state.itemCursors[container] = { size = size, index = complete and 0 or start + processed }
+        if not picked then break end
     end
-    local distance = ownerDistance(actor, owner)
-    if commands and commands.scavengeMissionId ~= nil
-        and commands.scavengeSite and commands.scavengeSite.buildingId then
-        bestScore = bestScore / (1 + distance * 0.075)
-    else
-        bestScore = bestScore - distance * 1.5
-    end
-    return bestScore, bestItem, bestCategory, owner, complete
+    if #batch == 0 then return nil, score > 0 and "loadout_too_heavy" or "nothing_needed" end
+    return batch
 end
 
 local function isZombieCorpse(object)
@@ -1711,7 +1675,8 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             and not behindLockedDoor(actor, square, current) then
             local squareInside = insideBase(square)
             utility.squareObjects(square, function(object)
-                local container, ok = utility.call(object, "getContainer")
+                local container = Loot.primary(object)
+                local ok = container ~= nil
                 if ok and container and not job.seenContainers[container]
                     and not containerOnCooldown(container, current)
                     and memoryAllows(state, container, current)
@@ -1726,7 +1691,8 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             if allowCorpses then
                 utility.squareStaticMovingObjects(square, function(object)
                     if isZombieCorpse(object) then
-                        local container, ok = utility.call(object, "getContainer")
+                        local container = Loot.primary(object)
+                local ok = container ~= nil
                         if ok and container and not job.seenContainers[container]
                             and not containerOnCooldown(container, current)
                             and memoryAllows(state, container, current) then
@@ -1834,6 +1800,7 @@ cleanupScavengeTarget = function(actor, state, options)
         rememberContainer(state, container, options.memoryResult, options.time or now())
     end
     if container then releaseContainer(container, actor) end
+    state.visit, state.lootInventory, state.visitSettled = nil, nil, nil
     clearSearchFields(actor, state)
     if task and options.status ~= false then
         state.lastStatus = {
@@ -1904,7 +1871,7 @@ local function resetScavengeTarget(actor, state, options)
     cleanupScavengeTarget(actor, state, options)
 end
 
-local function chooseDestination(actor, item, category, audit)
+chooseDestination = function(actor, item, category, audit)
     local utility = U()
     if SC.Logistics and type(SC.Logistics.preferredLootDestination) == "function" then
         local destination, kind, bag = SC.Logistics.preferredLootDestination(
@@ -1918,6 +1885,7 @@ end
 
 local function lootReactionTone(actor, task, commands, sequence)
     local utility = U()
+    if task and task.tone then return task.tone end
     local item = task and task.item or nil
     local function itemFlag(method)
         local value, ok = utility.call(item, method)
@@ -1948,6 +1916,7 @@ end
 local function maybeReactToLoot(actor, state, task, commands, time)
     local utility = U()
     if not actor or not state or not task then return false, "invalid_loot_reaction" end
+    if time < nextPartyLootAt then return false, "loot_party_gap" end
     if time < (tonumber(state.nextLootReactionAt) or 0) then
         return false, "loot_reaction_cooldown"
     end
@@ -1994,12 +1963,15 @@ local function maybeReactToLoot(actor, state, task, commands, time)
     if spoken ~= true then return false, line or "loot_reaction_rejected" end
     state.nextLootReactionAt = time
         + (utility.config("scavengeLootReactionCooldownMs") or 10000)
-    if state.lastLoot then
-        state.lastLoot.reactionTopic = topic
-        state.lastLoot.reactionLine = line
+    nextPartyLootAt = time + 15000
+    if state.lastHaul then
+        state.lastHaul.reactionTopic, state.lastHaul.reactionLine = topic, line
     end
 
-    if SC.Relationship and type(SC.Relationship.playEmote) == "function" then
+    local service = supervisor()
+    if commands.order ~= "follow" and commands.order ~= "expedition" and state.task == nil
+        and (not service or not service.current or service.current(actor) == nil)
+        and SC.Relationship and type(SC.Relationship.playEmote) == "function" then
         local emote
         if tone == "excited" then
             emote = math.abs(utility.stableHash(salt .. ":emote")) % 4 == 0
@@ -2012,6 +1984,42 @@ local function maybeReactToLoot(actor, state, task, commands, time)
         pcall(SC.Relationship.playEmote, actor, emote)
     end
     return true, topic
+end
+
+local function noteHaul(actor, state, row, task, commands, time)
+    local haul = state.haul or { count = 0, commandSerial = task.commandSerial }
+    state.haul = haul
+    haul.count, haul.progressAt = haul.count + 1, time
+    if not haul.best or row.band > haul.best.band
+        or row.band == haul.best.band and row.score > haul.best.utilityScore then
+        haul.best = { itemType = row.itemType or U().itemType(row.item), itemName = row.itemName or U().itemName(row.item),
+            utilityScore = row.score, band = row.band, sourceKind = task.sourceKind,
+            tone = lootReactionTone(actor, { item = row.item, utilityScore = row.score,
+                itemType = U().itemType(row.item), sourceKind = task.sourceKind }, commands, haul.count) }
+    end
+end
+
+finishHaul = function(actor, state, commands, time, silent)
+    local haul = state and state.haul
+    if not haul then return end
+    state.haul = nil
+    state.lastHaul = { count = haul.count, bestName = haul.best.itemName,
+        bestType = haul.best.itemType, time = time }
+    local sleeping = select(1, U().call(actor, "isAsleep")) == true
+    if silent or sleeping or (tonumber(commands.commandSerial) or 0) ~= haul.commandSerial
+        or U().nativeHealth(actor) <= 0 then return end
+    maybeReactToLoot(actor, state, haul.best, commands, time)
+end
+
+-- Called by the existing decision pulse only for a live haul. No scans, timer
+-- registration or background work when there is nothing to summarize.
+function Encounter.observeLoot(actor, commands, snapshot, time)
+    local state = states[actor]
+    if not state or not state.haul then return end
+    if not safeForScavenging(snapshot, commands) then finishHaul(actor, state, commands, time, true)
+    elseif not state.task and time - state.haul.progressAt >= 20000 then
+        finishHaul(actor, state, commands, time, false)
+    end
 end
 
 local function beginTask(actor, state, container, item, category, owner, utilityScore,
@@ -2081,7 +2089,8 @@ local function beginTask(actor, state, container, item, category, owner, utility
         local token, startReason = service.begin(actor, {
             owner = "encounter", action = "scavenge",
             priority = service.Priority and service.Priority.WORK or 150,
-            targetKey = targetKey, targetLabel = task.itemName,
+            targetKey = targetKey, targetLabel = pending and type(getText) == "function"
+                and getText("UI_SC_Loot_Container") or task.itemName,
             retryCategory = "*", requiresVisual = true,
             allowedActions = { move_to_scavenge = true, loot_container = true },
             metadata = {
@@ -2113,6 +2122,9 @@ local function beginTask(actor, state, container, item, category, owner, utility
         end
         task.supervisorToken = token
         local reserved, reserveReason = service.reserve(token, container, "source_container")
+        if reserved and task.owner ~= nil then
+            reserved, reserveReason = service.reserve(token, task.owner, "source_object")
+        end
         if reserved and item ~= nil then
             reserved, reserveReason = service.reserve(token, item, "source_item")
         end
@@ -2196,38 +2208,12 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         processed = processed + 1
         if reserveContainer(container, actor, time) then
             local score, item, category, owner, complete
-            if Encounter._alreadyOpened(state, container) then
-                -- Known ground. This companion has had this one open, so what
-                -- is in it is fair to rank on.
-                score, item, category, owner, complete = scoreContainer(
-                    actor, container, needs, commands.objectives, commands, audit, state, context)
-                if item and score > 0 then
-                    score = score + Encounter.blindContainerScore(
-                        actor, container, owner, commands, needs)
-                end
-            else
-                -- Never opened. The only honest facts about a shut drawer are
-                -- how far away it is and what room it stands in -- so nothing
-                -- reads its contents here, and the item is chosen at the
-                -- container, after it has been opened. Ranking closed
-                -- containers by their best hidden item is exactly the
-                -- omniscience this was meant to end: it survived the first
-                -- attempt because the score was only ever *added* to the
-                -- content score rather than replacing it.
-                owner = containerOwner(container)
-                complete = true
-                -- A body is not base storage. Corpse discovery deliberately
-                -- skips the marked-storage rule, and applying it here rejected
-                -- every corpse inside a base.
-                if corpseContainers[container] == true
-                    or Encounter.mayTakeFrom(container, context.storages) then
-                    score = Encounter.blindContainerScore(
-                        actor, container, owner, commands, needs)
-                    item, category = Encounter.UNOPENED, nil
-                else
-                    score = 0
-                end
-            end
+            owner = containerOwner(container)
+            complete = true
+            if corpseContainers[container] == true or Encounter.mayTakeFrom(container, context.storages) then
+                score = Encounter.blindContainerScore(actor, container, owner, commands, needs)
+                item, category = Encounter.UNOPENED, nil
+            else score = 0 end
             if item and score > 0 then
                 if selection.bestScore == nil or score > selection.bestScore then
                     if selection.bestContainer and selection.bestContainer ~= container then
@@ -2293,176 +2279,135 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
 end
 
 local function commitTask(actor, state, task, commands, audit, time)
-    local utility = U()
-    if SC.Logistics and type(SC.Logistics.audit) == "function" then
-        local ok, fresh = pcall(SC.Logistics.audit, actor)
-        if ok and type(fresh) == "table" then audit = fresh end
-    end
-    if (tonumber(commands.commandSerial) or 0) ~= task.commandSerial
-        or task.scavengeRequestedCategory ~= commands.scavengeRequestedCategory
-        or task.scavengeMissionId ~= commands.scavengeMissionId
-        or (commands.scavengeRequestedCategory ~= nil
-            and not matchesSupplyRequest(commands.scavengeRequestedCategory,
-                task.category)) then
-        resetScavengeTarget(actor, state, {
-            reason = "command_changed", phase = "cancelled", memoryResult = "interrupted",
-            time = time,
-        })
-        return false, "command_changed"
-    end
-    if not utility.inventoryContains(task.container, task.item) then
-        resetScavengeTarget(actor, state, {
-            reason = "source_changed", phase = "failed", memoryResult = "source_changed",
-            time = time,
-        })
-        return false, "source_changed"
-    end
-    -- Permission, at the moment of the transfer. Selection ran seconds ago and
-    -- the player may have changed their mind since; this is the last place the
-    -- decision can still be undone without the item having moved.
-    local mayTake, _, currentStorage = Encounter.mayTakeFrom(task.container, storageIndex())
-    if not mayTake or (currentStorage ~= nil
-        and not storageAllows(currentStorage, task.item)) then
-        state.openContainer = nil
-        resetScavengeTarget(actor, state, {
-            reason = "storage_withdrawn", phase = "cancelled",
-            memoryResult = "interrupted", time = time,
-        })
-        return false, "storage_withdrawn"
-    end
-    if manualEquipmentOnly(task.item) then
-        resetScavengeTarget(actor, state, {
-            reason = "manual_equipment_only", phase = "cancelled",
-            memoryResult = "loadout_changed", time = time,
-        })
-        return false, "manual_equipment_only"
-    end
-    local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
-        and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
-    if not ritualAccepts and not priorityMeleeAllowed(
-        actor, task.item, audit, commands) and SC.Logistics
-        and type(SC.Logistics.canTake) == "function" then
-        local accepted, reason = SC.Logistics.canTake(actor, task.item,
-            task.category, audit, commands.scavengeRequestedCategory, currentStorage)
-        if accepted ~= true then
-            resetScavengeTarget(actor, state, {
-                reason = reason or "loadout_changed", phase = "cancelled",
-                memoryResult = "loadout_changed", time = time,
-            })
-            return false, reason or "loadout_changed"
+    local utility, service, token = U(), supervisor(), task.supervisorToken
+    if token and service and service.transition then
+        if visualAdapterAbsent() and service.markVisualVerified then
+            service.markVisualVerified(token, { action = "loot_container", fixture = true })
+        end
+        local entered, why = service.transition(token, "committing")
+        if entered ~= true then
+            resetScavengeTarget(actor, state, { reason = why, phase = "failed", time = time })
+            return false, why
         end
     end
-
-    local destination, destinationKind, destinationName = chooseDestination(
-        actor, task.item, task.category, audit)
-    if not destination then
-        resetScavengeTarget(actor, state, {
-            reason = "destination_unavailable", phase = "failed", cooldown = true,
-            memoryResult = "destination_unavailable", time = time,
-        })
-        return false, "destination_unavailable"
+    local projection = SC.Logistics and SC.Logistics.lootProjection
+        and SC.Logistics.lootProjection(actor, audit) or nil
+    local moved, after, stopReason, uncertain = 0, {}, nil, false
+    local visit, storages = state.visit, storageIndex()
+    local pendingVisuals, extras = {}, not insideBase(task.owner)
+    local sourceX, sourceY, sourceZ = utility.position(task.owner)
+    local sourceObjectIndex = tonumber((utility.call(task.owner, "getObjectIndex")))
+    local function transferBatch()
+        for _, row in ipairs(task.takeList or {}) do
+            local current = commandState(actor)
+            local missionOwned = false
+            if task.scavengeMissionId and SC.ExpeditionPrototype and SC.ExpeditionPrototype.searchLootRemaining then
+                local remaining = SC.ExpeditionPrototype.searchLootRemaining(actor, task.scavengeMissionId,
+                    task.scavengeRequestedCategory)
+                if remaining ~= nil and remaining <= 0 then stopReason = "quota_met" break end
+                missionOwned = remaining ~= nil
+            end
+            if (tonumber(current.commandSerial) or 0) ~= task.commandSerial
+                or not missionOwned and (current.scavengeRequestedCategory ~= task.scavengeRequestedCategory
+                    or current.scavengeMissionId ~= task.scavengeMissionId)
+                or utility.nativeHealth(actor) <= 0 then stopReason = "command_changed" break end
+            if missionOwned then
+                local view = {}; for key, value in pairs(current) do view[key] = value end
+                view.scavengeRequestedCategory, view.scavengeMissionId = task.scavengeRequestedCategory, task.scavengeMissionId
+                current = view
+            end
+            local allowed, _, storage = Encounter.mayTakeFrom(row.root, storages)
+            if not allowed then stopReason = "storage_withdrawn" break end
+            if Loot.valid(visit, row) and (SC.Logistics and SC.Logistics.lootChoice or not manualEquipmentOnly(row.item))
+                and not (SC.PersonalItems and SC.PersonalItems.isProtected(row.item, actor, "return_to_owner"))
+                and (not storage or storageAllows(storage, row.item)) then
+                local choice
+                if SC.Logistics and SC.Logistics.lootChoice then
+                    choice = SC.Logistics.lootChoice(actor, row.item, row.category, projection,
+                        current, storage, extras, row)
+                else choice = row end
+                if choice then
+                    local destination = choice.destination
+                    -- lootChoice has just checked this exact destination's
+                    -- native filters and capacity. It is not a cached verdict.
+                    do
+                        local transferred, why, receipt = utility.transferItemVerified(row.source, destination, row.item, pendingVisuals)
+                        if not transferred then
+                            stopReason = why or "transfer_failed"
+                            uncertain = stopReason == "transfer_rollback_failed" or stopReason == "destination_already_contains_item"
+                            if uncertain then
+                                local data = utility.modData(row.item)
+                                if data then data.SC_LootTransferUncertain = true end
+                            end
+                            break
+                        end
+                        moved = moved + 1
+                        row.transferred = true
+                        row.itemType, row.itemName = receipt and receipt.itemType or utility.itemType(row.item),
+                            receipt and receipt.itemName or utility.itemName(row.item)
+                        if projection then SC.Logistics.projectLoot(projection, choice) end
+                        local requested = task.scavengeRequestedCategory ~= nil
+                            and matchesSupplyRequest(task.scavengeRequestedCategory, row.category)
+                        state.lastLoot = { type = row.itemType, name = row.itemName,
+                            category = row.category, source = task.sourceKind, destination = choice.destinationKind,
+                            destinationName = choice.destinationName, time = time, verified = receipt ~= nil,
+                            requestedCategory = requested and task.scavengeRequestedCategory or nil,
+                            stableId = requested and utility.itemStableId(row.item, true) or nil,
+                            sourceX = sourceX and math.floor(sourceX), sourceY = sourceY and math.floor(sourceY), sourceZ = sourceZ and math.floor(sourceZ),
+                            sourceObjectIndex = sourceObjectIndex,
+                            missionId = requested and task.scavengeMissionId or nil }
+                        if requested and SC.ExpeditionPrototype and SC.ExpeditionPrototype.noteVerifiedSearchLoot then
+                            SC.ExpeditionPrototype.noteVerifiedSearchLoot(actor, state.lastLoot)
+                        end
+                        noteHaul(actor, state, row, task, current, time)
+                        after[#after + 1] = row.item
+                    end
+                end
+            end
+        end
+        return moved > 0, stopReason or "looted", { count = moved, uncertain = uncertain }
     end
-    task.destination = destination
-    task.destinationKind = destinationKind
-    task.destinationName = destinationName
-    local allowed, allowedOk = utility.call(destination, "isItemAllowed", task.item)
-    if allowedOk and allowed ~= true then
-        resetScavengeTarget(actor, state, {
-            reason = "destination_rejected_item", phase = "failed", cooldown = true,
-            memoryResult = "destination_rejected_item", time = time,
-        })
-        return false, "destination_rejected_item"
+    local accepted, why
+    if token and service and service.commit then accepted, why = service.commit(token, transferBatch)
+    else
+        local ok
+        ok, accepted, why = pcall(transferBatch)
+        if not ok then accepted, why = false, "commit_callback_failed" end
     end
-    local room, roomOk = utility.call(destination, "hasRoomFor", actor, task.item)
-    if roomOk and room ~= true then
-        resetScavengeTarget(actor, state, {
-            reason = "destination_full", phase = "cancelled",
-            memoryResult = "destination_full", time = time,
-        })
-        return false, "destination_full"
+    for container in pairs(pendingVisuals) do utility.refreshContainerVisuals(container) end
+    if moved > 0 and SC.Logistics and SC.Logistics.noteLootPickup then SC.Logistics.noteLootPickup(actor) end
+    if not accepted then
+        state.openContainer, state.visit = nil, nil
+        if SC.Logistics and SC.Logistics.reset then SC.Logistics.reset(actor) end
+        resetScavengeTarget(actor, state, { reason = why or stopReason or "nothing_transferred",
+            phase = "failed", cooldown = true, memoryResult = "transfer_failed", time = time })
+        finishHaul(actor, state, commands, time, true)
+        return false, why or stopReason
     end
-
-    setTaskPhase(actor, state, task, "commit", "committing")
-    local transferred, transferReason, receipt = utility.transferItemVerified(
-        task.container, destination, task.item)
     setTaskPhase(actor, state, task, "verify", "verifying_transfer")
-    if transferred and utility.inventoryContains(destination, task.item)
-        and not utility.inventoryContains(task.container, task.item) then
-        local flags = containerFlags(task.container)
-        if flags and task.sourceKind ~= "zombie_corpse" then
-            flags.SC_LastScavengedAt = time
-            flags.SC_CompanionVisited = true
-        end
-        rememberContainer(state, task.container, "looted", time)
-        -- It is open, and they are standing at it. Worth finishing before
-        -- walking anywhere.
-        Encounter._noteContainerOpened(state, task.container, time)
-        local requested = commands.scavengeRequestedCategory ~= nil
-            and matchesSupplyRequest(commands.scavengeRequestedCategory,
-                task.category)
-        local stableId = requested and utility.itemStableId(task.item, true) or nil
-        local sourceX, sourceY, sourceZ = utility.position(task.owner)
-        local sourceIndex = select(1, utility.call(task.owner, "getObjectIndex"))
-        state.lastLoot = {
-            type = task.itemType,
-            name = task.itemName,
-            category = task.category,
-            source = task.sourceKind,
-            destination = task.destinationKind,
-            destinationName = task.destinationName,
-            time = time,
-            verified = receipt ~= nil,
-            requestedCategory = requested
-                and commands.scavengeRequestedCategory or nil,
-            stableId = stableId,
-            sourceX = sourceX and math.floor(sourceX) or nil,
-            sourceY = sourceY and math.floor(sourceY) or nil,
-            sourceZ = sourceZ and math.floor(sourceZ) or nil,
-            sourceObjectIndex = tonumber(sourceIndex),
-            missionId = requested and commands.scavengeMissionId or nil,
-        }
-        if requested and SC.ExpeditionPrototype
-            and type(SC.ExpeditionPrototype.noteVerifiedSearchLoot) == "function" then
-            SC.ExpeditionPrototype.noteVerifiedSearchLoot(actor, state.lastLoot)
-        end
-        if SC.Logistics and type(SC.Logistics.reset) == "function" then
-            SC.Logistics.reset(actor)
-        end
-        state.lastStatus = {
-            phase = "complete", reason = "looted", itemType = task.itemType,
-            itemName = task.itemName, category = task.category,
-            sourceKind = task.sourceKind, destinationKind = task.destinationKind,
-            destinationName = task.destinationName,
-            expires = time + (utility.config("scavengeStatusHoldMs") or 8000),
-        }
-        setTaskPhase(actor, state, task, "complete", "looted")
-        local token = task.supervisorToken
-        releaseContainer(task.container, actor)
-        clearTaskFields(state)
-        local service = supervisor()
-        if token and service and type(service.complete) == "function" then
-            service.complete(token, "looted", receipt or {
-                sourceEmpty = true, destinationContains = true,
-            })
-        end
-        if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
-            SC.NativeActions.noteResult(actor, "scavenge", "looted")
-        end
-        local becameRitual = SC.Quirks and type(SC.Quirks.onVerifiedLoot) == "function"
-            and select(1, SC.Quirks.onVerifiedLoot(actor, task.item, commands)) == true
-        if not becameRitual then maybeReactToLoot(actor, state, task, commands, time) end
-        return true, "looted"
+    local flags = containerFlags(task.container)
+    if flags and task.sourceKind ~= "zombie_corpse" then
+        flags.SC_LastScavengedAt, flags.SC_CompanionVisited = time, true
     end
-
-    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
-        SC.Diagnostics.report("scavenge-transfer", utility.idOf(actor),
-            "verified container transfer failed: " .. tostring(transferReason), task.itemType)
+    Encounter._noteContainerOpened(state, task.container, time)
+    state.visit, state.lootInventory = nil, nil
+    state.lastStatus = { phase = "complete", reason = stopReason or "looted", itemType = task.itemType,
+        itemName = task.itemName, count = moved, sourceKind = task.sourceKind,
+        expires = time + (utility.config("scavengeStatusHoldMs") or 8000) }
+    setTaskPhase(actor, state, task, "complete", stopReason or "looted")
+    releaseContainer(task.container, actor)
+    clearTaskFields(state)
+    if token and service and service.complete then service.complete(token, stopReason or "looted", { count = moved }) end
+    if SC.Logistics and SC.Logistics.reset then SC.Logistics.reset(actor) end
+    if SC.NativeActions and SC.NativeActions.noteResult then SC.NativeActions.noteResult(actor, "scavenge", "looted") end
+    for _, item in ipairs(after) do
+        if SC.Quirks and SC.Quirks.onVerifiedLoot and SC.Quirks.onVerifiedLoot(actor, item, commands) then break end
     end
-    resetScavengeTarget(actor, state, {
-        reason = transferReason or "transfer_failed", phase = "failed", cooldown = true,
-        memoryResult = "transfer_failed", time = time,
-    })
-    return false, transferReason or "transfer_failed"
+    if stopReason then
+        state.openContainer = nil
+        finishHaul(actor, state, commands, time, stopReason ~= "quota_met")
+    end
+    return true, "looted"
 end
 
 function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
@@ -2476,7 +2421,11 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local commands = commandState(actor)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     local time = now()
+    if state.haul and state.haul.commandSerial ~= (tonumber(commands.commandSerial) or 0) then
+        finishHaul(actor, state, commands, time, true)
+    end
     if (not commands.scavenge and not neutralOverride) or not safeForScavenging(snapshot, commands) then
+        finishHaul(actor, state, commands, time, true)
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = not commands.scavenge and "scavenge_disabled" or "scavenge_unsafe",
@@ -2488,6 +2437,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local mustRejoin, formationReason = Encounter.formationRejoinRequired(
         actor, player, commands)
     if mustRejoin == true then
+        finishHaul(actor, state, commands, time, false)
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = formationReason, phase = "cancelled",
@@ -2516,8 +2466,12 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         view.prioritizeMeleeWeapon = true
         commands = view
     end
+    if SC.Logistics and SC.Logistics.lootAudit then
+        audit = SC.Logistics.lootAudit(actor, state)
+        if not audit then return true, "inventory_scan_pending" end
+    end
     local needs = currentNeeds(actor, commands)
-    if audit and audit.shouldUnload then
+    if needsUnloading then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = "loadout_needs_unloading", phase = "cancelled",
@@ -2555,7 +2509,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     -- an item yet, and asking anyway failed the approach on its second round.
     -- An empty cupboard is a discovery to be made at the cupboard, not a
     -- source that changed.
-    if task and not task.pendingItem
+    if task and not task.pendingItem and not task.takeList
         and not utility.inventoryContains(task.container, task.item) then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = true, reason = "source_changed",
@@ -2576,7 +2530,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             actor, selectionPlayer, state, commands,
             needs, audit, allowCorpses, time)
         if not task then
-            if selectionReason == "searching" then return true, "searching_for_supplies" end
+            if selectionReason == "searching" then
+                local scan = state.containerSearch or state.selectionJob
+                local progress = scan and scan.index
+                if state.haul and progress ~= state.haul.searchProgress then
+                    state.haul.searchProgress, state.haul.progressAt = progress, time
+                end
+                return true, "searching_for_supplies"
+            end
+            finishHaul(actor, state, commands, time, false)
             return false, selectionReason or "nothing_needed"
         end
     end
@@ -2628,6 +2590,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     end
 
     if not atInteractionTarget then
+        state.visitSettled = nil
         task.approachStartedAt = task.approachStartedAt or time
         if Encounter._approachExpired(task, time,
                 ownerDistance(actor, task.owner),
@@ -2686,7 +2649,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
 
     if task.phase == "select" or task.phase == "approach" then
         stopScavengeMovement(actor)
-        task.settleUntil = time + (utility.config("scavengeSettleMs") or 250)
+        task.settleUntil = time + (state.visitSettled == task.container and 0
+            or (utility.config("scavengeSettleMs") or 250))
         setTaskPhase(actor, state, task, "settle", "stopping_at_container")
     end
     if task.phase == "settle" and time < (task.settleUntil or time) then
@@ -2704,78 +2668,40 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     -- here chose it on where it was, not on what was inside.
     if task.pendingItem then
         Encounter._noteContainerOpened(state, task.container, time)
-        local score, found, category, _, complete = scoreContainer(
-            actor, task.container, needs, commands.objectives, commands, audit, state)
-        if found == nil or score <= 0 then
-            state.openContainer = nil
-            -- Cancelling goes through the supervisor, which derives the memory
-            -- verdict from the reason string -- so the reason has to carry the
-            -- distinction, or an unread half of a container is written off as
-            -- thoroughly as an empty one.
-            local verdict = complete and "nothing_needed" or "container_slice_pending"
-            resetScavengeTarget(actor, state, {
-                reason = verdict, phase = "cancelled",
-                memoryResult = complete and "nothing_needed" or "interrupted",
-                time = time,
-            })
-            return false, verdict
-        end
-        local destination, destinationKind, destinationName = chooseDestination(
-            actor, found, category, audit)
-        if not destination then
-            resetScavengeTarget(actor, state, {
-                reason = "destination_unavailable", phase = "failed", cooldown = true,
-                memoryResult = "destination_unavailable", time = time,
-            })
-            return false, "destination_unavailable"
-        end
-        -- The exact item is only now a thing to hold, so this is where it is
-        -- claimed. An unopened task reserved the container alone.
-        local service = supervisor()
-        if service and task.supervisorToken and type(service.reserve) == "function" then
-            local reserved, reserveReason = service.reserve(
-                task.supervisorToken, found, "source_item")
-            if not reserved then
-                resetScavengeTarget(actor, state, {
-                    reason = reserveReason or "resource_reserved", phase = "failed",
-                    memoryResult = "interrupted", time = time,
-                })
-                return false, reserveReason or "resource_reserved"
+        state.visitSettled = task.container
+        local batch, why = prepareBatch(actor, state, task, commands, needs, audit)
+        if not batch then
+            if why == "container_slice_pending" or why == "source_changed" then
+                if why == "source_changed" then state.visit = nil end
+                local service = supervisor()
+                if service and task.supervisorToken and service.progress then
+                    local visit = state.visit
+                    service.progress(task.supervisorToken, "scan:" .. tostring(visit and visit.sequence or 0))
+                end
+                if state.haul then state.haul.progressAt = time end
+                return true, "searching_container"
             end
+            state.openContainer, state.visit = nil, nil
+            resetScavengeTarget(actor, state, { reason = why, phase = "cancelled",
+                memoryResult = why == "nothing_needed" and "nothing_needed" or "left_items", time = time })
+            if why == "loadout_too_heavy" then finishHaul(actor, state, commands, time, false) end
+            return false, why
         end
-        task.pendingItem = nil
-        task.item, task.category = found, category
-        task.itemType, task.itemName = utility.itemType(found), utility.itemName(found)
-        task.utilityScore = score
-        task.destination, task.destinationKind, task.destinationName =
-            destination, destinationKind, destinationName
-        state.item, state.itemCategory = found, category
+        task.takeList, task.pendingItem = batch, nil
+        local first = batch[1]
+        task.item, task.category, task.utilityScore = first.item, first.category, first.score
+        task.itemType, task.itemName = utility.itemType(first.item), utility.itemName(first.item)
+        task.destination, task.destinationKind, task.destinationName = first.destination,
+            first.destinationKind, first.destinationName
+        if task.supervisorToken then
+            task.supervisorToken.targetLabel = #batch == 1 and task.itemName
+                or type(getText) == "function" and getText("UI_SC_Loot_Batch", #batch)
+                or tostring(#batch) .. " items"
+        end
+        state.item, state.itemCategory = first.item, first.category
     end
 
-    if manualEquipmentOnly(task.item) then
-        resetScavengeTarget(actor, state, {
-            reason = "manual_equipment_only", phase = "cancelled",
-            memoryResult = "loadout_changed", time = time,
-        })
-        return false, "manual_equipment_only"
-    end
-    local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
-        and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
-    if not ritualAccepts and not priorityMeleeAllowed(
-        actor, task.item, audit, commands) and SC.Logistics
-        and type(SC.Logistics.canTake) == "function" then
-        local _,_,sourceStorage=Encounter.mayTakeFrom(task.container,storageIndex())
-        local accepted, reason = SC.Logistics.canTake(actor, task.item,
-            task.category, audit, commands.scavengeRequestedCategory, sourceStorage)
-        if accepted ~= true then
-            resetScavengeTarget(actor, state, {
-                reason = reason or "loadout_changed", phase = "cancelled",
-                memoryResult = "loadout_changed", time = time,
-            })
-            return false, reason or "loadout_changed"
-        end
-    end
-
+    if state.haul then state.haul.progressAt = time end
     if task.phase == "animate" then
         if task.visualToken and SC.NativeActions
             and type(SC.NativeActions.visualToken) == "function"
@@ -2861,6 +2787,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         end
         local animated, animationReason = utility.move(actor, "walk", {
             action = "loot_container", container = task.container,
+            durationTicks = 180 + 30 * (math.max(1, #(task.takeList or {})) - 1),
             item = task.item, category = task.category,
             supervisorToken = task.supervisorToken,
         })
@@ -3314,6 +3241,9 @@ end
 function Encounter.activity(actor)
     local status = actor and visibleStatus(states[actor]) or nil
     if not status then return nil end
+    if status.pendingItem and states[actor] and states[actor].visit then
+        return type(getText) == "function" and getText("UI_SC_Loot_Checking") or "Checking container contents"
+    end
     local itemName = status.itemName or status.itemType or "item"
     if status.phase == "select" then return "Selected " .. itemName end
     if status.phase == "approach" then return "Approaching " .. itemName end
@@ -3322,7 +3252,17 @@ function Encounter.activity(actor)
     if status.phase == "commit" or status.phase == "verify" then
         return "Verifying " .. itemName
     end
-    if status.phase == "complete" then return "Picked up " .. itemName end
+    if status.phase == "complete" then
+        local haul = states[actor] and (states[actor].haul or states[actor].lastHaul)
+        if haul then
+            local name = haul.best and haul.best.itemName or haul.bestName or itemName
+            if type(getText) == "function" then
+                return getText(haul.count == 1 and "UI_SC_Loot_One" or "UI_SC_Loot_Haul", haul.count, name)
+            end
+            return "Took " .. tostring(haul.count) .. " items; best find: " .. name
+        end
+        return "Picked up " .. itemName
+    end
     if status.phase == "failed" then return "Could not take " .. itemName end
     if status.phase == "cancelled" then return "Stopped looting " .. itemName end
     return "Scavenging"
@@ -3344,12 +3284,17 @@ function Encounter.status(actor)
         progress = status and status.progress or nil,
         total = status and status.total or nil,
         lastLoot = state and state.lastLoot and U().copyShallow(state.lastLoot) or nil,
+        lastHaul = state and state.lastHaul and U().copyShallow(state.lastHaul) or nil,
     }
 end
 
 function Encounter.cancelScavenge(actor, reason)
     local state = actor and states[actor] or nil
     if not state then return true, reason or "no_scavenge_task" end
+    local ordinaryEnd = reason == "formation_leader_moving" or reason == "formation_leash_exceeded"
+        or reason == "scavenge_target_outside_formation"
+    finishHaul(actor, state, commandState(actor), now(), not ordinaryEnd)
+    state.openContainer, state.visit = nil, nil
     if state.pendingVisualCancel then
         local stopped, why = cancelOwnedVisual(actor, "loot_container",
             reason or "scavenge_cancelled", state.pendingVisualCancel)
@@ -3405,6 +3350,7 @@ function Encounter.reset(actor)
         releasePlayerSupply(actor, state)
         states[actor] = nil
     else
+        nextPartyLootAt = 0
         supplyCacheGeneration=supplyCacheGeneration+1
         states = setmetatable({}, { __mode = "k" })
         containerReservations = setmetatable({}, { __mode = "k" })

@@ -1365,6 +1365,11 @@ function persistence.captureRecord(record, vehicleState, options)
     if copyReason ~= nil then return nil, copyReason end
 
     return {
+        lootReturnPending = anchorDataOk and type(anchorData) == "table"
+            and anchorData.LF_LootReturnPending == true or nil,
+        lootReturnRetryAt = anchorDataOk and type(anchorData) == "table"
+            and anchorData.LF_LootReturnPending == true
+            and finite(anchorData.LF_LootReturnRetryAt, nil) or nil,
         id = record.id,
         recruited = record.recruited == true,
         factionId = type(record.factionId) == "string" and text(record.factionId, "", 96) or nil,
@@ -2698,6 +2703,12 @@ local function validateRecord(id, source)
         or type(source.identity) ~= "table" then
         return nil, "invalid companion save record"
     end
+    if source.lootReturnPending ~= nil and type(source.lootReturnPending) ~= "boolean" then
+        return nil, "invalid loot delivery obligation"
+    end
+    if source.lootReturnRetryAt ~= nil and (finite(source.lootReturnRetryAt, nil) == nil
+        or type(source.lootReturnRetryAt) ~= "number" or source.lootReturnRetryAt < 0
+        or source.lootReturnRetryAt > 9007199254740991) then return nil, "invalid loot delivery retry" end
     if source.restorePrimaryOnly ~= nil and type(source.restorePrimaryOnly) ~= "boolean" then
         return nil, "invalid primary-area restoration policy"
     end
@@ -3759,6 +3770,13 @@ local function initializeRestoredActor(actor, input, saved)
             return false, "manual weapon choice could not be restored"
         end
         data.SC_ManualWeaponSerial = manualWeaponSerial
+    end
+    do
+        local dataOk, data = invoke(actor, "getModData")
+        if dataOk and type(data) == "table" then
+            data.LF_LootReturnPending = saved.lootReturnPending == true or nil
+            data.LF_LootReturnRetryAt = saved.lootReturnPending == true and saved.lootReturnRetryAt or nil
+        elseif saved.lootReturnPending == true then return false, "loot delivery obligation could not be restored" end
     end
     if type(saved.productionAction) == "table" and saved.productionAction.kind == "saw_logs" then
         local dataOk, data = invoke(actor, "getModData")

@@ -1287,6 +1287,10 @@ function Logistics.selectSurplus(actor, audit, skip)
                     and SC.Needs.drinkingContainerWeight(item) or U().itemWeight(item)
                 local score = (category == "general" and 100 or 35)
                     + math.max(0, count - target) * 12 + weight * 4
+                -- Retain the best rations, including when extras return home.
+                if category == "food" and SC.Needs and SC.Needs.foodTier then
+                    score = score + (SC.Needs.foodTier(item) or 99) * 1000
+                end
                 if category=="water" and SC.Needs and SC.Needs.isSafeWaterItem
                     and not SC.Needs.isSafeWaterItem(item) then score=score+16 end
                 if bestScore == nil or score > bestScore then
@@ -1385,9 +1389,15 @@ function moveMemory.note(actor, kind, item, current)
         while #ledger.order > 32 do ledger[table.remove(ledger.order, 1)] = nil end
     end
     record.failures = record.failures + 1
-    local base = tonumber(U().config("logisticsFailureCooldownMs")) or 30000
+    local returningLoot = states[actor] and states[actor].lootReturnCleanup == true
+    local base = returningLoot and 180000 or tonumber(U().config("logisticsFailureCooldownMs")) or 30000
     local cap = tonumber(U().config("logisticsFailureMaxCooldownMs")) or 600000
-    record.retryAt = current + math.min(cap, base * (2 ^ math.min(8, record.failures - 1)))
+    record.retryAt = current + (returningLoot and base
+        or math.min(cap, base * (2 ^ math.min(8, record.failures - 1))))
+    if returningLoot then
+        local data = U().modData(actor)
+        if data then data.LF_LootReturnRetryAt = current + 180000 end
+    end
 end
 
 function moveMemory.clear(actor, kind, item)
@@ -1454,6 +1464,12 @@ function Logistics.status(actor)
         return state.audit
     end
     local audit = Logistics.audit(actor)
+    local pendingData = select(1, U().call(actor, "getModData"))
+    if type(pendingData) == "table" and pendingData.LF_LootReturnPending == true
+        and not audit.inventoryComplete then
+        state = state or {}; states[actor] = state
+        audit = Logistics.lootAudit(actor, state, audit) or audit
+    end
     audit.bagUpgrade = selectBagUpgrade(actor, audit)
     audit.clothingUpgrade = selectOwnedClothingUpgrade(actor, audit)
     audit.manualMaskRemoval = Preparation.maskRemoval(actor, audit)
@@ -1501,11 +1517,27 @@ function Logistics.status(actor)
         and SC.BaseLife.isInside(actor) == true
     audit.fieldReturnCleanup = atCamp and type(actorData) == "table"
         and actorData.LF_FieldReturnCleanup ~= nil
+    audit.lootReturnCleanup = atCamp and type(actorData) == "table"
+        and actorData.LF_LootReturnPending == true
+    if audit.lootReturnCleanup and SC.BaseLife.workConsistencyRevision then
+        local revision = SC.BaseLife.workConsistencyRevision()
+        local ledger = moveMemory.byActor[actor]
+        if not ledger then ledger = { order = {} }; moveMemory.byActor[actor] = ledger end
+        if ledger.storageRevision ~= nil and ledger.storageRevision ~= revision then
+            for key in pairs(ledger) do
+                if type(key) == "string" and key:match("^deposit%|") then ledger[key] = nil end
+            end
+            actorData.LF_LootReturnRetryAt = nil
+        end
+        ledger.storageRevision = revision
+    end
+    audit.lootReturnWaiting = audit.lootReturnCleanup and not audit.fieldReturnCleanup
+        and current < (tonumber(actorData.LF_LootReturnRetryAt) or 0)
     -- The return cleanup is one pass over what the worker carries. An item
     -- whose storage just failed cools down; offer the next one instead, so the
     -- pass can finish while that item waits with its carrier for a retry.
-    local skip = audit.fieldReturnCleanup and function(item)
-        return moveMemory.cooling(actor, "deposit", item, current)
+    local skip = (audit.fieldReturnCleanup or audit.lootReturnCleanup) and function(item)
+        return audit.lootReturnWaiting or moveMemory.cooling(actor, "deposit", item, current)
             or moveMemory.cooling(actor, "drop", item, current)
     end or nil
     local surplus = selectKeptHarvest(actor, audit, skip)
@@ -1515,6 +1547,12 @@ function Logistics.status(actor)
         surplus = Logistics.selectSurplus(actor, audit, skip)
         if surplus then surplus.proactive = true end
     end
+    if not surplus and audit.lootReturnCleanup and audit.inventoryComplete then
+        surplus = Logistics.selectSurplus(actor, audit, function(item)
+            return not usefulSupplyCategories[Logistics.itemCategory(item)] or skip(item)
+        end)
+        if surplus then surplus.proactive, surplus.shelveOnly = true, true end
+    end
     if not surplus and audit.capacity > 0
         and (audit.gearRatio or audit.ratio) > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
@@ -1522,23 +1560,30 @@ function Logistics.status(actor)
     -- Above the Strength limit's unload share, a companion at camp puts its
     -- surplus into marked storage so it does not walk around under Heavy
     -- Load. This is shelving only: without storage the item stays carried.
-    if not surplus and atCamp and (audit.carryCapacity or 0) > 0
+    if not surplus and not audit.lootReturnWaiting and atCamp and (audit.carryCapacity or 0) > 0
         and (audit.carryGearRatio or 0) > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
         if surplus then surplus.proactive, surplus.shelveOnly = true, true end
     end
-    if not surplus then
+    if not surplus and not audit.lootReturnWaiting then
         local literature = selectLiteratureSurplus(actor, audit)
         if literature and storageFor(actor, literature.item, "literature", true) then
             surplus = literature
         end
     end
-    if not surplus then
+    if not surplus and not audit.lootReturnWaiting then
         local farming = selectFarmingSurplus(actor, audit, skip)
         if farming and (audit.fieldReturnCleanup
             or storageFor(actor, farming.item, "farming", true)) then surplus = farming end
     end
-    audit.cleanupDone = audit.fieldReturnCleanup and surplus == nil
+    -- A cooling/full destination is pending cargo, never completed cleanup.
+    local unfiltered = (audit.fieldReturnCleanup or audit.lootReturnCleanup)
+        and audit.inventoryComplete and Logistics.selectSurplus(actor, audit,
+            not audit.fieldReturnCleanup and function(item)
+                return not usefulSupplyCategories[Logistics.itemCategory(item)]
+            end or nil) or nil
+    audit.cleanupDone = audit.fieldReturnCleanup and audit.inventoryComplete and surplus == nil and unfiltered == nil
+    audit.lootCleanupDone = audit.lootReturnCleanup and audit.inventoryComplete and unfiltered == nil
     if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
         or moveMemory.cooling(actor, "drop", surplus.item, current)) then
         surplus = nil
@@ -1549,7 +1594,7 @@ function Logistics.status(actor)
     audit.shouldManage = audit.weaponReady == true or audit.medicKitDue==true
         or audit.manualMaskRemoval ~= nil
         or audit.bagUpgrade ~= nil or audit.clothingUpgrade ~= nil
-        or audit.packMove ~= nil or audit.shouldUnload or audit.cleanupDone
+        or audit.packMove ~= nil or audit.shouldUnload or audit.cleanupDone or audit.lootCleanupDone
     audit.overloaded = audit.capacity > 0 and audit.ratio > audit.hardRatio
     state = state or {}
     states[actor] = state
@@ -1591,6 +1636,116 @@ function Logistics.preferredLootDestination(actor, item, category, audit)
     end
     if best then return best, isWorn(actor, bestItem) and "worn_bag" or "held_bag", bestItem end
     return root, "inventory"
+end
+
+-- Scavenging has its own admission context. Fetching supplies for jobs still
+-- uses canTake's existing targets and overload rules.
+function Logistics.lootAudit(actor, work, prepared)
+    local audit = prepared or Logistics.audit(actor)
+    if audit.inventoryComplete then return audit end
+    work.lootInventory = work.lootInventory or {}
+    local preparation = work.lootInventory
+    local data = preparation.auditData
+    local version = SC.InventoryIndex and SC.InventoryIndex.version and SC.InventoryIndex.version(actor)
+    if data then
+        local changed = preparation.weightProof ~= audit.weight or preparation.versionProof ~= version
+        for _, node in ipairs(data.queue) do
+            local list = select(1, U().call(node.container, "getItems"))
+            if list == nil or U().listSize(list) ~= node.size
+                or node.bag and not U().inventoryContains(node.parent, node.bag) then changed = true break end
+        end
+        if changed then preparation.auditData, preparation.inventoryScan = nil, nil end
+    end
+    local result = Preparation.inventory(actor, preparation)
+    if result then preparation.weightProof, preparation.versionProof = result.weight, version end
+    return result
+end
+
+function Logistics.lootProjection(actor, audit)
+    if not audit or audit.inventoryComplete == false then return nil end
+    local projected = {}
+    for key, value in pairs(audit) do projected[key] = value end
+    local nativeLimit, limitOk = U().call(actor, "getMaxWeight")
+    if limitOk then projected.carryCapacity = math.max(0, tonumber(nativeLimit) or 0) end
+    projected.counts, projected.items = {}, {}
+    for key, count in pairs(audit.counts) do projected.counts[key] = count end
+    for _, row in ipairs(audit.items) do projected.items[#projected.items + 1] = row end
+    local bags = Preparation.bags(actor, audit, { allowHeldBag = true })
+    for _, bag in ipairs(bags) do bag.free, bag.added = Preparation.free(bag.container, actor), 0 end
+    local targets = {}
+    for category in pairs(usefulSupplyCategories) do targets[category] = dynamicTarget(audit, category, actor) end
+    return { audit = projected, bags = bags, rawAdded = 0, baseWeight = audit.weight, targets = targets }
+end
+
+function Logistics.lootBand(projection, category)
+    return (projection.audit.counts[category] or 0) < (projection.targets[category] or 0) and 2 or 1
+end
+
+function Logistics.lootChoice(actor, item, category, projection, commands, storage, extras, planned)
+    if not projection then return nil, "inventory_scan_pending" end
+    local audit = projection.audit
+    category = category or Logistics.itemCategory(item)
+    if category == "food" and SC.Needs and SC.Needs.isSafeFoodItem
+        and not SC.Needs.isSafeFoodItem(item) then return nil, "unsafe_food" end
+    if category == "water" and SC.Needs and SC.Needs.isSafeWaterItem
+        and not SC.Needs.isSafeWaterItem(item) then return nil, "unsafe_water" end
+    local accepted, reason = Logistics.canTake(actor, item, category, audit,
+        commands and commands.scavengeRequestedCategory, storage)
+    local needed = Logistics.lootBand(projection, category) == 2
+        or reason == "clothing_upgrade" or reason == "bag_upgrade"
+    local ritual = SC.Quirks and SC.Quirks.acceptsLoot and SC.Quirks.acceptsLoot(actor, item, commands)
+    if not accepted and not (reason == "loadout_satisfied" and extras and not storage
+        and (usefulSupplyCategories[category] or ritual)) then return nil, reason end
+    -- A selected row already has a utility score. Committing still checks
+    -- admission and real capacity, without repeating presentation scoring.
+    local score = planned and planned.score or Logistics.itemNeedScore(actor, item, commands, audit, storage)
+    if (tonumber(score) or 0) <= 0 then score = 130 + ((roleWeights[audit.role] or {})[category] or 0) end
+    local raw = U().itemWeight(item)
+    local ceiling = math.min(0.72, tonumber(audit.softRatio) or 0.72)
+    local limit = math.min(tonumber(audit.capacity) or 0, tonumber(audit.carryCapacity) or 0)
+    if limit <= 0 then return nil, "capacity_unavailable" end
+    for _, bag in ipairs(projection.bags) do
+        local root = bag.container == audit.inventory
+        if (root or category ~= "container" and category ~= "clothing" and category ~= "weapon"
+                and category ~= "personal") and bag.free - bag.added + 0.000001 >= raw
+            and U().containerHasRoom(bag.container, actor, item) == true
+            and audit.weight + raw * bag.factor <= limit * ceiling + 0.000001
+            and projection.baseWeight + projection.rawAdded + raw <= audit.capacity * ceiling + 0.000001 then
+            return { item = item, category = category, destination = bag.container,
+                destinationKind = root and "inventory" or isWorn(actor, bag.item) and "worn_bag" or "held_bag",
+                destinationName = bag.item and U().itemName(bag.item) or nil,
+                bag = bag, raw = raw, delta = raw * bag.factor,
+                score = score, band = needed and 2 or 1 }
+        end
+    end
+    return nil, "loadout_too_heavy"
+end
+
+function Logistics.projectLoot(projection, row)
+    local audit = projection.audit
+    row.bag.added = row.bag.added + row.raw
+    projection.rawAdded = projection.rawAdded + row.raw
+    audit.weight = audit.weight + row.delta
+    audit.counts[row.category] = (audit.counts[row.category] or 0) + 1
+    audit.items[#audit.items + 1] = { item = row.item, category = row.category, source = row.destination }
+end
+
+function Logistics.noteLootPickup(actor)
+    if SC.BaseLife and SC.BaseLife.isInside and SC.BaseLife.isInside(actor) then return end
+    local data = U().modData(actor)
+    if data then data.LF_LootReturnPending = true end
+end
+
+function Logistics.retryLootDelivery(actor)
+    local data = actor and select(1, U().call(actor, "getModData"))
+    if type(data) ~= "table" or data.LF_LootReturnPending ~= true then return false end
+    data.LF_LootReturnRetryAt = nil
+    local ledger = moveMemory.byActor[actor]
+    for key in pairs(ledger or {}) do
+        if type(key) == "string" and key:match("^deposit%|") then ledger[key] = nil end
+    end
+    if states[actor] then states[actor].auditAt = -math.huge end
+    return true
 end
 
 local function depositCategory(item, category)
@@ -1652,12 +1807,21 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
         end
         if #choices > 0 then break end
     end
+    -- Direct contact needs no route survey. Native access still verifies the
+    -- correct side of the object, filters and capacity before the transfer.
+    if ownerState and ownerState.lootReturnCleanup and best and best.distance <= 2 and U().directInteractionAccess
+        and U().directInteractionAccess(actor, best.owner) == true then return best end
     if ownerState and #choices > 0 and SC.Navigation
         and type(SC.Navigation.selectInteraction) == "function" then
+        ownerState.depositSurveyAt = ownerState.depositSurveyAt or U().nowMs()
         local selected, reason, receipt = SC.Navigation.selectInteraction(actor, ownerState,
             "logistics_deposit:" .. tostring(select(1, U().call(item, "getID")) or item),
             choices, { nodeBudget = 1600, retainRoute = true })
-        if selected then return selected.destination, nil, receipt end
+        if selected then ownerState.depositSurveyAt = nil return selected.destination, nil, receipt end
+        if reason == "pending" and ownerState.lootReturnCleanup
+            and U().nowMs() - ownerState.depositSurveyAt >= 15000 then
+            return nil, "storage_route_unknown"
+        end
         return nil, reason == "pending" and "storage_route_pending"
             or reason == "unknown" and "storage_route_unknown"
             or "storage_route_unreachable"
@@ -1906,7 +2070,14 @@ local function advanceTransactionVisual(actor, transaction)
         service.expectVisual(token, { action = visualAction })
     end
     local animated, reason = U().move(actor, "walk", intent)
-    if not animated then return nil, reason or "logistics_action_rejected" end
+    if not animated then
+        -- The previous deposit's brief result pause is not a failed transfer.
+        -- Keep this untouched transaction and wait for its own native pose.
+        if type(reason) == "string" and reason:sub(1, 14) == "action_pacing:" then
+            return false, reason
+        end
+        return nil, reason or "logistics_action_rejected"
+    end
     if SC.NativeActions and type(SC.NativeActions.visualToken) == "function" then
         transaction.visualToken = SC.NativeActions.visualToken(actor, visualAction)
     end
@@ -2953,6 +3124,28 @@ function Logistics.update(actor, player, runtime)
     if not actor then return false, "invalid_logistics_actor" end
     local safe, snapshot = safeToManage(actor, runtime)
     local existing = states[actor]
+    if existing and existing.lootReturnCleanup and not existing.fieldReturnCleanup then
+        local data = select(1, U().call(actor, "getModData")) or {}
+        local moving = player and select(1, U().call(player, "isMoving")) == true
+        local changed = existing.lootReturnSerial ~= nil
+            and existing.lootReturnSerial ~= (tonumber(data.SC_CommandSerial) or 0)
+        if changed or not (SC.BaseLife and SC.BaseLife.isInside(actor))
+            or data.SC_Order == "follow" and moving then
+            local transaction, native = existing.transaction, SC.NativeActions
+            if transaction and transaction.visualToken and native and native.cancelVisualOwned then
+                local ok, released, why = pcall(native.cancelVisualOwned, actor,
+                    transaction.visualToken, "loot_delivery_yield")
+                if not ok or released == false then return true, why or "loot_delivery_cleanup_pending" end
+            end
+            local service = supervisor()
+            if transaction and transaction.supervisorToken and service and service.isCurrent(transaction.supervisorToken) then
+                local released, why = service.cancel(actor, "loot_delivery_yield", nil, true)
+                if released ~= true then return true, why or "loot_delivery_cleanup_pending" end
+            else cancelTransaction(actor, existing, "loot_delivery_yield") end
+            states[actor] = nil
+            return false, "loot_delivery_yield"
+        end
+    end
     if existing and existing.transaction then
         -- Logistics owns its token for the entire asynchronous visual. Unlike a
         -- movement request it does not naturally call movementPermission(), so
@@ -3067,6 +3260,10 @@ function Logistics.update(actor, player, runtime)
             local data = select(1, U().call(actor, "getModData"))
             if type(data) == "table" then data.LF_FieldReturnCleanup = nil end
         end
+        if audit.lootCleanupDone then
+            local data = U().modData(actor)
+            if data then data.LF_LootReturnPending, data.LF_LootReturnRetryAt = nil, nil end
+        end
         states[actor] = nil
         return false, "load_balanced"
     end
@@ -3078,8 +3275,10 @@ function Logistics.update(actor, player, runtime)
         state.keptHarvest = audit.surplus.keptHarvest == true
         state.shelveOnly = audit.surplus.shelveOnly == true
         state.fieldReturnCleanup = audit.fieldReturnCleanup == true
+        state.lootReturnCleanup = audit.lootReturnCleanup == true
+        state.lootReturnSerial = tonumber((select(1, U().call(actor, "getModData")) or {}).SC_CommandSerial) or 0
         state.source = audit.surplus.source or audit.inventory
-        state.destination, state.navigationChoice, state.interactionRouteReceipt = nil, nil, nil
+        state.destination, state.navigationChoice, state.interactionRouteReceipt, state.depositSurveyAt = nil, nil, nil, nil
     end
     if not state.destination then
         local destination, routeReason, receipt = storageFor(actor, state.item, state.category,

@@ -42,6 +42,9 @@
     (Join-Path $Gameplay 'loadout_harness.lua'),
     (Join-Path $Essential 'sorting_scan_harness.lua')) }
 
+@{ Name = 'loot-batches-ownership-and-nested-sources'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'loot_haul_harness.lua')) }
+
 @{ Name = 'home-reviewed-crew-journey'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

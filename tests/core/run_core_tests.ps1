@@ -253,6 +253,7 @@ try {
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCScavengeLoot.lua'),
             (Join-Path $Client 'SCEncounter.lua'),
             (Join-Path $TestRoot 'camp_supply_search_harness.lua')
         )

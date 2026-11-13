@@ -502,27 +502,19 @@ def main() -> int:
             and '"ToggleWindow"' not in traversal_source,
             "native-authoritative door/window postconditions missing")
     require("scavengeSquareBudget" in sources["SCEncounter.lua"], "scavenge budget not enforced")
-    # Blind container choice. The harness reaches the three helpers directly but
-    # not the three places selection has to call them, so the wiring is pinned
-    # here: sticky first, the outside-only score folded into the ranking, and
-    # the container marked open at the moment the companion reaches into it.
+    # Selection is blind, content discovery is at arrival, and each batch waits
+    # for the native visual before its one supervisor commit.
     encounter_source = sources["SCEncounter.lua"]
-    require("local openContainer, openItem, openCategory, openOwner, openScore ="
-            in encounter_source
-            and "return beginTask(actor, state, openContainer, openItem, openCategory,"
-            in encounter_source
-            and "score = score + Encounter.blindContainerScore(" in encounter_source
-            and "Encounter._noteContainerOpened(state, task.container, time)"
-            in encounter_source,
-            "container choice is not blind-scored, sticky and marked on opening")
-    # The blind branch must not be able to read contents: no scorer call, and
-    # the item is the sentinel that defers choosing one until the container
-    # has been opened at the end of the approach.
-    require("if Encounter._alreadyOpened(state, container) then" in encounter_source
-            and "item, category = Encounter.UNOPENED, nil" in encounter_source
+    selection = encounter_source.split("local function selectTask(", 1)[1].split("local function commitTask(", 1)[0]
+    require("Encounter.stickyContainer(" in selection
+            and "Encounter.blindContainerScore(" in selection
+            and "scoreContainer(" not in selection
+            and "item, category = Encounter.UNOPENED, nil" in selection
+            and "Encounter._noteContainerOpened(state, task.container, time)" in encounter_source
+            and "local pending = item == Encounter.UNOPENED" in encounter_source
             and "if task.pendingItem then" in encounter_source
-            and "local pending = item == Encounter.UNOPENED" in encounter_source,
-            "unopened containers are not chosen by their hidden contents")
+            and "service.commit(token, transferBatch)" in encounter_source,
+            "scavenging must choose blindly, discover at contact and own its verified batch commit")
     require("wasPlayerOpened" in sources["SCEncounter.lua"]
             and "campStorageSquareBudget" in sources["SCEncounter.lua"]
             and "takePlayerSupply" in sources["SCEncounter.lua"],
@@ -632,7 +624,7 @@ def main() -> int:
             "visible-zombie hand signals still describe body tapping")
     require(all(f'["scavenge.loot.{tone}"]' in dialogue_source
                 for tone in ("excited", "disappointed", "gross"))
-            and "maybeReactToLoot(actor, state, task, commands, time)" in sources["SCEncounter.lua"]
+            and "maybeReactToLoot(actor, state, haul.best, commands, time)" in sources["SCEncounter.lua"]
             and "scavengeLootReactionChancePercent" in sources["SCEncounter.lua"],
             "post-transfer personality-aware scavenging reactions are missing")
     traversal_source = (CLIENT / "SCNativeTraversalActions.lua").read_text(encoding="utf-8")

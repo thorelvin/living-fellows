@@ -4056,6 +4056,18 @@ end
 -- Encounter calls this only after its exact native source debit and
 -- destination membership check. The item token survives companion inventory
 -- serialization; these receipts explain cargo without owning another item.
+-- Admission and every row of a batch share the mission's live quota. Never
+-- credit or physically take more stock than the remaining request permits.
+function Expedition.searchLootRemaining(actor, session, category)
+    if not mission or mission.terminal or mission.technicalIssue or not Expedition.isMember(actor)
+        or session ~= mission.radioSession then return 0 end
+    local itinerary = mission.scout
+    local search = itinerary and itinerary.search
+    if not search and mission.testSearch then return nil end
+    if not search or itinerary.phase ~= "searching" or category ~= search.request.category then return 0 end
+    return math.max(0, math.min(16, search.request.quantity) - #search.acquisitions)
+end
+
 function Expedition.noteVerifiedSearchLoot(actor, loot)
     local itinerary = mission and mission.scout
     local search = itinerary and itinerary.search
