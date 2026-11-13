@@ -33,26 +33,60 @@ function Squad.positionProbe(now)
     return true
 end
 
-local function capable(actor, health)
-    if not actor or U().isDead(actor) or (tonumber(health) or 100) <= 50 then
-        return false
-    end
+-- What one member can bring to a fight now, from its own state alone. It
+-- makes no group calls, so judging an ally never recurses into the squad.
+-- A member that is grabbed, seated, exhausted, downed or without a usable
+-- weapon or fighting response is not a defender, whatever its health.
+function Squad.capability(actor, health)
+    local utility = U()
+    if not actor or utility.isDead(actor) then return { ready = false, reason = "dead" } end
+    if (tonumber(health) or 100) <= 50 then return { ready = false, reason = "hurt" } end
     if SC.Medical and type(SC.Medical.isDowned) == "function"
-        and SC.Medical.isDowned(actor) then return false end
-    if U().characterStatValue(actor, "ENDURANCE", 0.5) <= 0.25 then return false end
-    local combat = SC.Combat
+        and SC.Medical.isDowned(actor) then return { ready = false, reason = "downed" } end
+    if utility.characterStatValue(actor, "ENDURANCE", 0.5) <= 0.25 then
+        return { ready = false, reason = "exhausted" }
+    end
+    if select(1, utility.call(actor, "getVehicle")) ~= nil then
+        return { ready = false, reason = "seated" }
+    end
+    if SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
+        and SC.ZombieAttack.isGrabbed(actor) == true then
+        return { ready = false, reason = "grabbed" }
+    end
+    local combat, weapon = SC.Combat, nil
     if combat and type(combat.primaryWeaponUsable) == "function"
-        and combat.primaryWeaponUsable(actor) == true then return true end
-    return combat and type(combat.unarmedResponse) == "function"
-        and combat.unarmedResponse(actor) == "fight" or false
+        and combat.primaryWeaponUsable(actor) == true then
+        weapon = "armed"
+    elseif combat and type(combat.unarmedResponse) == "function"
+        and combat.unarmedResponse(actor) == "fight" then
+        weapon = "unarmed"
+    else
+        return { ready = false, reason = "no_weapon" }
+    end
+    -- Stay and guard keep a companion near its spot. Read the saved order:
+    -- Commands.peek creates state as a side effect.
+    local data, anchor = utility.modData(actor), nil
+    if type(data) == "table" and (data.SC_Order == "stay" or data.SC_Order == "guard")
+        and type(data.SC_AnchorX) == "number" and type(data.SC_AnchorY) == "number" then
+        anchor = { x = data.SC_AnchorX, y = data.SC_AnchorY }
+    end
+    return { ready = true, weapon = weapon, anchor = anchor }
+end
+
+local function anchorReaches(member, x, y)
+    local anchor = member.capability and member.capability.anchor
+    if not anchor then return true end
+    local reach = (tonumber(U().config("guardRadius")) or 5) + 1
+    return distanceSq(anchor.x + 0.5, anchor.y + 0.5, x, y) <= reach * reach
 end
 
 local function collectMembers(actor, snapshot, cohort, x, y, z)
     local actorHealth = U().nativeHealth(actor)
     local party = string.sub(tostring(cohort), 1, 6) == "party:"
+    local own = Squad.capability(actor, actorHealth)
     local members = {
         { actor = actor, x = x, y = y, z = z,
-            health = actorHealth, capable = capable(actor, actorHealth) },
+            health = actorHealth, capable = own.ready, capability = own },
     }
     for _, ally in ipairs(snapshot.allies or {}) do
         if #members >= 16 then break end
@@ -64,8 +98,10 @@ local function collectMembers(actor, snapshot, cohort, x, y, z)
             local ox, oy, oz = position(other)
             if ox and distanceSq(x, y, ox, oy) <= 36 then
                 local health = tonumber(ally.health) or U().nativeHealth(other)
+                local profile = Squad.capability(other, health)
                 members[#members + 1] = { actor = other, x = ox, y = oy,
-                    z = oz, health = health, capable = capable(other, health) }
+                    z = oz, health = health, capable = profile.ready,
+                    capability = profile }
             end
         end
     end
@@ -209,9 +245,15 @@ function Squad.forActor(actor, player, snapshot, cohort, now)
         refreshedAt = plan.refreshedAt, expires = plan.expires,
         active = plan.active, incoming = plan.incoming,
         capable = plan.capable, members = plan.members }
+    -- Support is spent once. A member already assigned to another zombie is
+    -- fighting it, not standing by for this one; a member held to a stay or
+    -- guard spot only helps within reach of that spot.
     local support = 0
     for _, member in ipairs(plan.members) do
-        if member.actor ~= actor and member.capable
+        local job = member.actor ~= actor and plan.assignments[member.actor] or nil
+        local busy = job ~= nil and job.target ~= nil and job.target ~= assignment.target
+        if member.actor ~= actor and member.capable and not busy
+            and anchorReaches(member, x, y)
             and distanceSq(x, y, member.x, member.y) <= 36
             and sameGroup(actor, member.actor) then
             local proofs = plan.supportProofs[actor]

@@ -45,10 +45,47 @@ local za, zb, zc = zombie(-1, 0), zombie(3, 0), zombie(0, 3)
 local view = Squad.forActor(a, nil, snapshot({ b, c }, { za, zb, zc }), "party:squad", tick())
 check(view ~= nil and view.target == za,
     "three fighters and three zombies: the nearest fighter takes its own zombie")
--- GAP (phase 1, single spending): b and c each hold a zombie of their own,
--- yet both count as a's support. Phase 1 expects 0.
-check(view.supportCount == 2,
-    "GAP: busy fighters count as support: " .. tostring(view.supportCount))
+-- Phase 1, single spending: b and c each hold a zombie of their own, so
+-- neither is standing by for a's.
+check(view.supportCount == 0,
+    "busy fighters are not support: " .. tostring(view.supportCount))
+
+-- 1b. A free ally is support. Each way of being unable to help removes it.
+local function supportFor(change, undo)
+    Squad.reset()
+    if change then change() end
+    local current = Squad.forActor(a, nil, snapshot({ b }, { za }), "party:squad", tick())
+    if undo then undo() end
+    return current and current.supportCount
+end
+check(supportFor() == 1, "a free, armed ally is support")
+local grabbed = SC.ZombieAttack.isGrabbed
+check(supportFor(function() SC.ZombieAttack.isGrabbed = function(x) return x == b end end,
+    function() SC.ZombieAttack.isGrabbed = grabbed end) == 0, "a grabbed ally is not support")
+check(supportFor(function() b.vehicle = {} end, function() b.vehicle = nil end) == 0,
+    "a seated ally is not support")
+check(supportFor(function() b.endurance = 0.2 end, function() b.endurance = nil end) == 0,
+    "an exhausted ally is not support")
+local downed = SC.Medical.isDowned
+check(supportFor(function() SC.Medical.isDowned = function(x) return x == b end end,
+    function() SC.Medical.isDowned = downed end) == 0, "a downed ally is not support")
+local usable, unarmed = SC.Combat.primaryWeaponUsable, SC.Combat.unarmedResponse
+check(supportFor(function()
+    SC.Combat.primaryWeaponUsable = function(x) return x ~= b end
+    SC.Combat.unarmedResponse = function() return "withdraw" end
+end, function()
+    SC.Combat.primaryWeaponUsable, SC.Combat.unarmedResponse = usable, unarmed
+end) == 0, "an ally with no weapon who would withdraw is not support")
+check(supportFor(function()
+    b.modData.SC_Order, b.modData.SC_AnchorX, b.modData.SC_AnchorY = "stay", 30, 0
+end, function()
+    b.modData.SC_Order, b.modData.SC_AnchorX, b.modData.SC_AnchorY = nil, nil, nil
+end) == 0, "an ally held to a stay spot out of reach is not support")
+check(supportFor(function()
+    b.modData.SC_Order, b.modData.SC_AnchorX, b.modData.SC_AnchorY = "guard", 2, 0
+end, function()
+    b.modData.SC_Order, b.modData.SC_AnchorX, b.modData.SC_AnchorY = nil, nil, nil
+end) == 1, "an ally guarding a spot within reach is support")
 
 -- 2. First come, first served. a is nearest to both zombies, b reaches only
 -- the first one, so the second is left with nobody.
