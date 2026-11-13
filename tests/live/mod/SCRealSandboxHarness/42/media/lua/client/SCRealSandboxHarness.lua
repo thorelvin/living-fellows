@@ -15951,6 +15951,10 @@ end
 Harness.probeSquadCombat = function(...)
     return externalProbe("SCSquadCombatLiveProbe", ...)
 end
+
+Harness.probeStairCombat = function(...)
+    return externalProbe("SCStairCombatProbe", ...)
+end
 Harness.probeFollowerBoarding = function(...)
     return externalProbe("SCFollowerBoardingProbe", ...)
 end
@@ -16448,6 +16452,8 @@ local function tick()
         Harness.probeNeedsPriority(Harness,current,check,result,setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 13) == "squad_combat_" then
         Harness.probeSquadCombat(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 13) == "stair_combat_" then
+        Harness.probeStairCombat(Harness, current, check, result, setPhase)
     elseif Harness.phase == "ui_menu_probe" or Harness.phase == "ui_menu_capture"
         or Harness.phase == "ui_menu_capture_bottom" then
         Harness.probeUIMenus(current)
@@ -17484,6 +17490,8 @@ local function onGameStart()
         setPhase("needs_food_setup",Harness.startedAt)
     elseif Harness.config.squad_combat_probe == "true" then
         setPhase("squad_combat_setup", Harness.startedAt)
+    elseif Harness.config.stair_combat_probe == "true" then
+        setPhase("stair_combat_setup", Harness.startedAt)
     elseif Harness.config.oddball_smoker_probe == "true" then
         setPhase("smoker_prepare", Harness.startedAt)
     elseif Harness.config.strange_folk_batch_probe == "true" then

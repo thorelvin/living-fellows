@@ -1,0 +1,57 @@
+Stair combat facts -- horde plan S0 -- 2026-11-13
+
+Measured on 0.27.12 + horde/phase-0 with the new live probe:
+  scripts/Invoke-LiveSandboxTests.ps1 -StairCombatProbe -StairCombatTrials 3
+      -LivingFellowsOnly -IsolatedSourceBridge -TimeoutSeconds 900
+Disposable cloned save, isolated source bridge; the installed game, launcher
+and saves were not changed. One run at a time.
+
+Fixture
+One north-facing staircase near 5850,5232: exit 5810,5234 z0, pieces
+stairsBN 5810,5233 / stairsMN 5810,5232 / stairsTN 5810,5231, landing
+5810,5230 z1. One native companion (Base.Crowbar, endurance 1, Stay order)
+and one zombie targeted at it with the native spotted() path. Three trials
+with the companion on the landing ("top") and three at the exit ("bottom").
+Per-second timelines are printed as SC_REAL_SANDBOX|STAIR_TIMELINE lines.
+
+Probe trap found on the way: both ends of a staircase usually fit the
+"free tile, three stair tiles, free tile one floor up" shape. The probe (and
+SCStairTransition's survey, which uses the same shape) can pick the floor above
+the stairs' foot as the "landing". The probe now requires the bottom piece
+(stairs*B*) beside the exit and the top piece (stairs*T*) beside the landing.
+A north-facing staircase climbs toward -y.
+
+Results (run SC-Harness-20261113-192919-581628a2)
+  top 1   zombie climbed in 7.7 s; companion reacted at height 0.98 (top
+          step); its attack staggered the zombie from 0.98 to 0.62 and floored
+          it on the middle step. The zombie climbed back to the top step and
+          the pair stood 0.6 m apart for 21 s with the companion's attack
+          "in progress" and nothing landing. Timeout, no damage either way.
+  top 2   climb 5.6 s; reaction at 0.97; two shoves each sent the zombie
+          back down a step (0.97 -> 0.73) and floored it; killed.
+  top 3   the companion left the landing on its Stay order and fought on the
+          slope (its own height 0.67-0.78); hit landed at zombie height 0.48;
+          killed.
+  bottom 1  companion moved 6 tiles from the foot before contact; met the
+          zombie at the foot and killed it on flat ground.
+  bottom 2  zombie stayed idle upstairs for 40 s; no contact (inconclusive).
+  bottom 3  reaction at zombie height 0.92 (top step); companion hit from flat
+          ground at the foot, zombie floored on the lower step (0.31) and lay
+          there 30 s while the companion hovered without finishing it; it got
+          up and was killed.
+No companion took damage in six trials; no bite or grab landed from the stairs.
+
+What this settles for the plan (plan-horde-combat-wp2-6.md, 4.6)
+  1. Height decides who reacts: a zombie climbing to a group upstairs is not
+     a threat until its height reaches about 0.97. Rule 1 is needed.
+  2. Holding the top works: a hit or shove at the top sends the zombie back
+     down the stairs and usually floors it.
+  3. The top step can stall: a zombie standing on it beside the defender was
+     neither hit nor hitting for 21 s. Holding the top needs a fallback: step
+     back one tile to draw it onto the landing.
+  4. Stay did not keep a defender off the stairs. Rule 2 is needed.
+  5. A zombie floored on the stairs is not finished; the grounded-finisher
+     logic needs a stair case (finish it or hold, with a deadline).
+  6. Meeting a descending zombie from flat ground at the foot works.
+Limits: one staircase, one weapon, one zombie, healthy fighter, six trials.
+Climb and reaction figures are observations, not guarantees.

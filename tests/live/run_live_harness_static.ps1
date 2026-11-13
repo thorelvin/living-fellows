@@ -25,6 +25,7 @@ $FollowRoadLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\clie
 $FacingLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFacingProbe.lua'
 $SixSeatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCSixSeatProbe.lua'
 $SquadCombatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCSquadCombatLiveProbe.lua'
+$StairCombatLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCStairCombatProbe.lua'
 $FarmCorridorLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCFarmCorridorProbe.lua'
 $WaterSourceLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCWaterSourceProbe.lua'
 $UpstairsHaulLua = Join-Path $TestRoot 'mod\SCRealSandboxHarness\42\media\lua\client\SCUpstairsHaulProbe.lua'
@@ -63,7 +64,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Live harness Lua compiler build failed.' }
     Push-Location -LiteralPath $GameRoot
     try {
-        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FirestationRestLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $HomeTripLua $HomeDriveFixtureLua $HomeRadioLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
+        & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $Lua $DrivingLua $FollowRoadLua $FacingLua $SixSeatLua $SquadCombatLua $StairCombatLua $FarmCorridorLua $WaterSourceLua $UpstairsHaulLua $FirestationRestLua $FloorSortLua $BaseAlertLua $BarricadeLua $ViewCutawayLua $HomeTripLua $HomeDriveFixtureLua $HomeRadioLua $NormalKitchenLua $WoodExpeditionLua $BanditsAdapterLua $BanditsCombatLua
         if ($LASTEXITCODE -ne 0) { throw 'Live harness Kahlua compilation failed.' }
         & $GameJava -cp "$BuildRoot;$Jar" ReflectLuaCompiler $BanditsCloseLua $BanditsLifecycleLua $BanditsArmorLua $BanditsVehicleLua $BanditsLaneLua $BanditsVehicleFireLua $BanditsWallLua $ALifeAdapterLua $GridControlLua
         if ($LASTEXITCODE -ne 0) { throw 'Bandits close-combat probe compilation failed.' }

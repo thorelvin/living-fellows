@@ -244,6 +244,9 @@ param(
     [switch]$GiftedEquipmentProbe,
     # Repeated native squad-versus-zombie survival trials in a cloned save.
     [switch]$SquadCombatProbe,
+    # Stair combat facts: one companion and one zombie at opposite ends of a real staircase.
+    [switch]$StairCombatProbe,
+    [ValidateRange(1, 5)][int]$StairCombatTrials = 3,
     [switch]$FollowerBoardingProbe,
     [switch]$NeedsPriorityProbe,
     [switch]$SquadCombatFrontOnly,
@@ -2143,6 +2146,8 @@ $config = @(
     ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('stair_combat_probe=' + $StairCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('stair_combat_trials=' + $StairCombatTrials),
     ('follower_boarding_probe=' + $FollowerBoardingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('needs_priority_probe=' + $NeedsPriorityProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_front_only=' + $SquadCombatFrontOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -2318,6 +2323,7 @@ $manifest = [ordered]@{
     woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
+    stairCombatProbe = $StairCombatProbe.IsPresent
     followerBoardingProbe = $FollowerBoardingProbe.IsPresent
     needsPriorityProbe = $NeedsPriorityProbe.IsPresent
     squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent
