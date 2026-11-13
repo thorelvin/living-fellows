@@ -87,8 +87,8 @@ end, function()
     b.modData.SC_Order, b.modData.SC_AnchorX, b.modData.SC_AnchorY = nil, nil, nil
 end) == 1, "an ally guarding a spot within reach is support")
 
--- 2. First come, first served. a is nearest to both zombies, b reaches only
--- the first one, so the second is left with nobody.
+-- 2. Cover before doubling. a is nearest to both zombies and b reaches only
+-- the first, so b takes the first and frees a for the second.
 Squad.reset()
 b.square = f.cell:getGridSquare(5, 0, 0)
 local first, second = zombie(1, 0), zombie(-1, 0)
@@ -99,12 +99,75 @@ local now = tick()
 local viewA = Squad.forActor(a, nil, scene, "party:squad", now)
 local viewB = Squad.forActor(b, nil, scene, "party:squad", now)
 check(viewA ~= nil and viewB ~= nil, "both fighters share one squad plan")
--- GAP (phase 2, cover before doubling): a takes the first zombie and b is
--- left without a target although it could take that one and free a for the
--- second. Phase 2 expects a -> second, b -> first.
-check(viewA.target == first and viewB.target == nil,
-    "GAP: greedy assignment leaves the second zombie uncovered: "
-        .. tostring(viewA.target == first) .. "/" .. tostring(viewB.target))
+-- Phase 2: first-come assignment used to give a the first zombie and leave
+-- the second with nobody.
+check(viewA.target == second and viewB.target == first,
+    "every reachable zombie gets a defender: "
+        .. tostring(viewA.target == second) .. "/" .. tostring(viewB.target == first))
+
+-- 2b. A zombie on the player comes first, even before one attacking nearby.
+Squad.reset()
+b.square, b.worldX, b.worldY = f.cell:getGridSquare(-5, 0, 0), a:getX() - 5.1, a:getY()
+local biter, onPlayer = zombie(1, 0), zombie(3, 0)
+scene = snapshot({ b }, { biter, onPlayer })
+scene.threats[1].x, scene.threats[1].attacking = a:getX() + 1.5, true
+scene.threats[2].x, scene.threats[2].target = a:getX() + 3.0, f.player
+viewA = Squad.forActor(a, f.player, scene, "party:squad", tick())
+check(viewA ~= nil and viewA.target == onPlayer,
+    "the only defender in reach takes the zombie on the player")
+b.worldX, b.worldY = nil, nil
+
+-- 2c. The plan is the encounter's: a zombie only b can see is still in it,
+-- while b's view is fresh.
+local function viewsWith(bView)
+    local byId = SC.Registry.byId
+    SC.Registry.byId = function(id)
+        if id == b.id then return { actor = b, runtime = { senses = { current = bView } } } end
+        return byId(id)
+    end
+    local result = Squad.forActor(a, nil, snapshot({ b }, {}), "party:squad", now)
+    SC.Registry.byId = byId
+    return result
+end
+Squad.reset()
+b.square = f.cell:getGridSquare(5, 0, 0)
+local farSide = zombie(6, 0)
+now = tick()
+local bView = snapshot({ a }, { farSide })
+bView.time = now - 200
+local shared = viewsWith(bView)
+check(shared ~= nil and Squad.forActor(b, nil, bView, "party:squad", now).target == farSide,
+    "a zombie only one member sees belongs to the shared plan")
+Squad.reset()
+bView.time = now - 800
+check(viewsWith(bView) == nil, "a stale member view is not used")
+
+-- 2d. A companion already fighting a zombie keeps it, even when another
+-- member stands closer to it.
+Squad.reset()
+b.square = f.cell:getGridSquare(2, 0, 0)
+local fought, other = zombie(2, 0), zombie(-1, 0)
+scene = snapshot({ b }, { fought, other })
+scene.threats[1].x = b:getX() + 0.5
+local peek = SC.Combat.peek
+SC.Combat.peek = function(value) if value == a then return { target = fought } end return peek(value) end
+viewA = Squad.forActor(a, nil, scene, "party:squad", tick())
+SC.Combat.peek = peek
+check(viewA ~= nil and viewA.target == fought, "a fighter keeps the zombie it is already fighting")
+
+-- 2e. Same scene, same plan, whatever order the allies were listed in.
+local function tieWinner(allies)
+    Squad.reset()
+    local tie = zombie(2, 2)
+    local current = tick()
+    Squad.forActor(a, nil, snapshot(allies, { tie }), "party:squad", current)
+    local viewC = Squad.forActor(c, nil, snapshot({ a, b }, { tie }), "party:squad", current)
+    local viewOfB = Squad.forActor(b, nil, snapshot({ a, c }, { tie }), "party:squad", current)
+    return viewOfB and viewOfB.target == tie and "b" or viewC and viewC.target == tie and "c" or "none"
+end
+local firstOrder, secondOrder = tieWinner({ b, c }), tieWinner({ c, b })
+check(firstOrder == secondOrder and firstOrder ~= "none",
+    "an equal choice is settled by id, not list order: " .. firstOrder .. "/" .. secondOrder)
 
 -- 3. A zombie count wobbling at a threshold flips the mode every rebuild.
 Squad.reset()

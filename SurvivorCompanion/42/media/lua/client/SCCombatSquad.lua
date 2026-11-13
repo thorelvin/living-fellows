@@ -108,34 +108,71 @@ local function collectMembers(actor, snapshot, cohort, x, y, z)
     return members
 end
 
-local function collectThreats(snapshot, x, y, z)
-    local threats = {}
-    for index, threat in ipairs(snapshot.threats or {}) do
-        if index > 64 then break end
-        local other = threat.actor
-        if other and not U().isDead(other) and threat.obstructed ~= true
-            and threat.visible ~= false then
-            local tx, ty, tz = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
-            if not tx then tx, ty, tz = position(other) end
-            if tx and (tz == nil or math.floor(tz) == math.floor(z)) then
-                local facts = SC.ZombieFacts and SC.ZombieFacts.get(other) or nil
-                local posture = facts and facts.posture or threat.posture
-                if posture ~= "downed" or (facts and facts.gettingUp) then
-                    local d2 = distanceSq(x, y, tx, ty)
-                    local arriving = tonumber(threat.timeToImpactMs)
-                    if (posture ~= "crawler" or d2 <= 2 * 2
-                        or (arriving ~= nil and arriving <= 5000))
-                        and (d2 <= 6 * 6 or (d2 <= 12 * 12
-                            and arriving ~= nil and arriving <= 5000)) then
-                        local victim = facts and facts.target or threat.target
-                        local priority = (threat.attacking and 50 or 0)
-                            + (victim and 25 or 0) + 30 / (1 + math.sqrt(d2))
-                            + math.max(0, 5 - (arriving or 99999) / 1000) * 3
-                        threats[#threats + 1] = { actor = other, x = tx, y = ty,
-                            distanceSq = d2, victim = victim, priority = priority,
-                            attacking = threat.attacking == true,
-                            crawler = posture == "crawler",
-                            incoming = arriving ~= nil and arriving <= 5000 }
+-- A member's own latest sensing snapshot, when it is fresh. The plan is the
+-- encounter's, not the view of whichever companion happened to rebuild it: a
+-- zombie only the far member can see still belongs in it. No new scans.
+local function memberSnapshot(member, now)
+    local registry = SC.Registry
+    if type(registry) ~= "table" or type(registry.idOf) ~= "function"
+        or type(registry.byId) ~= "function" then return nil end
+    local id = registry.idOf(member)
+    local record = id and registry.byId(id) or nil
+    local runtime = type(record) == "table" and record.runtime or nil
+    local senses = type(runtime) == "table" and runtime.senses or nil
+    local snapshot = type(senses) == "table" and senses.current or nil
+    local observed = type(snapshot) == "table" and tonumber(snapshot.time) or nil
+    if observed == nil or observed > now + 1000 or now - observed > 500 then return nil end
+    return snapshot
+end
+
+local function nearestMemberSq(members, tx, ty)
+    local best
+    for _, member in ipairs(members) do
+        local d2 = distanceSq(member.x, member.y, tx, ty)
+        if best == nil or d2 < best then best = d2 end
+    end
+    return best or math.huge
+end
+
+local function collectThreats(views, members, player, z)
+    local threats, seen = {}, {}
+    for _, snapshot in ipairs(views) do
+        for index, threat in ipairs(snapshot.threats or {}) do
+            if index > 64 then break end
+            local other = threat.actor
+            if other and not seen[other] and not U().isDead(other)
+                and threat.obstructed ~= true and threat.visible ~= false then
+                local tx, ty, tz = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
+                if not tx then tx, ty, tz = position(other) end
+                if tx and (tz == nil or math.floor(tz) == math.floor(z)) then
+                    local facts = SC.ZombieFacts and SC.ZombieFacts.get(other) or nil
+                    local posture = facts and facts.posture or threat.posture
+                    if posture ~= "downed" or (facts and facts.gettingUp) then
+                        local d2 = nearestMemberSq(members, tx, ty)
+                        local arriving = tonumber(threat.timeToImpactMs)
+                        if (posture ~= "crawler" or d2 <= 2 * 2
+                            or (arriving ~= nil and arriving <= 5000))
+                            and (d2 <= 6 * 6 or (d2 <= 12 * 12
+                                and arriving ~= nil and arriving <= 5000)) then
+                            seen[other] = true
+                            local victim = facts and facts.target or threat.target
+                            -- Anything on the player, or on a companion that is
+                            -- held, is everyone's first job.
+                            local onPlayer = victim ~= nil and player ~= nil and victim == player
+                            local onGrabbed = victim ~= nil and not onPlayer and SC.ZombieAttack
+                                and type(SC.ZombieAttack.isGrabbed) == "function"
+                                and SC.ZombieAttack.isGrabbed(victim) == true
+                            local priority = (onPlayer and 80 or onGrabbed and 60
+                                    or threat.attacking and 50 or victim and 25 or 0)
+                                + 30 / (1 + math.sqrt(d2))
+                                + math.max(0, 5 - (arriving or 99999) / 1000) * 3
+                            threats[#threats + 1] = { actor = other, x = tx, y = ty,
+                                distanceSq = d2, victim = victim, priority = priority,
+                                urgent = onPlayer or onGrabbed or threat.attacking == true,
+                                attacking = threat.attacking == true,
+                                crawler = posture == "crawler",
+                                incoming = arriving ~= nil and arriving <= 5000 }
+                        end
                     end
                 end
             end
@@ -145,13 +182,99 @@ local function collectThreats(snapshot, x, y, z)
         if a.priority == b.priority then return a.distanceSq < b.distanceSq end
         return a.priority > b.priority
     end)
+    while #threats > 64 do table.remove(threats) end
     return threats
 end
 
-local function build(actor, snapshot, cohort, now, x, y, z)
+local function reaches(member, threat)
+    return distanceSq(member.x, member.y, threat.x, threat.y) <= 6 * 6
+end
+
+-- Who fights which zombie. Every reachable zombie gets one defender before any
+-- gets a second, zombies on the player or on a held companion come first, and
+-- a companion already fighting a zombie keeps it. Members are taken in id
+-- order, so the same scene always gives the same plan.
+local function assign(members, threats)
+    local owner, held = {}, {}
+    local function give(member, threat)
+        local previous = held[member]
+        if previous then owner[previous] = nil end
+        held[member], owner[threat] = threat, member
+    end
+    local function nearestFree(threat, allowed)
+        local best, bestScore
+        for _, member in ipairs(members) do
+            if member.capable and reaches(member, threat)
+                and (held[member] == nil or allowed and allowed(member)) then
+                local score = distanceSq(member.x, member.y, threat.x, threat.y)
+                    - (threat.victim == member.actor and 3 or 0)
+                if bestScore == nil or score < bestScore then best, bestScore = member, score end
+            end
+        end
+        return best
+    end
+    local byActor = {}
+    for _, threat in ipairs(threats) do byActor[threat.actor] = threat end
+    local combat = SC.Combat
+    if combat and type(combat.peek) == "function" then
+        for _, member in ipairs(members) do
+            local state = member.capable and combat.peek(member.actor) or nil
+            local threat = type(state) == "table" and state.target and byActor[state.target] or nil
+            if threat and not owner[threat] and reaches(member, threat) then give(member, threat) end
+        end
+    end
+    for pass = 1, 2 do
+        for _, threat in ipairs(threats) do
+            if (threat.urgent == true) == (pass == 1) and not owner[threat] then
+                local member = nearestFree(threat)
+                if not member and pass == 1 then
+                    member = nearestFree(threat, function(candidate)
+                        return held[candidate].urgent ~= true
+                    end)
+                end
+                if member then give(member, threat) end
+            end
+        end
+    end
+    -- Cover before doubling: an uncovered zombie may take a member whose own
+    -- zombie a free member can take over. One exchange per zombie, bounded.
+    for _, threat in ipairs(threats) do
+        if not owner[threat] then
+            local best, bestD2, relief
+            for _, member in ipairs(members) do
+                local mine = held[member]
+                if mine and mine.urgent ~= true and member.capable and reaches(member, threat) then
+                    local free = nearestFree(mine)
+                    local d2 = distanceSq(member.x, member.y, threat.x, threat.y)
+                    if free and (bestD2 == nil or d2 < bestD2) then
+                        best, bestD2, relief = member, d2, free
+                    end
+                end
+            end
+            if best then
+                local mine = held[best]
+                give(best, threat)
+                give(relief, mine)
+            end
+        end
+    end
+    return held
+end
+
+local function build(actor, snapshot, cohort, now, x, y, z, player)
     local members = collectMembers(actor, snapshot, cohort, x, y, z)
     if #members < 2 then return nil end
-    local threats = collectThreats(snapshot, x, y, z)
+    table.sort(members, function(a, b)
+        return tostring(U().idOf(a.actor)) < tostring(U().idOf(b.actor))
+    end)
+    local views = { snapshot }
+    for _, member in ipairs(members) do
+        if member.actor ~= actor then
+            local view = memberSnapshot(member.actor, now)
+            if view and view ~= snapshot then views[#views + 1] = view end
+        end
+    end
+    local threats = collectThreats(views, members, player, z)
     local capableCount, active, incoming = 0, 0, 0
     for _, member in ipairs(members) do
         if member.capable then capableCount = capableCount + 1 end
@@ -167,24 +290,11 @@ local function build(actor, snapshot, cohort, now, x, y, z)
     if capableCount == 0 or load > capableCount * 2 + 2 then mode = "disengage"
     elseif load > capableCount + 1 then mode = "give_ground"
     elseif #threats == 0 then mode = "regroup" end
+    local held = assign(members, threats)
     local assignments = setmetatable({}, { __mode = "k" })
-    for _, threat in ipairs(threats) do
-        local best, bestScore
-        for _, member in ipairs(members) do
-            if member.capable and assignments[member.actor] == nil then
-                local d2 = distanceSq(member.x, member.y, threat.x, threat.y)
-                if d2 <= 6 * 6 then
-                    local score = d2 - (threat.victim == member.actor and 3 or 0)
-                    if bestScore == nil or score < bestScore then
-                        best, bestScore = member, score
-                    end
-                end
-            end
-        end
-        if best then
-            assignments[best.actor] = { mode = mode, target = threat.actor,
-                protected = threat.victim, reason = threat.victim and "cover" or "engage" }
-        end
+    for member, threat in pairs(held) do
+        assignments[member.actor] = { mode = mode, target = threat.actor,
+            protected = threat.victim, reason = threat.victim and "cover" or "engage" }
     end
     for _, member in ipairs(members) do
         if not assignments[member.actor] then
@@ -223,7 +333,7 @@ function Squad.forActor(actor, player, snapshot, cohort, now)
     if not plan or now >= plan.nextRefreshAt or plan.assignments[actor] == nil then
         local performance = SC.Performance
         local started = performance and performance.preciseNowMs()
-        local fresh = build(actor, snapshot, cohort, now, x, y, z)
+        local fresh = build(actor, snapshot, cohort, now, x, y, z, player)
         if not fresh then return nil end
         fresh.key = key
         if plan then
