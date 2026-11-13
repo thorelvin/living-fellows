@@ -13,8 +13,11 @@ local function owned(actor, item)
         and U().containerContainsIdentity(source,item)==true
 end
 
+-- Keys are ItemBodyLocation ids, lower-cased with underscores removed
+-- (base:Pants_Skinny -> pantsskinny). Legs1 is long johns and skinny trousers.
 local lowerLocations = {
-    pants=true, pantsextra=true, shorts=true, skirt=true, longskirt=true,
+    pants=true, pantsskinny=true, pantsextra=true, legs1=true,
+    shortpants=true, shortsshort=true, skirt=true, longskirt=true,
     dress=true, longdress=true, underwearbottom=true, underwear=true,
     underwearextra1=true, underwearextra2=true, torso1legs1=true,
     fullsuit=true, fullsuithead=true, fullsuitheadscba=true,
@@ -137,9 +140,10 @@ function Clothing.undress(actor, owner, options)
             local item=select(1,U().call(entry,"getItem"))
             local location=select(1,U().call(entry,"getLocation"))
             if item and location and (not options.filter or options.filter(item,location)) then
+                -- A broken garment cannot be worn again by the stock action,
+                -- so it stays on rather than being lost from the outfit.
                 local keepWorn=select(1,U().call(item,"isBroken"))==true
                     or type(isForceDropHeavyItem)=="function" and isForceDropHeavyItem(item)
-                if keepWorn and options.requireRemoved then return false,"lower_clothing_cannot_be_removed" end
                 rows[#rows+1]={item=item,location=location,keepWorn=keepWorn,
                     wasActivated=select(1,U().call(item,"isActivated"))==true}
             end
@@ -151,6 +155,12 @@ function Clothing.undress(actor, owner, options)
         claims[actor]=owner
     end
     return step(actor,owner,false,false)
+end
+
+-- Toilet breaks take off what can come off. A garment that has to stay on
+-- never blocks the break: refusing here retried the same toilet forever.
+function Clothing.undressLower(actor, owner, owns, valid)
+    return Clothing.undress(actor,owner,{filter=Clothing.lowerBody,owns=owns,valid=valid})
 end
 
 function Clothing.restore(actor, owner, immediate)

@@ -190,8 +190,15 @@ function K.step(actor,audit)
         local receipt=facts.kit and loan(facts.kit)
         if not receipt or receipt.actorId~=U().idOf(actor) then return false,"medic_kit_not_needed" end
         local storage=SC.BaseLife.storage(receipt.storageId)
-        local container=storage and SC.BaseLife.resolveContainer(storage)
-        if not storage or storage.category~="medical" or not container then return wait(state,"medic_kit_return_pending") end
+        if not storage or storage.category~="medical" then
+            -- Its medical shelf was removed or now holds something else, so the
+            -- loan can never be settled. The kit becomes ordinary gear that
+            -- logistics may sort, instead of a retry every three minutes.
+            U().modData(facts.kit)[MARKER]=nil
+            return false,"medic_kit_storage_gone"
+        end
+        local container=SC.BaseLife.resolveContainer(storage)
+        if not container then return wait(state,"medic_kit_return_pending") end
         local moved,why=SC.BaseWork.returnToStorage(actor,state,storage,container,facts.kit)
         if moved and why=="base_supply_returned" then U().modData(facts.kit)[MARKER]=nil return true,"medic_kit_returned" end
         return moved==true,why

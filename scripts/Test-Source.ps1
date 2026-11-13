@@ -26,8 +26,8 @@ $scriptFiles | ForEach-Object {
     $errors = $null
     [System.Management.Automation.Language.Parser]::ParseFile(
         $_.FullName, [ref]$null, [ref]$errors) | Out-Null
-    foreach ($error in @($errors)) {
-        $parseErrors += "$($_.FullName): $($error.Message)"
+    foreach ($parseError in @($errors)) {
+        $parseErrors += "$($_.FullName):$($parseError.Extent.StartLineNumber): $($parseError.Message)"
     }
 }
 if ($parseErrors.Count -gt 0) {

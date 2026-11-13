@@ -71,19 +71,31 @@ end
 function F.protected(item)
     local m = marker(item)
     if not m then return false end
-    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(m.actorId)
-    if record and record.actor and owned(record.actor, item) then
-        local r = runtime(record.actor)
-        r.pending = true r.returnRetryAt = math.max(r.returnRetryAt or 0, tonumber(m.retryAt) or 0)
+    -- A borrower that died or was dismissed can never return the tool. It
+    -- stays wherever it is (on the body, or where the player put it) as an
+    -- ordinary crowbar. A saved borrower still loading is not gone.
+    if SC.BaseFuel and SC.BaseFuel.workerIdGone and SC.BaseFuel.workerIdGone(m.actorId) then
+        clearMarker(item) return false
     end
+    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(m.actorId)
+    local borrower = record and record.actor
+    local live = borrower ~= nil and U().isValidActor(borrower) and not U().isDead(borrower)
+    if live and owned(borrower, item) then
+        local r = runtime(borrower)
+        r.pending = true r.returnRetryAt = math.max(r.returnRetryAt or 0, tonumber(m.retryAt) or 0)
+        return true
+    end
+    local inFlight = m.phase == "claimed" and (tonumber(m.untilMs) or math.huge) >= now()
     -- A cancelled withdrawal may still be on its original shelf. Release only
     -- after proving that location; a missing/detached item is never replaced.
-    if m.phase == "claimed" and (tonumber(m.untilMs) or math.huge) < now()
-        and SC.BaseLife and m.sourceId then
+    if m.phase == "claimed" and not inFlight and SC.BaseLife and m.sourceId then
         local row = SC.BaseLife.storage(m.sourceId)
         local container = row and SC.BaseLife.resolveContainer(row)
         if container and U().inventoryContains(container, item) then clearMarker(item) return false end
     end
+    -- The borrower is here but no longer holds the tool: the player took it
+    -- or put it away. Nothing will bring it back, so the loan is over.
+    if live and not inFlight then clearMarker(item) return false end
     return true
 end
 

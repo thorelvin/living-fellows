@@ -102,6 +102,8 @@ check(F.pendingReturn(a),"blocked return retries after its pause")
 U.containerHasRoom=room
 -- Borrowing installs its durable receipt before the exact item leaves storage.
 local borrower=f.actor("force-c",3,3,{}); actorSetup(borrower)
+local knownById=SC.Registry.byId
+SC.Registry.byId=function(id) if id==U.idOf(borrower) then return {actor=borrower} end return knownById(id) end
 local loan=f.item("Base.Crowbar","Weapon",{tags={CROWBAR=true}}); source:AddItem(loan)
 SC.Encounter.takePlayerSupply=function(actor,kind,predicate,options)
     check(predicate(loan) and options.beforeTransfer(loan,source),"permitted usable stock can be claimed")
@@ -111,6 +113,24 @@ SC.Encounter.takePlayerSupply=function(actor,kind,predicate,options)
 end
 F.step(borrower,{}, {},{object=door,snapshot=quiet,borrow=true,useId="borrow",current=function() return true end})
 check(U.inventoryContains(borrower:getInventory(),loan) and not U.inventoryContains(source,loan),"camp borrowing preserves identity")
+-- A loan settles once nobody can return it: the borrower died or was
+-- dismissed, or the player took the tool off them. A load still under way
+-- and a withdrawal still in flight keep it.
+check(F.protected(loan),"the borrower's own carried loan stays protected")
+local persistence=SC.Persistence
+local loaded=false
+SC.Persistence={restoreStatus=function() return loaded end,isPending=function() return false end}
+local stray=f.item("Base.Crowbar","Weapon",{tags={CROWBAR=true}}); source:AddItem(stray)
+stray:getModData().LF_ForceEntryTool={actorId="sc-force-gone",sourceId=row.id,phase="carried"}
+check(F.protected(stray),"a borrower still restoring from the save keeps its loan")
+loaded=true
+check(not F.protected(stray) and stray:getModData().LF_ForceEntryTool==nil,"a dead or dismissed borrower's crowbar becomes ordinary stock")
+stray:getModData().LF_ForceEntryTool={actorId=U.idOf(borrower),sourceId=row.id,phase="claimed",untilMs=f.clock+30000}
+check(F.protected(stray),"a withdrawal still in flight stays protected")
+stray:getModData().LF_ForceEntryTool={actorId=U.idOf(borrower),sourceId=row.id,phase="carried"}
+source:Remove(stray); f.player:getInventory():AddItem(stray)
+check(not F.protected(stray) and stray:getModData().LF_ForceEntryTool==nil,"a tool taken off its borrower is no longer held for them")
+SC.Persistence=persistence
 check(F.copy({attempted=true,stage="forcing",object=door}).object==nil,"save state excludes native references")
 -- Discovery remains bounded, belongs to the chosen building, prefers doors,
 -- and never offers an upper-floor window into a roof route.

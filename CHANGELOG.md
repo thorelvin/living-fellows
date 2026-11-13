@@ -14,6 +14,15 @@
 - Fixed Talk requests timing out when a companion stopped just outside
   speaking range. Conversation approaches now account for the tile centre
   and stopping distance.
+- Toilet breaks also take off skinny trousers, long johns and shorts. A
+  broken garment that cannot be put back on stays worn, and the break goes
+  ahead instead of retrying the same toilet every 30 seconds.
+- A borrowed crowbar is released when its borrower dies or is dismissed, or
+  when the player takes it from them. It no longer stays reserved forever,
+  out of reach of camp sorting and other companions.
+- A former medic whose medical shelf was removed keeps the first aid kit as
+  ordinary gear instead of retrying the return every three minutes.
+- The project gate parses again under Windows PowerShell 5.1.
 - Recorded live toilet, shower and all ten Talk prompt checks. Save schemas
   and bridge protocol `42.22-isocompanion-31` are unchanged; the rebuilt bridge
   updates release metadata.

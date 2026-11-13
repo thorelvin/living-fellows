@@ -334,15 +334,13 @@ local function finishPee(actor, state, hour)
 end
 
 local function toiletClothes(actor, state, task)
-    return SC.HygieneClothing.undress(actor,task,{
-        filter=SC.HygieneClothing.lowerBody,requireRemoved=true,
-        owns=function() return states[actor]==state and state.pee==task end,
-        valid=function()
+    return SC.HygieneClothing.undressLower(actor,task,
+        function() return states[actor]==state and state.pee==task end,
+        function()
             local commands=SC.Commands and SC.Commands.peek(actor) or {}
             return (commands.commandSerial or 0)==task.commandSerial
                 and U().sameSquare(actor,task.clothingSquare)
-        end,
-    })
+        end)
 end
 
 local function updatePee(actor, player, state, hour, due)

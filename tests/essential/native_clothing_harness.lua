@@ -143,8 +143,12 @@ for _,value in ipairs({pants,boxers}) do
 end
 assert(lower.lowerBody(pants,"base:pants") and lower.lowerBody(boxers,"base:underwearbottom")
     and lower.lowerBody(pants,"base:skirt") and not lower.lowerBody(shirt,"base:shirt"),"native lower-body slots include pants and underwear, leaving shirts alone")
+for _,slot in ipairs({"base:pants_skinny","base:legs1","base:shortpants","base:shortsshort"}) do
+    assert(lower.lowerBody(pants,slot),"toilet undressing covers the stock lower-body slot "..slot)
+end
+assert(not lower.lowerBody(pants,"base:socks") and not lower.lowerBody(pants,"base:shoes"),"socks and shoes stay on")
 local toilet={fact={}}
-local function undressLower(who,task) return lower.undress(who,task,{filter=lower.lowerBody,requireRemoved=true}) end
+local function undressLower(who,task) return lower.undressLower(who,task) end
 pump(undressLower,toilet)
 assert(not actor:isEquippedClothing(pants) and not actor:isEquippedClothing(boxers)
     and actor:isEquippedClothing(shirt) and actor:isEquippedClothing(item),"toilet removes only the lower outfit; shirt and bag stay worn")
@@ -159,6 +163,16 @@ assert(not lower.restore(actor,toilet,true) and toilet.hygieneWardrobe,"pending 
 N.cancelVisualOwned=cancelOwned
 assert(lower.restore(actor,toilet,true) and worn[ItemBodyLocation.PANTS]==pants
     and worn[ItemBodyLocation.UNDERWEAR_BOTTOM]==boxers,"interrupted lower-clothing action restores before releasing ownership")
+-- Broken trousers cannot be put back on by the stock action, so they stay on.
+-- The break still goes ahead instead of refusing and retrying the same toilet.
+pants.broken=true; toilet={fact={}}
+pump(undressLower,toilet)
+assert(worn[ItemBodyLocation.PANTS]==pants and not actor:isEquippedClothing(boxers)
+    and toilet.hygieneWardrobe,"a garment that cannot come off stays worn without blocking the toilet")
+pump(function(who,task) return lower.restore(who,task,false) end,toilet)
+assert(worn[ItemBodyLocation.PANTS]==pants and worn[ItemBodyLocation.UNDERWEAR_BOTTOM]==boxers
+    and not toilet.hygieneWardrobe,"dressing after the break restores the removable garments")
+pants.broken=nil
 do
     local _,approach,_,_,inReach=D._washForTests()
     local square=getCell():getGridSquare(4,3,0)

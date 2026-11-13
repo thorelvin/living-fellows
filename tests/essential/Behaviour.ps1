@@ -20,21 +20,22 @@
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
 @{ Name = 'behaviour.crowbar-entry'; Files = @(Get-ScGameplayFiles) + @(
     'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
-    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua'
-    | ForEach-Object { Join-Path $Client $_ }) + @(
+    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua' |
+    ForEach-Object { Join-Path $Client $_ }) + @(
     (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISForceOpen.lua'),
+    (Join-Path $Client 'SCBaseFuel.lua'),
     (Join-Path $Essential 'force_entry_harness.lua')) }
 @{ Name = 'behaviour.farm-storage-and-medic-kits'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCWorkTransport.lua'), (Join-Path $Essential 'farm_storage_medic_harness.lua')) }
 @{ Name = 'behaviour.native-personal-care'; Files = @(Get-ScGameplayFiles) + @(
     'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
-    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua'
-    | ForEach-Object { Join-Path $Client $_ }) + @(
+    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua' |
+    ForEach-Object { Join-Path $Client $_ }) + @(
     'TimedActions\ISFixAction.lua', 'TimedActions\ISCleanBandage.lua',
     'TimedActions\ISWashYourself.lua', 'TimedActions\ISWashClothing.lua', 'TimedActions\ISDryMyself.lua',
     'TimedActions\ISTakeWaterAction.lua', 'TimedActions\Animals\ISPetAnimal.lua',
-    'Entity\TimedActions\ISHandcraftAction.lua'
-    | ForEach-Object { Join-Path (Join-Path $GameRoot 'media\lua\shared') $_ }) + @(
+    'Entity\TimedActions\ISHandcraftAction.lua' |
+    ForEach-Object { Join-Path (Join-Path $GameRoot 'media\lua\shared') $_ }) + @(
     (Join-Path $Essential 'native_care_harness.lua'),
     (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISWearClothing.lua'),
     (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISUnequipAction.lua'),

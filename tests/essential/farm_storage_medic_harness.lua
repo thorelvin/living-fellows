@@ -147,4 +147,10 @@ check(K.owns(a,kit) and not K.owns(b,kit),"packing verifies actual kit ownership
 check(U.transferItemVerified(a.inventory,b.inventory,kit),"move the exact borrowed kit to its carrier")
 kit:getModData().LF_MedicKitLoan={actorId=U.idOf(b),storageId="storage:medical"}
 check(K.retained(b,kit) and K.retained(b,bandage,inventory),"a borrowed kit and its contents stay together after a role change")
+local kitAudit={inventoryComplete=true,items={{item=kit,source=b.inventory},{item=bandage,source=inventory}}}
+check(K.needsWork(b,kitAudit),"a former medic with a borrowed kit owes its return")
+local returned,why=K.step(b,kitAudit)
+check(returned==false and why=="medic_kit_storage_gone" and kit:getModData().LF_MedicKitLoan==nil
+    and not K.retained(b,kit) and not K.needsWork(b,kitAudit),
+    "a loan whose medical shelf is gone settles instead of retrying forever")
 print("FARM_STORAGE_MEDIC_PASS checks="..checks)
