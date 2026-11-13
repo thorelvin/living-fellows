@@ -590,6 +590,14 @@ local valueData = {
     -- A squad mode holds this long before an ordinary change; escalation to
     -- disengage is immediate.
     combatSquadModeDwellMs = 1500,
+    -- Squad call-outs: one line per group at most this often, and the same
+    -- line topic again only after the second gap.
+    combatSquadCallOutGapMs = 6000,
+    combatSquadCallOutRepeatMs = 20000,
+    -- Stair standoff: after this many no-effect collisions on a zombie at the
+    -- stairs, the defender steps back off the landing for this long.
+    combatStairStandoffCollisions = 2,
+    combatStairStepBackMs = 1500,
     combatCloseThreatRadius = 4.5,
     -- Quiet travel still defends the squad before a zombie reaches grab range.
     -- At 1.5 tiles the first accepted contact often arrives inside the native

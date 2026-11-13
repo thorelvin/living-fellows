@@ -2185,6 +2185,47 @@ local pools = {
         practical = { "Horde contact. Full withdrawal.", "Position lost. Immediate evacuation." },
         stressed = { "Oh God, run!", "They're swallowing the whole road! Move!" },
     },
+    -- Squad call-outs (horde plan phase 4): one companion speaks when the
+    -- group's judgement changes, never more than one line per group at a time.
+    ["combat.squad.hold"] = {
+        common = {
+            "We've got them. One each.", "Hold here. Two apiece, no heroes.",
+            "Pick yours and keep it.", "We can take this. Stay on your own.",
+            "Even numbers. Work it.",
+        },
+        brave = { "Good odds. Let's earn our supper." },
+        practical = { "Two each. Spacing first, then swing." },
+    },
+    ["combat.squad.give_ground"] = {
+        common = {
+            "Too many. Back up, keep swinging.", "Give ground! Make them come to us.",
+            "One step back at a time.", "We're outnumbered. Walk it back.",
+            { "They keep coming. Back, damn it!", clean = "They keep coming. Back, darn it!" },
+        },
+        cautious = { "Back off slow. Don't turn your back on them." },
+    },
+    ["combat.squad.disengage"] = {
+        common = {
+            "Pull out! Stay together!", "We can't hold this. Everyone, with me!",
+            "Leave it! Move as one!", { "Too damn many. Go!", clean = "Way too many. Go!" },
+            "Disengage. Nobody stays behind.",
+        },
+        caring = { "Together! I'm not leaving anyone." },
+    },
+    ["combat.squad.incoming"] = {
+        common = {
+            "More coming.", "Second wave behind them.", "Heads up, more on the way.",
+            "That's not all of them.",
+        },
+        practical = { "More inbound. Stay sharp." },
+    },
+    ["combat.squad.uncovered"] = {
+        common = {
+            "I can't reach you! Come to me!", "One on you and I'm too far! Back toward us!",
+            "Out of my reach! Move this way!",
+            { "Hell, I can't get there! Come to us!", clean = "Heck, I can't get there! Come to us!" },
+        },
+    },
     ["combat.struggle"] = {
         common = {
             "Go down!", "Stay down!", "Why won't you die?", { "Damn thing won't drop!", clean = "Darn thing won't drop!" },

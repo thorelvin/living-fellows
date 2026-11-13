@@ -581,6 +581,9 @@ def main() -> int:
     require("elseif Combat.stepsOntoStairs(actor, moveX, moveY) then" in sources["SCCombat.lua"]
             and "for _, raw in ipairs(offStairs(cache.raw)) do" in sources["SCSenses.lua"],
             "combat movement or escape squares can lead onto the stairs")
+    # Stair rule 3: a stalled exchange at the stairs steps back off the landing.
+    require("if Combat.stairStandoff(actor, state, target.actor, now) then" in sources["SCCombat.lua"],
+            "the stair standoff step-back is not wired into action selection")
     require('candidate.kind == "logistics"' in sources["SCDecision.lua"]
             and 'SC.Logistics.update(actor, player, rootRuntime)' in sources["SCDecision.lua"],
             "load management is not integrated into decision arbitration")

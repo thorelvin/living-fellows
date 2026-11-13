@@ -1442,6 +1442,40 @@ function Combat.stepsOntoStairs(actor, moveX, moveY)
     return false
 end
 
+-- On a stair tile, or standing over the top step (its square one floor down
+-- is a stair tile).
+function Combat.atStairs(value)
+    local topology = SC.Topology
+    if not topology or type(topology.squareHasStairs) ~= "function" then return false end
+    local utility = U()
+    local x, y, z = utility.position(value)
+    if x == nil then return false end
+    if topology.squareHasStairs(utility.squareOf(value)) then return true end
+    local below = utility.gridSquare(math.floor(x), math.floor(y), math.floor(z or 0) - 1)
+    return below ~= nil and topology.squareHasStairs(below) == true
+end
+
+-- Stair rule 3 (horde plan S2). At the top of a staircase the engine can let
+-- a defender and a zombie on the top step swing at each other with no effect
+-- for as long as both stand there: 21 s in the live probe, both attacking,
+-- nothing landing. After two no-effect collisions on a zombie at the stairs,
+-- step back off the landing for a moment so it comes up onto level ground,
+-- where hits land.
+function Combat.stairStandoff(actor, state, target, now)
+    if type(state) ~= "table" or target == nil then return false end
+    now = tonumber(now) or U().nowMs()
+    if state.stairStepBackFrom == target and now < (tonumber(state.stairStepBackUntil) or 0) then
+        return true
+    end
+    if state.noEffectTarget ~= target or (tonumber(state.noEffectCollisions) or 0)
+        < (tonumber(U().config("combatStairStandoffCollisions")) or 2) then return false end
+    if not Combat.atStairs(target) then return false end
+    state.stairStepBackFrom = target
+    state.stairStepBackUntil = now + (tonumber(U().config("combatStairStepBackMs")) or 1500)
+    state.noEffectCollisions = 0
+    return true
+end
+
 function Combat.primaryWeaponUsable(actor)
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
     local inventory = U().inventory(actor)
@@ -5301,6 +5335,9 @@ function Combat.update(actor, player, runtime)
     state.combatRoleTarget = target.actor
     rootRuntime.combatRole = combatRole
     rootRuntime.combatReadiness = readiness
+    if Combat.stairStandoff(actor, state, target.actor, now) then
+        chosen = { kind = "backstep", score = chosen.score, stairStepBack = true }
+    end
     chosen = stabilizeSpacingAction(state, chosen, target, now)
     chosen = retainGroundedLaneAction(actor, target.actor, chosen, now)
     if chosen.kind == "approach" and state.attackAnchor

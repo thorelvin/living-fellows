@@ -286,6 +286,77 @@ local kept = SC.Senses._offStairsForTests({ { square = foot }, { square = f.cell
 check(#kept == 1 and kept[1].square ~= foot, "a stair tile is never an escape square")
 level(foot) level(below)
 
+-- 6. Stair standoff (S2, rule 3): two no-effect swings at a zombie on or over
+-- the top step send the defender back off the landing for a moment.
+local stepZombie = zombie(30, 20)
+local stepTile = stairs(30, 20, 0)
+check(SC.Combat.atStairs(stepZombie) == true, "a zombie on a stair tile is at the stairs")
+local overTop = zombie(31, 20)
+overTop.square = f.cell:getGridSquare(31, 20, 1)
+local underTop = stairs(31, 20, 0)
+check(SC.Combat.atStairs(overTop) == true, "a zombie over the top step is at the stairs")
+local flatZombie = zombie(32, 20)
+check(SC.Combat.atStairs(flatZombie) == false, "a zombie on level ground is not at the stairs")
+local standoff = { noEffectTarget = stepZombie, noEffectCollisions = 2 }
+check(SC.Combat.stairStandoff(climber, standoff, stepZombie, 1000) == true
+        and standoff.stairStepBackUntil == 2500 and standoff.noEffectCollisions == 0,
+    "two no-effect swings at the stairs start a step back")
+check(SC.Combat.stairStandoff(climber, standoff, stepZombie, 2000) == true,
+    "the step back holds for its moment")
+check(SC.Combat.stairStandoff(climber, standoff, stepZombie, 2600) == false,
+    "the step back ends and fighting resumes")
+check(SC.Combat.stairStandoff(climber, { noEffectTarget = stepZombie, noEffectCollisions = 1 },
+    stepZombie, 3000) == false, "one no-effect swing is not a standoff")
+check(SC.Combat.stairStandoff(climber, { noEffectTarget = flatZombie, noEffectCollisions = 3 },
+    flatZombie, 3000) == false, "no-effect swings on level ground are not a stair standoff")
+level(stepTile) level(underTop)
+
+-- 7. Call-outs (phase 4): one line when the group's judgement changes.
+local topic = Squad.callOutTopic
+check(topic(nil, { mode = "engage", active = 3, forecast = 3, threats = {} }) == "combat.squad.hold",
+    "a group taking on three or more says it will hold")
+check(topic(nil, { mode = "engage", active = 2, forecast = 2, threats = {} }) == nil,
+    "a small fight starts without a speech")
+check(topic({ mode = "engage", active = 4, forecast = 4 },
+    { mode = "give_ground", active = 5, forecast = 5, threats = {} }) == "combat.squad.give_ground",
+    "giving ground is called out")
+check(topic({ mode = "give_ground" }, { mode = "disengage", active = 9, forecast = 9, threats = {} })
+    == "combat.squad.disengage", "pulling out is called out")
+check(topic({ mode = "engage", active = 2, forecast = 2 },
+    { mode = "engage", active = 2, forecast = 4.5, threats = {} }) == "combat.squad.incoming",
+    "a wave on its way is called out")
+check(topic({ mode = "engage", active = 2, forecast = 2 },
+    { mode = "engage", active = 2, forecast = 2,
+        threats = { { onPlayer = true, covered = false } } }) == "combat.squad.uncovered",
+    "a zombie on the player that nobody can reach is called out")
+check(topic({ mode = "engage", active = 2, forecast = 2 },
+    { mode = "engage", active = 2, forecast = 2,
+        threats = { { onPlayer = true, covered = true } } }) == nil,
+    "a covered zombie on the player needs no call-out")
+local spoken, say = {}, SC.Dialogue.say
+SC.Dialogue.say = function(speaker, line) spoken[#spoken + 1] = line return true end
+Squad.reset()
+b.square, c.square = f.cell:getGridSquare(1, 0, 0), f.cell:getGridSquare(0, 2, 0)
+Squad.forActor(a, nil, present(4), "party:squad", tick(260))
+Squad.forActor(a, nil, present(9), "party:squad", tick(260))
+check(#spoken == 1 and spoken[1] == "combat.squad.hold",
+    "one line per group at a time: " .. table.concat(spoken, ","))
+for _ = 1, 8 do Squad.forActor(a, nil, present(4), "party:squad", tick(260)) end
+check(#spoken == 1, "a change inside the group gap stays quiet: " .. table.concat(spoken, ","))
+tick(6000)
+Squad.forActor(a, nil, present(9), "party:squad", tick(260))
+check(#spoken == 2 and spoken[2] == "combat.squad.disengage",
+    "after the gap the next change is called out: " .. table.concat(spoken, ","))
+Squad.reset()
+spoken = {}
+local guarded = zombie(1, 1)
+local guardScene = snapshot({ b }, { guarded })
+guardScene.threats[1].target = f.player
+Squad.forActor(a, f.player, guardScene, "party:squad", tick(7000))
+check(#spoken == 0, "a zombie on the player that a fighter covers needs no call-out: "
+    .. table.concat(spoken, ","))
+SC.Dialogue.say = say
+
 Squad.reset()
 SC.Combat.primaryWeaponUsable, SC.Navigation.openSegment, SC.ZombieFacts =
     oldUsable, oldOpen, oldFacts

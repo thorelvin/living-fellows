@@ -5,6 +5,7 @@ SC.CombatSquad = SC.CombatSquad or {}
 local Squad = SC.CombatSquad
 
 local plans = {}
+local lastCallAt = {}
 local probeFrame, probes = nil, 0
 
 local function U() return SC.GameplayUtil end
@@ -169,6 +170,7 @@ local function collectThreats(views, members, player, z)
                                 + math.max(0, 5 - (arriving or 99999) / 1000) * 3
                             threats[#threats + 1] = { actor = other, x = tx, y = ty,
                                 distanceSq = d2, victim = victim, priority = priority,
+                                onPlayer = onPlayer == true,
                                 urgent = onPlayer or onGrabbed or threat.attacking == true,
                                 attacking = threat.attacking == true,
                                 crawler = posture == "crawler", arrivingMs = arriving,
@@ -337,6 +339,7 @@ local function build(actor, snapshot, cohort, now, x, y, z, player, previous)
         end
     end
     local held = assign(members, threats)
+    for _, threat in pairs(held) do threat.covered = true end
     local assignments = setmetatable({}, { __mode = "k" })
     for member, threat in pairs(held) do
         assignments[member.actor] = { mode = mode, target = threat.actor,
@@ -360,6 +363,53 @@ local function build(actor, snapshot, cohort, now, x, y, z, player, previous)
         active = active, incoming = incoming, capable = capableCount,
         capacity = capacity, forecast = forecast, wanted = wanted, modeSince = modeSince,
         refreshedAt = now, nextRefreshAt = now + 250, expires = now + 750 }
+end
+
+-- One line per group when its judgement changes: holding, giving ground,
+-- pulling out, a wave on its way, or a zombie on the player nobody can reach.
+-- The first able member (id order) speaks. A group speaks at most once every
+-- few seconds and repeats a topic only after a longer gap; Dialogue applies
+-- the player's chatter settings and mute.
+function Squad.callOutTopic(previous, plan)
+    if type(plan) ~= "table" then return nil end
+    for _, threat in ipairs(plan.threats or {}) do
+        if threat.onPlayer == true and not threat.covered then return "combat.squad.uncovered" end
+    end
+    local before = previous and previous.mode or nil
+    if plan.mode ~= before then
+        if plan.mode == "disengage" then return "combat.squad.disengage" end
+        if plan.mode == "give_ground" then return "combat.squad.give_ground" end
+        if plan.mode == "engage" and (before ~= nil or (tonumber(plan.active) or 0) >= 3) then
+            return "combat.squad.hold"
+        end
+    end
+    local waveBefore = previous and (tonumber(previous.forecast) or 0) - (tonumber(previous.active) or 0) or 0
+    local wave = (tonumber(plan.forecast) or 0) - (tonumber(plan.active) or 0)
+    if wave >= 2 and waveBefore < 2 then return "combat.squad.incoming" end
+    return nil
+end
+
+local function callOut(previous, plan, now)
+    local topic = Squad.callOutTopic(previous, plan)
+    if topic == nil or not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return nil end
+    local key = tostring(plan.key)
+    local record = lastCallAt[key] or {}
+    lastCallAt[key] = record
+    local groupGap = tonumber(U().config("combatSquadCallOutGapMs")) or 6000
+    local repeatGap = tonumber(U().config("combatSquadCallOutRepeatMs")) or 20000
+    if now < (tonumber(record.any) or 0) + groupGap
+        or now < (tonumber(record[topic]) or 0) + repeatGap then return nil end
+    for _, member in ipairs(plan.members or {}) do
+        if member.capable then
+            local spoken = SC.Dialogue.say(member.actor, topic, nil, {}, { recentLimit = 4 })
+            if spoken == true then
+                record.any, record[topic] = now, now
+                return topic
+            end
+            return nil
+        end
+    end
+    return nil
 end
 
 function Squad.forActor(actor, player, snapshot, cohort, now)
@@ -388,6 +438,7 @@ function Squad.forActor(actor, player, snapshot, cohort, now)
                 if candidate == plan then plans[index] = fresh break end
             end
         else plans[#plans + 1] = fresh end
+        callOut(plan, fresh, now)
         plan = fresh
         if started then performance.record("combat.squad-plan", nil,
             performance.preciseNowMs() - started, #fresh.threats, false) end
@@ -501,7 +552,7 @@ function Squad.safeFinisher(actor, target, snapshot)
 end
 
 function Squad.reset()
-    plans, probeFrame, probes = {}, nil, 0
+    plans, probeFrame, probes, lastCallAt = {}, nil, 0, {}
 end
 
 function Squad.releaseActor(actor)
