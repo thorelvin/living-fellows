@@ -1413,6 +1413,35 @@ function Combat.openFront(snapshot, target, readiness)
         and close <= (tonumber(plan.holds) or 1)
 end
 
+-- Stair rule 2 (horde plan S1): nobody steps onto a staircase to fight. The
+-- live probe saw a defender leave its landing and fight on the slope, and a
+-- zombie floored on the steps hovered over for half a minute. A move whose
+-- next step lands on a stair tile is dropped while the fighter stands on
+-- level ground, so the zombie comes to the landing or the foot instead. The
+-- steps of a staircase belong to the floor below its landing, so a fighter
+-- upstairs also checks one floor down.
+function Combat.stepsOntoStairs(actor, moveX, moveY)
+    local topology = SC.Topology
+    if not topology or type(topology.squareHasStairs) ~= "function"
+        or moveX == nil or moveY == nil then return false end
+    local utility = U()
+    local x, y, z = utility.position(actor)
+    if x == nil then return false end
+    if topology.squareHasStairs(utility.squareOf(actor)) then return false end
+    local length = math.sqrt(moveX * moveX + moveY * moveY)
+    if length <= 0.001 then return false end
+    local level = math.floor(z or 0)
+    for _, reach in ipairs({ 0.6, 1.1 }) do
+        local nx = math.floor(x + moveX / length * reach)
+        local ny = math.floor(y + moveY / length * reach)
+        for _, floor in ipairs({ level, level - 1 }) do
+            local square = utility.gridSquare(nx, ny, floor)
+            if square and topology.squareHasStairs(square) then return true end
+        end
+    end
+    return false
+end
+
 function Combat.primaryWeaponUsable(actor)
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
     local inventory = U().inventory(actor)
@@ -3574,6 +3603,8 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                     else
                         table.remove(actions, index)
                     end
+                elseif Combat.stepsOntoStairs(actor, moveX, moveY) then
+                    table.remove(actions, index)
                 else
                     action.moveX, action.moveY = moveX, moveY
                     action.microSteered = steered == true

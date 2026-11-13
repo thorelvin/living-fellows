@@ -260,6 +260,32 @@ Squad.reset()
 check(Squad.forActor(a, nil, snapshot({ b }, {}), "party:squad", tick()) == nil,
     "no threats, no squad view")
 
+-- 5. Stairs (horde plan S1). Nobody steps onto a staircase to fight, and
+-- stairs are never an escape square.
+local function stairs(x, y, z)
+    local square = f.cell:getGridSquare(x, y, z or 0)
+    square.HasStairs = function() return true end
+    return square
+end
+local function level(square) square.HasStairs = nil end
+local climber = fighter("stair-fighter", 20, 20)
+local foot = stairs(21, 20, 0)
+check(SC.Combat.stepsOntoStairs(climber, 1, 0) == true, "a step onto a stair tile is refused")
+check(SC.Combat.stepsOntoStairs(climber, -1, 0) == false, "a step away from the stairs is allowed")
+check(SC.Combat.stepsOntoStairs(climber, 0, 1) == false, "a step along level ground is allowed")
+local upstairs = f.actor("stair-upstairs", 20, 22, { z = 1 })
+local below = stairs(21, 22, 0)
+check(SC.Combat.stepsOntoStairs(upstairs, 1, 0) == true,
+    "from a landing, a step over the steps one floor down is refused")
+local middle, top = stairs(22, 20, 0), stairs(23, 20, 0)
+local onSteps = f.actor("stair-on-steps", 22, 20, {})
+check(SC.Combat.stepsOntoStairs(onSteps, 1, 0) == false and SC.Combat.stepsOntoStairs(onSteps, -1, 0) == false,
+    "a fighter already on the stairs may move along them to get off")
+level(middle) level(top)
+local kept = SC.Senses._offStairsForTests({ { square = foot }, { square = f.cell:getGridSquare(19, 20, 0) } })
+check(#kept == 1 and kept[1].square ~= foot, "a stair tile is never an escape square")
+level(foot) level(below)
+
 Squad.reset()
 SC.Combat.primaryWeaponUsable, SC.Navigation.openSegment, SC.ZombieFacts =
     oldUsable, oldOpen, oldFacts

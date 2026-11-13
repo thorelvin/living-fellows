@@ -588,6 +588,22 @@ end
 
 Senses._collectRelationshipsForTests = collectRelationships
 
+-- Stairs are never somewhere to retreat to: a fighter on the slope cannot
+-- swing properly and a hit there sends whoever takes it down the steps
+-- (live stair probe, horde plan S1). Bounded by the topology result size.
+local function offStairs(raw)
+    local topology = SC.Topology
+    if type(raw) ~= "table" or not topology
+        or type(topology.squareHasStairs) ~= "function" then return raw or {} end
+    local kept = {}
+    for _, node in ipairs(raw) do
+        if not topology.squareHasStairs(node.square) then kept[#kept + 1] = node end
+    end
+    return kept
+end
+
+Senses._offStairsForTests = offStairs
+
 local function collectEscapeSquares(actor, threats, state, current, immediateCount, player, humanThreat)
     local U = util()
     local actorSquare = U.squareOf(actor)
@@ -713,7 +729,7 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
     local corridorRadiusSq = corridorRadius * corridorRadius
     local cohesionX, cohesionY, cohesionZ
     if cohesionAnchor then cohesionX, cohesionY, cohesionZ = U.position(cohesionAnchor) end
-    for _, raw in ipairs(cache.raw or {}) do
+    for _, raw in ipairs(offStairs(cache.raw)) do
         local square = raw.square
         local sx, sy, sz = tonumber(raw.x), tonumber(raw.y), tonumber(raw.z)
         if sx == nil then sx, sy, sz = U.position(square) end

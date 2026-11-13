@@ -577,6 +577,10 @@ def main() -> int:
     require("local isolatedFront = Combat.openFront(snapshot, target, readiness)" in sources["SCCombat.lua"]
             and "readiness.close <= 1 and readiness.occupiedSectors <= 1" not in sources["SCCombat.lua"],
             "combat approach does not use the squad-aware open front")
+    # Stair rule 2: combat movement and escape squares refuse the stairs.
+    require("elseif Combat.stepsOntoStairs(actor, moveX, moveY) then" in sources["SCCombat.lua"]
+            and "for _, raw in ipairs(offStairs(cache.raw)) do" in sources["SCSenses.lua"],
+            "combat movement or escape squares can lead onto the stairs")
     require('candidate.kind == "logistics"' in sources["SCDecision.lua"]
             and 'SC.Logistics.update(actor, player, rootRuntime)' in sources["SCDecision.lua"],
             "load management is not integrated into decision arbitration")
