@@ -863,8 +863,10 @@ check(squad.forActor(solo, player, { allies = {}, threats = {
 } }, "party:combat-test:home", 1000) == nil,
     "solo fighters keep their local combat behavior")
 local three, threeSnapshot, threePlan = groupFight(3, 6, 140)
-check(threePlan and threePlan.mode == "give_ground" and threePlan.capable == 3,
-    "three armed companions facing six give ground together")
+-- Horde plan phase 3 (user decision 2026-11-13): a fit fighter holds two
+-- zombies, so three facing six hold their ground; it was give_ground.
+check(threePlan and threePlan.mode == "engage" and threePlan.capable == 3,
+    "three armed companions facing six hold their ground, two each")
 local exchange = snapshotWith(0)
 exchange.threats = { exchange.threats[1] }
 exchange.immediateAttackers = { exchange.threats[1] }
@@ -895,8 +897,8 @@ local hurtPlan = squad.forActor(hurtLeader, player, hurtSnapshot,
 check(hurtPlan and hurtPlan.capable == 2 and hurtPlan.mode == "disengage",
     "an injured fighter is not counted as usable support against eight")
 local _, _, fiveTen = groupFight(5, 10, 180)
-check(fiveTen and fiveTen.mode == "give_ground",
-    "five armed companions facing ten coordinate their withdrawal")
+check(fiveTen and fiveTen.mode == "engage",
+    "five armed companions facing ten hold their ground, two each")
 local fiveLeader, fiveSnapshot, fiveTwelve = groupFight(5, 12, 200)
 check(fiveTwelve and fiveTwelve.mode == "give_ground",
     "five armed companions facing twelve do not auto-disengage")

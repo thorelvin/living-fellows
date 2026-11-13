@@ -150,10 +150,11 @@ local function collectThreats(views, members, player, z)
                     if posture ~= "downed" or (facts and facts.gettingUp) then
                         local d2 = nearestMemberSq(members, tx, ty)
                         local arriving = tonumber(threat.timeToImpactMs)
+                        local horizon = tonumber(U().config("combatSquadArrivalZeroMs")) or 8000
                         if (posture ~= "crawler" or d2 <= 2 * 2
-                            or (arriving ~= nil and arriving <= 5000))
+                            or (arriving ~= nil and arriving <= horizon))
                             and (d2 <= 6 * 6 or (d2 <= 12 * 12
-                                and arriving ~= nil and arriving <= 5000)) then
+                                and arriving ~= nil and arriving <= horizon)) then
                             seen[other] = true
                             local victim = facts and facts.target or threat.target
                             -- Anything on the player, or on a companion that is
@@ -170,7 +171,7 @@ local function collectThreats(views, members, player, z)
                                 distanceSq = d2, victim = victim, priority = priority,
                                 urgent = onPlayer or onGrabbed or threat.attacking == true,
                                 attacking = threat.attacking == true,
-                                crawler = posture == "crawler",
+                                crawler = posture == "crawler", arrivingMs = arriving,
                                 incoming = arriving ~= nil and arriving <= 5000 }
                         end
                     end
@@ -261,7 +262,35 @@ local function assign(members, threats)
     return held
 end
 
-local function build(actor, snapshot, cohort, now, x, y, z, player)
+local DOCTRINE_SHIFT = { weapons_free = 1, ranged_support = -1 }
+
+-- How many zombies this member can hold at once: two when fit, one when worn,
+-- shifted by its doctrine, never below one while it can fight at all.
+function Squad.holds(member)
+    if not member or not member.capable then return 0 end
+    local utility = U()
+    local fit = (tonumber(member.health) or 0)
+            >= (tonumber(utility.config("combatSquadFitHealth")) or 70)
+        and utility.characterStatValue(member.actor, "ENDURANCE", 1)
+            >= (tonumber(utility.config("combatSquadFitEndurance")) or 0.5)
+    local base = fit and (tonumber(utility.config("combatSquadZombiesPerFighter")) or 2) or 1
+    local data = utility.modData(member.actor)
+    local doctrine = type(data) == "table" and data.SC_CombatDoctrine or nil
+    return math.max(1, base + (DOCTRINE_SHIFT[doctrine] or 0))
+end
+
+-- An arrival counts fully while close in time and fades to nothing later.
+function Squad.arrivalWeight(ms)
+    ms = tonumber(ms)
+    if ms == nil then return 0 end
+    local full = tonumber(U().config("combatSquadArrivalFullMs")) or 3000
+    local zero = tonumber(U().config("combatSquadArrivalZeroMs")) or 8000
+    if ms <= full then return 1 end
+    if ms >= zero then return 0 end
+    return (zero - ms) / (zero - full)
+end
+
+local function build(actor, snapshot, cohort, now, x, y, z, player, previous)
     local members = collectMembers(actor, snapshot, cohort, x, y, z)
     if #members < 2 then return nil end
     table.sort(members, function(a, b)
@@ -275,21 +304,38 @@ local function build(actor, snapshot, cohort, now, x, y, z, player)
         end
     end
     local threats = collectThreats(views, members, player, z)
-    local capableCount, active, incoming = 0, 0, 0
+    local capableCount, capacity, active, incoming, forecast = 0, 0, 0, 0, 0
     for _, member in ipairs(members) do
         if member.capable then capableCount = capableCount + 1 end
+        member.holds = Squad.holds(member)
+        capacity = capacity + member.holds
     end
     for _, threat in ipairs(threats) do
         if threat.distanceSq <= 4.5 * 4.5
             and (not threat.crawler or threat.distanceSq <= 2 * 2) then
-            active = active + 1
-        elseif threat.incoming then incoming = incoming + 1 end
+            active, forecast = active + 1, forecast + 1
+        else
+            if threat.incoming then incoming = incoming + 1 end
+            forecast = forecast + Squad.arrivalWeight(threat.arrivingMs)
+        end
     end
-    local load = active + math.min(incoming, capableCount + 2)
-    local mode = "engage"
-    if capableCount == 0 or load > capableCount * 2 + 2 then mode = "disengage"
-    elseif load > capableCount + 1 then mode = "give_ground"
-    elseif #threats == 0 then mode = "regroup" end
+    -- Fight while every zombie in reach is within the squad's capacity, give
+    -- ground when it is not (now or within the forecast), and pull out when
+    -- the arrivals would leave it well over.
+    local margin = tonumber(U().config("combatSquadDisengageMargin")) or 2
+    local wanted = "engage"
+    if capableCount == 0 or forecast > capacity + margin then wanted = "disengage"
+    elseif active > capacity or forecast > capacity then wanted = "give_ground"
+    elseif #threats == 0 then wanted = "regroup" end
+    local mode, modeSince = wanted, now
+    local dwell = tonumber(U().config("combatSquadModeDwellMs")) or 1500
+    if previous and previous.mode then
+        local since = tonumber(previous.modeSince) or now
+        if previous.mode == wanted then modeSince = since
+        elseif wanted ~= "disengage" and now - since < dwell then
+            mode, modeSince = previous.mode, since
+        end
+    end
     local held = assign(members, threats)
     local assignments = setmetatable({}, { __mode = "k" })
     for member, threat in pairs(held) do
@@ -312,6 +358,7 @@ local function build(actor, snapshot, cohort, now, x, y, z, player)
         assignments = assignments, threats = threats, mode = mode,
         supportProofs = setmetatable({}, { __mode = "k" }),
         active = active, incoming = incoming, capable = capableCount,
+        capacity = capacity, forecast = forecast, wanted = wanted, modeSince = modeSince,
         refreshedAt = now, nextRefreshAt = now + 250, expires = now + 750 }
 end
 
@@ -333,7 +380,7 @@ function Squad.forActor(actor, player, snapshot, cohort, now)
     if not plan or now >= plan.nextRefreshAt or plan.assignments[actor] == nil then
         local performance = SC.Performance
         local started = performance and performance.preciseNowMs()
-        local fresh = build(actor, snapshot, cohort, now, x, y, z, player)
+        local fresh = build(actor, snapshot, cohort, now, x, y, z, player, plan)
         if not fresh then return nil end
         fresh.key = key
         if plan then
@@ -354,7 +401,11 @@ function Squad.forActor(actor, player, snapshot, cohort, now)
         protected = assignment.protected, reason = assignment.reason,
         refreshedAt = plan.refreshedAt, expires = plan.expires,
         active = plan.active, incoming = plan.incoming,
-        capable = plan.capable, members = plan.members }
+        capable = plan.capable, members = plan.members,
+        capacity = plan.capacity, forecast = plan.forecast, holds = 1 }
+    for _, member in ipairs(plan.members) do
+        if member.actor == actor then view.holds = member.holds or 1 break end
+    end
     -- Support is spent once. A member already assigned to another zombie is
     -- fighting it, not standing by for this one; a member held to a stay or
     -- guard spot only helps within reach of that spot.

@@ -1394,6 +1394,25 @@ local function weaponUsableNow(inventory, weapon, indexEntry)
         or hasReloadAmmo(inventory, weapon, indexEntry)
 end
 
+-- Whether this fighter may close in on its target. Alone, only on an isolated
+-- front: one zombie near, on one side. With a squad plan that covers every
+-- zombie in reach (mode engage) and gives this fighter this zombie, up to its
+-- own share may be near, with at most one in contact. Encirclement and a
+-- target behind still rule it out.
+function Combat.openFront(snapshot, target, readiness)
+    if type(snapshot) ~= "table" or type(target) ~= "table" or type(readiness) ~= "table" then
+        return false
+    end
+    if snapshot.encircled == true or target.bearing == "rear" then return false end
+    local close = tonumber(readiness.close) or math.huge
+    if close <= 1 and (tonumber(readiness.occupiedSectors) or math.huge) <= 1 then return true end
+    local plan = snapshot.squadPlan
+    return type(plan) == "table" and plan.mode == "engage" and plan.target ~= nil
+        and plan.target == target.actor
+        and (tonumber(readiness.immediate) or 0) <= 1
+        and close <= (tonumber(plan.holds) or 1)
+end
+
 function Combat.primaryWeaponUsable(actor)
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
     local inventory = U().inventory(actor)
@@ -3227,8 +3246,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     end
     local pressure = Combat._engagementPressure(snapshot)
     readiness = readiness or Combat.readiness(actor, snapshot, weapon, commands)
-    local isolatedFront = readiness.close <= 1 and readiness.occupiedSectors <= 1
-        and snapshot.encircled ~= true and target.bearing ~= "rear"
+    local isolatedFront = Combat.openFront(snapshot, target, readiness)
     local fatiguePenalty = (1 - readiness.endurance) * 24
     local actions = {}
     local retreat = retreatUtility(actor, snapshot, weapon, readiness)

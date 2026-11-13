@@ -169,23 +169,90 @@ local firstOrder, secondOrder = tieWinner({ b, c }), tieWinner({ c, b })
 check(firstOrder == secondOrder and firstOrder ~= "none",
     "an equal choice is settled by id, not list order: " .. firstOrder .. "/" .. secondOrder)
 
--- 3. A zombie count wobbling at a threshold flips the mode every rebuild.
+-- 3. A zombie count wobbling at the capacity line no longer flips the mode
+-- on every 250 ms rebuild. Two fit fighters hold four; a fifth asks to give
+-- ground, which waits out the 1.5 s dwell. Disengage does not wait.
 Squad.reset()
 b.square = f.cell:getGridSquare(1, 0, 0)
-local crowd = { zombie(2, 1), zombie(2, -1), zombie(-2, 1), zombie(-2, -1) }
+local crowd = { zombie(2, 1), zombie(2, -1), zombie(-2, 1), zombie(-2, -1),
+    zombie(3, 0), zombie(0, -2), zombie(-3, 0), zombie(0, 3), zombie(-2, 2) }
+local function present(count)
+    local list = {}
+    for index = 1, count do list[index] = crowd[index] end
+    return snapshot({ b }, list)
+end
 local modes, changes, previous = {}, 0, nil
 for index = 1, 4 do
-    local present = { crowd[1], crowd[2], crowd[3] }
-    if index % 2 == 0 then present[4] = crowd[4] end
-    local current = Squad.forActor(a, nil, snapshot({ b }, present), "party:squad", tick(260))
+    local current = Squad.forActor(a, nil, present(index % 2 == 0 and 5 or 4), "party:squad", tick(260))
     modes[#modes + 1] = current and current.mode or "none"
     if previous ~= nil and current and current.mode ~= previous then changes = changes + 1 end
     previous = current and current.mode
 end
--- GAP (phase 3, hysteresis): three zombies against two fighters is engage,
--- four is give_ground, and the mode follows every 250 ms rebuild. Phase 3
--- expects at most one change inside the 1.5 s dwell.
-check(changes == 3, "GAP: the squad mode flips on every rebuild: " .. table.concat(modes, ","))
+check(changes == 0 and modes[1] == "engage",
+    "a count wobbling at the line holds its mode through the dwell: " .. table.concat(modes, ","))
+local held
+for _ = 1, 7 do held = Squad.forActor(a, nil, present(5), "party:squad", tick(260)) end
+check(held and held.mode == "give_ground", "a sustained fifth zombie gives ground after the dwell")
+Squad.reset()
+Squad.forActor(a, nil, present(4), "party:squad", tick(260))
+local escalated = Squad.forActor(a, nil, present(9), "party:squad", tick(260))
+check(escalated and escalated.mode == "disengage", "a crowd past the margin disengages at once")
+
+-- 3b. Capacity: two zombies per fit fighter, one per worn fighter, shifted by
+-- doctrine, with arrivals weighed by how soon they come.
+b.square, c.square = f.cell:getGridSquare(2, 0, 0), f.cell:getGridSquare(0, 2, 0)
+local ring = { zombie(-2, 0), zombie(0, -2), zombie(3, 1), zombie(1, 3), zombie(-1, 3),
+    zombie(3, -1), zombie(-2, -2), zombie(-3, 1), zombie(4, 0), zombie(1, -3) }
+local function modeFor(count, arrivals)
+    Squad.reset()
+    local list = {}
+    for index = 1, count do list[index] = ring[index] end
+    local scene = snapshot({ b, c }, list)
+    for _, eta in ipairs(arrivals or {}) do
+        local far = zombie(-8, 0)
+        local row = row(far)
+        row.timeToImpactMs = eta
+        scene.threats[#scene.threats + 1] = row
+    end
+    local current = Squad.forActor(a, nil, scene, "party:squad", tick())
+    return current and current.mode or "none", current
+end
+check(modeFor(6) == "engage", "three fit fighters hold six, two each")
+check(modeFor(7) == "give_ground", "three fit fighters give ground to seven")
+check(modeFor(9) == "disengage", "three fit fighters pull out from nine")
+c.endurance = 0.4
+check(modeFor(6) == "give_ground", "a worn fighter holds one, so six is too many")
+c.endurance = nil
+for _, member in ipairs({ a, b, c }) do member.modData.SC_CombatDoctrine = "weapons_free" end
+check(modeFor(9) == "engage", "Weapons Free fighters hold three each")
+for _, member in ipairs({ a, b, c }) do member.modData.SC_CombatDoctrine = nil end
+a.modData.SC_CombatDoctrine = "ranged_support"
+check(modeFor(6) == "give_ground", "Ranged Support holds one fewer at close range")
+a.modData.SC_CombatDoctrine = nil
+check(modeFor(6, { 2000 }) == "give_ground", "an arrival two seconds out counts in full")
+check(modeFor(6, { 9000 }) == "engage", "an arrival nine seconds out does not count")
+local _, half = modeFor(6, { 5500 })
+check(half and math.abs(half.forecast - 6.5) < 0.01, "an arrival 5.5 s out counts half: "
+    .. tostring(half and half.forecast))
+
+-- 3c. Closing in: alone, only on an isolated front; in a squad that covers
+-- everything, a fighter may close on its own zombie with its share near.
+local front = { actor = za, bearing = "front" }
+local two = { close = 2, occupiedSectors = 2, immediate = 1 }
+local covered = { mode = "engage", target = za, holds = 2 }
+check(SC.Combat.openFront({}, front, two) == false, "alone, two zombies near is no open front")
+check(SC.Combat.openFront({ squadPlan = covered }, front, two) == true,
+    "a covered squad lets a fighter close on its own zombie with two near")
+check(SC.Combat.openFront({ squadPlan = { mode = "give_ground", target = za, holds = 2 } },
+    front, two) == false, "giving ground is no open front")
+check(SC.Combat.openFront({ squadPlan = { mode = "engage", target = zb, holds = 2 } },
+    front, two) == false, "another fighter's zombie is no open front")
+check(SC.Combat.openFront({ squadPlan = covered }, front,
+    { close = 3, occupiedSectors = 2, immediate = 1 }) == false, "more than its share near is no open front")
+check(SC.Combat.openFront({ squadPlan = covered, encircled = true }, front, two) == false,
+    "encircled is never an open front")
+check(SC.Combat.openFront({}, front, { close = 1, occupiedSectors = 1, immediate = 1 }) == true,
+    "alone, one zombie on one side is still an open front")
 
 -- 4. Local pressure is never delegated to a stale plan: a plan built from a's
 -- view still reaches b, and an empty threat list yields no plan view at all.

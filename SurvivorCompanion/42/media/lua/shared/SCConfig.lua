@@ -576,6 +576,20 @@ local valueData = {
     friendlyFireMeleeCorridor = 0.9,
     combatAllySupportRadius = 6,
     combatAllySupportMax = 12,
+    -- Squad capacity (horde plan phase 3): a fit fighter holds this many
+    -- zombies at once, a worn one holds one; doctrine shifts it by one.
+    combatSquadZombiesPerFighter = 2,
+    combatSquadFitHealth = 70,
+    combatSquadFitEndurance = 0.5,
+    -- Arrivals count fully up to the first figure and fade to nothing at the
+    -- second; more than this many zombies beyond capacity and the squad
+    -- disengages (for a fit squad, the 0.26.42 line of 2 x fighters + 2).
+    combatSquadArrivalFullMs = 3000,
+    combatSquadArrivalZeroMs = 8000,
+    combatSquadDisengageMargin = 2,
+    -- A squad mode holds this long before an ordinary change; escalation to
+    -- disengage is immediate.
+    combatSquadModeDwellMs = 1500,
     combatCloseThreatRadius = 4.5,
     -- Quiet travel still defends the squad before a zombie reaches grab range.
     -- At 1.5 tiles the first accepted contact often arrives inside the native

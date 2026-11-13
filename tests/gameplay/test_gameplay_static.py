@@ -572,6 +572,11 @@ def main() -> int:
     require('safeSubsystem("loot-observe", actor, SC.Encounter.observeLoot,' in sources["SCDecision.lua"]
             and "SC.Encounter.observeLoot(actor, commands" not in sources["SCDecision.lua"],
             "loot haul observation is not guarded in the decision pulse")
+    # Closing in is decided in one place, which a covered squad plan can open
+    # (horde plan phase 3); the old inline isolation test must not return.
+    require("local isolatedFront = Combat.openFront(snapshot, target, readiness)" in sources["SCCombat.lua"]
+            and "readiness.close <= 1 and readiness.occupiedSectors <= 1" not in sources["SCCombat.lua"],
+            "combat approach does not use the squad-aware open front")
     require('candidate.kind == "logistics"' in sources["SCDecision.lua"]
             and 'SC.Logistics.update(actor, player, rootRuntime)' in sources["SCDecision.lua"],
             "load management is not integrated into decision arbitration")
