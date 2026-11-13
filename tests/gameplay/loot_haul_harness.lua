@@ -362,5 +362,30 @@ SC.Logistics.reset(actor)
 base.isInside, base.active, base.storageRows, base.storage, base.resolveContainer =
     oldInside, oldActive, oldRows, oldStorage, oldResolve
 
+-- Field return (send-home trips, field orders) stays a single pass. Surplus
+-- with no marked storage cools down and stays carried, and the pass finishes;
+-- 0.27.12 first held it open, so a send-home trip could never settle.
+local returning = f.actor("loot-field-return", -52, -40, {})
+f.registry[returning.id] = returning
+for _, item in ipairs(nails(4)) do returning.inventory:AddItem(item) end
+base.isInside = function() return true end
+base.active = function() return { id = "base:loot" } end
+base.storageRows = function() return {} end
+base.storage = function() return nil end
+returning.modData.LF_FieldReturnCleanup = true
+local passes = 0
+for _ = 1, 40 do
+    passes = passes + 1
+    f.clock = f.clock + 1000
+    SC.Logistics.update(returning, nil, safe)
+    if returning.modData.LF_FieldReturnCleanup == nil then break end
+end
+check(returning.modData.LF_FieldReturnCleanup == nil and passes <= 10,
+    "field-return cleanup finishes when no storage accepts the surplus")
+check(#returning.inventory.items == 4, "surplus without storage stays carried, never dropped")
+SC.Logistics.reset(returning)
+base.isInside, base.active, base.storageRows, base.storage =
+    oldInside, oldActive, oldRows, oldStorage
+
 U.move, SC.Dialogue.say = originalMove, originalDialogue
 SC_TEST_REPORT = "LOOT_HAUL_PASS checks=" .. f.checks()

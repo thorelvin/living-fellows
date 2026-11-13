@@ -1576,13 +1576,17 @@ function Logistics.status(actor)
         if farming and (audit.fieldReturnCleanup
             or storageFor(actor, farming.item, "farming", true)) then surplus = farming end
     end
-    -- A cooling/full destination is pending cargo, never completed cleanup.
-    local unfiltered = (audit.fieldReturnCleanup or audit.lootReturnCleanup)
+    -- Loot delivery: a cooling/full destination is pending cargo, never
+    -- completed cleanup. It keeps its saved obligation and three-minute retry.
+    local unfiltered = audit.lootReturnCleanup
         and audit.inventoryComplete and Logistics.selectSurplus(actor, audit,
             not audit.fieldReturnCleanup and function(item)
                 return not usefulSupplyCategories[Logistics.itemCategory(item)]
             end or nil) or nil
-    audit.cleanupDone = audit.fieldReturnCleanup and audit.inventoryComplete and surplus == nil and unfiltered == nil
+    -- Field return stays one pass: an item whose storage is full or missing
+    -- cools down and stays with its carrier, and the pass still finishes.
+    -- Holding it open forever left send-home trips unable to settle.
+    audit.cleanupDone = audit.fieldReturnCleanup and audit.inventoryComplete and surplus == nil
     audit.lootCleanupDone = audit.lootReturnCleanup and audit.inventoryComplete and unfiltered == nil
     if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
         or moveMemory.cooling(actor, "drop", surplus.item, current)) then

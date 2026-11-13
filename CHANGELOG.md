@@ -11,6 +11,9 @@
   Returning followers put extra supplies into marked storage when you stop.
   Full or inaccessible storage keeps cargo pending through save/reload,
   with a three-minute retry and a manual Retry on Status.
+- Send-home trips and field orders finish putting supplies away again when a
+  shelf is full or missing: those items stay carried and the trip closes,
+  instead of waiting forever.
 - The Status invitation now asks an independent survivor to join with one
   click. Household invitations use the same joining rules as Talk.
 - Talk puts conversation choices first, relationship progress next, and
