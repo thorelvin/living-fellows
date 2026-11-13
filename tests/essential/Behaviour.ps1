@@ -14,6 +14,12 @@
     )
 }
 @{ Name = 'behaviour.follow-and-access'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'gameplay_harness.lua') }
+@{ Name = 'behaviour.combat-coordination'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'combat_coordination_regression_harness.lua')) }
+
+@{ Name = 'behaviour.combat-squad'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'combat_squad_harness.lua')) }
+
 @{ Name = 'behaviour.combat-ownership'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),
     (Join-Path $Essential 'combat_harness.lua')) }
