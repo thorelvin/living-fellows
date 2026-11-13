@@ -1,22 +1,24 @@
-Horde plan release 1 (phases 0-2) -- live squad arena -- 2026-11-13
+Horde plan release 1 (phases 0-3) -- live squad arena -- 2026-11-13
 
 Same arena, same settings, one game at a time, disposable clones with the
 isolated source bridge (installed game, launcher and saves untouched):
   Invoke-LiveSandboxTests.ps1 -SquadCombatProbe -SquadCombatCompanions 3
       -SquadCombatZombieCounts 2,6 -SquadCombatTrials 3
       -LivingFellowsOnly -IsolatedSourceBridge -TimeoutSeconds 1500
-Baseline: 0.27.12 (7ba76b4b). Candidate: horde/phase-0 (a8d596c4).
+Baseline: 0.27.12 (7ba76b4b). Phases 0-2: a8d596c4. Phases 0-3: 4a3950ca.
 Three companions with crowbars on Stay; 55 s per trial.
 
 3 companions vs 2 zombies
               survivors  kills  health lost  time to clear
   baseline    9/9        6/6    0            28.7, 16.2, 11.0 s
-  candidate   9/9        6/6    8.7          12.9, 21.8, 20.6 s
+  phases 0-2  9/9        6/6    8.7          12.9, 21.8, 20.6 s
+  phases 0-3  9/9        6/6    0            7.1, 18.6, 8.8 s
 
 3 companions vs 6 zombies
               survivors  kills          health lost        retreat actions
   baseline    8/9        14/18 (6,2,6)  0, 112.9, 4.4      112, 476, 220
-  candidate   9/9        10/18 (4,4,2)  59.4, 5.1, 23.6    595, 105, 383
+  phases 0-2  9/9        10/18 (4,4,2)  59.4, 5.1, 23.6    595, 105, 383
+  phases 0-3  9/9        13/18 (6,2,5)  4.1, 0, 88.5       149, 213, 288
 
 Reading
 Three trials per case is a small sample; one bad trial (baseline 3v6 #2,
@@ -27,3 +29,8 @@ allies who are fighting too. Against six it killed fewer in the time
 limit and nobody died. The user's chosen bravery (two zombies per fit
 fighter) is phase 3's coverage rule; until it lands, release 1 alone leans
 cautious in an even 3v6.
+
+Phase 3 (capacity: two zombies per fit fighter, the user's choice) brings
+the kill rate in an even 3v6 back to the baseline's level with no deaths in
+this sample; one companion fell to 12.6 health in trial 3. Three trials per
+case remain a small sample.

@@ -2,6 +2,32 @@
 
 # Changelog
 
+## 0.27.13 - Squads that fight together
+
+- Companions in a group share out the zombies that can reach them. Every
+  zombie gets one defender before any gets a second, a zombie on you or on a
+  grabbed companion comes first, and a companion already fighting keeps its
+  zombie.
+- What each companion sees counts for the whole group, so a zombie only one
+  of them can see still gets a defender.
+- Only free, able companions count as backup. One that is grabbed, in a car,
+  exhausted, down, unarmed and unwilling to fight, or already fighting its
+  own zombie no longer makes the others braver; one on Stay or Guard backs up
+  only fights near its spot.
+- A fit companion holds two zombies at once and a worn one holds one;
+  Weapons Free adds one and Ranged Support takes one away. A group stands and
+  fights while the zombies within reach fit that, gives ground when they do
+  not, and pulls out when far more are on the way. Zombies still coming count
+  more the sooner they will arrive.
+- A group's choice to fight or give ground holds for a moment instead of
+  flipping back and forth, and a companion whose zombie the group has covered
+  may step in even with a second one near.
+- The full test gate now runs the combat coordination checks. A new live
+  stair probe records how fights on stairs go; stair tactics follow later.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.12 - Useful loot and easier conversations
 
 - Scavenging checks every compartment, including freezers, and one level
