@@ -3176,6 +3176,12 @@ local function tryShoveFollowUp(actor, state, snapshot, now, commands)
         state.shoveFollowUp = nil
         return nil, "shove_did_not_ground_target"
     end
+    -- Stair rule 5: a zombie knocked down on the steps is not chased onto
+    -- them. The live probe saw a defender leave its landing to finish one.
+    if Combat.atStairs(target) and not Combat.atStairs(actor) then
+        state.shoveFollowUp = nil
+        return nil, "stomp_followup_on_stairs"
+    end
     if not shoveFollowUpSafe(actor, snapshot, target) then
         state.shoveFollowUp = nil
         return nil, "stomp_followup_unsafe"

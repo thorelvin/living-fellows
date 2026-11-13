@@ -55,3 +55,20 @@ What this settles for the plan (plan-horde-combat-wp2-6.md, 4.6)
   6. Meeting a descending zombie from flat ground at the foot works.
 Limits: one staircase, one weapon, one zombie, healthy fighter, six trials.
 Climb and reaction figures are observations, not guarantees.
+
+After S1 and S2 (horde/release-2, 2026-11-13)
+Same staircase, Stay order confirmed saved as stay (the probe now refuses a
+staircase inside the camp, where Stay becomes base duty and the companion
+walks off), three trials each way:
+  stair rules 2 and 5 hold live: in all six trials the companion never set
+  foot on the slope (0 seconds between heights 0.05 and 0.95). Before S1 it
+  walked down to fight in one trial in three, and once to finish a zombie it
+  had shoved down.
+  top: 2 of 3 killed. Trial 1 became a shove loop: each shove at the top
+  step sent the zombie back down, it climbed back, 45 s without a kill and
+  without harm either way. Trial 2: one bite when the zombie reached the
+  landing, then killed.
+  bottom: 2 of 3 killed from flat ground at the foot; in one the zombie never
+  came down.
+Known limit: holding the top keeps the defender safe but may not end the
+fight; the player can finish it.

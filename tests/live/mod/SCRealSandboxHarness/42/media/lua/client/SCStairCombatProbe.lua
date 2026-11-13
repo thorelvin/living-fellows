@@ -47,6 +47,14 @@ end
 -- often fit that shape, so the bottom piece must face the exit and the top
 -- piece the landing, or the "landing" is the floor above the stairs' foot.
 local DIRECTIONS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+-- A Stay order inside the save's camp becomes base duty, and the companion
+-- walks off to camp jobs (it left the staircase in earlier runs). Only a
+-- staircase entirely outside the camp keeps a fixture still.
+local function inCamp(SC, square)
+    local base = SC.BaseLife
+    return base ~= nil and type(base.isInside) == "function" and base.isInside(square) == true
+end
+
 local function findStair(SC, cx, cy, radius)
     local U, Topology = SC.GameplayUtil, SC.Topology
     local best, bestD2
@@ -66,7 +74,9 @@ local function findStair(SC, cx, cy, radius)
                         and Topology.squareHasStairs(last)
                         and U.isSquareFree(landing) and U.isSquareFree(beyond)
                         and tostring(stairPiece(SC, first)):find("stairsB", 1, true) == 1
-                        and tostring(stairPiece(SC, last)):find("stairsT", 1, true) == 1 then
+                        and tostring(stairPiece(SC, last)):find("stairsT", 1, true) == 1
+                        and not inCamp(SC, exit) and not inCamp(SC, landing)
+                        and not inCamp(SC, beyond) then
                         local d2 = dx * dx + dy * dy
                         if not bestD2 or d2 < bestD2 then
                             best, bestD2 = { exit = exit, first = first, middle = middle,
@@ -332,9 +342,11 @@ function Probe.step(H, current, check, result, setPhase)
         if weapon then pcall(function() actor:setPrimaryHandItem(weapon) end) end
         pcall(function() actor:getStats():set(CharacterStat.ENDURANCE, 1) end)
         local ordered, orderReason = SC.Commands.issue(SC.Registry.idOf(actor), "stay", nil, H.player)
+        local data = call(actor, "getModData")
+        local order = type(data) == "table" and data.SC_Order or nil
         if not check("stair_combat_actor_ready_" .. H.stairTrialIndex, weapon ~= nil
-            and call(actor, "getPrimaryHandItem") == weapon and ordered == true,
-            "order=" .. tostring(orderReason)) then
+            and call(actor, "getPrimaryHandItem") == weapon and ordered == true and order == "stay",
+            "order=" .. tostring(orderReason) .. " saved=" .. tostring(order)) then
             cleanup(H); setPhase("finish", current) return
         end
         local stair, top = H.stair, H.stairTrial.case == "top_defender"

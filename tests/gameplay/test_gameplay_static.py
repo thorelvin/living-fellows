@@ -584,6 +584,10 @@ def main() -> int:
     # Stair rule 3: a stalled exchange at the stairs steps back off the landing.
     require("if Combat.stairStandoff(actor, state, target.actor, now) then" in sources["SCCombat.lua"],
             "the stair standoff step-back is not wired into action selection")
+    # Stair rule 5: a zombie knocked down on the steps is not chased onto them.
+    require("if Combat.atStairs(target) and not Combat.atStairs(actor) then" in sources["SCCombat.lua"]
+            and 'return nil, "stomp_followup_on_stairs"' in sources["SCCombat.lua"],
+            "the shove follow-up can chase a downed zombie onto the stairs")
     require('candidate.kind == "logistics"' in sources["SCDecision.lua"]
             and 'SC.Logistics.update(actor, player, rootRuntime)' in sources["SCDecision.lua"],
             "load management is not integrated into decision arbitration")
