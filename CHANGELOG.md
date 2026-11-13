@@ -14,6 +14,9 @@
 - Send-home trips and field orders finish putting supplies away again when a
   shelf is full or missing: those items stay carried and the trip closes,
   instead of waiting forever.
+- An item whose transfer could not be verified is no longer skipped forever.
+  It can be looted again once it sits in one container and the companion who
+  tried does not also carry it. An error while ending a haul is contained.
 - The Status invitation now asks an independent survivor to join with one
   click. Household invitations use the same joining rules as Talk.
 - Talk puts conversation choices first, relationship progress next, and

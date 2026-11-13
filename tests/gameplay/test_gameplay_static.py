@@ -567,6 +567,11 @@ def main() -> int:
             and "safeForCorpseLoot" in sources["SCEncounter.lua"]
             and 'sourceKind = corpseContainers[container] and "zombie_corpse"' in sources["SCEncounter.lua"],
             "bounded combat-gated zombie-corpse looting missing")
+    # The haul observer runs on every decision pulse. Like the combat observer
+    # beside it, an error there must be contained, not end the pulse.
+    require('safeSubsystem("loot-observe", actor, SC.Encounter.observeLoot,' in sources["SCDecision.lua"]
+            and "SC.Encounter.observeLoot(actor, commands" not in sources["SCDecision.lua"],
+            "loot haul observation is not guarded in the decision pulse")
     require('candidate.kind == "logistics"' in sources["SCDecision.lua"]
             and 'SC.Logistics.update(actor, player, rootRuntime)' in sources["SCDecision.lua"],
             "load management is not integrated into decision arbitration")

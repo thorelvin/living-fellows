@@ -3496,7 +3496,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
     if SC.Combat and type(SC.Combat.observe) == "function" then
         if SC.Encounter and SC.Encounter.observeLoot then
-            SC.Encounter.observeLoot(actor, commands, snapshot, current)
+            utility.safeSubsystem("loot-observe", actor, SC.Encounter.observeLoot,
+                actor, commands, snapshot, current)
         end
         utility.safeSubsystem("combat-observe", actor, SC.Combat.observe, actor)
     end

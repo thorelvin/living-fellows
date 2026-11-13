@@ -1352,10 +1352,48 @@ end
 -- Selection carries a sentinel until the companion reaches the source.
 Encounter.UNOPENED = setmetatable({}, { __tostring = function() return "unopened" end })
 
+local function carrierHolds(carrier, item)
+    local inventory = U().inventory(carrier)
+    if inventory == nil then return nil end
+    local held, heldOk = U().call(inventory, "containsRecursive", item)
+    if heldOk then return held == true end
+    if U().inventoryContains(inventory, item) then return true end
+    for _, value in ipairs(U().inventoryItems(inventory, 160)) do
+        local nested = Loot.nested(value)
+        if nested and U().inventoryContains(nested, item) then return true end
+    end
+    return false
+end
+
+-- A transfer that could neither be verified nor undone marks the item with the
+-- looter's id. Taking it again while its location is in doubt could duplicate
+-- it, but the mark is saved on the item and used to exclude it forever. It
+-- settles once the item sits consistently in the container being read and the
+-- looter verifiably does not also hold it, or that companion no longer exists.
+function Encounter._settleUncertainLoot(actor, item, itemData, node)
+    local holder, readable = U().call(item, "getContainer")
+    if not readable or holder == nil or holder ~= node.source then return false end
+    local mark, carrier = itemData.SC_LootTransferUncertain, actor
+    if type(mark) == "string" then
+        local registry, record = SC.Registry, nil
+        if registry and type(registry.byId) == "function" then
+            local ok, value = pcall(registry.byId, mark)
+            record = ok and value or nil
+        end
+        carrier = type(record) == "table" and (record.actor or record) or nil
+        if carrier == nil and not (SC.BaseFuel and type(SC.BaseFuel.workerIdGone) == "function"
+            and SC.BaseFuel.workerIdGone(mark)) then return false end
+    end
+    if carrier ~= nil and carrierHolds(carrier, item) ~= false then return false end
+    itemData.SC_LootTransferUncertain = nil
+    return true
+end
+
 local function lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
     if manualEquipmentOnly(item) then return 0 end
     local itemData = select(1, U().call(item, "getModData"))
-    if type(itemData) == "table" and itemData.SC_LootTransferUncertain then return 0 end
+    if type(itemData) == "table" and itemData.SC_LootTransferUncertain
+        and not Encounter._settleUncertainLoot(actor, item, itemData, node) then return 0 end
     local allowed, _, storage = Encounter.mayTakeFrom(node.root, storages)
     if not allowed or storage and not storageAllows(storage, item) then return 0 end
     local score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
@@ -2337,7 +2375,7 @@ local function commitTask(actor, state, task, commands, audit, time)
                             uncertain = stopReason == "transfer_rollback_failed" or stopReason == "destination_already_contains_item"
                             if uncertain then
                                 local data = utility.modData(row.item)
-                                if data then data.SC_LootTransferUncertain = true end
+                                if data then data.SC_LootTransferUncertain = utility.idOf(actor) or true end
                             end
                             break
                         end

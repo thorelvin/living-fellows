@@ -290,6 +290,27 @@ actor.inventory.rejectAdd, source.rejectAdd = true, true
 visuals[actor] = "completed"; tick(actor)
 check(#source.items == 0 and #actor.inventory.items == 0 and uncertain:getModData().SC_LootTransferUncertain,
     "a failed native rollback is held for reconciliation without synthetic replacement")
+check(uncertain:getModData().SC_LootTransferUncertain == actor.id,
+    "the uncertainty mark names the looter whose transfer failed")
+
+-- The mark settles once the item sits consistently in a container and the
+-- looter does not also hold it. It used to exclude the item forever.
+local settler = fixture({ uncertain })
+task = animate(settler)
+check(task.takeList[1] and task.takeList[1].item == uncertain
+        and uncertain:getModData().SC_LootTransferUncertain == nil,
+    "a consistently placed uncertain item settles and can be looted again")
+
+-- A looter still holding the marked item keeps it excluded: taking the second
+-- reference would duplicate it.
+local duplicate, extra = nails(1)[1], nails(1)[1]
+local holder = fixture({ duplicate, extra })
+holder.inventory.items[#holder.inventory.items + 1] = duplicate
+duplicate:getModData().SC_LootTransferUncertain = holder.id
+task = animate(holder)
+check(#task.takeList == 1 and task.takeList[1].item == extra
+        and duplicate:getModData().SC_LootTransferUncertain == holder.id,
+    "an uncertain item its looter still holds stays excluded")
 
 -- Returning loot is storage-only, keeps the obligation while blocked, and can
 -- be retried without changing the companion's order.
