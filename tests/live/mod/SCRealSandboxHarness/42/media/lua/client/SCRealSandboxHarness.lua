@@ -15863,6 +15863,9 @@ end
 Harness.probeNativeCare = function(...)
     return externalProbe("SCNativeCareProbe", ...)
 end
+Harness.probeForceEntry = function(...)
+    return externalProbe("SCForceEntryProbe", ...)
+end
 Harness.probeFarmServices = function(...)
     return externalProbe("SCFarmServicesProbe", ...)
 end
@@ -16535,6 +16538,8 @@ local function tick()
         Harness.probeLogYard(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "farm_services_", 1, true) == 1 then
         Harness.probeFarmServices(Harness, current, check, result, setPhase)
+    elseif string.find(tostring(Harness.phase), "force_entry_", 1, true) == 1 then
+        Harness.probeForceEntry(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "native_care_", 1, true) == 1 then
         Harness.probeNativeCare(Harness, current, check, result, setPhase)
     elseif string.find(tostring(Harness.phase), "field_cargo_", 1, true) == 1 then
@@ -17544,6 +17549,8 @@ local function onGameStart()
         setPhase("log_yard_setup", Harness.startedAt)
     elseif Harness.config.farm_services_probe == "true" then
         setPhase("farm_services_setup", Harness.startedAt)
+    elseif Harness.config.force_entry_probe == "true" then
+        setPhase("force_entry_setup", Harness.startedAt)
     elseif Harness.config.native_care_probe == "true" then
         setPhase("native_care_setup", Harness.startedAt)
     elseif Harness.config.field_cargo_probe == "true" then

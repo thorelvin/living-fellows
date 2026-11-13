@@ -410,6 +410,29 @@ local door = { kind = "IsoDoor", getSquare = function() return groundSquare end,
     getObjectIndex = function() return 2 end, IsOpen = function() return false end }
 check(find(fill({ door }), "Bess: UI_SC_Action_OpenDoor", true),
     "a door uses the selected recipient's named relevant shortcut")
+do
+    local original = SC.ForceEntry
+    local carried, borrow, failed = true, false, false
+    SC.ForceEntry = { eligible = function(object) return object == door end,
+        tool = function() return carried and {} or nil end,
+        canBorrow = function() return borrow end, failed = function() return failed end }
+    local menu = fill({ door })
+    local force = find(menu, "Bess: UI_SC_Action_ForceOpen")
+    check(force and not find(menu, "Bess: UI_SC_Action_ForceOpen", true),
+        "named crowbar command stays inside Living Fellows instead of the vanilla root")
+    select(force)
+    check(issued[#issued].id == b.id and issued[#issued].command == "force_open"
+        and issued[#issued].payload.object == door, "forcing retains exact actor and portal")
+    carried=false
+    check(find(fill({door}),"Bess: UI_SC_Action_ForceOpen").notAvailable,
+        "away from camp a missing carried crowbar has a disabled command")
+    borrow=true
+    check(not find(fill({door}),"Bess: UI_SC_Action_ForceOpen").notAvailable,
+        "camp command allows automatic borrowing")
+    failed=true
+    check(find(fill({door}),"Bess: UI_SC_Action_RetryForceOpen"),"failed attempt exposes explicit Retry")
+    SC.ForceEntry=original
+end
 local car = { getX = function() return 12 end, getY = function() return 10 end,
     getSqlId = function() return 7 end }
 function groundSquare:getVehicleContainer() return car end

@@ -12,7 +12,7 @@ local lastGroupThreatWarningAt = -math.huge
 -- The last sitting zombie any companion called out, so the party names it once.
 local lastSittingCallout
 local workReservations = {}
-local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
+local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true, force_open = true }
 
 Decision.SafetyTier = Decision.SafetyTier or {
     IDLE = "idle",
@@ -913,6 +913,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             end
         end
         if threatCount == 0 and not bleeding and humanThreat == nil and SC.ExpeditionPrototype then
+            local force = SC.ExpeditionPrototype.forceEntryRequestFor
+                and SC.ExpeditionPrototype.forceEntryRequestFor(actor)
+            if force then add("expedition_force_entry", 88, false, force) end
             local fuel=type(SC.ExpeditionPrototype.fuelRequestFor)=="function" and SC.ExpeditionPrototype.fuelRequestFor(actor)
             if fuel then add("expedition_fuel",87,false,fuel) end
             local departure = type(SC.ExpeditionPrototype.departurePreparationFor) == "function"
@@ -934,6 +937,11 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             if departure and not woodPreparation and not preparation and not fuel then
                 add("departure_preparation", 86, false, departure)
             end
+        end
+        if threatCount == 0 and not bleeding and humanThreat == nil and not selfMedicalNeed
+            and (commands.order == "base_duty" or commands.order == "stay")
+            and SC.ForceEntry and SC.ForceEntry.pendingReturn(actor) then
+            add("force_tool_return", 77, false)
         end
         -- A companion with its own task (an expedition leader searching its
         -- site) keeps looting while combat has just judged every zombie in
@@ -1023,6 +1031,9 @@ end
 Decision._selectWithHysteresisForTests = selectWithHysteresis
 
 local function enforceVehicleExitPolicy(actor, player, commands, snapshot)
+    -- Only the player's party follows the player's vehicle policy. Authored
+    -- residents such as Loretta own their seat independently of the observer.
+    if commands.recruited ~= true then return nil end
     local utility = U()
     local actorVehicle, actorVehicleOk = utility.call(actor, "getVehicle")
     if not actorVehicleOk or actorVehicle == nil then return nil end
@@ -1533,6 +1544,10 @@ local function reserveWork(actor, commands, state, current)
 end
 
 local function cancelWork(actor, state, reason)
+    if SC.ForceEntry and state.workAction and state.workAction.kind == "force_open" then
+        local stopped, why = SC.ForceEntry.cancel(actor, reason)
+        if stopped ~= true then return false, why end
+    end
     local cancelled, cancelReason = true, nil
     if SC.NativeActions and type(SC.NativeActions.cancelWork) == "function" then
         local called
@@ -1593,7 +1608,11 @@ local function reportWorkFailure(actor, player, reason, snapshot)
         end
     end
     local key, fallback, topic = "IGUI_SC_Work_Cannot", "I can't do that safely.", "work.cannot"
-    if string.find(lowered, "hammer", 1, true) then
+    if lowered == "force_open_failed" then
+        key, fallback, topic = "IGUI_SC_Work_ForceFailed", "That lock held. Tell me if you want another try.", "work.force_failed"
+    elseif lowered == "force_crowbar_missing" then
+        key, fallback, topic = "IGUI_SC_Work_NeedCrowbar", "I need a usable crowbar to force that lock.", "work.crowbar"
+    elseif string.find(lowered, "hammer", 1, true) then
         key, fallback, topic = "IGUI_SC_Work_NeedHammer", "I need a hammer.", "work.hammer"
     elseif string.find(lowered, "plank", 1, true) then
         key, fallback, topic = "IGUI_SC_Work_NeedPlank", "I need a plank.", "work.plank"
@@ -1623,6 +1642,30 @@ local function doWork(actor, player, commands, snapshot, state)
     local utility = U()
     local current = utility.nowMs()
     local target = commands.workTarget
+    if target and target.kind == "force_open" and SC.ForceEntry then
+        local object, _, why = resolveWorkObject(commands)
+        if not object then
+            local stopped, reason = SC.ForceEntry.cancel(actor, why)
+            if stopped ~= true then return false, reason end
+            return finishWork(actor, player, state, why)
+        end
+        target.forceEntry = target.forceEntry or {}
+        state.workAction = { kind = "force_open" }
+        local handled, reason, done = SC.ForceEntry.step(actor, target, target.forceEntry, {
+            object = object, snapshot = snapshot, borrow = true,
+            useId = "manual:" .. tostring(U().idOf(actor)) .. ":" .. tostring(commands.commandSerial),
+            current = function()
+                local latest = SC.Commands.peekExisting(actor)
+                return latest and latest.order == "work" and latest.workTarget == target
+            end,
+            persist = function() SC.Commands.persist(actor) end,
+        })
+        if done then
+            if reason ~= "force_open_succeeded" then reportWorkFailure(actor, player, reason, snapshot) end
+            return finishWork(actor, player, state, reason)
+        end
+        return handled, reason
+    end
     local progressKey = tostring(workKey(commands)) .. ":" .. tostring(target and target.kind)
         .. ":" .. tostring(target and target.baseJobId)
     if state.workCommandSerial ~= commands.commandSerial or state.workProgressKey ~= progressKey then
@@ -1990,13 +2033,18 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
             if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
                 return false, "navigation_unavailable"
             end
-            return SC.Navigation.requestAny(actor,
+            local accepted, reason = SC.Navigation.requestAny(actor,
                 commands.expeditionEntryTargets, "walk", {
                     action = "expedition_enter_site", snapshot = snapshot,
-                    doorBashAsLastResort = true,
+                    doorBashAsLastResort = not (SC.ExpeditionPrototype.hasEntryCrowbar
+                        and SC.ExpeditionPrototype.hasEntryCrowbar()),
                     arrivalDistance = 0.35, requireSameSquare = true,
                     movementPriority = 60,
                 })
+            if SC.ExpeditionPrototype.noteEntryBlocked then
+                SC.ExpeditionPrototype.noteEntryBlocked(actor, reason)
+            end
+            return accepted, reason
         end
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return false, "navigation_unavailable"
@@ -2326,6 +2374,14 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
     elseif candidate.kind == "expedition_delivery" then
         return callSubsystem("expedition-delivery", actor, function()
             return SC.ExpeditionPrototype.updateIntegration(actor)
+        end)
+    elseif candidate.kind == "force_tool_return" then
+        return callSubsystem("force-tool-return", actor, function()
+            return SC.ForceEntry.returnPending(actor, snapshot)
+        end)
+    elseif candidate.kind == "expedition_force_entry" then
+        return callSubsystem("expedition-force-entry", actor, function()
+            return SC.ExpeditionPrototype.updateForceEntry(actor, snapshot)
         end)
     elseif candidate.kind == "field_work" then
         return callSubsystem("field-work", actor, function()
@@ -2657,6 +2713,7 @@ local function candidateInterval(candidate)
 end
 
 local retainedApproachKinds = {
+    force_tool_return = true, expedition_force_entry = true,
     logistics = true, infection_crisis = true, encounter = true,
     scavenge = true, downtime = true, needs = true, water_refill = true,
     base_work = true, expedition_delivery = true, fishing = true,
@@ -3876,6 +3933,16 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if previous == "field_work" and selected.kind ~= "field_work"
         and not recheck and SC.FieldWork and SC.FieldWork.interrupt then
         SC.FieldWork.interrupt(actor)
+    end
+    if previous == "expedition_force_entry" and selected.kind ~= "expedition_force_entry"
+        and not recheck and SC.ExpeditionPrototype.cancelForceEntry then
+        local stopped, why = SC.ExpeditionPrototype.cancelForceEntry(actor, "force_open_interrupted")
+        if stopped ~= true then return false, why end
+    end
+    if previous == "force_tool_return" and selected.kind ~= "force_tool_return"
+        and not recheck and SC.ForceEntry then
+        local stopped, why = SC.ForceEntry.cancel(actor, "force_tool_return_interrupted")
+        if stopped ~= true then return false, why end
     end
     if previous == "fishing" and selected.kind ~= "fishing" and not recheck
         and SC.Fishing and type(SC.Fishing.cancel) == "function" then

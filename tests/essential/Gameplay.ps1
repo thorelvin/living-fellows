@@ -3,6 +3,7 @@
 function Get-ScGameplayFiles {
     @((Join-Path $Core 'core_fixture.lua'))
     (Join-Path $Shared 'SCNamespace.lua')
+    (Join-Path $Shared 'SCForceEntryState.lua')
     (Join-Path $Shared 'SCSpeechColors.lua')
     (Join-Path $Shared 'SCCall.lua')
     (Join-Path $Shared 'SCStableValue.lua')
@@ -45,6 +46,7 @@ function Get-ScGameplayFiles {
         'SCMedical.lua',
         'SCMedicKit.lua',
         'SCEncounter.lua',
+        'SCForceEntry.lua',
         'SCLogistics.lua',
         'SCLighting.lua',
         'SCNeeds.lua',

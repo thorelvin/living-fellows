@@ -86,4 +86,35 @@ do
     for _, item in ipairs(items) do check(visits[item] == 1, "scavenging resumes without rescoring the prefix") end
     SC.Performance.preciseNowMs, SC.Logistics.itemNeedScore, SC.BaseLife.isInside = clock, score, inside
 end
+do
+    local originalFaction = SC.FactionBehavior
+    local guest = f.actor("essential-car-resident", 0, 0, {recruited=false})
+    f.registry[guest.id] = guest
+    guest.vehicle = {getCurrentSpeedKmHour=function() return 0 end,getSqlId=function() return 97 end}
+    local storyUpdates = 0
+    SC.FactionBehavior = {
+        intentFor=function(who) if who==guest then return {mode="loretta_wait",priority=90} end end,
+        update=function(who) if who==guest then storyUpdates=storyUpdates+1; return true,"waiting_in_car" end end,
+    }
+    local quiet = {threats={},threatCount=0,immediateCount=0,pressure=0,allies={},player={danger=0}}
+    local guestHandled,guestReason
+    for _=1,3 do
+        f.clock=f.clock+1000
+        guestHandled,guestReason=SC.Decision.update(guest,player,{snapshot=quiet},f.clock)
+        if storyUpdates>0 then break end
+    end
+    check(storyUpdates==1 and guest.vehicle~=nil,
+        "a seated unrecruited car resident keeps her authored policy while the player is on foot: "..tostring(guestHandled).."/"..tostring(guestReason).." updates="..storyUpdates.." recruited="..tostring(SC.Commands.peek(guest).recruited))
+    SC.FactionBehavior = originalFaction
+    local passenger = f.actor("essential-party-passenger", 0, 0, {})
+    f.registry[passenger.id] = passenger
+    passenger.vehicle=guest.vehicle
+    local first=#f.movementLog
+    SC.Decision.update(passenger,player,{snapshot=quiet},f.clock+1000)
+    local exited=false
+    for i=first+1,#f.movementLog do local move=f.movementLog[i]
+        if move.actor==passenger and move.intent.action=="exit_vehicle" then exited=true end
+    end
+    check(exited,"ordinary recruited passengers still leave after the player gets out")
+end
 print("BEHAVIOUR_NAVIGATION_PASS checks=" .. tostring(f.checks()))

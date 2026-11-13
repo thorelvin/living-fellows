@@ -11,6 +11,7 @@ if not SC.Objectives and type(require) == "function" then pcall(require, "SCObje
 if not SC.Journal and type(require) == "function" then pcall(require, "SCJournal") end
 if not SC.BaseLife and type(require) == "function" then pcall(require, "SCBaseLife") end
 if not SC.BaseWork and type(require) == "function" then pcall(require, "SCBaseWork") end
+if not SC.ForceEntry and type(require) == "function" then pcall(require, "SCForceEntry") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.Commands = SC.Commands or {}
@@ -38,7 +39,7 @@ local combatDoctrines = {
 }
 local workModes = { auto = true, idle = true, craft = true }
 local internalWorkModes = { auto = true, idle = true, craft = true, build = true }
-local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
+local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true, force_open = true }
 local groupStaging = false
 local groupCurrentPlan = nil
 local copyCommandState
@@ -86,7 +87,7 @@ local stableDataKeys = {
     "SC_WorkMode", "SC_WorkX", "SC_WorkY", "SC_WorkZ", "SC_WorkObjectIndex",
     "SC_WorkObjectId", "SC_WorkObjectSignature",
     "SC_WorkInitialPlanks",
-    "SC_WorkBaseJobId", "SC_WorkKind", "SC_WorkBarricadeSide",
+    "SC_WorkBaseJobId", "SC_WorkKind", "SC_WorkBarricadeSide", "SC_WorkForceEntry",
     "SC_ReturnOrder", "SC_ReturnWorkMode",
 }
 
@@ -387,6 +388,8 @@ local function snapshotState(actor, entry)
             barricadeSide = barricadeSide == "same" and "same"
                 or barricadeSide == "opposite" and "opposite" or nil,
             kind = targetedWorkKinds[workKind] and workKind or "barricade",
+            forceEntry = SC.ForceEntry and SC.ForceEntry.copy(valueFrom(data, { "SC_WorkForceEntry" },
+                type(persistedTarget) == "table" and persistedTarget.forceEntry or nil)) or nil,
         }
     end
     -- pendingInteraction deliberately remains transient because it contains a
@@ -458,6 +461,7 @@ local function writeStable(actor, entry, state)
                 or state.workTarget.barricadeSide == "opposite" and "opposite" or nil,
             kind = targetedWorkKinds[state.workTarget.kind]
                 and state.workTarget.kind or "barricade",
+            forceEntry = SC.ForceEntry and SC.ForceEntry.copy(state.workTarget.forceEntry) or nil,
         }
     end
     -- Validate and detach every nested value before touching actor mod-data or
@@ -540,6 +544,7 @@ local function writeStable(actor, entry, state)
             data.SC_WorkBaseJobId = stableWorkTarget.baseJobId
             data.SC_WorkKind = stableWorkTarget.kind
             data.SC_WorkBarricadeSide = stableWorkTarget.barricadeSide
+            data.SC_WorkForceEntry = stableWorkTarget.forceEntry
         else
             data.SC_WorkX, data.SC_WorkY, data.SC_WorkZ = nil, nil, nil
             data.SC_WorkObjectIndex = nil
@@ -549,6 +554,7 @@ local function writeStable(actor, entry, state)
             data.SC_WorkBaseJobId = nil
             data.SC_WorkKind = nil
             data.SC_WorkBarricadeSide = nil
+            data.SC_WorkForceEntry = nil
         end
     end
     if type(entry) == "table" then
@@ -1006,6 +1012,10 @@ local function targetedWorkObject(actor, payload, kind)
         if not barricadedOk or barricaded ~= true then
             return nil, nil, "target_is_not_barricaded"
         end
+    elseif kind == "force_open" then
+        if not SC.ForceEntry then return nil, nil, "force_open_unavailable" end
+        local allowed, why = SC.ForceEntry.eligible(object, actor)
+        if allowed ~= true then return nil, nil, why end
     elseif kind == "dismantle" then
         local isThumpable = false
         if type(instanceof) == "function" then
@@ -1731,6 +1741,14 @@ local handlers = {
     remove_barricade = function(actor, entry, state, payload)
         return handleTargetedWork(actor, entry, state, payload, "remove_barricade")
     end,
+    force_open = function(actor, entry, state, payload)
+        if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
+            local object, _, reason = targetedWorkObject(actor, payload, "force_open")
+            if not object then return false, reason end
+            return SC.ExpeditionPrototype.queueForceEntry(actor, object)
+        end
+        return handleTargetedWork(actor, entry, state, payload, "force_open")
+    end,
     dismantle = function(actor, entry, state, payload)
         return handleTargetedWork(actor, entry, state, payload, "dismantle")
     end,
@@ -2238,7 +2256,7 @@ local driveControlCommands = {
     follow = true, cautious_follow = true, stay = true, guard = true,
     regroup = true, retreat = true, move_to = true, base_duty = true, set_base_role = true,
     open_door = true, close_door = true, check_room = true,
-    barricade = true, remove_barricade = true, dismantle = true,
+    barricade = true, remove_barricade = true, dismantle = true, force_open = true,
     board_vehicle = true, exit_vehicle = true, dismiss = true, recruit = true,
     open_health = true, bandage = true, faction_membership = true,
     assign_follow_car = true, cancel_follow_car = true,
@@ -2343,6 +2361,11 @@ local function issueOne(companionId, command, payload, player)
     local before, copyReason = copyCommandState(state)
     if not before then return false, "command_state_copy_failed:" .. tostring(copyReason) end
     local storageBefore = snapshotStorage(actor, entry)
+    if driveControlCommands[command] and state.workTarget and state.workTarget.kind == "force_open"
+        and SC.ForceEntry then
+        local stopped, why = SC.ForceEntry.cancel(actor, "force_open_new_order")
+        if stopped ~= true then return false, why end
+    end
     local driveReleased, driveReason = preemptDrivingForOrder(actor, command)
     if not driveReleased then return false, driveReason end
     local ok, a, b, c = U().safeSubsystem("commands", actor, function()

@@ -14,7 +14,7 @@
 $lifecycleOwnerFiles = @((Join-Path $Core 'core_fixture.lua'))
 $lifecycleOwnerFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua',
     'SCStableValue.lua', 'SCTransaction.lua', 'SCNativeList.lua', 'SCConfig.lua',
-    'SCDiagnostics.lua', 'SCRegistry.lua') | ForEach-Object { Join-Path $Shared $_ }
+    'SCDiagnostics.lua', 'SCForceEntryState.lua', 'SCRegistry.lua') | ForEach-Object { Join-Path $Shared $_ }
 $lifecycleOwnerFiles += @('SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua',
     'SCNativeCombatActions.lua', 'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua',
     'SCNativeActions.lua', 'SCActionSupervisor.lua', 'SCActor.lua', 'SCGameplayUtil.lua',
@@ -24,7 +24,7 @@ $lifecycleOwnerFiles += @('SCNativeTraversalActions.lua', 'SCNativeVisualActions
 
 $lifecycleArrivalFiles = @((Join-Path $Core 'core_fixture.lua'))
 $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua',
-    'SCStableValue.lua', 'SCNativeList.lua', 'SCConfig.lua', 'SCDiagnostics.lua') |
+    'SCStableValue.lua', 'SCNativeList.lua', 'SCConfig.lua', 'SCDiagnostics.lua', 'SCForceEntryState.lua') |
     ForEach-Object { Join-Path $Shared $_ }
 @{ Name = 'arrival-exact-reload'; Files = @($lifecycleArrivalFiles) + @(
     (Join-Path $Client 'SCPersistence.lua'),

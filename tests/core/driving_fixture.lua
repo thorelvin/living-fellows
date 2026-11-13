@@ -56,6 +56,13 @@ SC.GameplayUtil = {
         return copy
     end,
     clamp = function(value, low, high) return math.max(low, math.min(high, value)) end,
+    sortByScoreDescending = function(values)
+        table.sort(values, function(a, b)
+            if a.score == b.score then return tostring(a.kind or "") < tostring(b.kind or "") end
+            return a.score > b.score
+        end)
+        return values
+    end,
     text = function(_, fallback) return fallback end,
     diagnostic = function() end,
     say = function() return true end,

@@ -1,0 +1,54 @@
+Native personal care - 0.27.10
+Verified on Project Zomboid 42.22.2, 13 November 2026.
+
+Changes
+- Towel-assisted weather recovery uses stock ISDryMyself. Its incremental
+  effects own wetness reduction, towel uses and the real wet-towel replacement.
+  Replacement identity is observed, never created or replayed by LF. A staged
+  towel or its actual wet replacement returns to its original carried bag.
+- Automatic clothing and backpack changes use stock ISWearClothing. The stock
+  complete() effect commits once within the existing logistics transaction.
+  Only its player-backpack UI refresh is omitted for the NPC action instance.
+  Exact item ownership, slot replacement and rollback remain verified.
+- Removed obsolete, effect-free wash animation mappings. Body/shower washing,
+  clothing washing, bandage cleaning and vehicle washing were already native.
+- Explicit player Wear commands retain their immediate equipment behavior.
+  No native bridge, player-slot flags, global action wrappers or background
+  service changes are part of this conversion.
+
+Automated verification
+- Installed stock drying Lua: partial use, depletion and actual replacement,
+  exact bag return, duplicate callback, protection and cancellation.
+- Installed stock clothing Lua: bag staging, effect deferred until commit,
+  duplicate commit, actor isolation and cancellation.
+- Full routine gate: PASS, 5/5 checks, 104.4 seconds.
+  Evidence: build/test-results/20261113-035919-65bc5d/summary.json.
+
+Live acceptance
+SC-Harness-20261113-035622-0bfb37a1: PASS, 42 checks, zero failures or skips.
+Nine scenarios: real axe repair, bagged dirty bandage, body washing, clothing
+washing, splint crafting, sheet rope, bagged towel drying, shirt and backpack.
+The last two control candidate selection only; real Logistics.update performs
+the timed action, staging, replacement, verification and ownership cleanup.
+Drying reduced real companion wetness and returned the real Base.BathTowelWet
+to the original bag. Clothing changes left the player's worn slots unchanged.
+Every action released ownership. The worker remained alive.
+
+Logs and zoomed-out screenshots:
+build/live-sandbox-runs/SC-Harness-20261113-035622-0bfb37a1/cache
+The original save and local installation were not modified. Only one cloned
+game ran; it exited. Startup logged map metadata and stock recipe-icon warnings;
+no Lua gameplay exception was observed.
+
+Limits
+The municipal sink retained its displayed supply; finite-water accounting is
+covered by stock-action automated tests. Vehicle washing, shower undressing,
+automatic unwear, and reload during each new action were not separate live
+scenarios in this initial pass. Native unwear and shower outfit handling are
+covered by the subsequent native-shower-validation-0.27.10.txt report.
+
+Installed action SHA256 fingerprints
+ISDryMyself.lua
+4503D6E69B358FD8808EC3FC58B4493B7AEC907485302250DE62AC7326A91B8C
+ISWearClothing.lua
+146C66743D8593581BAE58E7E1D954886F73A1E6B8BC51720FD2271AFBB50524

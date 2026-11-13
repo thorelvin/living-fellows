@@ -1,0 +1,58 @@
+Companion crowbar entry — 2026-11-13
+
+Implementation
+Right-click a locked, supported portal: Living Fellows > [name]: Force open
+with crowbar. At camp the companion can borrow permitted stock; away from
+camp a crowbar must be carried. One native attempt may contain several
+struggles. After failure the order stops and exposes manual Retry.
+
+Search expeditions can use a crew member's carried crowbar after ordinary
+entry fails. Discovery stays inside the selected building's loaded vicinity,
+visits at most 32 squares per slice, prefers doors, and excludes upper-floor
+windows. The leader waits while the operator works. Failure does not escalate
+to repeated forcing or axe bashing. Existing trip return limits still apply.
+
+This is Lua only. No bridge, player-slot, camera, local-player flag, global
+native action or vanilla game file is changed. Authored Strange Folk locks
+and native security/jail exclusions remain protected.
+
+Native compatibility
+Project Zomboid 42.22.2, stock ISForceOpen.
+ISForceOpen.lua SHA256:
+BDF8F4D78ED4B216C20C047191308B66D6BC5926A64BBCE5C33F6F5A815DD9F8
+ForceOpenState.onSuccess normally applies the effect only for a local player.
+The per-instance NPC completion adapter calls the same native portal method,
+once and only after the stock action reports success. It adds no scripted
+damage, exertion, unlock roll or repeated attempt.
+
+Automated checks
+Final five-check gate: 5/5 PASS, 104.6 seconds, serial execution.
+Evidence: build/test-results/20261113-032425-47331c/summary.json
+Coverage includes native actor isolation, tool restoration, competing workers,
+failure/Retry, reload without replay, bounded building discovery, upper-floor
+window exclusion, full-source return delay, source receipts, shared record
+normalization, expedition operator ownership and the contextual menu.
+Earlier release-profile gate also passed all 16 installer cases. The final
+durability changes were subsequently checked by the five-check gate above.
+
+Live cloned-save acceptance
+PASS — SC-Harness-20261113-032028-8a4f22f3; 29 checks, no skipped cases.
+Real locked door: native failure stopped; deliberate Retry unlocked it.
+Real locked window: native struggles followed by verified unlocking.
+Normal companion order: fetched a real marked-storage crowbar, forced the
+door, and returned that exact borrowed tool to permitted source storage.
+Previous hands and carried bag contents were preserved. The main player's
+endurance stayed separate. No LF gameplay exceptions occurred in this run.
+
+Live evidence under build/live-sandbox-runs/<run-id>/cache:
+Lua/SurvivorCompanionHarness/events.log
+console.txt — SC_FORCE_ATTEMPT / SC_FORCE_LOAN
+Screenshots/*-crowbar-working-1-2.png
+Screenshots/*-crowbar-working-2-1.png
+Screenshots/*-crowbar-working-3-1.png
+Screenshots/*-crowbar-blocked-native-1-1.png
+Screenshots/*-crowbar-opened-3.png
+
+The native entry and borrowing paths were tested live. The complete expedition
+journey was not repeated in this pass; its fallback selection, ownership and
+Retry integration were checked headlessly. The original save was untouched.

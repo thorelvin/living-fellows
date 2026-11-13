@@ -6,6 +6,10 @@ SC.ActionFeedback = SC.ActionFeedback or {}
 local F = SC.ActionFeedback
 
 local wording = {
+    force_open_failed = { "The crowbar attempt failed.", "The native action stopped. Use Retry forcing to make another attempt; it may damage the tool or window." },
+    force_open_not_forceable = { "This target cannot be forced open.", "Security and jail doors, barricaded openings and unsupported portals are excluded." },
+    force_crowbar_missing = { "A usable crowbar is needed.", "Allow borrowing from marked camp storage, or put an unbroken crowbar in the companion's inventory before leaving." },
+    force_tool_return_pending = { "The borrowed crowbar is waiting to be returned.", "Keep its original storage accessible with deposits allowed and room available. The return retries after three minutes." },
     storage_full = { "Destination storage is full.", "Free space or permit another destination." },
     storage_missing = { "No permitted storage is available.", "Mark a suitable destination and allow deposits." },
     unloaded = { "The destination is not loaded.", "Return nearby; the task can continue when the area loads." },
@@ -89,6 +93,9 @@ local exact = {
     floor_pickup_animation_replaced = "interrupted", loot_animation_replaced = "interrupted",
     work_side_busy = "crowded", watch_indoor_duty = "watch", infection_restriction = "restricted",
     cleaning_supplies_scanning = "preparing", haul_scan_pending = "preparing",
+    force_open_carry_limit = "capacity", force_open_unsafe = "unsafe",
+    force_open_busy = "crowded", force_open_no_approach = "path",
+    force_open_approach_timeout = "path", force_open_interrupted = "interrupted",
     log_yard_rope_missing = "supplies", log_yard_rope_search_pending = "preparing",
     log_yard_rope_moved = "supplies", log_yard_unloaded = "unloaded",
     log_yard_craft_receipt_uncertain = "uncertain",

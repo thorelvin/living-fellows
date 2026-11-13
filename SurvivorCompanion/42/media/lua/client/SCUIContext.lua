@@ -851,7 +851,11 @@ local function findTarget(worldObjects, player)
     local dismantleTarget = nil
     local containerTarget = nil
     local combatTarget = nil
+    local forceTarget = nil
     for _, object in ipairs(worldObjects or {}) do
+        if not forceTarget and SC.ForceEntry and SC.ForceEntry.eligible(object, player) == true then
+            forceTarget = object
+        end
         if not targetSquare then
             targetSquare = safeMethod(object, "getSquare")
         end
@@ -928,9 +932,14 @@ local function findTarget(worldObjects, player)
             dismantlePayload.objectIndex = safeMethod(dismantleTarget, "getObjectIndex")
         end
     end
+    local forcePayload = forceTarget and squarePayload(safeMethod(forceTarget, "getSquare")) or nil
+    if forcePayload then
+        forcePayload.object = forceTarget
+        forcePayload.objectIndex = safeMethod(forceTarget, "getObjectIndex")
+    end
     return targetSquare, door, targetPayload, doorPayload, barricadeTarget,
         barricadePayload, containerTarget, removeBarricadeTarget,
-        removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget
+        removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget, forceTarget, forcePayload
 end
 
 local startZoneCursor, stopZoneCursor
@@ -1590,9 +1599,23 @@ local function addOrdersShortcut(menu, row, player)
     end
 end
 
+local function forceOption(option, row)
+    if not option or not SC.ForceEntry then return option end
+    if option.notAvailable then return option end
+    local hasTool = SC.ForceEntry.tool(row.actor) ~= nil
+    option.notAvailable = not hasTool and not SC.ForceEntry.canBorrow(row.actor)
+    if type(ISToolTip) == "table" then
+        local tooltip = ISToolTip:new()
+        tooltip:initialise() tooltip:setVisible(false)
+        tooltip.description = text(option.notAvailable and "UI_SC_ForceOpen_MissingCrowbar" or "UI_SC_ForceOpen_Help")
+        option.toolTip = tooltip
+    end
+    return option
+end
+
 local function addWorldOrders(menu, row, targetSquare, targetPayload, door, doorPayload,
         barricadeTarget, barricadePayload, removeBarricadeTarget,
-        removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget, player)
+        removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget, player, forcePayload)
     if targetPayload then
         addCommand(menu, "UI_SC_Action_MoveHere", row.id, "move_to", targetPayload, player)
         addCommand(menu, "UI_SC_Action_GuardHere", row.id, "guard",
@@ -1601,7 +1624,11 @@ local function addWorldOrders(menu, row, targetSquare, targetPayload, door, door
     if targetPayload and targetSquare and safeMethod(targetSquare, "getRoom") ~= nil then
         addCommand(menu, "UI_SC_Action_CheckRoom", row.id, "check_room", targetPayload, player)
     end
-    if door and doorPayload then
+    if forcePayload and SC.ForceEntry then
+        local key = SC.ForceEntry.failed(row.actor, forcePayload.object)
+            and "UI_SC_Action_RetryForceOpen" or "UI_SC_Action_ForceOpen"
+        forceOption(addCommand(menu, key, row.id, "force_open", forcePayload, player), row)
+    elseif door and doorPayload then
         local isOpen = safeMethod(door, "IsOpen")
         if isOpen then
             addCommand(menu, "UI_SC_Action_CloseDoor", row.id, "close_door", doorPayload, player)
@@ -2076,7 +2103,7 @@ local function personMenu(parent, row, player, popup, direct)
         local target = Menus.group(menu, "location:" .. row.id, text("UI_SC_Context_TargetActions"))
         addWorldOrders(target, row, popup.square, popup.targetPayload, popup.door, popup.doorPayload,
             popup.barricade, popup.barricadePayload, popup.removeBarricade, popup.removePayload,
-            popup.dismantle, popup.dismantlePayload, popup.combatTarget, player)
+            popup.dismantle, popup.dismantlePayload, popup.combatTarget, player, popup.forcePayload)
     end
     local tasks = Menus.group(menu, "tasks:" .. row.id, text("UI_SC_Context_Tasks"))
     addObjectiveAssignments(tasks, row, player)
@@ -2145,7 +2172,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local memorialName = namedGraveMarker(worldObjects)
     local square, door, targetPayload, doorPayload, barricadeTarget, barricadePayload,
         containerTarget, removeBarricadeTarget, removeBarricadePayload,
-        dismantleTarget, dismantlePayload, combatTarget = findTarget(worldObjects, player)
+        dismantleTarget, dismantlePayload, combatTarget, forceTarget, forcePayload = findTarget(worldObjects, player)
     local clickSquare = clickedWorldSquare(playerIndex, context, player, square)
     if clickSquare then
         square = clickSquare
@@ -2315,15 +2342,22 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     elseif not ambiguous and selected and targetPayload then
         addNamedShortcut(context, selected, "UI_SC_Action_MoveHere", "move_to", targetPayload, player)
-        addPriorityShortcut(context, selected, square, door, doorPayload, barricadeTarget,
-            barricadePayload, removeBarricadeTarget, removeBarricadePayload, dismantleTarget,
-            dismantlePayload, player)
+        if forcePayload then
+            local key = SC.ForceEntry.failed(selected.actor, forceTarget)
+                and "UI_SC_Action_RetryForceOpen" or "UI_SC_Action_ForceOpen"
+            forceOption(addNamedShortcut(rootMenu, selected, key, "force_open", forcePayload, player), selected)
+        else
+            addPriorityShortcut(context, selected, square, door, doorPayload, barricadeTarget,
+                barricadePayload, removeBarricadeTarget, removeBarricadePayload, dismantleTarget,
+                dismantlePayload, player)
+        end
     end
     local popup = { homeFacts = homeFacts, watch = watchStatus, medical = medicalPatient,
         square = square, targetPayload = targetPayload, door = door, doorPayload = doorPayload,
         barricade = barricadeTarget, barricadePayload = barricadePayload,
         removeBarricade = removeBarricadeTarget, removePayload = removeBarricadePayload,
         dismantle = dismantleTarget, dismantlePayload = dismantlePayload, combatTarget = combatTarget,
+        forcePayload = forcePayload,
         location = not clickedCompanion and not ambiguous }
     if primary then personMenu(rootMenu, primary, player, popup, clickedCompanion ~= nil) end
     if ambiguous then

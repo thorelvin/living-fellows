@@ -1287,29 +1287,119 @@ local function showerStartSpeech(actor)
     pcall(SC.Dialogue.say, actor, topic)
 end
 
-local function restoreShowerClothes(actor, activity)
+local function showerOwnsItem(actor, item)
+    local source = select(1, U().call(item, "getContainer"))
+    local root = U().inventory(actor)
+    return (source == root or select(1, U().call(item, "getOutermostContainer")) == root)
+        and U().containerContainsIdentity(source, item) == true
+end
+
+local function showerClothingStep(actor, activity, restoring, immediate)
     local receipt = activity and activity.showerClothes
     if not receipt then return true end
-    local allRestored = true
-    for _, worn in ipairs(receipt) do
-        local equipped = select(1, U().call(actor, "isEquippedClothing", worn.item))
-        if equipped ~= true then
-            local result, called = U().call(actor, "setWornItem", worn.location,
-                worn.item)
-            equipped = called and result ~= false
-                and select(1, U().call(actor, "isEquippedClothing", worn.item)) == true
-            if not equipped then allRestored = false end
-        end
+    local native = SC.NativeActions
+    if not native or not native.startClothing or not native.restoreClothingNow then
+        return false, "native_clothing_unavailable"
     end
-    if allRestored then activity.showerClothes = nil end
+    local token = activity.showerClothingToken
+    if token then
+        if immediate then
+            local stopped, why = native.cancelVisualOwned(actor, token, "shower_restoring")
+            if not stopped then return false, why end
+        else
+            if native.visualToken(actor, "wear_clothing") ~= token then return false, "shower_clothing_ownership_lost" end
+            local status = native.visualStatus(actor, "wear_clothing")
+            if status == "active" then
+                if U().nowMs() - activity.showerClothingAt > 30000 then return false, "shower_clothing_timeout" end
+                return nil, restoring and "getting_dressed" or "undressing_for_shower"
+            end
+            local row = receipt[activity.showerClothingIndex]
+            local before = not restoring and {
+                Primary=select(1,U().call(actor,"getPrimaryHandItem")),
+                Secondary=select(1,U().call(actor,"getSecondaryHandItem")),
+            }
+            local applied = status == "completed" and native.commitClothingVisual(actor, token, row.item, not restoring)
+            if not applied then return false, "shower_clothing_interrupted" end
+            if before then
+                for _, side in ipairs({"Primary", "Secondary"}) do
+                    if before[side] == activity.showerHandsAfter[side] then
+                        activity.showerHandsAfter[side] = select(1,U().call(actor,"get"..side.."HandItem"))
+                    end
+                end
+            end
+            native.cancelVisualOwned(actor, token, "shower_clothing_completed")
+        end
+        activity.showerClothingToken = nil
+    end
+    if restoring and (activity.showerPhase ~= "dressing" or immediate) then
+        activity.showerPhase, activity.showerClothingIndex = "dressing", 1
+    end
+    local function owns() return states[actor] and states[actor].active == activity and not U().isDead(actor) end
+    if U().isDead(actor) then activity.showerClothes = nil return true end
+    while (activity.showerClothingIndex or 1) <= #receipt do
+        local index = activity.showerClothingIndex or 1
+        local row = receipt[index]
+        local equipped = select(1, U().call(actor, "isEquippedClothing", row.item)) == true
+        local slot = select(1, U().call(actor, "getWornItem", row.location))
+        local skip = restoring and (row.keepWorn or select(1,U().call(row.item,"isBroken")) == true
+            or slot == row.item or not showerOwnsItem(actor, row.item)
+            or equipped or slot ~= nil) or not restoring and (not equipped or row.keepWorn)
+        if restoring and skip and slot ~= row.item and not row.keepWorn then activity.fact.outfitChanged = true end
+        if not skip then
+            if not showerOwnsItem(actor, row.item) then return false, "shower_clothing_not_owned" end
+            if restoring then
+                local source = select(1, U().call(row.item, "getContainer"))
+                if source ~= U().inventory(actor) and U().transferItemVerified(source, U().inventory(actor), row.item) ~= true then
+                    return false, "shower_clothing_transfer_failed"
+                end
+            end
+            if immediate then
+                if not native.restoreClothingNow(actor, row.item, row.location, owns) then return false, "shower_clothing_restore_pending" end
+            else
+                local started, why = native.startClothing(actor, row.item, not restoring, function()
+                    return owns() and activity.cancelRequestedReason == nil
+                        and (commandState(actor).commandSerial or 0) == activity.commandSerial
+                        and U().sameSquare(actor, activity.square)
+                end, restoring and row.location or nil)
+                if not started then return false, why end
+                activity.showerClothingToken = native.visualToken(actor, "wear_clothing")
+                activity.showerClothingAt = U().nowMs()
+                return nil, restoring and "getting_dressed" or "undressing_for_shower"
+            end
+        end
+        if restoring and select(1, U().call(actor, "getWornItem", row.location)) == row.item and row.wasActivated then
+            U().call(row.item, "setActivated", true)
+            if type(syncItemActivated) == "function" then syncItemActivated(actor, row.item) end
+        end
+        activity.showerClothingIndex = index + 1
+    end
+    if restoring then
+        local hands, after = activity.showerHands, activity.showerHandsAfter
+        if hands and after then
+            for _, side in ipairs({"Primary", "Secondary"}) do
+                local current = select(1, U().call(actor, "get"..side.."HandItem"))
+                if current == after[side] and hands[side] and showerOwnsItem(actor, hands[side]) then
+                    U().call(actor, "set"..side.."HandItem", hands[side])
+                end
+            end
+        end
+        activity.showerClothes, activity.showerPhase = nil, "dressed"
+    else
+        activity.showerPhase = "washing"
+    end
     U().call(actor, "resetModelNextFrame")
-    return allRestored
+    return true
+end
+
+local function restoreShowerClothes(actor, activity, immediate)
+    return showerClothingStep(actor, activity, true, immediate == true)
 end
 
 local function undressForShower(actor, activity)
-    if activity.showerClothes then return true end
+    if activity.showerClothes then return showerClothingStep(actor, activity, false, false) end
     local worn = select(1, U().call(actor, "getWornItems"))
     local size = worn and select(1, U().call(worn, "size")) or 0
+    if not tonumber(size) or size > 64 then return false, "shower_outfit_unavailable" end
     local receipt = {}
     for index = 0, math.min((tonumber(size) or 0) - 1, 63) do
         local entry = select(1, U().call(worn, "get", index))
@@ -1320,18 +1410,16 @@ local function undressForShower(actor, activity)
             or (item and select(1, U().call(item, "getBodyLocation")))
         if item and location then receipt[#receipt + 1] = {
             item = item, location = location,
+            keepWorn = select(1, U().call(item, "isBroken")) == true
+                or type(isForceDropHeavyItem) == "function" and isForceDropHeavyItem(item),
+            wasActivated = select(1, U().call(item, "isActivated")) == true,
         } end
     end
     activity.showerClothes = receipt
-    for _, entry in ipairs(receipt) do
-        local _, removed = U().call(actor, "removeWornItem", entry.item, false)
-        if not removed then
-            restoreShowerClothes(actor, activity)
-            return false
-        end
-    end
-    U().call(actor, "resetModelNextFrame")
-    return true
+    activity.showerPhase, activity.showerClothingIndex = "undressing", 1
+    activity.showerHands = {Primary=select(1,U().call(actor,"getPrimaryHandItem")), Secondary=select(1,U().call(actor,"getSecondaryHandItem"))}
+    activity.showerHandsAfter = {Primary=activity.showerHands.Primary, Secondary=activity.showerHands.Secondary}
+    return showerClothingStep(actor, activity, false, false)
 end
 
 local function itemDirt(item)
@@ -3874,25 +3962,7 @@ local function weatherRecoveryActivity(actor)
 end
 
 local function finishWeatherRecovery(actor, activity)
-    local utility = U()
-    if activity.item == nil then return true end
-    local inventory = utility.inventory(actor)
-    if not utility.inventoryContains(inventory, activity.item) then return false end
-    local uses = select(1, utility.call(activity.item, "getCurrentUsesFloat"))
-    uses = type(uses) == "number" and uses or tonumber(uses) or 0
-    if uses <= 0 then return false end
-    local wetness = utility.characterStatValue(actor, "WETNESS", 0)
-    wetness = type(wetness) == "number" and wetness or tonumber(wetness) or 0
-    if wetness <= 0 then return true end
-    local body = select(1, utility.call(actor, "getBodyDamage"))
-    -- Match one use of vanilla ISDryMyself. The game owns both the body stat
-    -- and the towel's replacement-on-deplete behavior.
-    local _, dried = utility.call(body, "decreaseBodyWetness", wetness / 10)
-    if not dried then return false end
-    local _, used = utility.call(activity.item, "Use")
-    if not used then return false end
-    activity.fact.towelUsed = utility.itemType(activity.item)
-    return true
+    return activity.item == nil or activity.nativeCompleted == true and activity.nativeSettled == true
 end
 
 -- A carried book or a diary page ready to write: something to do without
@@ -4347,7 +4417,13 @@ local function releaseDowntimeResources(actor, state, activity, reason)
         local okay, stopped, why = pcall(SC.NativeActions.cancelWork, actor, reason or "downtime_cancelled")
         if not okay or stopped ~= true then return false, why or "native_care_release_pending" end
     end
-    if activity.kind == "shower" then restoreShowerClothes(actor, activity) end
+    if activity.kind == "shower" then
+        local restored, why = restoreShowerClothes(actor, activity, true)
+        if restored ~= true then
+            activity.cancelRequestedReason = reason or "shower_restore_pending"
+            return false, why or "shower_clothing_restore_pending"
+        end
+    end
     if activity.kind == "window_watch" and activity.watchCrouched == true then
         U().call(actor, "setSneaking", activity.wasSneaking == true)
         activity.watchCrouched = nil
@@ -4357,7 +4433,7 @@ local function releaseDowntimeResources(actor, state, activity, reason)
         pcall(SC.NativeActions.cancelWork, actor, reason or "downtime_cancelled")
     end
     if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function"
-        and activity.startedAt then
+        and activity.startedAt and activity.kind ~= "shower" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "downtime_cancelled")
     end
     if activity.kind == "sit" or activity.kind == "rest_bed" then
@@ -4523,6 +4599,21 @@ local function startNativeCare(actor, state, activity, current)
     local transitioned, why = transitionActivity(activity, "animating", { action = activity.kind, native = true })
     if transitioned ~= true then return false, why or "native_care_phase_rejected" end
     return true, activity.kind
+end
+
+local function startCareActivity(actor, state, activity, current)
+    if activity.kind == "shower" then
+        if not showerSourceValid(activity.object) then return false, "shower_source_unavailable" end
+        state.active, activity.startedAt, activity.actionAccepted = activity, current, true
+        local ready, why = undressForShower(actor, activity)
+        if ready == false then return false, why end
+        if ready == nil then
+            local transitioned, reason = transitionActivity(activity, "animating", {action="shower",native=true})
+            return transitioned == true, reason or why
+        end
+        if not activity.showerSpeech then showerStartSpeech(actor); activity.showerSpeech = true end
+    end
+    return startNativeCare(actor, state, activity, current)
 end
 
 local function approachBorrowedReadingSource(actor, activity)
@@ -4886,10 +4977,10 @@ local function beginActivity(actor, state, activity, commands, now)
         end
         return SC.Medical.replaceDirtyBandage(actor)
     end
-    if SC.NativeCareActions and SC.NativeCareActions.handles(activity.kind) then
+    if SC.NativeCareActions and SC.NativeCareActions.handles(activity.kind, activity) then
         local prepared, reason = SC.NativeCareActions.prepare(actor, activity)
         if not prepared then return false, reason end
-        activity.deadlines = { animating = 180000 }
+        activity.deadlines = { animating = activity.kind == "shower" and 360000 or 180000 }
     end
     if not reserveActivity(actor, activity, now) then return false, "reserved" end
     if restPostures[activity.kind] then
@@ -5129,16 +5220,8 @@ local function beginActivity(actor, state, activity, commands, now)
             state.active = activity
             return failActivity(actor, state, "navigation_unavailable")
         end
-    elseif SC.NativeCareActions and SC.NativeCareActions.handles(activity.kind) then
-        if activity.kind == "shower" then
-            if not showerSourceValid(activity.object)
-                or not undressForShower(actor, activity) then
-                state.active = activity
-                return failActivity(actor, state, "shower_source_or_clothes_failed")
-            end
-            showerStartSpeech(actor)
-        end
-        local started, reason = startNativeCare(actor, state, activity, now)
+    elseif SC.NativeCareActions and SC.NativeCareActions.handles(activity.kind, activity) then
+        local started, reason = startCareActivity(actor, state, activity, now)
         if not started then return failActivity(actor, state, reason) end
     else
         if visualActivities[activity.kind] then
@@ -5205,7 +5288,7 @@ local function completeWashSelf(actor, activity) return nativeCareFinished(activ
 
 local function completeShower(actor, activity)
     if not nativeCareFinished(activity) then return false end
-    if not restoreShowerClothes(actor, activity) then return false end
+    if activity.showerClothes then return false end
     local record = showerRecord(actor)
     if record then record.lastShowerHour = gameHours() end
     if SC.Dialogue and type(SC.Dialogue.say) == "function" then
@@ -5570,6 +5653,10 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         state.lastFact = utility.copyShallow(commands.lastDowntime)
     end
     local current = utility.nowMs()
+    if state.active and state.active.kind == "shower" and state.active.cancelRequestedReason then
+        local cancelled, why = Downtime.cancel(actor, state.active.cancelRequestedReason)
+        return cancelled ~= true, why or "shower_clothing_restore_pending"
+    end
     if state.exitingRest then
         local standing = Downtime.cancel(actor, "standing_from_rest")
         if not standing then return true, "standing_from_rest" end
@@ -5648,6 +5735,25 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
             Downtime.cancel(actor, "new_order")
             return false, "cancelled_for_order"
         end
+        if state.active.kind == "shower" and (state.active.showerPhase == "undressing"
+            or state.active.showerPhase == "dressing") then
+            local activity = state.active
+            local restoring = activity.showerPhase == "dressing"
+            local ready, why = showerClothingStep(actor, activity, restoring, false)
+            if ready == false then return failActivity(actor, state, why) end
+            if ready == nil then
+                reserveActivity(actor, activity, current)
+                local service = supervisor()
+                if service and activity.supervisorToken then
+                    service.progress(activity.supervisorToken, "shower_clothing:"..tostring(current), {action="shower"})
+                end
+                return true, why
+            end
+            if restoring then return finishActivity(actor, state, current) end
+            local started, reason = startCareActivity(actor, state, activity, current)
+            if not started then return failActivity(actor, state, reason) end
+            return true, "shower"
+        end
         if state.active.nativeStarted then
             local activity, native = state.active, SC.NativeActions
             if not native or not native.ownsDowntimeAction(actor, activity) then
@@ -5656,6 +5762,10 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                 -- still complete; never mistake that cleanup for lost work.
                 if native and activity.nativeCompleted == true and native.workKind(actor) == nil then
                     activity.nativeSettled = true
+                    if activity.kind == "shower" and activity.showerClothes then
+                        activity.showerPhase, activity.showerClothingIndex = "dressing", 1
+                        return true, "getting_dressed"
+                    end
                     return finishActivity(actor, state, current)
                 end
                 return failActivity(actor, state, "native_care_ownership_lost")
@@ -5677,6 +5787,10 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
             if released ~= true then return true, reason or "native_care_release_pending" end
             activity.nativeSettled = true
             if activity.nativeCompleted ~= true then return failActivity(actor, state, activity.nativeFailure or "native_care_incomplete") end
+            if activity.kind == "shower" and activity.showerClothes then
+                activity.showerPhase, activity.showerClothingIndex = "dressing", 1
+                return true, "getting_dressed"
+            end
             return finishActivity(actor, state, current)
         end
         if state.active.kind == "leader_check_in" then
@@ -5873,14 +5987,8 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
             state.active.atSource = true
         end
         if washing and state.active.approaching then
-            if state.active.kind == "shower" then
-                if not showerSourceValid(state.active.object)
-                    or not undressForShower(actor, state.active) then
-                    return failActivity(actor, state, "shower_source_or_clothes_failed")
-                end
-                showerStartSpeech(actor)
-            end
-            local started, reason = startNativeCare(actor, state, state.active, current)
+            state.active.approaching = nil
+            local started, reason = startCareActivity(actor, state, state.active, current)
             if not started then return failActivity(actor, state, reason) end
             return true, state.active.kind
         end
@@ -6133,16 +6241,31 @@ function Downtime.peek(actor)
 end
 
 function Downtime.prepareForSave(actor)
-    local state = actor and states[actor]
-    local activity = state and state.active
-    -- These native chores commit their inventory effects synchronously. A
-    -- background snapshot may capture the actual staged inventory without
-    -- stopping work. Showers still restore their temporary outfit first.
-    if not activity or activity.kind ~= "shower" then return true end
-    local cancelled, reason = Downtime.cancel(actor, "save_capture")
-    if cancelled ~= true then return false, reason or "shower_cancel_failed" end
-    if activity.showerClothes then return false, "shower_clothes_restore_failed" end
+    -- Capture actual items and native fluid/consumable quantities without
+    -- interrupting work. Temporarily removed shower equipment is represented
+    -- by showerOutfitForSave, not by mutating the live actor during a snapshot.
     return true
+end
+
+function Downtime.showerOutfitForSave(actor)
+    local activity = states[actor] and states[actor].active
+    if not activity or activity.kind ~= "shower" or not activity.showerClothes then return nil end
+    local outfit = { worn = {} }
+    for _, row in ipairs(activity.showerClothes) do
+        local current = select(1,U().call(actor,"getWornItem",row.location))
+        if current == nil and showerOwnsItem(actor,row.item)
+            and select(1,U().call(actor,"isEquippedClothing",row.item)) ~= true
+            and select(1,U().call(row.item,"isBroken")) ~= true then
+            outfit.worn[#outfit.worn+1] = {item=row.item,location=row.location}
+        end
+    end
+    for _, side in ipairs({"Primary", "Secondary"}) do
+        local item = activity.showerHands and activity.showerHands[side]
+        if item and showerOwnsItem(actor,item) and select(1,U().call(actor,"get"..side.."HandItem")) == nil then
+            outfit[string.lower(side)] = item
+        end
+    end
+    return outfit
 end
 
 function Downtime._readingForTests()
@@ -6171,13 +6294,18 @@ end
 function Downtime.reset(actor)
     if actor then
         Downtime.cancel(actor, "reset")
-        states[actor] = nil
+        if not states[actor] or not states[actor].active then states[actor] = nil end
+        return states[actor] == nil, states[actor] and "downtime_cleanup_pending" or "reset"
     else
         local actors = {}
         for value in pairs(states) do actors[#actors + 1] = value end
         for _, value in ipairs(actors) do Downtime.cancel(value, "reset_all") end
-        states = setmetatable({}, { __mode = "k" })
-        reservations = setmetatable({}, { __mode = "k" })
+        local pending = false
+        for _, value in ipairs(actors) do
+            if not states[value] or not states[value].active then states[value] = nil end
+            if states[value] then pending = true end
+        end
+        if not pending then reservations = setmetatable({}, { __mode = "k" }) end
         Study.lastPartyAt = -math.huge
         Respect.lastPartyAt = -math.huge
         lastSquadRadioCheckAt = -math.huge
@@ -6187,6 +6315,7 @@ function Downtime.reset(actor)
         if SC.ComputerUse and type(SC.ComputerUse.reset) == "function" then
             SC.ComputerUse.reset()
         end
+        return not pending, pending and "downtime_cleanup_pending" or "reset"
     end
 end
 

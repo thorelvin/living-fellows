@@ -455,4 +455,45 @@ check("failed_board_restores_existing_lock", failedSpawn == false
     and failedReason == "injected_entry_failure"
     and failedCar:getPartById("DoorRearLeft"):getDoor():isLocked() == true)
 
+local recoveryCar,recoveryActor,recoveryPlayer,recoveryGroup=scene(57)
+check("recovery_scene_seated",Loretta.onSpawn(recoveryGroup,recoveryActor))
+recoveryCar.occupants[2],recoveryActor.vehicle=nil,nil
+recoveryActor.x,recoveryActor.y=recoveryCar.x+3,recoveryCar.y+1
+recoveryPlayer.x,recoveryPlayer.y=recoveryActor.x,recoveryActor.y+1
+local oldNavigation,oldTargets=SC.Navigation,SC.Vehicle.boardingSquares
+local route,requests,navCancels=nil,0,0
+SC.Vehicle.boardingSquares=function(who,car,seat)
+    check("recovery_exact_car",who==recoveryActor and car==recoveryCar and seat==2)
+    return {{x=car.x,y=car.y+1,z=0}},seat
+end
+SC.Navigation={peek=function() return route end,
+    requestAny=function(who,targets,mode,intent)
+        requests=requests+1; route={goalAction=intent.action}
+        check("recovery_physical_route",who==recoveryActor and mode=="walk" and intent.vehicle==recoveryCar)
+        return true,"path_searching"
+    end,
+    cancel=function() route=nil; navCancels=navCancels+1; return true end}
+local initialX,recoveries=recoveryActor.x,C.recoveries
+Loretta.pulse(recoveryGroup,recoveryPlayer,C.ms+5000)
+check("outside_not_trapped",recoveryActor.vehicle==nil and not recoveryGroup.oddball.firstSeenHour
+    and not recoveryActor.immunity and not Loretta.canTalkFromVehicle(recoveryGroup,recoveryPlayer))
+local outsideMenu=Loretta.menuOptions(recoveryGroup,recoveryPlayer)
+check("outside_menu_truthful",#outsideMenu==1 and outsideMenu[1].id=="seat_pending" and not outsideMenu[1].enabled)
+check("stale_trapped_action_rejected",not Loretta.action(recoveryGroup,"ask_story",recoveryPlayer))
+local handled,recoveryReason=Loretta.update(recoveryActor,recoveryPlayer,{snapshot={}},
+    Loretta.intentFor(recoveryActor,recoveryPlayer,{},recoveryGroup),recoveryGroup)
+check("visible_recovery_walks",handled and recoveryReason=="Returning to her car" and requests==1
+    and recoveryActor.x==initialX and C.recoveries==recoveries,"no visible teleport")
+recoveryActor.x,recoveryActor.y=recoveryCar.x,recoveryCar.y+1 -- native navigation arrival boundary
+Loretta.update(recoveryActor,recoveryPlayer,{snapshot={}},{mode="loretta_wait"},recoveryGroup)
+check("visible_recovery_reseats_and_relocks",recoveryActor.vehicle==recoveryCar
+    and recoveryCar:getSeat(recoveryActor)==2 and recoveryActor.immunity
+    and recoveryCar:getPartById("DoorRearLeft"):getDoor():isLocked() and navCancels==1)
+recoveryCar.occupants[2],recoveryActor.vehicle=nil,nil
+recoveryCar:getPartById("DoorRearLeft"):getDoor().open=true
+local exitsBefore=C.exits
+Loretta.pulse(recoveryGroup,recoveryPlayer,C.ms+6000)
+check("physical_exit_before_pulse_is_rescue",recoveryGroup.oddball.freed and recoveryGroup.oddball.freedBy=="key"
+    and C.exits==exitsBefore and not recoveryActor.immunity,"do not board or replay an already completed exit")
+SC.Navigation,SC.Vehicle.boardingSquares=oldNavigation,oldTargets
 SC_TEST_REPORT = "LORETTA_PASS " .. tostring(checks) .. " checks"

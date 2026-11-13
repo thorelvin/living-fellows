@@ -330,9 +330,17 @@ local function restoreSpeech(H)
         SurvivorCompanion.GameplayUtil.say = H.lorettaOriginalSay
     end
     H.lorettaOriginalSay = nil
+    if H.lorettaOriginalRecover then SurvivorCompanion.Actor.recover=H.lorettaOriginalRecover; H.lorettaOriginalRecover=nil end
 end
 
+local function photo(H,label)
+    pcall(function()
+        for _=1,8 do if getCore():getZoom(0)<1.8 then getCore():doZoomScroll(0,1) end end
+        getCore():TakeFullScreenshot(H.config.run_id.."-loretta-"..label..".png")
+    end)
+end
 local function fail(H, result, setPhase, current, name, detail)
+    photo(H,"blocked-"..name)
     restoreSpeech(H)
     result("FAIL", name, detail)
     setPhase("finish", current)
@@ -340,6 +348,11 @@ end
 
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
+    local originalCheck=check
+    check=function(name,okay,detail)
+        if not okay then photo(H,"blocked-"..name) end
+        return originalCheck(name,okay,detail)
+    end
     if H.phase == "loretta_prepare" then
         if current - H.phaseStartedAt < 1500 then return end
         local definition = SC.Oddballs and SC.Oddballs.definition
@@ -358,7 +371,7 @@ function Probe.step(H, current, check, result, setPhase)
         pcall(function() getPlayerLoot(0):setVisible(false) end)
         pcall(function()
             getCore():setAutoZoom(0, false)
-            for _ = 1, 4 do getCore():doZoomScroll(0, -1) end
+            for _=1,8 do if getCore():getZoom(0)<1.8 then getCore():doZoomScroll(0,1) end end
         end)
         local x = tonumber(H.config.loretta_site_x) or 0
         local y = tonumber(H.config.loretta_site_y) or 0
@@ -542,7 +555,9 @@ function Probe.step(H, current, check, result, setPhase)
             setPhase("finish", current) return
         end
         if H.config.loretta_screenshot ~= "true" then
-            setPhase("finish", current) return
+            H.lorettaRuntime={snapshot={threats={},threatCount=0,immediateCount=0,pressure=0,player={danger=0}}}
+            H.lorettaDecisionTicks=0
+            setPhase("loretta_decision_hold",current) return
         end
         local stood, exitReason = SC.Vehicle.exit(actor, H.lorettaCar)
         if not check("loretta_photo_outside_car", stood == true,
@@ -588,6 +603,73 @@ function Probe.step(H, current, check, result, setPhase)
         end
         setPhase("loretta_photo_pose", current)
         return
+    end
+
+    if H.phase=="loretta_decision_hold" then
+        local actor,car=H.lorettaActor,H.lorettaCar
+        if current-(H.lorettaDecisionAt or 0)<250 then return end
+        H.lorettaDecisionAt=current
+        SC.Decision.update(actor,H.player,H.lorettaRuntime,current)
+        H.lorettaDecisionTicks=H.lorettaDecisionTicks+1
+        if call(actor,"getVehicle")~=car then
+            return fail(H,result,setPhase,current,"loretta_stays_seated_under_decisions","normal decision loop made her leave")
+        end
+        if current-H.phaseStartedAt<10000 then return end
+        if not check("loretta_independent_seat_policy",call(H.player,"getVehicle")==nil
+            and SC.Commands.peek(actor).recruited~=true and H.lorettaDecisionTicks>=20,
+            "normal decisions keep the native rear seat while the player is on foot") then setPhase("finish",current); return end
+        photo(H,"seated-after-decisions")
+        setPhase("loretta_visible_recovery_setup",current); return
+    end
+
+    if H.phase=="loretta_visible_recovery_setup" then
+        local actor,car=H.lorettaActor,H.lorettaCar
+        local point=H.lorettaSite.vehicle.door
+        local target
+        for dx=-4,4 do for dy=-4,4 do
+            local distance=dx*dx+dy*dy
+            local square=SC.GameplayUtil.gridSquare(point.x+dx,point.y+dy,point.z or 0)
+            if not target and distance>=9 and distance<=16 and square
+                and SC.GameplayUtil.isSafeSpawnSquare(square) and not call(square,"getVehicleContainer")
+                and SC.GameplayUtil.canSee(H.player,square)==true then target=square end
+        end end
+        if not target then return fail(H,result,setPhase,current,"loretta_recovery_site","no clear visible pavement near her own door") end
+        local exited,why=SC.Vehicle.exit(actor,car)
+        if exited~=true then return fail(H,result,setPhase,current,"loretta_exit_fault_setup",tostring(why)) end
+        local part=call(car,"getPassengerDoor",H.lorettaSite.seat or H.lorettaSite.vehicle.seat)
+        local door=call(part,"getDoor"); call(door,"setOpen",false); call(door,"setLocked",true)
+        call(car,"transmitPartDoor",part)
+        local moved,reason=SC.Actor.recover(actor,target)
+        if moved~=true then return fail(H,result,setPhase,current,"loretta_outside_fault_setup",reason) end
+        H.lorettaRecoveries=0; H.lorettaOriginalRecover=SC.Actor.recover
+        SC.Actor.recover=function(who,...)
+            if who==actor then H.lorettaRecoveries=H.lorettaRecoveries+1 end
+            return H.lorettaOriginalRecover(who,...)
+        end
+        H.lorettaDecisionAt=0
+        photo(H,"outside-recovery-start")
+        setPhase("loretta_visible_recovery",current); return
+    end
+
+    if H.phase=="loretta_visible_recovery" then
+        local actor,car=H.lorettaActor,H.lorettaCar
+        if current-(H.lorettaDecisionAt or 0)<200 then return end
+        H.lorettaDecisionAt=current
+        SC.Decision.update(actor,H.player,H.lorettaRuntime,current)
+        if H.lorettaRecoveries>0 then return fail(H,result,setPhase,current,"loretta_no_visible_teleport","recovery moved her through the bridge") end
+        if call(actor,"getVehicle")==car then
+            H.lorettaReseatedAt=H.lorettaReseatedAt or current
+            -- Allow native render/seat state to settle before photographing it.
+            if current-H.lorettaReseatedAt<2000 then return end
+            local valid,detail=sealedGate(SC,actor,H.lorettaGroup)
+            if not check("loretta_visible_walk_recovery",valid,"walked to her original car and recovered the real rear seat: "..detail) then setPhase("finish",current); return end
+            photo(H,"recovered-rear-seat"); restoreSpeech(H); setPhase("finish",current); return
+        end
+        if H.lorettaReseatedAt then return fail(H,result,setPhase,current,"loretta_recovery_stays_seated","left her recovered seat") end
+        if current-H.phaseStartedAt>45000 then
+            local state=SC.Decision.peek(actor)
+            return fail(H,result,setPhase,current,"loretta_visible_recovery_timeout",tostring(state and state.intent))
+        end
     end
 
     if H.phase == "loretta_photo_pose" then

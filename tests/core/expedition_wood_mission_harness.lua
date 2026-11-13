@@ -84,6 +84,37 @@ check(active.scout.wood.preparation and departures == 0 and active.scout.turnHom
     "accepted mission pauses for automatic gear preparation with a bounded default trip time")
 check(E.woodPreparationFor(leader) and E.woodPreparationFor(follower) == nil,
     "only the leader owns predeparture tool-fetch actions")
+-- Crowbar fallback is confined to the selected Search building. Cancelling an
+-- unrelated crew member cannot stop the worker's native action.
+do
+    local force,base,nav=SC.ForceEntry,SC.BaseLife,SC.Navigation
+    local idOf,stop=SC.GameplayUtil.idOf,SC.GameplayUtil.stop
+    local trip=active
+    local oldKind,oldPhase=trip.scout.kind,trip.scout.phase
+    trip.scout.kind,trip.scout.phase="search","entering_site"
+    SC.GameplayUtil.idOf=function(a) return a.id end
+    SC.GameplayUtil.stop=function() return true end
+    local portal={}
+    SC.BaseLife={describeObject=function() return {x=140,y=100,z=0,objectId="object:force"} end,
+        resolveObject=function() return portal end}
+    SC.Navigation={cancel=function() return true end}
+    local cancellations=0
+    SC.ForceEntry={tool=function(a) return a==follower and {} or nil end,eligible=function() return true end,
+        cancel=function() cancellations=cancellations+1; return true end,
+        step=function() return true,"force_open_succeeded",true end}
+    check(E.queueForceEntry(follower,portal),"a crew member with a carried crowbar can own entry")
+    check(E.forceEntryRequestFor(leader) and E.forceEntryRequestFor(follower),"leader holds while operator works")
+    E.cancelForceEntry(leader,"unrelated_preemption")
+    check(cancellations==0 and not trip.scout.forceEntry.failed,"leader preemption cannot cancel another operator")
+    E.cancelForceEntry(follower,"force_open_interrupted")
+    check(cancellations==1 and trip.scout.forceEntry.failed,"operator interruption stops without automatic repeat")
+    check(E.retryForceEntry(trip.radioSession) and not trip.scout.forceEntry.failed,"explicit Retry creates a fresh attempt")
+    E.updateForceEntry(follower,{})
+    check(trip.scout.forceEntry==nil,"verified success releases ordinary entry navigation")
+    SC.ForceEntry,SC.BaseLife,SC.Navigation=force,base,nav
+    SC.GameplayUtil.idOf,SC.GameplayUtil.stop=idOf,stop
+    trip.scout.kind,trip.scout.phase=oldKind,oldPhase
+end
 -- The voice layer reads each pulse and work result after the fact.
 local voiceCalls = {}
 SC.WorkVoice = {

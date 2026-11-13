@@ -48,6 +48,8 @@
     (Join-Path $Shared 'SCSpeechColors.lua'),
     (Join-Path $Client 'SCExpeditionIntegration.lua'),
     (Join-Path $Client 'SCHomeTrip.lua'),
+    (Join-Path $Shared 'SCForceEntryState.lua'),
+    (Join-Path $Client 'SCForceEntry.lua'),
     (Join-Path $Client 'SCExpeditionPrototype.lua'),
     (Join-Path $Gameplay 'home_trip_fixture.lua'),
     (Join-Path $Essential 'home_journey_harness.lua')) }
@@ -106,6 +108,8 @@
     (Join-Path $Client 'SCExpeditionWood.lua'),
     (Join-Path $Client 'SCExpeditionTargets.lua'),
     (Join-Path $Client 'SCExpeditionFuel.lua'),
+    (Join-Path $Shared 'SCForceEntryState.lua'),
+    (Join-Path $Client 'SCForceEntry.lua'),
     (Join-Path $Client 'SCExpeditionPrototype.lua'),
     (Join-Path $Core 'expedition_wood_mission_harness.lua')) }
 
@@ -115,6 +119,8 @@
     (Join-Path $Client 'SCLoggingWork.lua'),
     (Join-Path $Client 'SCExpeditionWood.lua'),
     (Join-Path $Client 'SCExpeditionIntegration.lua'),
+    (Join-Path $Shared 'SCForceEntryState.lua'),
+    (Join-Path $Client 'SCForceEntry.lua'),
     (Join-Path $Client 'SCExpeditionPrototype.lua'),
     (Join-Path $Core 'wood_expedition_integration_fixture.lua'),
     (Join-Path $Essential 'cargo_delivery_harness.lua')) }

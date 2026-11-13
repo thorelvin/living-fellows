@@ -176,4 +176,18 @@ end)()
     ISTimedActionQueue,ISMilkAnimal=queueApi,milkApi
 end)()
 
+do
+    local worker=actor("sc-force-save")
+    local record=assert(SC.Registry.register(worker,{id=worker.id,recruited=true,
+        state={order={current="work",workMode="build",returnOrder="stay",workTarget={
+            kind="force_open",x=10,y=10,z=0,objectIndex=1,objectId="object:force-save",
+            forceEntry={attempted=true,stage="forcing",useId="saved-attempt",toolId="exact-tool",
+                sourceId="tools",deadlineAt=500000,object=worker}}}}}))
+    local target=record.state.order.workTarget
+    check(target.kind=="force_open" and target.forceEntry.attempted and target.forceEntry.toolId=="exact-tool",
+        "record normalization preserves forcing kind, attempted effect and exact tool receipt")
+    check(target.forceEntry.object==nil and target.forceEntry.useId=="saved-attempt",
+        "shared save data strips native references without turning forcing into barricading")
+    SC.Registry.unregister(worker)
+end
 SC_TEST_REPORT = "Essential lifecycle: " .. checks .. " ownership/isolation checks passed"

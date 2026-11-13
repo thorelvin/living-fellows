@@ -6,6 +6,7 @@ require "SCStableValue"
 require "SCNativeList"
 require "SCConfig"
 require "SCRegistry"
+require "SCForceEntryState"
 require "SCVitals"
 require "SCDiagnostics"
 
@@ -37,7 +38,7 @@ local function captureYieldPoint()
     if captureYieldHook ~= nil then captureYieldHook() end
 end
 local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
-local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
+local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true, force_open = true }
 local defaultDetachedMarkerKeys = {
     id = "LF_TradeRecoveryId",
     state = "LF_TradeRecoveryState",
@@ -1020,6 +1021,24 @@ local function captureInventory(actor, captureContext)
             end
         end
     end
+    local shower = SC.Downtime and type(SC.Downtime.showerOutfitForSave) == "function"
+        and SC.Downtime.showerOutfitForSave(actor) or nil
+    if shower then
+        local slots, wornIds = {}, {}
+        for _, row in ipairs(equipment.worn) do slots[row.location], wornIds[row.id] = true, true end
+        for _, row in ipairs(shower.worn) do
+            -- Only reference items already captured from this actor's actual
+            -- inventory. A missing receipt item is never recreated or imported.
+            local id, location = context.itemIds[row.item], text(row.location, "", 96)
+            if id and not slots[location] and not wornIds[id] then
+                equipment.worn[#equipment.worn+1] = {id=id,location=location}
+                slots[location], wornIds[id] = true, true
+            end
+        end
+        for _, side in ipairs({"primary", "secondary"}) do
+            if equipment[side] == nil then equipment[side] = context.itemIds[shower[side]] end
+        end
+    end
     local attachedOk, attached = invoke(actor, "getAttachedItems")
     if attachedOk and attached ~= nil then
         for index = 0, math.min(listSize(attached), 64) - 1 do
@@ -1249,6 +1268,7 @@ function persistence.captureRecord(record, vehicleState, options)
                 or order.workTarget.barricadeSide == "opposite" and "opposite" or nil,
             kind = targetedWorkKinds[order.workTarget.kind]
                 and order.workTarget.kind or "barricade",
+            forceEntry = SC.ForceEntryState.copy(order.workTarget.forceEntry),
         }
     end
     -- The guard/stay post lives in the actor's SC_Anchor* mod-data (kept current by

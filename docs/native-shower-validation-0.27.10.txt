@@ -1,0 +1,61 @@
+Native clothing removal and showers - 0.27.10
+Project Zomboid 42.22.2, 13 November 2026. Lua-only follow-up.
+
+Implementation
+Automatic mask removal uses stock ISUnequipAction effects and animations.
+Existing manual-wear/protection checks remain in force. Its constructor's
+non-hotbar fields are initialized on the stock class without accessing the
+main player's hotbar. Instance callbacks omit player UI/attachment operations.
+
+Showers natively undress and dress one item at a time. Receipts retain the
+original item identities, worn slots, held equipment and activated wearables.
+The wear effect's slot delegate is synchronous and instance-local. Normal
+completion is reported only after dressing and native ownership release.
+Danger, orders and cancellation restore available gear through stock effects
+immediately, once native cancellation releases the actor. Pending cleanup
+retains its receipt. New player equipment choices and missing/broken items
+are respected; no missing item is recreated.
+
+Snapshots no longer cancel a shower to restore its outfit. They reference
+temporarily removed equipment already present in that actor's captured item
+tree, in its original slots. Actual quantities and consumable/fluid states
+remain captured normally. No save schema or bridge change is required.
+
+Automated checks
+Stock wear/unequip Lua: exact inputs, one commit, actor isolation, cancellation,
+original-slot restoration, activated wearable recovery, changed equipment,
+missing items and delayed native cleanup. The existing native-care suite also
+continues to cover washing, drying, repair and real crafting outputs.
+Final routine gate: PASS, 5/5 checks, 107.4 seconds.
+build/test-results/20261113-081915-891021/summary.json
+
+Live acceptance
+SC-Harness-20261113-081154-a0697ec8: PASS, 61 checks, zero failures or skips.
+Repeated the nine prior native-care cases, then:
+1. Used a real shower in the cloned house; native washing cleaned the actor,
+   and every original worn item and bag was restored.
+2. Captured a snapshot during washing. Verified original equipment slots
+   reference the actual native inventory identities; washing continued.
+3. Injected a danger observation during washing. The real downtime cancel
+   path restored exact worn/held gear and released native owners.
+4. Issued the actual Follow command partway through undressing. Original
+   worn/held gear returned and no native action remained owned.
+The main player's worn slots stayed unchanged; the companion remained alive.
+
+Logs and zoomed-out screenshots:
+build/live-sandbox-runs/SC-Harness-20261113-081154-a0697ec8/cache
+The original save and local installation were untouched. One game ran at a
+time and exited before compilation. The final run had no LF gameplay exception.
+
+Earlier cloned runs caught an unavailable game-Lua helper during reset, and
+routine snapshot cancellation of the longer shower flow. Both were corrected;
+blocked screenshots and their logs remain in the earlier run folders.
+
+Limits
+The danger case injected a combat observation; no enemy was spawned to attack
+the washing actor. Physical save/quit/reload, death and depleted municipal water
+were not separate live scenarios. Missing-item and cleanup-delay behavior were
+automated checks; the live snapshot equipment map was verified without reload.
+
+Installed ISUnequipAction.lua SHA256
+70C58DD1CCF72004AD61073F8306EB126E8E95807F72CDCAB444AD65103C396A

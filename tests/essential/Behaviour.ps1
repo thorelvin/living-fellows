@@ -18,6 +18,12 @@
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
+@{ Name = 'behaviour.crowbar-entry'; Files = @(Get-ScGameplayFiles) + @(
+    'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
+    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua'
+    | ForEach-Object { Join-Path $Client $_ }) + @(
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISForceOpen.lua'),
+    (Join-Path $Essential 'force_entry_harness.lua')) }
 @{ Name = 'behaviour.farm-storage-and-medic-kits'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCWorkTransport.lua'), (Join-Path $Essential 'farm_storage_medic_harness.lua')) }
 @{ Name = 'behaviour.native-personal-care'; Files = @(Get-ScGameplayFiles) + @(
@@ -25,11 +31,14 @@
     'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua'
     | ForEach-Object { Join-Path $Client $_ }) + @(
     'TimedActions\ISFixAction.lua', 'TimedActions\ISCleanBandage.lua',
-    'TimedActions\ISWashYourself.lua', 'TimedActions\ISWashClothing.lua',
+    'TimedActions\ISWashYourself.lua', 'TimedActions\ISWashClothing.lua', 'TimedActions\ISDryMyself.lua',
     'TimedActions\ISTakeWaterAction.lua', 'TimedActions\Animals\ISPetAnimal.lua',
     'Entity\TimedActions\ISHandcraftAction.lua'
     | ForEach-Object { Join-Path (Join-Path $GameRoot 'media\lua\shared') $_ }) + @(
-    (Join-Path $Essential 'native_care_harness.lua')) }
+    (Join-Path $Essential 'native_care_harness.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISWearClothing.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISUnequipAction.lua'),
+    (Join-Path $Essential 'native_clothing_harness.lua')) }
 @{ Name = 'behaviour.autonomy-ground-and-needs'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),
@@ -53,6 +62,11 @@
     (Join-Path $Core 'farming_lifecycle_fixture.lua'),
     (Join-Path $Essential 'sheep_work_harness.lua')) }
 @{ Name = 'behaviour.first-meeting-visitor'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'first_meeting_visitor_harness.lua') }
+@{ Name = 'behaviour.loretta-car'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Core 'oddball_loretta_fixture.lua'),
+    (Join-Path $Client 'SCOddballLoretta.lua'),
+    (Join-Path $Core 'oddball_loretta_harness.lua')) }
 @{ Name = 'behaviour.relationship-help'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'relationship_help_harness.lua') }
 @{ Name = 'behaviour.family-pyre'; Files = @(
     (Join-Path $Essential 'caleb_fixture.lua'),

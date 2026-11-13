@@ -315,6 +315,7 @@ local function quarantine(receipt, reason, owner, preserveDetachedProof)
 end
 
 function Transport.isCargoProtected(item, actorOrId, operation)
+    if SC.ForceEntry and SC.ForceEntry.protected(item) then return true, "force_entry_tool" end
     if SC.SortBatch and SC.SortBatch.protected(item) then return true,"sort_batch_owned" end
     if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return true end
     if SC.FarmWork and SC.FarmWork.isItemProtected

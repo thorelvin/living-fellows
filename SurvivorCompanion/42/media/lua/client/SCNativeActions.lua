@@ -17,6 +17,7 @@ require "TimedActions/ISBarricadeAction"
 require "TimedActions/ISUnbarricadeAction"
 require "TimedActions/ISDismantleAction"
 require "TimedActions/ISChopTreeAction"
+require "TimedActions/ISForceOpen"
 require "TimedActions/ISBuryCorpse"
 require "TimedActions/ISFillGrave"
 require "TimedActions/ISGrabCorpseAction"
@@ -32,6 +33,8 @@ require "SCCleaningSupplies"
 require "Fluids/ISFluidContainer"
 require "Fluids/ISFluidTransferAction"
 require "TimedActions/ISWearClothing"
+require "TimedActions/ISUnequipAction"
+require "TimedActions/ISDryMyself"
 require "Vehicles/TimedActions/ISPathFindAction"
 require "Vehicles/TimedActions/ISAddGasolineToVehicle"
 require "Vehicles/TimedActions/ISInflateTire"
@@ -215,18 +218,10 @@ local visualActionSpecs = {
     craft_supply = { animation = "Craft", animationEnum = true, ticks = 180 },
     wear_clothing = { animation = "WearClothing", event = "EventWearClothing", ticks = 90,
         sound = "RummageInInventory" },
-    wash_self = { animation = "WashFace", event = "EventWashClothing", ticks = 240,
-        sound = "WashYourself" },
-    shower = { animation = "WashFace", event = "EventWashClothing", ticks = 360,
-        sound = "WashYourself" },
     pee_stand = { animation = "LF_PeeStanding", ticks = 330, maxTicks = 420 },
     pee_hip = { animation = "LF_PeeHip", ticks = 330, maxTicks = 420 },
     pee_free = { animation = "LF_PeeFree", ticks = 330, maxTicks = 420 },
     pee_squat = { animation = "LF_PeeSquat", ticks = 330, maxTicks = 420 },
-    wash_equipment = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
-        primaryItem = true, ticks = 240, sound = "WashClothing" },
-    wash_bandage = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
-        primaryItem = true, ticks = 240, sound = "WashClothing" },
     -- No verified non-local projectile throw exists in Build 42.20.4. These
     -- stay effect-free; the autonomy layer applies sound/item consequences
     -- only after this human timed action reports successful completion.
@@ -1750,6 +1745,125 @@ local function removeRejectedVisual(queue, timedAction)
     cancelOwnedTimedAction(queue, timedAction)
 end
 
+local function nativeClothingVisual(actor, intent)
+    if not ISWearClothing or not intent.item or type(intent.validate) ~= "function" then
+        return nil, "native_clothing_context_required"
+    end
+    local action
+    if intent.unwear == true then
+        if not ISUnequipAction then return nil, "native_unequip_unavailable" end
+        if type(isForceDropHeavyItem) == "function" and isForceDropHeavyItem(intent.item) then
+            return nil, "native_clothing_heavy_item_protected"
+        end
+        -- The stock constructor queries getPlayerHotbar(playerNum). These are
+        -- its ordinary non-hotbar fields on a stock action instance; no player
+        -- UI or attachment ownership is borrowed for an NPC wardrobe action.
+        action = ISBaseTimedAction.new(ISUnequipAction, actor)
+        action.item, action.maxTimeInit, action.reason = intent.item, 50, "clothing"
+        action.maxTime = actor:isTimedActionInstant() and 1 or 50
+        action.stopOnAim, action.stopOnRun = false, true
+        action.stopOnWalk = ISWearClothing.isStopOnWalk(intent.item)
+        action.ignoreHandsWounds, action.clothingAction = true, true
+        action.hotbar, action.fromHotbar, action.animSpeed = nil, false, 1
+        action.animEvent = function() end -- attachConnect belongs to the player's hotbar.
+        action.stopSound = function(self)
+            if not self.sound then return end
+            if self.soundNoTrigger then actor:getEmitter():stopSound(self.sound)
+            else actor:stopOrTriggerSound(self.sound) end
+            self.sound = nil
+        end
+    else action = ISWearClothing:new(actor, intent.item) end
+    action.scUnequip = intent.unwear == true
+    local _, activatedBefore = invoke(intent.item, "isActivated")
+    local effect, valid, stop = action.complete, action.isValid, action.stop
+    -- Keep the existing inventory transaction's commit boundary. The stock
+    -- action owns the pose and sound; its stock complete() runs only once
+    -- logistics has verified the finished action and staged the exact item.
+    action.complete = function() return true end
+    action.isValid = function(self)
+        if self.character ~= actor or self.item ~= intent.item or intent.validate() ~= true then return false end
+        local root = SC.GameplayUtil.inventory(actor)
+        local _, source = invoke(self.item, "getContainer")
+        local _, outer = invoke(self.item, "getOutermostContainer")
+        return (source == root or outer == root)
+            and SC.GameplayUtil.containerContainsIdentity(source, self.item) == true
+            and (not self.scUnequip or valid(self) == true)
+            and (self.scUnequip or select(2, invoke(self.item, "isBroken")) ~= true)
+    end
+    action.scCancelClothing = function(self)
+        self.scStopped = true
+        self:stopSound()
+        invoke(self.item, "setJobDelta", 0)
+        if self.scUnequip and not self.scNativeCommitted and activatedBefore == true
+            and select(2, invoke(actor, "isEquippedClothing", self.item)) == true
+            and SC.GameplayUtil.containerContainsIdentity(SC.GameplayUtil.inventory(actor), self.item) == true then
+            invoke(self.item, "setActivated", true)
+            if type(syncItemActivated) == "function" then syncItemActivated(actor, self.item) end
+        end
+    end
+    action.stop = function(self)
+        self:scCancelClothing()
+        return stop(self)
+    end
+    action.perform = function(self)
+        self.scCompleted = true
+        self:stopSound()
+        if self.scUnequip then
+            local sound = self.item:getUnequipSound()
+            if sound then actor:getEmitter():playSound(sound) end
+        end
+        self.item:setJobDelta(0)
+        -- The stock bag perform() refreshes a local player's backpack UI.
+        -- Only that UI housekeeping is omitted for this NPC-owned instance.
+        return ISBaseTimedAction.perform(self)
+    end
+    action.scApplyClothing = function(self)
+        if self.scNativeCommitted then return self.scNativeCommitResult == true end
+        if self.scStopped or not self:isValid() or not valid(self) then return false end
+        self.scNativeCommitted = true
+        if intent.location and not self.scUnequip then
+            -- A shower receipt records the authoritative worn slot, which can
+            -- differ from an item's preferred slot. Delegate only this native
+            -- effect's slot lookup/write; every Java call still uses the actor.
+            self.character = setmetatable({
+                getWornItem = function() return actor:getWornItem(intent.location) end,
+                setWornItem = function(_, _, item)
+                    if item ~= intent.item then error("native clothing item changed") end
+                    return actor:setWornItem(intent.location, item)
+                end,
+            }, { __index = function(_, key)
+                return function(_, ...)
+                    local okay, value = invoke(actor, key, ...)
+                    if not okay then error(value) end
+                    return value
+                end
+            end })
+        end
+        local okay, result = pcall(effect, self)
+        self.character = actor
+        self.scNativeCommitResult = okay and result == true
+        return self.scNativeCommitResult
+    end
+    action.scCommitClothing = function(self)
+        return self.scCompleted == true and self:scApplyClothing()
+    end
+    return action
+end
+
+function actions.commitClothingVisual(actor, token, item, unwear)
+    local record = activeVisual[actor]
+    local action = record and record.timedAction
+    if not action or action ~= token or action.character ~= actor or action.item ~= item
+        or unwear ~= nil and action.scUnequip ~= unwear
+        or type(action.scCommitClothing) ~= "function"
+        or actions.visualStatus(actor, "wear_clothing") ~= "completed" then
+        return false, "native_clothing_action_unverified"
+    end
+    local okay = action:scCommitClothing()
+    return okay == true, okay and (action.scUnequip and "native_clothing_removed" or "native_clothing_equipped")
+        or "native_clothing_commit_failed"
+end
+
 local function startVerifiedVisual(actor, actionName, intent, provider)
     -- Never replace an unclaimed completed visual record with a second visual.
     -- The owning gameplay subsystem needs that record to know whether it may
@@ -1809,7 +1923,12 @@ local function startVerifiedVisual(actor, actionName, intent, provider)
     if class == nil then
         return false, "native timed-action base is unavailable"
     end
-    local created, timedAction = pcall(class.new, class, actor, actionName, spec, intent)
+    local created, timedAction
+    if actionName == "wear_clothing" then
+        created, timedAction = pcall(nativeClothingVisual, actor, intent)
+    else
+        created, timedAction = pcall(class.new, class, actor, actionName, spec, intent)
+    end
     if not created or timedAction == nil then
         return false, created and "visual timed action was not created" or tostring(timedAction)
     end
@@ -1838,6 +1957,26 @@ local function startVerifiedVisual(actor, actionName, intent, provider)
         startedAt = nowMs(),
     }
     return true, "visual_timed_action_started:" .. actionName
+end
+
+function actions.startClothing(actor, item, unwear, validate, location)
+    return startVerifiedVisual(actor, "wear_clothing", {
+        item = item, unwear = unwear == true, validate = validate, location = location,
+    }, { directNative = true })
+end
+
+-- Emergency shower rollback uses the stock effect synchronously, without
+-- queuing dressing animations ahead of combat, a new order or save capture.
+function actions.restoreClothingNow(actor, item, location, validate)
+    if type(validate) ~= "function" or validate() ~= true then return false end
+    if actor:getWornItem(location) == item then return true end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local _, native = invoke(actor, "getCharacterActions")
+    local known, count = invoke(native, "size")
+    if not queue or queue.current or #queue.queue > 0 or not known or count ~= 0 then return false end
+    local action = nativeClothingVisual(actor, {item=item, location=location, validate=validate})
+    return action ~= nil and action:scApplyClothing() == true
+        and actor:getWornItem(location) == item
 end
 
 -- Traversal owns the portal and commits glass removal only after this
@@ -3456,6 +3595,10 @@ function actions.doorBashTool(actor)
     return taggedWorkTool(actor, nil, "CHOP_TREE")
 end
 
+function actions.forceOpenTool(actor)
+    return taggedWorkTool(actor, nil, "CROWBAR")
+end
+
 local function newJavaList(values)
     local listClass = type(_G) == "table" and rawget(_G, "ArrayList") or nil
     if type(listClass) ~= "table" and type(listClass) ~= "userdata" then return nil end
@@ -3584,6 +3727,99 @@ local function startBashDoor(actor, intent, provider)
     return queueTrackedWork(actor, timedAction, record, "bash_door")
 end
 
+-- Keep vanilla forcing outcomes and exertion on this exact actor. The caller
+-- owns the target/tool claim; no local-player helper or global hook is used.
+function actions.forceOpen(actor, intent, provider)
+    local object, tool = intent.object, intent.tool
+    if not actor or not object or not tool or not ISForceOpen
+        or type(intent.validate) ~= "function" or intent.validate() ~= true then
+        return false, "force_open_changed"
+    end
+    local handled, reason = useProvider(provider, "forceOpen", actor, object, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
+        twoOk and twoHanded == true and tool or nil)
+    if not record then return false, prepareReason end
+    local weight, capacity = SC.GameplayUtil.carryLoad(actor)
+    if not weight or not capacity or weight > capacity then
+        restoreWorkInventory(actor, record)
+        return false, "force_open_carry_limit"
+    end
+    local made, action = pcall(ISForceOpen.new, ISForceOpen, actor, object)
+    if not made or not action then
+        restoreWorkInventory(actor, record)
+        return false, "force_open_action_unavailable"
+    end
+    local valid, attempt, complete = action.isValid, action.attempt, action.complete
+    action.isValid = function(self)
+        return self.character == actor and self.object == object
+            and unbrokenItem(tool) and intent.validate() == true and valid(self) == true
+    end
+    action.attempt = function(self)
+        local held, primary = invoke(actor, "getPrimaryHandItem")
+        if not held or primary ~= tool or not self:isValid() then return "fail" end
+        return attempt(self)
+    end
+    -- ForceOpenState.onSuccess applies the portal effect only to a local
+    -- player. NPCs retain that flag as false. Apply the same native portal
+    -- method once, only after this exact stock action rolled success.
+    action.complete = function(self)
+        if self.character ~= actor or self.object ~= object or self.outcome ~= "success"
+            or intent.validate() ~= true then return false end
+        local _, localPlayer = invoke(actor, "isLocalPlayer")
+        local _, locked = invoke(object, "isLocked")
+        if localPlayer ~= true and locked == true and record.forceApplied ~= true then
+            record.forceApplied = true
+            invoke(object, "forceOpen", actor)
+            local _, stillLocked = invoke(object, "isLocked")
+            local _, open = invoke(object, "IsOpen")
+            if stillLocked == false and open ~= true then
+                invoke(object, SC.GameplayUtil.instanceOf(object, "IsoWindow") and "ToggleWindow" or "ToggleDoor", actor)
+            end
+            invoke(object, "sync")
+        end
+        return complete(self)
+    end
+    return queueTrackedWork(actor, action, record, "force_open")
+end
+
+function actions.startForceToolTransfer(actor, item, source, destination, validate, commit)
+    if type(validate) ~= "function" or validate() ~= true
+        or not SC.GameplayUtil.inventoryContains(source, item) then
+        return false, "force_tool_transfer_changed"
+    end
+    local record, reason = prepareWorkInventory(actor, {}, nil, nil)
+    if not record then return false, reason end
+    local made, action = pcall(ISInventoryTransferAction.new, ISInventoryTransferAction,
+        actor, item, source, destination, 100)
+    if not made or not action then
+        restoreWorkInventory(actor, record)
+        return false, "force_tool_transfer_unavailable"
+    end
+    local valid, start, complete = action.isValid, action.start, action.complete
+    action.canMergeAction = function() return false end
+    action.isValid = function(self)
+        return self.character == actor and validate() == true
+            and SC.GameplayUtil.inventoryContains(source, item)
+            and SC.GameplayUtil.containerHasRoom(destination, actor, item) == true
+            and valid(self) == true
+    end
+    action.start = function(self)
+        start(self)
+        self.selectedContainer = nil
+    end
+    action.complete = function(self)
+        if not self:isValid() then return false end
+        local result = complete(self)
+        if not SC.GameplayUtil.inventoryContains(source, item)
+            and SC.GameplayUtil.inventoryContains(destination, item) and commit then commit() end
+        return result
+    end
+    return queueTrackedWork(actor, action, record, "force_tool_transfer")
+end
+
 -- Keep bulky recipe inputs on the ground. This private floor view contains
 -- references to only this job's
 -- inputs, never a local player's loot panel or inventory.
@@ -3680,7 +3916,7 @@ function actions.startLogUnstack(actor, intent) return startLogCraft(actor, inte
 -- Every guard and effect wrapper belongs to this action instance only.
 function actions.startDowntimeAction(actor, activity, validate)
     local care = SC.NativeCareActions
-    if not care or not care.handles(activity.kind) or type(validate) ~= "function"
+    if not care or not care.handles(activity.kind, activity) or type(validate) ~= "function"
         or validate() ~= true or not care.valid(actor, activity) then return false, "native_care_stale" end
     if activeWork[actor] then return false, "native_work_already_owned" end
     local record, reason = prepareWorkInventory(actor, activity.nativeInputs, nil, nil)
@@ -3741,6 +3977,16 @@ function actions.startDowntimeAction(actor, activity, validate)
         end
         if not okay then error(result) end
         return result
+    end
+    if activity.kind == "weather_recovery" then
+        care.guardDrying(actor, activity, action, {
+            current = function() return activeWork[actor] == record end, validate = validate,
+            returnReplacement = function(item)
+                if activity.itemContainer and activity.itemContainer ~= actor:getInventory() then
+                    record.moved[#record.moved + 1] = { item = item, container = activity.itemContainer }
+                end
+            end,
+        })
     end
     local started, why = queueTrackedWork(actor, action, record, activity.kind)
     if started then activity.nativeStarted, activity.nativeStartedAt = true, nowMs() end
@@ -5353,6 +5599,9 @@ function actions.cancelVisual(actor, reason)
             return false, "native visual action remained queued after cancellation"
         end
     end
+    if record.timedAction and type(record.timedAction.scCancelClothing) == "function" then
+        record.timedAction:scCancelClothing()
+    end
     -- forceStop does not reliably run the derived Lua stop callback on every
     -- Build 42 path. Clear the persistent read/model flags explicitly so the
     -- next idle/follow state cannot inherit the cancelled pose.
@@ -5620,6 +5869,7 @@ SC.NativeWorkActions.configure({
     needs = startNeedsAction,
     chopTree = startChopTree,
     bashDoor = startBashDoor,
+    forceOpen = actions.forceOpen,
     sawLogs = startSawLogs,
     digGrave = startDigGrave,
     buryBody = startBuryBody,

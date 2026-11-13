@@ -823,6 +823,10 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     if SC.Logistics and type(SC.Logistics.preferredLootDestination) == "function" then
         destination = SC.Logistics.preferredLootDestination(actor, supply.item) or destination
     end
+    if type(options.beforeTransfer) == "function" then
+        local okay, accepted = pcall(options.beforeTransfer, supply.item, supply.container, destination)
+        if not okay or accepted ~= true then return rejectSupply("camp_supply_receipt_rejected") end
+    end
     local transferred, transferReason = utility.transferItemVerified(
         supply.container, destination, supply.item)
     if not transferred then

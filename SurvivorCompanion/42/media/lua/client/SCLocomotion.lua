@@ -25,7 +25,7 @@ local interactionActions = {
     workout = true, write_diary = true, computer_use = true,
     sit = true, sit_ground = true, stand_ground = true,
     barricade = true, remove_barricade = true, dismantle = true,
-    bash_door = true,
+    bash_door = true, force_open = true,
     open_door = true, close_door = true, open_window = true, close_window = true,
     smash_window = true, remove_glass = true, climb_window = true,
     climb_window_emergency = true, open_curtain = true, close_curtain = true,

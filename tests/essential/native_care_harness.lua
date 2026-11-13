@@ -47,7 +47,7 @@ function actor:isPrimaryHandItem(x) return self:getPrimaryHandItem()==x end
 function actor:isSecondaryHandItem(x) return self:getSecondaryHandItem()==x end
 CharacterStat.UNHAPPINESS={name="UNHAPPINESS"}
 function actor:getStats() return {remove=function() end} end
-ItemBodyLocation=ItemBodyLocation or {}
+ItemBodyLocation=ItemBodyLocation or setmetatable({}, {__index=function(self,key) rawset(self,key,key); return key end})
 local root=actor:getInventory()
 function root:setDrawDirty() end
 local add=root.AddItem
@@ -315,4 +315,42 @@ check(N.startAnimal(actor,{operation="animal_soothe",object=animal,sootheResult=
 pet=ISTimedActionQueue.getTimedActionQueue(actor).current; pet:start(); eligible=false
 pet:complete(); pet:stop(); N.finishWork(actor)
 check(animal.pets==1 and not behavior.blocked,"cancellation restores movement without a pet effect")
+-- Stock towel drying owns each incremental use and its wet replacement.
+local wetness=80
+function actor:getStats() return {get=function(_,stat) return stat==CharacterStat.WETNESS and wetness or 0 end} end
+function actor:getBodyDamage() return {decreaseBodyWetness=function(_,amount) wetness=wetness-amount end} end
+function actor:setMetabolicTarget() end
+Metabolics=Metabolics or {}; Metabolics.LightDomestic="LightDomestic"
+function getTimeInMillis() return f.clock end
+local towel=item("Base.BathTowel",{uses=2,__class="DrainableComboItem"})
+function towel:getCurrentUsesFloat() return self.uses end
+function towel:getReplaceOnDeplete() return "Base.BathTowelWet" end
+local nativeWet
+function towel:Use()
+    self.uses=self.uses-1
+    if self.uses==0 then local container=self.container; container:Remove(self)
+        nativeWet=item("Base.BathTowelWet"); container:AddItem(nativeWet) end
+end
+towel.outer=root; bag:AddItem(towel)
+a={kind="weather_recovery",item=towel}; action=begin(a)
+action:update()
+check(wetness==72 and towel.uses==1,"stock drying spends one towel use and changes only its actor's wetness")
+action:useAndDry(false)
+check(wetness==72 and towel.uses==1,"duplicate callback cannot spend the same drying tick twice")
+f.clock=f.clock+500; action:update()
+check(nativeWet and a.nativeOutput==nativeWet and a.nativeDryFinished,"depleted towel keeps the real native wet replacement")
+action:complete(); action:perform(); check(N.finishWork(actor),"drying releases staged items")
+check(a.nativeCompleted and bag:contains(nativeWet) and not bag:contains(towel) and wetness==64.8,
+    "wet replacement returns to the exact original bag without an extra scripted drying step")
+local partial=item("Base.DishCloth",{uses=10,__class="DrainableComboItem"})
+function partial:getCurrentUsesFloat() return self.uses end
+function partial:Use() self.uses=self.uses-1 end
+partial.outer=root; bag:AddItem(partial); wetness=50
+a={kind="weather_recovery",item=partial}; action=begin(a); action:update()
+local left,used=wetness,partial.uses
+check(N.cancelWork(actor,"combat"),"drying cancellation settles its own native action")
+f.clock=f.clock+500; action:update(); action:useAndDry(false)
+check(wetness==left and partial.uses==used and bag:contains(partial),"late drying callbacks cannot spend or dry after cancellation")
+partial.protected=true
+check(not C.prepare(actor,{kind="weather_recovery",item=partial}),"protected towels cannot be consumed")
 print("NATIVE_CARE_PASS checks="..checks)

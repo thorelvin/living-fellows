@@ -15,6 +15,7 @@ local houseSearchByGroup = setmetatable({}, { __mode = "k" })
 local conditionAtByGroup = setmetatable({}, { __mode = "k" })
 local loadedCarBySqlId = setmetatable({}, { __mode = "v" })
 local siteScanCursor = {}
+local seatRecoveryByActor = setmetatable({}, { __mode = "k" })
 
 local function U() return SC.GameplayUtil end
 
@@ -224,6 +225,15 @@ local function rearDoor(car, seat)
     local part = select(1, U().call(car, "getPassengerDoor", seat))
     local door = part and select(1, U().call(part, "getDoor"))
     return part, door
+end
+
+local function rescueOpening(value, car)
+    if not car then return nil end
+    local part = rearWindowPart(car, value.seat)
+    local window = part and select(1, U().call(part, "getWindow"))
+    if window and select(1,U().call(window,"isDestroyed")) == true then return "window" end
+    local _, door = rearDoor(car,value.seat)
+    if door and select(1,U().call(door,"isOpen")) == true then return "key" end
 end
 
 local function carSealed(car)
@@ -612,9 +622,27 @@ local function spawnDarren(group, value, car, player)
     return false, "darren_unseen_square_unavailable"
 end
 
+local function clearSeatApproach(actor)
+    if not actor then return end
+    local navigation = SC.Navigation
+    local route = navigation and type(navigation.peek) == "function" and navigation.peek(actor)
+    if route and route.goalAction == "loretta_return_to_car" and type(navigation.cancel) == "function" then
+        navigation.cancel(actor,"loretta_car_reconciled")
+    end
+    seatRecoveryByActor[actor] = nil
+end
+
 local function boardIfPossible(group, value, actor, car, player)
-    if nativeSeat(actor, value, car) then return true end
     if value.freed or value.dead or value.pendingDead then return false end
+    if value.entryDoorRelock then
+        local part, door = rearDoor(car,value.seat)
+        if not door then return false,"loretta_door_unavailable" end
+        U().call(door,"setLocked",true)
+        U().call(car,"transmitPartDoor",part)
+        if select(1,U().call(door,"isLocked")) ~= true then return false,"loretta_door_lock_not_restored" end
+        value.entryDoorRelock = nil
+    end
+    if nativeSeat(actor, value, car) then return true end
     local seat = tonumber(value.seat)
     local point = doorPoint(value)
     if not seat or not point or not SC.Vehicle
@@ -632,7 +660,7 @@ local function boardIfPossible(group, value, actor, car, player)
     if distance > 1.5 then
         -- A streamed actor may be recovered on a nearby tile. Only move her
         -- back to the saved door while nobody is watching the correction.
-        if player and U().canSee(player, actor) == true then
+        if player and (U().canSee(player, actor) == true or U().distance(player,actor) <= 12) then
             return false, "loretta_reboard_visible"
         end
         if not SC.Actor or type(SC.Actor.recover) ~= "function" then
@@ -646,13 +674,14 @@ local function boardIfPossible(group, value, actor, car, player)
     end
     -- This story deliberately chooses an existing sealed car. A locked rear
     -- door is normal, but ordinary companion boarding cannot unlock a stranger's
-    -- car. Release only Loretta's door for the entry transaction; prepareCar
-    -- locks every door again after native seating has been verified.
+    -- car. Release only Loretta's door for the entry transaction, then restore
+    -- its original lock on either outcome.
     local part, door = rearDoor(car, seat)
     if not part or not door then return false, "loretta_door_unavailable" end
     local wasLocked, lockRead = U().call(door, "isLocked")
     if not lockRead then return false, "loretta_door_lock_unavailable" end
     if wasLocked == true then
+        value.entryDoorRelock = true
         local _, changed = U().call(door, "setLocked", false)
         local locked, verified = U().call(door, "isLocked")
         if not changed or not verified or locked ~= false then
@@ -662,12 +691,13 @@ local function boardIfPossible(group, value, actor, car, player)
     end
     local boarded, boardReason = SC.Vehicle.board(actor, car, seat,
         { allowVirtualSeat = false })
-    if boarded ~= true and wasLocked == true then
+    if wasLocked == true then
         local _, restored = U().call(door, "setLocked", true)
         U().call(car, "transmitPartDoor", part)
         if not restored or select(1, U().call(door, "isLocked")) ~= true then
             return false, "loretta_board_failed_and_door_lock_not_restored"
         end
+        value.entryDoorRelock = nil
     end
     return boarded, boardReason
 end
@@ -681,7 +711,7 @@ function Loretta.canTalkFromVehicle(group, player)
     if not value or value.freed == true
         or not nearDoor(group, player, 6) then return false end
     local car = loadedCar(value.carSqlId, doorPoint(value))
-    if not car then return false end
+    if not car or not nativeSeat(actorFor(group),value,car) then return false end
     local square = select(1, U().call(car, "getSquare"))
     return square and U().canSee(player, square) == true or false
 end
@@ -701,6 +731,7 @@ function Loretta.onSpawn(group, actor)
     if boarded ~= true then return false, boardReason end
     prepared, reason = prepareCar(value, car, true)
     if not prepared then return false, reason end
+    clearSeatApproach(actor)
     seedNeeds(value, actor)
     local player
     if type(getPlayer) == "function" then
@@ -767,8 +798,13 @@ local function showClipboard(group, value, player, car)
 end
 
 local function freeFromCar(group, value, actor, car, method)
-    if not nativeSeat(actor, value, car) then return false,
-        "loretta_not_natively_seated" end
+    local seated = nativeSeat(actor,value,car)
+    -- The engine may finish the physical exit before the story pulse sees an
+    -- opened door/window. Observe that exit; never board her just to exit again.
+    if not seated and (not actor or select(1,U().call(actor,"getVehicle")) ~= nil
+        or U().distance(actor,car)>6 or rescueOpening(value,car) ~= method) then
+        return false,"loretta_not_natively_seated"
+    end
     local _, door = rearDoor(car, value.seat)
     if not door then return false, "loretta_door_unavailable" end
     if method == "window" then
@@ -776,9 +812,13 @@ local function freeFromCar(group, value, actor, car, method)
         if not unlocked then return false, "loretta_door_could_not_unlock" end
     end
     syncImmunity(group, actor)
-    local exited, reason = SC.Vehicle.exit(actor, car, value.seat)
-    if exited ~= true then return false, reason end
+    if seated then
+        local exited, reason = SC.Vehicle.exit(actor, car, value.seat)
+        if exited ~= true then return false, reason end
+    end
+    clearSeatApproach(actor)
     value.freed = true
+    value.entryDoorRelock = nil
     value.freedBy = method
     value.stage = "freed"
     syncImmunity(group, actor)
@@ -892,6 +932,7 @@ function Loretta.pulse(group, player, current)
         return true, "loretta_dead"
     end
     if value.freed == true then
+        clearSeatApproach(actor)
         syncImmunity(group, actor)
         advanceFreedomLines(value, actor, hour)
         if value.escortRequested == true and value.escort == nil
@@ -911,11 +952,15 @@ function Loretta.pulse(group, player, current)
         end
         return true, "loretta_freed"
     end
+    if actor and car and value.pendingDead ~= true and not nativeSeat(actor,value,car) then
+        local opening = rescueOpening(value,car)
+        if opening then return freeFromCar(group,value,actor,car,opening) end
+    end
     if actor and car and value.pendingDead ~= true then
         local prepared = prepareCar(value, car, false)
         if prepared == true then
             local boarded = boardIfPossible(group, value, actor, car, player)
-            if boarded == true then prepareCar(value, car, true) end
+            if boarded == true then prepareCar(value, car, true); clearSeatApproach(actor) end
         end
         if value.carPrepared == true then
             seedNeeds(value, actor)
@@ -925,7 +970,7 @@ function Loretta.pulse(group, player, current)
         end
     end
     syncImmunity(group, actor)
-    if actor and player and value.firstSeenHour == nil and hour
+    if actor and player and nativeSeat(actor,value,car) and value.firstSeenHour == nil and hour
         and nearDoor(group, player, 4)
         and (Loretta.canTalkFromVehicle(group, player)
             or U().canSee(player, actor) == true) then
@@ -939,20 +984,13 @@ function Loretta.pulse(group, player, current)
     end
     noteCarDamage(group, value, actor, car, player, current)
     noteActorDamage(value, actor)
-    if dieIfDue(group, value, actor, hour) then return true,
+    if (value.pendingDead == true or nativeSeat(actor,value,car)) and dieIfDue(group, value, actor, hour) then return true,
         "loretta_died_waiting" end
     if value.pendingDead == true or not actor or not car then
         return true, "loretta_waiting_for_car"
     end
-    local windowPart = rearWindowPart(car, value.seat)
-    local window = windowPart and select(1, U().call(windowPart,
-        "getWindow"))
-    local broken = window and select(1, U().call(window,
-        "isDestroyed")) == true
-    local _, door = rearDoor(car, value.seat)
-    local open = door and select(1, U().call(door, "isOpen")) == true
-    if broken or open then
-        local method = broken and "window" or "key"
+    local method = rescueOpening(value,car)
+    if method then
         local freed, reason = freeFromCar(group, value, actor, car, method)
         return freed == true, reason
     end
@@ -963,7 +1001,7 @@ function Loretta.intentFor(actor, player, snapshot, group)
     local value = story(group)
     if not value then return nil end
     if value.freed ~= true and value.dead ~= true then
-        return { mode = "loretta_wait", priority = 90 }
+        return { mode = "loretta_wait", priority = 120 }
     end
     local threats = type(snapshot) == "table"
         and (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) or 0
@@ -971,9 +1009,42 @@ function Loretta.intentFor(actor, player, snapshot, group)
     return { mode = "oddball_idle", priority = 28 }
 end
 
-function Loretta.update(actor, player, runtime, intent)
+function Loretta.update(actor, player, runtime, intent, group)
     if intent and intent.mode == "loretta_wait" then
-        return true, "waiting_in_car"
+        if not group and SC.Oddballs and type(SC.Oddballs.groupForActor) == "function" then
+            group = SC.Oddballs.groupForActor(actor)
+        end
+        local value = story(group)
+        if not value or actorFor(group) ~= actor then return false,"loretta_actor_unavailable" end
+        local car = loadedCar(value.carSqlId,doorPoint(value))
+        if nativeSeat(actor,value,car) then clearSeatApproach(actor); return true,"waiting_in_car" end
+        syncImmunity(group,actor)
+        if not car or select(1,U().call(actor,"getVehicle")) ~= nil then return true,"Waiting for Loretta's car" end
+        local opening = rescueOpening(value,car)
+        if opening then return freeFromCar(group,value,actor,car,opening) end
+        if SC.Vehicle.isStationary(car) ~= true then return true,"Waiting for Loretta's car to stop" end
+        local current = U().nowMs()
+        local recovery = seatRecoveryByActor[actor] or {nextAt=0}
+        seatRecoveryByActor[actor] = recovery
+        if current < recovery.nextAt then return true,recovery.reason or "Returning to her car" end
+        local boarded = boardIfPossible(group,value,actor,car,player)
+        if boarded then
+            prepareCar(value,car,true); clearSeatApproach(actor); syncImmunity(group,actor)
+            return true,"waiting_in_car"
+        end
+        local targets = SC.Vehicle.boardingSquares and SC.Vehicle.boardingSquares(actor,car,value.seat,false)
+        if not targets or not SC.Navigation or not SC.Navigation.requestAny then
+            recovery.nextAt,recovery.reason = current+3000,"Loretta cannot reach her car"
+            return true,recovery.reason
+        end
+        local snapshot = runtime and (runtime.senses and runtime.senses.current or runtime.snapshot) or {}
+        local accepted = SC.Navigation.requestAny(actor,targets,"walk",{
+            action="loretta_return_to_car",vehicle=car,seat=value.seat,snapshot=snapshot,
+            arrivalDistance=0.15,desiredDistance=0,continuousApproach=true,
+        })
+        recovery.reason = accepted and "Returning to her car" or "Loretta cannot reach her car"
+        if not accepted then recovery.nextAt=current+3000 end
+        return true,recovery.reason
     end
     return false, "loretta_no_special_move"
 end
@@ -1165,6 +1236,9 @@ function Loretta.menuOptions(group, player)
     end
     if value.freed ~= true then
         local car = loadedCar(value.carSqlId, doorPoint(value))
+        if not nativeSeat(actor,value,car) then return {
+            {id="seat_pending",label="Loretta is outside the car",enabled=false},
+        } end
         local part = car and rearWindowPart(car, value.seat)
         local window = part and select(1, U().call(part, "getWindow"))
         local hittable = window and select(1, U().call(window,
@@ -1207,6 +1281,10 @@ function Loretta.action(group, action, player)
     local value = story(group)
     if not value then return false, "wrong_oddball" end
     local actor = actorFor(group)
+    if value.freed ~= true and (action == "break_window" or action == "ask_story" or action == "ask_darren")
+        and not nativeSeat(actor,value,loadedCar(value.carSqlId,doorPoint(value))) then
+        return false,"loretta_returning_to_car"
+    end
     if action == "hurt" then
         hurtLine(value, actor)
         return true, "loretta_hurt"

@@ -1,0 +1,69 @@
+Loretta's first-visit car seat - 0.27.10
+Project Zomboid 42.22.2, 13 November 2026. Lua only.
+
+Cause and fix
+The ordinary vehicle-exit policy ran before faction behavior, including for
+unrecruited Strange Folk. A player on foot therefore caused Loretta's first
+normal decision to issue exit_vehicle. The policy now applies to recruited
+party members; independent NPCs retain their own vehicle policy.
+
+An unresolved Loretta found outside uses native navigation to approach her
+original car and reclaim the exact rear seat. Visible/nearby recovery does
+not teleport her. A temporarily unlocked entry door is relocked on either
+boarding outcome, with a pending receipt if restoration needs another try.
+Occupied seats and other vehicles are not commandeered.
+
+Trapped dialogue/menu actions and the initial encounter timer require actual
+native seating. Protection remains conditional on her real sealed car seat.
+An already completed physical exit through a genuine rescue opening is
+reconciled without reboarding or repeating the exit.
+
+Automated verification
+Removing only the recruited guard reproduced exiting_vehicle instead of the
+authored controller: build/test-results/20261113-084610-a6e429.
+With the guard restored, the real Decision test retains the independent
+actor's seat and still exits ordinary recruited passengers when appropriate.
+The independent-driver case now explicitly reaches faction control after
+releasing its wheel; its old incomplete test doubles had depended on the
+same premature exit policy.
+
+Existing Loretta suite: PASS, 83 checks, including visible displaced recovery,
+truthful menus, stale-click rejection, exact seating, relocking, outside
+immunity removal and an exit completed before the next story pulse.
+Final full project gate: PASS, all five checks, 105.5 seconds.
+build/test-results/20261113-090711-faf973/summary.json
+
+Live verification
+SC-Harness-20261113-090527-bf525985: PASS, 22 checks, no failures or skips.
+Disposable clone of Rising/2026-11-08_00-37-04; original save unchanged.
+Production selection chose an existing outdoor Base.CarStationWagon,
+SQL id 9, rear seat 2. No vehicle was spawned for the probe.
+
+Verified actual faction spawn, clothing/clipboard, native seat, sealed-car
+protection, Darren's matching physical key and first-sight warning.
+The general decision scheduler was disabled for staging; the actual
+Decision.update path ran every 250 ms for ten seconds with the observer on
+foot. Loretta retained her seat throughout.
+
+For recovery, the fixture deliberately exited and placed her on nearby
+visible pavement once. Subsequent normal decisions physically returned her
+to her original native seat, with zero Actor.recover calls after setup.
+She remained seated for another two seconds before the settled screenshot.
+Native world updates and the loaded zombies remained active.
+
+Zoomed-out screenshots and logs:
+build/live-sandbox-runs/SC-Harness-20261113-090527-bf525985/cache
+Screenshots include seated-after-decisions, outside-recovery-start and
+recovered-rear-seat. No LF gameplay exception appeared in the final run.
+
+Earlier setup attempts encountered an indoor car or no eligible loaded car;
+their blocked screenshots were retained. The successful earlier live run
+SC-Harness-20261113-085752-847f89de also passed 22 checks, but captured the
+recovered seat on the boarding frame rather than after render settling.
+
+Limits
+This is controlled first-visit and displaced-seat acceptance, not a full
+encounter playthrough. Actual save/quit/reload, death and long-distance car
+relocation were not separate live scenarios. Rescue transitions and other
+story branches retain their existing automated coverage. Bridge code and the
+local installation are unchanged. No commit or push was performed.

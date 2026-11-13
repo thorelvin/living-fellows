@@ -5,6 +5,7 @@ require "SCConfig"
 require "SCStableValue"
 require "SCTransaction"
 require "SCSpeechColors"
+require "SCForceEntryState"
 
 local SC = SurvivorCompanion
 SC.Registry = SC.Registry or {}
@@ -27,7 +28,7 @@ local function rosterChanged()
 end
 local workModes = { auto = true, idle = true, craft = true, build = true }
 local moveModes = { copy = true, walk = true, sneak = true, jog = true }
-local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
+local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true, force_open = true }
 local combatDoctrines = {
     stealth = true,
     close_defense = true,
@@ -260,6 +261,7 @@ local function defaultState(source, recruited)
                 or order.workTarget.barricadeSide == "opposite" and "opposite" or nil,
             kind = targetedWorkKinds[order.workTarget.kind]
                 and order.workTarget.kind or "barricade",
+            forceEntry = SC.ForceEntryState.copy(order.workTarget.forceEntry),
         }
     end
     if workMode == "build" and workTarget == nil then workMode = "auto" end

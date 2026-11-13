@@ -2,6 +2,7 @@
 -- Single-player expedition travel, physical work, delivery and persistence.
 require "SCViewSession"
 require "SCExpeditionTargets"
+require "SCForceEntry"
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.ExpeditionPrototype = SC.ExpeditionPrototype or {}
@@ -37,6 +38,7 @@ local function copyFishingPreparation(value)
 end
 
 local function cancelFishingPreparation()
+    if Expedition.cancelForceEntry then Expedition.cancelForceEntry(nil, "force_open_cancelled") end
     if SC.Fishing and type(SC.Fishing.cancelPreparation) == "function"
         and mission then
         for _, record in ipairs(mission.roster) do
@@ -2296,6 +2298,7 @@ function Expedition.export()
             search = copySearch(mission.scout.search),
             wood = copyWood(mission.scout.wood),
             site = copySite(mission.scout.site),
+            forceEntry = SC.ForceEntry.copyTrip(mission.scout.forceEntry),
             turnHomeAtHour = mission.scout.turnHomeAtHour,
             arriveByHour = mission.scout.arriveByHour,
             departureHour = mission.scout.departureHour,
@@ -2713,6 +2716,7 @@ function Expedition.restore(saved)
             observation = copyObservation(scout.observation),
             search = copySearch(scout.search),
             site = copySite(scout.site),
+            forceEntry = SC.ForceEntry.copyTrip(scout.forceEntry),
             turnHomeAtHour = scout.turnHomeAtHour,
             arriveByHour = scout.arriveByHour,
             departureHour = scout.departureHour,
@@ -3685,6 +3689,111 @@ function Expedition.siteEntryTargetsFor(actor)
         if square ~= nil then targets[#targets + 1] = square end
     end
     return #targets > 0 and targets or nil
+end
+
+function Expedition.hasEntryCrowbar()
+    if not mission or not mission.scout or mission.scout.kind ~= "search"
+        or mission.scout.phase ~= "entering_site" then return false end
+    if mission.scout.forceEntry then return true end -- failed attempts never escalate to bashing
+    for _, member in ipairs(mission.roster) do
+        if alive(member) and SC.ForceEntry.tool(member.actor) then return true end
+    end
+    return false
+end
+
+function Expedition.queueForceEntry(actor, object)
+    local scout = mission and mission.scout
+    if not scout or scout.phase ~= "entering_site" or scout.kind ~= "search"
+        or mission.terminal or not Expedition.isMember(actor) then return false, "force_open_unavailable" end
+    if scout.forceEntry and not scout.forceEntry.failed then return false, "force_open_busy" end
+    if not SC.ForceEntry.tool(actor) then return false, "force_crowbar_missing" end
+    local allowed, why = SC.ForceEntry.eligible(object, actor)
+    if not allowed then return false, why end
+    local descriptor = SC.BaseLife.describeObject(object, true)
+    if not descriptor then return false, "force_open_target_changed" end
+    scout.forceEntry = { operatorId = SC.GameplayUtil.idOf(actor), target = descriptor, state = {},
+        startedAt = SC.GameplayUtil.nowMs() }
+    if SC.Navigation then SC.Navigation.cancel(mission.leader.actor, "force_open_entry") end
+    return true, "force_open_queued"
+end
+
+function Expedition.noteEntryBlocked(actor, reason)
+    local scout = mission and mission.scout
+    if not scout or scout.kind ~= "search" or scout.phase ~= "entering_site"
+        or mission.leader.actor ~= actor or mission.terminal or scout.forceEntry
+        or not Expedition.hasEntryCrowbar() then return end
+    local nav = SC.Navigation.status(actor)
+    if nav.phase ~= "failed" and reason ~= "locked_door" and reason ~= "no_route"
+        and reason ~= "path_blocked" then return end
+    if scout._forceScanDone then return end
+    scout._forceScan = scout._forceScan or { bounds = scout.site.bounds }
+    local object, done = SC.ForceEntry.findSitePortal(actor, scout.site.id, mission.radioSession, scout._forceScan)
+    if done then scout._forceScanDone = true end
+    if not object then return end
+    for _, member in ipairs(mission.roster) do
+        if alive(member) and SC.ForceEntry.tool(member.actor)
+            and SC.ForceEntry.eligible(object, member.actor) then
+            return Expedition.queueForceEntry(member.actor, object)
+        end
+    end
+end
+
+function Expedition.forceEntryRequestFor(actor)
+    local force = mission and mission.scout and mission.scout.forceEntry
+    if not force or mission.terminal or mission.scout.phase ~= "entering_site" then return nil end
+    if SC.GameplayUtil.idOf(actor) == force.operatorId or mission.leader.actor == actor then return force end
+end
+
+function Expedition.cancelForceEntry(actor, reason)
+    local force = mission and mission.scout and mission.scout.forceEntry
+    if not force or force.failed or actor and SC.GameplayUtil.idOf(actor) ~= force.operatorId then return true end
+    for _, member in ipairs(mission.roster) do
+        if member.id == force.operatorId and member.actor then
+            local stopped, why = SC.ForceEntry.cancel(member.actor, reason)
+            if stopped ~= true then return false, why end
+        end
+    end
+    force.failed, force.reason = true, reason or "force_open_interrupted"
+    return true
+end
+
+function Expedition.updateForceEntry(actor, snapshot)
+    local force = Expedition.forceEntryRequestFor(actor)
+    if not force then return false, "force_open_unavailable" end
+    if force.failed or SC.GameplayUtil.idOf(actor) ~= force.operatorId then
+        SC.GameplayUtil.stop(actor)
+        return true, force.reason or "force_open_waiting"
+    end
+    local active = mission
+    local handled, reason, done = SC.ForceEntry.step(actor, force.target, force.state, {
+        snapshot = snapshot, borrow = false, missionId = active.radioSession,
+        useId = "expedition:" .. tostring(active.radioSession) .. ":" .. tostring(SC.GameplayUtil.nowMs()),
+        current = function() return mission == active and not active.terminal
+            and active.scout.phase == "entering_site" and active.scout.forceEntry == force end,
+    })
+    if done then
+        if reason == "force_open_succeeded" then
+            active.scout.forceEntry = nil
+            SC.Navigation.cancel(active.leader.actor, "force_open_succeeded")
+        else
+            force.failed, force.reason = true, reason
+        end
+        active.scout.siteEntryStartedAt = SC.GameplayUtil.nowMs()
+    end
+    return handled, reason
+end
+
+function Expedition.retryForceEntry(tripId)
+    local force = mission and mission.scout and mission.scout.forceEntry
+    if not force or not force.failed or mission.radioSession ~= tripId or mission.terminal
+        or mission.scout.phase ~= "entering_site" then return false, "force_open_retry_stale" end
+    local object = SC.BaseLife.resolveObject(force.target)
+    for _, member in ipairs(mission.roster) do
+        if alive(member) and SC.ForceEntry.tool(member.actor) then
+            return Expedition.queueForceEntry(member.actor, object)
+        end
+    end
+    return false, "force_crowbar_missing"
 end
 
 -- A tactical diversion can carry the leader past a standing waypoint.
@@ -5604,6 +5713,15 @@ local function pulseScout()
     end
     if scout.phase == "entering_site" then
         scout.siteEntryStartedAt = scout.siteEntryStartedAt or now
+        if scout.forceEntry and not scout.forceEntry.failed then
+            local force, worker = scout.forceEntry, nil
+            for _, member in ipairs(mission.roster) do
+                if member.id == force.operatorId and alive(member) then worker = member.actor end
+            end
+            if not worker or now - (force.startedAt or 0) > 90000 then
+                Expedition.cancelForceEntry(nil, "force_open_interrupted")
+            else scout.siteEntryStartedAt = now end
+        end
         if now - scout.siteEntryStartedAt >= 60000 then
             if type(SC.GameplayUtil.diagnostic) == "function" then
                 local leader = mission.leader.actor

@@ -423,10 +423,23 @@ do
     local actor = manual("drive-hostile")
     actor.data.SC_Recruited, T.records[actor.id].recruited = false, false
     SC.Commands.reset(actor)
-    SC.FactionBehavior = { intentFor = function() return { mode = "hostile" } end }
-    check(SC.Decision.update(actor, player, T.runtime()), "hostile faction policy preempts the lease")
+    local exits, controlled = T.exits, false
+    SC.FactionBehavior = {
+        intentFor = function() return { mode = "hostile", priority = 120 } end,
+        update = function(who, _, _, intent)
+            controlled = who == actor and intent.mode == "hostile"
+            return controlled, "hostile"
+        end,
+    }
+    local originalDue = SC.GameplayUtil.isDue
+    SC.GameplayUtil.isDue = function(_, key) return key == "decision_faction" end
+    local handled, reason = SC.Decision.update(actor, player, T.runtime())
+    SC.GameplayUtil.isDue = originalDue
+    check(handled, "hostile faction policy preempts the lease: " .. tostring(reason))
     check(Driving.jobStatus(actor).reason == "faction_priority" and not T.native[actor].active,
         "faction emergency uses the existing immediate-control policy")
+    check(controlled and T.exits == exits,
+        "the independent faction chooses its own seat policy after releasing the wheel")
     SC.FactionBehavior = nil
 end
 

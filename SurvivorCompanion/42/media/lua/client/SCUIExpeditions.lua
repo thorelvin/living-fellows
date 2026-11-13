@@ -836,6 +836,10 @@ function Planner.onButton(detail, button)
         local called, accepted = pcall(SC.ExpeditionPrototype.retryDeparturePreparation, button.scTripId)
         feedback(detail, tr(called and accepted == true and "UI_SC_Expedition_PreparationRetryQueued"
             or "UI_SC_Expedition_PreparationBlocked"), called and accepted == true)
+    elseif action == "retry_force_entry" then
+        local called, accepted, why = pcall(SC.ExpeditionPrototype.retryForceEntry, button.scTripId)
+        feedback(detail, tr(called and accepted == true and "UI_SC_State_force_open_queued"
+            or "UI_SC_State_" .. tostring(why or "force_open_failed")), called and accepted == true)
     elseif action == "refresh" and draft.kind == "wood" then
         draft.woodPreviewComplete, draft.forestSite = nil, nil
         Planner.refreshForestPreview(detail)
@@ -1093,6 +1097,14 @@ function Planner.build(detail, panel)
         if view and view.plannedSite then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PlannedDestination", view.plannedSite))
+        end
+        if mission.scout and mission.scout.forceEntry then
+            local force = mission.scout.forceEntry
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                SC.UI.stateText(force.reason or "force_open_working"))
+            if force.failed then
+                y = addButton(detail, panel, y, "UI_SC_Action_RetryForceOpen", "retry_force_entry", mission.radioSession)
+            end
         end
         if view and view.fuelProgress then
             local progress=view.fuelProgress

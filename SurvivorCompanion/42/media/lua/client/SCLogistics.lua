@@ -1138,7 +1138,7 @@ local function selectPackMove(actor, audit, options)
     return best
 end
 
-local function commitWearable(actor, record)
+local function commitWearable(actor, record, transaction)
     local utility = U()
     local root = utility.inventory(actor)
     local source = record.source
@@ -1191,7 +1191,15 @@ local function commitWearable(actor, record)
     end
     recordLocation = (recordLocationOk and recordLocation ~= nil) and recordLocation
         or record.location
-    local result, setOk = utility.call(actor, "setWornItem", recordLocation, record.item)
+    local result, setOk
+    if transaction and SC.NativeActions and type(SC.NativeActions.commitClothingVisual) == "function" then
+        setOk, result = true, SC.NativeActions.commitClothingVisual(actor,
+            transaction and transaction.visualToken, record.item)
+    else
+        -- The player's explicit Wear command applies immediately. Autonomous
+        -- logistics requires its exact completed stock action before commit.
+        result, setOk = utility.call(actor, "setWornItem", recordLocation, record.item)
+    end
     local verified = setOk and result ~= false and isWorn(actor, record.item, record.location)
     if not verified then
         if isWorn(actor, record.item, record.location) then
@@ -1223,8 +1231,8 @@ local function commitWearable(actor, record)
 end
 
 -- The exact item chosen in the borrowed loot pane may be inside a worn bag.
--- Keep native ownership and the existing verified replacement rollback in one
--- place rather than asking vanilla's player-targeted Wear action to do it.
+-- The player's explicit Wear command retains immediate equipment handling;
+-- autonomous wardrobe changes use the native timed action and this rollback.
 function Logistics.equipExactWearable(actor, item)
     if not U().isValidActor(actor) or not item then return false, "invalid_wear_request" end
     local location = wearableLocation(item)
@@ -1857,7 +1865,7 @@ local function advanceTransactionVisual(actor, transaction)
             return false, "logistics_action_active"
         end
         if status == "completed" then
-            clearVisual(actor)
+            if transaction.kind ~= "wear" and transaction.kind ~= "unwear" then clearVisual(actor) end
             if service and token and type(service.markVisualVerified) == "function" then
                 service.markVisualVerified(token, { action = visualAction })
             end
@@ -1877,8 +1885,15 @@ local function advanceTransactionVisual(actor, transaction)
     stopForInventoryAction(actor)
     local intent = (transaction.kind == "wear" or transaction.kind == "unwear") and {
         action = "wear_clothing", item = transaction.item,
+        unwear = transaction.kind == "unwear",
         wearLocation = transaction.record and transaction.record.location,
         durationTicks = 90, supervisorToken = token,
+        validate = function()
+            local state = states[actor]
+            return state and state.transaction == transaction
+                and (U().inventoryContains(transaction.source, transaction.item)
+                    or U().inventoryContains(U().inventory(actor), transaction.item))
+        end,
     } or {
         action = "loot_container", item = transaction.item,
         container = transaction.destination,
@@ -1903,7 +1918,8 @@ local function advanceTransactionVisual(actor, transaction)
         end
         return false, "logistics_action_active"
     end
-    if status == "completed" then clearVisual(actor)
+    if status == "completed" then
+        if transaction.kind ~= "wear" and transaction.kind ~= "unwear" then clearVisual(actor) end
     elseif status ~= nil then return nil, "logistics_animation_" .. tostring(status) end
     if service and token and type(service.markVisualVerified) == "function" then
         service.markVisualVerified(token, { action = visualAction, tracked = status ~= nil })
@@ -1958,7 +1974,13 @@ local function executeTransaction(actor, state)
             return terminalTransaction(actor, state, false, "manual_mask_cleanup_protected")
         end
         markTransactionCommitting(transaction)
-        local _, removed = U().call(actor, "removeWornItem", transaction.item, false)
+        local removed
+        if SC.NativeActions and type(SC.NativeActions.commitClothingVisual) == "function" then
+            removed = SC.NativeActions.commitClothingVisual(actor, transaction.visualToken, transaction.item, true)
+        else
+            local ignored
+            ignored, removed = U().call(actor, "removeWornItem", transaction.item, false)
+        end
         local verified = removed and not isWorn(actor, transaction.item)
             and U().inventoryContains(transaction.source, transaction.item)
         markTransactionVerifying(transaction, { kind = transaction.kind })
@@ -1970,7 +1992,7 @@ local function executeTransaction(actor, state)
 
     if transaction.kind == "wear" then
         markTransactionCommitting(transaction)
-        local equipped, equipReason = commitWearable(actor, transaction.record)
+        local equipped, equipReason = commitWearable(actor, transaction.record, transaction)
         markTransactionVerifying(transaction, { kind = transaction.kind })
         if equipped and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "wear_equipment", "equipped", {

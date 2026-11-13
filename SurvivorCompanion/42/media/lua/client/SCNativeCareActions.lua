@@ -196,7 +196,9 @@ end
 
 local handled = { repair = true, craft_supply = true, wash_self = true,
     shower = true, wash_equipment = true, wash_bandage = true }
-function Care.handles(kind) return handled[kind] == true end
+function Care.handles(kind, activity)
+    return handled[kind] == true or kind == "weather_recovery" and activity and activity.item ~= nil
+end
 
 -- Native actions collect soaps from the actor, never the local player. Filter
 -- and reserve their exact list before starting, including soap held in a bag.
@@ -207,6 +209,12 @@ function Care.prepare(actor, activity)
         for _, item in ipairs(activity.materials or {}) do inputs[#inputs + 1] = item end
     elseif activity.kind == "craft_supply" then
         for _, item in ipairs(activity.scraps or {}) do inputs[#inputs + 1] = item end
+    elseif activity.kind == "weather_recovery" then
+        if not contains(actor, activity.item) or protected(actor, activity.item, "dry_self") then
+            return false, "native_drying_towel_unavailable"
+        end
+        activity.itemContainer = select(1, call(activity.item, "getContainer"))
+        activity.replacementType = select(1, call(activity.item, "getReplaceOnDeplete"))
     elseif activity.kind ~= "wash_bandage" then
         local soaps, okay = call(U().inventory(actor), "getSoapList", nil, activity.kind == "wash_equipment")
         soaps = okay and rows(soaps, 64) or nil
@@ -231,7 +239,9 @@ function Care.valid(actor, activity)
             or U().distance(actor, activity.craftSurface) >= 3 then return false end
     end
     for _, item in ipairs(activity.nativeInputs or {}) do
-        if not contains(actor, item) then return false end
+        local replaced = activity.kind == "weather_recovery" and item == activity.item
+            and activity.nativeOutput and contains(actor, activity.nativeOutput)
+        if not replaced and not contains(actor, item) then return false end
         if item ~= activity.item and protected(actor, item) then return false end
     end
     if activity.kind == "repair" then
@@ -255,6 +265,8 @@ function Care.valid(actor, activity)
         for _, item in ipairs(activity.scraps or {}) do if protected(actor, item) then return false end end
     elseif activity.kind == "wash_bandage" then
         if protected(actor, activity.item, "wash_bandage") then return false end
+    elseif activity.kind == "weather_recovery" then
+        if activity.nativeFailure or protected(actor, activity.item, "dry_self") then return false end
     end
     return true
 end
@@ -295,6 +307,12 @@ function Care.create(actor, activity, context)
         end
         action = ISHandcraftAction:new(actor, recipe, context.list({ U().inventory(actor) }), activity.craftSurface, nil, manual, nil, nil, 1, 0)
         effect = "performRecipe"
+    elseif activity.kind == "weather_recovery" then
+        load("TimedActions/ISDryMyself")
+        if not ISDryMyself then return nil, "native_drying_unavailable" end
+        activity.rootBefore = {}
+        for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do activity.rootBefore[item] = true end
+        action = ISDryMyself:new(actor, activity.item)
     elseif activity.kind == "wash_self" or activity.kind == "shower" then
         load("TimedActions/ISWashClothing"); load("TimedActions/ISWashYourself")
         if not ISWashYourself then return nil, "native_self_wash_unavailable" end
@@ -346,6 +364,9 @@ function Care.after(actor, activity, action, context)
         local outputs = okay and rows(created, 4) or nil
         if not outputs or #outputs ~= 1 or U().itemType(outputs[1]) ~= activity.outputType then return false end
         activity.nativeOutput = outputs[1]
+    elseif activity.kind == "weather_recovery" then
+        return (activity.nativeDrySteps or 0) > 0
+            and (contains(actor, activity.item) or activity.nativeOutput and contains(actor, activity.nativeOutput)) == true
     elseif activity.kind == "wash_bandage" then
         local output
         if contains(actor, activity.item) then return false end
@@ -365,6 +386,58 @@ function Care.after(actor, activity, action, context)
         end
     end
     return true
+end
+
+-- Drying's effects are incremental, unlike washing's single complete().
+-- Observe each stock use, including its real wet-towel replacement. The
+-- facade supplies ownership/cancellation and the exact original-bag return.
+function Care.guardDrying(actor, activity, action, context)
+    local use, update, valid = action.useAndDry, action.update, action.isValid
+    action.useAndDry = function(self, sync)
+        if self.character ~= actor or not context.current() or activity.nativeDryFinished
+            or not self:isValid() then return false end
+        if activity.nativeDryLastUse == self.lastUse then return false end
+        activity.nativeDryLastUse = self.lastUse
+        local before = U().characterStatValue(actor, "WETNESS", nil)
+        local uses = tonumber((select(1, call(activity.item, "getCurrentUsesFloat"))))
+        if not before or not uses or before <= 0 or uses <= 0 then return false end
+        use(self, sync)
+        local after = U().characterStatValue(actor, "WETNESS", nil)
+        local survives = contains(actor, activity.item)
+        local remaining = survives and tonumber((select(1, call(activity.item, "getCurrentUsesFloat")))) or 0
+        if not after or after >= before or not remaining or remaining >= uses then
+            activity.nativeFailure = "native_drying_effect_uncertain" self:forceStop() return false
+        end
+        activity.nativeDrySteps = (activity.nativeDrySteps or 0) + 1
+        activity.fact.towelUsed = U().itemType(activity.item)
+        if not survives then
+            local output
+            for _, candidate in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
+                if not activity.rootBefore[candidate] and U().itemType(candidate) == activity.replacementType then
+                    if output then output = nil break end
+                    output = candidate
+                end
+            end
+            if not output then activity.nativeFailure = "native_drying_replacement_uncertain" self:forceStop() return false end
+            activity.nativeOutput = output
+            if select(1, call(activity.item, "isFavorite")) then call(output, "setFavorite", true) end
+            if select(1, call(activity.item, "isCustomName")) then call(output, "setName", (select(1, call(activity.item, "getName")))) end
+            context.returnReplacement(output)
+        end
+        activity.nativeDryFinished = not survives or remaining <= 0 or after <= 0
+        return true
+    end
+    action.isValid = function(self)
+        if activity.nativeDryFinished then
+            return self.character == actor and context.current() and context.validate() == true and Care.valid(actor, activity)
+        end
+        return valid(self)
+    end
+    action.update = function(self)
+        if not context.current() then self:forceStop()
+        elseif activity.nativeDryFinished then self:forceComplete()
+        else update(self) end
+    end
 end
 
 return Care
