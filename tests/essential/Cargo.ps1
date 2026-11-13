@@ -75,6 +75,7 @@
     (Join-Path $Client 'SCExpeditionRoute.lua'),
     (Join-Path $Client 'SCDriving.lua'),
     (Join-Path $Client 'SCConvoy.lua'),
+    (Join-Path $Client 'SCGuardPost.lua'),
     (Join-Path $Client 'SCCommands.lua'),
     (Join-Path $Client 'SCDecision.lua'),
     (Join-Path $Client 'SCRuntime.lua'),

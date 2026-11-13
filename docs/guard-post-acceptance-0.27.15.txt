@@ -1,0 +1,92 @@
+Guard-here release -- 0.27.15 -- 2026-11-13
+
+Scope
+  Manual doorway and top-landing posts. Automatic safe-ground selection,
+  earlier stair perception and general squad withdrawal remain later work.
+  Existing personal emergencies and native swing ownership keep priority.
+
+Automated
+  guard_post_harness.lua exercises the real command, topology, decision and
+  combat boundaries in Kahlua. Twelve checks cover protected-side capture,
+  stable positions, no patrol, unchanged ordinary patrols, stair direction,
+  restored orders, no chase, return to post, sustained group withdrawal,
+  blocked geometry, scheduling and facing the approach.
+  Optional guardSide order data is stored without changing save schemas.
+  The source contract checks all four production integration points.
+
+Negative controls (each exited 1 at the named check)
+  G01 disable choke order capture; G02 reverse guard ID ordering;
+  G03 bypass fixed-post handling; G04 treat ordinary ground as a choke;
+  G05 reject the top stair piece; G06 omit the exported protected side;
+  G07 disable the combat movement clamp; G08 disable return to post;
+  G09 withdraw immediately; G10 discard blocked-post state;
+  G11 omit fixed-post scheduling; G12 remove approach-facing;
+  source contract: remove the saved guardSide field.
+  Exact source bytes were restored in a finally block and SHA-256 verified
+  after every mutation. Positive Behaviour checks passed after restoration.
+  Restore hashes for the original controls:
+    Commands: 422b00d343c1072b2d9aecb67e5009066a6a9085d29779cfca8f29d07be77e1a
+    Decision: fe99cad03bee90a6428fb01f8e4d655b5f2be1daef8e97dde0be62d980f0c08e
+    Combat:   11e70d6fdc3525404692eb57bfcab06f1e003419660079e9020cebd1a5eb7714
+    Post:     5c69d29a163df377cde0d9a39d1bfb3fe4c719eec8e6a08f2d3ffffc13a36fb6
+    Save:     25f612ca08b39ff42f7460a5d5ed8d4bf70e7b62b21fa7992d2dce7f885ba60c
+  Facing was added afterward and its separate control restored Post hash:
+    689c5306d2356ba5e6413e754ceb7919ff4591a7ababf385951a4b2559e03ab6
+  G02 also tests guards in different squads sharing one physical post. Restoring
+  the old squad filter failed G02; exact restored Post hash:
+    60f9ade30fe371a71588e2f5fb291f5f75d7f18d2caf70d83380bb88e48868ad
+
+Live explicit-post acceptance
+  Invoke-LiveSandboxTests.ps1 -StairCombatProbe -StairCombatMode guard
+      -LivingFellowsOnly -IsolatedSourceBridge -TimeoutSeconds 600
+  Disposable clone, one game at a time, no installed launcher/save changes.
+  Run SC-Harness-20261113-213545-2226c396: PASS.
+
+  Two native companions, real crowbars, ordinary native zombies:
+    Landing at 5810,5230,1: two guards settled on assigned positions;
+      three zombies below; 2/2 survived; zero slope samples in 45 seconds.
+    House door at 5849,5228,0, outside camp: two guards settled;
+      three zombies outside; 2/2 survived in 45 seconds.
+    Same door, twelve zombies outside: real squad plan progressed through
+      give_ground to disengage, then both orders became Retreat; 2/2 alive.
+      The timeline records disengage before withdrawal, never an injected plan.
+  Quiet posts stayed at their assigned positions. Maximum combat displacement
+  was 1.90 m at the stairs and 4.30 m at the door during personal retreats.
+  These are not absolute combat tethers: emergencies can leave the post.
+  No kills occurred in these three trials. They verify positioning and
+  withdrawal, not improved damage. The known stair standoff remains.
+  Zoomed-out holding, combat and end screenshots were inspected locally.
+
+  Earlier runs d964567f and d331e57f are invalid acceptance: the nearby camera
+  observer fell through an upstairs gap or was killed beside the fight.
+  Failure screenshots were kept. The final run checks real supporting floor,
+  keeps the observer behind the doorway and fails if the observer dies.
+
+Ordinary squad arena and limitations
+  Same seed, real crowbars, full endurance, zero fatigue, three trials per case.
+  The fixture now clears ambient attackers near the remote observer before
+  spawning each trial. No immunity, resurrection or mid-trial healing.
+  The first arena run (81e85c76) was invalid: ambient zombies killed the
+  observer, changing the player tether. It was stopped and not counted.
+
+  Run c978195e, 0.27.15:
+    3 vs 2: survivors 9/9; kills 6/6; no companion health lost.
+    3 vs 6: survivors 8/9; kills 15/18 (3,6,6). One companion died.
+  Paired control 2e19592b, unmodified 0.27.14 Lua and bridge, same corrected
+  fixture: 3 vs 6 survivors 9/9; kills 15/18 (6,4,5).
+  Final build run 3c2438fc, 0.27.15:
+    3 vs 6: survivors 9/9; kills 18/18 (6,6,6).
+    Health lost per trial: 0, 41.48, 29.43.
+
+  The final run matches the prior best survival/kill benchmark. The weaker
+  run remains recorded: three-trial samples vary and do not prove identical
+  combat strength. This release makes no general combat-damage claim.
+
+Release checks
+  PROJECT_TEST_PASS checks=5, run 20261113-220051-cdbe82, 106.2 seconds.
+  SOURCE_TEST_PASS scope=All; LIVE_HARNESS_STATIC_PASS assertions=152.
+  The first full gate caught a missing SCGuardPost dependency in the isolated
+  driving test loader. That loader was fixed before the passing full gate.
+  Lua implementation; native code/protocol and save schemas unchanged.
+  Rebuilt bridge SHA-256:
+    399730939ef241e662c13ce9d9582a5fda2cd6138cbaf7893a9a8f04ae89dffe

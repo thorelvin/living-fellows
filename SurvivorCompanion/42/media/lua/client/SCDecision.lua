@@ -868,13 +868,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 add("follow", 48, false)
             end
         elseif commands.order == "stay" or commands.order == "guard" then
+            local post = SC.GuardPost and SC.GuardPost.forActor(actor, state, commands, current)
             local anchor = type(commands.anchor) == "table" and U().loadedSquare(commands.anchor) or nil
             local allowed = commands.order == "guard" and (U().config("guardRadius") or 5) or 0.7
             local outside = anchor and U().distance(actor, anchor) > allowed
-            local patrolDue = commands.order == "guard" and (
+            local patrolDue = commands.order == "guard" and not post and (
                 state.guardPatrolTarget ~= nil or current >= (state.guardPatrolDue or 0))
-            if outside or patrolDue then add("tactical", 56, false) end
-            if not bleeding and not commands.expeditionMoving then
+            if post or outside or patrolDue then add("tactical", 56, false) end
+            if not post and not bleeding and not commands.expeditionMoving then
                 add("downtime", 30, false)
             end
         elseif commands.order == "move_to" or commands.order == "check_room"
@@ -1952,6 +1953,12 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         return doWork(actor, player, commands, snapshot, state)
     end
     if commands.order == "stay" or commands.order == "guard" then
+        local post = SC.GuardPost and SC.GuardPost.forActor(actor, rootRuntime, commands, utility.nowMs())
+        if post then
+            state.guardPatrolTarget = nil
+            if post.withdrawn and SC.GuardPost.release(actor, player, post) then return true, "guard_choke_withdrawal" end
+            return SC.GuardPost.move(actor, post, snapshot)
+        end
         local anchor = anchorSquare(commands) or utility.squareOf(actor)
         local allowed = commands.order == "guard" and (utility.config("guardRadius") or 5) or 0.7
         if utility.distance(actor, anchor) > allowed then

@@ -1387,6 +1387,7 @@ function persistence.captureRecord(record, vehicleState, options)
             commandSerial = commandSerial,
             followDistance = finite(order.followDistance, SC.Config.get("defaultFollowDistance")),
             anchor = orderAnchor,
+            guardSide = SC.GuardPost and SC.GuardPost.copySide(order.guardSide) or nil,
             scavenge = order.scavenge ~= false,
             allowOverload = order.allowOverload == true,
             rideWithPlayer = order.rideWithPlayer ~= false,
@@ -2724,6 +2725,10 @@ local function validateRecord(id, source)
         if type(serial) ~= "number" or serial ~= math.floor(serial) or serial < 0 or serial > 10000000 then
             return nil,"invalid saved command serial"
         end
+    end
+    if type(source.order) == "table" and source.order.guardSide ~= nil
+        and (not SC.GuardPost or not SC.GuardPost.copySide(source.order.guardSide)) then
+        return nil, "invalid saved guard side"
     end
     if source.vehicle == nil then
         if type(source.position) ~= "table" or finite(source.position.x, nil) == nil

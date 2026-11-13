@@ -27,6 +27,12 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   `SCNativeActions` reports no activity, so the release never races a live vanilla
   timed action. The force-release records a retry, so the failing owner backs off.
 - `SCNativeActions` interprets every movement or action intent and reports success only after the native state/action was verified.
+- `SCGuardPost` resolves explicit doorway and stair-landing Guard orders into
+  stable positions on the protected side. It has no hooks or background scan;
+  geometry and roster checks run only for those orders, with a short runtime
+  cache. Commands persist only the cardinal protected side. Combat retains
+  native swing ownership and personal emergencies; sustained squad disengagement
+  releases all guards at that post through the existing Retreat command.
 - `SCNativeTraversalActions` implements verified window, fence, wall, sheet-rope,
   and downed-state transitions. Every request still enters through
   `SCNativeActions.dispatch`; pacing, activity ownership, interruption, seating,

@@ -12,6 +12,7 @@ if not SC.Journal and type(require) == "function" then pcall(require, "SCJournal
 if not SC.BaseLife and type(require) == "function" then pcall(require, "SCBaseLife") end
 if not SC.BaseWork and type(require) == "function" then pcall(require, "SCBaseWork") end
 if not SC.ForceEntry and type(require) == "function" then pcall(require, "SCForceEntry") end
+if not SC.GuardPost and type(require) == "function" then require "SCGuardPost" end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.Commands = SC.Commands or {}
@@ -83,7 +84,7 @@ local stableDataKeys = {
     "SC_Group", "SC_Trust",
     "SC_Personality",
     "SC_Bond", "SC_Morale", "SC_Stress", "SC_TimeTogetherMs",
-    "SC_CommandSerial", "SC_LastDowntime", "SC_AnchorX", "SC_AnchorY", "SC_AnchorZ",
+    "SC_CommandSerial", "SC_LastDowntime", "SC_AnchorX", "SC_AnchorY", "SC_AnchorZ", "SC_GuardSide",
     "SC_WorkMode", "SC_WorkX", "SC_WorkY", "SC_WorkZ", "SC_WorkObjectIndex",
     "SC_WorkObjectId", "SC_WorkObjectSignature",
     "SC_WorkInitialPlanks",
@@ -96,7 +97,7 @@ local stableEntryKeys = {
     "moveMode", "moveModeVersion", "combatMode", "combatDoctrine", "holdFire", "weaponPriority", "group", "trust", "bond", "morale", "stress",
     "timeTogetherMs", "memories", "background", "care", "reveals", "ritual", "tales", "flavor", "lastDowntime", "state",
     "personalityProfile", "objectives", "possessions",
-    "workMode", "workTarget", "returnOrder", "returnWorkMode",
+    "workMode", "workTarget", "returnOrder", "returnWorkMode", "guardSide",
 }
 
 local function migratedDoctrine(explicit, combatMode, weaponPriority, holdFire)
@@ -353,6 +354,8 @@ local function snapshotState(actor, entry)
     if type(anchorX) == "number" and type(anchorY) == "number" then
         state.anchor = { x = anchorX, y = anchorY, z = anchorZ or 0 }
     end
+    state.guardSide = SC.GuardPost.copySide(valueFrom(data, { "SC_GuardSide" },
+        valueFrom(entry, { "guardSide" }, persistedOrder.guardSide)))
     local persistedTarget = valueFrom(entry, { "workTarget" }, persistedOrder.workTarget)
     local workX = valueFrom(data, { "SC_WorkX" },
         type(persistedTarget) == "table" and persistedTarget.x or nil)
@@ -526,6 +529,7 @@ local function writeStable(actor, entry, state)
         data.SC_TimeTogetherMs = state.timeTogetherMs
         data.SC_CommandSerial = state.commandSerial
         data.SC_LastDowntime = stableLastDowntime
+        data.SC_GuardSide = state.order == "guard" and SC.GuardPost.copySide(state.guardSide) or nil
         data.SC_WorkMode = state.workMode
         data.SC_ReturnOrder = state.returnOrder
         data.SC_ReturnWorkMode = state.returnWorkMode
@@ -563,6 +567,7 @@ local function writeStable(actor, entry, state)
                 current = state.order,
                 commandSerial = state.commandSerial,
                 followDistance = state.followDistance,
+                guardSide = state.order == "guard" and SC.GuardPost.copySide(state.guardSide) or nil,
                 scavenge = state.scavenge,
                 allowOverload = state.allowOverload,
                 rideWithPlayer = state.rideWithPlayer,
@@ -797,6 +802,7 @@ local function setOrder(actor, entry, state, order, anchor, updates)
     end
     clearWorkState(state)
     state.order = order
+    state.guardSide = nil
     state.tacticalTarget = nil
     state.pendingInteraction = nil
     if anchor then state.anchor = positionTable(anchor) end
@@ -1180,6 +1186,12 @@ local function handleGuard(actor, entry, state, payload)
     if anchor ~= nil then
         anchor = U().loadedSquare(anchor)
         if anchor == nil then return false, "invalid_guard_post" end
+    end
+    local post = SC.GuardPost.detect(actor, anchor or actor)
+    if post then
+        return setOrder(actor, entry, state, "guard", post, {
+            guardSide = { x = post.dx, y = post.dy },
+        })
     end
     if insideActiveBase(anchor or actor) then
         local onDuty, dutyReason = enterBaseDuty(actor, entry, state, "guard", anchor or actor)
@@ -3480,6 +3492,7 @@ function Commands.export(actor)
         factionRole = detached.factionRole,
         order = detached.order,
         commandSerial = detached.commandSerial,
+        guardSide = detached.order == "guard" and SC.GuardPost.copySide(detached.guardSide) or nil,
         followDistance = detached.followDistance,
         scavenge = detached.scavenge,
         allowOverload = detached.allowOverload,

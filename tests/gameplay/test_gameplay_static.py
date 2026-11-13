@@ -1070,6 +1070,16 @@ def main() -> int:
 
     dialogue_pools_reachable()
 
+    guard_post = (CLIENT / "SCGuardPost.lua").read_text(encoding="utf-8")
+    require("SC.GuardPost.detect(actor" in sources["SCCommands.lua"]
+            and "SC_GuardSide" in sources["SCCommands.lua"]
+            and "SC.GuardPost.move(actor" in sources["SCDecision.lua"]
+            and "SC.GuardPost.observe(actor" in sources["SCCombat.lua"]
+            and "not action.guardHold" in sources["SCCombat.lua"]
+            and "guardSide = SC.GuardPost" in (CLIENT / "SCPersistence.lua").read_text(encoding="utf-8")
+            and "function Post.forActor" in guard_post,
+            "explicit guard posts must connect commands, decisions, combat and persistence")
+
     print(
         f"Static gameplay contracts PASS: {CHECKS} assertions, "
         f"{len(OWNED)} sources, {len(REQUIRED_COMMANDS)} commands"

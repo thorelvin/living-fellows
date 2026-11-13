@@ -35,6 +35,7 @@ function Get-ScGameplayFiles {
         'SCThreatSet.lua',
         'SCCombatThreatModel.lua',
         'SCCombatSquad.lua',
+        'SCGuardPost.lua',
         'SCPerceptionScan.lua',
         'SCZombieFacts.lua',
         'SCSenses.lua',

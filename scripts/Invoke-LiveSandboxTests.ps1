@@ -246,6 +246,7 @@ param(
     [switch]$SquadCombatProbe,
     # Stair combat facts: one companion and one zombie at opposite ends of a real staircase.
     [switch]$StairCombatProbe,
+    [ValidateSet('measurement', 'guard')][string]$StairCombatMode = 'measurement',
     [ValidateRange(1, 5)][int]$StairCombatTrials = 3,
     [switch]$FollowerBoardingProbe,
     [switch]$NeedsPriorityProbe,
@@ -2148,6 +2149,7 @@ $config = @(
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_probe=' + $StairCombatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_trials=' + $StairCombatTrials),
+    ('stair_combat_mode=' + $StairCombatMode),
     ('follower_boarding_probe=' + $FollowerBoardingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('needs_priority_probe=' + $NeedsPriorityProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_front_only=' + $SquadCombatFrontOnly.IsPresent.ToString().ToLowerInvariant()),

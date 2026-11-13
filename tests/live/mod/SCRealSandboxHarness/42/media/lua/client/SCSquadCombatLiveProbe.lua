@@ -857,6 +857,10 @@ function Probe.step(H, current, check, result, setPhase)
     end
     if H.phase == "squad_combat_prepare" then
         if current < (H.squadCombatNextAt or 0) then return end
+        -- The observer remains at the seed's home, away from the arena. Clear
+        -- ambient attackers before spawning this trial, too; its death changes
+        -- the player tether and invalidates the comparison. No immunity or healing.
+        H.clearZombiesNear(H.player, 15)
         H.clearZombiesNear(H.squadCombatArena, 20)
         H.squadCombatCase = H.squadCombatCases[H.squadCombatCaseIndex]
         H.squadCombatSurvivorSquares = survivorSquares(H.squadCombatArena)

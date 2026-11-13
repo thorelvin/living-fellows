@@ -997,6 +997,8 @@ local valueData = {
     followFarDistance = 18,
     followRecoveryDistance = 42,
     guardRadius = 5,
+    guardChokeHoldRadius = 0.7,
+    guardChokeDisengageMs = 2500,
     -- Long enough for a guard to finish a natural idle/read/repair cycle
     -- between short patrol legs instead of pacing continuously.
     guardPatrolIntervalMs = 30000,

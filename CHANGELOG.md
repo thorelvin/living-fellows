@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.15 - Guard the doorway
+
+- Aim "Guard here" at a doorway or the top landing of stairs to hold that
+  entrance. Guards face the approach and keep their positions instead of
+  starting a patrol.
+- Guards sharing the post line up on its protected side. The first holds the
+  entrance, the second stands behind, and additional guards stay farther back.
+  Doorway orders remember which side to protect after saving and loading.
+- If the squad keeps calling for a withdrawal, the whole post falls back
+  toward you. Personal emergencies and an attack already in progress still
+  take priority. Guarding ordinary ground keeps its usual patrol.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.14 - Holding the stairs
 
 - Companions no longer step onto a staircase to fight. They meet a zombie at

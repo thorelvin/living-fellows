@@ -265,7 +265,227 @@ local function sample(H, current, result, setPhase)
     if elapsed >= TRIAL_MS then return finishTrial(H, current, result, setPhase, "timeout") end
 end
 
+-- Optional explicit-post acceptance uses the same real staircase, plus a
+-- loaded house door. It never supplies fake perceptions or combat plans.
+local function guardPhoto(H, label)
+    pcall(function()
+        getCore():setAutoZoom(0, false)
+        for _ = 1, 8 do if getCore():getZoom(0) < 1.8 then getCore():doZoomScroll(0, 1) end end
+        getCore():TakeFullScreenshot(H.config.run_id .. "-guard-" .. label .. ".png")
+    end)
+end
+
+local function guardDoor(SC, cx, cy)
+    local U, best, distance = SC.GameplayUtil
+    for y = cy - 45, cy + 45 do for x = cx - 45, cx + 45 do
+        local sq = U.gridSquare(x, y, 0)
+        if sq then U.squareObjects(sq, function(object)
+            if not U.instanceOf(object, "IsoDoor") or call(object, "isGarageDoor") == true then return end
+            local north = call(object, "getNorth")
+            local other = U.gridSquare(x - (north and 0 or 1), y - (north and 1 or 0), 0)
+            local inside, outside, dx, dy
+            if call(sq, "getRoom") and other and not call(other, "getRoom") then
+                inside, outside, dx, dy = sq, other, north and 0 or 1, north and 1 or 0
+            elseif other and call(other, "getRoom") and not call(sq, "getRoom") then
+                inside, outside, dx, dy = other, sq, north and 0 or -1, north and -1 or 0
+            end
+            if not inside or inCamp(SC, inside) then return end
+            local ix, iy = U.position(inside)
+            local post = { x = ix, y = iy, z = 0, dx = dx, dy = dy }
+            for depth = -4, 3 do
+                local tile = U.gridSquare(ix + dx * depth, iy + dy * depth, 0)
+                if not tile or not U.isSquareFree(tile) or SC.Topology.squareHasStairs(tile)
+                    or call(tile, "TreatAsSolidFloor") ~= true then return end
+                if depth > 0 then
+                    local previous = U.gridSquare(ix + dx * (depth - 1), iy + dy * (depth - 1), 0)
+                    local edge = SC.Topology.classifyEdge(nil, previous, tile, {})
+                    if not edge or not edge.traversable or edge.affordance ~= "open" then return end
+                end
+            end
+            local d2 = (ix - cx)^2 + (iy - cy)^2
+            if not distance or d2 < distance then
+                best, distance = { square = inside, outside = outside, object = object, post = post }, d2
+            end
+        end, 32) end
+    end end
+    return best
+end
+
+local function guardCleanup(H)
+    local SC = SurvivorCompanion
+    for _, zombie in ipairs(H.guardZombies or {}) do removeZombie(zombie) end
+    for _, actor in ipairs(H.guardActors or {}) do
+        if alive(actor) then pcall(SC.Actor.remove, actor) else pcall(SC.Actor.retireDead, actor) end
+    end
+    H.guardZombies, H.guardActors = {}, {}
+end
+
+local function guardStep(H, current, check, result, setPhase)
+    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local function fail(id, why)
+        guardPhoto(H, "blocked-" .. id)
+        result("FAIL", id, tostring(why)); H.guardFailedAt = current
+        setPhase("stair_combat_guard_failed", current)
+    end
+    if H.phase == "stair_combat_guard_failed" then
+        if current - H.guardFailedAt >= 2000 then guardCleanup(H); setPhase("finish", current) end
+        return
+    end
+    if H.phase == "stair_combat_setup" then
+        if current - H.phaseStartedAt < 4000 then return end
+        for _, actor in ipairs(SC.Registry.living()) do pcall(SC.Actor.remove, actor) end
+        local x, y = U.position(H.player)
+        H.stair = findStair(SC, math.floor(x), math.floor(y), 70)
+        H.guardDoor = guardDoor(SC, math.floor(x), math.floor(y))
+        if not H.stair or not H.guardDoor then return fail("guard_geometry", "stairs="
+            .. tostring(H.stair ~= nil) .. " door=" .. tostring(H.guardDoor ~= nil)) end
+        pcall(function() getGameTime():setTimeOfDay(12) end)
+        pcall(function() H.player:setGhostMode(true) end)
+        pcall(function() if SC.UI then SC.UI.close() end end)
+        pcall(function() getPlayerInventory(0):setVisible(false); getPlayerLoot(0):setVisible(false) end)
+        H.guardCase = 1
+        H.guardActors, H.guardZombies = {}, {}
+        setPhase("stair_combat_guard_prepare", current); return
+    end
+    if H.phase == "stair_combat_guard_prepare" then
+        if H.guardCase > 3 then setPhase("finish", current); return end
+        local square = H.guardCase == 1 and H.stair.landing or H.guardDoor.square
+        local post = SC.GuardPost.detect(H.player, square, H.guardCase > 1 and {
+            x = H.guardDoor.post.dx, y = H.guardDoor.post.dy } or nil)
+        if not post then return fail("guard_detect", key(square)) end
+        H.guardPost = post
+        H.clearZombiesNear(square, 18)
+        H.clearZombiesNear(H.stair.exit, 15)
+        H.guardActors, H.guardZombies, H.guardTickets = {}, {}, {}
+        H.guardSamples, H.guardSlope, H.guardMaxDrift = 0, 0, 0
+        for i = 1, 2 do
+            local spawn = U.gridSquare(post.x + post.dx * (i - 1), post.y + post.dy * (i - 1), post.z)
+            local ticket, why = SC.Actor.beginSpawn(spawn, { recruited = true, identity = {
+                forename = "Guard", surname = tostring(H.guardCase) .. " " .. tostring(i),
+                gender = i == 1 and "woman" or "man", outfit = "Generic01" } })
+            if not ticket then return fail("guard_spawn", why) end
+            H.guardTickets[i] = ticket
+        end
+        local observer
+        local offsets = H.guardCase == 1 and { { 2, 1 }, { 2, -1 }, { 3, 0 }, { 1, 1 }, { 1, -1 } }
+            or { { 10, 0 }, { 10, 2 }, { 10, -2 }, { 8, 0 }, { 8, 2 }, { 8, -2 }, { 6, 0 } }
+        for _, offset in ipairs(offsets) do
+            local sq = U.gridSquare(post.x + post.dx * offset[1] - post.dy * offset[2],
+                post.y + post.dy * offset[1] + post.dx * offset[2], post.z)
+            if sq and call(sq, "TreatAsSolidFloor") == true and U.isSquareFree(sq)
+                and not SC.Combat.atStairs(sq) then observer = sq; break end
+        end
+        if not observer then return fail("guard_observer", "no protected observer square") end
+        H.player:teleportTo(observer:getX() + 0.5, observer:getY() + 0.5, observer:getZ())
+        if H.guardCase > 1 and call(H.guardDoor.object, "IsOpen") ~= true
+            and call(H.guardDoor.object, "isOpen") ~= true then
+            pcall(function() H.guardDoor.object:ToggleDoor(H.player) end)
+        end
+        setPhase("stair_combat_guard_poll", current); return
+    end
+    if H.phase == "stair_combat_guard_poll" then
+        for i, ticket in ipairs(H.guardTickets) do if not H.guardActors[i] then
+            local actor, why = SC.Actor.pollSpawn(ticket)
+            if actor then
+                H.guardActors[i] = actor
+                local item = call(call(actor, "getInventory"), "AddItem", "Base.Crowbar")
+                if not item then return fail("guard_weapon", "crowbar creation failed") end
+                actor:setPrimaryHandItem(item)
+                actor:getStats():set(CharacterStat.ENDURANCE, 1)
+                local p = H.guardPost
+                local ordered, reason = SC.Commands.issue(SC.Registry.idOf(actor), "guard",
+                    { target = { x = p.x, y = p.y, z = p.z } }, H.player)
+                if not ordered or call(actor, "getModData").SC_Order ~= "guard" then
+                    return fail("guard_order", reason) end
+            elseif why ~= "spawn_pending" or current - H.phaseStartedAt > 12000 then
+                return fail("guard_spawn_poll", why)
+            end
+        end end
+        if H.guardActors[1] and H.guardActors[2] then setPhase("stair_combat_guard_quiet", current) end
+        return
+    end
+    if H.phase == "stair_combat_guard_quiet" then
+        if current - H.phaseStartedAt < 6000 then return end
+        for _, actor in ipairs(H.guardActors) do
+            local post = SC.GuardPost.forActor(actor, runtimeOf(SC, actor), nil, current)
+            if not post or not SC.GuardPost.atPosition(actor, post) then
+                return fail("guard_settled", key(call(actor, "getSquare"))) end
+        end
+        result("PASS", "guard_settled_" .. H.guardCase,
+            "kind=" .. H.guardPost.kind .. " anchor=" .. key(call(H.guardActors[1], "getSquare")))
+        guardPhoto(H, tostring(H.guardCase) .. "-holding")
+        H.guardStarted, H.guardNextSample = current, current
+        local count = H.guardCase == 3 and 12 or 3
+        for i = 1, count do
+            local p = H.guardPost
+            local square = H.guardCase == 1 and (H.stair.below or H.stair.exit)
+                or U.gridSquare(p.x - p.dx * (3 + math.floor((i - 1) / 3)),
+                    p.y - p.dy * (3 + math.floor((i - 1) / 3)), p.z)
+            local ok, list = pcall(addZombiesInOutfit, square:getX(), square:getY(), square:getZ(), 1, nil, 0)
+            local zombie = ok and list and call(list, "get", 0)
+            if not zombie then return fail("guard_zombie_spawn", tostring(i)) end
+            H.guardZombies[#H.guardZombies + 1] = zombie
+            zombie:spotted(H.guardActors[(i - 1) % 2 + 1], true)
+        end
+        setPhase("stair_combat_guard_observe", current); return
+    end
+    if H.phase == "stair_combat_guard_observe" then
+        if current < H.guardNextSample then return end
+        H.guardNextSample = current + 100
+        if not alive(H.player) then return fail("guard_observer_alive", "observer died; trial invalid") end
+        local live, dead, retreating = 0, 0, 0
+        for _, actor in ipairs(H.guardActors) do
+            if alive(actor) then live = live + 1 end
+            local rt = runtimeOf(SC, actor)
+            local ctx = rt.guardPost
+            local x, y, z = U.position(actor)
+            if SC.Combat.atStairs(actor) then H.guardSlope = H.guardSlope + 1 end
+            if ctx and ctx.position then
+                local drift = math.sqrt((x - ctx.position.x - 0.5)^2 + (y - ctx.position.y - 0.5)^2)
+                H.guardMaxDrift = math.max(H.guardMaxDrift, drift)
+            end
+            if call(actor, "getModData").SC_Order == "retreat" then retreating = retreating + 1 end
+        end
+        for _, zombie in ipairs(H.guardZombies) do
+            if not alive(zombie) then dead = dead + 1 end
+        end
+        if current >= (H.guardRetargetAt or 0) then
+            H.guardRetargetAt = current + 1000
+            for i, zombie in ipairs(H.guardZombies) do if alive(zombie) then
+                local target = H.guardActors[(i - 1) % 2 + 1]
+                if alive(target) and call(zombie, "getTarget") ~= target then zombie:setTarget(target) end
+            end end
+            local states = {}
+            for _, actor in ipairs(H.guardActors) do
+                local rt = runtimeOf(SC, actor)
+                local combat = SC.Combat.peek(actor)
+                local plan = combat and combat.squadPlan
+                local x, y, z = U.position(actor)
+                states[#states + 1] = string.format("%.1f:%.1f:%.1f/%s/%s/%s/%s", x, y, z,
+                    tostring(call(actor, "getModData").SC_Order), tostring(rt.combatAction),
+                    tostring(plan and plan.mode), tostring(plan and plan.forecast))
+            end
+            print("SC_REAL_SANDBOX|GUARD_TIMELINE|" .. H.guardCase .. "|" .. table.concat(states, ";"))
+        end
+        if current - H.guardStarted >= 6000 and not H.guardFightPhoto then
+            guardPhoto(H, tostring(H.guardCase) .. "-combat"); H.guardFightPhoto = true
+        end
+        if H.guardCase == 3 and retreating == 2 or dead == #H.guardZombies
+            or live < 2 or current - H.guardStarted > 45000 then
+            guardPhoto(H, tostring(H.guardCase) .. "-end")
+            local passed = live == 2 and H.guardSlope == 0 and (H.guardCase ~= 3 or retreating == 2)
+            local detail = "alive=" .. live .. " kills=" .. dead .. " slope_samples=" .. H.guardSlope
+                .. " max_drift=" .. fmt(H.guardMaxDrift) .. " retreating=" .. retreating
+            if not passed then return fail("guard_live_" .. H.guardCase, detail) end
+            check("guard_live_" .. H.guardCase, passed, detail)
+            guardCleanup(H); H.guardCase = H.guardCase + 1; H.guardFightPhoto = nil
+            setPhase("stair_combat_guard_prepare", current)
+        end
+    end
+end
+
 function Probe.step(H, current, check, result, setPhase)
+    if H.config.stair_combat_mode == "guard" then return guardStep(H, current, check, result, setPhase) end
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
     if H.phase == "stair_combat_setup" then

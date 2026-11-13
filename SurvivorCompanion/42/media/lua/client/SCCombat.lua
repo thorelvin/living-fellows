@@ -3202,6 +3202,10 @@ local function tryShoveFollowUp(actor, state, snapshot, now, commands)
     end
     local maximum = finisher.maximum
     if U().distanceSq(actor, target) > maximum * maximum then
+        if state.guardPost and not state.guardPost.withdrawn then
+            state.shoveFollowUp = nil
+            return nil, "guard_choke_finisher_hold"
+        end
         -- A successful shove commonly leaves the zombie just beyond immediate
         -- stomp range. Keep the short-lived follow-up and close on its head rather
         -- than discarding the finisher at the exact moment it becomes available.
@@ -4658,6 +4662,14 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         noteForwardRetreat(state, target, utility.nowMs(), accepted, reason)
         return accepted, reason
     end
+    if state.guardPost and not state.guardPost.withdrawn and not action.stairStepBack
+        and (action.kind == "approach" or action.kind == "kite" or action.kind == "backstep") then
+        if not SC.GuardPost.atPosition(actor, state.guardPost)
+            and (target and target.distanceSq or math.huge) > 2.5^2 then
+            return SC.GuardPost.move(actor, state.guardPost, snapshot)
+        end
+        action = { kind = "hold_range", score = action.score, guardHold = true }
+    end
     if action.kind == "shoot" or action.kind == "melee"
         or action.kind == "shove" or action.kind == "stomp" then
         if targetActor == nil or utility.isGoneTarget(targetActor) then
@@ -4862,7 +4874,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             microSteered = steered == true,
         })
     elseif action.kind == "hold_range" then
-        if action.closingWait == true and closingBackpedal(actor,
+        if not action.guardHold and action.closingWait == true and closingBackpedal(actor,
             snapshot, target, weapon, state, utility.nowMs()) then
             accepted, nativeReason = true, "anticipatory_backpedal"
         else
@@ -5009,6 +5021,8 @@ function Combat.update(actor, player, runtime)
     state.squadPlan = SC.CombatSquad and SC.CombatSquad.forActor(
         actor, player, snapshot, state.cohortKey, now) or nil
     snapshot.squadPlan = state.squadPlan
+    state.guardPost = SC.GuardPost and SC.GuardPost.forActor(actor, rootRuntime, commands, now)
+    if state.guardPost then SC.GuardPost.observe(actor, rootRuntime, state.squadPlan, now) end
     local performance = SC.Performance
     local phaseStarted = performance and performance.preciseNowMs()
     local scored = Combat.scoreTargets(actor, player, snapshot, state.target)
@@ -5145,6 +5159,12 @@ function Combat.update(actor, player, runtime)
     rootRuntime.combatReadiness = overrun.readiness
     state.readiness = overrun.readiness
     state.overrun = overrun
+    if state.guardPost and state.guardPost.withdrawn
+        and SC.GuardPost.release(actor, player, state.guardPost) then
+        local accepted, why = executeRetreat(actor, player, snapshot, target, true, state, commandState(actor))
+        rootRuntime.combatAction = "guard_choke_withdrawal"
+        return accepted, why or "guard_choke_withdrawal"
+    end
     if overrun.overrun and not wasOverrun then
         utility.diagnostic("combat-overrun", actor, string.format(
             "cause=%s risk=%.1f threshold=%.1f health=%.1f immediate=%d close=%d exits=%d endurance=%.2f reserve=%.2f weapon=%s",

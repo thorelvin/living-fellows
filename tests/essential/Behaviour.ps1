@@ -19,6 +19,8 @@
 
 @{ Name = 'behaviour.combat-squad'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'combat_squad_harness.lua')) }
+@{ Name = 'behaviour.guard-post'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'guard_post_harness.lua')) }
 
 @{ Name = 'behaviour.combat-ownership'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),

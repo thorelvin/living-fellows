@@ -165,6 +165,7 @@ try {
                 (Join-Path $SharedRoot 'SCNativeList.lua'),
                 (Join-Path $TestRoot 'base_guard_patrol_fixture.lua'),
                 (Join-Path $ClientRoot 'SCBaseWork.lua'),
+                (Join-Path $ClientRoot 'SCGuardPost.lua'),
                 (Join-Path $ClientRoot 'SCCommands.lua'),
                 (Join-Path $TestRoot 'follow_order_handoff_harness.lua')
             )
