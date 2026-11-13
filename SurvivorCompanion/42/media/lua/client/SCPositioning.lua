@@ -1414,6 +1414,8 @@ function Positioning.updateHoldAwareness(actor, leader, snapshot)
     return accepted == true, reason or "rear_scan_rejected"
 end
 
+local conversationArrivalDistance = 0.15
+
 local function conversationTarget(actor, partner, snapshot, excludeCurrent)
     local utility = U()
     local px, py, pz = utility.position(partner)
@@ -1430,8 +1432,11 @@ local function conversationTarget(actor, partner, snapshot, excludeCurrent)
     local maximum = utility.config("conversationMaximumDistance") or 2.8
     return availableTarget(actor, px + awayX * radius, py + awayY * radius, pz,
         snapshot, utility.config("conversationCompanionSpacing") or 1.15, function(square)
-            local distance = utility.distance(square, partner)
-            return distance >= minimum and distance <= maximum
+            -- Navigation ends at the tile centre, not the corner exposed by
+            -- getX/Y. Leave room for its stopping radius inside talk range.
+            local sx, sy = utility.targetPosition(square, "square")
+            local distance = sx and math.sqrt((sx-px)^2 + (sy-py)^2) or math.huge
+            return distance >= minimum and distance <= maximum - conversationArrivalDistance
                 and (not excludeCurrent or not utility.sameSquare(actor, square))
                 and SC.Navigation
                 and type(SC.Navigation.conversationStandAccessible) == "function"
@@ -1536,6 +1541,10 @@ function Positioning.updateConversation(actor, snapshot)
             targetSquare = target,
             snapshot = snapshot,
             socialMovement = true,
+            arrivalDistance = conversationArrivalDistance,
+            desiredDistance = 0,
+            requireSameSquare = true,
+            continuousApproach = true,
         })
     end
 

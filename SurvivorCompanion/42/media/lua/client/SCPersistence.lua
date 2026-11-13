@@ -1021,7 +1021,8 @@ local function captureInventory(actor, captureContext)
             end
         end
     end
-    local shower = SC.Downtime and type(SC.Downtime.showerOutfitForSave) == "function"
+    local shower = SC.HygieneClothing and SC.HygieneClothing.outfitForSave(actor)
+        or SC.Downtime and type(SC.Downtime.showerOutfitForSave) == "function"
         and SC.Downtime.showerOutfitForSave(actor) or nil
     if shower then
         local slots, wornIds = {}, {}

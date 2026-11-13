@@ -1,0 +1,65 @@
+Bathroom breaks and showers - live confirmation
+Project Zomboid 42.22.2, Living Fellows 0.27.10, 13 November 2026.
+Production source: afd077761f83e13367f5da4c58f24a07198b1d7c.
+
+Final run
+SC-Harness-20261113-093437-4d78dce5: PASS, 100 recorded passes,
+zero failures or skips. One game process at a time, low-impact settings.
+The source save Rising/2026-11-08_00-37-04 was cloned and left unchanged.
+The test client exited; no local install, commit or push was performed.
+
+Verified
+- A real loaded shower: native undressing, body washing and redressing.
+  Blood and dirt were removed; exact original clothing, bags and held gear
+  were restored. The main player's worn items were unchanged.
+- Capturing the outfit during washing did not cancel the shower.
+- Injected danger during washing and a Follow order during undressing both
+  restored the original outfit and released native action ownership.
+- Real Follow control subsequently moved the worker out of the bathroom.
+- Male outdoor relief: native pose, rendered stream and completion.
+- Female outdoor relief: squat animation and completion.
+- A real toilet at 6547,5452,0: male seated use, native get-up, then standing
+  use from the fixture's actual front approach.
+- Each completed break advanced the persisted next-break schedule by 6-10
+  game hours. The final actor had no remaining visual/work ownership or
+  seated pose, and resumed real Follow movement afterward.
+
+Evidence
+build/live-sandbox-runs/SC-Harness-20261113-093437-4d78dce5/cache
+Lua/SurvivorCompanionHarness/events.log and summary.txt
+console.txt
+Screenshots/*-native-care-10-shower.png
+Screenshots/*-native-care-dressing-10.png
+Screenshots/*-native-care-finished.png
+Screenshots/*-pee_free (PNG data; engine does not append an extension)
+Screenshots/*-pee-squat (PNG data; engine does not append an extension)
+Screenshots/*-pee-toilet-seated.png
+Screenshots/*-pee-toilet-standing.png
+Screenshots/*-hygiene-follow-resumed.png
+
+Initial block and harness improvements
+SC-Harness-20261113-092344-583cc767 completed both bathroom routines but
+failed the added Follow check. The combined fixture had left its shower
+worker in the same small bathroom with ordinary decisions suspended.
+The blocked screenshot and navigation diagnostics were retained.
+The repeat required the shower worker to physically follow out before
+starting toilet tests; toilet Follow then succeeded in under two seconds.
+This supports fixture crowding as the initial blockage, rather than a
+retained hygiene action. No production code was changed in this pass.
+
+The existing probes now chain when both options are requested, test movement
+after cleanup, keep screenshots zoomed out, move the observer into the
+bathroom for fixture visibility, and photograph blocked outcomes.
+Build check passed before the final run; changed Lua also loaded and ran in
+the game. The five-check project gate for the unchanged production commit
+already passed at build/test-results/20261113-090711-faf973/summary.json.
+
+Logs and limits
+No LF gameplay exception or navigation-blocker diagnostic appeared in the
+final run. Startup included stock map metadata warnings. A scheduled save
+capture detected inventory changes during clothing handling and retained
+its prior complete document, as designed.
+These are controlled live cases with seeded needs/dirt and chosen native
+actions; unrelated AI was held during staging. They do not establish a
+multi-day natural schedule, full save/quit/reload or finite-water depletion.
+The danger observation was injected rather than a live zombie attack.

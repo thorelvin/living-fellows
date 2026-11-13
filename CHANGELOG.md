@@ -2,6 +2,22 @@
 
 # Changelog
 
+## 0.27.11 - Bathroom routines and companion conversations
+
+- Companions remove pants and underwear before using a toilet, then put the
+  same clothes back on. Shirts, shoes and bags stay worn.
+- Showers require stepping inside before washing, with normal collision and
+  navigation checks. Equipment changes finish before entering.
+- Shared native clothing handling restores available gear after interruptions
+  and preserves the original outfit during save capture. Missing or replaced
+  items are respected.
+- Fixed Talk requests timing out when a companion stopped just outside
+  speaking range. Conversation approaches now account for the tile centre
+  and stopping distance.
+- Recorded live toilet, shower and all ten Talk prompt checks. Save schemas
+  and bridge protocol `42.22-isocompanion-31` are unchanged; the rebuilt bridge
+  updates release metadata.
+
 ## 0.27.10 - Farm supplies and reliable care
 
 - Added marked Milk barrels for native fluid delivery. Farmers keep cow and

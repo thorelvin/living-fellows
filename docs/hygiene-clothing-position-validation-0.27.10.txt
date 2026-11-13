@@ -1,0 +1,65 @@
+Toilet clothing and shower positioning - 0.27.10
+Project Zomboid 42.22.2, 13 November 2026. Lua-only change.
+Working changes based on afd077761f83e13367f5da4c58f24a07198b1d7c.
+
+Behaviour
+Toilet use removes lower-body clothing through stock unequip actions before
+either sitting or standing. Stock wear actions restore the exact original
+pants, underwear and slots before the bathroom break completes. Shirts,
+shoes and bags stay worn. One shared temporary-outfit helper also handles
+the existing shower outfit, avoiding a second clothing implementation.
+
+Interruption keeps the outfit receipt until owned native actions release and
+available clothing is restored. Replaced, missing and broken items remain
+respected; no item is recreated. Save capture references temporarily removed
+garments already present in the actor's real inventory. Clothing failures
+use the existing 30-second bathroom retry delay rather than immediate loops.
+
+Showers now require the companion to walk onto the actual shower tile before
+undressing and washing, instead of using generic adjacent plumbing access.
+The native Deluxe shower tile was walkable at 6547,5451,0; its old generic
+approach was outside at 6548,5452,0. Entry respects static collision, normal
+navigation and the equipment-action cooldown. The native wash instance faces
+the shower head. There is no teleport, collision override or bridge change.
+
+Live acceptance
+Run: SC-Harness-20261113-101726-d2797795
+Result: PASS, 109 recorded assertions including progress samples; no failures
+or skips. These counts are not 109 independent scenarios.
+The companion physically entered the shower tile, washed, redressed and
+left the bathroom on a real Follow order. Snapshot capture, injected danger
+and a new Follow order during undressing retained/restored the exact outfit
+and held gear, released ownership and left the player's wardrobe untouched.
+Both seated and standing toilet cases removed the actual denim pants and
+white boxers, restored the same item instances, released native ownership
+and resumed Follow. Outdoor standing/squatting checks also passed.
+
+Evidence directory:
+build/live-sandbox-runs/SC-Harness-20261113-101726-d2797795/cache
+Screenshots include native-care-washing-10.png, pee-toilet-seated.png,
+pee-toilet-standing.png and hygiene-follow-resumed.png (run-ID prefixes).
+
+Earlier blocked runs retained screenshots. Run 100217 exposed restoration
+checking the pre-get-up square; restoration now checks the actual standing
+square. Run 101149 exposed the brief wear-equipment pacing delay before
+shower entry; entry now waits for that delay. Camera placement was also
+corrected so the observer neither blocked the shower nor faced away.
+
+Automated validation
+Final five-check routine gate: PASS, 5/5, 107.1 seconds.
+build/test-results/20261113-102630-4eebc1/summary.json
+Focused native clothing checks cover lower-body selection, exact-slot
+restoration, interrupted/pending cancellation, actor isolation, save outfit
+references and shower-interior navigation. Existing shower regressions pass.
+The final source additionally applies the retry delay on clothing failures;
+the successful live path is otherwise the same source as the final gate.
+
+Limits and resources
+The original save and local installation were untouched. Only one game ran
+at a time; it exited before the final serial, memory-capped project gate.
+No LF gameplay exception appeared in the successful run. Stock font/map
+startup warnings remain. Scheduled saves correctly retained their prior
+complete document when clothing changed during inventory capture.
+These controlled cases do not establish a multi-day schedule, physical
+save/quit/reload, finite-water depletion or every modded shower geometry.
+The danger observation was injected, rather than a live zombie attack.

@@ -17,9 +17,14 @@ end
 local function finish(H, current, setPhase)
     if H.nativeCare and H.nativeCare.decision then SurvivorCompanion.Decision.update = H.nativeCare.decision end
     if H.nativeCare and H.nativeCare.logisticsStatus then SurvivorCompanion.Logistics.status = H.nativeCare.logisticsStatus end
+    if H.config.hygiene_probe == "true" and H.nativeCare and H.nativeCare.finishedAt and not H.nativeCare.failed then
+        setPhase("hygiene_setup", current)
+        return
+    end
     setPhase("finish", current)
 end
 local function fail(H, current, check, setPhase, label, reason)
+    if H.nativeCare then H.nativeCare.failed=true end
     photo(H, "blocked-" .. label); check(label, false, tostring(reason)); finish(H, current, setPhase)
 end
 local function sourceNear(H, actor, predicate)
@@ -97,6 +102,16 @@ local function setupStep(f,H)
         end),"no real loaded shower with water and clear access")
         f.source,f.square=site.source,site.square
         assert(H.placeCombatActor(actor,{x=site.square:getX()+0.5,y=site.square:getY()+0.5,z=site.square:getZ()}))
+        local room=site.source:getSquare():getRoom()
+        local watched=false
+        for dx=-2,2 do for dy=-2,2 do
+            local side=SC.GameplayUtil.gridSquare(site.square:getX()+dx,site.square:getY()+dy,site.square:getZ())
+            if not watched and side and side~=site.square and side~=site.source:getSquare() and side:getRoom()==room
+                and math.max(math.abs(side:getX()-site.source:getX()),math.abs(side:getY()-site.source:getY()))>=2
+                and SC.GameplayUtil.isSquareFree(side) and not SC.GameplayUtil.squareOccupyingObject(side) then
+                H.player:teleportTo(side:getX()+0.5,side:getY()+0.5,side:getZ()); watched=true
+            end
+        end end
         SC.Commands.issue(f.id,"stay",site.square,H.player)
         f.outfit,f.playerOutfit={},{}
         for _,pair in ipairs({{actor,f.outfit},{H.player,f.playerOutfit}}) do
@@ -194,8 +209,23 @@ function P.step(H,current,check,result,setPhase)
         if not record then return fail(H,current,check,setPhase,"care_worker","no loaded recruited companion") end
         local site=sourceNear(H,record.actor)
         if not site then return fail(H,current,check,setPhase,"care_water_source","no loaded clean tap with 80 native water units") end
-        f={actor=record.actor,id=record.id,source=site.source,square=site.square,step=1,lastAt=0,startedAt=current}
+        f={actor=record.actor,id=record.id,source=site.source,square=site.square,step=1,lastAt=0,startedAt=current,
+            observerHome={x=H.player:getX(),y=H.player:getY(),z=H.player:getZ()}}
         H.nativeCare=f
+        local survey=sourceNear(H,record.actor,function(object)
+            return tostring(call(call(call(object,"getSprite"),"getProperties"),"get","CustomName")):lower():find("shower",1,true)~=nil
+        end)
+        if survey then
+            local object=survey.source; local square=object:getSquare()
+            local props=object:getSprite():getProperties(); local names=call(props,"getPropertyNames")
+            local values={}
+            for i=0,math.min(80,SC.NativeList.size(names))-1 do
+                local key=SC.NativeList.get(names,i); values[#values+1]=tostring(key).."="..tostring(call(props,"get",key))
+            end
+            print("SC_SHOWER_FIXTURE|sprite="..tostring(object:getSprite():getName()).."|at="..square:getX()..","..square:getY()
+                .."|access="..survey.square:getX()..","..survey.square:getY().."|free="..tostring(square:isFree(true))
+                .."|solid="..tostring(square:isSolid()).."|trans="..tostring(square:isSolidTrans()).."|props="..table.concat(values,","))
+        end
         D.cancel(f.actor,"native_care_probe"); SC.BaseWork.cancel(f.actor,"native_care_probe")
         SC.Navigation.cancel(f.actor,"native_care_probe")
         SC.Commands.issue(f.id,"stay",site.square,H.player)
@@ -220,7 +250,19 @@ function P.step(H,current,check,result,setPhase)
     if current-f.lastAt<100 then return end
     f.lastAt=current
     if f.finishedAt then
-        if current-f.finishedAt>1000 then photo(H,"finished"); finish(H,current,setPhase) end
+        if not f.resumeAt then
+            H.player:teleportTo(f.observerHome.x,f.observerHome.y,f.observerHome.z)
+            f.resumeAt=current; f.resumeRoom=f.actor:getCurrentSquare():getRoom()
+        end
+        local root=U.actorState(f.actor)
+        root.senses={current={threats={},threatCount=0,immediateCount=0,pressure=0,player={danger=0}}}
+        local handled,why=f.decision(f.actor,H.player,root,current)
+        if f.actor:getCurrentSquare():getRoom()~=f.resumeRoom then
+            check("care_shower_follow_resumed",not f.actor:isDead(),"real Follow left the bathroom after clothing restoration")
+            photo(H,"finished"); finish(H,current,setPhase)
+        elseif current-f.resumeAt>30000 then
+            fail(H,current,check,setPhase,"care_shower_follow_timeout",tostring(handled)..":"..tostring(why))
+        end
         return
     end
     if f.step==8 or f.step==9 then return clothingStep(H,f,current,check,result,setPhase) end
@@ -238,6 +280,8 @@ function P.step(H,current,check,result,setPhase)
         local stage=f.activity.showerPhase
         if stage and not f.showerPhotos[stage] then f.showerPhotos[stage]=true; photo(H,stage.."-"..f.step) end
         if f.step==10 and stage=="washing" and not f.showerSnapshot then
+            check("care_shower_inside_fixture",U.sameSquare(f.actor,f.source:getSquare()),
+                "the companion physically entered the real shower tile before washing")
             local saved,reason=SC.Persistence.captureRecord(SC.Registry.byId(f.id),nil,{preserveNativeIds=true})
             check("care_shower_save_outfit",savedOutfitMatches(saved,f.outfit),"snapshot references the real inventory item identities in their original worn slots: "..tostring(reason))
             check("care_shower_save_continues",D.peek(f.actor).active==f.activity and not f.activity.cancelRequestedReason,"capturing does not cancel the active shower")

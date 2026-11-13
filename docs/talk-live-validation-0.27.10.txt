@@ -1,0 +1,73 @@
+Companion Talk - live verification and approach fix
+Living Fellows 0.27.10, Project Zomboid 42.22.2, 13 November 2026.
+
+Found and fixed
+The first live attempt exposed an actual conversation approach stall. Dana
+walked toward the player, navigation reported arrived, but she remained
+outside the 2.8-tile speaking range until the conversation timed out.
+Standing candidates were measured at their tile corners, while navigation
+targets tile centres and used its ordinary 0.6-tile stopping radius.
+
+SCPositioning now measures candidate centres and reserves room for a
+0.15-tile arrival radius within the existing speaking range. Approaches use
+the exact destination tile and continuous movement. Sight, collision,
+floor, threat and timeout checks remain active. No bridge change is needed.
+The existing gameplay regression covers reaching a conversation destination
+from six directions and actually invoking the reply callback at its stopping
+point, rather than accepting a navigation result alone.
+
+Live acceptance
+First run: SC-Harness-20261113-103429-0b55ffbe, FAIL on Dana's approach.
+The required zoomed-out blocked screenshot is retained at:
+build/live-sandbox-runs/SC-Harness-20261113-103429-0b55ffbe/cache/Screenshots/
+SC-Harness-20261113-103429-0b55ffbe-talk-blocked-reply_doing.png
+
+Final run: SC-Harness-20261113-104016-7c659fe5, PASS.
+95 recorded assertions; zero failures or skips. Ten distinct Talk prompts
+were exercised, alternating between two native recruited companions:
+- Check in: status, doing, needs, plans.
+- Get to know: memory, background, opinion, relationship.
+- Support: encourage, praise.
+
+Each case opened the ordinary companion panel, pressed its Talk header,
+selected the topic category and clicked the real native UI button. Normal
+AI, navigation, Commands, Interaction, Relationship and Dialogue code ran
+without substituted production functions. Both companions physically
+approached from more than four tiles away. Dana's formerly failing approach
+now reached 2.60 tiles from 6.12 and produced her reply.
+
+For every prompt, the selected companion's session gained exactly one player
+line and one companion reply. The native speech topic/time and active
+overhead display matched the response; the other companion's transcript
+did not change. Replies included normal refusals where trust/history did
+not permit disclosure. Screenshots were inspected for both speakers and
+for Check in, Get to know and Support.
+
+Evidence: build/live-sandbox-runs/SC-Harness-20261113-104016-7c659fe5/cache
+Per-case receipt: Lua/SurvivorCompanionHarness/talk-acceptance.txt
+Summary: Lua/SurvivorCompanionHarness/summary.txt
+Screenshots: Screenshots/*-talk-2-doing.png, *-talk-6-background.png,
+and *-talk-9-encourage.png.
+Disposable test driver: C:/ZOMBOID/outputs/talk-live-02710/ZZTalkAcceptance.lua
+It was copied only into the cloned harness, not installed with the mod.
+
+Final automated gate
+scripts/Test-Project.ps1 -Serial: PASS, 5/5, 107.4 seconds.
+build/test-results/20261113-104311-8fe42d/summary.json
+The gate includes the previous toilet-clothing and shower-position changes.
+
+Scope and resource use
+This was a quiet outdoor scene in a cloned save. Native companions were
+spawned for the fixture and nearby zombies were removed. Sleep, active
+combat, vehicles and other NPC mods were not part of this Talk acceptance.
+No LF gameplay exception appeared. Stock startup metadata warnings remain.
+The original save and local installation were untouched. One low-impact
+game ran at a time and exited before the serial, memory-capped gate.
+
+Release promotion - 0.27.11
+These verified Lua changes were promoted to living_fellows/0.27.11 with
+updated version metadata, changelog and a rebuilt bridge. Native behaviour
+and protocol are unchanged. The live receipts above retain their actual
+0.27.10 test version; the version bump was not a further gameplay change.
+Final 0.27.11 routine gate: PASS, 5/5, 107.3 seconds.
+build/test-results/20261113-105050-812e70/summary.json

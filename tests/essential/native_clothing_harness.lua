@@ -130,4 +130,50 @@ assert(D.prepareForSave(actor) and D.peek(actor).active==a and #D.showerOutfitFo
 assert(D.cancel(actor,"new_order") and not a.showerClothes and worn[ItemBodyLocation.SATCHEL]==item
     and worn[ItemBodyLocation.SHIRT]==shirt,"cancel retries cleanup and restores the exact outfit before release")
 stateFor(actor).active=nil
+local lower=SC.HygieneClothing
+local pants=f.item("Base.Trousers_Denim","Clothing",{bodyLocation=ItemBodyLocation.PANTS})
+local boxers=f.item("Base.Boxers_White","Clothing",{bodyLocation=ItemBodyLocation.UNDERWEAR_BOTTOM})
+for _,value in ipairs({pants,boxers}) do
+    function value:setJobDelta() end
+    function value:setJobType() end
+    function value:getClothingItem() return {} end
+    function value:getUnequipSound() end
+    function value:getOutermostContainer() return root end
+    root:AddItem(value); worn[value:getBodyLocation()]=value
+end
+assert(lower.lowerBody(pants,"base:pants") and lower.lowerBody(boxers,"base:underwearbottom")
+    and lower.lowerBody(pants,"base:skirt") and not lower.lowerBody(shirt,"base:shirt"),"native lower-body slots include pants and underwear, leaving shirts alone")
+local toilet={fact={}}
+local function undressLower(who,task) return lower.undress(who,task,{filter=lower.lowerBody,requireRemoved=true}) end
+pump(undressLower,toilet)
+assert(not actor:isEquippedClothing(pants) and not actor:isEquippedClothing(boxers)
+    and actor:isEquippedClothing(shirt) and actor:isEquippedClothing(item),"toilet removes only the lower outfit; shirt and bag stay worn")
+assert(#lower.outfitForSave(actor,toilet).worn==2,"save capture retains exact temporarily removed pants and underwear")
+assert(not lower.restore(f.player,toilet,true) and toilet.hygieneWardrobe,"another actor cannot restore or discard this outfit receipt")
+pump(function(who,task) return lower.restore(who,task,false) end,toilet)
+assert(worn[ItemBodyLocation.PANTS]==pants and worn[ItemBodyLocation.UNDERWEAR_BOTTOM]==boxers
+    and not toilet.hygieneWardrobe,"toilet dresses with the exact original lower garments")
+toilet={fact={}}; assert(undressLower(actor,toilet)==nil)
+N.cancelVisualOwned=function() return false,"removal_pending" end
+assert(not lower.restore(actor,toilet,true) and toilet.hygieneWardrobe,"pending cancellation preserves the only lower-outfit receipt")
+N.cancelVisualOwned=cancelOwned
+assert(lower.restore(actor,toilet,true) and worn[ItemBodyLocation.PANTS]==pants
+    and worn[ItemBodyLocation.UNDERWEAR_BOTTOM]==boxers,"interrupted lower-clothing action restores before releasing ownership")
+do
+    local _,approach,_,_,inReach=D._washForTests()
+    local square=getCell():getGridSquare(4,3,0)
+    local shower={object={square=square},kind="shower"}
+    assert(not inReach(actor,shower),"standing beside a shower must not start washing")
+    local x,y,original=actor.x,actor.y,actor.square
+    actor.x,actor.y,actor.square=4.5,3.5,square
+    assert(inReach(actor,shower),"the centred real shower tile is usable")
+    actor.x,actor.y,actor.square=x,y,original
+    local request=SC.Navigation.request
+    local target,options
+    SC.Navigation.request=function(_,point,_,intent) target,options=point,intent; return true,"path_searching" end
+    assert(approach(actor,shower) and target==square and options.requireSameSquare
+        and options.arrivalDistance<0.3 and options.object==nil,
+        "shower navigation targets its interior, not generic neighbouring plumbing access")
+    SC.Navigation.request=request
+end
 print("PASS native clothing: wear, unequip, exact-slot shower restoration, cancellation and player isolation")

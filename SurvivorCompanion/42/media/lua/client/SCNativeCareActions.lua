@@ -319,6 +319,19 @@ function Care.create(actor, activity, context)
         action = ISWashYourself:new(actor, activity.object)
         action.soaps = context.list(activity.soaps or {})
         action.maxTime = action:getDuration()
+        if activity.kind=="shower" then
+            local properties=select(1,call((select(1,call(activity.object,"getSprite"))),"getProperties"))
+            local facing=tostring((select(1,call(properties,"get","Facing"))) or ""):upper()
+            local direction=({N={0,-1},E={1,0},S={0,1},W={-1,0}})[facing]
+            local update=action.update
+            action.update=function(self)
+                update(self)
+                if direction and self.character==actor then
+                    local x,y=U().position(activity.object)
+                    if x then call(actor,"faceLocationF",x+0.5-direction[1],y+0.5-direction[2]) end
+                end
+            end
+        end
     else
         load("TimedActions/ISCleanBandage"); load("TimedActions/ISWashClothing")
         if activity.kind == "wash_bandage" then

@@ -49,6 +49,7 @@ function Get-ScGameplayFiles {
         'SCForceEntry.lua',
         'SCLogistics.lua',
         'SCLighting.lua',
+        'SCHygieneClothing.lua',
         'SCNeeds.lua',
         'SCHygieneEffects.lua',
         'SCTVWatching.lua',

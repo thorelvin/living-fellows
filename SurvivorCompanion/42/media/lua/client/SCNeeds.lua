@@ -4,6 +4,7 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if type(require) == "function" then pcall(require, "SCCleaningSupplies") end
+if type(require) == "function" then require "SCHygieneClothing" end
 
 SC.Needs = SC.Needs or {}
 local Needs = SC.Needs
@@ -324,9 +325,47 @@ local function maybePeeReaction(actor, hour)
     end
 end
 
+local function finishPee(actor, state, hour)
+    local record=hygieneRecord(actor)
+    if record then record.nextPeeHour=hour+nextPeeInterval(actor,hour) end
+    state.pee=nil
+    sayPee(actor,"hygiene.pee_done")
+    return true,"bathroom_break_finished"
+end
+
+local function toiletClothes(actor, state, task)
+    return SC.HygieneClothing.undress(actor,task,{
+        filter=SC.HygieneClothing.lowerBody,requireRemoved=true,
+        owns=function() return states[actor]==state and state.pee==task end,
+        valid=function()
+            local commands=SC.Commands and SC.Commands.peek(actor) or {}
+            return (commands.commandSerial or 0)==task.commandSerial
+                and U().sameSquare(actor,task.clothingSquare)
+        end,
+    })
+end
+
 local function updatePee(actor, player, state, hour, due)
     local current = U().nowMs()
     local task = state.pee
+    if task and task.phase=="undressing" then
+        local ready,why=toiletClothes(actor,state,task)
+        if ready==false then
+            state.nextPeeRetryAt=current+30000
+            Needs.cancel(actor,why); return true,why
+        end
+        if ready==nil then return true,"removing_lower_clothing" end
+        task.phase,task.clothesReady=nil,true
+        task.startedAt,task.lastProgressAt=current,current
+    elseif task and task.phase=="dressing" then
+        local ready,why=SC.HygieneClothing.restore(actor,task,false)
+        if ready==false then
+            state.nextPeeRetryAt=current+30000
+            Needs.cancel(actor,why); return true,why
+        end
+        if ready==nil then return true,"getting_dressed" end
+        return finishPee(actor,state,hour)
+    end
     if task and task.phase == "seating" then
         local status = SC.NativeActions and SC.NativeActions.furnitureStatus(actor) or "none"
         local seated = select(1, U().call(actor, "isSittingOnFurniture")) == true
@@ -355,11 +394,11 @@ local function updatePee(actor, player, state, hour, due)
         stopPeeSound(actor)
         local stood, reason = SC.NativeActions.leaveFurniture(actor)
         if not stood then return true, reason or "leaving_toilet" end
-        local record = hygieneRecord(actor)
-        if record then record.nextPeeHour = hour + nextPeeInterval(actor, hour) end
-        state.pee = nil
-        sayPee(actor, "hygiene.pee_done")
-        return true, "bathroom_break_finished"
+        if task.hygieneWardrobe then
+            task.clothingSquare=U().squareOf(actor)
+            task.phase="dressing"; return true,"getting_dressed"
+        end
+        return finishPee(actor,state,hour)
     end
     if task and task.phase == "animating" then
         local status = SC.NativeActions and SC.NativeActions.visualStatus(actor,
@@ -368,15 +407,16 @@ local function updatePee(actor, player, state, hour, due)
         if status == "completed" then
             stopPeeSound(actor)
             SC.NativeActions.clearVisual(actor)
-            local record = hygieneRecord(actor)
-            if record then record.nextPeeHour = hour + nextPeeInterval(actor, hour) end
-            state.pee = nil
-            sayPee(actor, "hygiene.pee_done")
-            return true, "bathroom_break_finished"
+            task.visualToken=nil
+            if task.hygieneWardrobe then
+                task.clothingSquare=U().squareOf(actor)
+                task.phase="dressing"; return true,"getting_dressed"
+            end
+            return finishPee(actor,state,hour)
         end
         stopPeeSound(actor)
-        if SC.NativeActions then SC.NativeActions.cancelVisual(actor, "pee_interrupted") end
-        state.pee = nil
+        local cancelled,why=Needs.cancel(actor,"pee_interrupted")
+        if not cancelled then return true,why end
         state.nextPeeRetryAt = current + 30000
         return false, "bathroom_break_interrupted"
     end
@@ -410,6 +450,7 @@ local function updatePee(actor, player, state, hour, due)
         local x, y = U().position(actor)
         task = { toilet = toilet, square = spot, startedAt = current,
             sits = sits, style = style,
+            commandSerial=(SC.Commands and SC.Commands.peek(actor) or {}).commandSerial or 0,
             lastX = x, lastY = y, lastProgressAt = current }
         state.pee = task
         sayPee(actor, peeStartTopic(actor, task, hour))
@@ -476,6 +517,17 @@ local function updatePee(actor, player, state, hour, due)
         end
         return true, "approaching_bathroom_spot"
     end
+    if task.toilet and not task.clothesReady then
+        task.clothingSquare=U().squareOf(actor)
+        task.phase="undressing"
+        local ready,why=toiletClothes(actor,state,task)
+        if ready==false then
+            state.nextPeeRetryAt=current+30000
+            Needs.cancel(actor,why); return true,why
+        end
+        if ready==nil then return true,"removing_lower_clothing" end
+        task.phase,task.clothesReady=nil,true
+    end
     if task.toilet and task.sits then
         local accepted, reason = U().move(actor, "walk", {
             action = "sit", object = task.toilet.object,
@@ -499,6 +551,8 @@ local function updatePee(actor, player, state, hour, due)
         return false, reason or "bathroom_animation_rejected"
     end
     task.phase = "animating"
+    task.visualToken=SC.NativeActions and SC.NativeActions.visualToken
+        and SC.NativeActions.visualToken(actor,action) or nil
     -- Make the effect UI available when the action starts; the render-tick
     -- hook also retries if the interface is still initializing.
     if SC.HygieneEffects and type(SC.HygieneEffects.ensureOverlay) == "function" then
@@ -1585,6 +1639,11 @@ function Needs.update(actor, player, runtime, options)
     local root = U().actorState(actor, runtime)
     local snapshot = root.senses and root.senses.current or root.snapshot or {}
     if state.pee then
+        if state.pee.cancelRequestedReason or state.pee.commandSerial~=nil
+            and state.pee.commandSerial~=(commands.commandSerial or 0) then
+            local cancelled,why=Needs.cancel(actor,state.pee.cancelRequestedReason or "new_order")
+            return cancelled~=true,why or "bathroom_cleanup_pending"
+        end
         if (snapshot.immediateCount or 0) > 0
             or (snapshot.pressure or 0) >= 1.5
             or select(1, U().call(actor, "getVehicle")) ~= nil then
@@ -1736,15 +1795,26 @@ function Needs.cancel(actor, reason)
     if actor then stopPeeSound(actor) end
     local state = actor and states[actor]
     if state and state.pee then
-        if (state.pee.phase == "seating" or state.pee.phase == "seated"
-            or state.pee.phase == "standing") and SC.NativeActions
+        local task=state.pee
+        task.cancelRequestedReason=reason or "bathroom_break_cancelled"
+        if (task.phase == "seating" or task.phase == "seated"
+            or task.phase == "standing") and SC.NativeActions
             and type(SC.NativeActions.leaveSeating) == "function" then
-            SC.NativeActions.leaveSeating(actor)
+            local stood,why=SC.NativeActions.leaveSeating(actor)
+            if stood~=true then return false,why or "leaving_toilet" end
         end
-        if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
+        if task.visualToken and SC.NativeActions and type(SC.NativeActions.cancelVisualOwned)=="function" then
+            local cancelled,why=SC.NativeActions.cancelVisualOwned(actor,task.visualToken,reason)
+            if not cancelled then return false,why end
+            task.visualToken=nil
+        elseif task.phase=="animating" and SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
             local cancelled, cancelReason = SC.NativeActions.cancelVisual(actor,
                 reason or "bathroom_break_cancelled")
             if cancelled ~= true then return false, cancelReason end
+        end
+        if task.hygieneWardrobe then
+            local restored,why=SC.HygieneClothing.restore(actor,task,true)
+            if restored~=true then return false,why or "bathroom_clothing_restore_pending" end
         end
         if SC.Navigation and type(SC.Navigation.cancel) == "function" then
             pcall(SC.Navigation.cancel, actor, reason or "bathroom_break_cancelled")
@@ -1769,7 +1839,8 @@ end
 
 function Needs.reset(actor)
     if actor then
-        Needs.cancel(actor, "needs_reset")
+        local cancelled,why=Needs.cancel(actor,"needs_reset")
+        if cancelled~=true then return false,why end
         local ownedRuntime=runtimes[actor]
         if ownedRuntime then ownedRuntime.needs=nil end
         runtimes[actor]=nil
@@ -1777,7 +1848,9 @@ function Needs.reset(actor)
         local runtime = U().peekActorState(actor)
         if runtime then runtime.needs = nil end
     else
-        for candidate in pairs(states) do Needs.cancel(candidate, "needs_reset") end
+        local pending=false
+        for candidate in pairs(states) do if Needs.reset(candidate)~=true then pending=true end end
+        if pending then return false,"needs_cleanup_pending" end
         states = setmetatable({}, { __mode = "k" })
         for _,runtime in pairs(runtimes) do runtime.needs=nil end
         runtimes=setmetatable({}, {__mode="k"})

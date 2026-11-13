@@ -3,6 +3,18 @@
 
 local Probe = {}
 
+local function zoomOut()
+    pcall(function()
+        getCore():setAutoZoom(0, false)
+        for _ = 1, 8 do if getCore():getZoom(0) < 1.8 then getCore():doZoomScroll(0, 1) end end
+    end)
+end
+
+local function blockedPhoto(H, name)
+    zoomOut()
+    pcall(function() getCore():TakeFullScreenshot(H.config.run_id .. "-hygiene-blocked-" .. tostring(name) .. ".png") end)
+end
+
 local eightFacings = {
     { name = "N",  x =  0, y = -1 },
     { name = "NE", x =  0.70710678, y = -0.70710678 },
@@ -191,8 +203,19 @@ end
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
+    local originalCheck, originalResult = check, result
+    check = function(name, okay, detail)
+        if not okay then blockedPhoto(H, name) end
+        return originalCheck(name, okay, detail)
+    end
+    result = function(status, name, detail)
+        if status == "FAIL" then blockedPhoto(H, name) end
+        return originalResult(status, name, detail)
+    end
     if H.phase == "hygiene_setup" then
         if current - H.phaseStartedAt < 2500 then return end
+        zoomOut()
+        H.hygieneObserverHome={x=H.player:getX(),y=H.player:getY(),z=H.player:getZ()}
         -- This is a disposable cloned save. Daylight makes the authored
         -- arm/torso pose inspectable in the audit screenshot.
         pcall(function() getGameTime():setTimeOfDay(12) end)
@@ -321,6 +344,7 @@ function Probe.step(H, current, check, result, setPhase)
                 else
                     H.player:teleportTo(ax + 1.5, ay + 1.5, az)
                 end
+                U.call(H.player,"faceLocationF",ax,ay)
                 if H.config.hygiene_eight_directions == "true" then
                     H.hygieneDirectionIndex = 1
                     -- Let nearby foliage fade after observer teleport before
@@ -330,10 +354,7 @@ function Probe.step(H, current, check, result, setPhase)
                     pcall(H.hygieneActor.faceLocationF,
                         H.hygieneActor, ax, ay + 2)
                 end
-                pcall(function()
-                    getCore():setAutoZoom(0, false)
-                    for _ = 1, 4 do getCore():doZoomScroll(0, -1) end
-                end)
+                zoomOut()
             end
             if H.config.hygiene_eight_directions == "true" then
                 local index = H.hygieneDirectionIndex or 1
@@ -376,7 +397,8 @@ function Probe.step(H, current, check, result, setPhase)
                 setPhase("hygiene_finish", current)
                 return
             end
-            if current - H.hygieneActiveAt < 3000 then return end
+            if current - H.hygieneActiveAt < 3000
+                or (H.hygieneStreamCalls or 0)==0 and current-H.hygieneActiveAt<6500 then return end
             local name = tostring(H.config.run_id) .. "-" .. style
             local ok, failure = pcall(function() getCore():TakeFullScreenshot(name) end)
             check("hygiene_screenshot", ok, name .. ".png " .. tostring(failure))
@@ -475,6 +497,7 @@ function Probe.step(H, current, check, result, setPhase)
                 H.hygieneFemaleActiveAt = current
                 local ax, ay, az = U.position(H.hygieneFemaleActor)
                 H.player:teleportTo(ax + 1.5, ay + 1.5, az)
+                U.call(H.player,"faceLocationF",ax,ay)
             end
             if current - H.hygieneFemaleActiveAt < 1600 then return end
             local name = tostring(H.config.run_id) .. "-pee-squat"
@@ -530,6 +553,17 @@ function Probe.step(H, current, check, result, setPhase)
             setPhase("finish", current) return
         end
         H.hygieneToiletTicket = ticket
+        H.hygieneFollowTarget={x=H.player:getX(),y=H.player:getY(),z=H.player:getZ()}
+        local room=toilet:getSquare():getRoom()
+        local watched=false
+        for dx=-2,2 do for dy=-2,2 do
+            local side=U.gridSquare(square:getX()+dx,square:getY()+dy,square:getZ())
+            if not watched and side and side~=square and side:getRoom()==room
+                and U.isSquareFree(side) and not U.squareOccupyingObject(side) then
+                H.hygieneWatchPoint={x=side:getX()+0.5,y=side:getY()+0.5,z=side:getZ()}
+                H.player:teleportTo(side:getX()+0.5,side:getY()+0.5,side:getZ()); watched=true
+            end
+        end end
         setPhase("hygiene_toilet_spawn", current)
         return
     end
@@ -543,6 +577,17 @@ function Probe.step(H, current, check, result, setPhase)
             return
         end
         H.hygieneToiletActor = actor
+        local inventory=actor:getInventory()
+        H.hygienePants=actor:getWornItem(ItemBodyLocation.PANTS)
+        if not H.hygienePants then
+            H.hygienePants=assert(inventory:AddItem("Base.Trousers_Denim"))
+            actor:setWornItem(ItemBodyLocation.PANTS,H.hygienePants)
+        end
+        H.hygieneBoxers=actor:getWornItem(ItemBodyLocation.UNDERWEAR_BOTTOM)
+        if not H.hygieneBoxers then
+            H.hygieneBoxers=assert(inventory:AddItem("Base.Boxers_White"))
+            actor:setWornItem(ItemBodyLocation.UNDERWEAR_BOTTOM,H.hygieneBoxers)
+        end
         check("hygiene_toilet_male_identity", actor:isFemale() ~= true,
             "fixture companion is male")
         local record = SC.Registry.byId(U.idOf(actor))
@@ -583,6 +628,13 @@ function Probe.step(H, current, check, result, setPhase)
             root.senses = { current = { immediateCount = 0, pressure = 0 } }
             local handled, reason = SC.Needs.update(H.hygieneToiletActor,
                 H.player, root)
+            local record=SC.Registry.byId(U.idOf(H.hygieneToiletActor))
+            local state=SC.Needs.peek(H.hygieneToiletActor)
+            if H.hygieneToiletSeated and state and not state.pee and record
+                and (record.state.downtime.nextPeeHour or 0)<=hour() then
+                check("hygiene_toilet_no_silent_retry",false,tostring(reason))
+                setPhase("finish",current); return
+            end
             if current >= (H.hygieneNextTrace or 0) then
                 H.hygieneNextTrace = current + 2000
                 local state = SC.Needs.peek(H.hygieneToiletActor)
@@ -601,6 +653,9 @@ function Probe.step(H, current, check, result, setPhase)
             check("hygiene_male_seated_on_toilet",
                 H.hygieneToiletActor:isSittingOnFurniture() == true,
                 "native furniture seat entered")
+            check("hygiene_toilet_lower_clothes_removed",not H.hygieneToiletActor:isEquippedClothing(H.hygienePants)
+                and not H.hygieneToiletActor:isEquippedClothing(H.hygieneBoxers),"actual pants and underwear removed before seating")
+            pcall(function() getCore():TakeFullScreenshot(H.config.run_id .. "-pee-toilet-seated.png") end)
         end
         local record = SC.Registry.byId(U.idOf(H.hygieneToiletActor))
         if H.hygieneToiletSeated and state and state.pee == nil
@@ -608,6 +663,8 @@ function Probe.step(H, current, check, result, setPhase)
             check("hygiene_male_toilet_completed",
                 H.hygieneToiletActor:isSittingOnFurniture() ~= true,
                 "finished and stood through native get-up")
+            check("hygiene_toilet_lower_clothes_restored",H.hygieneToiletActor:getWornItem(ItemBodyLocation.PANTS)==H.hygienePants
+                and H.hygieneToiletActor:getWornItem(ItemBodyLocation.UNDERWEAR_BOTTOM)==H.hygieneBoxers,"exact original pants and boxers dressed again")
             H.hygieneStandMode = true
             record.state.downtime.nextPeeHour = hour() - 0.1
             setPhase("hygiene_toilet_stand_action", current)
@@ -650,14 +707,61 @@ function Probe.step(H, current, check, result, setPhase)
             check("hygiene_male_stands_in_front_of_toilet",
                 U.sameSquare(H.hygieneToiletActor, square),
                 "actor occupies the fixture's front approach square")
+            check("hygiene_standing_lower_clothes_removed",not H.hygieneToiletActor:isEquippedClothing(H.hygienePants)
+                and not H.hygieneToiletActor:isEquippedClothing(H.hygieneBoxers),"standing toilet use also removes both lower garments")
+            pcall(function() getCore():TakeFullScreenshot(H.config.run_id .. "-pee-toilet-standing.png") end)
         end
         local record = SC.Registry.byId(U.idOf(H.hygieneToiletActor))
         if H.hygieneToiletStood and task == nil and record
             and (record.state.downtime.nextPeeHour or 0) > hour() + 5.9 then
             check("hygiene_male_standing_toilet_completed", true,
                 "standing front approach finished")
-            setPhase("finish", current)
+            check("hygiene_standing_lower_clothes_restored",H.hygieneToiletActor:getWornItem(ItemBodyLocation.PANTS)==H.hygienePants
+                and H.hygieneToiletActor:getWornItem(ItemBodyLocation.UNDERWEAR_BOTTOM)==H.hygieneBoxers,"both exact garments restored after standing use")
+            check("hygiene_native_ownership_released",
+                SC.NativeActions.visualToken(H.hygieneToiletActor) == nil
+                    and SC.NativeActions.workKind(H.hygieneToiletActor) == nil
+                    and H.hygieneToiletActor:isSittingOnFurniture() ~= true,
+                "no native action or seated pose remains after the bathroom break")
+            local home=H.hygieneFollowTarget or H.hygieneObserverHome
+            H.player:teleportTo(home.x,home.y,home.z)
+            H.hygieneResumeX, H.hygieneResumeY = U.position(H.hygieneToiletActor)
+            local issued, why = SC.Commands.issue(U.idOf(H.hygieneToiletActor), "follow", nil, H.player)
+            if not check("hygiene_follow_order", issued == true, tostring(why)) then setPhase("finish", current); return end
+            setPhase("hygiene_resume", current)
         end
+        return
+    end
+    if H.phase == "hygiene_resume" then
+        if current < (H.hygieneNextUpdate or 0) then return end
+        H.hygieneNextUpdate = current + 200
+        local actor = H.hygieneToiletActor
+        local root = U.actorState(actor)
+        root.senses = {current={threats={},threatCount=0,immediateCount=0,pressure=0,player={danger=0}}}
+        local handled, why = SC.Decision.update(actor, H.player, root, current)
+        local x, y = U.position(actor)
+        local moved = x and (x-H.hygieneResumeX)^2+(y-H.hygieneResumeY)^2 > 1
+        if moved then
+            check("hygiene_follow_resumed", not actor:isDead() and SC.Needs.peek(actor).pee == nil,
+                "normal Follow moved the companion after native get-up")
+            pcall(function() getCore():TakeFullScreenshot(H.config.run_id .. "-hygiene-follow-resumed.png") end)
+            setPhase("finish", current)
+        elseif current-H.phaseStartedAt > 30000 then
+            H.hygieneResumeFailure=tostring(handled)..":"..tostring(why)
+            for _, who in ipairs(SC.Registry.living()) do
+                if U.distance(who,actor)<5 then
+                    result("PASS","hygiene_near_blocked_exit",U.idOf(who).." at="..tostring(who:getX())..","..tostring(who:getY()))
+                end
+            end
+            local point=H.hygieneWatchPoint
+            if point then H.player:teleportTo(point.x,point.y,point.z) end
+            setPhase("hygiene_resume_blocked",current)
+        end
+        return
+    end
+    if H.phase=="hygiene_resume_blocked" and current-H.phaseStartedAt>1500 then
+        result("FAIL","hygiene_follow_resume_timeout",H.hygieneResumeFailure)
+        setPhase("finish",current)
     end
 end
 

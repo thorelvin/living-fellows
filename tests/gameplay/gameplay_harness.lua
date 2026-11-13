@@ -117,4 +117,32 @@ do
     end
     check(exited,"ordinary recruited passengers still leave after the player gets out")
 end
+do
+    local U, navigation = SC.GameplayUtil, SC.Navigation.request
+    local partner = f.actor("talk-partner", 20, 20, {})
+    for index, direction in ipairs({{1,0},{-1,0},{0,1},{0,-1},{1,1},{-1,-1}}) do
+        local speaker = f.actor("talk-approach-"..index,20+direction[1]*5,20+direction[2]*5,{})
+        f.registry[speaker.id] = speaker
+        local destination, intent, replies
+        replies = 0
+        SC.Navigation.request = function(actor, target, mode, options)
+            destination, intent = target, options
+            return navigation(actor, target, mode, options)
+        end
+        check(SC.Positioning.beginConversation(speaker,partner,{onReady=function() replies=replies+1;return true end}),
+            "a distant conversation is staged")
+        SC.Positioning.updateConversation(speaker,{allies={},threatCount=0,immediateCount=0})
+        check(destination~=nil,"conversation has an accessible standing destination")
+        local x,y = U.targetPosition(destination,"square")
+        local px,py = U.position(partner)
+        local distance = math.sqrt((x-px)^2+(y-py)^2)
+        local stop = intent.arrivalDistance or U.config("navigationArrivalDistance")
+        speaker.worldX,speaker.worldY = x+(x-px)*stop/distance,y+(y-py)*stop/distance
+        speaker.square = destination
+        SC.Positioning.updateConversation(speaker,{allies={},threatCount=0,immediateCount=0})
+        check(replies==1,"a companion at the route's stopping point can answer without timing out")
+        SC.Positioning.reset(speaker)
+    end
+    SC.Navigation.request = navigation
+end
 print("BEHAVIOUR_NAVIGATION_PASS checks=" .. tostring(f.checks()))
