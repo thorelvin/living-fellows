@@ -1,0 +1,158 @@
+Solo firearms -- 0.27.19
+2026-11-14 | Project Zomboid 42.22.2
+
+All 100 requested live trials are recorded: ten representative vanilla guns,
+one companion against 1 through 10 zombies, Aiming 3 and Reloading 3.
+Result: 28 cleared, 67 timed out, 5 observed withdrawals, no companion deaths
+within the measured windows. There were 195 kills out of 550 starting zombies.
+This is a completed screening matrix, not a pass for firearm effectiveness.
+Surviving and clearing the wave are separate results.
+
+Implemented behaviour
+  Gunners retain a viable firing target instead of switching merely because
+  another zombie is closer. Clearly more wounded viable targets can regain
+  priority after knockdown. Shared, throttled health observations support this
+  without adding a camp service. Immediate defence, rescue, explicit player
+  designation, obstruction, range, weapon changes and withdrawal still apply.
+
+  Kiting uses the closest visible upright threat, independently of the firing
+  target. Loaded guns use an aimed backward walk. Before native gun service,
+  the actor makes room and stops its prior running input. An exact active
+  reload/rack action may then coexist with walking when vanilla permits it.
+  Stale receipts, another actor's action and running remain excluded.
+
+  Reload/rack ownership survives distant sightings. Contact, urgent medical
+  danger and explicit withdrawal can still interrupt. Completed shot input
+  and completed-rack selectors no longer block the next reload. Native action
+  animations, timing, sounds and ammunition transfers remain authoritative.
+
+  Shooting utility no longer rewards distance. Provisional doctrine proposals
+  no longer renew the incumbent target's commitment timer when that proposal
+  is rejected. Only an accepting lane commits the actual target.
+
+  The native candidate also registers the actual selected in-range body and
+  supplies this companion's camera/body-intersection query. It does not alter
+  global mouse input, player slots, hit rolls, health or damage. This remains
+  a candidate aiming repair; these results do not establish an accuracy gain.
+
+  No zombie paths, waypoints, movement flags, speeds or navigation states
+  were changed. Only normal initial spotted(target) selects the LF companion.
+
+Results -- each weapon faces 55 starting zombies across its ten waves
+  Weapon        Clears   Timeout   Withdraw   Kills/55   Lowest health
+  M9              3         7         0         12          100.00%
+  M1911           1         7         2         17           82.19%
+  M36             2         8         0         16           96.52%
+  Magnum          3         6         1         14          100.00%
+  JS2000          8         2         0         51          100.00%
+  Double Barrel   8         2         0         53          100.00%
+  MSR700          1         9         0          3           98.71%
+  MSR788          0        10         0          6          100.00%
+  M14             1         9         0          8          100.00%
+  M16             1         7         2         15           95.57%
+
+  Native gun-service movement: 1,789 walking samples, zero running samples.
+  Reload actions that included walking loaded 1,280 cartridges; rack actions
+  that included walking completed 112 observed chamber/jam state changes.
+  There are 367 switches between still-living targets over 127.25 measured
+  minutes; median 3 per trial. Of those switches, 145 chose a wounded target.
+  These are target changes, not measurements of body-facing angle or jitter.
+
+What remains unresolved
+  Shotguns performed substantially better in this screening. The two bolt
+  actions cleared just one of twenty waves. Several one-zombie trials timed
+  out, so spreading damage or target switching cannot explain all the misses.
+
+  Example: MSR700 versus one used 27 rounds at a sampled selected distance
+  averaging 11.52 tiles, with zero target switches. It produced 23 OnHitZombie
+  callbacks but one observed accepted-damage event and 0.17 observed health
+  loss. Thus collision callbacks must not be reported as damaging hits.
+  Native chance, aiming pose/steadiness and engagement distance need further
+  investigation before calling the gun range calibrated or rifles reliable.
+  The internal spacing scale 0.7 is a tested candidate, not a proven optimum.
+
+  OnHitZombie fires before ignore-damage handling. OnWeaponHitXp observations
+  identify one accepted native damage path, but not all shotgun/range-falloff
+  paths emit it. Native critical deaths can retain positive aggregate health.
+  The CSV records death explicitly; neither callback counts nor kills/rounds
+  are a direct hit-accuracy percentage. Racked/ejected rounds can affect the
+  ammunition delta. Gunshot counters verify native emitter calls, not listening.
+
+Method and limits
+  LF alone; isolated source bridge; LowImpact; engine sound enabled. One game
+  at a time, with no compiler JVM beside it. Original save and ordinary mod
+  installation are untouched. The test games have exited.
+  Seed: C:/Users/thore/Zomboid/Saves/Rising/2026-11-13_15-25-26.
+  Requested pin: 6444,5461. Open range: 6428.5,5449.5, floor 0.
+  Player: 6428.5,5509.5, initially 60 tiles away; measured minimum 51.51.
+  Base Watch owns slot 1. Ownership is released between trials.
+
+  A fresh companion per trial: Aiming/Reloading 3, Strength/Fitness 5,
+  consistent background/personality, real T-shirt, jeans and trainers,
+  no headgear, native vision modifier 1.0. Each fight starts at noon.
+  Initial needs/endurance are set before the fight only. No mid-fight healing,
+  stat resets, ammo grants, synthetic animation events or scripted damage.
+  Real schoolbag, 120 reserve cartridges in loose rounds/compatible magazines,
+  plus a normally loaded gun. Physical items count individually.
+
+  Ambient zombies are cleared before each wave. Enemies spawn 12/14 tiles
+  along the selected open corridor; they retain native behaviour thereafter.
+  Stay is the defensive order: this is not a pursuit test. Native sight loss,
+  wandering and targets leaving engagement range can cause a timeout.
+  The initial open footprint extends 24 tiles; fences/buildings remain beyond.
+  A world clone is shared by each batch of 50, with fresh actors and local
+  corpse cleanup between trials. World conditions outside that cleanup remain.
+  One trial per cell, native randomness: no statistical claim of optimal range.
+  These are representative guns, not a usage ranking.
+
+  WIN means all measured enemies died. TIMEOUT means the 90-second limit.
+  WITHDREW requires displacement plus observed retreat decisions; it does not
+  prove a successful escape. DEAD means native death. A fixture PASS means the
+  trial was recorded correctly, not that its combat outcome was successful.
+  Non-wins, stalls and first walking-service observations have zoomed-out
+  native screenshots. Full raw logs and screenshots remain in the run folders.
+
+Verification
+  Full five-check project gate: PASS, serial, 109.2 seconds.
+  Build, Lifecycle, Behaviour, Cargo and Interface all passed.
+  Evidence: build/solo-wounded-focus-final-gate.log and
+  build/test-results/20261114-201559-884fb1.
+  Production fingerprints matched before and after both live batches.
+  Bridge SHA256:
+  66BDE6E7E1C5738DBA46DD63DE0975512882890F97728194865EBC2A98E3E13C
+
+  The live logs contain vanilla load warnings and a protected probe-only
+  diagnostic error: BaseAction.isFinished was not exposed to Lua. That query
+  was removed after recording the matrix; it changed no combat decisions.
+  The 105-file focused Kahlua group passes after removal. The exact as-tested
+  probe is retained with the evidence. No LF gameplay exception or fixture
+  failure was found in either completed batch.
+
+Evidence
+  The complete 100-cell CSV is committed alongside this report:
+  docs/solo-firearms-0.27.19.csv.
+
+  C:/ZOMBOID/outputs/solo-firearms-02719/
+  acceptance-100.csv, acceptance-01-50.csv, acceptance-51-100.csv,
+  weapon-summary.csv, summary.json, acceptance-matrix.png,
+  source-sha256.json, probe-as-tested.lua, range-setup.png,
+  walking-reload.png, js2000-walking-service.png, msr700-timeout.png.
+
+  Live batches under build/live-sandbox-runs/:
+  SC-Harness-20261114-202148-fd947007 -- cases 1-50, LIVE_SANDBOX_PASS.
+  SC-Harness-20261114-212944-4dab872b -- cases 51-100, LIVE_SANDBOX_PASS.
+  Earlier exploratory CSV files are separate; none are merged into the 100.
+
+Release provenance
+  Based on 0.27.18 at 6f64c657; branch living_fellows/0.27.19.
+  The 100 trials used the 0.27.18-labelled candidate described above.
+  The 0.27.19 bridge rebuild changes only META-INF/MANIFEST.MF; every other
+  archive entry, including all compiled classes, matches the live-tested JAR.
+  Lua gameplay code is unchanged from the tested candidate; SC.Identity.release
+  and the other release metadata are updated to 0.27.19.
+  Release bridge SHA256:
+  C9A3A7965537067A3F6DBF739D4B11FB381739148E39BFA1A1DC4AF6131353C0
+  After the release metadata/JAR rebuild, all five project checks passed
+  again in 111.7 seconds (serial, 256 MB JVM heap, two processors).
+  Evidence: build/release-02719-gate.log and
+  build/test-results/20261114-224929-dfc38e.

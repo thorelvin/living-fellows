@@ -2969,7 +2969,7 @@ local function nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands
 end
 
 local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs, commands,
-        policyEmergency, actor, player)
+        policyEmergency, actor, player, nativeAction)
     if not policyEmergency and withdrawingToPlayerVehicle(actor,player,commands,snapshot,assessment,needs) then
         if owner == "combat" then return true end
         -- Continue the exact door approach/seat transaction despite distant
@@ -2984,6 +2984,21 @@ local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs,
             or (tonumber(assessment.bleedingCount) or 0) > 0
             or type(needs) == "table" and needs.emergency == true
             or commands.order == "retreat" or policyEmergency == true
+    end
+    if (owner == "native" or owner == "combat")
+        and (nativeAction == "reload" or nativeAction == "unjam") then
+        -- Servicing a firearm is part of fighting. Repeated distant sightings
+        -- must not replace that action with a survival reassessment every tick.
+        -- Contact, urgent medical needs and explicit withdrawal still preempt.
+        local immediate = tonumber(snapshot.immediateCount)
+            or #(snapshot.immediateAttackers or {})
+        return immediate > 0 or humanThreatUrgent(snapshot, commands, actor, player)
+            or assessment.downed == true or assessment.critical == true
+            or (tonumber(assessment.bleedingCount) or 0) > 0
+            or needs and needs.emergency == true or commands.order == "retreat"
+            or policyEmergency == true
+            or (snapshot.player and (tonumber(snapshot.player.danger) or 0) > 0)
+            or withdrawingToPlayerVehicle(actor, player, commands, snapshot, assessment, needs)
     end
     -- Eating/drinking resolves the very hunger/thirst emergency that selected
     -- it. Restarting that timed action every beat prevents its effects from
@@ -3260,7 +3275,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         -- only an unsupervised action uses the native owner's own policy.
         local effectiveOwner = supervisedOwner or owner
         urgent = ownerNeedsImmediatePreemption(effectiveOwner, snapshot, assessment,
-            needs, commands, factionEmergency, actor, player) or alarmPreempts(effectiveOwner)
+            needs, commands, factionEmergency, actor, player, name) or alarmPreempts(effectiveOwner)
         local floor = SC.FloorSort
         local pickupJob, pickupToken
         if floor and type(floor.pendingPickup) == "function" then
@@ -3336,6 +3351,11 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
             return true, state.intent
         end
         if phase == "active" and not urgent then
+            if owner == "native" and (name == "reload" or name == "unjam")
+                and SC.Combat and type(SC.Combat.updateRangedService) == "function" then
+                U().safeSubsystem("combat-gun-service", actor,
+                    SC.Combat.updateRangedService, actor, snapshot)
+            end
             state.current = "activity"
             state.intent = tostring(owner) .. ":" .. tostring(name)
             state.lastHandledAt = current

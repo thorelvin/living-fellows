@@ -554,6 +554,8 @@ local valueData = {
 
     combatRetreatPressure = 3.5,
     combatFirearmMinDistance = 2.2,
+    combatRangedSpacingScale = 0.7,
+    combatRangedRepositionMaxMs = 2200,
     combatShoveDistance = 1.35,
     combatShoveFollowupDelayMs = 300,
     combatShoveFollowupWindowMs = 3500,

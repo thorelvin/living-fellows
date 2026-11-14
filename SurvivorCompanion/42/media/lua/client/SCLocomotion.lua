@@ -355,11 +355,14 @@ function Locomotion.authorize(actor, mode, intent)
         activityPhase, activityOwner, activityName, activityAt = SC.NativeActions.activityStatus(actor)
     end
     local protectedActivity = activityPhase == "active" or activityPhase == "result_pending"
+    local serviceWalk = activityPhase == "active" and activityOwner == "native" and SC.NativeCombatActions
+        and type(SC.NativeCombatActions.permitsServiceWalk) == "function"
+        and SC.NativeCombatActions.permitsServiceWalk(actor, mode, intent) == true
     if protectedActivity and activityPhase == "result_pending" and activityOwner == "visual" then
         local grace = tonumber(SC.Config and SC.Config.get("visualEffectClaimMs")) or 2000
         if nowMs() - (tonumber(activityAt) or nowMs()) >= grace then protectedActivity = false end
     end
-    if protectedActivity and activityName ~= action then
+    if protectedActivity and activityName ~= action and not serviceWalk then
         local status = "protected_activity:" .. tostring(activityOwner)
             .. ":" .. tostring(activityName)
         local response = "locomotion_protected_activity:" .. tostring(activityPhase)
@@ -384,7 +387,8 @@ function Locomotion.authorize(actor, mode, intent)
         local u = utility()
         local blocker = u and type(u.movementStateBlocker) == "function"
             and u.movementStateBlocker(actor) or nil
-        if blocker ~= nil then
+        if blocker ~= nil and not (serviceWalk
+            and (blocker == "unfinished_action" or blocker == "action_animation_state")) then
             transition(actor, "interact", "native", tostring(blocker),
                 "protected_actor_state", intent)
             append(actor, "rejected", {

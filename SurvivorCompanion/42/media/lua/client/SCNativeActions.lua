@@ -862,9 +862,11 @@ function actions.inspectMovementBlocker(actor)
     return nil
 end
 
-local function movementReady(actor)
+local function movementReady(actor, mode, intent)
     local blocker = actions.inspectMovementBlocker(actor)
-    if blocker then
+    local serviceWalk = SC.NativeCombatActions.permitsServiceWalk(actor, mode, intent)
+    if blocker and not (serviceWalk
+        and (blocker == "unfinished_action" or blocker == "action_animation_state")) then
         return false, "actor_state_blocked:" .. tostring(blocker)
     end
     return true
@@ -1202,7 +1204,7 @@ local function directMove(actor, mode, dx, dy, intent)
         targetTtlMs = math.floor(math.max(1, math.min(1000, targetTtlMs)))
     end
     local toX, toY = x + nx * distance, y + ny * distance
-    local stateReady, stateReason = movementReady(actor)
+    local stateReady, stateReason = movementReady(actor, mode, intent)
     if not stateReady then return false, stateReason end
     local collisionOk, movementClear = invoke(
         actor, "isCompanionMovementClear", toX, toY, z)
@@ -5140,6 +5142,18 @@ local function reload(actor, intent, provider)
         or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
         return false, "native reload action is unavailable"
     end
+    -- Native reloads cancel on running. End our last kiting pulse before its
+    -- cartridge transfers start; the queue keeps ownership after this handoff.
+    local ready, readyReason = SC.NativeCombatActions.releaseCompletedInput(actor)
+    if not ready then return false, readyReason end
+    if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+    -- A preceding rack can leave its upper-body selectors behind after the
+    -- queue releases it. They select RackShotgunAim over LoadShotgun, even
+    -- though the new action correctly owns isLoading. No active action is
+    -- cleared here; the native reload will own its own selectors from start().
+    for _, variable in ipairs({ "isRacking", "isUnloading", "RackAiming" }) do
+        invoke(actor, "clearVariable", variable)
+    end
     local queue = ISTimedActionQueue.getTimedActionQueue(actor)
     local before = queue and queue.queue and #queue.queue or 0
     local ok, failure = pcall(ISReloadWeaponAction.BeginAutomaticReload, actor, weapon)
@@ -5179,6 +5193,9 @@ local function unjam(actor, intent, provider)
         local okRack, canRack = pcall(ISReloadWeaponAction.canRack, weapon)
         if okRack and canRack ~= true then return false, "weapon cannot be racked" end
     end
+    local ready, readyReason = SC.NativeCombatActions.releaseCompletedInput(actor)
+    if not ready then return false, readyReason end
+    if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
     local queue = ISTimedActionQueue.getTimedActionQueue(actor)
     local before = queue and queue.queue and #queue.queue or 0
     local action = ISRackFirearm:new(actor, weapon)
@@ -5473,6 +5490,9 @@ function actions.activityStatus(actor)
         end
         return "result_pending", "work", work.kind, work.startedAt
     end
+
+    local service = SC.NativeCombatActions and SC.NativeCombatActions.serviceKind(actor)
+    if service then return "active", "native", service end
 
     local utility = SC.GameplayUtil
     if type(utility) == "table" and type(utility.movementStateBlocker) == "function" then
@@ -5912,6 +5932,8 @@ function actions.dispatch(actor, mode, intent, provider)
     end
 
     local activityPhase, activityOwner, activityName, activityAt = actions.activityStatus(actor)
+    local serviceWalk = activityPhase == "active" and activityOwner == "native"
+        and SC.NativeCombatActions.permitsServiceWalk(actor, normalized, intent)
     if activityPhase == "result_pending" and activityOwner == "visual"
         and activityName ~= action and not urgent then
         local grace = tonumber(SC.Config.get("visualEffectClaimMs")) or 2000
@@ -5920,7 +5942,7 @@ function actions.dispatch(actor, mode, intent, provider)
             activityPhase = "none"
         end
     end
-    if activityPhase == "active" or activityPhase == "result_pending" then
+    if (activityPhase == "active" or activityPhase == "result_pending") and not serviceWalk then
         if activityName == action then
             return true, "activity_continues:" .. tostring(activityName)
         end
@@ -6096,7 +6118,8 @@ function actions.dispatch(actor, mode, intent, provider)
     local utility = SC.GameplayUtil
     if type(utility) == "table" and type(utility.movementStateBlocker) == "function" then
         local blocker = utility.movementStateBlocker(actor)
-        if blocker ~= nil then
+        if blocker ~= nil and not (serviceWalk
+            and (blocker == "unfinished_action" or blocker == "action_animation_state")) then
             return false, "actor_state_busy:" .. tostring(blocker)
         end
     end

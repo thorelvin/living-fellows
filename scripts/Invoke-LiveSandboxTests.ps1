@@ -244,6 +244,11 @@ param(
     [switch]$GiftedEquipmentProbe,
     # Repeated native squad-versus-zombie survival trials in a cloned save.
     [switch]$SquadCombatProbe,
+    [switch]$SoloFirearmsProbe,
+    [switch]$SoloFirearmsCalibrate,
+    [switch]$SoloFirearmsEmptyStart,
+    [ValidateRange(1,100)][int]$SoloFirearmsStartCase = 1,
+    [ValidateRange(1,100)][int]$SoloFirearmsEndCase = 100,
     # Stair combat facts: one companion and one zombie at opposite ends of a real staircase.
     [switch]$StairCombatProbe,
     [switch]$StairCombatBaseWatch,
@@ -2150,6 +2155,11 @@ $config = @(
     ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('solo_firearms_probe=' + $SoloFirearmsProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('solo_firearms_calibrate=' + $SoloFirearmsCalibrate.IsPresent.ToString().ToLowerInvariant()),
+    ('solo_firearms_empty_start=' + $SoloFirearmsEmptyStart.IsPresent.ToString().ToLowerInvariant()),
+    ('solo_firearms_start_case=' + $SoloFirearmsStartCase),
+    ('solo_firearms_end_case=' + $SoloFirearmsEndCase),
     ('stair_combat_probe=' + $StairCombatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_base_watch=' + $StairCombatBaseWatch.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_trials=' + $StairCombatTrials),
@@ -2331,6 +2341,11 @@ $manifest = [ordered]@{
     woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
+    soloFirearmsProbe = $SoloFirearmsProbe.IsPresent
+    soloFirearmsCalibrate = $SoloFirearmsCalibrate.IsPresent
+    soloFirearmsEmptyStart = $SoloFirearmsEmptyStart.IsPresent
+    soloFirearmsStartCase = $SoloFirearmsStartCase
+    soloFirearmsEndCase = $SoloFirearmsEndCase
     stairCombatProbe = $StairCombatProbe.IsPresent
     stairCombatBaseWatch = $StairCombatBaseWatch.IsPresent
     stairCombatSite = $StairCombatSite

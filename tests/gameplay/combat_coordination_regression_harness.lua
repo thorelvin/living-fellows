@@ -1048,9 +1048,12 @@ do
     check(chosen and chosen.actor == east,
         "an equal-range attacker cannot bypass the short commitment on every scan")
     state.targetCommitUntil = 32499
-    chosen = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
+    local proposedCommit
+    chosen, proposedCommit = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
         snapshot, { combatDoctrine = "weapons_free" }, state, 32500)
     check(chosen and chosen.actor == west, "a newly attacking rear contact can still interrupt the incumbent")
+    check(state.targetCommitUntil == 32499 and proposedCommit > 32500,
+        "a provisional doctrine target cannot indefinitely extend the actual incumbent's commitment")
     snapshot.threats[1].attacking = true
     scored = SC.Combat.scoreTargets(actor, nil, snapshot, state.target)
     chosen = SC.Combat._selectDoctrineTargetForTests(actor, scored, nil,
@@ -1158,5 +1161,177 @@ do
     U.stop,U.actorState=oldStop,oldActorState
     SC.Navigation,SC.NativeActions,SC.CombatSquad=oldNavigation,oldNative,oldSquad
     SC.Combat.reset(actor);SC.Combat.reset(opponent)
+end
+do
+    local actor = character("sc-ranged-spacing", 0, 0)
+    local target = character("z-ranged-spacing", 4, 0, "IsoZombie")
+    local gun = { reach = 15 }
+    function gun:getMaxRange() return self.reach end
+    local ranged = { item = gun, ranged = true, range = 15, ammo = 8, equipped = true }
+    local band = SC.Combat.rangedSpacing(actor, ranged, { combatSkill = 3 })
+    check(band.firing > 3 and band.resume > band.firing and band.reload > band.firing,
+        "firearms reserve separate firing, recovery and reload space")
+    gun.reach = 3
+    local short = SC.Combat.rangedSpacing(actor, ranged, { combatSkill = 3 })
+    check(short.firing < 3 and short.resume < 3, "short modded guns keep their firing band inside actual reach")
+    gun.reach = 15
+    local navigation, queueApi = SC.Navigation, ISTimedActionQueue
+    SC.Navigation = { combatVector = function() return -1, 0, true end }
+    local state, shot = {}, { kind = "shoot", score = 80 }
+    local threat = { actor = target, visible = true, obstructed = false }
+    local snapshot = { threats = { threat } }
+    actor.x, actor.y, target.y, target.z = 0, 0, 0, 0
+    target.x = band.firing - 0.1
+    local step = SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, shot)
+    check(step.rangedReposition and step.moveX < 0, "a gunner makes room before reaching grab distance")
+    function target:isOnFloor() return true end
+    local standing = character("z-standing-beside-prone", band.firing - 0.1, 0, "IsoZombie")
+    local mixed = SC.Combat._rangedRepositionForTests(actor,
+        { threats = { threat, { actor = standing, visible = true } } }, threat, ranged, nil,
+        { combatSkill = 3 }, {}, shot)
+    check(mixed.rangedReposition and mixed.spacingThreat == standing,
+        "aiming at a prone target does not hide another upright zombie's closing pressure")
+    function target:isOnFloor() return false end
+    target.x = 8
+    local focusState = { target = target }
+    local focusedStep = SC.Combat._rangedRepositionForTests(actor,
+        { threats = { threat, { actor = standing, visible = true } } }, threat, ranged, nil,
+        { combatSkill = 3 }, focusState, shot)
+    check(focusedStep.spacingThreat == standing and focusState.target == target,
+        "a gunner kites away from the nearest upright zombie without changing its firing target")
+    target.x = band.firing + 0.2
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, shot).rangedReposition,
+        "crossing the start boundary does not reverse a committed spacing move")
+    local priorClock = SC_TEST_CLOCK
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 2300
+    target.x = band.firing + 0.35
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, shot) == shot,
+        "adequate firing space ends an extended move instead of pursuing an unreachable ideal gap")
+    SC_TEST_CLOCK = priorClock
+    target.x = band.resume + 0.1
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, shot) == shot and state.rangedReposition == nil,
+        "the gunner stops repositioning at the resume boundary")
+    target.x = (band.firing + band.reload) / 2
+    ranged.jammed = true
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, { kind = "unjam" }).rangedReposition,
+        "clearing a firearm requests more space than an ordinary shot")
+    local service = { kind = "unjam" }
+    ISTimedActionQueue = { getTimedActionQueue = function()
+        return { current = { gun = gun, Type = "ISRackFirearm" } }
+    end }
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, service) == service,
+        "spacing never cancels the exact gun's native rack action")
+    ISTimedActionQueue = { getTimedActionQueue = function()
+        return { current = { Type = "ISInventoryTransferAction" },
+            queue = { { Type = "ISInventoryTransferAction" }, { gun = gun, Type = "ISReloadWeaponAction" } } }
+    end }
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, service) == service,
+        "native cartridge transfers retain the ownership of their queued gun reload")
+    ISTimedActionQueue = nil
+    SC.Navigation.combatVector = function() return nil end
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, shot) == shot,
+        "blocked spacing retains existing defence rather than issuing a blind move")
+    local retreat = { kind = "retreat" }
+    check(SC.Combat._rangedRepositionForTests(actor, snapshot, threat, ranged, nil,
+        { combatSkill = 3 }, state, retreat) == retreat,
+        "range calibration does not override survival withdrawal")
+    SC.Navigation, ISTimedActionQueue = navigation, queueApi
+    local policy = SC.Decision._ownerNeedsImmediatePreemptionForTests
+    local crowd = { pressure = 8, threatCount = 5, immediateCount = 0 }
+    check(not policy("native", crowd, {}, {}, { order = "stay" }, false, actor, nil, "reload"),
+        "distant combat pressure does not preempt the gun's native reload")
+    crowd.immediateCount = 1
+    check(policy("native", crowd, {}, {}, { order = "stay" }, false, actor, nil, "reload"),
+        "a real contact still preempts reloading")
+    crowd.immediateCount = 0
+    check(policy("native", crowd, {}, {}, { order = "retreat" }, false, actor, nil, "reload"),
+        "an explicit withdrawal keeps priority over gun service")
+end
+do
+    local actor = character("sc-walking-reload", 0, 0)
+    local target = character("z-walking-reload", 4, 0, "IsoZombie")
+    local gun = {}
+    function gun:getMaxRange() return 15 end
+    function actor:getPrimaryHandItem() return gun end
+    local active = { Type = "ISReloadWeaponAction", character = actor, gun = gun,
+        stopOnWalk = false, stopOnRun = true }
+    local oldQueue, oldNavigation, oldMove, oldNative = ISTimedActionQueue, SC.Navigation, U.move, SC.NativeActions
+    local oldService = SC.NativeCombatActions
+    SC.NativeCombatActions = { serviceKind = function() return "reload", active end,
+        releaseCompletedInput = function() return true end }
+    ISTimedActionQueue = { queues = { [actor] = { current = active } } }
+    SC.Navigation = { combatVector = function() return -1, 0, true end }
+    local moves, holds = 0, 0
+    SC.NativeActions = { holdCombatPosition = function() holds = holds + 1 return true end }
+    U.move = function(owner, mode, intent)
+        moves = moves + 1
+        check(owner == actor and mode == "walk" and intent.dx < 0
+            and intent.firearmService == active and intent.weapon == gun,
+            "reload movement walks away and retains the exact native action receipt")
+        return true
+    end
+    local snapshot = { threats = { { actor = target, visible = true } } }
+    check(SC.Combat.updateRangedService(actor, snapshot) and moves == 1,
+        "a nearby zombie permits a walking retreat during reload")
+    target.x = 25
+    check(not SC.Combat.updateRangedService(actor, snapshot) and moves == 1 and holds == 1,
+        "sufficient separation stops the reload walk instead of wandering indefinitely")
+    target.x = 4
+    SC.Navigation.combatVector = function() return nil end
+    check(not SC.Combat.updateRangedService(actor, snapshot) and moves == 1 and holds == 2,
+        "a blocked reload step holds position without cancelling native service")
+    U.move, SC.NativeActions = oldMove, oldNative
+    SC.NativeCombatActions = oldService
+    SC.Navigation, ISTimedActionQueue = oldNavigation, oldQueue
+    SC.Combat.reset(actor)
+end
+do
+    local actor = character("sc-nearer-gun-target", 0, 0)
+    local gun = U.copyShallow(weapon)
+    gun.ranged, gun.range, gun.ammo, gun.maxAmmo = true, 15, 8, 15
+    local function shotScore(distance)
+        local zombie = character("z-shot-distance-" .. distance, distance, 0, "IsoZombie")
+        local actions = SC.Combat._actionUtilitiesForTests(actor, nil,
+            { threats = {}, allies = {} }, { actor = zombie, visible = true },
+            gun, nil, { combatDoctrine = "weapons_free", morale = 70 })
+        for _, action in ipairs(actions) do
+            if action.kind == "shoot" then return action.score end
+        end
+    end
+    check(shotScore(4) > shotScore(10),
+        "an otherwise identical nearer firearm target outranks a distant shot")
+    gun.equipped = true
+    gun.item = { getMaxRange = function() return 15 end }
+    local current = { weapon = gun, action = { kind = "shoot" }, distance = 9, target = {} }
+    local closer = { weapon = gun, action = { kind = "shoot" }, distance = 4, target = {} }
+    local focus = SC.Combat._keepRangedFocusForTests
+    check(focus(actor, current, closer), "a nearer ordinary shot does not split an ongoing firearm engagement")
+    current.rangedFinish, closer.rangedFinish = 0, 16
+    check(not focus(actor, current, closer), "a viable wounded target can regain focus after a temporary interruption")
+    current.rangedFinish, closer.rangedFinish = 16, 18
+    check(focus(actor, current, closer), "small injury differences do not cause repeated firearm target switches")
+    current.action.kind, closer.action.kind = "reload", "reload"
+    check(focus(actor, current, closer), "gun service preserves the same viable firing target")
+    current.action.kind, closer.action.kind = "shoot", "shove"
+    check(not focus(actor, current, closer), "focus fire does not outrank a contact defence action")
+    closer.action.kind, closer.target.breaching = "shoot", true
+    check(not focus(actor, current, closer), "a new breach remains eligible to replace ordinary focus")
+    closer.target.breaching, current.distance = nil, 16
+    check(not focus(actor, current, closer), "a target outside gun reach is not kept as a viable firing focus")
+    local injured = character("z-ranged-finish-priority", 7, 0, "IsoZombie")
+    injured.damage.health = 1
+    woundedScore(injured, 49, 1000, 12)
+    injured.damage.health = 0.5
+    check(woundedScore(injured, 49, 1700, 12) > 20
+        and woundedScore(injured, 49, 1700) == 0,
+        "a ranged finish preference observes wounded targets without widening ordinary melee pursuit")
 end
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

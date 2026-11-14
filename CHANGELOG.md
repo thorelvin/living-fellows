@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.27.19 - Focus fire and moving reloads
+
+- Gunners keep a viable firing target and prefer finishing wounded enemies,
+  while making space from the closest upright threat. Immediate defence,
+  rescue, player targeting and withdrawal still take priority.
+- Native reloads and racking can continue while walking. Distant sightings
+  no longer repeatedly interrupt gun service, and completed shot/rack input
+  no longer blocks the next reload. Running remains excluded during service.
+- Restored the companion's own native aiming/body query. Native collision,
+  hit rolls, damage and ammunition remain authoritative; zombie navigation
+  is unchanged.
+- Recorded 100 live solo trials at Aiming/Reloading 3: 28 clears, 67 timeouts
+  and 5 withdrawals. Shotguns cleared 16 of 20 waves; rifle effectiveness
+  remains unresolved. This is not a claim of complete firearm calibration.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged. Lua and the rebuilt native bridge ship
+  together with matching release metadata.
+
 ## 0.27.18 - Keep zombie navigation native
 
 - Removed LF's zombie path refreshes from targeting, close attack support and

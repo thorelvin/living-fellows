@@ -210,6 +210,9 @@ public final class SCNativeCompanion extends IsoPlayer {
         static final Method GET_CONTROLLER = resolveBallisticMethod(IsoGameCharacter.class, "getBallisticsController");
         static final Method GET_RETICLE = resolveBallisticMethod(CONTROLLER, "getIsoAimingPosition");
         static final Method GET_ID = resolveBallisticMethod(CONTROLLER, "getID");
+        static final Method CAMERA_TARGETS = resolveBallisticMethod(CONTROLLER, "getCameraTargets", float.class, boolean.class);
+        static final Method HAS_CAMERA_TARGET = resolveBallisticMethod(CONTROLLER, "hasBallisticsTarget");
+        static final Method UPDATE_CONTROLLER = resolveBallisticMethod(CONTROLLER, "update");
         static final Method SET_VECTOR = resolveBallisticMethod(VECTOR, "set", float.class, float.class, float.class);
         static final Field X = resolveBallisticField(VECTOR, "x");
         static final Field Y = resolveBallisticField(VECTOR, "y");
@@ -1807,6 +1810,8 @@ public final class SCNativeCompanion extends IsoPlayer {
                     .getMethod("getNumberOfTargets").invoke(controller));
             out.append(" cachedTargets=").append(controller.getClass()
                     .getMethod("getCachedNumberOfTargets").invoke(controller));
+            out.append(" cameraTargets=").append(controller.getClass()
+                    .getMethod("getNumberOfCameraTargets").invoke(controller));
             out.append(" animAngle=").append(hasAnimationPlayer()
                     ? getAnimationPlayer().getRenderedAngle() : Float.NaN);
             Class<?> vectorType = Class.forName("zombie.iso.Vector3");
@@ -1937,6 +1942,29 @@ public final class SCNativeCompanion extends IsoPlayer {
         try {
             Object[] input = selectCompanionBallisticReticle();
             selectCompanionPhysicsReticle(input);
+            // The local aiming pass normally refreshes native camera/body
+            // intersections before the animation computes its aiming vector.
+            // LF omits that input controller. Refresh only this actor's query;
+            // a real native intersection is still required to adjust the pose.
+            Object weapon = GET_PRIMARY_HAND_ITEM.invoke(this);
+            if (input != null && isAiming() && weapon != null
+                    && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))
+                    && BallisticAccess.CAMERA_TARGETS != null
+                    && BallisticAccess.HAS_CAMERA_TARGET != null
+                    && BallisticAccess.UPDATE_CONTROLLER != null) {
+                prepareCompanionBallisticTarget();
+                float range = ((Number) BallisticAccess.MAX_RANGE.invoke(weapon, this)).floatValue()
+                        * ((Number) BallisticAccess.RANGE_MOD.invoke(weapon, this)).floatValue();
+                var target = (zombie.iso.IsoMovingObject) input[4];
+                if (!isCompanionBallisticTargetInRange(target.getX() - getX(),
+                        target.getY() - getY(), target.getZ() - getZ(), range)) return;
+                BallisticAccess.CAMERA_TARGETS.invoke(input[3], range + 0.5f, true);
+                if (Boolean.TRUE.equals(BallisticAccess.HAS_CAMERA_TARGET.invoke(input[3]))) {
+                    BallisticAccess.UPDATE_CONTROLLER.invoke(input[3]);
+                    input = selectCompanionBallisticReticle();
+                    selectCompanionPhysicsReticle(input);
+                }
+            }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError unavailable) {
             // Retain the stock collision contract; never manufacture a hit.
         }
@@ -2812,7 +2840,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             // before Bullet's next simulation step. This non-local actor has
             // no such pass; register only its actual, in-range selected body.
             // Native collision, occlusion and hit rolls still select the hit.
-            if (getVehicle() != null && isAiming()
+            if (isAiming()
                     && BallisticAccess.ENSURE_TARGET != null && BallisticAccess.ADD_TARGET != null) {
                 Object body = BallisticAccess.ENSURE_TARGET.invoke(target, target);
                 if (body != null) BallisticAccess.ADD_TARGET.invoke(body);

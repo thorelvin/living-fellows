@@ -1830,8 +1830,9 @@ end
 -- easier to finish than six equally fresh ones, but this preference is local
 -- and bounded so a rescue, attacker at contact, or overrun still wins. No
 -- native health read occurs for distant sightings or on every combat pulse.
-local function woundedTargetScore(zombie, distanceSq, now)
-    if zombie == nil or (tonumber(distanceSq) or math.huge) > 3.25 ^ 2 then
+local function woundedTargetScore(zombie, distanceSq, now, maximumDistance)
+    if zombie == nil or (tonumber(distanceSq) or math.huge)
+        > (tonumber(maximumDistance) or 3.25) ^ 2 then
         return 0
     end
     local observed = targetHealthObservations[zombie]
@@ -3469,7 +3470,10 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 and not target.obstructed and not lineBlockedByFriendly(actor, target.actor, player, snapshot) then
                 actions[#actions + 1] = {
                     kind = "shoot",
-                    score = 54 + math.min(weapon.range, distance) * 2
+                    -- Range is a limit, not a reason to ignore a nearer shot.
+                    -- The former distance bonus made a gunner shoot past the
+                    -- zombies driving its retreat and keep kiting indefinitely.
+                    score = 54 + math.max(0, math.min(weapon.range, 12) - distance) * 2
                         + readiness.combatSkill * 2.2 + readiness.weaponQuality * 8
                         - pressure * 4 - readiness.panic * 5
                         - readiness.stress * 0.08,
@@ -3942,8 +3946,9 @@ local function selectDoctrineTarget(actor, scored, player, snapshot, commands, s
     if previous and previous.actor ~= best.actor
         and not emergency and (committed
             or stableTargetScore(best) < stableTargetScore(previous) + margin) then
-        return previous
+        return previous, state.targetCommitUntil
     end
+    local commitUntil = state.targetCommitUntil
     if previous == nil or previous.actor ~= best.actor then
         local commitMs
         if best.playerDesignation == "focus" then
@@ -3953,15 +3958,45 @@ local function selectDoctrineTarget(actor, scored, player, snapshot, commands, s
             commitMs = ranged and (U().config("combatRangedCommitMs") or 1000)
                 or (U().config("combatMeleeCommitMs") or 1000)
         end
-        state.targetCommitUntil = now + commitMs
+        commitUntil = now + commitMs
     end
-    return best
+    -- Doctrine only proposes a contact. Refreshing the incumbent's lease here
+    -- kept it committed forever when the viable-pair selector rejected the
+    -- proposal on every pulse. The accepting lane commits its actual choice.
+    return best, commitUntil
 end
 
 -- Score bounded target/action pairs instead of committing to a target before
 -- discovering whether anything useful can be done to it. This prevents a prone
 -- zombie with no safe stomp from suppressing a viable swing at a standing one.
 Combat._selectDoctrineTargetForTests = selectDoctrineTarget
+
+-- A gunner may move away from a different, closer zombie without abandoning
+-- an unobstructed shot at its current target. Contact/rescue/player overrides
+-- are checked by the caller before this ordinary firing preference applies.
+local function keepRangedFocus(actor, previous, best)
+    local gun = previous and previous.weapon
+    local kind = previous and previous.action.kind
+    if not gun or gun.ranged ~= true or gun.equipped ~= true
+        or not best or not best.weapon or best.weapon.item ~= gun.item
+        or (best.action.kind ~= "shoot" and best.action.kind ~= "reload"
+            and best.action.kind ~= "unjam")
+        or (kind ~= "shoot" and kind ~= "reload" and kind ~= "unjam")
+        or previous.target.playerDesignation == "avoid"
+        or best.target.breaching == true and previous.target.breaching ~= true then return false end
+    -- A knockdown can force a temporary different shot. Prefer a clearly more
+    -- injured viable target when it stands again, rather than locking onto the
+    -- fresh replacement and spreading a whole magazine across the group.
+    if (tonumber(best.rangedFinish) or 0) > (tonumber(previous.rangedFinish) or 0) + 4 then
+        return false
+    end
+    local reach = numberCall(gun.item, "getMaxRange", tonumber(gun.range) or 0, actor)
+        * numberCall(gun.item, "getRangeMod", 1, actor)
+    return previous.distance > (U().config("combatFirearmMinDistance") or 2.2)
+        and previous.distance <= reach
+end
+
+Combat._keepRangedFocusForTests = keepRangedFocus
 
 local function selectViablePair(actor, player, snapshot, scored, commands, state,
         now, preference, preferredTarget)
@@ -4048,6 +4083,18 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
         if phaseStarted then actionsMs = actionsMs
             + performance.preciseNowMs() - phaseStarted end
         local useful = false
+        -- Reuse the existing shared, throttled health observations, but sample
+        -- only these bounded viable firearm candidates. Melee's short finish
+        -- radius must not hide a wounded zombie inside a gun's firing range.
+        local rangedFinish = 0
+        if weapon and weapon.ranged and weapon.ammo > 0 and not groundedTarget(target.actor)
+            and (tonumber(target.woundedScore) or 0) == 0
+            and snapshot.encircled ~= true
+            and (tonumber(snapshot.reachableImmediateCount)
+                or tonumber(snapshot.closeImmediateCount) or 0) == 0 then
+            rangedFinish = woundedTargetScore(target.actor,
+                distance * distance, now, math.min(12, weapon.range)) * 0.375
+        end
         for _, action in ipairs(actions) do
             if commands.combatDoctrine == "weapons_free"
                 and (action.kind == "shoot" or action.kind == "melee") then
@@ -4058,9 +4105,12 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
             local pair = {
                 target = target, weapon = weapon, inventory = inventory,
                 readiness = readiness, action = action, distance = distance,
+                rangedFinish = rangedFinish + math.min(24,
+                    (tonumber(target.woundedScore) or 0) * 0.375),
                 score = (tonumber(action.score) or 0)
                     + (tonumber(target.score) or 0) * 0.35
-                    + (tonumber(target.woundedScore) or 0) * 0.65,
+                    + (tonumber(target.woundedScore) or 0) * 0.65
+                    + (action.kind == "shoot" and rangedFinish * 0.65 or 0),
             }
             if action.kind == "retreat" or action.kind == "escape" then
                 if target == preferredTarget and (retreatPair == nil
@@ -4099,7 +4149,8 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
         local bestStable = best.score - (tonumber(best.target.bearingScore) or 0) * 0.35
         local previousStable = previous and previous.score
             - (tonumber(previous.target.bearingScore) or 0) * 0.35 or nil
-        if previous and not emergency and (committed or bestStable < previousStable + margin) then
+        if previous and not emergency and (keepRangedFocus(actor, previous, best)
+            or committed or bestStable < previousStable + margin) then
             best = previous
         end
     end
@@ -4154,6 +4205,176 @@ local function clearAimPreparation(state)
     state.aimTarget = nil
     state.aimStartedAt = nil
     state.aimRequiredMs = nil
+end
+
+-- A firing stance and a reload window are different amounts of space. Stay
+-- inside the real weapon's reach; short modded guns must not kite beyond it.
+-- The scale is an internal calibration knob, not a second difficulty setting.
+function Combat.rangedSpacing(actor, weapon, readiness)
+    if not weapon or weapon.ranged ~= true then return nil end
+    local utility = U()
+    local configuredScale = tonumber(utility.config("combatRangedSpacingScale")) or 1
+    if configuredScale <= 0 then return nil end -- Isolated comparison control.
+    local reach = numberCall(weapon.item, "getMaxRange", tonumber(weapon.range) or 8, actor)
+    local rangeMod = numberCall(weapon.item, "getRangeMod", 1, actor)
+    reach = math.max(1, reach * (rangeMod > 0 and rangeMod or 1))
+    local skill = utility.clamp(tonumber(readiness and readiness.combatSkill)
+        or utility.perkLevel(actor, "Aiming", 0), 0, 10)
+    local scale = utility.clamp(configuredScale, 0.5, 1.3)
+    local upper = math.max(0.8, math.min(9, reach - 0.75))
+    local firing = math.min(upper, math.max(math.min(3, upper),
+        (reach * 0.32 + skill * 0.18) * scale))
+    local resume = math.min(reach - 0.25, firing + 1.5)
+    local reload = math.max(firing, math.min(10,
+        firing + 1.8 - skill * 0.1))
+    return { firing = firing, resume = math.max(firing, resume),
+        reload = reload, reloadResume = reload + 1.5, reach = reach }
+end
+
+local function rangedReposition(actor, snapshot, target, weapon, inventory,
+        readiness, state, chosen)
+    local utility = U()
+    local band = Combat.rangedSpacing(actor, weapon, readiness)
+    state.rangedBand = band
+    if not band or not target or target.safeBarrier == true
+        or target.visible == false or target.obstructed == true
+        or not utility.sameFloor(actor, target.actor) then
+        state.rangedReposition = nil
+        return chosen
+    end
+    local service = weapon.ammo <= 0 or weapon.jammed or weapon.needsRack
+    if weapon.ammo <= 0 and not hasReloadAmmo(inventory, weapon) then
+        state.rangedReposition = nil
+        return chosen
+    end
+    -- Do not cancel a reload/rack which already owns this exact gun. Native
+    -- action timing remains authoritative; urgent contact defence still wins
+    -- in the existing overrun lane before this positioning helper is reached.
+    if type(ISTimedActionQueue) == "table"
+        and type(ISTimedActionQueue.getTimedActionQueue) == "function" then
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        local pending = queue and queue.queue or {}
+        -- Include the queued gun action while native inventory transfers fetch
+        -- its cartridges. Running during those transfers cancels the whole
+        -- reload chain before a loose-round gun receives its first cartridge.
+        for index = 0, math.min(#pending, 16) do
+            local active = index == 0 and queue and queue.current or pending[#pending-index+1]
+            local kind = active and active.Type
+            if active and active.gun == weapon.item
+                and (kind == "ISReloadWeaponAction" or kind == "ISRackFirearm"
+                    or kind == "ISInsertMagazine" or kind == "ISEjectMagazine") then return chosen end
+        end
+    end
+    -- Respect full withdrawal, contact defence and authored finisher decisions.
+    if chosen.kind ~= "shoot" and chosen.kind ~= "reload" and chosen.kind ~= "unjam"
+        and chosen.kind ~= "backstep" and chosen.kind ~= "hold_range" then
+        state.rangedReposition = nil
+        return chosen
+    end
+    local nearestActor = not groundedTarget(target.actor) and target.actor or nil
+    local nearest = nearestActor and utility.distance(actor, nearestActor) or math.huge
+    for index = 1, math.min(#(snapshot.threats or {}), 32) do
+        local threat = snapshot.threats[index]
+        local other = threat and threat.actor
+        if other and threat.visible ~= false and threat.obstructed ~= true
+            and threat.safeBarrier ~= true and not utility.isGoneTarget(other)
+            and utility.sameFloor(actor, other) and not groundedTarget(other) then
+            local distance = utility.distance(actor, other)
+            if distance < nearest then nearest, nearestActor = distance, other end
+        end
+    end
+    local minimum, resume = service and band.reload or band.firing,
+        service and band.reloadResume or band.resume
+    local previous = state.rangedReposition
+    local continuing = previous and previous.weapon == weapon.item
+        and previous.service == service and nearest < resume
+    local now = utility.nowMs()
+    local enoughSpace = continuing and nearest >= minimum + 0.25
+        and now - (previous.startedAt or now)
+            >= (utility.config("combatRangedRepositionMaxMs") or 2200)
+    if nearest >= minimum and (not continuing or enoughSpace) then
+        state.rangedReposition = nil
+        return chosen
+    end
+    -- Never turn our back inside grab range. Existing shove/escape scoring owns
+    -- that emergency; early spacing is intended to avoid arriving there.
+    if nearest <= (utility.config("combatFirearmMinDistance") or 2.2) then
+        state.rangedReposition = nil
+        return chosen
+    end
+    if not SC.Navigation or type(SC.Navigation.combatVector) ~= "function" then return chosen end
+    local dx, dy, steered = SC.Navigation.combatVector(actor, nearestActor, "backstep", snapshot)
+    if dx == nil or dy == nil or Combat.stepsOntoStairs(actor, dx, dy) then
+        state.rangedReposition = nil
+        return chosen
+    end
+    state.rangedReposition = { weapon = weapon.item, service = service,
+        startedAt = continuing and previous.startedAt or now }
+    clearAimPreparation(state)
+    return { kind = "backstep", score = chosen.score,
+        moveX = dx, moveY = dy, microSteered = steered == true,
+        rangedReposition = true, rangedService = service, spacingThreat = nearestActor }
+end
+
+Combat._rangedRepositionForTests = rangedReposition
+
+-- Native reload/rack timing and ammunition remain authoritative while the
+-- lower body walks away. This runs only in the decision's retained gun-service
+-- lane; it never starts another attack or cancels the timed-action queue.
+function Combat.updateRangedService(actor, snapshot)
+    local utility = U()
+    if not SC.NativeCombatActions or type(SC.NativeCombatActions.serviceKind) ~= "function" then
+        return false, "gun_service_unavailable"
+    end
+    local kind, active = SC.NativeCombatActions.serviceKind(actor)
+    if not kind or not active then return false, "gun_service_finished" end
+    SC.NativeCombatActions.releaseCompletedInput(actor)
+    local state = stateFor(actor)
+    state.rangedReposition = nil
+    local function hold(reason)
+        state.rangedServiceMoving = nil
+        holdCombatPosition(actor)
+        return false, reason
+    end
+    if active.stopOnWalk ~= false or active.stopOnRun ~= true
+        or state.retreating or state.guardPost or Combat.atStairs(actor) then
+        return hold("gun_service_stationary")
+    end
+    local nearest, target = math.huge, nil
+    for index = 1, math.min(#(snapshot.threats or {}), 32) do
+        local threat = snapshot.threats[index]
+        local other = threat and threat.actor
+        if other and threat.visible ~= false and threat.obstructed ~= true
+            and threat.safeBarrier ~= true and not utility.isGoneTarget(other)
+            and utility.sameFloor(actor, other) and not groundedTarget(other) then
+            local gap = utility.distance(actor, other)
+            if gap < nearest then nearest, target = gap, other end
+        end
+    end
+    local band = Combat.rangedSpacing(actor, { item = active.gun, ranged = true })
+    if not band or not target or nearest >= band.reloadResume
+        or nearest <= (utility.config("combatFirearmMinDistance") or 2.2) then
+        return hold("gun_service_has_space")
+    end
+    if not SC.Navigation or type(SC.Navigation.combatVector) ~= "function" then
+        return hold("gun_service_no_steering")
+    end
+    local dx, dy, steered = SC.Navigation.combatVector(actor, target, "backstep", snapshot)
+    if dx == nil or dy == nil or Combat.stepsOntoStairs(actor, dx, dy) then
+        return hold("gun_service_step_blocked")
+    end
+    local moved, why = utility.move(actor, "walk", {
+        action = "backstep", target = target, awayFrom = target,
+        dx = dx, dy = dy, allowMovingTurn = true, microSteered = steered == true,
+        firearmService = active, weapon = active.gun,
+    })
+    if moved then
+        state.rangedServiceMoving = active
+        clearAimPreparation(state)
+    else
+        hold("gun_service_walk_rejected")
+    end
+    return moved, why
 end
 
 local function prepareRangedShot(actor, state, snapshot, target, weapon, readiness,
@@ -4933,7 +5154,10 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
                 or (weapon and Combat.meleeSpacing(actor, weapon.item, target) or {}).desired,
         })
     elseif action.kind == "backstep" then
-        local guarded = spacingFacesTarget(state, targetActor, utility.nowMs())
+        -- A loaded gun can retain native aim while walking backward. Jogging
+        -- with it lowered resets native aim steadiness at every spacing pulse.
+        local guarded = action.rangedReposition and not action.rangedService
+            or not action.rangedReposition and spacingFacesTarget(state, targetActor, utility.nowMs())
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
@@ -4941,8 +5165,8 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
                 actor, targetActor, "backstep", snapshot)
             if moveX == nil then return false, "backstep_blocked:" .. tostring(vectorReason) end
         end
-        accepted, nativeReason = utility.move(actor, "walk", {
-            action = "backstep", target = targetActor, awayFrom = targetActor,
+        accepted, nativeReason = utility.move(actor, action.rangedService and "jog" or "walk", {
+            action = "backstep", target = targetActor, awayFrom = action.spacingThreat or targetActor,
             dx = moveX, dy = moveY, keepFacing = guarded, weaponReady = guarded,
             allowMovingTurn = not guarded,
             microSteered = steered == true,
@@ -5171,7 +5395,8 @@ function Combat.update(actor, player, runtime)
         return false, "downed"
     end
 
-    local target = selectDoctrineTarget(actor, scored, player, snapshot, commands, state, now)
+    local target, proposedCommitUntil = selectDoctrineTarget(
+        actor, scored, player, snapshot, commands, state, now)
     if not target then
         -- Remembered briefly so Decision can keep a follower moving with its
         -- leader instead of re-selecting a combat pass that has nothing to do.
@@ -5231,6 +5456,7 @@ function Combat.update(actor, player, runtime)
         if ok then
             state.active = true
             state.target = target.actor
+            state.targetCommitUntil = proposedCommitUntil
             state.targetScore = target.score
             state.lastActionAt = now
             state.lastAction = reason
@@ -5468,6 +5694,8 @@ function Combat.update(actor, player, runtime)
     target, weapon, inventory = pair.target, pair.weapon, pair.inventory
     local readiness = pair.readiness or overrun.readiness
     local chosen = pair.action
+    chosen = rangedReposition(actor, snapshot, target, weapon, inventory,
+        readiness, state, chosen)
     distance = pair.distance or math.sqrt(
         target.distanceSq or utility.distanceSq(actor, target.actor))
     utility.call(actor, "setCompanionAimTarget", target.actor)

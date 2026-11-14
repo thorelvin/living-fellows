@@ -33,6 +33,7 @@ function actor:getCompanionActionStateName() return self.actionState or "idle" e
 function actor:getVariableBoolean(name) return self.vars[name] == true end
 function actor:getVariableString(name) return tostring(self.vars[name] or "") end
 function actor:setVariable(name, value) self.vars[name] = value end
+function actor:clearVariable(name) self.vars[name] = nil end
 function actor:faceLocationF() return true end
 function actor:setForwardDirection(x, y) self.forwardX, self.forwardY = x, y end
 function actor:getForwardDirectionX() return self.forwardX end
@@ -368,4 +369,94 @@ end
 actor.meleeDelay = 0
 AttackType = savedAttackType
 SC.NativeActions.resetCombatEvents(actor)
+do
+    local priorReload, priorRack, priorQueue = ISReloadWeaponAction, ISRackFirearm, ISTimedActionQueue
+    local queue, starts = { queue = {} }, 0
+    local function append(action)
+        starts = starts + 1
+        queue.queue[#queue.queue + 1] = action
+        queue.current = action
+    end
+    ISTimedActionQueue = { getTimedActionQueue = function() return queue end, add = append }
+    ISReloadWeaponAction = { BeginAutomaticReload = function(owner, gun)
+        check(owner == actor and gun == weapon, "reload remains bound to the exact actor and gun")
+        check(not actor.vars.isRacking and not actor.vars.RackAiming,
+            "a new native load cannot inherit a completed rack's animation selectors")
+        append({ gun = gun })
+    end }
+    ISRackFirearm = { new = function(_, owner, gun)
+        check(owner == actor and gun == weapon, "rack remains bound to the exact actor and gun")
+        return { gun = gun }
+    end }
+    for _, kind in ipairs({ "reload", "unjam" }) do
+        actor.attackStarted, actor.attackAnimation, actor.moving, actor.running = false, false, true, true
+        actor.actionState = "idle"
+        actor.vars.isRacking, actor.vars.RackAiming = true, true
+        local accepted, why = dispatch(kind, { weapon = weapon })
+        check(accepted and not actor.moving and not actor.running,
+            kind .. " stops the preceding run before starting its native queue: " .. tostring(why))
+        queue = { queue = {} }
+        actor.moving, actor.rejectStop = true, true
+        local before = starts
+        local rejected, reason = dispatch(kind, { weapon = weapon })
+        check(not rejected and reason == "native_combat_stop_failed" and starts == before,
+            kind .. " never queues behind a rejected locomotion stop")
+        actor.rejectStop = false
+    end
+    ISReloadWeaponAction, ISRackFirearm, ISTimedActionQueue = priorReload, priorRack, priorQueue
+end
+do
+    local priorQueue, priorBlocker = ISTimedActionQueue, SC.GameplayUtil.movementStateBlocker
+    local action = { Type = "ISReloadWeaponAction", character = actor, gun = weapon,
+        stopOnWalk = false, stopOnRun = true }
+    local queue = { current = action, queue = { action } }
+    ISTimedActionQueue = { queues = { [actor] = queue } }
+    SC.GameplayUtil.movementStateBlocker = function() return "unfinished_action" end
+    actor.attackStarted, actor.attackAnimation, actor.actionState = false, false, "idle"
+    local phase, owner, name = SC.NativeActions.activityStatus(actor)
+    check(phase == "active" and owner == "native" and name == "reload",
+        "the native activity reports reload rather than an unidentified animation")
+    local intent = { action = "backstep", dx = -1, dy = 0,
+        firearmService = action, weapon = weapon, allowMovingTurn = true }
+    check(SC.Locomotion.authorize(actor, "walk", intent),
+        "locomotion authorizes a walking step beside the retained native gun action")
+    local accepted, why = SC.NativeActions.dispatch(actor, "walk", intent, provider)
+    check(accepted and actor.moving and not actor.running and queue.current == action and #queue.queue == 1,
+        "walking preserves the exact native reload queue: " .. tostring(why))
+    check(not SC.NativeCombatActions.permitsServiceWalk(actor, "run", intent),
+        "gun servicing never authorizes running")
+    SC.GameplayUtil.movementStateBlocker = function() return "knocked_down" end
+    check(not SC.Locomotion.authorize(actor, "walk", intent),
+        "gun servicing never bypasses a real movement blocker")
+    SC.GameplayUtil.movementStateBlocker = function() return "unfinished_action" end
+    action.Type = "ISRackFirearm"
+    check(SC.NativeCombatActions.permitsServiceWalk(actor, "walk", intent),
+        "the exact native rack action also permits walking")
+    action.stopOnWalk = true
+    check(not SC.NativeCombatActions.permitsServiceWalk(actor, "walk", intent),
+        "a modded action's walking prohibition remains authoritative")
+    action.stopOnWalk = false
+    queue.current = { Type = "ISInventoryTransferAction", character = actor }
+    check(not SC.NativeCombatActions.permitsServiceWalk(actor, "walk", intent),
+        "a stale gun-action receipt cannot authorize walking during another action")
+    queue.current = action
+    action.character = target
+    check(not SC.NativeCombatActions.permitsServiceWalk(actor, "walk", intent),
+        "another actor's rack cannot authorize this companion's movement")
+    SC.NativeActions.holdCombatPosition(actor)
+    ISTimedActionQueue, SC.GameplayUtil.movementStateBlocker = priorQueue, priorBlocker
+end
+do
+    local priorTypes, priorAttacking, priorTypeSetter = AttackType, actor.isAttacking, actor.setAttackType
+    AttackType = { NONE = {} }
+    function actor:isAttacking() return self.attackType ~= AttackType.NONE end
+    function actor:setAttackType(value) self.attackType = value end
+    actor.attackType, actor.attackStarted, actor.attackAnimation, actor.actionState = {}, true, true, "attack"
+    check(not SC.NativeCombatActions.releaseCompletedInput(actor) and actor.attackType ~= AttackType.NONE,
+        "gun service cannot clear the input of a committed native attack")
+    actor.attackStarted, actor.attackAnimation, actor.actionState = false, false, "idle"
+    check(SC.NativeCombatActions.releaseCompletedInput(actor) and not actor:isAttacking(),
+        "a finished shot releases its transient input without changing native gun ammunition")
+    AttackType, actor.isAttacking, actor.setAttackType = priorTypes, priorAttacking, priorTypeSetter
+end
 SC_TEST_REPORT = "COMBAT_RECOVERY_KAHLUA_PASS checks=" .. checks
