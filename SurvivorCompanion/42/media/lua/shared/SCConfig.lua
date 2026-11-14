@@ -1024,12 +1024,9 @@ local valueData = {
     zombieAttackHoldRadius = 3.0,
     zombieAttackReswingMinMs = 300,
     -- A detached non-local IsoPlayer is absent from the stock local-player
-    -- vision loop. If a zombie keeps the companion as target but remains idle,
-    -- refresh the vanilla path-to-character intent after the ordinary half
-    -- second warning pose. This feeds the zombie anim graph's bMoving/bAttack
-    -- callbacks; it does not move the zombie or synthesize an attack.
+    -- vision loop. Native attack visibility support starts after the ordinary
+    -- half-second warning pose. Navigation remains with the game's zombie AI.
     zombieAttackEngageAssistDelayMs = 500,
-    zombieAttackEngageAssistRetryMs = 750,
     zombieAttackNativeStartRadius = 0.72,
     zombieAttackTargetMemoryMs = 1200,
     zombieAttackMaxChecks = 64,

@@ -13,6 +13,12 @@ local attacker = f.zombie(1, 0, {})
 local accepted = SC.ZombieTargeting.consider(attacker, fighter)
 check(accepted and attacker.target == fighter and attacker.spottedCalls == 1,
     "visible companions enter native zombie targeting")
+local nativeWalker = f.zombie(6, 0, {})
+nativeWalker.target = fighter
+for step=1,4 do SC.ZombieTargeting.scan(fighter, f.clock+2000+step*1000, {nativeWalker}) end
+check(not nativeWalker.pathToCharacterCalls,
+    "periodic companion detection leaves a stalled zombie's route to native AI")
+SC.ZombieTargeting.reset(fighter)
 attacker.target = player
 SC.ZombieTargeting.scan(fighter, f.clock + 2000, { attacker })
 check(attacker.target == player, "targeting preserves a live alternate player target")
@@ -29,6 +35,14 @@ check(blocked, "a closed door owns the physical strike barrier")
 door.open = true
 check(not SC.Topology.strikeBarrier(fighter, attacker, "melee", nil, {}),
     "opening that exact door admits an unobstructed strike")
+
+SC.ZombieAttack.reset()
+local closing = f.zombie(1, 0, {})
+closing.target = fighter
+SC.ZombieAttack.resolve(fighter, f.clock+10000, {closing})
+SC.ZombieAttack.resolve(fighter, f.clock+11000, {closing})
+check(not closing.pathToCharacterCalls,
+    "close attack visibility support does not issue zombie movement requests")
 
 SC.ZombieAttack.reset()
 attacker.target = fighter

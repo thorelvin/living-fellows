@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.18 - Keep zombie navigation native
+
+- Removed LF's zombie path refreshes from targeting, close attack support and
+  stair observation. Zombies choose their own routes; companion detection and
+  native damage support remain in place.
+- Stair test setups now keep the player on the defenders' floor with verified
+  clearance. Optional Base Watch captures the fight through walls, and ambient
+  zombies are cleared before its measured attackers spawn.
+- The controlled watched two-versus-five fight ended with both companions at
+  full health. Its early stair-threat observation check remains unresolved;
+  this is not a claim of complete stair-combat acceptance.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.17 - Supplies, returning survivors and stair defence
 
 - Companions count food, water and clean dressings inside backpacks and nested

@@ -58,26 +58,6 @@ function Stair.onColumn(facts, column)
     return false
 end
 
--- A knocked-back climber may retain its target but abandon its native path.
--- Retry that existing pursuit only after an idle stall, never acquire a target
--- through the floor. Records come from this observed column, not a world scan.
-local function maintainPursuit(actor, zombie, entry, column, now)
-    local facts = SC.ZombieFacts.get(zombie)
-    if facts.gone or not facts.zombie or facts.target ~= actor or facts.posture ~= "standing"
-        or facts.z >= column.z or math.floor(facts.z) ~= column.z - 1
-        or (facts.x - column.x - 0.5)^2 + (facts.y - column.y - 0.5)^2 > 25
-        or U().isALifeHordeHeld(zombie)
-        or select(1, U().call(zombie, "isUseless")) == true
-        or select(1, U().call(zombie, "getCurrentStateName")) ~= "ZombieIdleState" then
-        entry.idleSince = nil; return
-    end
-    entry.idleSince = entry.idleSince or now
-    if now - entry.idleSince >= 1500 and now >= (entry.nextPathAt or 0) then
-        entry.nextPathAt = now + 3000
-        U().call(zombie, "pathToCharacter", actor)
-    end
-end
-
 -- Separate forecast evidence. These actors never enter the attackable lists.
 function Stair.incoming(actor, state, now)
     state.stairs = state.stairs or {}
@@ -122,7 +102,6 @@ function Stair.incoming(actor, state, now)
             end
         end
     end
-    for zombie, entry in pairs(known) do maintainPursuit(actor, zombie, entry, column, now) end
     memory.progress, memory.incoming, memory.known = progress, records, known
     return records
 end

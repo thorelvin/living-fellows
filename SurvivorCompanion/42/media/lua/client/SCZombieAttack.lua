@@ -384,7 +384,7 @@ end
 
 function ZombieAttack.engagedPairCount() return engagedCount end
 
-local function sustainNativeEngagement(zombie, actor, swing, current, elapsed, distance)
+local function sustainNativeEngagement(zombie, actor, current, elapsed, distance)
     local delay = config("zombieAttackEngageAssistDelayMs", 500)
     if elapsed * 1000 < delay then return false, "warning_delay" end
 
@@ -409,17 +409,7 @@ local function sustainNativeEngagement(zombie, actor, swing, current, elapsed, d
     if attackStarted then return true, attackReason, true end
     if attackAccepted then return false, attackReason, false end
 
-    local stateName = tostring(select(1, U().call(zombie, "getCurrentState")))
-    if stateName:find("AttackState") ~= nil then return false, "attack_active", false end
-    if current < (tonumber(swing.nextEngageAssistAt) or 0) then
-        return false, attackReason == "outside_native_start_range"
-            and "assist_cooldown" or attackReason, false
-    end
-    swing.nextEngageAssistAt = current
-        + config("zombieAttackEngageAssistRetryMs", 750)
-    local _, pathOk = U().call(zombie, "pathToCharacter", actor)
-    if pathOk ~= true then return false, attackReason, false end
-    return true, "native_path_refreshed:" .. attackReason, false
+    return false, attackReason, false
 end
 
 -- The same missing local-player visibility slot can make IsoZombie.postupdate()
@@ -864,7 +854,7 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
             if not ZombieAttack.isGrabbed(actor) then
                 local _
                 assisted, _, attackStarted = sustainNativeEngagement(
-                    zombie, actor, swing, current, elapsed, targetDistance)
+                    zombie, actor, current, elapsed, targetDistance)
             end
             if assisted then engagementAssists = engagementAssists + 1 end
             if attackStarted then nativeAttackStarts = nativeAttackStarts + 1 end

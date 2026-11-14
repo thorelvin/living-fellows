@@ -1,0 +1,96 @@
+Native zombie navigation boundary -- 2026-11-14
+
+Release already pushed:
+  living_fellows/0.27.17, de68ce0ac5e369ed9f85084d83a122b7dc9c10a8.
+
+User rule:
+  Never affect zombie pathing. The sole exception is allowing zombies to
+  detect and target companions as normal players. Companion positioning,
+  holding and withdrawal must be handled on the LF side.
+  Recorded in the checkout AGENTS.md and the parent workspace AGENTS.md.
+
+0.27.18 follow-up:
+  Discarded the experimental downstairs path recovery and sight-memory changes.
+  Removed the older explicit zombie path refreshes from stair observation,
+  periodic targeting and close attack support. Removed the unused retry option.
+  Normal companion detection and native attack-visibility integration remain.
+  Stair observation still reports physically rising zombies and supports LF's
+  own landing setback; it cannot issue zombie paths or pathfinding flags.
+  The stair live probe now observes native goals without issuing zombie paths.
+  Failed guard checks retain a second, zoomed-out downstairs screenshot.
+
+Validation of the current production change:
+  Four focused groups PASS: essential combat, coordination, squad, guard post.
+  Checks verify that a stationary zombie's route is untouched during targeting,
+  close attack support and stair observation, while damage ownership still passes.
+  Full project gate: 5/5 PASS, 106.1 seconds, serial, 256 MB, two processors.
+  Evidence: build/test-results/20261114-120844-0e110f and
+    build/native-zombie-navigation-full-gate.log.
+  Source checks PASS after removing the experimental live mode.
+
+Live acceptance with native zombie navigation -- 2026-11-14:
+  Run: SC-Harness-20261114-134322-80b36c69, Project Zomboid 42.22.2, LF only.
+  One disposable save clone, isolated source bridge and LowImpact settings.
+  Two companions followed upstairs in 4.134 seconds and downstairs in 3.264.
+  During the landing fight, the real player remained upstairs on floor 1,
+  outside the fighting area. Required minimum clearance: 3 tiles, as requested.
+  Initial nearest-defender distance: 5.16 tiles; closest during combat: 4.60.
+  Observer position: 5816,5233,1; actual native ghost flag: false.
+  Two companions killed all four zombies in 20.664 seconds. Both finished at
+  100% health, with no bites, zero stair-slope samples and 0.55 tiles maximum
+  guard displacement. This is one successful fight, not a broad reliability claim.
+  The probe issued no zombie paths or movement flags. Native targeting support
+  remained enabled. No new gameplay exceptions were found in the console;
+  the known vanilla mannequin-zone initialization error was still present.
+  Earlier setup attempts stopped before combat because their observer-clearance
+  thresholds were unnecessarily strict; those are not gameplay failures.
+  Screenshots were taken zoomed out. The combat view confirms observer placement,
+  but a bedroom wall obscures the landing; kill and health results come from
+  native actor observations in events.log. Follow-traversal images are retained.
+  Evidence: build/live-sandbox-runs/SC-Harness-20261114-134322-80b36c69 and
+    build/stairs-three-tile-observer.log.
+  The original save is untouched, and the test client has exited.
+
+Exploratory results are not acceptance for the current change:
+  Discarded routing experiment SC-Harness-20261114-114852-0ded22d6 recorded
+  four upstairs arrivals in two trials. The third reached only three, lost one
+  companion and ended with a zombie thumping downstairs toward another upstairs
+  point. The point's source was not recorded, so a sound origin is unconfirmed.
+  A separate full-fight repetition also lost a companion. Neither failure was
+  converted to a pass or hidden by health changes.
+  Logs and blocker screenshots remain in the corresponding build/live-sandbox-runs
+  directories. All live runs used disposable clones; the original save is intact.
+
+Two-versus-five follow-up with Base Watch -- 2026-11-14:
+  Final controlled run: SC-Harness-20261114-141925-2d5eacb1, Rosewood firehouse.
+  Registered the building's ground and upper floors as a disposable camp and
+  opened the real Base Watch secondary view on one defender. The Guard-here
+  fixture briefly satisfies the watch's base-duty enrollment precondition in
+  one synchronous call; its original guard order and native anchor are retained
+  before the engine advances. This is fixture camera setup, not a production
+  change allowing players to enroll a Guard-here actor in Base Watch.
+  The real player stayed on floor 1 at 8122,11747,1: initial clearance 27.70 tiles,
+  closest during combat 27.42. Removed 21 ambient zombies within 64 tiles BEFORE
+  spawning the five measured attackers. No zombie removal occurred during combat.
+  Both crowbar-equipped companions survived at 100% health, no bites. Five exact
+  spawn receipts confirmed dead after 29.969 seconds. No retreat, zero stair-slope
+  samples, maximum displacement 0.63 tiles. Follow up/down: 2.833/4.164 seconds.
+  The combat outcome was a win, but the full live harness FAILED: its early
+  downstairs threat-detection observation never fired (early=false). Keep this
+  unresolved; do not relabel the live result as a complete acceptance pass.
+  Earlier small-house attempts stopped when retreat reduced observer separation
+  below three tiles. An unwatched firehouse run lost one defender; its observer
+  area had not been cleared of ambient zombies. A watch enrollment setup failed
+  before combat, and a later watch run was invalidated by ambient zombies killing
+  the observer. Those records are retained, not counted as successful fights.
+  Zoomed-out secondary-view screenshots now show the landing through its walls.
+  Compact evidence: C:/ZOMBOID/outputs/stairs-two-v-five-20261114.
+
+Any further stair work must improve LF choices without steering zombies.
+
+0.27.18 release validation:
+  Full five-check project gate PASS, 106.4 seconds, serial and low-memory.
+  Evidence: build/test-results/20261114-143623-742475 and
+    build/release-02718-gate.log.
+  Rebuilt payload bridge with matching 0.27.18 metadata; protocol and save schemas
+  unchanged. No local installation or Steam Workshop upload was performed.

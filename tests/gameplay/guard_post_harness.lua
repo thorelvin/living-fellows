@@ -269,11 +269,11 @@ climbing.pathToCharacter = function(_, target) if target == s1 then paths = path
 SC.ZombieFacts.reset()
 SC.StairCombat.incoming(s1, pursuit, f.clock + 3000)
 SC.StairCombat.incoming(s1, pursuit, f.clock + 5000)
-check(paths == 1, "P01 an observed idle climber retries its existing native pursuit after a bounded wait")
+check(paths == 0, "P01 observing a stalled climber leaves its native navigation untouched")
 climbing.target = f.player
 SC.ZombieFacts.reset()
 SC.StairCombat.incoming(s1, pursuit, f.clock + 9000)
-check(paths == 1, "P02 stair pursuit never redirects a zombie already targeting someone else")
+check(paths == 0, "P02 stair observation never redirects a zombie targeting someone else")
 local peerGoal = SC.StairCombat.resetGoal(s2, r2, {}, f.clock + 1800)
 check(peerGoal and not (r2.stairCombat and r2.stairCombat.recovery),
     "R08 the second fighter receives the shared reset goal even without its own shove counter")

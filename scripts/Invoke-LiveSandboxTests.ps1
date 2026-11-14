@@ -246,7 +246,9 @@ param(
     [switch]$SquadCombatProbe,
     # Stair combat facts: one companion and one zombie at opposite ends of a real staircase.
     [switch]$StairCombatProbe,
+    [switch]$StairCombatBaseWatch,
     [ValidateSet('measurement', 'guard', 'stairs', 'recovery')][string]$StairCombatMode = 'measurement',
+    [ValidateSet('nearby', 'rosewood_firestation')][string]$StairCombatSite = 'nearby',
     [ValidateRange(1, 5)][int]$StairCombatTrials = 3,
     [ValidateRange(1, 12)][int]$StairCombatZombies = 3,
     [switch]$FollowerBoardingProbe,
@@ -2149,9 +2151,11 @@ $config = @(
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_probe=' + $StairCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('stair_combat_base_watch=' + $StairCombatBaseWatch.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_trials=' + $StairCombatTrials),
     ('stair_combat_zombies=' + $StairCombatZombies),
     ('stair_combat_mode=' + $StairCombatMode),
+    ('stair_combat_site=' + $StairCombatSite),
     ('follower_boarding_probe=' + $FollowerBoardingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('needs_priority_probe=' + $NeedsPriorityProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_front_only=' + $SquadCombatFrontOnly.IsPresent.ToString().ToLowerInvariant()),
@@ -2328,6 +2332,8 @@ $manifest = [ordered]@{
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
     stairCombatProbe = $StairCombatProbe.IsPresent
+    stairCombatBaseWatch = $StairCombatBaseWatch.IsPresent
+    stairCombatSite = $StairCombatSite
     stairCombatZombies = $StairCombatZombies
     followerBoardingProbe = $FollowerBoardingProbe.IsPresent
     needsPriorityProbe = $NeedsPriorityProbe.IsPresent
