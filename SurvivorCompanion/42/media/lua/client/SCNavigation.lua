@@ -936,6 +936,20 @@ local function squareNearVehicle(square)
     return vehicleClearanceCost(square) > 0
 end
 
+-- Tile occupancy alone misses a bumper/capsule overlap in a narrow car gap.
+-- Ask the native polygon map about this edge, including during a search ahead
+-- of the actor. Clearance itself is never cached: a moved car can reopen it.
+function Navigation._vehicleEdgeBlocked(actor, fromSquare, toSquare)
+    if actor == nil or fromSquare == nil or toSquare == nil
+        or not U().sameFloor(fromSquare, toSquare)
+        or sameSquare(fromSquare, toSquare) or not adjacentStep(fromSquare, toSquare)
+        or not (squareNearVehicle(fromSquare) or squareNearVehicle(toSquare)) then
+        return false
+    end
+    local clear, checked = U().call(actor, "isCompanionPathEdgeClear", fromSquare, toSquare)
+    return checked and clear == false
+end
+
 local function treeEscapeDirection(actorSquare, actor, goalSquare)
     if not actorSquare then return nil end
     local utility = U()
@@ -1333,6 +1347,10 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
         if options.draggingBody == true and (affordance == "window" or affordance == "window_frame"
             or affordance == "fence" or affordance == "stairs" or affordance == "slope") then
             return false, math.huge, "drag_" .. tostring(affordance), topology.object
+        end
+        if (affordance == "open" or affordance == "diagonal_open")
+            and Navigation._vehicleEdgeBlocked(options.actor, fromSquare, toSquare) then
+            return false, math.huge, "vehicle_clearance"
         end
         baseCost = tonumber(topology.cost) or 1
     else
@@ -5837,6 +5855,11 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if barrierKind == "fence" or barrierKind == "stairs"
         or barrierKind == "slope" then
         return { type = barrierKind, object = barrier, square = toSquare or fromSquare }
+    end
+    if (barrierKind == "open" or barrierKind == "diagonal")
+        and Navigation._vehicleEdgeBlocked(actor, fromSquare, toSquare) then
+        return { type = "vehicle_clearance", square = toSquare,
+            evidenceClass = "dynamic", confidence = "high" }
     end
     local collided, ok = utility.call(actor, "isCollidedWithVehicle")
     -- Despite its name, Build 42 sets this flag for ANY PolygonalMap2

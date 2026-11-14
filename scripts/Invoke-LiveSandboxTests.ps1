@@ -325,6 +325,10 @@ param(
     [switch]$PathingOnly,
     # Cloned-save 50-tile player road run with per-second Follow gap trace.
     [switch]$FollowRoadProbe,
+    # Compare ordinary walking with the same saved three-follower road fixture.
+    [switch]$FollowRoadWalk,
+    [ValidatePattern('^(sc-[A-Za-z0-9.+-]+)?$')][string]$FollowRoadCompanionId = '',
+    [ValidateRange(0, 40)][int]$FollowRoadStartGap = 0,
     # Continue the road trace through real passenger boarding, player exit and
     # normal follow movement around the parked car.
     [switch]$FollowRoadVehicle,
@@ -1737,6 +1741,12 @@ if ($OfficeHaulBaseline) {
 if ($FollowRoadVehicle -and -not $FollowRoadProbe) {
     throw 'FollowRoadVehicle requires FollowRoadProbe.'
 }
+if (($FollowRoadWalk -or $FollowRoadCompanionId -or $FollowRoadStartGap -gt 0) -and -not $FollowRoadProbe) {
+    throw 'FollowRoadWalk, FollowRoadCompanionId and FollowRoadStartGap require FollowRoadProbe.'
+}
+if ($FollowRoadVehicle -and $FollowRoadCompanionId) {
+    throw 'FollowRoadVehicle requires the three-companion fixture; omit FollowRoadCompanionId.'
+}
 if ($FollowRoadBaseline) {
     if (-not $FollowRoadProbe) { throw 'FollowRoadBaseline requires FollowRoadProbe.' }
     foreach ($relative in @(
@@ -2050,6 +2060,9 @@ $config = @(
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
     ('follow_road_probe=' + $FollowRoadProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('follow_road_walk=' + $FollowRoadWalk.IsPresent.ToString().ToLowerInvariant()),
+    ('follow_road_companion_id=' + $FollowRoadCompanionId),
+    ('follow_road_start_gap=' + $FollowRoadStartGap),
     ('follow_road_vehicle=' + $FollowRoadVehicle.IsPresent.ToString().ToLowerInvariant()),
     ('follow_road_fan_out=' + $FollowRoadFanOut.IsPresent.ToString().ToLowerInvariant()),
     ('follow_road_isolated=' + $FollowRoadIsolated.IsPresent.ToString().ToLowerInvariant()),

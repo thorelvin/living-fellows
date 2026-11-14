@@ -117,6 +117,86 @@ do
         tile.isSolidTrans = function() return false end
     end
 end
+do
+    -- Playtest: a player could squeeze between two parked cars, but the
+    -- companion repeatedly restarted a native edge through the same gap.
+    -- Both walking tiles are free; only the continuous capsule probe rejects it.
+    local from, gap, goal = square(232, 0), square(233, 0), square(234, 0)
+    local firstCar, secondCar = square(233, -1), square(233, 1)
+    local cars = { { id = "parked-a" }, { id = "parked-b" } }
+    firstCar.getVehicleContainer = function() return cars[1] end
+    secondCar.getVehicleContainer = function() return cars[2] end
+    local oldProbe = actor.isCompanionPathEdgeClear
+    local tight, probes = true, 0
+    local function crossesGap(a, b)
+        return a.y == 0 and b.y == 0
+            and math.min(a.x, b.x) == 232 and math.max(a.x, b.x) == 233
+    end
+    actor.isCompanionPathEdgeClear = function(_, a, b)
+        probes = probes + 1
+        return not (tight and crossesGap(a, b))
+    end
+    check(SC.Topology.classifyEdge(actor, from, gap).traversable == true,
+        "the tight car gap is open to grid topology alone")
+    local allowed, _, reason = N._passableEdgeForWorkRoutes(from, gap, 1, { actor = actor })
+    check(allowed == false and reason == "vehicle_clearance" and probes > 0,
+        "native capsule clearance rejects the gap before a movement is issued")
+    check(N._passableEdgeForWorkRoutes(gap, from, 1, { actor = actor }) == false,
+        "the same narrow gap is rejected in the opposite direction")
+    local track = { from, gap, goal }
+    check(N._followTrackRouteForTests(from, goal, track, { actor = actor }) == nil,
+        "following the player's trail cannot bypass vehicle clearance")
+    local route = N.findPath(from, goal, { actor = actor, nodeBudget = 500 })
+    check(route and route[1] == from and route[#route] == goal,
+        "the ordinary planner finds a route around the parked cars")
+    local clear = true
+    for index = 2, #(route or {}) do
+        if crossesGap(route[index - 1], route[index])
+            or N._passableEdgeForWorkRoutes(route[index - 1], route[index], 1,
+                { actor = actor }) ~= true then clear = false end
+    end
+    check(clear and #route > #track,
+        "the detour uses only validated edges instead of retrying the narrow gap")
+
+    local failure = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    local blocker = N._rememberFailureForTests(actor, failure, from, gap,
+        "native_path_restart_stalled", 1000)
+    local blockedSquares = 0
+    for _ in pairs(failure.blockedSquares) do blockedSquares = blockedSquares + 1 end
+    check(blocker.type == "vehicle_clearance" and blocker.evidenceClass == "dynamic"
+            and failure.blockedEdgeCount == 1 and blockedSquares == 0,
+        "a stalled vehicle edge retains measured collision evidence without closing the whole square")
+
+    tight = false
+    check(N._passableEdgeForWorkRoutes(from, gap, 1, { actor = actor }) == true,
+        "changed vehicle geometry is re-read even within the nearby-vehicle cache lifetime")
+    local reopened = N._followTrackRouteForTests(from, goal, track, { actor = actor })
+    check(reopened and reopened[#reopened] == goal,
+        "a gap with sufficient clearance remains a usable player trail")
+
+    tight = true
+    local door = { __class = "IsoDoor" }
+    function door:IsOpen() return false end
+    function door:isLocked() return false end
+    function door:isBarricaded() return false end
+    from.getDoorTo = function(_, other) if other == gap then return door end end
+    local beforeDoor = probes
+    check(N._passableEdgeForWorkRoutes(from, gap, 1, { actor = actor }) == true
+            and probes == beforeDoor,
+        "a door beside a vehicle keeps its native open-and-cross affordance")
+    from.getDoorTo = nil
+    local beforeOpen = probes
+    check(N._passableEdgeForWorkRoutes(square(270, 0), square(271, 0), 1,
+            { actor = actor }) == true and probes == beforeOpen,
+        "open ground does not add vehicle polygon probes")
+    check(N._vehicleEdgeBlocked(actor, from, square(234, 0)) == false,
+        "a failed nonlocal native route is not evidence of a blocked vehicle edge")
+    actor.isCompanionPathEdgeClear = nil
+    check(N._passableEdgeForWorkRoutes(from, gap, 1, { actor = actor }) == true,
+        "an unavailable native clearance helper preserves the compatibility fallback")
+    actor.isCompanionPathEdgeClear = oldProbe
+    firstCar.getVehicleContainer, secondCar.getVehicleContainer = nil, nil
+end
 local edgeCalls, edgeDelay, elapsed = 0, 0, 0
 -- These tests isolate search bookkeeping from physical obstacle classification;
 -- the separate traversal suite exercises the real world-edge implementation.

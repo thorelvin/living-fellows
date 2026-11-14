@@ -1818,6 +1818,11 @@ local function onCrisisButton(target, button)
             if answer.internal == "YES" then onCrisisButton(target, snapshot) end
         end)
         modal:initialise()
+        -- The stock (0, 0) placement follows the mouse. Center the final size,
+        -- including any expansion for translated text, independently of LF.
+        local screenWidth, screenHeight = screenSize()
+        modal:setX(math.max(0, math.floor((screenWidth - modal:getWidth()) / 2)))
+        modal:setY(math.max(0, math.floor((screenHeight - modal:getHeight()) / 2)))
         modal.onGainJoypadFocus = function(self, joypadData)
             ISPanelJoypad.onGainJoypadFocus(self, joypadData)
             self:clearJoypadButtonsList()
@@ -1833,6 +1838,8 @@ local function onCrisisButton(target, button)
             return false
         end
         modal:addToUIManager()
+        modal:setAlwaysOnTop(true)
+        modal:bringToTop()
         return
     end
     local ok, accepted, reason
@@ -3601,7 +3608,8 @@ function SCUIDetail:buildTalk(panel, row)
     local metrics = self.metrics or UI.layoutMetrics()
     y = self:addSection(panel, y, "UI_SC_Section_Talk")
     local topic = self.talkTopic or "check_in"
-    local topicWidth = math.floor((panel:getWidth() - 16) / #SC.Interaction.categories)
+    -- Keep the topic row inside the same scrollbar gutter as the actions below.
+    local topicWidth = math.floor((panel:getWidth() - 28) / #SC.Interaction.categories)
     for index, category in ipairs(SC.Interaction.categories) do
         local title = UI.text(category.key)
         local button = ISButton:new(8 + (index - 1) * topicWidth, y,

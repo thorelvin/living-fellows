@@ -2604,6 +2604,26 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
+     * Read-only clearance for a candidate grid edge, including edges ahead of
+     * the actor. A vehicle can clip the walking line between two otherwise free
+     * squares. Testing from the actor for every A* edge would test unrelated
+     * geometry; only its actual source square uses the current capsule position.
+     */
+    public boolean isCompanionPathEdgeClear(IsoGridSquare from, IsoGridSquare to) {
+        if (from == null || to == null || from.getZ() != to.getZ()) return false;
+        int dx = Math.abs(to.getX() - from.getX());
+        int dy = Math.abs(to.getY() - from.getY());
+        if (Math.max(dx, dy) != 1) return false;
+        float toX = to.getX() + 0.5f, toY = to.getY() + 0.5f;
+        if (getCurrentSquare() == from) {
+            return isCompanionMovementClear(toX, toY, to.getZ());
+        }
+        return !PolygonalMap2.instance.lineClearCollide(
+                from.getX() + 0.5f, from.getY() + 0.5f, toX, toY,
+                to.getZ(), this, false, true);
+    }
+
+    /**
      * A failed seat entry stops at the stock entry point, flush against the
      * chair, and the companion's capsule can overlap the seat there. Every sweep
      * from inside an obstacle collides at its first point, so no step out was

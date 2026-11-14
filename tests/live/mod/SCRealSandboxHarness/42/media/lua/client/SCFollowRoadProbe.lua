@@ -28,7 +28,7 @@ local function roadName(square)
     return ok and tostring(name or "none") or "unavailable"
 end
 
-local function clearCorridor()
+local function clearCorridor(startGap)
     local SC = SurvivorCompanion
     local list = select(1, SC.GameplayUtil.call(getCell(), "getZombieList"))
     local count = list and tonumber(tostring(select(1,
@@ -37,7 +37,8 @@ local function clearCorridor()
     for index = 0, math.floor(count or 0) - 1 do
         local zombie = select(1, SC.GameplayUtil.call(list, "get", index))
         local x, y = xy(zombie)
-        if x and x >= START_X - 22 and x <= START_X + DISTANCE + 22
+        if x and x >= START_X - math.max(22, (tonumber(startGap) or 0) + 4)
+            and x <= START_X + DISTANCE + 22
             and math.abs(y - ROAD_Y) <= 22 then
             remove[#remove + 1] = zombie
         end
@@ -85,7 +86,7 @@ local function sample(harness, current)
         local trail = x and px - x or math.huge
         follower.maxGap = math.max(follower.maxGap or 0, gap)
         follower.finalGap = gap
-        if playerSpeed >= 1.5 and speed < 0.3 then
+        if playerSpeed >= 0.75 and speed < 0.3 then
             follower.stillSeconds = (follower.stillSeconds or 0) + dt
             follower.currentPause = (follower.currentPause or 0) + dt
             follower.longestPause = math.max(follower.longestPause or 0,
@@ -98,6 +99,8 @@ local function sample(harness, current)
         local navigation = SC.Navigation.peek(actor) or {}
         local navStatus = SC.Navigation.status(actor) or {}
         local formation = SC.Positioning.debug(actor) or {}
+        local yieldActor = navigation.yieldBlocker
+        local yieldNavigation = yieldActor and SC.Navigation.peek(yieldActor) or {}
         local treatment = SC.Medical and SC.Medical.peek(actor) or nil
         local assessment = SC.Medical and SC.Medical.assessCached(actor, nil, 100)
             or {}
@@ -140,6 +143,15 @@ local function sample(harness, current)
                 navigation.yieldBlocker)),
             tostring(navStatus.lastMovementReason),
             tostring(navigation.pathSearchYieldReason),
+            tostring(navigation.lastDirectMotionCommandAt
+                and current - navigation.lastDirectMotionCommandAt),
+            tostring(actor:getCompanionMovementOwner()),
+            tostring(actor:isMoving()),
+            tostring(decision.lastHandledAt and current - decision.lastHandledAt),
+            tostring(yieldActor and SC.GameplayUtil.distance(actor, yieldActor)),
+            tostring(yieldNavigation.motionAt and current - yieldNavigation.motionAt),
+            tostring(yieldNavigation.motionX), tostring(yieldNavigation.motionY),
+            tostring(yieldActor and yieldActor:isMoving()),
         }
         put(table.concat(fields, "\t"))
     end
@@ -249,8 +261,12 @@ function Probe.step(harness, current, check, result, setPhase)
     if phase == "follow_road_prepare" then
         if current - harness.phaseStartedAt < 5500 then return end
         local followers = {}
+        local selectedId = harness.config.follow_road_companion_id
+        local selectedOnly = selectedId ~= nil and selectedId ~= ""
+        local required = selectedOnly and 1 or 3
         for _, record in ipairs(SC.Registry.records() or {}) do
             if record.actor and record.recruited == true
+                and (not selectedOnly or record.id == selectedId)
                 and record.actor:isDead() ~= true then
                 followers[#followers + 1] = {
                     actor = record.actor, id = record.id,
@@ -258,12 +274,12 @@ function Probe.step(harness, current, check, result, setPhase)
                 }
             end
         end
-        if #followers < 3 and current - harness.phaseStartedAt < 25000 then return end
-        if not check("follow_road_roster", #followers >= 3,
+        if #followers < required and current - harness.phaseStartedAt < 25000 then return end
+        if not check("follow_road_roster", #followers >= required,
             "recruited=" .. tostring(#followers)) then
             setPhase("finish", current) return
         end
-        while #followers > 3 do table.remove(followers) end
+        while #followers > required do table.remove(followers) end
         harness.followRoad = { followers = followers, zombiesRemoved = 0 }
         -- Normalize only the disposable clone. The source observer carries
         -- 132 kg and several residents have old wounds that draw medics off
@@ -302,7 +318,7 @@ function Probe.step(harness, current, check, result, setPhase)
             "road_samples=" .. tostring(roadCount)) then
             setPhase("finish", current) return
         end
-        run.zombiesRemoved = clearCorridor()
+        run.zombiesRemoved = clearCorridor(harness.config.follow_road_start_gap)
         if harness.config.follow_road_isolated == "true" then
             -- The cloned save can retain care claims even after wounds are
             -- healed. Keep this road probe about formation movement only.
@@ -356,8 +372,15 @@ function Probe.step(harness, current, check, result, setPhase)
         local ordered = 0
         for index, follower in ipairs(run.followers) do
             local actor = follower.actor
-            actor:teleportTo(START_X - (index + 1), ROAD_Y + (index - 2), 0)
-            local accepted, reason = SC.Commands.issue(follower.id, "follow",
+            local startGap = math.max(index + 1,
+                (tonumber(harness.config.follow_road_start_gap) or 0) + (index - 1) * 1.25)
+            local startSquare = getCell():getGridSquare(math.floor(START_X - startGap),
+                math.floor(ROAD_Y + (index - 2)), 0)
+            local placed, placementReason = SC.Actor.recover(actor, startSquare)
+            if not check("follow_road_placement_" .. index, placed == true,
+                tostring(placementReason)) then setPhase("finish", current) return end
+            local deferFollow = (tonumber(harness.config.follow_road_start_gap) or 0) > 0
+            local accepted, reason = SC.Commands.issue(follower.id, deferFollow and "stay" or "follow",
                 nil, harness.player)
             result(accepted and "PASS" or "FAIL", "follow_road_order_" .. index,
                 "id=" .. tostring(follower.id) .. " reason=" .. tostring(reason))
@@ -369,24 +392,40 @@ function Probe.step(harness, current, check, result, setPhase)
     end
     if phase == "follow_road_settle" then
         if current - harness.phaseStartedAt < 2500 then return end
+        local startGap = tonumber(harness.config.follow_road_start_gap) or 0
+        if startGap > 0 then
+            for index, follower in ipairs(run.followers) do
+                local gap = SC.GameplayUtil.distance(follower.actor, harness.player)
+                if not check("follow_road_initial_gap_" .. index, gap >= startGap - 1,
+                    "requested=" .. startGap .. " actual=" .. tostring(gap)) then
+                    setPhase("finish", current) return
+                end
+                local followed, reason = SC.Commands.issue(follower.id, "follow", nil, harness.player)
+                if not check("follow_road_release_" .. index, followed == true, tostring(reason)) then
+                    setPhase("finish", current) return
+                end
+            end
+        end
         require "Vehicles/TimedActions/ISPathFindAction"
         local action = ISPathFindAction:pathToLocationF(harness.player,
             START_X + DISTANCE, ROAD_Y, 0)
         local queued, failure = pcall(function() ISTimedActionQueue.add(action) end)
         if not check("follow_road_player_path", queued,
             tostring(failure)) then setPhase("finish", current) return end
-        harness.player:setRunning(true)
+        harness.player:setRunning(harness.config.follow_road_walk ~= "true")
         run.startedAt = current
         run.lastPx, run.lastPy = xy(harness.player)
         run.nextSampleAt = current
-        put("seconds\tphase\tplayer_progress\tplayer_speed\tid\tname\tgap\ttrail\tfollower_speed\tdecision\tintent\tnav_reason\tnav_terminal\tnav_blocker\tformation\tshape\tholding\tcatchup\tcatchup_reason\tfollower_running\tplayer_running\tplayer_isMoving\tplayer_mode\tmedical_phase\tmedical_patient\thealth\tbleeding\tnav_phase\tsearch_age_ms\texpanded_nodes\tlast_plan_ms\tfirst_motion_ms\tformation_target\tprediction_distance\tslot_lag\topen_proof\tx\ty\tfollow_distance\tcolumn_index\ttravel_index\tmove_mode\treplans\tyield_wait_ms\tyield_blocker\tlast_movement_reason\tsearch_yield_reason")
+        put("seconds\tphase\tplayer_progress\tplayer_speed\tid\tname\tgap\ttrail\tfollower_speed\tdecision\tintent\tnav_reason\tnav_terminal\tnav_blocker\tformation\tshape\tholding\tcatchup\tcatchup_reason\tfollower_running\tplayer_running\tplayer_isMoving\tplayer_mode\tmedical_phase\tmedical_patient\thealth\tbleeding\tnav_phase\tsearch_age_ms\texpanded_nodes\tlast_plan_ms\tfirst_motion_ms\tformation_target\tprediction_distance\tslot_lag\topen_proof\tx\ty\tfollow_distance\tcolumn_index\ttravel_index\tmove_mode\treplans\tyield_wait_ms\tyield_blocker\tlast_movement_reason\tsearch_yield_reason\tdirect_input_age_ms\tmovement_owner\tnative_isMoving\tdecision_age_ms\tyield_gap\tyield_motion_age_ms\tyield_motion_x\tyield_motion_y\tyield_isMoving")
         setPhase("follow_road_run", current)
         return
     end
     if phase == "follow_road_run" or phase == "follow_road_catchup" then
-        harness.player:setRunning(phase == "follow_road_run")
+        harness.player:setRunning(phase == "follow_road_run"
+            and harness.config.follow_road_walk ~= "true")
         if current >= run.nextSampleAt then
-            run.zombiesRemoved = run.zombiesRemoved + clearCorridor()
+            run.zombiesRemoved = run.zombiesRemoved
+                + clearCorridor(harness.config.follow_road_start_gap)
             sample(harness, current)
             run.nextSampleAt = current + 250
         end
@@ -406,7 +445,7 @@ function Probe.step(harness, current, check, result, setPhase)
             and current - run.arrivedAt >= 12000 then
             for index, follower in ipairs(run.followers) do
                 result("PASS", "follow_road_follower_" .. index,
-                    string.format("max_gap=%.2f final_gap=%.2f still_while_player_running=%.1fs longest_pause=%.1fs",
+                    string.format("max_gap=%.2f final_gap=%.2f still_while_player_moving=%.1fs longest_pause=%.1fs",
                         follower.maxGap or 0, follower.finalGap or 0,
                         follower.stillSeconds or 0, follower.longestPause or 0))
             end

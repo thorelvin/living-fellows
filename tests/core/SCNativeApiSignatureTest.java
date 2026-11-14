@@ -268,7 +268,9 @@ public final class SCNativeApiSignatureTest {
                                 .getReturnType() == boolean.class,
                 "SCNativeCompanion tactical locomotion contract changed");
         require(companion.getDeclaredMethod("isCompanionMovementClear",
-                        float.class, float.class, float.class).getReturnType() == boolean.class,
+                        float.class, float.class, float.class).getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("isCompanionPathEdgeClear", square, square)
+                                .getReturnType() == boolean.class,
                 "SCNativeCompanion continuous collision contract changed");
         require(companion.getDeclaredMethod("setCompanionMovementTarget", float.class,
                         float.class, float.class, float.class, int.class).getReturnType() == boolean.class

@@ -62,7 +62,13 @@ local modal, authorized = nil, {}
 Keyboard.KEY_ESCAPE, Keyboard.KEY_RETURN = 1, 2
 UI.refresh = function() end
 ISModalDialog = { new = function(_, x, y, w, h, message, yesNo, target, callback)
-    modal = { callback = callback, initialise = function() end,
+    modal = { callback = callback, x = x, y = y, width = w, height = h,
+        getWidth = function(self) return self.width end,
+        getHeight = function(self) return self.height end,
+        setX = function(self, value) self.x = value end,
+        setY = function(self, value) self.y = value end,
+        setAlwaysOnTop = function() end, bringToTop = function() end,
+        initialise = function() end,
         addToUIManager = function() end, setVisible = function() end,
         removeFromUIManager = function() end }
     return modal

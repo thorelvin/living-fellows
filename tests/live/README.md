@@ -591,3 +591,14 @@ the decision and navigation state. Only fixture placement uses relocation.
 
 Run timing comparisons without a concurrent project gate. This fixture covers
 an outdoor parked car; indoor garage exits remain on normal verified routing.
+
+For a walking comparison, add `-FollowRoadWalk`. Use
+`-FollowRoadCompanionId '<saved companion id>' -FollowRoadIsolated` to measure
+one saved recruit while the others Stay away from the route. An optional
+`-FollowRoadStartGap 16` starts that recruit behind the player, verifies the
+actual gap after native placement, and releases Follow only when the player
+starts walking. Unloaded placement or automatic recovery cannot silently turn
+this into a close-follow test. The trace includes movement ownership, input age,
+decision age and the blocking companion's movement and separation. The reported
+gaps and pauses are diagnostic measurements; completing the route alone does
+not prove that following is smooth.
