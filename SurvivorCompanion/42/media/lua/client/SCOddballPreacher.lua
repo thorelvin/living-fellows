@@ -22,6 +22,7 @@ local FALLBACK_RANGE = 7500
 local NEAR_DISTANCE = 8
 local MENU_DISTANCE = 4
 local BOOK_READINGS = 3
+local seatAttempts = setmetatable({}, { __mode = "k" })
 
 local SERMONS = {
     [41] = { "Sermon forty-one. On Neighbors.",
@@ -193,6 +194,143 @@ local function vanFor(value)
     return SC.Vehicle.loadedBySqlId(sqlId)
 end
 
+local function seatedAtVan(actor, van)
+    if not actor or not van or not SC.Vehicle or not SC.Vehicle.isNativeSeated then return false end
+    local seated, vehicle, seat = SC.Vehicle.isNativeSeated(actor)
+    return seated == true and vehicle == van and tonumber(seat) ~= nil and tonumber(seat) > 0
+end
+
+local function restoreEntryLock(value, van)
+    local seat = tonumber(value.entryDoorRelockSeat)
+    if not seat then return true end
+    local part = select(1, U().call(van, "getPassengerDoor", seat))
+    local door = part and select(1, U().call(part, "getDoor"))
+    if not door then return false end
+    U().call(door, "setLocked", true)
+    U().call(van, "transmitPartDoor", part)
+    if select(1, U().call(door, "isLocked")) ~= true then return false end
+    value.entryDoorRelockSeat = nil
+    return true
+end
+
+local function boardPassenger(value, actor, van, seat, prepared)
+    local part = select(1, U().call(van, "getPassengerDoor", seat))
+    local door = part and select(1, U().call(part, "getDoor"))
+    if door then
+        local locked, read = U().call(door, "isLocked")
+        if not read then return false end
+        if locked == true then
+            value.entryDoorRelockSeat = seat
+            U().call(door, "setLocked", false)
+            U().call(van, "transmitPartDoor", part)
+            if select(1, U().call(door, "isLocked")) ~= false then
+                restoreEntryLock(value, van)
+                return false
+            end
+        end
+    end
+    -- Only this encounter's saved van is passed here. As for Loretta, release
+    -- its passenger lock for native entry and restore it even after an error.
+    local called, boarded = pcall(SC.Vehicle.board, actor, van, seat,
+        { allowVirtualSeat = false, preflight = prepared })
+    if not called and SC.Vehicle.transactionStatus and SC.Vehicle.failTransaction then
+        local transaction = SC.Vehicle.transactionStatus(actor)
+        if transaction and transaction.action == "board_vehicle"
+            and transaction.vehicle == van and transaction.seat == seat then
+            SC.Vehicle.failTransaction(actor, "dwayne_native_boarding_error")
+        end
+    end
+    if called and boarded == true then value.vanSeat = seat end
+    local locked = restoreEntryLock(value, van)
+    return called and boarded == true and locked
+end
+
+-- Reconcile the exact saved van and a real passenger seat, like Loretta's
+-- vehicle recovery. Never replace an unloaded van or use a virtual seat.
+local function returnToVan(group, actor, runtime, player)
+    local value = story(group)
+    if not value or actorFor(group) ~= actor then return false, "dwayne_actor_unavailable" end
+    local van = vanFor(value)
+    if van and not restoreEntryLock(value, van) then
+        return true, "Restoring the station van's door lock"
+    end
+    if seatedAtVan(actor, van) then
+        local route = SC.Navigation and SC.Navigation.peek and SC.Navigation.peek(actor)
+        if route and route.goalAction == "dwayne_return_to_van" then
+            SC.Navigation.cancel(actor, "dwayne_seated")
+        end
+        seatAttempts[actor] = nil
+        return true, "Reading in the station van"
+    end
+    if not van then return true, "Waiting for the station van to load" end
+    if select(1, U().call(actor, "getVehicle")) ~= nil then
+        return true, "Waiting to return to the station van"
+    end
+    local now = U().nowMs()
+    if now < (seatAttempts[actor] or 0) then return true, "Returning to the station van" end
+    seatAttempts[actor] = now + 1000
+    if not SC.Vehicle.isStationary or SC.Vehicle.isStationary(van) ~= true then
+        return true, "Waiting for the station van to stop"
+    end
+    if not SC.Vehicle.boardingSquares or not SC.Vehicle.preflightBoard or not SC.Vehicle.board then
+        return true, "Dwayne cannot enter the station van"
+    end
+    local targets, seat = SC.Vehicle.boardingSquares(actor, van, value.vanSeat, false)
+    if not targets or not seat then return true, "The station van has no accessible passenger seat" end
+    local prepared = SC.Vehicle.preflightBoard(actor, van, seat, false)
+    -- Distant residents do not run the walking scheduler. As with Loretta,
+    -- correct a hidden recovery to a clear exterior door square, then use
+    -- ordinary native entry. Never move a visible, nearby or threatened actor.
+    if not prepared and player and U().distance(actor, player) > 12
+        and U().canSee(player, actor) == false and SC.Actor and SC.Actor.recover
+        and SC.Senses and SC.Senses.isCompleteObservation and SC.Senses.snapshot then
+        local record = SC.Registry.byId(U().idOf(actor))
+        local actorRuntime = record and record.runtime
+        local snapshot = actorRuntime and SC.Senses.snapshot(actor, player, actorRuntime)
+        if snapshot and SC.Senses.isCompleteObservation(snapshot) == true
+            and (tonumber(snapshot.threatCount) or 0) == 0
+            and not actorRuntime.combatTarget and not actorRuntime.combatAction then
+            for _, square in ipairs(targets) do
+                if U().canSee(player, square) == false and U().isSafeSpawnSquare(square) then
+                    local route = SC.Navigation and SC.Navigation.peek and SC.Navigation.peek(actor)
+                    if route and route.goalAction ~= "dwayne_return_to_van" then break end
+                    if route and SC.Navigation.cancel(actor, "dwayne_hidden_door_recovery") ~= true then break end
+                    if SC.Actor.recover(actor, square) == true then
+                        prepared = SC.Vehicle.preflightBoard(actor, van, seat, false)
+                    end
+                    break
+                end
+            end
+        end
+    end
+    if prepared then
+        local boarded = boardPassenger(value, actor, van, seat, prepared)
+        if boarded and seatedAtVan(actor, van) then
+            value.vanSeat = seat
+            seatAttempts[actor] = nil
+            return true, "Reading in the station van"
+        end
+    end
+    if not SC.Navigation or not SC.Navigation.requestAny then return true, "Dwayne cannot reach the van" end
+    local snapshot = runtime and (runtime.senses and runtime.senses.current or runtime.snapshot) or {}
+    local accepted = SC.Navigation.requestAny(actor, targets, "walk", {
+        action = "dwayne_return_to_van", vehicle = van, seat = seat, snapshot = snapshot,
+        arrivalDistance = 0.15, desiredDistance = 0, continuousApproach = true,
+    })
+    if not accepted then seatAttempts[actor] = now + 3000 end
+    return true, accepted and "Returning to the station van" or "Dwayne cannot reach the van"
+end
+
+function Preacher.canTalkFromVehicle(group, player)
+    local value = story(group)
+    local actor = value and actorFor(group)
+    local van = value and vanFor(value)
+    local square = van and select(1, U().call(van, "getSquare"))
+    return player ~= nil and seatedAtVan(actor, van) and U().sameFloor(actor, player)
+        and U().distance(van, player) <= 6
+        and square ~= nil and U().canSee(player, square) == true or false
+end
+
 -- The transmitter is the van's own Radio part when it can be read.
 function Preacher.transmitRange(value)
     local van = vanFor(value)
@@ -316,9 +454,14 @@ function Preacher.pulse(group, player, current)
     if not value then return false, "wrong_oddball" end
     current = tonumber(current) or U().nowMs()
     local actor = actorFor(group)
+    if actor and group.standing ~= "Hostile" and group.lifecycle ~= "hostile"
+        and group.permanentHostility ~= true then
+        local record = SC.Registry.byId(U().idOf(actor))
+        returnToVan(group, actor, record and record.runtime, player)
+    end
     if actor and value.met ~= true and player and U().sameFloor(actor, player)
         and U().distance(actor, player) <= NEAR_DISTANCE
-        and U().canSee(actor, player) == true then
+        and (U().canSee(actor, player) == true or Preacher.canTalkFromVehicle(group, player)) then
         value.met = true
         group.discovered = true
         U().say(actor, LINES.greet[1])
@@ -413,6 +556,8 @@ function Preacher.onSpawn(group, actor)
         end
         value.notebookSeeded = true
     end
+    local player = type(getPlayer) == "function" and getPlayer() or nil
+    returnToVan(group, actor, nil, player)
     return true, "dwayne_on_the_air"
 end
 
@@ -422,18 +567,18 @@ function Preacher.intentFor(actor, player, snapshot, group)
         or group.permanentHostility == true then
         return { mode = "hostile", priority = 110 }
     end
-    return { mode = "preacher_by_the_van", priority = 34 }
+    return { mode = "preacher_by_the_van", priority = 60 }
 end
 
 function Preacher.update(actor, player, runtime, intent, group)
     if not intent or intent.mode ~= "preacher_by_the_van" then return false end
-    return true, "dwayne_holding_by_the_van"
+    return returnToVan(group, actor, runtime, player)
 end
 
 local function near(group, player, radius)
     local actor = actorFor(group)
     return actor ~= nil and player ~= nil and U().sameFloor(actor, player)
-        and U().distance(actor, player) <= radius
+        and (U().distance(actor, player) <= radius or Preacher.canTalkFromVehicle(group, player))
 end
 
 function Preacher.menuOptions(group, player)
@@ -500,8 +645,12 @@ function Preacher.canRecruit(group)
     return false, "dwayne_has_tapes_left"
 end
 
-function Preacher.avoidsZombieCombat()
-    return false
+function Preacher.avoidsZombieCombat(actor, group)
+    local value = story(group)
+    return value ~= nil and group.standing ~= "Hostile" and group.lifecycle ~= "hostile"
+        and group.permanentHostility ~= true and seatedAtVan(actor, vanFor(value)) or false
 end
+
+function Preacher.reset() seatAttempts = setmetatable({}, { __mode = "k" }) end
 
 return Preacher

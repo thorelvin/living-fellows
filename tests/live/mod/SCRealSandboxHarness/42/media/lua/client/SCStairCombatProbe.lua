@@ -345,6 +345,61 @@ local function guardStep(H, current, check, result, setPhase)
         if current - H.guardFailedAt >= 2000 then guardCleanup(H); setPhase("finish", current) end
         return
     end
+    -- One ordinary round trip before the armed landing trial. Only fixture
+    -- staging relocates companions; the two floor changes use Follow itself.
+    if H.phase == "stair_combat_walk" then
+        local direction = H.guardWalkDirection
+        if direction == "setup" then
+            if current - H.phaseStartedAt < 1000 then return end
+            guardPhoto(H, "house-ground-setup")
+            local observer = H.guardUpperObserver
+            H.player:teleportTo(observer:getX() + 0.5, observer:getY() + 0.5, 1)
+            for _, actor in ipairs(H.guardActors) do
+                local okay, why = SC.Commands.issue(SC.Registry.idOf(actor), "follow", nil, H.player)
+                if not okay then return fail("stair_follow_order", why) end
+            end
+            H.guardWalkDirection, H.guardWalkStarted, H.guardWalkSlope = "up", current, {}
+            return
+        end
+        local reached, details = 0, {}
+        for _, actor in ipairs(H.guardActors) do
+            local x, y, z = U.position(actor)
+            if not alive(actor) then return fail("stair_follow_alive", direction) end
+            if z > 0.05 and z < 0.95 then H.guardWalkSlope[actor] = true end
+            local targetZ = direction == "up" and 1 or 0
+            if math.abs(z - targetZ) < 0.05 and not SC.Combat.atStairs(actor)
+                and U.distance(actor, H.player) <= 5 then reached = reached + 1 end
+            details[#details + 1] = string.format("%.2f:%.2f:%.2f/%s", x, y, z,
+                tostring(call(actor, "getCurrentStateName")))
+        end
+        if current - H.guardWalkStarted > 65000 then
+            return fail("stair_follow_" .. direction, table.concat(details, ";"))
+        end
+        if reached ~= 2 then H.guardWalkSettledAt = nil; return end
+        H.guardWalkSettledAt = H.guardWalkSettledAt or current
+        if current - H.guardWalkSettledAt < 700 then return end
+        for _, actor in ipairs(H.guardActors) do
+            if not H.guardWalkSlope[actor] then return fail("stair_follow_native_crossing", direction) end
+        end
+        check("stair_follow_" .. direction, true, "two companions; elapsed_ms="
+            .. tostring(current - H.guardWalkStarted) .. " positions=" .. table.concat(details, ";"))
+        guardPhoto(H, "house-follow-" .. direction)
+        H.guardWalkSettledAt = nil
+        if direction == "up" then
+            local observer = H.guardLowerObserver
+            H.player:teleportTo(observer:getX() + 0.5, observer:getY() + 0.5, 0)
+            H.guardWalkDirection, H.guardWalkStarted, H.guardWalkSlope = "down", current, {}
+        else
+            H.guardWalkComplete = true
+            -- Spawn the combat pair on its actual floor. Raw teleportTo does
+            -- not update the companion provider's floor ownership reliably.
+            guardCleanup(H)
+            local observer = H.guardUpperObserver
+            H.player:teleportTo(observer:getX() + 0.5, observer:getY() + 0.5, 1)
+            setPhase("stair_combat_guard_prepare", current)
+        end
+        return
+    end
     if H.phase == "stair_combat_setup" then
         if current - H.phaseStartedAt < 4000 then return end
         for _, actor in ipairs(SC.Registry.living()) do pcall(SC.Actor.remove, actor) end
@@ -381,8 +436,21 @@ local function guardStep(H, current, check, result, setPhase)
         H.guardEarly, H.guardStallPhoto, H.guardLastKills = false, false, 0
         H.guardEarlyZ, H.guardResets, H.guardResetReachedAt = nil, 0, nil
         H.guardLives, H.guardLostLife = {}, false
+        local walkFixture = H.guardStairsOnly and not H.guardRecoveryOnly and not H.guardWalkComplete
+        if walkFixture then
+            local stair, places = H.stair, {}
+            for depth = 0, 4 do for side = -2, 2 do
+                local sq = U.gridSquare(stair.x - stair.dx * depth - stair.dy * side,
+                    stair.y - stair.dy * depth + stair.dx * side, 0)
+                if #places < 3 and sq and U.isSquareFree(sq)
+                    and call(sq, "TreatAsSolidFloor") == true and not SC.Topology.squareHasStairs(sq)
+                    and call(sq, "getRoom") == call(stair.exit, "getRoom") then places[#places+1] = sq end
+            end end
+            if #places < 3 then return fail("stair_follow_space", "three clear tiles in the ground-floor hall required") end
+            H.guardWalkPlaces, H.guardLowerObserver = places, places[3]
+        end
         for i = 1, 2 do
-            local spawn
+            local spawn = walkFixture and H.guardWalkPlaces[i] or nil
             for depth = 0, 4 do
                 for side = -2, 2 do
                     local candidate = U.gridSquare(post.x + post.dx * depth - post.dy * side,
@@ -414,6 +482,7 @@ local function guardStep(H, current, check, result, setPhase)
                 observer = sq; break end
         end
         if not observer then return fail("guard_observer", "no protected observer square") end
+        H.guardUpperObserver = observer
         H.player:teleportTo(observer:getX() + 0.5, observer:getY() + 0.5, observer:getZ())
         if H.guardCase > 1 and call(H.guardDoor.object, "IsOpen") ~= true
             and call(H.guardDoor.object, "isOpen") ~= true then
@@ -438,6 +507,19 @@ local function guardStep(H, current, check, result, setPhase)
             end
         end end
         if H.guardActors[1] and H.guardActors[2] then
+            if H.guardStairsOnly and not H.guardRecoveryOnly and not H.guardWalkComplete then
+                local stair, places = H.stair, H.guardWalkPlaces
+                for _, actor in ipairs(H.guardActors) do
+                    local _, _, z = U.position(actor)
+                    if z ~= 0 then return fail("stair_follow_spawn_floor", tostring(z)) end
+                end
+                H.player:teleportTo(places[3]:getX()+0.5,places[3]:getY()+0.5,0)
+                H.guardWalkDirection = "setup"
+                result("PASS", "stair_house_setup", "ground=" .. key(stair.exit) .. " upper=" .. key(stair.landing)
+                    .. " pieces=" .. tostring(stairPiece(SC,stair.first)) .. "/"
+                    .. tostring(stairPiece(SC,stair.middle)) .. "/" .. tostring(stairPiece(SC,stair.last)))
+                setPhase("stair_combat_walk", current); return
+            end
             -- Native IDs contain variable-length timestamps. Stage the fight
             -- at its ID-ordered positions; do not make two actors swap through
             -- each other in the one-square choke before the trial starts.
@@ -500,7 +582,8 @@ local function guardStep(H, current, check, result, setPhase)
             end
         end
         Events.OnZombieDead.Add(H.guardDeathObserver)
-        local count = H.guardRecoveryOnly and 1 or H.guardCase == 3 and 12 or 3
+        local count = H.guardRecoveryOnly and 1 or H.guardCase == 3 and 12
+            or math.max(1, math.min(12, number(H.config.stair_combat_zombies, 3)))
         for i = 1, count do
             local p = H.guardPost
             local square = H.guardCase == 1 and H.stair.first
@@ -519,6 +602,7 @@ local function guardStep(H, current, check, result, setPhase)
             -- pursuit beneath the landing. Stage a real path through the stairs.
             zombie:pathToCharacter(target)
         end
+        result("PASS", "guard_attackers_spawned", "companions=" .. #H.guardActors .. " zombies=" .. #H.guardZombies)
         setPhase("stair_combat_guard_observe", current); return
     end
     if H.phase == "stair_combat_guard_observe" then
@@ -559,9 +643,15 @@ local function guardStep(H, current, check, result, setPhase)
             H.guardRetargetAt = current + 1000
             for i, zombie in ipairs(H.guardZombies) do if guardZombieAlive(H, zombie) then
                 local target = H.guardActors[(i - 1) % 2 + 1]
-                if alive(target) and call(zombie, "getTarget") ~= target then
+                -- Preserve native switches between living defenders. Replacing
+                -- that target every second can interrupt a valid stair path.
+                if not alive(call(zombie, "getTarget")) then
+                    if not alive(target) then target = H.guardActors[i % 2 + 1] end
+                else target = nil end
+                if alive(target) then
                     zombie:spotted(target, true)
                     if call(zombie, "getTarget") ~= target then zombie:setTarget(target) end
+                    zombie:pathToCharacter(target)
                 end
             end end
             local states = {}
@@ -620,6 +710,7 @@ local function guardStep(H, current, check, result, setPhase)
                 and (not H.guardStairsOnly or H.guardEarly)
                 and (not H.guardRecoveryOnly or resetFinished and H.guardEarly and bites == 0)
             local detail = "alive=" .. live .. " kills=" .. dead .. " slope_samples=" .. H.guardSlope
+                .. " attackers=" .. #H.guardZombies .. " elapsed_ms=" .. tostring(current - H.guardStarted)
                 .. " max_drift=" .. fmt(H.guardMaxDrift) .. " retreating=" .. retreating .. " early=" .. tostring(H.guardEarly)
                 .. " earliest_z=" .. fmt(H.guardEarlyZ) .. " reset_samples=" .. H.guardResets
                 .. " reset_settled=" .. tostring(H.guardResetReachedAt ~= nil)

@@ -2,6 +2,27 @@
 
 # Changelog
 
+## 0.27.17 - Supplies, returning survivors and stair defence
+
+- Companions count food, water and clean dressings inside backpacks and nested
+  medical kits. Those supplies now count toward Loadout, requests and restocking.
+  Medical care uses the actual dressing from its container and distinguishes
+  clean, dirty and bloody supplies.
+- Survivors returning after an area unload keep their saved clothing and item
+  identities. Written pages and custom notebook titles also survive restoration.
+- Dwayne Stidham boards his own radio van and can talk from his seat. His clothes
+  and binder survive leaving and returning to the area, without creating copies.
+- Boxed-in companions defend against the nearest usable contact instead of first
+  taking a blind escape step. Stalled retreat paths get another checked exit;
+  companions respect each other's destinations, and sustained withdrawal releases
+  the shared guard post. Native attacks and ordinary damage remain authoritative.
+- Three live two-versus-four stair fights passed with both guards at full health,
+  no bites and no guard steps onto the stairs. Broader downstairs zombie approach
+  remains under investigation.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.16 - Fighting at the stair landing
 
 - Guards can notice zombies climbing their connected stairs before the last

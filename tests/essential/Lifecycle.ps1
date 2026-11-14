@@ -29,3 +29,5 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
 @{ Name = 'arrival-exact-reload'; Files = @($lifecycleArrivalFiles) + @(
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Gameplay 'home_arrival_persistence_harness.lua')) }
+@{ Name = 'resident-wake-restoration'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'faction_restore_harness.lua')) }

@@ -383,6 +383,8 @@ local function clearEngagement(state, actor)
     state.engagementAnnounced = false
     state.struggleAnnounced = false
     state.forwardRetreatTarget, state.forwardRetreatUntil = nil, nil
+    state.cornerEscapeProbe, state.retreatGoalKey = nil, nil
+    state.retreatBlockedKey, state.retreatBlockedUntil = nil, nil
 end
 
 local function prepareEngagement(state, actor, target, now)
@@ -4396,9 +4398,30 @@ end
 
 local function executeRetreat(actor, player, snapshot, target, survivalCritical, state, commands)
     local utility = U()
+    local currentState = state or stateFor(actor)
+    local now = utility.nowMs()
     local tether = retreatTether(actor, player, snapshot, commands)
     local shared, sharedPlan = sharedRetreatSquare(
-        actor, state or stateFor(actor), snapshot, target, utility.nowMs(), player, commands)
+        actor, currentState, snapshot, target, now, player, commands)
+    local function routeAllowed(square)
+        local key = square and utility.squareKey(square)
+        if not key or currentState.retreatBlockedKey == key
+            and now < (currentState.retreatBlockedUntil or 0) then return false end
+        local owner = sharedPlan and sharedPlan.reserved[key]
+        return owner == nil or owner == actor
+    end
+    local function claimRoute(square)
+        local key = utility.squareKey(square)
+        currentState.retreatGoalKey = key
+        if sharedPlan then
+            local previous = sharedPlan.assignments[actor]
+            local previousKey = previous and utility.squareKey(previous)
+            if previousKey ~= key and sharedPlan.reserved[previousKey] == actor then
+                sharedPlan.reserved[previousKey] = nil
+            end
+            sharedPlan.assignments[actor], sharedPlan.reserved[key] = square, actor
+        end
+    end
     local remembered, retreatPlan
     if SC.Navigation and type(SC.Navigation.retreatTarget) == "function" then
         remembered, retreatPlan = SC.Navigation.retreatTarget(actor, snapshot)
@@ -4428,7 +4451,7 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
         local tried = {}
         local function trySquare(square, plan)
             local key = square and utility.squareKey(square)
-            if not square or key and tried[key] then return nil end
+            if not routeAllowed(square) or key and tried[key] then return nil end
             if key then tried[key] = true end
             local ok, reason = SC.Navigation.request(actor, square, "jog", {
                 action = "combat_retreat",
@@ -4440,7 +4463,7 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
                 retreatPlan = plan,
                 sharedRetreat = sharedPlan,
             })
-            if ok then return true, reason end
+            if ok then claimRoute(square); return true, reason end
             return nil
         end
         local ok, reason = trySquare(remembered, retreatPlan)
@@ -4460,7 +4483,7 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
             end
         end
     end
-    if escape then
+    if escape and routeAllowed(escape.square) then
         local accepted = utility.move(actor, "jog", {
             action = "combat_retreat",
             targetSquare = escape.square,
@@ -4471,7 +4494,7 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
             escapeSpeedOverride = true,
             survivalCritical = survivalCritical == true,
         })
-        if accepted then return true, "retreating" end
+        if accepted then claimRoute(escape.square); return true, "retreating" end
     end
     if tether and tether.currentDistance >= tether.hard
         and SC.Navigation and type(SC.Navigation.request) == "function" then
@@ -4494,7 +4517,6 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
     -- A critically wounded companion with no usable clear exit may have to
     -- shove one zombie aside and run through its tile. Use only an open two-edge
     -- lane; a barricade, fence, or second zombie is never a shortcut.
-    local currentState = state or stateFor(actor)
     if survivalCritical == true
         and (tonumber(medicalPressure(actor).health) or 100) <= 55 then
         local now = utility.nowMs()
@@ -4634,28 +4656,44 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
     return true, action
 end
 
--- If a corner-escape command was accepted but the actor remained pinned in the
--- same spot, defend on the next pulse. Even exhausted or unarmed, a swing or
--- shove is better than repeatedly presenting a stationary target for bites.
+-- A pending path is not proof of escape. Defend a pinned actor against the
+-- nearest usable contact, even when target selection is holding another zombie.
 local function executeLastStand(actor, player, snapshot, target, weapon)
-    if not target or not target.actor or U().isGoneTarget(target.actor)
-        or not U().sameFloor(actor, target.actor)
-        or lineBlockedByFriendly(actor, target.actor, player, snapshot, "melee") then
-        return false
-    end
     local utility = U()
-    local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
+    local minimum, maximum
     if weapon and weapon.equipped and not weapon.ranged
         and (tonumber(weapon.condition) or 0) > 0 then
-        local minimum, maximum = Combat.meleeRange(actor, weapon.item)
-        if minimum and distance >= minimum and distance <= maximum then
+        minimum, maximum = Combat.meleeRange(actor, weapon.item)
+    end
+    local reach = math.max(maximum or 0, utility.config("combatShoveDistance") or 1.35)
+    local best, bestScore, distance
+    local function consider(contact)
+        local candidate = contact and contact.actor
+        if not candidate or contact.visible == false or contact.obstructed == true
+            or utility.isGoneTarget(candidate) or not utility.sameFloor(actor, candidate) then return end
+        local d2 = utility.distanceSq(actor, candidate)
+        local score = d2 + (groundedTarget(candidate) and 4 or 0)
+        if d2 <= reach * reach and (bestScore == nil or score < bestScore)
+            and not lineBlockedByFriendly(actor, candidate, player, snapshot, "melee") then
+            best, bestScore, distance = contact, score, math.sqrt(d2)
+        end
+    end
+    consider(target)
+    for index, contact in ipairs(snapshot.threats or {}) do
+        if index > 32 then break end
+        consider(contact)
+    end
+    target = best
+    if not target then return false end
+    if minimum and maximum then
+        if distance >= minimum and distance <= maximum then
             local floorAttack = groundedTarget(target.actor)
             local accepted = utility.move(actor, "walk", {
                 action = "attack_melee", weapon = weapon.item, target = target.actor,
                 floorAttack = floorAttack, groundedAttack = floorAttack,
                 lastStand = true,
             })
-            if accepted then return true, "last_stand_melee" end
+            if accepted then return true, "last_stand_melee", target end
         end
     end
     if distance <= (utility.config("combatShoveDistance") or 1.35)
@@ -4663,7 +4701,7 @@ local function executeLastStand(actor, player, snapshot, target, weapon)
         local accepted = utility.move(actor, "walk", {
             action = "shove", target = target.actor, lastStand = true,
         })
-        if accepted then return true, "last_stand_shove" end
+        if accepted then return true, "last_stand_shove", target end
     end
     return false
 end
@@ -5283,27 +5321,35 @@ function Combat.update(actor, player, runtime)
             end
         end
         local probe = state.cornerEscapeProbe
-        if probe and #(snapshot.escapeSquares or {}) == 0 then
+        local defendNow = not state.breakoutLane and #snapshot.escapeSquares == 0
+        if probe then
             local x, y = utility.position(actor)
             local moved = x ~= nil and probe.x ~= nil
                 and ((x - probe.x) ^ 2 + (y - probe.y) ^ 2) >= 0.09
             if moved then
                 state.cornerEscapeProbe = nil
+                defendNow = false
             elseif now - probe.at >= 650 then
-                local defended, defenseAction = executeLastStand(
-                    actor, player, snapshot, target, weapon)
-                if defended then
-                    state.cornerEscapeProbe = nil
-                    state.active, state.target = true, target.actor
-                    state.lastAction, state.lastActionAt = defenseAction, now
-                    rootRuntime.combatTarget = target.actor
-                    rootRuntime.combatAction = defenseAction
-                    recordOffensiveAction(actor, state, commands, target.actor, now, false, snapshot)
-                    return true, defenseAction
-                end
+                state.cornerEscapeProbe = nil
+                state.retreatBlockedKey, state.retreatBlockedUntil = state.retreatGoalKey, now + 1200
+                defendNow = true
+            else defendNow = false end
+        end
+        -- With no observed exit and a contact already in range, make a checked
+        -- native strike before trying a blind escape step into the crowd.
+        if defendNow then
+            local defended, defenseAction, defenseTarget = executeLastStand(
+                actor, player, snapshot, target, weapon)
+            if defended then
+                defenseTarget = defenseTarget or target
+                enterRetreat(actor, state, commands, now, true, snapshot)
+                state.active, state.target = true, defenseTarget.actor
+                state.lastAction, state.lastActionAt = defenseAction, now
+                rootRuntime.combatTarget = defenseTarget.actor
+                rootRuntime.combatAction = defenseAction
+                recordOffensiveAction(actor, state, commands, defenseTarget.actor, now, false, snapshot)
+                return true, defenseAction
             end
-        elseif probe then
-            state.cornerEscapeProbe = nil
         end
         local countered, counterAction
         if not state.breakoutLane then
@@ -5327,7 +5373,7 @@ function Combat.update(actor, player, runtime)
         rootRuntime.combatRole = nil
         local ok, reason = executeRetreat(actor, player, snapshot, target, true, state, commands)
         noteForwardRetreat(state, target, now, ok, reason)
-        if ok and reason == "corner_escape" and #(snapshot.escapeSquares or {}) == 0 then
+        if ok and reason ~= "breakout_shove" then
             local x, y = utility.position(actor)
             state.cornerEscapeProbe = state.cornerEscapeProbe or { x = x, y = y, at = now }
         elseif ok then
@@ -5342,20 +5388,22 @@ function Combat.update(actor, player, runtime)
             rootRuntime.combatTarget = target.actor
             rootRuntime.combatAction = "retreat"
         end
-        if not ok and #(snapshot.escapeSquares or {}) == 0 then
-            local defended, defenseAction = executeLastStand(
+        if not ok then
+            local defended, defenseAction, defenseTarget = executeLastStand(
                 actor, player, snapshot, target, weapon)
             if defended then
-                state.active, state.target = true, target.actor
+                defenseTarget = defenseTarget or target
+                state.active, state.target = true, defenseTarget.actor
                 state.lastAction, state.lastActionAt = defenseAction, now
-                rootRuntime.combatTarget = target.actor
+                rootRuntime.combatTarget = defenseTarget.actor
                 rootRuntime.combatAction = defenseAction
-                recordOffensiveAction(actor, state, commands, target.actor, now, false, snapshot)
+                recordOffensiveAction(actor, state, commands, defenseTarget.actor, now, false, snapshot)
                 return true, defenseAction
             end
         end
         return ok, ok and "overrun_retreat" or reason
     end
+    state.cornerEscapeProbe = nil
     if SC.StairCombat then
         local goal = SC.StairCombat.resetGoal(actor, rootRuntime, snapshot, now)
         if goal and utility.distance(actor, goal) > 0.3 then
@@ -5369,7 +5417,6 @@ function Combat.update(actor, player, runtime)
             return accepted, why
         end
     end
-    state.cornerEscapeProbe = nil
     if state.postSwingBackstepUntil then
         if now >= state.postSwingBackstepUntil or not target
             or (target.distanceSq or utility.distanceSq(actor, target.actor))

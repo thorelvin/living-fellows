@@ -186,6 +186,59 @@ do
     Actor.beginSpawn, Actor.pollSpawn, Actor.cancelSpawn = originalBegin, originalPoll, originalCancel
 end
 
+-- A resident's distance-based wake must restore the same snapshot as a save
+-- load before publishing the new native actor, or it wakes naked and empty.
+do
+    local SC = SurvivorCompanion
+    local originalPersistence, originalBegin, originalPoll = SC.Persistence, Actor.beginSpawn, Actor.pollSpawn
+    local clockBefore = f.clock
+    check(Factions.restore(baseline), "wake fixture restores one household")
+    local group = Factions.group("faction-transaction-a")
+    local member = group.members[1]
+    local saved = { id = "resident-wake-test", identity = member.identity,
+        inventory = { receipt = "outfit-and-kit" }, vitals = { health = 83 } }
+    member.actorId, member.hibernated, member.snapshot = saved.id, true, saved
+    local initialized, finished, reject = 0, 0, true
+    SC.Persistence = {
+        initializeRestoredActor = function(native, input, snapshot)
+            initialized = initialized + 1
+            assert(snapshot == saved and input.factionId == group.id)
+            if reject then return false, "saved_clothing_restore_failed" end
+            native.savedInventory, native.savedVitals = snapshot.inventory, snapshot.vitals
+            return true
+        end,
+        finishRestoredActor = function(native, snapshot)
+            assert(registry[saved.id].actor == native and snapshot == saved)
+            finished = finished + 1
+        end,
+    }
+    Actor.beginSpawn = function(square, profile)
+        local native = actor(saved.id, square.x, square.y, { recruited = false })
+        assert(profile.restored == true and profile.state == saved)
+        local accepted, reason = profile.initialize(native, {})
+        if not accepted then return nil, reason end
+        return { native = native }
+    end
+    Actor.pollSpawn = function(ticket)
+        registry[saved.id] = { actor = ticket.native, id = saved.id, runtime = {} }
+        return ticket.native
+    end
+    for _ = 1, 8 do f.clock = f.clock + 1000; Factions.pulse(player, f.clock) end
+    check(initialized > 0 and registry[saved.id] == nil and finished == 0
+            and member.hibernated == true and member.snapshot == saved,
+        "failed clothing restoration retains the snapshot without publishing a bare actor")
+    reject, f.clock = false, f.clock + 31000
+    for _ = 1, 8 do f.clock = f.clock + 1000; Factions.pulse(player, f.clock) end
+    local restored = registry[saved.id] and registry[saved.id].actor
+    check(restored and restored.savedInventory == saved.inventory and restored.savedVitals == saved.vitals
+            and finished == 1 and member.hibernated == false and member.snapshot == nil,
+        "a successful wake restores outfit, kit and vitals once before consuming its snapshot")
+    Factions.reset()
+    registry[saved.id] = nil
+    SC.Persistence, Actor.beginSpawn, Actor.pollSpawn, f.clock =
+        originalPersistence, originalBegin, originalPoll, clockBefore
+end
+
 Factions.reset()
 fixtureSquare.objects, fixtureSquare.specialObjects =
     fixtureObjects, fixtureSpecialObjects

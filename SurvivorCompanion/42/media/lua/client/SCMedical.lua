@@ -456,15 +456,13 @@ end
 -- goes on already soiled (ISApplyBandage gives it no bandage life).
 local function dirtyDressing(item)
     local itemType = string.lower(U().itemType(item))
-    return booleanMethod(item, { "isDirty", "isBloody" })
+    return booleanMethod(item, { "isDirty" }) or booleanMethod(item, { "isBloody" })
         or string.find(itemType, "dirty", 1, true) ~= nil
 end
 
 local function bandageRank(item, allowDirty)
     local utility = U()
     local itemType = string.lower(utility.itemType(item))
-    local dirty = dirtyDressing(item)
-    if dirty and allowDirty ~= true then return nil end
     -- Eligibility BEFORE quality (LF-05): the item must actually be a dressing. An
     -- isAlcoholic() flag (whiskey, disinfectant) or a "steril" substring in an
     -- unrelated name is NOT proof of a dressing, so those only modify the ranking
@@ -475,9 +473,13 @@ local function bandageRank(item, allowDirty)
         or string.find(itemType, "ripped_sheet", 1, true) ~= nil
     -- CanBandage is an item property in Build 42 (denim and leather strips
     -- carry it), not a tag.
-    local canBandage = utility.itemHasTag(item, "CanBandage") == true
-        or booleanMethod(item, { "isCanBandage" })
+    local nativeBandage, nativeKnown = utility.call(item, "isCanBandage")
+    if nativeKnown and type(nativeBandage) == "boolean" and nativeBandage ~= true then return nil end
+    local canBandage = nativeKnown and nativeBandage == true
+        or utility.itemHasTag(item, "CanBandage") == true
     if not (isBandageType or isRippedSheet or canBandage) then return nil end
+    local dirty = dirtyDressing(item)
+    if dirty and allowDirty ~= true then return nil end
     -- A dirty dressing is the last resort, after every clean one.
     if dirty then return 6 end
     -- Quality among eligible dressings (lower rank = preferred): sterile, then
@@ -518,15 +520,12 @@ local function findBandage(character, allowDirty)
                 if rank and (not bestRank or rank < bestRank) then
                     best, bestRank, bestContainer = item, rank, inventory
                 end
-                -- Only a real InventoryContainer item exposes getInventory(); a
-                -- plain item returns an error string through SCCall, which must not
-                -- be mistaken for a nested container.
-                if bestRank ~= 1 then
-                    local nested, ok = utility.call(item, "getInventory")
-                    if ok and (type(nested) == "userdata" or type(nested) == "table") then
-                        scan(nested, depth + 1)
-                    end
-                end
+            end
+            -- Protecting a bag from consumption does not hide its ordinary
+            -- dressings. Each contained item is checked against its own receipt.
+            if bestRank ~= 1 then
+                local nested, ok = utility.containedInventory(item)
+                if ok then scan(nested, depth + 1) end
             end
         end
     end

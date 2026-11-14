@@ -248,6 +248,7 @@ param(
     [switch]$StairCombatProbe,
     [ValidateSet('measurement', 'guard', 'stairs', 'recovery')][string]$StairCombatMode = 'measurement',
     [ValidateRange(1, 5)][int]$StairCombatTrials = 3,
+    [ValidateRange(1, 12)][int]$StairCombatZombies = 3,
     [switch]$FollowerBoardingProbe,
     [switch]$NeedsPriorityProbe,
     [switch]$SquadCombatFrontOnly,
@@ -2149,6 +2150,7 @@ $config = @(
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_probe=' + $StairCombatProbe.IsPresent.ToString().ToLowerInvariant()),
     ('stair_combat_trials=' + $StairCombatTrials),
+    ('stair_combat_zombies=' + $StairCombatZombies),
     ('stair_combat_mode=' + $StairCombatMode),
     ('follower_boarding_probe=' + $FollowerBoardingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('needs_priority_probe=' + $NeedsPriorityProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -2326,6 +2328,7 @@ $manifest = [ordered]@{
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
     stairCombatProbe = $StairCombatProbe.IsPresent
+    stairCombatZombies = $StairCombatZombies
     followerBoardingProbe = $FollowerBoardingProbe.IsPresent
     needsPriorityProbe = $NeedsPriorityProbe.IsPresent
     squadCombatFrontOnly = $SquadCombatFrontOnly.IsPresent

@@ -12,6 +12,11 @@ local vanLoaded = true
 local spawnedVans = {}
 local sent = {}
 local visible = true
+local boardCalls, routeCalls = 0, 0
+local seatAvailable, atDoor = true, false
+local door = { locked = true }
+local passengerDoor = { door = door }
+local boardError = false
 
 IsoDirections = { N = "north" }
 addVehicleDebug = function(script, facing, _, square)
@@ -64,7 +69,16 @@ SC.GameplayUtil = {
         if value == van then
             if method == "getSqlId" then return van.sqlId, true end
             if method == "getPartById" and a == "Radio" then return { radioPart = true }, true end
+            if method == "getSquare" then return van, true end
+            if method == "getPassengerDoor" then return passengerDoor, true end
+            if method == "transmitPartDoor" then return nil, true end
         end
+        if value == passengerDoor and method == "getDoor" then return door, true end
+        if value == door then
+            if method == "isLocked" then return door.locked, true end
+            if method == "setLocked" then door.locked = a return nil, true end
+        end
+        if method == "getVehicle" then return value.vehicle, true end
         if type(value) == "table" and value.radioPart then
             if method == "getDeviceData" then return radioData, true end
         end
@@ -75,8 +89,32 @@ SC.GameplayUtil = {
         return nil, false
     end,
 }
-SC.Vehicle = { loadedBySqlId = function(id)
-    return vanLoaded and id == van.sqlId and van or nil
+SC.Vehicle = {
+    loadedBySqlId = function(id) return vanLoaded and id == van.sqlId and van or nil end,
+    isNativeSeated = function(actor)
+        return actor.vehicle == van and van.passenger == actor, actor.vehicle, actor.seat
+    end,
+    isStationary = function(vehicle) return vehicle.moving ~= true end,
+    boardingSquares = function(actor, vehicle, seat, allowDriver)
+        assert(vehicle == van and allowDriver == false, "only the saved van's passenger seats are used")
+        if seatAvailable then return { van }, 1 end
+    end,
+    preflightBoard = function(actor, vehicle, seat)
+        if atDoor then return { actor = actor, vehicle = vehicle, seat = seat } end
+    end,
+    board = function(actor, vehicle, seat, options)
+        assert(atDoor and options.allowVirtualSeat == false and options.preflight.actor == actor)
+        assert(door.locked == false, "native entry uses a temporarily unlocked passenger door")
+        if boardError then error("native boarding error") end
+        boardCalls = boardCalls + 1
+        actor.vehicle, actor.seat, van.passenger = vehicle, seat, actor
+        return true
+    end,
+}
+SC.Navigation = { requestAny = function(actor, targets, mode, intent)
+    assert(actor == dwayne and mode == "walk" and intent.action == "dwayne_return_to_van")
+    routeCalls = routeCalls + 1
+    return true
 end }
 SC.Registry = {
     byId = function(id)
@@ -166,6 +204,38 @@ assert(binder and binder.kind == "Base.Notebook" and binder.name == "Reverend Ma
     "the Reverend's twelve sermons are readable in a real binder")
 assert(P.onSpawn(group, dwayne))
 assert(#spawnedVans == 1 and #dwayne.inv.items == 1, "a setup retry never adds a second van or binder")
+assert(routeCalls == 1 and boardCalls == 0, "Dwayne walks to the real passenger door instead of teleporting")
+atDoor, now = true, now + 1100
+assert(P.update(dwayne, player, {}, P.intentFor(dwayne, player, {}, group), group))
+assert(SC.Vehicle.isNativeSeated(dwayne) and dwayne.seat == 1 and group.oddball.vanSeat == 1,
+    "Dwayne occupies a verified passenger seat inside the station van")
+assert(door.locked == true and group.oddball.entryDoorRelockSeat == nil,
+    "the station van keeps its original passenger lock after native entry")
+assert(P.onSpawn(group, dwayne) and boardCalls == 1 and #dwayne.inv.items == 1,
+    "seating reconciliation is idempotent and keeps the existing binder")
+player.x = 30
+assert(P.canTalkFromVehicle(group, player) and P.avoidsZombieCombat(dwayne, group),
+    "a nearby listener can talk through the van without Dwayne leaving to chase zombies")
+player.x = 0
+vanLoaded, dwayne.vehicle, dwayne.seat, van.passenger = false, nil, nil, nil
+P.onSpawn(group, dwayne)
+assert(boardCalls == 1 and #spawnedVans == 1, "an unloaded saved van is never replaced")
+vanLoaded, seatAvailable, now = true, false, now + 1100
+P.update(dwayne, player, {}, P.intentFor(dwayne, player, {}, group), group)
+assert(boardCalls == 1 and routeCalls == 1, "an occupied or inaccessible passenger seat is not stolen")
+seatAvailable, van.moving, now = true, true, now + 1100
+P.update(dwayne, player, {}, P.intentFor(dwayne, player, {}, group), group)
+assert(boardCalls == 1, "Dwayne waits for the van to stop before boarding")
+van.moving, now = false, now + 1100
+P.update(dwayne, player, {}, P.intentFor(dwayne, player, {}, group), group)
+assert(boardCalls == 2 and #spawnedVans == 1 and #dwayne.inv.items == 1,
+    "an unseated Dwayne returns to the same van with the same kit")
+boardError, dwayne.vehicle, dwayne.seat, van.passenger, now = true, nil, nil, nil, now + 1100
+P.update(dwayne, player, {}, P.intentFor(dwayne, player, {}, group), group)
+assert(door.locked == true and group.oddball.entryDoorRelockSeat == nil and boardCalls == 2,
+    "a native boarding exception still restores the original lock without claiming a seat")
+boardError, now = false, now + 1100
+P.update(dwayne, player, {}, P.intentFor(dwayne, player, {}, group), group)
 for _, hostility in ipairs({ "standing", "lifecycle", "permanentHostility" }) do
     group[hostility] = hostility == "standing" and "Hostile"
         or hostility == "lifecycle" and "hostile" or true

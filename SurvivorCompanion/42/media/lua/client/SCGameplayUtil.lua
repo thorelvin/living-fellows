@@ -1235,6 +1235,14 @@ function U.inventory(actor)
     return nil
 end
 
+function U.containedInventory(item)
+    local nested, ok = U.call(item, "getItemContainer")
+    if ok and (type(nested) == "userdata" or type(nested) == "table") then return nested, true end
+    nested, ok = U.call(item, "getInventory")
+    if ok and (type(nested) == "userdata" or type(nested) == "table") then return nested, true end
+    return nil, false
+end
+
 function U.touchInventoryIndex(container)
     local index = SC.InventoryIndex
     if index and type(index.touchContainer) == "function" then
@@ -1258,7 +1266,8 @@ end
 -- same first ninety root entries were re-read on every call, so a perfectly
 -- usable weapon at position ninety-one did not exist as far as combat was
 -- concerned, and ammunition for an equipped dry firearm could be ruled out the
--- same way. This walks the root list and one level of carried containers, both
+-- same way. This walks the root list and bounded carried containers, including
+-- a first-aid kit inside a backpack. Both item and container counts stay
 -- bounded, so the answer is complete enough to be trusted without ever becoming
 -- an unlimited tree walk.
 function U.inventoryItemsDeep(inventory, limit, containerLimit)
@@ -1277,10 +1286,11 @@ function U.inventoryItemsDeep(inventory, limit, containerLimit)
     if containerLimit > 0 then rootLimit = math.max(1, limit - math.floor(limit / 4)) end
     local function scanRoot(cap)
         result, containers, seen = {}, {}, {}
+        seen[inventory] = true
         for _, item in ipairs(U.inventoryItems(inventory, cap)) do
             result[#result + 1] = item
             if #containers < containerLimit then
-                local nested, ok = U.call(item, "getItemContainer")
+                local nested, ok = U.containedInventory(item)
                 if ok and nested ~= nil and not seen[nested] then
                     seen[nested] = true
                     containers[#containers + 1] = nested
@@ -1298,6 +1308,13 @@ function U.inventoryItemsDeep(inventory, limit, containerLimit)
         if #result >= limit then break end
         for _, item in ipairs(U.inventoryItems(nested, limit - #result)) do
             result[#result + 1] = item
+            if #containers < containerLimit then
+                local child, ok = U.containedInventory(item)
+                if ok and not seen[child] then
+                    seen[child] = true
+                    containers[#containers + 1] = child
+                end
+            end
         end
     end
     return result, containers

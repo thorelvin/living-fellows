@@ -173,6 +173,15 @@ end
 
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
+    local reportCheck = check
+    check = function(name, okay, detail)
+        if not okay then pcall(function()
+            getCore():setAutoZoom(0, false)
+            for _ = 1, 8 do if getCore():getZoom(0) < 1.8 then getCore():doZoomScroll(0, 1) end end
+            getCore():TakeFullScreenshot(H.config.run_id .. "-blocked-" .. name .. ".png")
+        end) end
+        return reportCheck(name, okay, detail)
+    end
     if H.phase == "medical_check_setup" then
         -- The harness closes entry modals for the first 20 seconds.
         if current - H.phaseStartedAt < 22000 then return end
@@ -220,6 +229,51 @@ function Probe.step(H, current, check, result, setPhase)
             "right-click callback installed") then
             setPhase("finish", current) return
         end
+        -- Reproduce the report with native containers before opening wounds:
+        -- five dressings, a meal and water inside a carried backpack, then a
+        -- first-aid kit inside that same backpack. No root-inventory stand-ins.
+        local U = SC.GameplayUtil
+        local actorInventory = U.inventory(actor)
+        local supplyBag = call(actorInventory, "AddItem", "Base.Bag_Schoolbag")
+        local bagInventory = supplyBag and U.containedInventory(supplyBag)
+        local bandages, owned = {}, {}
+        if bagInventory then
+            call(supplyBag, "setBloodLevel", 100)
+            for _ = 1, 5 do
+                local item = call(bagInventory, "AddItem", "Base.Bandage")
+                if item then bandages[#bandages + 1] = item; owned[item] = true end
+            end
+            call(bagInventory, "AddItem", "Base.Apple")
+            local bottle = call(bagInventory, "AddItem", "Base.WaterBottle")
+            local fluid = bottle and call(bottle, "getFluidContainer")
+            if fluid then call(fluid, "Empty"); call(fluid, "addFluid", Fluid.Water, 0.5) end
+        end
+        local counts = SC.Commands.describe(SC.Registry.idOf(actor), H.player).supplies or {}
+        local kit = bagInventory and call(bagInventory, "AddItem", "Base.FirstAidKit")
+        local kitInventory = kit and U.containedInventory(kit)
+        local moved = kitInventory ~= nil
+        for _, item in ipairs(bandages) do
+            if not kitInventory or not U.transferItemVerified(bagInventory, kitInventory, item) then moved = false end
+        end
+        local nestedCounts = SC.Commands.describe(SC.Registry.idOf(actor), H.player).supplies or {}
+        local dressing, source = SC.Medical._findBandageForTests(actor, false)
+        if not check("medical_backpack_supplies", #bandages == 5 and counts.bandages == 5
+                and (counts.food or 0) >= 1 and (counts.water or 0) >= 1
+                and moved and nestedCounts.bandages == 5 and owned[dressing] and source == kitInventory,
+            "bag=" .. tostring(counts.bandages) .. " kit=" .. tostring(nestedCounts.bandages)
+                .. " food=" .. tostring(counts.food) .. " water=" .. tostring(counts.water)) then
+            pcall(function()
+                for _ = 1, 8 do if getCore():getZoom(0) < 1.8 then getCore():doZoomScroll(0, 1) end end
+                getCore():TakeFullScreenshot(H.config.run_id .. "-blocked-backpack-supplies.png")
+            end)
+            setPhase("finish", current) return
+        end
+        -- LF's bandage command consumes from the same physical kit after the
+        -- player receives it; the patient cannot self-treat before that check.
+        local inventory = call(H.player, "getInventory")
+        if not check("medical_backpack_transferred", U.transferItemVerified(actorInventory, inventory, supplyBag),
+            "exact backpack and its five original dressings") then setPhase("finish", current) return end
+        H.medicalSupplyItems, H.medicalSupplyContainer = owned, kitInventory
         local body = call(actor, "getBodyDamage")
         H.medicalScratch = body and call(body, "getBodyPart", BodyPartType.ForeArm_L)
         H.medicalFracture = body and call(body, "getBodyPart", BodyPartType.LowerLeg_R)
@@ -227,14 +281,16 @@ function Probe.step(H, current, check, result, setPhase)
             H.medicalScratch, true, true)
         local fractured = H.medicalFracture and pcall(H.medicalFracture.setFractureTime,
             H.medicalFracture, 30)
-        local inventory = call(H.player, "getInventory")
-        H.medicalBandage = inventory and call(inventory, "AddItem", "Base.Bandage")
+        H.medicalBandage = bandages[1]
         H.medicalSplint = inventory and call(inventory, "AddItem", "Base.Splint")
         -- The source save may already have splints in several bags. The
         -- native menu groups identical types under one representative item;
         -- keep the newly added root splint as its deterministic test supply.
         for _, item in ipairs(SC.GameplayUtil.inventoryItemsDeep(inventory, 1000)) do
-            if item ~= H.medicalSplint
+            if SC.Medical.dressingRank(item, true) and not owned[item] then
+                local owner = call(item, "getContainer")
+                if owner then call(owner, "Remove", item) end
+            elseif item ~= H.medicalSplint
                 and call(item, "getFullType") == "Base.Splint" then
                 local owner = call(item, "getContainer")
                 if owner then call(owner, "Remove", item) end
@@ -252,18 +308,24 @@ function Probe.step(H, current, check, result, setPhase)
             0, { actor }, px, py, false)
         local option = okMenu and menuOption(menu,
             getText("ContextMenu_Medical_Check")) or nil
+        local wrapped = option and option.onSelect == menu.onGetUpAndThen
+        local callback = option and (wrapped and option.param1 or option.onSelect)
+        local requester = option and (wrapped and option.param3 or option.param1)
+        local patient = option and (wrapped and option.param4 or option.param2)
         if not check("medical_check_actual_right_click_option",
-            option ~= nil and option.onSelect == SC.UIContext.onMedicalCheck
-                and option.param2 == actor,
-            "actual world menu callback and patient") then
+            callback == SC.UIContext.onMedicalCheck and requester == H.player and patient == actor,
+            "actual world menu callback and patient; native stand-up wrapper=" .. tostring(wrapped)) then
             setPhase("finish", current) return
         end
         -- Match a real click: the world menu closes before the timed action
         -- opens the health panel and its own body-part menu.
         if menu and type(menu.closeAll) == "function" then menu:closeAll() end
-        if not check("medical_check_queued", selectOption(option)
-            and SC.MedicalUI.current() ~= nil,
-            "player-doctor medical action queued") then
+        local selected, selectReason = selectOption(option)
+        local queueTypes = queueState(H.player)
+        if not check("medical_check_queued", selected
+            and (SC.MedicalUI.current() ~= nil or queueTypes ~= "empty"),
+            "player-doctor action or native stand-up queued: " .. queueTypes
+                .. " " .. tostring(selectReason)) then
             setPhase("finish", current) return
         end
         setPhase("medical_check_capture", current)
@@ -275,7 +337,7 @@ function Probe.step(H, current, check, result, setPhase)
         local visible = call(window, "getIsVisible")
         if panel == nil or visible ~= true then
             if current - H.phaseStartedAt > 16000 then
-                result("FAIL", "medical_check_treatment_panel", "timed action did not open")
+                check("medical_check_treatment_panel", false, "timed action did not open")
                 setPhase("finish", current)
             end
             return
@@ -308,10 +370,14 @@ function Probe.step(H, current, check, result, setPhase)
         end)
         check("medical_check_screenshot", captured,
             name .. " " .. tostring(captureReason))
-        local chosen, detail, supply = selectTreatment(panel, H.medicalScratch,
-            getText("ContextMenu_Bandage"), H.player:getPlayerNum(), H.player)
-        H.medicalChosenBandage = supply
-        if not check("medical_check_bandage_from_panel", chosen, detail) then
+        -- 42.22.2's vanilla health menu does not traverse this nested kit.
+        -- Exercise LF's actual player-care commit, which shares dressing
+        -- discovery with autonomous care, against the physical native items.
+        local ready, reason, context = SC.Medical.playerBandagePreflight(H.medicalCheckActor, H.player)
+        H.medicalChosenBandage = context and context.bandage
+        local applied, detail = false, reason
+        if ready then applied, detail = SC.Medical.applyPlayerBandage(H.medicalCheckActor, H.player) end
+        if not check("medical_check_bandage_from_nested_kit", applied, tostring(detail)) then
             setPhase("finish", current) return
         end
         setPhase("medical_check_bandage", current)
@@ -320,7 +386,7 @@ function Probe.step(H, current, check, result, setPhase)
     if H.phase == "medical_check_bandage" then
         if not call(H.medicalScratch, "bandaged") then
             if current - H.phaseStartedAt > 14000 then
-                result("FAIL", "medical_check_bandage_applied", "timed treatment stalled")
+                check("medical_check_bandage_applied", false, "timed treatment stalled")
                 setPhase("finish", current)
             end
             return
@@ -329,6 +395,11 @@ function Probe.step(H, current, check, result, setPhase)
             H.medicalChosenBandage ~= nil
                 and call(H.medicalChosenBandage, "getContainer") == nil,
             "selected player-owned bandage consumed on companion wound")
+        check("medical_backpack_exact_dressing_consumed",
+            H.medicalSupplyItems[H.medicalChosenBandage] == true
+                and call(call(H.medicalSupplyContainer, "getItems"), "size") == 4
+                and SC.Commands.carriedSupplies(H.player).bandages == 4,
+            "one of the five original nested dressings used; four remain")
         local window = ISMedicalCheckAction.getHealthWindowForPlayer(H.medicalCheckActor)
         local panel = window and window.nested
         H.medicalSplintClickPatient = position(H.medicalCheckActor)
@@ -357,7 +428,7 @@ function Probe.step(H, current, check, result, setPhase)
         observeSplintAction(H)
         if (tonumber(call(H.medicalFracture, "getSplintFactor")) or 0) <= 0 then
             if current - H.phaseStartedAt > 14000 then
-                result("FAIL", "medical_check_splint_applied",
+                check("medical_check_splint_applied", false,
                     "timed treatment stalled clickPatient="
                         .. tostring(H.medicalSplintClickPatient)
                         .. " clickDoctor=" .. tostring(H.medicalSplintClickDoctor)

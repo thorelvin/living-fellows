@@ -235,23 +235,9 @@ local function griefEligible(actor, snapshot)
 end
 
 local function hasLowSupplies(actor)
-    local inventory = U().inventory(actor)
-    local bandages, food, water = 0, 0, 0
-    for _, item in ipairs(U().inventoryItems(inventory, 128)) do
-        local lowered = string.lower(U().itemType(item))
-        if string.find(lowered, "bandage", 1, true) or string.find(lowered, "rippedsheet", 1, true) then
-            bandages = bandages + 1
-        end
-        local hunger, hungerOk = U().call(item, "getHungerChange")
-        if hungerOk and finite(hunger, 0) < 0 then food = food + 1 end
-        local fluid, fluidOk = U().call(item, "getFluidContainer")
-        if fluidOk and fluid ~= nil then
-            local amount, amountOk = U().call(fluid, "getAmount")
-            if not amountOk then amount, amountOk = U().call(fluid, "getFluidAmount") end
-            if amountOk and finite(amount, 0) > 0 then water = water + 1 end
-        end
-    end
-    return bandages == 0 or food == 0 or water == 0
+    if not SC.Commands or type(SC.Commands.carriedSupplies) ~= "function" then return false end
+    local supplies = SC.Commands.carriedSupplies(actor)
+    return supplies.bandages == 0 or supplies.food == 0 or supplies.water == 0
 end
 
 local function shouldRequestSupply(actor, mind, unmetNeed)

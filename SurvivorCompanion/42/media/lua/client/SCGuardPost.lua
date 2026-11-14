@@ -365,9 +365,18 @@ end
 function Post.observe(actor, runtime, plan, now)
     local state = runtime and runtime.guardPost
     if not state then return false end
-    if plan and plan.mode == "disengage" then
+    -- The squad's numerical capacity cannot promise coverage from a guard
+    -- whose own combat pass keeps withdrawing. Preserve brief footwork, then
+    -- release the shared choke through the same checked Retreat order.
+    local combat = SC.Combat and SC.Combat.peek and SC.Combat.peek(actor)
+    local risk = combat and combat.overrun
+    local personalWithdrawal = combat and combat.retreating == true and risk and risk.overrun == true
+    local squadWithdrawal = plan and plan.mode == "disengage"
+    if squadWithdrawal or personalWithdrawal then
         state.disengageSince = state.disengageSince or now
-        local overwhelming = (tonumber(plan.forecast) or 0) >= (tonumber(plan.capacity) or math.huge) + 4
+        local overwhelming = squadWithdrawal and (tonumber(plan.forecast) or 0)
+            >= (tonumber(plan.capacity) or math.huge) + 4
+            or personalWithdrawal and (risk.cause == "health" or risk.cause == "encircled")
         if overwhelming or now - state.disengageSince >= (U().config("guardChokeDisengageMs") or 2500) then
             state.withdrawn = true
             for _, record in ipairs(SC.Registry.records()) do

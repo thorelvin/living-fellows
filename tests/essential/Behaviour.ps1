@@ -76,6 +76,11 @@
     (Join-Path $Core 'oddball_loretta_fixture.lua'),
     (Join-Path $Client 'SCOddballLoretta.lua'),
     (Join-Path $Core 'oddball_loretta_harness.lua')) }
+@{ Name = 'behaviour.preacher-van'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCOddballExchange.lua'),
+    (Join-Path $Client 'SCOddballPreacher.lua'),
+    (Join-Path $Core 'oddball_preacher_harness.lua')) }
 @{ Name = 'behaviour.relationship-help'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'relationship_help_harness.lua') }
 @{ Name = 'behaviour.family-pyre'; Files = @(
     (Join-Path $Essential 'caleb_fixture.lua'),

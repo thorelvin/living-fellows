@@ -638,9 +638,9 @@ local function talkableOddballs(player)
                 result[#result + 1] = group
                 added = true
             end
-            if not added and SC.OddballLoretta
-                and type(SC.OddballLoretta.canTalkFromVehicle) == "function"
-                and SC.OddballLoretta.canTalkFromVehicle(group, player) then
+            if not added and SC.Oddballs
+                and type(SC.Oddballs.canTalkFromVehicle) == "function"
+                and SC.Oddballs.canTalkFromVehicle(group, player) then
                 result[#result + 1] = group
                 added = true
             end

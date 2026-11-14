@@ -3427,6 +3427,10 @@ function Oddballs.avoidsZombieCombat(actor, group)
     return Oddballs.isZombieIgnored(actor) == true
 end
 
+function Oddballs.canTalkFromVehicle(group, player)
+    return callModule(group, "canTalkFromVehicle", group, player) == true
+end
+
 function Oddballs.intentFor(actor, player, snapshot, group)
     group = group or Oddballs.groupForActor(actor)
     if not group then return nil end

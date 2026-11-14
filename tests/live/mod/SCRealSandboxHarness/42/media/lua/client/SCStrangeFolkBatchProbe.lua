@@ -516,6 +516,18 @@ end
 local function stageObserver(H, F)
     local site = F.site
     local spawn = site.spawn
+    if F.target == "preacher" then
+        local stand = ring(spawn.x, spawn.y, 0, 35, 40, function(square)
+            return outdoor(square) and U().isSafeSpawnSquare(square)
+        end)
+        if not teleport(H.player, stand) then return false end
+        pcall(function()
+            getCore():setAutoZoom(0, false)
+            for _ = 1, 8 do if getCore():getZoom(0) < 1.8 then getCore():doZoomScroll(0, 1) end end
+        end)
+        call(H.player, "faceLocation", stand:getX() * 2 - spawn.x, stand:getY() * 2 - spawn.y)
+        return true
+    end
     if ROOMS[F.target] then
         return teleport(H.player, ring(spawn.x, spawn.y, 0, 14, 24, function(square)
             return outdoor(square) and U().isSafeSpawnSquare(square)
@@ -1139,6 +1151,30 @@ end
 
 -- Dwayne ---------------------------------------------------------------------
 
+local function preacherKit(actor)
+    local items, worn = {}, {}
+    for _, item in ipairs(inventoryItems(actor)) do
+        items[#items + 1] = tostring(itemType(item)) .. ":" .. tostring(call(item, "getID"))
+    end
+    local list = call(actor, "getWornItems")
+    for index = 0, (tonumber(call(list, "size")) or 0) - 1 do
+        local entry = call(list, "get", index)
+        worn[#worn + 1] = tostring(call(entry, "getLocation")) .. ":"
+            .. tostring(call(call(entry, "getItem"), "getID"))
+    end
+    table.sort(items)
+    table.sort(worn)
+    return table.concat(items, ";"), table.concat(worn, ";"), #worn
+end
+
+local function preacherPhoto(H, label)
+    pcall(function()
+        getCore():setAutoZoom(0, false)
+        for _ = 1, 8 do if getCore():getZoom(0) < 1.8 then getCore():doZoomScroll(0, 1) end end
+        getCore():TakeFullScreenshot(H.config.run_id .. "-dwayne-" .. label .. ".png")
+    end)
+end
+
 function Flows.preacher(H, F, current, check, result, setPhase, need)
     local SC = SCX()
     local value = story(F)
@@ -1152,13 +1188,36 @@ function Flows.preacher(H, F, current, check, result, setPhase, need)
         local site = value.site and value.site.van or {}
         local part = call(van, "getPartById", "Radio")
         local data = call(part, "getDeviceData")
-        if not need("preacher_station_van_spawned", van ~= nil
+        if not F.vanChecked and not need("preacher_station_van_spawned", van ~= nil
                 and string.find(tostring(call(van, "getScriptName")), "VanRadio", 1, true) ~= nil
                 and vx and (vx - site.x) ^ 2 + (vy - site.y) ^ 2 <= 16,
             "attempted=" .. tostring(value.vanAttempted) .. " sqlId=" .. tostring(value.vanSqlId)
                 .. " script=" .. tostring(call(van, "getScriptName"))
                 .. " at=" .. round(vx) .. "," .. round(vy) .. " site=" .. tostring(site.x)
                 .. "," .. tostring(site.y)) then return end
+        F.vanChecked = true
+        local seated, actualVan, seat = SC.Vehicle.isNativeSeated(actor)
+        if not (seated and actualVan == van and tonumber(seat) > 0) then
+            if current >= (F.nextSeatTrace or 0) then
+                F.nextSeatTrace = current + 5000
+                local targets, chosen, targetReason = SC.Vehicle.boardingSquares(actor, van, value.vanSeat, false)
+                local _, boardReason = SC.Vehicle.preflightBoard(actor, van, chosen, false)
+                local commands = SC.Commands.peek(actor)
+                local navigation = SC.Navigation.peek(actor)
+                local ax, ay, az = U().position(actor)
+                trace("SEAT", "actor=" .. round(ax) .. "," .. round(ay) .. "," .. round(az)
+                    .. " targets=" .. tostring(targets and #targets) .. " chosen=" .. tostring(chosen)
+                    .. " targetReason=" .. tostring(targetReason) .. " boardReason=" .. tostring(boardReason)
+                    .. " intent=" .. tostring(commands and commands.intent)
+                    .. " nav=" .. tostring(navigation and navigation.goalAction))
+            end
+            if current - F.stepAt < 30000 then return end
+            preacherPhoto(H, "blocked-boarding")
+            need("preacher_native_passenger", false, "seat=" .. tostring(seat)
+                .. " vehicle=" .. tostring(call(actualVan, "getSqlId")))
+            return
+        end
+        check("preacher_native_passenger", true, "station van seat=" .. tostring(seat))
         check("preacher_van_radio_sets_range", tonumber(call(data, "getTransmitRange")) ~= nil
                 and module.transmitRange(value) == math.floor(tonumber(call(data, "getTransmitRange")) or -1),
             "partRange=" .. tostring(call(data, "getTransmitRange")) .. " used="
@@ -1263,7 +1322,59 @@ function Flows.preacher(H, F, current, check, result, setPhase, need)
                 .. " label=" .. tostring(offered.label))
         local asked = SC.Oddballs.storyAction(F.group.id, "ask_dwayne_reverend", H.player)
         check("preacher_answers_about_the_reverend", asked == true, "menu line")
-        setPhase("folk_batch_done", current)
+        F.kit, F.worn, F.wornCount = preacherKit(actor)
+        if not need("preacher_outfit_and_kit_present", F.wornCount >= 3
+                and countType(actor, "Base.Glasses_Reading") == 1
+                and countType(actor, "Base.Torch") == 1, "worn=" .. F.wornCount .. " " .. F.kit) then return end
+        F.originalActor, F.originalVanId = actor, value.vanSqlId
+        F.returnX, F.returnY, F.returnZ = U().position(H.player)
+        preacherPhoto(H, "before-distance")
+        H.player:teleportTo(F.returnX + 145, F.returnY, F.returnZ)
+        F.step, F.stepAt = "away", current
+        return
+    end
+    if F.step == "away" then
+        local member = F.group.members[1]
+        if member.hibernated == true and type(member.snapshot) == "table" then
+            check("preacher_distance_hibernated", SC.Registry.byId(member.actorId) == nil,
+                "snapshot=" .. tostring(member.snapshot.id))
+            H.player:teleportTo(F.returnX, F.returnY, F.returnZ)
+            F.step, F.stepAt = "wake", current
+        elseif current - F.stepAt > 30000 then
+            preacherPhoto(H, "blocked-hibernation")
+            need("preacher_distance_hibernated", false, "no snapshot after moving 145 m away")
+        end
+        return
+    end
+    if F.step == "wake" then
+        local member = F.group.members[1]
+        local record = SC.Registry.byId(member.actorId)
+        local awake = record and record.actor
+        local seated, van, seat = SC.Vehicle.isNativeSeated(awake)
+        if awake and awake ~= F.originalActor and member.hibernated ~= true
+            and seated and tostring(call(van, "getSqlId")) == tostring(F.originalVanId) then
+            if not F.awakeAt then
+                F.awakeAt = current
+                call(H.player, "faceThisObject", van)
+                return
+            end
+            if current - F.awakeAt < 1000 then return end
+            local kit, worn, wornCount = preacherKit(awake)
+            local binder = itemNamed(awake, "Reverend Mabry's last sermons")
+            preacherPhoto(H, "after-distance")
+            check("preacher_wake_exact_outfit_and_kit", kit == F.kit and worn == F.worn
+                    and wornCount == F.wornCount and binder ~= nil and pageCount(binder) == 12,
+                "worn=" .. wornCount .. " seat=" .. tostring(seat)
+                    .. " binderPages=" .. tostring(binder and pageCount(binder))
+                    .. " wornMatch=" .. tostring(worn == F.worn) .. " " .. kit)
+            check("preacher_wake_talk_from_van", module.canTalkFromVehicle(F.group, H.player),
+                "nearby listener; actual native passenger")
+            setPhase("folk_batch_done", current)
+        elseif current - F.stepAt > 45000 then
+            preacherPhoto(H, "blocked-wake")
+            need("preacher_wake_native_passenger", false, "hibernated=" .. tostring(member.hibernated)
+                .. " failure=" .. tostring(member.spawnFailure) .. " seat=" .. tostring(seat))
+        end
         return
     end
 end

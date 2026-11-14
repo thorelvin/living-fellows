@@ -214,6 +214,9 @@ function Logistics.itemCategory(item)
     -- Check the engine category before filename heuristics. Ordinary magazines
     -- otherwise match the ammunition fragment below and get shelved with ammo.
     if category == "literature" or display == "literature" then return "literature" end
+    if SC.Medical and SC.Medical.dressingRank and SC.Medical.dressingRank(item, false) then
+        return "medicine"
+    end
     if typeContains(itemType, { "bandage", "rippedsheet", "disinfect", "painkiller",
         "antibiotic", "suture", "firstaid", "alcoholwipes", "pills" })
         or category == "medical" or display == "medical" then return "medicine" end

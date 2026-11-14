@@ -110,4 +110,81 @@ end
 pcall = originalPcall
 check(invalidNativeCalls == 0, "no caught nil or missing-API invocation can produce a game Lua exception")
 SCBridge, SC.UserOptions, SC.Diagnostics = originalBridge, originalOptions, originalDiagnostics
+
+-- A remembered route must not bypass another retreating companion's booking.
+-- A positive route reply also needs physical progress before it counts as escape.
+do
+    local U, navigation = SC.GameplayUtil, SC.Navigation
+    local request, remembered = navigation.request, navigation.retreatTarget
+    local a, b = f.actor("retreat-route-a", 30, 30, {}), f.actor("retreat-route-b", 30, 31, {})
+    local first, second = f.cell:getGridSquare(28, 30, 0), f.cell:getGridSquare(28, 31, 0)
+    local goalByActor = {}
+    navigation.retreatTarget = function() return first, { danger = 0 } end
+    navigation.request = function(who, goal) goalByActor[who] = goal; return true, "path_pending" end
+    local scene = { escapeSquares = { {square=first,score=10}, {square=second,score=8} } }
+    local commands = { recruited=true, order="guard" }
+    check(SC.Combat._executeRetreatForTests(a, nil, scene, nil, true,
+        {cohortKey="retreat-native-goals"}, commands), "the first native retreat is admitted")
+    check(SC.Combat._executeRetreatForTests(b, nil, scene, nil, true,
+        {cohortKey="retreat-native-goals"}, commands) and goalByActor[a] ~= goalByActor[b],
+        "remembered routes preserve distinct native retreat destinations")
+
+    LosUtil.openGround(40,40,5)
+    local pinned = f.actor("retreat-pinned", 40, 40, {forwardX=1,forwardY=0})
+    f.registry[pinned.id] = pinned
+    local crowbar = f.item("Base.Crowbar", "Weapon", {maxRange=1.5,minRange=0.3})
+    pinned.inventory:AddItem(crowbar); pinned.primary = crowbar
+    local close, side, far = f.zombie(41,40,{}), f.zombie(41,41,{}), f.zombie(42,40,{})
+    local threats = {}
+    for _, zed in ipairs({close,side,far}) do threats[#threats+1] = {
+        actor=zed,x=zed:getX(),y=zed:getY(),z=0,visible=true,obstructed=false,
+        distanceSq=U.distanceSq(pinned,zed),bearing="front",posture="upright"} end
+    local snap = {threats=threats,allies={},escapeSquares={{square=first,danger=0}},
+        immediateCount=3,closeImmediateCount=3,closeThreatCount=3,
+        reachableImmediateCount=3,reachableCloseCount=3,reachableThreatSectors=1}
+    local runtime = {senses={current=snap}}
+    f.clock = f.clock + 1000
+    check(SC.Combat.update(pinned,nil,runtime), "an escape can start with a pending native path")
+    check(runtime.combatAction == "retreat", "the first pulse genuinely requests movement")
+    f.clock = f.clock + 900
+    check(SC.Combat.update(pinned,nil,runtime)
+        and (runtime.combatAction=="last_stand_melee" or runtime.combatAction=="last_stand_shove"),
+        "a stationary pending retreat defends even while a snapshot still lists an escape")
+    SC.Combat.reset(pinned)
+    f.clock = f.clock + 1000
+    SC.Combat.update(pinned,nil,runtime)
+    pinned.worldX = pinned:getX() - 0.5
+    f.clock = f.clock + 900
+    check(SC.Combat.update(pinned,nil,runtime) and runtime.combatAction=="retreat",
+        "measured retreat movement continues instead of triggering a stationary fallback")
+
+    local weapon = {item=crowbar,equipped=true,ranged=false,condition=10}
+    local defended, _, actual = SC.Combat._executeLastStandForTests(pinned,nil,snap,threats[3],weapon)
+    check(defended and actual and actual.actor == close and pinned.lastIntent.target == close,
+        "blocked withdrawal defends against the nearest contact instead of a distant selected target")
+    SC.Combat.reset(pinned)
+    snap.escapeSquares = {}
+    f.clock = f.clock + 1000
+    check(SC.Combat.update(pinned,nil,runtime)
+        and (runtime.combatAction=="last_stand_melee" or runtime.combatAction=="last_stand_shove"),
+        "a surrounded actor with no observed exit defends immediately instead of making a blind escape step")
+    SC.Combat.reset(pinned)
+    local distant = f.zombie(45,40,{})
+    SC.Commands.peek(pinned).combatDoctrine = "weapons_free"
+    snap.threats = {{actor=distant,x=45,y=40,z=0,visible=true,obstructed=false,
+        distanceSq=U.distanceSq(pinned,distant),bearing="front",posture="upright"}}
+    snap.escapeSquares = {{square=first,danger=0}, {square=second,danger=0}}
+    f.clock = f.clock + 1000
+    local began, beganWhy = SC.Combat.update(pinned,nil,runtime)
+    f.clock = f.clock + 900
+    local continued, why = SC.Combat.update(pinned,nil,runtime)
+    local retryProbe = SC.Combat.peek(pinned).cornerEscapeProbe
+    check(continued and retryProbe and retryProbe.at == f.clock,
+        "a replacement retreat receives its own progress interval when no contact is in reach"
+        .. " first=" .. tostring(began) .. "/" .. tostring(beganWhy)
+        .. " next=" .. tostring(continued) .. "/" .. tostring(why)
+        .. " probe=" .. tostring(retryProbe and retryProbe.at) .. " now=" .. f.clock)
+    SC.Combat.reset(pinned)
+    navigation.request, navigation.retreatTarget = request, remembered
+end
 print("BEHAVIOUR_COMBAT_PASS checks=" .. tostring(f.checks()))

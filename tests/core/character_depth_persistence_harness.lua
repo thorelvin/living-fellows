@@ -69,6 +69,33 @@ local function makeItem(itemType, options)
     item.condition = item.condition or 10
     function item:getFullType() return self.itemType end
     function item:getType() return string.gsub(self.itemType, "Base%.", "") end
+    function item:getName() return self.customTitle or self.itemType end
+    function item:setName(value) self.customTitle = value end
+    function item:isCustomName() return self.customNameFlag == true end
+    function item:setCustomName(value) self.customNameFlag = value end
+    if itemType == "Base.Notebook" then
+        item.pages = item.pages or {}
+        function item:isEmptyPages()
+            for _, content in pairs(self.pages) do if content ~= "" then return false end end
+            return true
+        end
+        function item:seePage(number) return self.pages[number] end
+        function item:addPage(number, content) self.pages[number] = content end
+        function item:getLockedBy() return self.lockedBy end
+        function item:setLockedBy(value) self.lockedBy = value end
+        function item:getCustomPages()
+            return {
+                size = function() local count = 0; for _ in pairs(self.pages) do count = count + 1 end; return count end,
+                clear = function() self.pages = {} end,
+                keySet = function()
+                    local keys = {}; for number in pairs(self.pages) do keys[#keys + 1] = number end
+                    table.sort(keys)
+                    return { size = function() return #keys end,
+                        get = function(_, index) return keys[index + 1] end }
+                end,
+            }
+        end
+    end
     function item:getCategory() return self.category or "Item" end
     function item:getDisplayCategory() return self.displayCategory or self:getCategory() end
     function item:getCondition() return self.condition end
@@ -481,6 +508,13 @@ local drainable = makeItem("Base.TestDrainable", {
 nested:AddItem(drainable)
 local exactKey = makeItem("Base.Key1", { keyId = 41277 })
 local exactUses = makeItem("Base.TestUses", { uses = 1, useDelta = 0.03125 })
+exactUses:setName("Kept item label")
+exactUses:setCustomName(true)
+local notebook = makeItem("Base.Notebook", {
+    customTitle = "Reverend Mabry's last sermons", lockedBy = "Thor",
+    pages = { [1] = "Sermon forty-one.\nKeep the lights on.", [12] = "The last sermon." },
+})
+original.inventory:AddItem(notebook)
 local meal = makeItem("Base.TestMeal", {
     __class = "Food", uses = 1, baseHunger = -0.72,
     hungerChange = -0.25, thirstChange = -0.11, boredomChange = -7,
@@ -1113,7 +1147,7 @@ check(SC.Persistence.recoveryRetirements("sc-recovery-retire") == 0,
     "sustained healthy activation clears the retirement history")
 end
 check(captured.inventory.schema == 2 and captured.inventory.complete == true
-    and captured.inventory.count == 13
+    and captured.inventory.count == 14
     and captured.inventory.equipment.primary ~= nil
     and captured.inventory.equipment.primary == captured.inventory.equipment.secondary
     and #captured.inventory.equipment.worn == 2
@@ -1262,6 +1296,21 @@ check(restoredDrainable and restoredDrainable.uses == 3
     "fractional currentUses is captured and restored only for DrainableComboItem")
 check(restoredKey and restoredKey.keyId == 41277,
     "native key identity survives reconstruction instead of reverting to the script default")
+local restoredNotebook = findType(restored.inventory, "Base.Notebook")
+check(restoredNotebook and restoredNotebook:getName() == notebook:getName()
+        and restoredNotebook:seePage(1) == notebook:seePage(1)
+        and restoredNotebook:seePage(12) == notebook:seePage(12)
+        and restoredNotebook:seePage(2) == nil and restoredNotebook:getLockedBy() == "Thor"
+        and restoredExactUses:getName() == "Kept item label" and restoredExactUses:isCustomName(),
+    "custom titles, sparse handwritten pages, line breaks and the notebook's owner survive restoration")
+do
+    local prior = restoredNotebook.pages[1]
+    restoredNotebook.pages[1] = string.rep("x", 16385)
+    local oversized, reason = SC.Persistence.captureRecord(SC.Registry.byId(record.id))
+    restoredNotebook.pages[1] = prior
+    check(not oversized and string.find(tostring(reason), "written page", 1, true),
+        "oversized handwriting rejects capture instead of silently truncating the notebook")
+end
 check(restoredExactUses and restoredExactUses.uses == 1,
     "ordinary InventoryItem uses is not inflated through the non-inverse base currentUses setter")
 check(restoredInactive and restoredInactive.activated == false,

@@ -1298,6 +1298,12 @@ local function profileFor(group, member, snapshot)
             data.SC_FactionId = group.id
             data.SC_FactionRole = member.role
         end
+        if snapshot then
+            if not SC.Persistence or type(SC.Persistence.initializeRestoredActor) ~= "function" then
+                return false, "resident_snapshot_restore_unavailable"
+            end
+            return SC.Persistence.initializeRestoredActor(actor, recordInput, snapshot)
+        end
         return true
     end
     return profile
@@ -2031,6 +2037,10 @@ local function pollSpawn()
         return false, reason
     end
     local actorId = U().idOf(actor)
+    if entry and entry.snapshot and SC.Persistence
+        and type(SC.Persistence.finishRestoredActor) == "function" then
+        SC.Persistence.finishRestoredActor(actor, entry.snapshot)
+    end
     if member then
         member.actorId = actorId
         local record = SC.Registry.byId(actorId)
@@ -3305,7 +3315,7 @@ local function hibernateMember(group, member, player, allowDetachedRecovery)
                 called and releaseReason or released)
         end
     end
-    local snapshot, reason = SC.Persistence.captureRecord(record)
+    local snapshot, reason = SC.Persistence.captureRecord(record, nil, { preserveNativeIds = true })
     if not snapshot then return false, reason end
     local removed, result = SC.Actor.remove(record.actor)
     if not removed then return false, result end

@@ -774,6 +774,84 @@ local function captureNativeItemFacts(item)
     return result
 end
 
+local function copyWriting(source)
+    if source == nil then return nil end
+    if type(source) ~= "table" or type(source.pages) ~= "table" or #source.pages > 256 then
+        return nil, "invalid written page list"
+    end
+    local result, seen, bytes, count = { pages = {} }, {}, 0, 0
+    for key, page in pairs(source.pages) do
+        count = count + 1
+        if type(key) ~= "number" or key < 1 or key > #source.pages or key % 1 ~= 0
+            or type(page) ~= "table" or type(page.text) ~= "string" or #page.text > 16384 then
+            return nil, "invalid written page"
+        end
+        local number = finite(page.number, nil)
+        if not number or number < 1 or number > 65535 or number % 1 ~= 0 or seen[number] then
+            return nil, "invalid or duplicate written page number"
+        end
+        bytes, seen[number] = bytes + #page.text, true
+        if bytes > 262144 then return nil, "written pages exceed the persistence text limit" end
+        result.pages[key] = { number = number, text = page.text }
+    end
+    if count ~= #source.pages then return nil, "sparse written page list" end
+    if source.lockedBy ~= nil then
+        if type(source.lockedBy) ~= "string" or #source.lockedBy > 256 then
+            return nil, "invalid notebook owner"
+        end
+        result.lockedBy = source.lockedBy
+    end
+    return result
+end
+
+local function captureWriting(item)
+    if method(item, "isEmptyPages") == nil then return nil end
+    local emptyOk, empty = invoke(item, "isEmptyPages")
+    if not emptyOk then return nil, "written page state is unavailable" end
+    if empty == true then return nil end -- Avoid initializing blank native books.
+    local pagesOk, pages = invoke(item, "getCustomPages")
+    local sizeOk, count = invoke(pages, "size")
+    count = sizeOk and finite(count, nil) or nil
+    if not pagesOk or not count or count < 0 or count > 256 or count % 1 ~= 0 then
+        return nil, "written page count is unavailable or exceeds the persistence limit"
+    end
+    if type(transformIntoKahluaTable) == "function" then
+        -- Use the game's exposed HashMap converter; implementation-class
+        -- iterators are not consistently exposed to Lua in Build 42.
+        local converted, values = pcall(transformIntoKahluaTable, pages)
+        if not converted or type(values) ~= "table" then return nil, "written page map is unavailable" end
+        local source = { pages = {} }
+        for number, content in pairs(values) do
+            number = finite(number, nil) or tonumber(tostring(number))
+            source.pages[#source.pages + 1] = { number = number, text = content }
+        end
+        if #source.pages ~= count then return nil, "written page map count changed" end
+        local ownerOk, owner = invoke(item, "getLockedBy")
+        if ownerOk and owner ~= nil then source.lockedBy = owner end
+        return copyWriting(source)
+    end
+    local keysOk, keys = invoke(pages, "keySet")
+    if keysOk and keys and method(keys, "get") == nil then
+        keysOk, keys = pcall(function() return ArrayList.new(keys) end)
+    end
+    if not keysOk or not keys or listSize(keys) ~= count then
+        return nil, "written page numbers are unavailable"
+    end
+    local source = { pages = {} }
+    for index = 0, count - 1 do
+        local number = finite(listGet(keys, index), nil)
+        if not number or number < 1 or number > 65535 or number % 1 ~= 0 then
+            return nil, "invalid native written page number"
+        end
+        local read, content = invoke(item, "seePage", number)
+        if not read or type(content) ~= "string" then return nil, "written page text is unavailable" end
+        source.pages[#source.pages + 1] = { number = number, text = content }
+    end
+    local ownerOk, owner = invoke(item, "getLockedBy")
+    if ownerOk and owner ~= nil then source.lockedBy = owner end
+    return copyWriting(source)
+end
+
 local function captureItemCore(item, context)
     local entry = captureNativeItemFacts(item)
     local ok, value
@@ -800,6 +878,18 @@ local function captureItemCore(item, context)
         if isItemClass(item, "Food") then
             entry.food = captureItemFields(item, foodItemFields)
         end
+    end
+    local writing, writingReason = captureWriting(item)
+    if writingReason then return nil, writingReason end
+    entry.writing = writing
+    local customOk, custom = invoke(item, "isCustomName")
+    if writing or customOk and custom == true then
+        local nameOk, name = invoke(item, "getName")
+        if not nameOk or type(name) ~= "string" or #name > 1024 then
+            return nil, "custom item title is unavailable or exceeds the persistence limit"
+        end
+        entry.customName = name
+        entry.customNameFlag = customOk and custom == true
     end
     local dataOk, modData = invoke(item, "getModData")
     if dataOk and type(modData) == "table" then
@@ -2475,6 +2565,14 @@ local function copyInventoryNode(source, context, depth)
     if id == "" or context.ids[id] then return nil, "duplicate or empty inventory node id" end
     context.ids[id] = true
     local clean = { id = id, type = text(source.type, "", 128) }
+    if source.customName ~= nil then
+        if type(source.customName) ~= "string" or #source.customName > 1024
+            or type(source.customNameFlag) ~= "boolean" then return nil, "invalid custom item title" end
+        clean.customName, clean.customNameFlag = source.customName, source.customNameFlag
+    end
+    local writingReason
+    clean.writing, writingReason = copyWriting(source.writing)
+    if writingReason then return nil, writingReason end
     if context.preserveNativeIds then
         local nativeId = finite(source.nativeId,nil)
         if nativeId == nil or nativeId ~= math.floor(nativeId) or nativeId < -2147483648
@@ -3093,6 +3191,24 @@ local function applyItemState(item, entry, restoredKeys, reservedModData)
     if entry.favorite ~= nil and not invoke(item, "setFavorite", entry.favorite == true) then
         return false, "item favourite state could not be restored"
     end
+    if entry.customName ~= nil then
+        if not invoke(item, "setName", entry.customName) then return false, "custom item title could not be restored" end
+        if entry.customNameFlag and not invoke(item, "setCustomName", true) then
+            return false, "custom item title flag could not be restored"
+        end
+    end
+    if entry.writing ~= nil then
+        local pagesOk, pages = invoke(item, "getCustomPages")
+        if not pagesOk or not pages or not invoke(pages, "clear") then return false, "notebook pages could not be reset" end
+        for _, page in ipairs(entry.writing.pages) do
+            if not invoke(item, "addPage", page.number, page.text) then return false, "written page could not be restored" end
+            local read, actual = invoke(item, "seePage", page.number)
+            if not read or actual ~= page.text then return false, "written page restoration was not retained" end
+        end
+        if entry.writing.lockedBy ~= nil and not invoke(item, "setLockedBy", entry.writing.lockedBy) then
+            return false, "notebook owner could not be restored"
+        end
+    end
     for _, field in ipairs(scalarItemFields) do
         local value, present = nil, false
         if type(entry.scalar) == "table" then
@@ -3174,6 +3290,10 @@ local function applyItemState(item, entry, restoredKeys, reservedModData)
         local marked, reason = SC.PersonalItems.restoreMarker(item, personal, entry.favorite)
         if not marked then return false, "personal inventory marker could not be restored: " .. tostring(reason) end
         restoredKeys[key] = item
+    end
+    if entry.customName ~= nil then
+        local named, actual = invoke(item, "getName")
+        if not named or actual ~= entry.customName then return false, "custom item title restoration was not retained" end
     end
     return true
 end
@@ -3827,6 +3947,11 @@ local function postCommittedRestore(actor, saved)
         end
     end
 end
+
+-- Faction hibernation uses the same native restoration transaction as a save
+-- load. A bare deferred spawn must not be published with only its order back.
+persistence.initializeRestoredActor = initializeRestoredActor
+persistence.finishRestoredActor = postCommittedRestore
 
 function persistence.restoreAt(saved, square)
     if type(saved) ~= "table" or not SC.Registry.isValidId(saved.id) or square == nil then

@@ -1789,31 +1789,35 @@ local handlers = {
 local function inventorySummary(actor)
     local utility = U()
     local counts = { bandages = 0, food = 0, water = 0, ammunition = 0 }
-    for _, item in ipairs(utility.inventoryItems(utility.inventory(actor), 120)) do
+    local seen = {}
+    for _, item in ipairs(utility.inventoryItemsDeep(utility.inventory(actor), 400, 12)) do
         -- Vanilla's inventory pane skips hidden items. Keep the roster count in
         -- step with the inventory the player can actually inspect.
         local hidden, hiddenOk = utility.call(item, "isHidden")
-        if not hiddenOk or hidden ~= true then
+        if not seen[item] and (not hiddenOk or hidden ~= true) then
+            seen[item] = true
             local itemType = string.lower(utility.itemType(item))
             local category, categoryOk = utility.call(item, "getCategory")
             category = categoryOk and string.lower(tostring(category)) or ""
-            local dressing = string.find(itemType, "bandage", 1, true)
-                or string.find(itemType, "rippedsheet", 1, true)
-            local dirty, dirtyOk = utility.call(item, "isDirty")
-            local bloody, bloodyOk = utility.call(item, "isBloody")
-            if dressing and not string.find(itemType, "dirty", 1, true)
-                and not (dirtyOk and dirty == true)
-                and not (bloodyOk and bloody == true) then
+            local dressing = SC.Medical and SC.Medical.dressingRank
+                and SC.Medical.dressingRank(item, false)
+            if dressing and not (SC.PersonalItems and SC.PersonalItems.isProtected(
+                    item, actor, "medical_consume")) then
                 counts.bandages = counts.bandages + 1
             end
-            if category == "food" then counts.food = counts.food + 1 end
-            if string.find(itemType, "water", 1, true) then counts.water = counts.water + 1 end
+            if category == "food" and (not SC.Needs or not SC.Needs.isSafeFoodItem
+                    or SC.Needs.isSafeFoodItem(item)) then counts.food = counts.food + 1 end
+            if SC.Needs and SC.Needs.isSafeWaterItem and SC.Needs.isSafeWaterItem(item) then
+                counts.water = counts.water + 1
+            end
             if string.find(itemType, "ammo", 1, true) or string.find(itemType, "bullet", 1, true)
                 or string.find(itemType, "shell", 1, true) then counts.ammunition = counts.ammunition + 1 end
         end
     end
     return counts
 end
+-- The UI, relationship replies and autonomous requests must agree about bags.
+Commands.carriedSupplies = inventorySummary
 
 local function currentActivity(actor, state)
     if SC.Encounter and type(SC.Encounter.activity) == "function" then

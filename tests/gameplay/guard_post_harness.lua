@@ -507,4 +507,29 @@ sharedPeer.body.health = 100
 personalPost.post.kind = "door"
 check(P.combatView(sharedGuard, f.player, personalPost, sharedView) == sharedView,
     "G37 ordinary doorway and open-ground combat retain their full personal observation")
+
+-- One guard cannot keep promising to hold while its partner is repeatedly
+-- forced out of the same choke. A short personal sidestep is not a new order.
+local withdrawing, wr = fighter("withdraw-post-a", 30, 30)
+local covering, cv = fighter("withdraw-post-b", 31, 30)
+local exit = doorway(30, 29)
+SC.Commands.issue(withdrawing.id,"guard",{target=exit},f.player)
+SC.Commands.issue(covering.id,"guard",{target=exit},f.player)
+local wp, cp = P.forActor(withdrawing,wr), P.forActor(covering,cv)
+local oldPeek = SC.Combat.peek
+local personal = {retreating=true,overrun={overrun=true,cause="immediate_count"}}
+SC.Combat.peek = function(who) if who==withdrawing then return personal end return oldPeek(who) end
+local holding = {mode="engage",capacity=4,forecast=4}
+check(not P.observe(withdrawing,wr,holding,10000), "G39 a short personal withdrawal does not abandon a shared post")
+personal.overrun.overrun = false
+check(not P.observe(withdrawing,wr,holding,13000), "G40 recovery cancels the pending shared withdrawal")
+personal.overrun.overrun = true
+P.observe(withdrawing,wr,holding,14000)
+check(P.observe(withdrawing,wr,holding,17000) and cv.guardPost.withdrawn,
+    "G41 sustained personal withdrawal releases both guards even when the squad still says engage")
+wp.withdrawn, cv.guardPost.withdrawn, wp.disengageSince = false, false, nil
+personal.overrun.cause = "health"
+check(P.observe(withdrawing,wr,holding,18000) and cv.guardPost.withdrawn,
+    "G42 a wounded retreating guard cannot leave its partner holding the abandoned choke")
+SC.Combat.peek = oldPeek
 SC_TEST_REPORT = "GUARD_POST_PASS checks=" .. f.checks()

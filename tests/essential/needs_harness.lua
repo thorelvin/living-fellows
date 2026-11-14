@@ -265,4 +265,83 @@ check(not SC.Needs.refillDue(milkFarmer,f.clock),"an empty receipted milk bucket
 milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]=nil
 SC.Needs.reset(milkFarmer)
 check(SC.Needs.refillDue(milkFarmer,f.clock+60000),"releasing the same vessel restores ordinary hydration eligibility")
+-- A bloody backpack does not soil the clean supplies inside it. The displayed
+-- counts, relationship replies, restocking and treatment must see the same kit.
+do
+    local U = SC.GameplayUtil
+    local bagItems, kitItems = f.inventory({}), f.inventory({})
+    local bag = f.item("Base.Bag_Schoolbag", "Container", { bloodLevel = 100 })
+    function bag:getItemContainer() return bagItems end
+    local kit = f.item("Base.FirstAidKit", "Container")
+    function kit:getInventory() return kitItems end
+    bagItems:AddItem(kit)
+    for _ = 1, 5 do kitItems:AddItem(f.item("Base.Bandage", "Medical")) end
+    local peach = f.item("Base.Peach", "Food", { hungerChange = -0.2 })
+    local bottle = f.item("Base.WaterBottle", "Drainable", { fluidContainer = {
+        isEmpty = function() return false end, getAmount = function() return 0.5 end,
+        getCapacity = function() return 0.5 end, isPoisonous = function() return false end,
+        isTainted = function() return false end, isWaterOnlySource = function() return true end,
+    } })
+    bagItems:AddItem(peach); bagItems:AddItem(bottle)
+    local carrier = f.actor("essential-backpack-supplies", 2, 2, { inventory = f.inventory({ bag }) })
+    f.registry[carrier.id] = carrier
+    local counts = SC.Commands.describe(carrier.id, player).supplies
+    check(counts.bandages == 5 and counts.food == 1 and counts.water == 1,
+        "Loadout counts five clean bandages, food and water inside a backpack and first-aid kit")
+    local view = SC.Commands.describe(carrier.id, player)
+    check(view.currentNeed ~= "bandages", "a stocked backpack does not produce a false bandage request")
+    local commandState = SC.Commands.peek(carrier)
+    local mind = SC.Community.mindFor(carrier, commandState)
+    mind.boredom, mind.lastSupplyRequestAt, mind.pendingRequest = 60, -1000000000, nil
+    local lastRun, joy, ritual = SC.Community.lastSupplyRunAt, SC.Community.joyReady, SC.Quirks.ritualIntent
+    SC.Community.lastSupplyRunAt = function() return SC.LifeEvents.now() end
+    SC.Community.joyReady = function() return false end
+    SC.Quirks.ritualIntent = function() return nil end
+    local stocked = SC.Autonomy.intentFor(carrier, nil, quiet, commandState, {})
+    carrier.inventory:Remove(bag)
+    local missing = SC.Autonomy.intentFor(carrier, nil, quiet, commandState, {})
+    carrier.inventory:AddItem(bag)
+    SC.Community.lastSupplyRunAt, SC.Community.joyReady, SC.Quirks.ritualIntent = lastRun, joy, ritual
+    check((not stocked or stocked.purpose ~= "supply_request") and missing and missing.purpose == "supply_request",
+        "a real supply request starts only after the stocked backpack is removed")
+    local candidate, source = SC.Medical._findBandageForTests(carrier, false)
+    check(candidate and source == kitItems, "treatment resolves the exact dressing's inner container")
+    local canTake, why = SC.Logistics.canTake(carrier, f.item("Base.Bandage", "Medical"), "medicine")
+    check(not canTake and why == "loadout_satisfied", "five carried bandages already satisfy ordinary restocking")
+    local dressing = f.item("Example.GauzeDressing", "Item")
+    function dressing:isCanBandage() return true end
+    local manual = f.item("Example.SterileBandageManual", "Literature")
+    function manual:isCanBandage() return false end
+    local dirty = f.item("Base.BandageDirty", "Medical")
+    kitItems:AddItem(dressing); kitItems:AddItem(manual); kitItems:AddItem(dirty)
+    check(SC.Medical.dressingRank(dressing, false) and SC.Logistics.itemCategory(dressing) == "medicine"
+            and not SC.Medical.dressingRank(manual, false)
+            and not SC.Medical.dressingRank(dirty, false) and SC.Medical.dressingRank(dirty, true)
+            and SC.Commands.carriedSupplies(carrier).bandages == 6,
+        "native dressing eligibility covers modded gauze and excludes dirty dressings and misleading names")
+    local bloody = f.item("Base.Bandage", "Medical")
+    function bloody:isDirty() return false end
+    function bloody:isBloody() return true end
+    check(not SC.Medical.dressingRank(bloody, false) and SC.Medical.dressingRank(bloody, true) == 6,
+        "blood-soiled dressings stay emergency-only even when isDirty returns false")
+    -- Shared and cyclic container references must not duplicate supplies.
+    local cycle = f.item("Example.CyclicBag", "Container")
+    function cycle:getItemContainer() return carrier.inventory end
+    kitItems:AddItem(cycle)
+    check(SC.Commands.carriedSupplies(carrier).bandages == 6,
+        "bounded nested discovery does not revisit the root through a cyclic bag")
+    local protected = SC.PersonalItems.isProtected
+    SC.PersonalItems.isProtected = function(item, ...)
+        return item == bag or protected(item, ...)
+    end
+    candidate, source = SC.Medical._findBandageForTests(carrier, false)
+    SC.PersonalItems.isProtected = protected
+    check(candidate and source == kitItems, "a protected bag does not hide its usable dressings")
+    local injury = f.bodyPart({ name = "ForeArm_R", isBleeding = true })
+    carrier.body = f.bodyDamage(80, { injury })
+    local before = #kitItems.items
+    check(SC.Medical.applyPlayerBandage(carrier, carrier) and injury.isBandaged and not injury.isBleeding
+            and #kitItems.items == before - 1 and SC.Commands.carriedSupplies(carrier).bandages == 5,
+        "real treatment consumes exactly one nested dressing and the displayed count updates immediately")
+end
 print("BEHAVIOUR_NEEDS_PASS checks=" .. tostring(f.checks()))

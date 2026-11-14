@@ -103,3 +103,62 @@ Fingerprints
     f1561b82fcec34eac9dbe7a11ceb3ad1a1010acd46b0698a57fa7a6e20ba6b4a
   Packaged bridge:
     b8f25edab78f9a95fd7c0643dc4e3e2575e5068fc9afcac53b854473758db7e3
+
+Hardening follow-up, 2026-11-14
+  The fingerprints above describe the preceding acceptance slice. This follow-up
+  changes Lua only; the native bridge and ordinary damage rules are unchanged.
+
+  Retreat execution now respects other companions' booked destinations even
+  when using a remembered route or the direct native movement fallback. A
+  positive path reply must produce physical movement. After 650 ms without
+  movement, the failed destination is avoided for 1.2 seconds and the companion
+  can defend against its nearest usable contact. A replacement route receives
+  its own progress interval. Native action ownership remains authoritative.
+
+  A boxed-in companion with no observed exit attempts a checked native strike
+  immediately, rather than first making a blind escape step into the crowd.
+  Already-moving retreats continue. Native swings finish before reassessment.
+  Persistent personal withdrawal also releases both guards' shared post, even
+  when numerical squad capacity still says engage. Brief footwork can recover
+  without changing their orders; wounded or encircled withdrawal releases early.
+
+  Automated: four focused groups passed (withdrawal, coordination, squad and
+  guard post). Added cases extend the existing harnesses. Negative controls
+  reproduced the destination collision, stationary pending path, shared-post
+  withdrawal, replacement interval and immediate boxed-in defence failures.
+  Full five-check gate: PASS, 108.1 seconds, serial/256 MB/two processors.
+  Evidence: build/test-results/20261114-100724-8f22e0 and
+    build/stair-hardening-full-gate.log.
+
+  Live: real house staircase, foot 5810,5234,0 to landing 5810,5230,1,
+  Project Zomboid 42.22.2, LF alone, isolated source bridge, disposable save.
+  Two healthy crowbar-equipped companions followed up in 2.57 seconds and down
+  in 3.80 seconds, with observed fractional native stair heights in both trips.
+  Fresh combat pairs were spawned on their actual floor, not teleported between
+  floors. The ghost observer did not fight. No crew immunity or mid-fight healing.
+
+  Final run SC-Harness-20261114-100407-ac18e950: three two-versus-four fights.
+    Trial 1: 4 kills, 2 survivors at 100%, zero bites/slope samples, 24.440 s.
+      Native shove/reset movement observed; maximum displacement 2.05 m.
+    Trial 2: 4 kills, 2 survivors at 100%, zero bites/slope samples, 23.002 s.
+    Trial 3: 4 kills, 2 survivors at 100%, zero bites/slope samples, 21.132 s.
+  All twelve deaths have exact native spawn-lifetime receipts. Attackers began
+  on the bottom stair, using native pursuit; the probe now preserves native
+  switches between living defenders rather than overwriting them every second.
+  No gameplay exceptions; known startup map/script diagnostics remain in logs.
+
+  Limits and retained failures: baseline 091253-6b9f4387 lost one guard at
+  71.9 seconds with five bites. Intermediate 095712-88e1d1bd issued Retreat to
+  both guards but still lost one; the immediate boxed-in defence change follows
+  that failure. Those runs are not counted as acceptance passes. The final three
+  fights establish holding here, not successful coordinated escape in all rooms.
+  Native zombie pursuit also stalled underneath the landing in 094309-ceb58847
+  and the separate clear-hall approach run 095028-1a1ce0cb. Arbitrary downstairs
+  approach remains unresolved; this evidence does not assign that fault to the
+  base game or claim it fixed. Broader doorway/layout coverage remains open.
+
+  Zoomed-out success and blocker screenshots, raw final console and results:
+    C:/ZOMBOID/outputs/house-stairs-20261114/hardened/
+  Current Lua fingerprints:
+    SCCombat.lua eafd22f91bd53063440a6ee50ca7ddbdc385e6996c988e67cdadf07f684e523b
+    SCGuardPost.lua fbc023245bc4f193baff96cf9d691faac799ac650568f927a4a7e80d63444fb3
