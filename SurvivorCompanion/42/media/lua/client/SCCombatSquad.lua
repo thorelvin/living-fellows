@@ -181,6 +181,26 @@ local function collectThreats(views, members, player, z)
             end
         end
     end
+    -- A climbing zombie is forecast evidence, not a same-floor combat target.
+    local current = U().nowMs()
+    for _, snapshot in ipairs(views) do
+        for index, entry in ipairs(snapshot.stairIncoming or {}) do
+            if index > 24 then break end
+            local facts = SC.ZombieFacts.get(entry.actor)
+            local column = entry.column
+            if not seen[entry.actor] and entry.stairIncoming == true and column
+                and column.z == math.floor(z) and current - (entry.observedAt or 0) <= 500
+                and SC.StairCombat and SC.StairCombat.onColumn(facts, column) then
+                local d2 = nearestMemberSq(members, facts.x, facts.y)
+                if d2 <= 12 * 12 then
+                    seen[entry.actor] = true
+                    threats[#threats + 1] = { actor = entry.actor, x = facts.x, y = facts.y,
+                        distanceSq = d2, priority = -10, stairIncoming = true, incoming = true,
+                        arrivingMs = entry.arrivingMs }
+                end
+            end
+        end
+    end
     table.sort(threats, function(a, b)
         if a.priority == b.priority then return a.distanceSq < b.distanceSq end
         return a.priority > b.priority
@@ -190,6 +210,7 @@ local function collectThreats(views, members, player, z)
 end
 
 local function reaches(member, threat)
+    if threat.stairIncoming then return false end
     return distanceSq(member.x, member.y, threat.x, threat.y) <= 6 * 6
 end
 
@@ -313,7 +334,9 @@ local function build(actor, snapshot, cohort, now, x, y, z, player, previous)
         capacity = capacity + member.holds
     end
     for _, threat in ipairs(threats) do
-        if threat.distanceSq <= 4.5 * 4.5
+        if threat.stairIncoming then
+            incoming, forecast = incoming + 1, forecast + Squad.arrivalWeight(threat.arrivingMs)
+        elseif threat.distanceSq <= 4.5 * 4.5
             and (not threat.crawler or threat.distanceSq <= 2 * 2) then
             active, forecast = active + 1, forecast + 1
         else

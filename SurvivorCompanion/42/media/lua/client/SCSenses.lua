@@ -11,6 +11,7 @@ if not SC.CombatThreatModel and type(require) == "function" then
 end
 if not SC.PerceptionScan and type(require) == "function" then pcall(require, "SCPerceptionScan") end
 if not SC.ZombieFacts and type(require) == "function" then pcall(require, "SCZombieFacts") end
+if not SC.StairCombat and type(require) == "function" then pcall(require, "SCStairCombat") end
 
 SC.Senses = SC.Senses or {}
 local Senses = SC.Senses
@@ -1160,7 +1161,7 @@ function Senses.isCompleteObservation(snapshot, maximumAgeMs)
     if type(snapshot) ~= "table" or snapshot.valid ~= true then
         return false, "danger_check_unavailable"
     end
-    if (tonumber(snapshot.threatCount) or 0) > 0 then
+    if (tonumber(snapshot.threatCount) or 0) > 0 or #(snapshot.stairIncoming or {}) > 0 then
         return false, "danger_nearby"
     end
     if snapshot.scanComplete ~= true or snapshot.scanDiscoveryComplete ~= true
@@ -1391,6 +1392,7 @@ function Senses.snapshot(actor, player, runtime)
         visualChecks = threatMeta.visualChecks or 0,
         visualDeferred = threatMeta.visualDeferred or 0,
         threats = threats,
+        stairIncoming = SC.StairCombat and SC.StairCombat.incoming(actor, state, now) or {},
         stealthThreats = stealthThreats,
         groundedThreats = groundedThreats,
         immediateAttackers = immediate,
@@ -1666,6 +1668,7 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.reflexVisualChecks = visualChecks
     snapshot.reflexVisualDeferred = visualDeferred
     snapshot.threats = threats
+    snapshot.stairIncoming = SC.StairCombat and SC.StairCombat.incoming(actor, state, now) or {}
     snapshot.stealthThreats = stealthThreats
     snapshot.groundedThreats = groundedThreats
     snapshot.immediateAttackers = immediate

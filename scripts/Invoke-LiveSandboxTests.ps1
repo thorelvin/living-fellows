@@ -246,7 +246,7 @@ param(
     [switch]$SquadCombatProbe,
     # Stair combat facts: one companion and one zombie at opposite ends of a real staircase.
     [switch]$StairCombatProbe,
-    [ValidateSet('measurement', 'guard')][string]$StairCombatMode = 'measurement',
+    [ValidateSet('measurement', 'guard', 'stairs', 'recovery')][string]$StairCombatMode = 'measurement',
     [ValidateRange(1, 5)][int]$StairCombatTrials = 3,
     [switch]$FollowerBoardingProbe,
     [switch]$NeedsPriorityProbe,

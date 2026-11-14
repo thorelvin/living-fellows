@@ -8,6 +8,14 @@ local directions = { { 0, -1 }, { -1, 0 }, { 0, 1 }, { 1, 0 } }
 local slots = { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, -1 }, { 2, 1 },
     { 3, 0 }, { 3, -1 }, { 3, 1 }, { 4, 0 }, { 4, -1 }, { 4, 1 },
     { 2, -2 }, { 2, 2 }, { 3, -2 }, { 3, 2 }, { 4, -2 }, { 4, 2 } }
+-- A rear defender in a one-wide file cannot strike past the first guard.
+-- Use a checked shoulder behind the landing when the room permits it.
+local stairSlots = { { 0, 0 }, { 1, -1 }, { 1, 1 }, { 1, 0 }, { 2, 0 },
+    { 2, -1 }, { 2, 1 }, { 3, 0 }, { 3, -1 }, { 3, 1 } }
+local wideStairSlots = { { 0, -1 }, { 0, 1 }, { 1, 0 }, { 2, 0 },
+    { 2, -1 }, { 2, 1 }, { 3, 0 }, { 3, -1 }, { 3, 1 } }
+local setbackSlots = { { 1, 0 }, { 2, 0 }, { 1, -1 }, { 1, 1 }, { 3, 0 },
+    { 2, -1 }, { 2, 1 }, { 3, -1 }, { 3, 1 } }
 local function U() return SC.GameplayUtil end
 
 function Post.copySide(side)
@@ -114,6 +122,7 @@ function Post.forActor(actor, runtime, commands, now)
     runtime = runtime or U().actorState(actor)
     now = now or U().nowMs()
     local old = runtime.guardPost
+    if old and old.insetUntil and now >= old.insetUntil then old.inset, old.insetUntil, old.refreshAt = nil, nil, 0 end
     local serial = tonumber(data.SC_CommandSerial) or 0
     local revision = SC.Registry.version and SC.Registry.version() or 0
     if old and old.serial == serial and old.revision == revision and now < old.refreshAt then return old end
@@ -139,12 +148,26 @@ function Post.forActor(actor, runtime, commands, now)
         end
     end
     table.sort(members, function(a, b) return tostring(U().idOf(a)) < tostring(U().idOf(b)) end)
+    local wide = post.kind == "stairs" and #members >= 2 and slotSquare(actor, post, { 0, -1 })
+        and slotSquare(actor, post, { 0, 1 })
+    if wide then
+        for rank = 1, 2 do
+            local weapon = select(1, U().call(members[rank], "getPrimaryHandItem"))
+            local _, reach = SC.Combat.meleeRange(members[rank], weapon)
+            local condition = select(1, U().call(weapon, "getCondition"))
+            if not weapon or select(1, U().call(weapon, "isRanged")) == true
+                or (tonumber(condition) or 0) <= 0
+                or (tonumber(reach) or 0) < 1.2 then wide = false; break end
+        end
+    end
     local cursor = 1
     for rank, peer in ipairs(members) do
         local square
         repeat
-            if not slots[cursor] then break end
-            square = slotSquare(peer, post, slots[cursor]); cursor = cursor + 1
+            local candidates = state.inset and setbackSlots or wide and wideStairSlots
+                or post.kind == "stairs" and stairSlots or slots
+            if not candidates[cursor] then break end
+            square = slotSquare(peer, post, candidates[cursor]); cursor = cursor + 1
         until square
         if peer == actor then
             state.rank = rank
@@ -159,11 +182,158 @@ function Post.forActor(actor, runtime, commands, now)
     return state
 end
 
-function Post.atPosition(actor, state)
+-- A climber only becomes attackable near the landing lip. Leave weapon room
+-- on that same square, away from the slope, instead of crowding the last step.
+function Post.point(state)
     local p = state and state.position
+    if not p then return nil end
+    local inset = state.post and state.post.kind == "stairs" and state.rank == 1 and p.x == state.post.x and p.y == state.post.y
+        and not state.inset and 0.35 or 0
+    return { x = p.x + 0.5 + (state.post and state.post.dx or 0) * inset,
+        y = p.y + 0.5 + (state.post and state.post.dy or 0) * inset, z = p.z }
+end
+
+function Post.atPosition(actor, state)
+    local p = Post.point(state)
     local x, y, z = U().position(actor)
     return p and x ~= nil and math.floor(z or 0) == p.z
-        and (x - p.x - 0.5)^2 + (y - p.y - 0.5)^2 <= (U().config("guardChokeHoldRadius") or 0.7)^2
+        and (x - p.x)^2 + (y - p.y)^2 <= (state.inset and 0.3 or state.post.kind == "stairs" and math.min(0.3, U().config("guardChokeHoldRadius") or 0.7) or U().config("guardChokeHoldRadius") or 0.7)^2
+end
+
+-- A failed stair exchange temporarily opens the landing for the climber.
+-- Shift the whole line so the second guard does not occupy the first's retreat.
+function Post.stairSetback(actor, post)
+    for _, offset in ipairs(setbackSlots) do
+        local square = slotSquare(actor, post, offset)
+        if square then return square end
+    end
+end
+
+function Post.stairInset(actor, runtime, depth, now)
+    local own = Post.forActor(actor, runtime, nil, now)
+    if not own or own.post.kind ~= "stairs" then return false end
+    local changed, fits = {}, true
+    for _, record in ipairs(SC.Registry.records()) do
+        if record.actor and matches(record.actor, own.post) then
+            record.runtime = record.runtime or {}
+            local state = Post.forActor(record.actor, record.runtime, nil, now)
+            changed[#changed + 1] = { actor = record.actor, runtime = record.runtime,
+                inset = state.inset, untilAt = state.insetUntil }
+            state.inset, state.insetUntil, state.refreshAt = depth, now + 15000, 0
+            if not Post.forActor(record.actor, record.runtime, nil, now).position then fits = false end
+        end
+    end
+    if not fits then
+        for _, old in ipairs(changed) do
+            local state = old.runtime.guardPost
+            state.inset, state.insetUntil, state.refreshAt = old.inset, old.untilAt, 0
+            Post.forActor(old.actor, old.runtime, nil, now)
+        end
+    end
+    return fits
+end
+
+-- A covered stair entrance differs from an open indoor fight only while all
+-- standing contacts remain on its approach side.
+-- Keep the complete physical observation for routes, strikes and squad forecasts.
+-- A zombie committed to another fit guard is not also this guard's personal
+-- attacker until it reaches body contact. Reconsider on every combat update.
+function Post.combatView(actor, player, state, snapshot)
+    if not state or state.withdrawn or state.post.kind ~= "stairs" or not state.position
+        or not SC.CombatThreatModel or not Post.atPosition(actor, state) then return snapshot end
+    local ax, ay, az = U().position(actor)
+    local peers, peerCount = {}, 0
+    for index, ally in ipairs(snapshot.allies or {}) do
+        if index > 16 then break end
+        local peer = ally.actor
+        if peer and peer ~= actor and peer ~= player and U().isCompanion(peer)
+            and U().isValidActor(peer) and U().nativeHealth(peer) >= 85
+            and U().sameFloor(actor, peer) and matches(peer, state.post)
+            and U().distance(actor, peer) <= 3 then peers[peer], peerCount = true, peerCount + 1 end
+    end
+    if peerCount == 0 then return snapshot end
+    local personal, shared, sharedCount = {}, {}, 0
+    for index, threat in ipairs(snapshot.threats or {}) do
+        -- Never reduce pressure on incomplete or unexpectedly large observations.
+        if index > 32 then return snapshot end
+        local facts = SC.ZombieFacts.get(threat.actor)
+        if facts.zombie and not facts.gone and peers[facts.target]
+            and (facts.x - ax)^2 + (facts.y - ay)^2 > 0.9^2
+            and U().distance(facts.target, threat.actor) < U().distance(actor, threat.actor) then
+            shared[threat.actor], sharedCount = true, sharedCount + 1
+        else personal[#personal + 1] = threat end
+    end
+    if sharedCount == 0 then return snapshot end
+    local reachable = SC.CombatThreatModel.reachable(personal, ax, ay, az)
+        or { immediate = 0, close = 0, occupied = 0 }
+    local view = {}
+    for key, value in pairs(snapshot) do view[key] = value end
+    view.stairSharedThreats = shared
+    view.reachableImmediateCount, view.immediateCount, view.closeImmediateCount =
+        reachable.immediate, reachable.immediate, reachable.immediate
+    view.reachableCloseCount, view.closeThreatCount = reachable.close, reachable.close
+    view.reachableThreatSectors, view.occupiedThreatSectors = reachable.occupied, reachable.occupied
+    view.localPressure = SC.CombatThreatModel.localPressure(reachable.immediate, reachable.close, reachable.immediate)
+    view.directionalPressure = reachable.immediate * 1.8
+        + math.max(0, reachable.close - reachable.immediate) * 0.55
+        + math.max(0, reachable.occupied - 1) * 0.6
+    -- Keep encirclement, the complete threat list and the already-built squad
+    -- plan: sharing a contact never makes its physical position disappear.
+    return view
+end
+
+function Post.coveredStair(actor, state, snapshot)
+    if not state or state.withdrawn or state.post.kind ~= "stairs" or not state.position then return false end
+    local ax, ay, az = U().position(actor)
+    local p = state.position
+    if not ax or math.floor(az or 0) ~= p.z
+        or (ax - p.x - 0.5)^2 + (ay - p.y - 0.5)^2 > (U().config("guardChokeHoldRadius") or 0.7)^2 then return false end
+    local count = 0
+    for index, threat in ipairs(snapshot.threats or {}) do
+        if index > 32 then return false end
+        local facts = SC.ZombieFacts.get(threat.actor)
+        if facts.zombie and not facts.gone and (facts.posture ~= "downed" or facts.gettingUp)
+            and math.floor(facts.z) == math.floor(az) and threat.obstructed ~= true
+            and (facts.x - ax)^2 + (facts.y - ay)^2 <= (U().config("combatCloseThreatRadius") or 4.5)^2 then
+            -- The protected half of the landing must still be clear.
+            if (facts.x - ax) * state.post.dx + (facts.y - ay) * state.post.dy > 0.1 then return false end
+            if not (snapshot.stairSharedThreats and snapshot.stairSharedThreats[threat.actor]) then
+                count = count + 1
+            end
+        end
+    end
+    return count > 0 and count <= 2
+end
+
+-- Fixed posts still need a little footwork when a zombie crowds the weapon.
+-- Keep the endpoint inside the existing hold radius, with no chase or slope.
+function Post.combatStep(actor, state, snapshot, target, action)
+    local p = state.position
+    local ax, ay, az = U().position(actor)
+    if not p or not ax or math.floor(az or 0) ~= p.z or not U().sameFloor(actor, target.actor) then return nil end
+    local radius = math.max(0.1, (state.inset and 0.3 or U().config("guardChokeHoldRadius") or 0.7) - 0.05)
+    local cx, cy = p.x + 0.5, p.y + 0.5
+    if (ax - cx)^2 + (ay - cy)^2 > (radius + 0.1)^2 then return nil end
+    local dx, dy = action.moveX, action.moveY
+    if not dx then dx, dy = SC.Navigation.combatVector(actor, target.actor, action.kind, snapshot) end
+    if not dx or not dy then return nil end
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.001 then return nil end
+    local x, y = ax + dx / length * 0.45, ay + dy / length * 0.45
+    local offset = math.sqrt((x - cx)^2 + (y - cy)^2)
+    if offset > radius then x, y = cx + (x - cx) / offset * radius, cy + (y - cy) / offset * radius end
+    if (x - ax)^2 + (y - ay)^2 < 0.08^2
+        or SC.Combat.atStairs({ x = x, y = y, z = p.z }) then return nil end
+    local square = U().gridSquare(math.floor(x), math.floor(y), p.z)
+    if not usable(square) or not SC.Navigation.openSegment(actor, x, y, p.z)
+        or not SC.CombatSquad.safePosition(actor, target.actor, x, y, p.z, snapshot, U().nowMs()) then return nil end
+    local accepted, reason = U().move(actor, "walk", { action = action.kind == "kite" and "lateral_kite"
+        or action.kind == "approach" and "combat_approach" or "backstep",
+        target = target.actor, awayFrom = target.actor, dx = x - ax, dy = y - ay,
+        keepFacing = true, weaponReady = true, microSteered = true,
+        movementTarget = true, targetPosition = { x = x, y = y, z = p.z },
+        movementArrivalTolerance = 0.08, movementTargetTtlMs = 400 })
+    return accepted, accepted and "guard_combat_step" or reason
 end
 
 function Post.move(actor, state, snapshot)
@@ -172,12 +342,23 @@ function Post.move(actor, state, snapshot)
     if Post.atPosition(actor, state) then
         if not U().stop(actor) then return false, "tactical_stop_rejected" end
         local post = state.post
-        local faced = U().move(actor, "walk", { action = "face_alert", stableFacing = true,
-            targetPosition = { x = p.x + 0.5 - post.dx * 2, y = p.y + 0.5 - post.dy * 2, z = p.z } })
+        local warned = #(snapshot.stairIncoming or {}) > 0
+        local faced = U().move(actor, "walk", { action = warned and "ready_weapon" or "face_alert", stableFacing = true,
+            targetPosition = { x = post.x + 0.5 - post.dx * 2, y = post.y + 0.5 - post.dy * 2, z = p.z } })
         return faced == true, "guard_choke_holding"
     end
+    local point = Post.point(state)
+    if state.post.kind == "stairs" and state.rank == 1 and not state.inset
+        and U().distance(actor, point) <= 1.25
+        and SC.Navigation.openSegment(actor, point.x, point.y, point.z) then
+        local accepted, why = U().move(actor, "walk", { action = "return_to_guard",
+            targetPosition = point, movementTarget = true, movementArrivalTolerance = 0.08,
+            dx = point.x - select(1, U().position(actor)), dy = point.y - select(2, U().position(actor)),
+            movementTargetTtlMs = 750 })
+        return accepted, accepted and "guard_landing_align" or why
+    end
     return SC.Navigation.request(actor, U().gridSquare(p.x, p.y, p.z), "walk", {
-        action = "return_to_guard", snapshot = snapshot, arrivalDistance = 0.65, requireSameSquare = true,
+        action = "return_to_guard", snapshot = snapshot, arrivalDistance = state.post.kind == "stairs" and 0.25 or 0.65, requireSameSquare = true,
     })
 end
 
@@ -186,7 +367,8 @@ function Post.observe(actor, runtime, plan, now)
     if not state then return false end
     if plan and plan.mode == "disengage" then
         state.disengageSince = state.disengageSince or now
-        if now - state.disengageSince >= (U().config("guardChokeDisengageMs") or 2500) then
+        local overwhelming = (tonumber(plan.forecast) or 0) >= (tonumber(plan.capacity) or math.huge) + 4
+        if overwhelming or now - state.disengageSince >= (U().config("guardChokeDisengageMs") or 2500) then
             state.withdrawn = true
             for _, record in ipairs(SC.Registry.records()) do
                 if record.actor and matches(record.actor, state.post) then

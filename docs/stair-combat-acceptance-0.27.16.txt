@@ -1,0 +1,105 @@
+Stair combat acceptance - 0.27.16
+================================
+Date: 2026-11-14
+Base: 17948ada7f05f01a2fc410dfd262596eee850ba3 (0.27.15)
+Game: Project Zomboid 42.22.2, single-player, Living Fellows only.
+Protocol 42.22-isocompanion-31 and save schemas are unchanged.
+The rebuilt bridge has matching release metadata; Java production code did not change.
+
+Scope and result
+  Early warnings, armed stair posts and a checked landing reset are verified.
+  This is not acceptance of the later coordinated-withdrawal or automatic
+  safe-ground milestones. The broader doorway test remains unsuccessful below.
+
+Automated verification
+  Windows PowerShell 5.1, serial JVMs, 256 MB/two-processor test limits.
+  scripts/Test-Project.ps1: PROJECT_TEST_PASS checks=5, 107.6 seconds.
+  Evidence: build/test-results/20261114-051716-5a6eba.
+  Test-Source -Scope All: PASS. Live harness static checks: PASS, 152 assertions.
+  Guard-post harness: 62 checks, including 50 added in this slice.
+  All 50 new unit checks have intended-failure negative controls. There were
+  55 control executions under 53 labels, including two static wiring controls
+  and the additional arrival-radius variant. Every control exited 1 at its
+  intended assertion; original bytes were restored and SHA256-verified.
+  The tests extend the existing harness and probe; no new test framework.
+
+  The first full gate failed the packaged-agent identity assertion through a
+  temporary drive alias. Lifecycle passed from the real checkout. The compiler
+  now uses Java argument files for its 334 Lua paths, avoiding Windows' command
+  length limit without that alias. Native identity assertions were not weakened.
+
+Live stair holding
+  Disposable save clones; one game at a time. Guards carried real crowbars,
+  with full starting endurance and zero fatigue. No mid-fight healing, crew
+  immunity, fabricated damage or combat teleporting. The observer was ghosted.
+  Attackers started on the real bottom stair piece and used native pursuit.
+  This does not establish reliable approach from arbitrary rooms below stairs.
+
+  SC-Harness-20261114-045222-be361095, three two-guard/three-zombie trials:
+    6/6 guards survived; 9/9 confirmed zombie deaths; minimum health 100%;
+    zero bites and zero guard slope samples. First warning at zombie heights
+    0.07, 0.19 and 0.10, before reaching the upper floor.
+    Maximum displacement from assigned positions: 0.46, 0.62 and 0.34 metres.
+  That run precedes the weapon-reach formation condition and plain-Stay arrival
+  correction. Neither changes its equipped-crowbar behavior.
+
+  SC-Harness-20261114-050909-72998ea3, final-production stair case:
+    2/2 survived; 3/3 confirmed deaths; minimum health 100%; no bites or slope
+    samples; early warning at height 0.22. A native shove reset was observed
+    during 137 samples. Maximum displacement, including that reset: 2.36 m.
+    The broader run subsequently failed its doorway setup; it is not an
+    overall live acceptance pass.
+
+Native shove/reset observation
+  SC-Harness-20261114-050714-c3f95f9b: unarmed front defender with an armed
+  rear guard, against one native zombie. Two real, non-damaging landed shove
+  receipts triggered the reset. Both guards reached the checked new positions
+  and remained there for the observation interval. 2/2 alive, minimum health
+  100%, no bites, no slope samples, 19 active reset samples.
+  This focused scenario ends after the movement proof, not after a kill.
+
+Ordinary squad comparison
+  SC-Harness-20261114-033800-84e147cb, after the shared rear-melee fix:
+    Three trials of 3v2: 9/9 survivors, 6/6 kills, minimum health 100%.
+    Three trials of 3v6: 9/9 survivors, 18/18 kills. Lowest health 93.7%;
+      two wounds and 6.27 total health lost, all in the third trial.
+  Subsequent production changes apply to stair warnings, stair resets and
+  explicit guard posts; this open-ground Stay arena was not rerun after them.
+
+Failures, corrected measurements and limits
+  Native zombie shells are pooled. Early raw-reference kill counts were
+  unreliable and are excluded. The probe now uses exact spawn-lifetime tokens
+  and scoped native death receipts. With that corrected probe, unmodified
+  0.27.15 run 023756-e6c55576 had two survivors but no attack receipts or kills.
+
+  Earlier crowded-landing iterations sometimes lost a guard. Retained evidence
+  includes 043411-d75f940b, before personal pressure distinguished another
+  guard's committed attacker. Those failures are not acceptance passes.
+  Two entirely unarmed guards often withdrew before a reset could be exercised.
+  Prolonged runs 045505-556c0d08, 045926-935343ee and 050349-fe34dbff took
+  substantial damage and killed nothing. Run 045926 did show a native reset,
+  but was not a successful fight or coordinated retreat.
+
+  Final run 050909-72998ea3 had a poor two-guard/three-zombie doorway result:
+  no kills, four bites, minimum health 17.41%, displacement 8.01 metres.
+  Its old survival-only predicate printed PASS; this is explicitly rejected
+  as a clean doorway pass. The probe now requires kills in ordinary holding
+  cases. The following overwhelmed-door case failed during guard positioning,
+  before its attackers spawned, so it supplies no withdrawal acceptance.
+  Doorway holding and coordinated unarmed withdrawal need further work.
+
+  Live coverage is one real north-facing upstairs staircase, fit crew, and
+  ordinary native zombies. Other layouts, orientations, injuries, larger
+  groups and other NPC mods are not claimed as completed live coverage.
+  Zoomed-out screenshots, including blocked/stalled cases, and logs remain
+  locally available. Duplicate test payloads can be removed independently.
+
+Fingerprints
+  Negative-control report:
+    04d400d6af53e2aadb48427444856f0968328ee6b34218c046eb8a236d789fb5
+  SCStairCombat.lua:
+    acb0aae028b0f20824731caadb671cd14f4111c52a9bec44f74ab1b180e53022
+  SCGuardPost.lua:
+    f1561b82fcec34eac9dbe7a11ceb3ad1a1010acd46b0698a57fa7a6e20ba6b4a
+  Packaged bridge:
+    b8f25edab78f9a95fd7c0643dc4e3e2575e5068fc9afcac53b854473758db7e3

@@ -874,8 +874,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             local outside = anchor and U().distance(actor, anchor) > allowed
             local patrolDue = commands.order == "guard" and not post and (
                 state.guardPatrolTarget ~= nil or current >= (state.guardPatrolDue or 0))
-            if post or outside or patrolDue then add("tactical", 56, false) end
-            if not post and not bleeding and not commands.expeditionMoving then
+            local combat = SC.Combat and SC.Combat.peek and SC.Combat.peek(actor)
+            local stairReset = combat and combat.stairShoves and combat.stairShoves.count >= 2
+                and current - (combat.stairShoves.at or 0) <= 20000
+                or state.stairReset
+            if post or stairReset or #(snapshot.stairIncoming or {}) > 0 or outside or patrolDue then add("tactical", 56, false) end
+            if not post and not bleeding and not commands.expeditionMoving
+                and #(snapshot.stairIncoming or {}) == 0 then
                 add("downtime", 30, false)
             end
         elseif commands.order == "move_to" or commands.order == "check_room"
@@ -1953,6 +1958,10 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         return doWork(actor, player, commands, snapshot, state)
     end
     if commands.order == "stay" or commands.order == "guard" then
+        if SC.StairCombat then
+            local held, why = SC.StairCombat.hold(actor, rootRuntime, snapshot, utility.nowMs())
+            if held ~= nil then return held, why end
+        end
         local post = SC.GuardPost and SC.GuardPost.forActor(actor, rootRuntime, commands, utility.nowMs())
         if post then
             state.guardPatrolTarget = nil
@@ -3524,6 +3533,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         utility.safeSubsystem("base-alert-observe", actor, SC.BaseAlert.observe,
             actor, player, snapshot, commands, current)
     end
+    if SC.Combat and SC.Combat.forecastStairs then SC.Combat.forecastStairs(actor, player, snapshot) end
+    state.stairReset = rootRuntime.stairCombat and rootRuntime.stairCombat.recovery
+        and current < rootRuntime.stairCombat.recovery.expires or false
     local assessment = medicalAssessment(actor, rootRuntime, 100)
     local needs
     if SC.Needs and type(SC.Needs.assess) == "function" then

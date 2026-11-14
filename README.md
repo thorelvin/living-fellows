@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.15-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.16-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -76,7 +76,7 @@ Mount a walkie-talkie on a powered camp computer and assign a **Survivor radio w
 - **Understand their trust.** Named stages and recent changes show where you stand. Offer food, water or medical help without barter. Helping a real need builds trust.
 - **Give them a home.** Assign jobs, grow food, build, maintain vehicles and bury the dead. Blocked work pauses and retries, with an explanation and a manual Retry button.
 - **Fight as one squad.** Fellows share out the zombies that can reach them, protect you first and count only free fighters as backup. A fit fellow holds two zombies at once; past that the group gives ground together. They fight from the landing or the foot of the stairs, never on the steps, and call out when the fight turns.
-- **Hold an entrance.** Aim "Guard here" at a doorway or stair landing. Guards face the approach, line up behind the first defender and fall back to you when the squad cannot hold. Ordinary guard posts still patrol.
+- **Hold an entrance.** Aim "Guard here" at a doorway or stair landing. Guards face the approach, ready their weapons for climbers and leave room for the next defender. Repeated shoves can draw one attacker onto level ground; the group falls back to you when it cannot hold. Ordinary guard posts still patrol.
 - **Make a looting stop count.** Fellows check freezers and bags, take useful supplies in batches and bring extras home. They keep their own rations and tools; full storage leaves delivery pending for retry.
 - **Meet the others.** Households trade, offer work and remember your treatment. Strange Folk bring their own stories and bad habits. Random eligible encounters can begin on day two.
 

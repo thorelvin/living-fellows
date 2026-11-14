@@ -613,6 +613,7 @@ local function consumeCombatEvents(actor, state)
             state.lastCombatEvidence = evidence
             state.lastCombatEvidenceReason = eventReason
             state.lastCombatEvidenceAt = U().nowMs()
+            if SC.StairCombat then SC.StairCombat.observe(actor, state, evidence, state.lastCombatEvidenceAt) end
             if evidence.anticipatorySwing == true then
                 state.postSwingBackstepUntil = state.lastCombatEvidenceAt + 900
                 state.attackAnchor = nil
@@ -1476,6 +1477,14 @@ function Combat.stairStandoff(actor, state, target, now)
     return true
 end
 
+function Combat.forecastStairs(actor, player, snapshot)
+    if not SC.CombatSquad or #(snapshot.stairIncoming or {}) == 0 then return end
+    local state = stateFor(actor)
+    state.squadPlan = SC.CombatSquad.forActor(actor, player, snapshot,
+        combatCohortKey(actor, player), U().nowMs())
+    snapshot.squadPlan = state.squadPlan
+end
+
 function Combat.primaryWeaponUsable(actor)
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
     local inventory = U().inventory(actor)
@@ -2169,9 +2178,24 @@ function Combat.friendlyFireBlocked(actor, target, context)
     local corridor = melee and (utility.config("friendlyFireMeleeCorridor") or 0.9)
         or (utility.config("friendlyFireCorridor") or 0.8)
     local corridorSq = corridor * corridor
+    local ax, ay = utility.position(actor)
+    local tx, ty = utility.position(target)
+    local dx, dy = ax and tx and tx - ax, ay and ty and ty - ay
+    local length = dx and math.sqrt(dx * dx + dy * dy) or 0
+    local primary = melee and select(1, utility.call(actor, "getPrimaryHandItem"))
+    local angle = primary and select(1, utility.call(primary, "getMinAngle"))
+    local frontArc = melee and type(angle) == "number" and angle >= 0 and length >= 0.3
     local function blocks(friendly)
         if not friendly or friendly == actor or friendly == target then return false end
         if not utility.sameFloor(actor, friendly) then return false end
+        if frontArc then
+            local x, y = utility.position(friendly)
+            -- The native melee cone faces forward. A separated rear guard
+            -- cannot be struck by it; the clamped segment's start cap used to
+            -- veto every swing merely because that guard stood behind us.
+            if x and (x - ax)^2 + (y - ay)^2 >= 0.55^2
+                and (x - ax) * dx + (y - ay) * dy < -0.1 * length then return false end
+        end
         return utility.pointSegmentDistanceSq(friendly, actor, target) <= corridorSq
     end
     local player = context.player
@@ -2656,6 +2680,20 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     local capacity = readiness.capacity
     local noEscape = #(snapshot.escapeSquares or {}) == 0
     local indoors = actorIsIndoor(actor)
+    local guard = states[actor] and states[actor].guardPost
+    -- A deliberately held, covered stair entrance is not an open indoor brawl.
+    -- Keep all contact, flank, injury and stamina penalties; omit only the
+    -- generic indoor penalty within the guard's own two-contact capacity.
+    -- A partner assigned elsewhere is not backup, but does not halve that capacity.
+    local coveredStair = indoors and weapon and not weapon.ranged and weapon.equipped ~= false
+        and (tonumber(weapon.conditionRatio) or 1) >= 0.2
+        and (tonumber(weapon.range) or 0) >= 1 and assessment.health >= 85
+        and not readiness.staminaCritical
+        and snapshot.squadPlan and (tonumber(snapshot.squadPlan.holds) or 1) >= 2
+        and immediate <= 2 and close <= 2
+        and occupied <= 2 and not snapshot.encircled
+        and not (snapshot.squadPlan and snapshot.squadPlan.mode == "disengage")
+        and SC.GuardPost and SC.GuardPost.coveredStair(actor, guard, snapshot)
     local contributors = {}
     local function contribution(cause, value)
         value = tonumber(value) or 0
@@ -2692,7 +2730,7 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
                 + math.max(0, readiness.footing.crowd - 1) * 3) or 0)
         + contribution("encircled", snapshot.encircled and 22 or 0)
         + contribution("no_escape", noEscape and 8 or 0)
-        + contribution("indoors", indoors and 8 or 0)
+        + contribution("indoors", indoors and not coveredStair and 8 or 0)
         + contribution("health", assessment.health < 45
             and (45 - assessment.health) * 0.8 or 0)
         + contribution("unarmed", not weapon and 8 or 0)
@@ -2780,6 +2818,7 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
         close = close,
         occupiedSectors = occupied,
         support = support,
+        coveredStair = coveredStair == true,
         indoors = actorIsIndoor(actor),
         readiness = readiness,
         staminaCritical = readiness.staminaCritical,
@@ -3203,6 +3242,13 @@ local function tryShoveFollowUp(actor, state, snapshot, now, commands)
     local maximum = finisher.maximum
     if U().distanceSq(actor, target) > maximum * maximum then
         if state.guardPost and not state.guardPost.withdrawn then
+            if state.guardPost.post.kind == "stairs" then
+                local ax, ay = U().position(actor)
+                local tx, ty = U().position(target)
+                local moved, why = SC.GuardPost.combatStep(actor, state.guardPost, snapshot, { actor = target },
+                    { kind = "approach", moveX = tx - ax, moveY = ty - ay })
+                if moved ~= nil then return moved, why end
+            end
             state.shoveFollowUp = nil
             return nil, "guard_choke_finisher_hold"
         end
@@ -4668,6 +4714,11 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             and (target and target.distanceSq or math.huge) > 2.5^2 then
             return SC.GuardPost.move(actor, state.guardPost, snapshot)
         end
+        if state.guardPost.post and state.guardPost.post.kind == "stairs"
+            and (action.kind == "backstep" or action.kind == "kite" or action.kind == "approach") then
+            local stepped, reason = SC.GuardPost.combatStep(actor, state.guardPost, snapshot, target, action)
+            if stepped ~= nil then return stepped, reason end
+        end
         action = { kind = "hold_range", score = action.score, guardHold = true }
     end
     if action.kind == "shoot" or action.kind == "melee"
@@ -5023,6 +5074,7 @@ function Combat.update(actor, player, runtime)
     snapshot.squadPlan = state.squadPlan
     state.guardPost = SC.GuardPost and SC.GuardPost.forActor(actor, rootRuntime, commands, now)
     if state.guardPost then SC.GuardPost.observe(actor, rootRuntime, state.squadPlan, now) end
+    if state.guardPost then snapshot = SC.GuardPost.combatView(actor, player, state.guardPost, snapshot) end
     local performance = SC.Performance
     local phaseStarted = performance and performance.preciseNowMs()
     local scored = Combat.scoreTargets(actor, player, snapshot, state.target)
@@ -5048,6 +5100,10 @@ function Combat.update(actor, player, runtime)
         return true, followUpReason
     end
     if #scored == 0 then
+        if SC.StairCombat then
+            local held, why = SC.StairCombat.hold(actor, rootRuntime, snapshot, now)
+            if held ~= nil then rootRuntime.combatAction = why; return held, why end
+        end
         if state.active then utility.stop(actor) end
         state.active, state.target, state.lastAction = false, nil, nil
         state.retreating = false
@@ -5299,6 +5355,19 @@ function Combat.update(actor, player, runtime)
             end
         end
         return ok, ok and "overrun_retreat" or reason
+    end
+    if SC.StairCombat then
+        local goal = SC.StairCombat.resetGoal(actor, rootRuntime, snapshot, now)
+        if goal and utility.distance(actor, goal) > 0.3 then
+            local gx, gy = utility.position(goal)
+            local ax, ay = utility.position(actor)
+            local accepted, why = execute(actor, player, snapshot, target, weapon, {
+                kind = "backstep", stairStepBack = true,
+                moveX = gx - ax, moveY = gy - ay, microSteered = true,
+            }, commands, state)
+            rootRuntime.combatAction = "stair_landing_reset"
+            return accepted, why
+        end
     end
     state.cornerEscapeProbe = nil
     if state.postSwingBackstepUntil then

@@ -53,8 +53,11 @@ Live explicit-post acceptance
   Quiet posts stayed at their assigned positions. Maximum combat displacement
   was 1.90 m at the stairs and 4.30 m at the door during personal retreats.
   These are not absolute combat tethers: emergencies can leave the post.
-  No kills occurred in these three trials. They verify positioning and
-  withdrawal, not improved damage. The known stair standoff remains.
+  The original raw-reference kill counts are unreliable: native zombie shells
+  can be pooled and reused. Treat those trials as positioning/withdrawal
+  observations, not proof of zero kills or improved damage. The corrected
+  lifetime receipts and stair comparison are recorded in
+  stair-combat-acceptance-0.27.16.txt.
   Zoomed-out holding, combat and end screenshots were inspected locally.
 
   Earlier runs d964567f and d331e57f are invalid acceptance: the nearby camera

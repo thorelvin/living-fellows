@@ -1080,6 +1080,14 @@ def main() -> int:
             and "function Post.forActor" in guard_post,
             "explicit guard posts must connect commands, decisions, combat and persistence")
 
+    require(sources["SCSenses.lua"].count("SC.StairCombat.incoming(actor, state, now)") == 2
+            and "SC.StairCombat.observe(actor" in sources["SCCombat.lua"]
+            and "SC.StairCombat.recovery(actor" in sources["SCCombat.lua"]
+            and "SC.Combat.forecastStairs(actor" in sources["SCDecision.lua"]
+            and "function Post.stairInset" in guard_post
+            and "SC.GuardPost.combatView(actor, player, state.guardPost, snapshot)" in sources["SCCombat.lua"],
+            "stair warnings and recovery must connect sensing, combat, decisions and guard positions")
+
     print(
         f"Static gameplay contracts PASS: {CHECKS} assertions, "
         f"{len(OWNED)} sources, {len(REQUIRED_COMMANDS)} commands"

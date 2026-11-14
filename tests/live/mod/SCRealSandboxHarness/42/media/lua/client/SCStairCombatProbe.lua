@@ -311,9 +311,23 @@ local function guardDoor(SC, cx, cy)
     return best
 end
 
+local function guardZombieAlive(H, zombie)
+    local receipt = H.guardLives and H.guardLives[zombie]
+    if not receipt or receipt.dead then return false end
+    local data = call(zombie, "getModData")
+    if not data or data[LIFETIME_KEY] ~= receipt.token then
+        H.guardLostLife = true; return false
+    end
+    if call(zombie, "isDead") == true then receipt.dead = true; return false end
+    return true
+end
+
 local function guardCleanup(H)
     local SC = SurvivorCompanion
-    for _, zombie in ipairs(H.guardZombies or {}) do removeZombie(zombie) end
+    if H.guardDeathObserver then Events.OnZombieDead.Remove(H.guardDeathObserver); H.guardDeathObserver = nil end
+    for _, zombie in ipairs(H.guardZombies or {}) do
+        if guardZombieAlive(H, zombie) then removeZombie(zombie) end
+    end
     for _, actor in ipairs(H.guardActors or {}) do
         if alive(actor) then pcall(SC.Actor.remove, actor) else pcall(SC.Actor.retireDead, actor) end
     end
@@ -336,8 +350,11 @@ local function guardStep(H, current, check, result, setPhase)
         for _, actor in ipairs(SC.Registry.living()) do pcall(SC.Actor.remove, actor) end
         local x, y = U.position(H.player)
         H.stair = findStair(SC, math.floor(x), math.floor(y), 70)
-        H.guardDoor = guardDoor(SC, math.floor(x), math.floor(y))
-        if not H.stair or not H.guardDoor then return fail("guard_geometry", "stairs="
+        H.guardRecoveryOnly = H.config.stair_combat_mode == "recovery"
+        H.guardStairsOnly = H.config.stair_combat_mode == "stairs" or H.guardRecoveryOnly
+        H.guardTrial, H.guardTrials = 1, number(H.config.stair_combat_trials, 3)
+        H.guardDoor = not H.guardStairsOnly and guardDoor(SC, math.floor(x), math.floor(y)) or nil
+        if not H.stair or (not H.guardStairsOnly and not H.guardDoor) then return fail("guard_geometry", "stairs="
             .. tostring(H.stair ~= nil) .. " door=" .. tostring(H.guardDoor ~= nil)) end
         pcall(function() getGameTime():setTimeOfDay(12) end)
         pcall(function() H.player:setGhostMode(true) end)
@@ -348,7 +365,10 @@ local function guardStep(H, current, check, result, setPhase)
         setPhase("stair_combat_guard_prepare", current); return
     end
     if H.phase == "stair_combat_guard_prepare" then
-        if H.guardCase > 3 then setPhase("finish", current); return end
+        if current < (H.guardNextAt or 0) then return end
+        if H.guardCase > 3 or H.guardStairsOnly and H.guardTrial > H.guardTrials then
+            setPhase("finish", current); return
+        end
         local square = H.guardCase == 1 and H.stair.landing or H.guardDoor.square
         local post = SC.GuardPost.detect(H.player, square, H.guardCase > 1 and {
             x = H.guardDoor.post.dx, y = H.guardDoor.post.dy } or nil)
@@ -356,10 +376,24 @@ local function guardStep(H, current, check, result, setPhase)
         H.guardPost = post
         H.clearZombiesNear(square, 18)
         H.clearZombiesNear(H.stair.exit, 15)
-        H.guardActors, H.guardZombies, H.guardTickets = {}, {}, {}
+        H.guardActors, H.guardZombies, H.guardTickets, H.guardStageSquares = {}, {}, {}, {}
         H.guardSamples, H.guardSlope, H.guardMaxDrift = 0, 0, 0
+        H.guardEarly, H.guardStallPhoto, H.guardLastKills = false, false, 0
+        H.guardEarlyZ, H.guardResets, H.guardResetReachedAt = nil, 0, nil
+        H.guardLives, H.guardLostLife = {}, false
         for i = 1, 2 do
-            local spawn = U.gridSquare(post.x + post.dx * (i - 1), post.y + post.dy * (i - 1), post.z)
+            local spawn
+            for depth = 0, 4 do
+                for side = -2, 2 do
+                    local candidate = U.gridSquare(post.x + post.dx * depth - post.dy * side,
+                        post.y + post.dy * depth + post.dx * side, post.z)
+                    if not spawn and candidate and not H.guardStageSquares[key(candidate)]
+                        and U.isSafeSpawnSquare(candidate)
+                        and not SC.Combat.atStairs(candidate) then spawn = candidate end
+                end
+            end
+            if not spawn then return fail("guard_spawn_space", "no clear staging square") end
+            H.guardStageSquares[key(spawn)] = true
             local ticket, why = SC.Actor.beginSpawn(spawn, { recruited = true, identity = {
                 forename = "Guard", surname = tostring(H.guardCase) .. " " .. tostring(i),
                 gender = i == 1 and "woman" or "man", outfit = "Generic01" } })
@@ -368,12 +402,16 @@ local function guardStep(H, current, check, result, setPhase)
         end
         local observer
         local offsets = H.guardCase == 1 and { { 2, 1 }, { 2, -1 }, { 3, 0 }, { 1, 1 }, { 1, -1 } }
-            or { { 10, 0 }, { 10, 2 }, { 10, -2 }, { 8, 0 }, { 8, 2 }, { 8, -2 }, { 6, 0 } }
+            or { { 10, 0 }, { 10, 2 }, { 10, -2 }, { 8, 0 }, { 8, 2 }, { 8, -2 },
+                { 6, 0 }, { 5, 0 }, { 4, 0 }, { 4, 1 }, { 4, -1 } }
         for _, offset in ipairs(offsets) do
             local sq = U.gridSquare(post.x + post.dx * offset[1] - post.dy * offset[2],
                 post.y + post.dy * offset[1] + post.dx * offset[2], post.z)
             if sq and call(sq, "TreatAsSolidFloor") == true and U.isSquareFree(sq)
-                and not SC.Combat.atStairs(sq) then observer = sq; break end
+                and not SC.Combat.atStairs(sq)
+                and (H.guardCase == 1 or SC.Navigation.openSegment({ x = post.x + 0.5,
+                    y = post.y + 0.5, z = post.z }, sq:getX() + 0.5, sq:getY() + 0.5, sq:getZ())) then
+                observer = sq; break end
         end
         if not observer then return fail("guard_observer", "no protected observer square") end
         H.player:teleportTo(observer:getX() + 0.5, observer:getY() + 0.5, observer:getZ())
@@ -388,20 +426,54 @@ local function guardStep(H, current, check, result, setPhase)
             local actor, why = SC.Actor.pollSpawn(ticket)
             if actor then
                 H.guardActors[i] = actor
-                local item = call(call(actor, "getInventory"), "AddItem", "Base.Crowbar")
-                if not item then return fail("guard_weapon", "crowbar creation failed") end
-                actor:setPrimaryHandItem(item)
+                if not H.guardRecoveryOnly then
+                    local item = call(call(actor, "getInventory"), "AddItem", "Base.Crowbar")
+                    if not item then return fail("guard_weapon", "crowbar creation failed") end
+                    actor:setPrimaryHandItem(item)
+                end
                 actor:getStats():set(CharacterStat.ENDURANCE, 1)
-                local p = H.guardPost
-                local ordered, reason = SC.Commands.issue(SC.Registry.idOf(actor), "guard",
-                    { target = { x = p.x, y = p.y, z = p.z } }, H.player)
-                if not ordered or call(actor, "getModData").SC_Order ~= "guard" then
-                    return fail("guard_order", reason) end
+                actor:getStats():set(CharacterStat.FATIGUE, 0)
             elseif why ~= "spawn_pending" or current - H.phaseStartedAt > 12000 then
                 return fail("guard_spawn_poll", why)
             end
         end end
-        if H.guardActors[1] and H.guardActors[2] then setPhase("stair_combat_guard_quiet", current) end
+        if H.guardActors[1] and H.guardActors[2] then
+            -- Native IDs contain variable-length timestamps. Stage the fight
+            -- at its ID-ordered positions; do not make two actors swap through
+            -- each other in the one-square choke before the trial starts.
+            table.sort(H.guardActors, function(a, b)
+                return tostring(SC.Registry.idOf(a)) < tostring(SC.Registry.idOf(b))
+            end)
+            if H.guardRecoveryOnly then
+                -- The rear guard covers the unarmed front defender. Two
+                -- unarmed actors correctly choose withdrawal before a reset
+                -- can be exercised reliably; do not override that decision.
+                local cover = H.guardActors[2]
+                local item = call(call(cover, "getInventory"), "AddItem", "Base.Crowbar")
+                if not item then return fail("guard_cover_weapon", "crowbar creation failed") end
+                cover:setPrimaryHandItem(item)
+            end
+            for i, actor in ipairs(H.guardActors) do
+                local p = H.guardPost
+                actor:teleportTo(p.x + p.dx * (i - 1) + 0.5,
+                    p.y + p.dy * (i - 1) + 0.5, p.z)
+                local ordered, reason = SC.Commands.issue(SC.Registry.idOf(actor), "guard",
+                    { target = { x = p.x, y = p.y, z = p.z } }, H.player)
+                if not ordered or call(actor, "getModData").SC_Order ~= "guard" then
+                    return fail("guard_order", reason) end
+            end
+            -- All orders must exist before resolving the shared positions.
+            -- This is fixture staging only, before any attackers are spawned.
+            for _, actor in ipairs(H.guardActors) do
+                SC.Navigation.cancel(actor, "guard_probe_staging")
+                U.stop(actor)
+                local post = SC.GuardPost.forActor(actor, runtimeOf(SC, actor), nil, current)
+                local point = SC.GuardPost.point(post)
+                if not point then return fail("guard_stage_position", "post has no safe position") end
+                actor:teleportTo(point.x, point.y, point.z)
+            end
+            setPhase("stair_combat_guard_quiet", current)
+        end
         return
     end
     if H.phase == "stair_combat_guard_quiet" then
@@ -409,23 +481,43 @@ local function guardStep(H, current, check, result, setPhase)
         for _, actor in ipairs(H.guardActors) do
             local post = SC.GuardPost.forActor(actor, runtimeOf(SC, actor), nil, current)
             if not post or not SC.GuardPost.atPosition(actor, post) then
-                return fail("guard_settled", key(call(actor, "getSquare"))) end
+                local x, y, z = U.position(actor)
+                local point = SC.GuardPost.point(post)
+                return fail("guard_settled", string.format("%.2f:%.2f:%.2f expected=%s:%s:%s", x, y, z,
+                    tostring(point and point.x), tostring(point and point.y), tostring(point and point.z))) end
         end
         result("PASS", "guard_settled_" .. H.guardCase,
             "kind=" .. H.guardPost.kind .. " anchor=" .. key(call(H.guardActors[1], "getSquare")))
-        guardPhoto(H, tostring(H.guardCase) .. "-holding")
+        guardPhoto(H, tostring(H.guardCase) .. "-" .. H.guardTrial .. "-holding")
         H.guardStarted, H.guardNextSample = current, current
-        local count = H.guardCase == 3 and 12 or 3
+        H.guardLastKillAt = current
+        H.guardDeathObserver = function(zombie)
+            local receipt = H.guardLives[zombie]
+            local data = receipt and call(zombie, "getModData")
+            if data and data[LIFETIME_KEY] == receipt.token then
+                receipt.dead = true
+                print("SC_REAL_SANDBOX|GUARD_KILL|trial=" .. H.guardTrial .. " index=" .. receipt.index)
+            end
+        end
+        Events.OnZombieDead.Add(H.guardDeathObserver)
+        local count = H.guardRecoveryOnly and 1 or H.guardCase == 3 and 12 or 3
         for i = 1, count do
             local p = H.guardPost
-            local square = H.guardCase == 1 and (H.stair.below or H.stair.exit)
+            local square = H.guardCase == 1 and H.stair.first
                 or U.gridSquare(p.x - p.dx * (3 + math.floor((i - 1) / 3)),
                     p.y - p.dy * (3 + math.floor((i - 1) / 3)), p.z)
             local ok, list = pcall(addZombiesInOutfit, square:getX(), square:getY(), square:getZ(), 1, nil, 0)
             local zombie = ok and list and call(list, "get", 0)
             if not zombie then return fail("guard_zombie_spawn", tostring(i)) end
+            local token = {}
+            call(zombie, "getModData")[LIFETIME_KEY] = token
+            H.guardLives[zombie] = { token = token, index = i }
             H.guardZombies[#H.guardZombies + 1] = zombie
-            zombie:spotted(H.guardActors[(i - 1) % 2 + 1], true)
+            local target = H.guardActors[(i - 1) % 2 + 1]
+            zombie:spotted(target, true)
+            -- A target pointer alone may leave vanilla's cheap straight-line
+            -- pursuit beneath the landing. Stage a real path through the stairs.
+            zombie:pathToCharacter(target)
         end
         setPhase("stair_combat_guard_observe", current); return
     end
@@ -433,11 +525,23 @@ local function guardStep(H, current, check, result, setPhase)
         if current < H.guardNextSample then return end
         H.guardNextSample = current + 100
         if not alive(H.player) then return fail("guard_observer_alive", "observer died; trial invalid") end
-        local live, dead, retreating = 0, 0, 0
+        local live, dead, retreating, bites, lowestHealth, resetSettled = 0, 0, 0, 0, 100, 0
         for _, actor in ipairs(H.guardActors) do
             if alive(actor) then live = live + 1 end
+            local assessment = SC.Medical.assess(actor)
+            bites = bites + (assessment.bites or 0)
+            lowestHealth = math.min(lowestHealth, U.nativeHealth(actor))
             local rt = runtimeOf(SC, actor)
+            for _, incoming in ipairs(rt.senses and rt.senses.current and rt.senses.current.stairIncoming or {}) do
+                if (incoming.z or 1) < H.guardPost.z - 0.1 then
+                    H.guardEarly = true
+                    H.guardEarlyZ = math.min(H.guardEarlyZ or incoming.z, incoming.z)
+                end
+            end
             local ctx = rt.guardPost
+            if rt.stairCombat and rt.stairCombat.recovery then H.guardResets = H.guardResets + 1 end
+            if ctx and ctx.insetUntil and current < ctx.insetUntil
+                and SC.GuardPost.atPosition(actor, ctx) then resetSettled = resetSettled + 1 end
             local x, y, z = U.position(actor)
             if SC.Combat.atStairs(actor) then H.guardSlope = H.guardSlope + 1 end
             if ctx and ctx.position then
@@ -447,45 +551,96 @@ local function guardStep(H, current, check, result, setPhase)
             if call(actor, "getModData").SC_Order == "retreat" then retreating = retreating + 1 end
         end
         for _, zombie in ipairs(H.guardZombies) do
-            if not alive(zombie) then dead = dead + 1 end
+            guardZombieAlive(H, zombie)
+            if H.guardLives[zombie].dead then dead = dead + 1 end
         end
+        if H.guardLostLife then return fail("guard_zombie_identity", "spawn token lost without confirmed death") end
         if current >= (H.guardRetargetAt or 0) then
             H.guardRetargetAt = current + 1000
-            for i, zombie in ipairs(H.guardZombies) do if alive(zombie) then
+            for i, zombie in ipairs(H.guardZombies) do if guardZombieAlive(H, zombie) then
                 local target = H.guardActors[(i - 1) % 2 + 1]
-                if alive(target) and call(zombie, "getTarget") ~= target then zombie:setTarget(target) end
+                if alive(target) and call(zombie, "getTarget") ~= target then
+                    zombie:spotted(target, true)
+                    if call(zombie, "getTarget") ~= target then zombie:setTarget(target) end
+                end
             end end
             local states = {}
             for _, actor in ipairs(H.guardActors) do
                 local rt = runtimeOf(SC, actor)
                 local combat = SC.Combat.peek(actor)
                 local plan = combat and combat.squadPlan
+                local ev = combat and combat.lastCombatEvidence
                 local x, y, z = U.position(actor)
-                states[#states + 1] = string.format("%.1f:%.1f:%.1f/%s/%s/%s/%s", x, y, z,
+                states[#states + 1] = string.format("%.1f:%.1f:%.1f/%s/%s/%s/%s/shoves%s/ev%s:%s", x, y, z,
                     tostring(call(actor, "getModData").SC_Order), tostring(rt.combatAction),
-                    tostring(plan and plan.mode), tostring(plan and plan.forecast))
+                    tostring(plan and plan.mode), tostring(plan and plan.forecast),
+                    tostring(combat and combat.stairShoves and combat.stairShoves.count),
+                    tostring(ev and ev.action), tostring(ev and ev.result))
+                    .. "/hp" .. fmt(ev and ev.healthBefore) .. ":" .. fmt(ev and ev.healthAfter)
+                    .. "/serial" .. tostring(call(actor, "getCompanionAttackReceiptSerial"))
+                    .. "/native" .. tostring(call(actor, "getCompanionActionStateName"))
+                local overrun = combat and combat.overrun or {}
+                local readiness = overrun.readiness or {}
+                states[#states] = states[#states] .. "/risk" .. fmt(overrun.risk) .. ":" .. fmt(overrun.threshold)
+                    .. "/covered" .. tostring(overrun.coveredStair)
+                    .. "/holds" .. tostring(plan and plan.holds) .. "/support" .. fmt(overrun.support)
+                    .. "/sectors" .. fmt(overrun.occupiedSectors) .. "/internal" .. fmt(readiness.internalRisk)
+
             end
-            print("SC_REAL_SANDBOX|GUARD_TIMELINE|" .. H.guardCase .. "|" .. table.concat(states, ";"))
+            local zombies = {}
+            for _, zombie in ipairs(H.guardZombies) do if guardZombieAlive(H, zombie) then
+                local x, y, z = U.position(zombie)
+                zombies[#zombies + 1] = string.format("%.2f:%.2f:%.2f/hp%s/%s/stairs%s",
+                    x, y, z, fmt(call(zombie, "getHealth")), tostring(call(zombie, "getCurrentStateName")),
+                    tostring(SC.Combat.atStairs(zombie)))
+            end end
+            print("SC_REAL_SANDBOX|GUARD_TIMELINE|" .. H.guardCase .. "|" .. table.concat(states, ";")
+                .. "|zombies=" .. table.concat(zombies, ";"))
         end
         if current - H.guardStarted >= 6000 and not H.guardFightPhoto then
-            guardPhoto(H, tostring(H.guardCase) .. "-combat"); H.guardFightPhoto = true
+            guardPhoto(H, tostring(H.guardCase) .. "-" .. H.guardTrial .. "-combat"); H.guardFightPhoto = true
         end
+        if dead > H.guardLastKills then H.guardLastKills, H.guardLastKillAt = dead, current end
+        if not H.guardStallPhoto and current - H.guardLastKillAt >= 30000 then
+            guardPhoto(H, "stalled-" .. H.guardCase .. "-" .. H.guardTrial); H.guardStallPhoto = true
+        end
+        -- This scenario exercises native shoves and the resulting movement,
+        -- not an unarmed victory. Armed landing trials separately require kills.
+        if H.guardRecoveryOnly and H.guardResets > 0 and resetSettled == 2 then
+            H.guardResetReachedAt = H.guardResetReachedAt or current
+        end
+        local resetFinished = H.guardRecoveryOnly and H.guardResetReachedAt
+            and current - H.guardResetReachedAt >= 1000
         if H.guardCase == 3 and retreating == 2 or dead == #H.guardZombies
-            or live < 2 or current - H.guardStarted > 45000 then
-            guardPhoto(H, tostring(H.guardCase) .. "-end")
+            or resetFinished
+            or live < 2 or current - H.guardStarted > (H.guardStairsOnly and 90000 or 45000) then
+            guardPhoto(H, tostring(H.guardCase) .. "-" .. H.guardTrial .. "-end")
             local passed = live == 2 and H.guardSlope == 0 and (H.guardCase ~= 3 or retreating == 2)
+                and (H.guardRecoveryOnly or H.guardCase == 3 or dead == #H.guardZombies)
+                and (not H.guardStairsOnly or H.guardEarly)
+                and (not H.guardRecoveryOnly or resetFinished and H.guardEarly and bites == 0)
             local detail = "alive=" .. live .. " kills=" .. dead .. " slope_samples=" .. H.guardSlope
-                .. " max_drift=" .. fmt(H.guardMaxDrift) .. " retreating=" .. retreating
-            if not passed then return fail("guard_live_" .. H.guardCase, detail) end
-            check("guard_live_" .. H.guardCase, passed, detail)
-            guardCleanup(H); H.guardCase = H.guardCase + 1; H.guardFightPhoto = nil
+                .. " max_drift=" .. fmt(H.guardMaxDrift) .. " retreating=" .. retreating .. " early=" .. tostring(H.guardEarly)
+                .. " earliest_z=" .. fmt(H.guardEarlyZ) .. " reset_samples=" .. H.guardResets
+                .. " reset_settled=" .. tostring(H.guardResetReachedAt ~= nil)
+                .. " lowest_health=" .. fmt(lowestHealth) .. " bites=" .. bites
+            local id = "guard_live_" .. H.guardCase .. "_" .. H.guardTrial
+            if not passed then return fail(id, detail) end
+            check(id, passed, detail)
+            guardCleanup(H)
+            H.guardNextAt = current + 3000
+            if H.guardStairsOnly then H.guardTrial = H.guardTrial + 1 else H.guardCase = H.guardCase + 1 end
+            H.guardFightPhoto = nil
             setPhase("stair_combat_guard_prepare", current)
         end
     end
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    if H.config.stair_combat_mode == "guard" then return guardStep(H, current, check, result, setPhase) end
+    if H.config.stair_combat_mode == "guard" or H.config.stair_combat_mode == "stairs"
+        or H.config.stair_combat_mode == "recovery" then
+        return guardStep(H, current, check, result, setPhase)
+    end
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
     if H.phase == "stair_combat_setup" then

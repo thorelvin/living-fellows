@@ -2,6 +2,34 @@
 
 # Changelog
 
+## 0.27.16 - Fighting at the stair landing
+
+- Guards can notice zombies climbing their connected stairs before the last
+  step. The warning helps the group prepare; it never permits attacks through
+  a floor or wall.
+- Stair guards with enough melee reach cover both sides of a wide landing.
+  Shorter weapons keep the closer formation. Guards ready their weapons for
+  incoming climbers and keep enough checked footwork to use them.
+  Fit guards at a covered stair entrance no longer pay the generic
+  indoor penalty for two frontal contacts. Flanks and personal emergencies
+  still count. A zombie committed to another fit guard is shared pressure
+  until it reaches body contact; the squad still sees the whole group.
+  Clearly overwhelming numbers trigger withdrawal immediately;
+  marginal pressure still needs a sustained decision.
+- After repeated shoves or ineffective hits against one standing attacker,
+  guards can make room on level ground. The other guards clear the setback,
+  and blocked positions are refused. Several approaching zombies keep the
+  choke closed; personal emergencies still take priority.
+- A companion behind the fighter no longer prevents a forward melee swing
+  when safely outside the weapon's native arc. Front-facing bystanders and
+  firearm lanes keep their protection.
+- A previously observed climber that still targets a companion can retry its
+  native pursuit after becoming stuck below the landing. No extra world scan,
+  teleport or scripted damage is used.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.15 - Guard the doorway
 
 - Aim "Guard here" at a doorway or the top landing of stairs to hold that

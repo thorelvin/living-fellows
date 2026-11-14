@@ -103,10 +103,20 @@ function Invoke-EssentialBuild {
     $lua = @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua') `
         -Recurse -File -Filter '*.lua' | Sort-Object FullName | ForEach-Object FullName)
     $inputKey = Get-ScLuaCompilationKey $ProjectRoot $GameRoot
-    Invoke-ScTestCommand -FilePath $java -Arguments (@('-cp', "$tools;$jar", 'ReflectLuaCompiler') + $lua) `
-        -LogPath (Join-Path $logs 'lua-normal.log') -WorkingDirectory $GameRoot
-    Invoke-ScTestCommand -FilePath $java -Arguments (@('-cp', "$tools;$jar", 'ReflectLuaCompiler', '--debug-compile') + $lua) `
-        -LogPath (Join-Path $logs 'lua-debug.log') -WorkingDirectory $GameRoot
+    # Long checkout paths can exceed Windows' command-line limit. Keep the
+    # real paths (also needed by the agent identity check) and let Java read them.
+    foreach ($mode in @('normal', 'debug')) {
+        $compilerArgs = @('-cp', "$tools;$jar", 'ReflectLuaCompiler')
+        if ($mode -eq 'debug') { $compilerArgs += '--debug-compile' }
+        $compilerArgs += $lua
+        $argumentFile = Join-Path $tools "lua-$mode.args"
+        $quotedArgs = @($compilerArgs | ForEach-Object {
+            '"' + $_.Replace('\', '\\').Replace('"', '\"') + '"'
+        })
+        [IO.File]::WriteAllLines($argumentFile, [string[]]$quotedArgs, (New-Object Text.UTF8Encoding($false)))
+        Invoke-ScTestCommand -FilePath $java -Arguments @("@$argumentFile") `
+            -LogPath (Join-Path $logs "lua-$mode.log") -WorkingDirectory $GameRoot
+    }
     if ($inputKey -ne (Get-ScLuaCompilationKey $ProjectRoot $GameRoot)) {
         throw 'Compilation inputs changed during the run; no package receipt was issued.'
     }
