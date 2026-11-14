@@ -322,6 +322,12 @@ function Transport.isCargoProtected(item, actorOrId, operation)
         and SC.FarmWork.isItemProtected(item, actorOrId, operation) then return true end
     local data = itemData(item)
     if not data then return false end
+    if data.LF_BaseReturnOwner ~= nil
+        and (actorOrId == nil or data.LF_BaseReturnOwner == tostring(type(actorOrId) == "string"
+            and actorOrId or U().idOf(actorOrId) or ""))
+        and operation ~= "base_return_deposit" and not allowedProtectedOperations[operation] then
+        return true, "base_return_stock"
+    end
     if data.LF_LogYardSplit ~= nil and (not SC.LogYard or not SC.LogYard.splitReserved
         or SC.LogYard.splitReserved(item)) then return true end
     if data.LF_LogYardBundle ~= nil and SC.LogYard and SC.LogYard.reserved
@@ -1416,7 +1422,7 @@ function Batch.roomForExtra(actor,item) return batchLimit(actor,item) end
 
 -- Only used after reload: retain a bounded cursor rather than repeatedly
 -- searching the first few objects in a large inventory. Never fabricate cargo.
-local function batchRestore(actor,state,job,saved)
+local function batchRestore(actor,state,job,saved,forRelease)
     if type(saved.ids)~="table" or #saved.ids>20 or type(saved.sourceId)~="string"
         or (saved.phase~="take" and saved.phase~="deposit") then return nil,"haul_cargo_receipt_invalid" end
     local identities={}
@@ -1427,8 +1433,9 @@ local function batchRestore(actor,state,job,saved)
     end
     if saved.owner~=U().idOf(actor) then return nil,"haul_cargo_other_worker" end
     local source=SC.BaseLife.storage(saved.sourceId)
-    if not source then return nil,"haul_source_marker_missing" end
-    local scan=state.batchScan
+    if not source and not forRelease then return nil,"haul_source_marker_missing" end
+    local scanKey=forRelease and "releaseBatchScan" or "batchScan"
+    local scan=state[scanKey]
     if not scan then
         if not U().inventory(actor) then return nil,"haul_cargo_owner_unknown" end
         local destination=SC.BaseLife.storage(saved.destinationId)
@@ -1439,9 +1446,11 @@ local function batchRestore(actor,state,job,saved)
             end
         end
         scan.seen[scan.containers[1]]=true
-        include(SC.BaseLife.resolveContainer(source))
-        if destination then include(SC.BaseLife.resolveContainer(destination)) end
-        state.batchScan=scan
+        if not forRelease then
+            include(SC.BaseLife.resolveContainer(source))
+            if destination then include(SC.BaseLife.resolveContainer(destination)) end
+        end
+        state[scanKey]=scan
     end
     local wanted={} for _,id in ipairs(saved.ids) do wanted[id]=true end
     local budget=256
@@ -1462,10 +1471,12 @@ local function batchRestore(actor,state,job,saved)
     end
     local all=true for _,id in ipairs(saved.ids) do if not scan.found[id] then all=false end end
     if not all and scan.at<=#scan.containers then return nil,"haul_cargo_search_pending" end
-    if not all then state.batchScan=nil;return nil,"haul_cargo_owner_unknown" end
-    local cargo={batch=saved,items={},source=source,sourceId=source.id,jobId=job.id}
-    for _,id in ipairs(saved.ids) do cargo.items[#cargo.items+1]=scan.found[id] end
-    cargo.item=cargo.items[1];state.batchScan=nil
+    if not all and not forRelease then state[scanKey]=nil;return nil,"haul_cargo_owner_unknown" end
+    local cargo={batch=saved,items={},source=source,sourceId=saved.sourceId,jobId=job.id}
+    for _,id in ipairs(saved.ids) do
+        if scan.found[id] then cargo.items[#cargo.items+1]=scan.found[id] end
+    end
+    cargo.item=cargo.items[1];state[scanKey]=nil
     return cargo
 end
 function Batch.savedForActor(actor)
@@ -1488,9 +1499,9 @@ function Batch.storageInUse(storageId)
     end
     return false
 end
-function Batch.restoreState(actor,state,job)
+function Batch.restoreState(actor,state,job,forRelease)
     if not state.cargo and job and job.target and job.target.stockBatch then
-        local cargo,why=batchRestore(actor,state,job,job.target.stockBatch)
+        local cargo,why=batchRestore(actor,state,job,job.target.stockBatch,forRelease)
         if not cargo then return false,why end
         state.cargo=cargo
     end
@@ -1517,6 +1528,54 @@ function Batch.returnCargo(actor,cargo)
     batchClear(SC.BaseLife.job(cargo.jobId),cargo)
     return true,"haul_cargo_returned"
 end
+
+-- Leaving duty may outlive a deleted/unloaded source marker. Keep physical
+-- items where they are, retiring only this haul's claims. A readable inventory
+-- membership is required before marking an item as this carrier's camp stock.
+function Transport.retainBaseCargo(actor, cargo, job, reason)
+    if type(cargo) ~= "table" then return true end
+    local id = U().idOf(actor)
+    if type(id) ~= "string" then return false, "haul_cargo_owner_unknown" end
+    local items = cargo.items or (cargo.item and { cargo.item } or {})
+    if #items > 20 then return false, "haul_cargo_limit" end
+    local retainedIds = {}
+    local observed
+    for _, item in ipairs(items) do
+        local nativeId = tonumber(itemNativeId(item))
+        if nativeId then retainedIds[#retainedIds + 1] = nativeId end
+        local owned = U().inventoryContains(U().inventory(actor), item)
+            or SC.PersonalItems and SC.PersonalItems.ownedBy(item, actor) == true
+        if not owned and SC.PersonalItems and SC.PersonalItems.walkActorInventory then
+            if not observed then
+                observed = {}
+                SC.PersonalItems.walkActorInventory(actor, function(candidate)
+                    observed[candidate] = true
+                end, { budget = 256 })
+            end
+            owned = observed[item] == true
+        end
+        if owned then
+            local fields = itemData(item)
+            if not fields then return false, "haul_cargo_marker_unavailable" end
+            fields.LF_BaseReturnOwner = id
+        end
+    end
+    if job then
+        job.target = job.target or {}
+        job.target.releasedHaul = { owner = id,
+            ids = cargo.batch and cargo.batch.ids or retainedIds, reason = reason }
+    end
+    if cargo.batch then
+        for _, item in ipairs(items) do
+            local fields = itemData(item)
+            if fields and fields[BATCH_MARKER] == cargo.jobId then fields[BATCH_MARKER] = nil end
+        end
+        batchClear(job, cargo)
+    end
+    touchWorkOwnership()
+    return true, "base_cargo_retained"
+end
+
 function Batch.update(actor,state,job)
     local cargo=state.cargo
     if cargo and cargo.batch and cargo.jobId~=job.id then

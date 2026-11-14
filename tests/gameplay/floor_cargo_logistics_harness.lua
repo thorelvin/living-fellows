@@ -97,6 +97,7 @@ SC.BaseLife = {
     job = function(id) return id == job.id and job or nil end,
     resident = function() return { role = "generalist" } end,
     isInside = function() return true end,
+    restriction = function() return nil end,
     resolveObject = function() return object end,
     resolveContainer = function() return store end,
     storageAcceptsDeposit = function() return true end,
@@ -278,4 +279,41 @@ check(audit.packMove and (audit.packMove.item == fishingRod
     "ending the mission releases fishing gear back to ordinary inventory management: "
         .. tostring(audit.packMove and audit.packMove.item.fullType)
         .. "/" .. tostring(audit.cargoWeight))
+-- A released haul is still camp stock, even below personal loadout limits.
+-- Following must not be delayed by a fresh shelving job; base duty resumes it.
+root.items, bagInventory.items = { bag }, {}
+local returnedStock = item(106, "Base.TinCan", "Item")
+add(root, returnedStock)
+returnedStock.modData.LF_BaseReturnOwner = actor.id
+actor.modData.SC_Order = "follow"
+SC.Logistics.reset(actor)
+current = current + 31000
+audit = SC.Logistics.status(actor)
+check(audit.surplus == nil and audit.packMove == nil and returnedStock.container == root,
+    "Follow keeps retained stock without dropping, packing or starting another storage trip")
+check(SC.WorkTransport.isCargoProtected(returnedStock, actor, "consume"),
+    "retained camp stock is not silently converted into personal supplies")
+actor.modData.SC_Order = "base_duty"
+SC.BaseLife.storageRows = function() return { storage } end
+SC.BaseLife.resolveContainer = function() return store, object end
+utility.distance = function() return 0 end
+utility.containerHasRoom = function() return false, "destination_full" end
+SC.Logistics.reset(actor)
+current = current + 2000
+audit = SC.Logistics.status(actor)
+check(audit.surplus and audit.surplus.item == returnedStock and audit.surplus.shelveOnly,
+    "returning to base duty selects retained stock below ordinary surplus thresholds")
+SC.Logistics.update(actor, nil, { snapshot = {} })
+check(returnedStock.container == root and returnedStock.modData.LF_BaseReturnOwner == actor.id,
+    "full storage preserves the original stock and its later-delivery marker")
+utility.containerHasRoom = function() return true end
+SC.Logistics.reset(actor)
+current = current + 31000
+for _ = 1, 4 do
+    SC.Logistics.update(actor, nil, { snapshot = {} })
+    visualPhase = "completed"
+end
+check(returnedStock.container == store and contains(store, returnedStock)
+    and not contains(root, returnedStock) and returnedStock.modData.LF_BaseReturnOwner == nil,
+    "ordinary checked deposit stores the exact item once and clears its camp-return marker")
 print("FLOOR_CARGO_LOGISTICS_PASS checks=" .. checks)

@@ -1551,6 +1551,23 @@ local function setButtonFeedback(target, message, success)
     target.feedbackWrapLines = nil
 end
 
+-- A deferred order finishes on the actor's normal work tick. Only update the
+-- matching selection; another companion's panel must not inherit its result.
+function UI.reportOrderResult(id, command, accepted, reason)
+    local root = UI.instance
+    if not root or not root.detail or not root.selectedRow
+        or root.selectedRow.id ~= id then return false end
+    local descriptor = SC.Interaction and SC.Interaction.descriptor(command)
+    local name = descriptor and UI.text(descriptor.key) or UI.humanize(command)
+    local message = UI.text(accepted and "UI_SC_CommandAcceptedDetail"
+        or "UI_SC_CommandRejectedDetail", name)
+    if not accepted or reason == "base_order_cargo_retained" then
+        message = message .. ": " .. UI.baseFailureReason(reason)
+    end
+    setButtonFeedback(root.detail, message, accepted)
+    return true
+end
+
 local function dismissDialogAnswer(request, answer)
     if answer and answer.internal == "YES" and request
         and type(request.execute) == "function" then
@@ -1602,7 +1619,11 @@ local function issueCommandButton(target, button, requestedRow)
     if not ok or accepted ~= true then
         setButtonFeedback(target,
             UI.text("UI_SC_CommandRejectedDetail", buttonFeedbackLabel(button)), false)
-        if SC.Interaction and SC.Interaction.descriptor(button.scCommand) then
+        local descriptor = SC.Interaction and SC.Interaction.descriptor(button.scCommand)
+        if descriptor and descriptor.kind == "order" then
+            setButtonFeedback(target, UI.text("UI_SC_CommandRejectedDetail",
+                buttonFeedbackLabel(button)) .. ": " .. UI.baseFailureReason(reason), false)
+        elseif descriptor then
             setButtonFeedback(target, SC.Interaction.reasonText(reason, extra), false)
         elseif type(reason) == "string" and string.find(reason, "home_", 1, true) then
             setButtonFeedback(target, UI.baseFailureReason(reason), false)
@@ -1611,6 +1632,14 @@ local function issueCommandButton(target, button, requestedRow)
         end
     else
         local resultText
+        if reason == "base_order_pending" then
+            setButtonFeedback(target, UI.text("UI_SC_CommandQueuedDetail",
+                buttonFeedbackLabel(button), UI.baseFailureReason(reason)), true)
+            target.feedbackUntil = (SC.GameplayUtil and SC.GameplayUtil.nowMs
+                and SC.GameplayUtil.nowMs() or 0) + 21000
+        elseif reason == "base_order_cargo_retained" then
+            resultText = UI.baseFailureReason(reason)
+        end
         if reason == "home_recall_staged" then resultText = UI.text("UI_SC_HomeTrip_CalledOff") end
         if button.scCommand == "set_weapon_priority" then
             local weaponName = type(extra) == "table" and extra.weaponName or nil
@@ -1620,11 +1649,11 @@ local function issueCommandButton(target, button, requestedRow)
                 resultText = UI.text("UI_SC_Result_WeaponDeferred")
             end
         end
-        setButtonFeedback(target,
+        if reason ~= "base_order_pending" then setButtonFeedback(target,
             resultText and UI.text("UI_SC_CommandAcceptedResult",
                 buttonFeedbackLabel(button), resultText)
                 or UI.text("UI_SC_CommandAcceptedDetail", buttonFeedbackLabel(button)),
-            true)
+            true) end
     end
     if button.scCommand == "status" and ok and accepted == true
         and not (target.root and target.root.selectedTab == "talk") then

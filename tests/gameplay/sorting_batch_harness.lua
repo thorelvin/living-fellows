@@ -57,6 +57,7 @@ SC.BaseLife={active=function() return {jobs={job},storages={from,to}} end,
     job=function(id) return id==job.id and job end,jobFor=function() return activeJob end,
     resident=function() return {role="generalist",duty=true} end,
     isInside=function() return true end,outdoorNightRestricted=function() return false end,
+    restriction=function() return nil end,
     storage=function(id) return id==from.id and from or id==to.id and to end,
     storageRows=function() return {from,to} end,
     depositStorageRows=function(category)
@@ -177,6 +178,39 @@ check(SC.Logistics.canTake(actor,cash,"weapon",audit,nil,from),
 SC.Combat=nil
 audit.counts.crafting=1
 check(not SC.Logistics.canTake(actor,cash,"crafting",audit,nil,from),"field collection policy cannot cycle stocked camp crafting supplies")
+-- Leaving duty must not remain dependent on a removed/unloaded source marker.
+-- Other cancellation paths still retain their ordinary exact-return contract.
+do
+    local storage, resolveContainer = SC.BaseLife.storage, SC.BaseLife.resolveContainer
+    for _, mode in ipairs({ "removed", "unloaded", "taken_by_player" }) do
+        reset(3); update(); phase="completed"; update()
+        local original = { root.items[1], root.items[2], root.items[3] }
+        local movedBefore = transfers
+        if mode == "removed" then
+            SC.BaseLife.storage = function() return nil end
+        elseif mode == "unloaded" then
+            SC.BaseLife.resolveContainer = function() return nil end
+        else
+            check(transfer(root, dest, original[1]), "player can take one real item before cancellation")
+            movedBefore = transfers
+        end
+        check(not SC.BaseWork.cancel(actor, "ordinary_cancel"),
+            "negative control: ordinary cancellation still requires exact return")
+        check(SC.BaseWork.cancel(actor, "left_base_duty") and job.target.stockBatch == nil
+            and transfers == movedBefore, "duty release retires only the haul claim, without transferring cargo")
+        for index, value in ipairs(original) do
+            local data = value:getModData()
+            local carried = mode ~= "taken_by_player" or index ~= 1
+            check(value.owner == (carried and root or dest)
+                and (not carried or data.LF_BaseReturnOwner == actor.id)
+                and (carried or data.LF_BaseReturnOwner == nil)
+                and not SC.SortBatch.protected(value),
+                "each original item keeps its actual owner; only verified carried stock is marked")
+        end
+        SC.BaseLife.storage, SC.BaseLife.resolveContainer = storage, resolveContainer
+    end
+end
+
 -- Leave a real carried receipt, then reload the production BaseWork module.
 local function checkpoint()
     job.target=SC.StableValue.copyStrict(job.target,{maxDepth=3,maxEntries=96})
@@ -212,6 +246,23 @@ SORTING_BATCH_TEST={resume=function()
             "native deposit receipt gap reload does not duplicate or return an already delivered item")
         reset(7);update();phase="completed";update()
         missing=table.remove(root.items,1);missing.owner=nil;checkpoint();reloadPhase=3;return
+    elseif reloadPhase==4 then
+        local storage=SC.BaseLife.storage
+        SC.BaseLife.storage=function() return nil end
+        check(not SC.BaseWork.cancel(actor,"ordinary_cancel_after_reload"),
+            "a removed source does not silently relax normal cancellation after reload")
+        check(SC.BaseWork.cancel(actor,"left_base_duty") and #root.items==6
+            and #source.items==0 and transfers==7 and job.target.stockBatch==nil
+            and #job.target.releasedHaul.ids==7 and missing.owner==nil,
+            "cold duty release preserves all existing items and records the unresolved identity without recreating it")
+        for _,value in ipairs(root.items) do
+            check(value.data.LF_BaseReturnOwner==actor.id and not SC.SortBatch.protected(value),
+                "cold release marks only the six verified carried identities for later storage")
+        end
+        SC.BaseLife.storage=storage
+        print("SORTING_BATCH_PASS checks="..checks)
+        SC_TEST_REPORT="SORTING_BATCH_PASS checks="..checks
+        return
     end
     phase="completed";update()
     check(#root.items==6 and #dest.items==0 and #job.target.stockBatch.ids==7,
@@ -219,6 +270,6 @@ SORTING_BATCH_TEST={resume=function()
     add(root,missing)
     check(SC.BaseWork.cancel(actor,"reconcile_missing") and #source.items==7,
         "returning the same missing identity allows a later reconciliation and cancellation")
-    print("SORTING_BATCH_PASS checks="..checks)
-    SC_TEST_REPORT="SORTING_BATCH_PASS checks="..checks
+    reset(7);update();phase="completed";update()
+    missing=table.remove(root.items,1);missing.owner=nil;checkpoint();reloadPhase=4
 end}

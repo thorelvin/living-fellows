@@ -34,6 +34,37 @@ button.onClick(button.target, button)
 root.selectedRow = { id = bob.id, available = false }
 button.onClick(button.target, button)
 assert(#issued == 1, "missing and unavailable selections cannot dispatch")
+-- Exercise the same production button with the order descriptor present:
+-- this was the branch which replaced stock/work reasons with Talk_Cancelled.
+root.selectedRow = bob
+SC.Interaction = { descriptor = function(command)
+    if command == "follow" then return { kind = "order", key = "UI_SC_Action_Follow" } end
+end, availability = function() return true end,
+issue = function() return false, "destination_full" end,
+reasonText = function() return "The conversation ended before they answered." end }
+local orderPanel = ISPanel:new(0, 0, 240, 300)
+detail:addCommand(orderPanel, 0, "UI_SC_Action_Follow", "follow")
+local follow = orderPanel.childrenInOrder[1]
+follow.onClick(follow.target, follow)
+assert(detail.feedback:find("Destination storage is full.", 1, true)
+    and not detail.feedback:find("conversation", 1, true),
+    "refused Follow preserves the storage cause instead of the Talk fallback")
+SC.Interaction.issue = function() return false, "base_watch_leader_on_duty" end
+follow.onClick(follow.target, follow)
+assert(detail.feedback:find("Base Watch", 1, true), "watch leaders explain how to release duty")
+SC.Interaction.issue = function() return true, "base_order_pending" end
+follow.onClick(follow.target, follow)
+assert(detail.feedback:find("20 seconds", 1, true), "accepted pending order explains its bounded wait")
+local oldRoot = UI.instance
+UI.instance = { selectedRow = alice, detail = detail }
+local previousFeedback = detail.feedback
+assert(UI.reportOrderResult(bob.id, "follow", false, "destination_full") == false
+    and detail.feedback == previousFeedback, "completion cannot overwrite another selected companion")
+UI.instance.selectedRow = bob
+assert(UI.reportOrderResult(bob.id, "follow", false, "destination_full") == true
+    and detail.feedback:find("Destination storage is full.", 1, true),
+    "timed-out hand-back reports its real reason on the matching panel")
+UI.instance = oldRoot
 SC.Commands, SC.Interaction, UI.refresh = saved.commands, saved.interaction, saved.refresh
 SC_TEST_REPORT = (SC_TEST_REPORT or "") .. "; Selected command PASS: exact actor, payload and player; stale selection guarded"
 

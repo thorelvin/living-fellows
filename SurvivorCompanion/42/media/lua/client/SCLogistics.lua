@@ -347,7 +347,7 @@ local function barricadeKit(actor, item)
     return false
 end
 
-local function workCargo(actor, item, keptHarvestDeposit)
+local function workCargo(actor, item, keptHarvestDeposit, baseReturnDeposit)
     if barricadeKit(actor, item) then return true end
     if SC.BaseWork and type(SC.BaseWork.cargoReserved) == "function"
         and SC.BaseWork.cargoReserved(actor, item) then return true end
@@ -357,6 +357,8 @@ local function workCargo(actor, item, keptHarvestDeposit)
         and SC.ExpeditionPrototype.receiptPending(item) then return true end
     local itemData = select(1, U().call(item, "getModData"))
     if type(itemData) ~= "table" then return false end
+    if itemData.LF_BaseReturnOwner == tostring(U().idOf(actor) or "")
+        and not baseReturnDeposit then return true end
     -- Harvest and woodcut orders own their exact cargo until delivery or
     -- cancellation. Generic overload handling must never drop it as surplus.
     local fieldMarked = itemData.LF_FieldOrder ~= nil
@@ -394,7 +396,8 @@ local function workCargo(actor, item, keptHarvestDeposit)
     -- markers are decided above, including the kept-harvest deposit case.
     if not fieldMarked and SC.WorkTransport
         and type(SC.WorkTransport.isCargoProtected) == "function"
-        and SC.WorkTransport.isCargoProtected(item, actor, "loadout") == true then
+        and SC.WorkTransport.isCargoProtected(item, actor,
+            baseReturnDeposit and "base_return_deposit" or "loadout") == true then
         return true
     end
     return false
@@ -967,10 +970,10 @@ end
 
 -- keptHarvestDeposit admits one case: a harvest kept for pickup because no
 -- car was chosen may go into camp storage. It is still never dropped.
-local function isProtected(actor, item, keptHarvestDeposit)
+local function isProtected(actor, item, keptHarvestDeposit, baseReturnDeposit)
     if SC.MedicKit.retained(actor,item) then return true end
     if not actor or not item then return true end
-    if workCargo(actor, item, keptHarvestDeposit) then return true end
+    if workCargo(actor, item, keptHarvestDeposit, baseReturnDeposit) then return true end
     local manualData = select(1, U().call(item, "getModData"))
     if Preparation.manualItem(actor, manualData) then return true end
     -- A key weighs almost nothing and opens the car or building it belongs
@@ -992,7 +995,8 @@ local function isProtected(actor, item, keptHarvestDeposit)
     end
     if SC.PersonalItems and SC.PersonalItems.isProtected
         and SC.PersonalItems.isProtected(item, actor,
-            keptHarvestDeposit and "kept_harvest_deposit" or "loadout") then
+            baseReturnDeposit and "base_return_deposit"
+                or keptHarvestDeposit and "kept_harvest_deposit" or "loadout") then
         return true
     end
     local favorite, favoriteOk = U().call(item, "isFavorite")
@@ -1344,6 +1348,20 @@ local function selectKeptHarvest(actor, audit, skip)
     return nil
 end
 
+local function selectBaseReturnStock(actor, audit, skip)
+    local id = tostring(U().idOf(actor) or "")
+    for _, record in ipairs(audit.items or {}) do
+        local data = select(1, U().call(record.item, "getModData"))
+        if type(data) == "table" and data.LF_BaseReturnOwner == id
+            and not (skip and skip(record.item))
+            and not isProtected(actor, record.item, false, true) then
+            return { item = record.item, source = record.source,
+                category = record.category or Logistics.itemCategory(record.item),
+                proactive = true, shelveOnly = true, baseReturnStock = true }
+        end
+    end
+end
+
 local function selectFarmingSurplus(actor, audit, skip)
     for _, record in ipairs(audit.items or {}) do
         if (record.category or Logistics.itemCategory(record.item)) == "farming"
@@ -1544,6 +1562,12 @@ function Logistics.status(actor)
             or moveMemory.cooling(actor, "drop", item, current)
     end or nil
     local surplus = selectKeptHarvest(actor, audit, skip)
+    -- A failed haul hand-back must not keep a Follow order at camp. Resume
+    -- shelving only when the carrier is deliberately put back on base duty.
+    if not surplus and atCamp and type(actorData) == "table"
+        and actorData.SC_Order == "base_duty" then
+        surplus = selectBaseReturnStock(actor, audit, skip)
+    end
     -- A returning field worker can carry ordinary excess below the overload
     -- threshold. Shelve it while at camp, using the normal role minimums.
     if not surplus and audit.fieldReturnCleanup then
@@ -2127,7 +2151,8 @@ local function executeTransaction(actor, state)
     if (transaction.kind == "drop" or transaction.kind == "deposit"
             or transaction.kind == "pack")
         and isProtected(actor, transaction.item,
-            transaction.kind == "deposit" and transaction.keptHarvest == true) then
+            transaction.kind == "deposit" and transaction.keptHarvest == true,
+            transaction.kind == "deposit" and transaction.baseReturnStock == true) then
         return terminalTransaction(actor, state, false, "logistics_item_reserved", {
             kind = transaction.kind,
         })
@@ -2225,6 +2250,7 @@ local function executeTransaction(actor, state)
     if transferred then
         if transaction.kind == "deposit" then
             local data = select(1, U().call(transaction.item, "getModData"))
+            if type(data) == "table" then data.LF_BaseReturnOwner = nil end
             if type(data) == "table" and type(data.SC_BookLoan) == "table"
                 and data.SC_BookLoan.finished == true then
                 data.SC_BookLoan = nil
@@ -3281,6 +3307,7 @@ function Logistics.update(actor, player, runtime)
         state.proactive = audit.surplus.proactive == true
         state.keptHarvest = audit.surplus.keptHarvest == true
         state.shelveOnly = audit.surplus.shelveOnly == true
+        state.baseReturnStock = audit.surplus.baseReturnStock == true
         state.fieldReturnCleanup = audit.fieldReturnCleanup == true
         state.lootReturnCleanup = audit.lootReturnCleanup == true
         state.lootReturnSerial = tonumber((select(1, U().call(actor, "getModData")) or {}).SC_CommandSerial) or 0
@@ -3324,7 +3351,7 @@ function Logistics.update(actor, player, runtime)
                 { movementPriority = 74 })
             if accepted == true and not U().inventoryContains(root, state.item) then
                 local data = U().modData(state.item)
-                if data then data.LF_FieldCarryWorker = nil end
+                if data then data.LF_FieldCarryWorker, data.LF_BaseReturnOwner = nil, nil end
                 state.auditAt = -math.huge
                 states[actor] = nil
                 return true, "surplus_stored"
@@ -3338,6 +3365,7 @@ function Logistics.update(actor, player, runtime)
             kind = "deposit", item = state.item, source = state.source,
             destination = destination.container, owner = destination.owner,
             phase = phase, keptHarvest = state.keptHarvest,
+            baseReturnStock = state.baseReturnStock,
         })
         if not started then states[actor] = nil return false, reason end
         if phase == "approach" then return approachTransaction(actor, state, snapshot) end

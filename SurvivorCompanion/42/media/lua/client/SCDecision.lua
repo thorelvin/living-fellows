@@ -3463,8 +3463,12 @@ Decision._chooseHumanThreatForTests = chooseHumanThreat
 function Decision.update(actor, player, runtime, roundTimestamp)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
-    local state, rootRuntime = stateFor(actor, runtime)
     local current = tonumber(roundTimestamp) or utility.nowMs()
+    if SC.Commands and type(SC.Commands.updatePendingOrder) == "function" then
+        utility.safeSubsystem("order-handback", actor,
+            SC.Commands.updatePendingOrder, actor, player, current)
+    end
+    local state, rootRuntime = stateFor(actor, runtime)
     if SC.Needs and type(SC.Needs.updateRates) == "function" then
         utility.safeSubsystem("needs-rate", actor, SC.Needs.updateRates,
             actor, rootRuntime, current)

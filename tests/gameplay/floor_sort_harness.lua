@@ -680,6 +680,7 @@ SC.Navigation.cancel = function()
 end
 SC.NativeActions.visualStatus = function() return "active" end
 SC.BaseLife.resident = function() return { duty = true, role = "quartermaster" } end
+SC.BaseLife.restriction = function() return nil end
 SC.BaseLife.jobFor = function() return job end
 SC.BaseLife.outdoorNightRestricted = function() return false end
 SC.BaseLife.isInside = function() return true end

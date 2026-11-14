@@ -62,6 +62,7 @@ SC.BaseLife = {
     isInside = function() return true end,
     guardStatus = function() return true end,
     outdoorNightRestricted = function() return false end,
+    restriction = function() return nil end,
     claimJob = function(id) return jobs[id] end,
 }
 SC.Navigation = {
@@ -164,9 +165,9 @@ for _, variant in ipairs({ "follow", "cautious_follow", "assign_follow_car" }) d
     local countBefore, releaseBefore, invalidateBefore = activated, convoyReleased, invalidated
     local accepted, reason = C.issue(actor.id, variant, { vehicle = car }, nil)
     local state = C.peek(actor)
-    check(not accepted and reason == "exact_stock_return_pending"
+    check(accepted and reason == "base_order_pending" and C.pendingBaseOrder(actor)
         and state.order == "base_duty" and residents[actor.id].duty == true,
-        variant .. " refuses a blocked exact stock return atomically")
+        variant .. " queues a bounded hand-back without prematurely releasing duty")
     check(state.moveMode == "walk" and state.scavenge == false
         and state.rideWithPlayer == false and state.followCarSqlId == 123
         and state.commandSerial == 10 and state.anchor.x == 0,
@@ -183,6 +184,71 @@ for _, variant in ipairs({ "follow", "cautious_follow", "assign_follow_car" }) d
         and convoyReleased == releaseBefore and invalidated == invalidateBefore,
         variant .. " refusal neither releases ownership nor activates/invalidate convoy")
     refused = nil
+    current = current + 500
+    check(C.updatePendingOrder(actor, nil, current) == true
+        and not C.pendingBaseOrder(actor) and C.peek(actor).order == "follow"
+        and residents[actor.id].duty == false and jobs[actor.id] == nil,
+        variant .. " applies automatically once the exact work owner releases")
+    check(C.peek(actor).commandSerial == 11,
+        "the deferred transition records one command, not an order on every retry")
+end
+
+do
+    local actor = guard(false)
+    refused = actor
+    check(C.issue(actor.id, "follow", nil, nil) and C.pendingBaseOrder(actor), "blocked order queues")
+    local route = routes[actor]
+    check(W.update(actor, nil, {}) == true and routes[actor] == route,
+        "hand-back does not start another base job or guard route")
+    current = current + 21000
+    local okay, why = C.updatePendingOrder(actor, nil, current)
+    check(not okay and why == "exact_stock_return_pending" and not C.pendingBaseOrder(actor)
+        and C.peek(actor).order == "base_duty" and jobs[actor.id] ~= nil,
+        "a hand-back still blocked at the deadline keeps its receipt and reports the real reason")
+    refused = nil
+    check(C.issue(actor.id, "follow", nil, nil) and C.peek(actor).order == "follow",
+        "manual retry remains available after timeout")
+end
+
+do
+    local actor = guard(false)
+    local watch = SC.BaseWatch
+    SC.BaseWatch = { isLeaderId = function(id) return id == actor.id end }
+    local okay, why = C.issue(actor.id, "follow", nil, nil)
+    check(not okay and why == "base_watch_leader_on_duty" and not C.pendingBaseOrder(actor)
+        and jobs[actor.id] ~= nil and residents[actor.id].duty,
+        "watch ownership is an immediate refusal and cancels no work")
+    SC.BaseWatch = watch
+end
+
+do
+    local actor = guard(false)
+    refused = actor
+    check(C.issue(actor.id, "follow", nil, nil), "first Follow waits for hand-back")
+    current = current + 19000
+    check(C.issue(actor.id, "follow", nil, nil), "repeated Follow keeps the same request")
+    current = current + 1001
+    check(not C.updatePendingOrder(actor, nil, current) and not C.pendingBaseOrder(actor),
+        "repeated clicks cannot silently renew the original twenty-second window")
+    check(C.issue(actor.id, "follow", nil, nil) and C.pendingBaseOrder(actor),
+        "manual retry starts a fresh bounded request after timeout")
+    C.reset(actor)
+    refused = nil
+    check(not C.pendingBaseOrder(actor) and not C.updatePendingOrder(actor, nil, current + 500)
+        and C.peek(actor).order == "base_duty" and residents[actor.id].duty,
+        "reset or reload cannot replay a transient queued command")
+end
+
+do
+    local actor = guard(false)
+    refused = actor
+    check(C.issue(actor.id, "follow", nil, nil), "Follow can queue before a newer order")
+    refused = nil
+    check(C.issue(actor.id, "stay", nil, nil) and not C.pendingBaseOrder(actor),
+        "an accepted newer order immediately removes queued Follow")
+    C.updatePendingOrder(actor, nil, current + 21000)
+    check(C.peek(actor).order == "base_duty" and C.peek(actor).commandSerial == 11,
+        "expired Follow cannot override Stay's existing join-base behaviour")
 end
 
 -- Neither special variant is groupable today. Preserve that boundary and

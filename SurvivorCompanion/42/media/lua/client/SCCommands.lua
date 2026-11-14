@@ -22,6 +22,9 @@ local states = setmetatable({}, { __mode = "k" })
 -- saved order. Keeping this outside command state prevents an autosave/persist
 -- while the pane is open from turning a temporary hold into a permanent Stay.
 local temporaryStays = setmetatable({}, { __mode = "k" })
+-- A short, transient hand-back transaction, serviced only by this actor's
+-- ordinary decision tick. It never changes the saved order before release.
+local pendingBaseOrders = setmetatable({}, { __mode = "k" })
 local temporaryStaySerial = 0
 
 local function U()
@@ -748,7 +751,12 @@ end
 
 local function setOrder(actor, entry, state, order, anchor, updates)
     local id = U().idOf(actor)
+    local retainedCargo = false
     if not groupStaging and state.order == "base_duty" and order ~= "base_duty" then
+        if SC.BaseWatch and type(SC.BaseWatch.isLeaderId) == "function"
+            and SC.BaseWatch.isLeaderId(id) then
+            return false, "base_watch_leader_on_duty"
+        end
         if not SC.BaseLife or type(SC.BaseLife.setDuty) ~= "function"
             or type(SC.BaseLife.snapshotResident) ~= "function"
             or type(SC.BaseLife.restoreResident) ~= "function" then
@@ -775,6 +783,7 @@ local function setOrder(actor, entry, state, order, anchor, updates)
             if not called or cancelled ~= true then
                 return false, called and reason or cancelled
             end
+            retainedCargo = reason == "base_cargo_retained"
             return true
         end
         if resident and resident.role == "chef" then
@@ -782,21 +791,21 @@ local function setOrder(actor, entry, state, order, anchor, updates)
             -- BaseWork cancellation cannot do that while a native recipe has
             -- committed, so it follows the accepted duty release.
             local released, reason = releaseDuty()
-            if not released then return false, reason or "chef_duty_change_failed" end
+            if not released then return false, reason or "base_duty_change_failed", "base_duty_release" end
             local cancelled, cancelReason = cancelBaseWork()
             if not cancelled then
                 SC.BaseLife.restoreResident(id, residentSnapshot)
-                return false, cancelReason or "base_work_cancel_failed"
+                return false, cancelReason or "base_work_cancel_failed", "base_duty_release"
             end
         else
             -- Fail closed while a sorter still owns stock. Releasing resident
             -- duty first would otherwise leave base_duty under duty=false.
             local cancelled, cancelReason = cancelBaseWork()
-            if not cancelled then return false, cancelReason or "base_work_cancel_failed" end
+            if not cancelled then return false, cancelReason or "base_work_cancel_failed", "base_duty_release" end
             local released, reason = releaseDuty()
             if not released then
                 SC.BaseLife.restoreResident(id, residentSnapshot)
-                return false, reason or "base_duty_change_failed"
+                return false, reason or "base_duty_change_failed", "base_duty_release"
             end
         end
     end
@@ -811,7 +820,7 @@ local function setOrder(actor, entry, state, order, anchor, updates)
     -- only after it succeeds, in time for the one command snapshot below.
     for key, value in pairs(updates or {}) do state[key] = value end
     markCommand(actor, entry, state)
-    return true, order
+    return true, retainedCargo and "base_order_cargo_retained" or order
 end
 
 -- Put a companion on base duty. `role` overrides its current base role, and
@@ -1140,10 +1149,10 @@ local function handleAssignFollowCar(actor, entry, state, payload, player)
     local vehicle = type(payload) == "table" and payload.vehicle or nil
     local sqlId, reason = SC.Convoy.preflight(actor, vehicle, player)
     if not sqlId then return false, reason end
-    local accepted, orderReason = setOrder(actor, entry, state, "follow", nil, {
+    local accepted, orderReason, releaseContext = setOrder(actor, entry, state, "follow", nil, {
         rideWithPlayer = true, followCarSqlId = sqlId,
     })
-    if accepted ~= true then return false, orderReason end
+    if accepted ~= true then return false, orderReason, releaseContext end
     if groupStaging then return true, "follow_car_assigned" end
     SC.Convoy.activate(actor)
     if SC.Vehicle and SC.Vehicle.invalidateManifests then
@@ -1164,10 +1173,10 @@ local function handleCancelFollowCar(actor, entry, state)
 end
 
 local function handleCautiousFollow(actor, entry, state)
-    local accepted, reason = setOrder(actor, entry, state, "follow", nil, {
+    local accepted, reason, releaseContext = setOrder(actor, entry, state, "follow", nil, {
         moveMode = "sneak", moveModeVersion = 2, scavenge = true,
     })
-    if accepted ~= true then return false, reason end
+    if accepted ~= true then return false, reason, releaseContext end
     return true, "cautious_follow"
 end
 
@@ -2331,7 +2340,7 @@ local function homeRecallForMembers(members, command, player, atomic)
     return true, accepted == true, issue, results
 end
 
-local function issueOne(companionId, command, payload, player)
+local function issueOne(companionId, command, payload, player, retryPending)
     local actor, entry, reason = resolve(companionId)
     if not actor then return false, reason end
     local handled, recalled, recallReason = homeRecallForMembers({ { id = companionId } }, command, player, false)
@@ -2391,8 +2400,22 @@ local function issueOne(companionId, command, payload, player)
         states[actor] = before
         restoreStorage(actor, entry, storageBefore)
         if not ok then return false, a end
+        if not retryPending and c == "base_duty_release"
+            and b ~= "base_watch_leader_on_duty" and before.order == "base_duty" then
+            local now = U().nowMs()
+            local previous = pendingBaseOrders[actor]
+            if not previous or previous.command ~= command or type(payload) == "table"
+                or previous.serial ~= before.commandSerial or now >= previous.deadline then
+                pendingBaseOrders[actor] = { id = companionId, command = command,
+                    payload = type(payload) == "table" and U().copyShallow(payload) or payload,
+                    player = player, serial = before.commandSerial, deadline = now + 20000,
+                    nextAt = now + 500, reason = b }
+            else previous.reason = b end
+            return true, "base_order_pending", b
+        end
         return false, b
     end
+    if driveControlCommands[command] then pendingBaseOrders[actor] = nil end
     -- A faction-trial return commits a detached replacement state. Continue
     -- its accepted transaction, rather than persisting the old trial state.
     state = states[actor] or state
@@ -2873,6 +2896,60 @@ function Commands.issue(companionId, command, payload, player)
         return issueGroupAtomic(payload.group, command, payload, player)
     end
     return issueOne(companionId, command, payload, player)
+end
+
+function Commands.pendingBaseOrder(actor)
+    return pendingBaseOrders[actor] ~= nil
+end
+
+local function reportBaseOrder(actor, request, accepted, reason)
+    local shown = false
+    if SC.UI and type(SC.UI.reportOrderResult) == "function" then
+        local okay, value = pcall(SC.UI.reportOrderResult,
+            request.id, request.command, accepted, reason)
+        shown = okay and value == true
+    end
+    if not shown and request.player then
+        local feedback = SC.ActionFeedback and SC.ActionFeedback.reason(reason)
+        local message = accepted and U().text("UI_SC_CommandAcceptedDetail",
+            "Order sent: %1", request.command)
+            or U().text("UI_SC_CommandRejectedDetail", "Could not send: %1", request.command)
+        if not accepted and feedback then message = message .. ": " .. feedback.cause end
+        U().call(request.player, "setHaloNote", message)
+    end
+end
+
+function Commands.updatePendingOrder(actor, player, current)
+    local request = pendingBaseOrders[actor]
+    if not request then return false end
+    current = tonumber(current) or U().nowMs()
+    local state = states[actor]
+    if not state or U().isDead(actor) or state.order ~= "base_duty"
+        or state.commandSerial ~= request.serial
+        or request.player and U().isDead(request.player) then
+        pendingBaseOrders[actor] = nil
+        reportBaseOrder(actor, request, false, "base_order_superseded")
+        return false, "base_order_superseded"
+    end
+    if current < request.nextAt then return true, "base_order_pending" end
+    if current <= request.deadline then
+        request.nextAt = current + 500
+        local accepted, reason = issueOne(request.id, request.command,
+            request.payload, request.player or player, true)
+        if accepted then
+            pendingBaseOrders[actor] = nil
+            reportBaseOrder(actor, request, true, reason)
+            return true, reason
+        end
+        request.reason = reason
+        if reason == "base_watch_leader_on_duty" then request.deadline = current end
+    end
+    if current >= request.deadline then
+        pendingBaseOrders[actor] = nil
+        reportBaseOrder(actor, request, false, request.reason or "base_work_cancel_failed")
+        return false, request.reason
+    end
+    return true, "base_order_pending"
 end
 
 function Commands.teamCombatDoctrine(player)
@@ -3557,9 +3634,11 @@ function Commands.reset(actor)
     if actor then
         states[actor] = nil
         temporaryStays[actor] = nil
+        pendingBaseOrders[actor] = nil
     else
         states = setmetatable({}, { __mode = "k" })
         temporaryStays = setmetatable({}, { __mode = "k" })
+        pendingBaseOrders = setmetatable({}, { __mode = "k" })
     end
     if SC.Relationship and type(SC.Relationship.reset) == "function" then
         SC.Relationship.reset(actor)

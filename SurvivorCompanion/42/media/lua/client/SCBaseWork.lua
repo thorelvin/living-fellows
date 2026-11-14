@@ -2588,6 +2588,10 @@ BaseWork._sleepBeforeNewJobForTests = sleepBeforeNewJob
 
 function BaseWork.update(actor, player, runtime)
     local id, state = actorId(actor), stateFor(actor)
+    if SC.Commands and type(SC.Commands.pendingBaseOrder) == "function"
+        and SC.Commands.pendingBaseOrder(actor) then
+        return true, "base_order_pending"
+    end
     local resident = SC.BaseLife and SC.BaseLife.resident(id) or nil
     if not resident or resident.duty ~= true then
         clearGuardPatrol(actor, state, "not_on_base_duty")
@@ -3388,7 +3392,13 @@ function BaseWork.auditMaintenance(player, remainingBudget)
     return scan.queued == true, scan.reason, false
 end
 
+local function staleHaulReference(reason)
+    return reason == "haul_source_marker_missing" or reason == "haul_source_storage_changed"
+        or reason == "haul_cargo_owner_unknown"
+end
+
 function BaseWork.cancel(actor, reason)
+    local retainedCargo = false
     if SC.LogYard and SC.LogYard.cancelActorUnstack then
         local stopped, why = SC.LogYard.cancelActorUnstack(actor)
         if stopped ~= true then return false, why end
@@ -3406,6 +3416,19 @@ function BaseWork.cancel(actor, reason)
         if batchJob then
             state=state or stateFor(actor);state.jobId=state.jobId or batchJob.id
             local restored,why=SC.SortBatch.restoreState(actor,state,batchJob)
+            if not restored and reason == "left_base_duty" and staleHaulReference(why) then
+                local staleReason = why
+                -- Cold saves have only native IDs. Resolve carried identities
+                -- in bounded slices; absent members are never recreated.
+                restored,why=SC.SortBatch.restoreState(actor,state,batchJob,true)
+                if restored then
+                    restored,why=SC.WorkTransport.retainBaseCargo(actor,state.cargo,batchJob,staleReason)
+                    if restored then
+                        state.cargo,state.transfer=nil,nil
+                        retainedCargo=true
+                    end
+                end
+            end
             if not restored then return false,why end
         end
     end
@@ -3422,6 +3445,16 @@ function BaseWork.cancel(actor, reason)
             if okay ~= true then return false, why or "floor_sort_cancel_failed" end
         end
         local settled, cargoReason = settleCargo(actor, state)
+        if settled ~= true and reason == "left_base_duty"
+            and staleHaulReference(cargoReason)
+            and SC.WorkTransport and type(SC.WorkTransport.retainBaseCargo) == "function" then
+            local job = state.jobId and SC.BaseLife.job(state.jobId) or nil
+            settled, cargoReason = SC.WorkTransport.retainBaseCargo(actor, state.cargo, job, cargoReason)
+            if settled then
+                state.cargo, state.transfer = nil, nil
+                retainedCargo = true
+            end
+        end
         if settled ~= true then return false, cargoReason end
         local job = state.jobId and SC.BaseLife.job(state.jobId) or nil
         if job and job.type == "clean" then
@@ -3479,14 +3512,21 @@ function BaseWork.cancel(actor, reason)
             reason or "base_work_cancelled")
         if cancelled ~= true then return false, cancelReason end
     end
-    if state.jobId then SC.BaseLife.releaseJob(state.jobId, id, reason or "base_work_cancelled") end
+    if state.jobId then
+        local job = SC.BaseLife.job(state.jobId)
+        if job and job.reservedBy == id then
+            local released, why = SC.BaseLife.releaseJob(state.jobId, id,
+                reason or "base_work_cancelled")
+            if released ~= true then return false, why or "base_duty_change_failed" end
+        end
+    end
     if state.visualAt ~= nil and SC.NativeActions
         and type(SC.NativeActions.cancelVisual) == "function" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "base_work_cancelled")
     end
     clearGuardPatrol(actor, state, reason or "base_work_cancelled")
     states[actor] = nil
-    return true
+    return true, retainedCargo and "base_cargo_retained" or nil
 end
 
 -- BaseLife calls this before deleting a build row, so cancellation cannot

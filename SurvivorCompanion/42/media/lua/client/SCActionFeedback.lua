@@ -6,6 +6,17 @@ SC.ActionFeedback = SC.ActionFeedback or {}
 local F = SC.ActionFeedback
 
 local wording = {
+    base_watch_leader_on_duty = { "This companion is running Base Watch.", "End Base Watch before changing their duty." },
+    base_watch_radio_required = { "This resident is outside ordinary command range.", "Send a radio order or return to camp." },
+    haul_source_marker_missing = { "The haul's original storage is no longer marked.", "Verified carried stock stays with the companion for later delivery." },
+    haul_source_storage_changed = { "The haul's original storage is unavailable.", "Verified carried stock stays with the companion for later delivery." },
+    haul_cargo_owner_unknown = { "The haul item's current owner could not be confirmed.", "Existing items are preserved; no missing cargo will be recreated." },
+    base_work_cancel_failed = { "The companion could not finish handing back their previous work.", "Check the current job and its supplies, then retry the order." },
+    base_duty_change_failed = { "The companion's base duty could not be released.", "Check the current job, then retry the order." },
+    base_duty_release_unavailable = { "Base duty cannot be released right now.", "The camp service must be available before changing this order." },
+    base_order_pending = { "Finishing previous work first (up to 20 seconds).", "The new order will apply after its supplies and native action are released.", true },
+    base_order_cargo_retained = { "Carried camp stock is being kept for later delivery.", "The companion can follow now and store it when suitable storage is available." },
+    base_order_superseded = { "The queued order was replaced by a newer command.", "The newer command has been kept." },
     force_open_failed = { "The crowbar attempt failed.", "The native action stopped. Use Retry forcing to make another attempt; it may damage the tool or window." },
     force_open_not_forceable = { "This target cannot be forced open.", "Security and jail doors, barricaded openings and unsupported portals are excluded." },
     force_crowbar_missing = { "A usable crowbar is needed.", "Allow borrowing from marked camp storage, or put an unbroken crowbar in the companion's inventory before leaving." },

@@ -1132,6 +1132,7 @@
     "UI_SC_CommandAcceptedResult": "Order sent: %1 - %2",
     "UI_SC_CommandRejected": "That command is not available right now.",
     "UI_SC_CommandRejectedDetail": "Could not send: %1",
+    "UI_SC_CommandQueuedDetail": "Queued %1: %2",
     "UI_SC_Result_WeaponEquipped": "equipped %1",
     "UI_SC_Result_WeaponDeferred": "preference saved; equipment change was deferred",
     "UI_SC_Info_WeaponPriority": "Weapon preference: %1",

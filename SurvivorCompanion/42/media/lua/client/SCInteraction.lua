@@ -171,7 +171,10 @@ function Interaction.reasonText(reason, argument)
         if key == "UI_SC_Disabled_TooFar" and argument == nil then argument = 16 end
         return argument ~= nil and label(key, argument) or label(key)
     end
-    return label("UI_SC_Talk_Cancelled")
+    if type(reason) == "string" and string.sub(reason, 1, 13) == "conversation_" then
+        return label("UI_SC_Talk_Cancelled")
+    end
+    return label("UI_SC_CommandRejected")
 end
 
 function Interaction.finish(id, action, reply, reason)

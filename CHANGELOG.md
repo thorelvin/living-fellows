@@ -2,6 +2,22 @@
 
 # Changelog
 
+## 0.27.20 - Leave base duty without losing supplies
+
+- Follow and other direct orders explain the actual work or storage blocker
+  instead of displaying a cancelled-conversation message.
+- Orders wait up to 20 seconds for previous work to release its supplies and
+  actions. A newer order replaces the queued request; a timeout reports the
+  remaining problem and leaves manual retry available.
+- Missing haul storage or uncertain cargo references no longer permanently
+  trap a companion on base duty, including after reload. Existing items stay
+  where they are; verified carried camp stock is kept for later storage when
+  the companion returns to base duty. Missing items are never recreated.
+- Base Watch leaders still need their watch ended before changing duty.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata. Zombie navigation is unchanged.
+
 ## 0.27.19 - Focus fire and moving reloads
 
 - Gunners keep a viable firing target and prefer finishing wounded enemies,

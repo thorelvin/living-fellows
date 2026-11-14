@@ -17,6 +17,13 @@ assert(not sameFloorAllowed and floorReason == "UI_SC_Talk_DifferentFloor")
 SurvivorCompanion.GameplayUtil = nil
 assert(interaction.reasonText("conversation_partner_too_far") ==
     "UI_SC_Disabled_TooFar:16")
+assert(interaction.reasonText("conversation_unknown_interruption") == "UI_SC_Talk_Cancelled",
+    "unknown conversation interruptions retain their Talk wording")
+for _, reason in ipairs({ "destination_full", "haul_source_marker_missing",
+    "base_watch_leader_on_duty", "unknown_order_reason" }) do
+    assert(interaction.reasonText(reason) == "UI_SC_CommandRejected",
+        "order failures must never become cancelled conversation text: " .. reason)
+end
 local neutral = { id = "stranger", actor = {}, alive = true, available = true,
     recruited = false, distance = 2 }
 assert(interaction.availability(neutral, "doing", player))

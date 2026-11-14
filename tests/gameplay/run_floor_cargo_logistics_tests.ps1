@@ -11,10 +11,11 @@ try {
     $Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
     & $Javac -d $BuildRoot (Join-Path $PSScriptRoot 'KahluaTestRunner.java')
     if ($LASTEXITCODE -ne 0) { throw 'Floor cargo/logistics runner compilation failed.' }
-    $LuaFiles = @('SCNamespace.lua', 'SCCall.lua', 'SCNativeList.lua') |
+    $LuaFiles = @(Join-Path $ProjectRoot 'tests\core\core_fixture.lua')
+    $LuaFiles += @('SCNamespace.lua', 'SCCall.lua', 'SCNativeList.lua') |
         ForEach-Object { Join-Path $SharedRoot $_ }
     $LuaFiles += Join-Path $PSScriptRoot 'base_work_fixture.lua'
-    $LuaFiles += @('SCWorkTransport.lua', 'SCLogistics.lua', 'SCFloorSort.lua', 'SCBaseWork.lua') |
+    $LuaFiles += @('SCMedicKit.lua', 'SCWorkTransport.lua', 'SCLogistics.lua', 'SCFloorSort.lua', 'SCBaseWork.lua') |
         ForEach-Object { Join-Path $ClientRoot $_ }
     $LuaFiles += Join-Path $PSScriptRoot 'floor_cargo_logistics_harness.lua'
     Push-Location -LiteralPath $GameRoot
@@ -32,13 +33,14 @@ try {
         $FloorFiles += Join-Path $PSScriptRoot 'floor_stack_reload_harness.lua'
         & (Join-Path $GameRoot 'jre64\bin\java.exe') -cp "$BuildRoot;$(Join-Path $GameRoot 'projectzomboid.jar')" KahluaTestRunner @FloorFiles
         if ($LASTEXITCODE -ne 0) { throw 'Existing floor sorting compatibility failed.' }
-        $BatchFiles = @('SCNamespace.lua', 'SCCall.lua', 'SCNativeList.lua', 'SCStableValue.lua') |
+        $BatchFiles = @(Join-Path $ProjectRoot 'tests\core\core_fixture.lua')
+        $BatchFiles += @('SCNamespace.lua', 'SCCall.lua', 'SCNativeList.lua', 'SCStableValue.lua') |
             ForEach-Object { Join-Path $SharedRoot $_ }
         $BatchFiles += Join-Path $PSScriptRoot 'base_work_fixture.lua'
-        $BatchFiles += @('SCWorkTransport.lua', 'SCLogistics.lua', 'SCBaseWork.lua') |
+        $BatchFiles += @('SCMedicKit.lua', 'SCWorkTransport.lua', 'SCLogistics.lua', 'SCBaseWork.lua') |
             ForEach-Object { Join-Path $ClientRoot $_ }
         $BatchFiles += Join-Path $PSScriptRoot 'sorting_batch_harness.lua'
-        1..4 | ForEach-Object {
+        1..5 | ForEach-Object {
             $BatchFiles += Join-Path $ClientRoot 'SCBaseWork.lua'
             $BatchFiles += Join-Path $PSScriptRoot 'sorting_batch_reload_harness.lua'
         }
