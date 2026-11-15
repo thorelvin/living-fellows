@@ -228,7 +228,7 @@ Lines.POOLS = {
     sing = {
         "I do not sing. Singing is loud, and loud is how you get visitors.",
         "La. That is all you get. It carried farther than you think.",
-        "My sound card was supposed to play the emergency broadcast tone. I can do that. You would not enjoy it, and neither would the neighbors.",
+        "My sound card can manage a test tone. An undemanding audience is essential to a career in music.",
     },
     thanks = {
         "You are welcome. I have added that to your file, under 'manners, surprising'.",

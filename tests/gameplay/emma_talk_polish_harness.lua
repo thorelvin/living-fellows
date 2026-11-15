@@ -2,11 +2,14 @@
 local SC=SurvivorCompanion
 local F,D=SC.EmmaTalkPolishFixture,SC.EmmaTalkPolishData
 local baseline=SC.EmmaTalkPolishBaseline or {passed={}}
-local results,counts,regressions={},{},{}
+local results,counts,regressions,wrong={},{},{},{}
+local uncertain={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no=true,
+    followup_clarify=true,topic_help=true,deflect=true,steer=true}
 local function record(id,set,row,reply)
     local passed=F.fits(row,reply)
     local count=counts[set] or {0,0} counts[set]=count
     count[2]=count[2]+1 if passed then count[1]=count[1]+1 end
+    if not passed and not uncertain[reply.intent or reply.layer] then wrong[set]=(wrong[set] or 0)+1 end
     results[#results+1]=(passed and "PASS " or "MISS ")..id.." | "..tostring(reply.intent or reply.layer)
     if not passed and baseline.passed[id] then regressions[#regressions+1]=id end
 end
@@ -52,5 +55,14 @@ for _,set in ipairs({"real","real-variants","predicted","persona","chains"}) do
     if baseline.floor and baseline.floor[set] and c[1]<baseline.floor[set] then regressions[#regressions+1]="floor:"..set end
 end
 for _,line in ipairs(results) do report[#report+1]=line end
+for _,set in ipairs({"real","real-variants"}) do
+    report[#report+1]="POLISH_WRONG "..set.." "..(wrong[set] or 0).."/"..counts[set][2]
+end
 SC_TEST_REPORT=(SC_TEST_REPORT or "")..table.concat(report,"\n").."\n"
 assert(#regressions==0,"previously passing rows regressed: "..table.concat(regressions,", ").."\n"..table.concat(report,"\n"))
+for set,rate in pairs({real=.90,["real-variants"]=.90,predicted=.85,persona=.95,chains=1}) do
+    assert(counts[set][1]/counts[set][2]>=rate,"final conversation target: "..set.."\n"..table.concat(report,"\n"))
+end
+for _,set in ipairs({"real","real-variants"}) do
+    assert((wrong[set] or 0)/counts[set][2]<=.03,"confident wrong-answer target: "..set)
+end

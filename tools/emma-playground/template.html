@@ -198,6 +198,24 @@ header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
     step();
   });
   const wait = (ms) => new Promise((r) => (instant || reduced) ? r() : setTimeout(r, ms));
+  let toneContext;
+  const primeTone = () => {
+    try {
+      const Audio = window.AudioContext || window.webkitAudioContext;
+      if (!toneContext && Audio) toneContext = new Audio();
+      if (toneContext && toneContext.state === "suspended") toneContext.resume().catch(() => {});
+    } catch (_) {}
+  };
+  const playTone = () => {
+    if (!toneContext || toneContext.state !== "running") return;
+    const oscillator = toneContext.createOscillator(), gain = toneContext.createGain();
+    const now = toneContext.currentTime;
+    oscillator.frequency.value = 660;
+    gain.gain.setValueAtTime(0.035, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    oscillator.connect(gain); gain.connect(toneContext.destination);
+    oscillator.start(now); oscillator.stop(now + 0.2);
+  };
   const render = async (reply, heard) => {
     if (reply.think > 0 && !instant) {
       const dots = addRow("Thinking", "sys");
@@ -209,6 +227,7 @@ header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
       dots.remove();
     }
     for (const row of reply.rows) await typeRow(row.t, row.k);
+    if (reply.command === "tone") playTone();
     if (heard && $("showHeard").checked && reply.intent) {
       const tag = addRow("[heard: " + reply.intent + "]", "sys");
       if (tag) tag.classList.add("heard");
@@ -228,6 +247,7 @@ header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
     pump();
   };
   const say = (text) => {
+    primeTone();
     queue.push(async () => {
       addRow("> " + text, "you");
       await render(call(window.EMMA_say, text), true);

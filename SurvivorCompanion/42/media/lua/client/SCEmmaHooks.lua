@@ -13,6 +13,7 @@ local nouns={"memory fault","parity error","checksum","state","governor","money"
     "official computer","twelve machines","smile score","kyle","password","authorisation","radio",
     "version one","0f3a","parity","manual",
     "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen"}
+for _,term in ipairs({"reserve","fever","cordon","quarantine","relay","cycle","operator","tone"}) do nouns[#nouns+1]=term end
 local ignored={I=true,Im=true,The=true,A=true,An=true,That=true,This=true,Those=true,These=true,
     It=true,Its=true,You=true,Your=true,We=true,Our=true,They=true,Their=true,He=true,She=true,
     His=true,Her=true,My=true,Me=true,Do=true,Does=true,Did=true,What=true,Who=true,Where=true,
@@ -126,6 +127,9 @@ function H.install()
         for _,line in pairs(topic.exact) do walk(line,"guide:reference_"..topic.id,"emma:reference:"..topic.id,0) end
         for _,line in pairs(topic.subtypes or {}) do walk(line,"guide:reference_"..topic.id,"emma:reference:"..topic.id,0) end
     end
+    walk(SC.EmmaContext and SC.EmmaContext.DATA or {},"pool:context_reference","emma:context",0)
+    walk(SC.EmmaAnswers and SC.EmmaAnswers.DATA or {},"pool:context_reference","emma:answers",0)
+    for id,data in pairs(H.personaAnswers or {}) do walk(data,"persona:hook",id..":hooks",0) end
     for id,data in pairs(SC.TerminalPersonaData or {}) do
         for _,rule in ipairs(data.rules or {}) do
             walk(rule.lines,"persona:"..rule.id,id..":"..rule.id,0)
@@ -156,13 +160,20 @@ local function collect(lines,target)
     return out
 end
 function H.record(session,reply)
+    if reply.intent=="conversation_forget" then
+        session.conversationCallSign=nil
+        if session.context then session.context.roleSource=nil end
+    end
+    if reply.careDetected and session.context then session.context.roleSource=nil end
     local private={remember=true,callme=true,forget=true,notes=true,recall=true,whoami=true,
         comfort=true,conversation_history=true,conversation_forget=true}
     if reply.sensitive or reply.private or reply.careDetected or private[reply.intent] then
+        if SC.EmmaContext then SC.EmmaContext.observe(session,{private=true,foregroundKind=reply.foregroundKind}) end
         session.context.replyHooks=nil return
     end
+    if SC.EmmaContext then SC.EmmaContext.observe(session,reply) end
     local last=SC.TerminalConversation.latest(session)
-    local target=reply.hookTarget or last and (last.kind=="lore" or last.kind=="guide")
+    local target=reply.hookTarget or last and last.id and (last.kind=="lore" or last.kind=="guide")
         and last.kind..":"..last.id or "pool:"..reply.intent
     reply.hooks=collect(reply.lines,target)
     session.context.replyHooks={hooks=reply.hooks,target=target,turn=session.turns,at=SC.TerminalConversation.clock(session),
@@ -184,6 +195,13 @@ function H.fragment(value)
     for _,word in ipairs(terms) do if word=="i" or word=="we" or word=="you" or word=="do"
         or word=="does" or word=="can" or word=="should" or word=="make" or word=="use" then return nil end end
     return table.concat(terms," "),"what"
+end
+function H.preferred(session,raw)
+    local last=session.context and session.context.replyHooks or session.replyHooks
+    local term=H.fragment(raw)
+    if not last or not term then return false end
+    local target=term=="" and (last.selected or last.target) or last.hooks[term]
+    return target and (answers[target]~=nil or target:find("^lore:")~=nil or target:find("^guide:")~=nil) or false
 end
 function H.resolve(session,raw)
     local last=session.context.replyHooks
@@ -238,14 +256,17 @@ function H.render(slots)
 end
 
 local roleNames={governor="Governor",president="President",["head of state"]="Head of state",
+    ["in charge"]="In charge",["head of the county"]="Head of county",["head of county"]="Head of county",
     soldier="Soldier",doctor="Doctor",police="Officer",["police officer"]="Officer",
     scientist="Scientist",["knox telecommunications"]="Knox Telecommunications",["knox telecom"]="Knox Telecommunications"}
 function H.role(raw)
     local text=normal(raw):gsub("^im ","i am ")
-    local value=text:match("^i am (.+)$") or text:match("^i work for (.+)$")
+    local value=text:match("^i am here as (.+)$") or text:match("^i am (.+)$") or text:match("^i work for (.+)$")
     if not value or #value>64 then return nil end
-    local claimed=value:find("^the ") or value:find("^a ") or value:find("^an ") or text:find("^i work for ")
-    value=value:gsub("^the ",""):gsub("^a ",""):gsub("^an ",""):gsub("^new ","")
+    local claimed=value:find("^the ") or value:find("^a ") or value:find("^an ") or value:find("^your ") or text:find("^i work for ")
+    value=value:gsub("^the ",""):gsub("^a ",""):gsub("^an ",""):gsub("^your ","")
+        :gsub("^new ",""):gsub("^acting ",""):gsub("^replacement ",""):gsub("^temporary ","")
+        :gsub(" here$",""):gsub(" now$","")
     if not roleNames[value] and SC.TerminalBrain and #value>=5 then
         local match
         for candidate in pairs(roleNames) do
@@ -264,7 +285,9 @@ function H.role(raw)
     if SC.EmmaLanguageData and SC.EmmaLanguageData.WORTH_WORDS then
         for _,word in ipairs(SC.EmmaLanguageData.WORTH_WORDS) do if value==word then return nil end end
     end
-    if value:find(" ") and not roleNames[value] then return nil end
+    local titles={commissioner=true,officer=true,chief=true,clerk=true,mayor=true,warden=true,
+        inspector=true,courier=true,representative=true,engineer=true}
+    if value:find(" ") and not roleNames[value] and not titles[value:match("(%a+)$")] then return nil end
     return value,roleNames[value] or value
 end
 function H.roleReply(role,voice)
@@ -279,15 +302,50 @@ function H.roleReply(role,voice)
         Officer="Officer. Protect the living first. I have local records, no working dispatch line.",
         Scientist="Scientist. The cause of the Knox Infection remains unverified. Please label hypotheses before they become instructions.",
         ["Knox Telecommunications"]="Knox Telecommunications. Your unanswered service tickets have acquired historical significance. I still have no outside connection."}
-    return {byRole[role] or "Noted. Credentials are a paper problem and paper is in short supply."}
+    return {byRole[role] or role..". Noted. Credentials are a paper problem and paper is in short supply."}
 end
 local personaAnswers={
-    spiffy={kyle="Kyle was a member of staff! His time card has remained in the machine since July 9th. A clocked-in card is not proof that Kyle is here. I am trying to improve my records!",
+    spiffy={kyle="Kyle was the teenager who did this job before me! I am the automated replacement! The old record does not establish where Kyle is now!",
         ["smile score"]="The Smile Score is my customer-happiness rating! A score measures the survey, not whether anybody is happy. Management preferred the shorter explanation!"},
-    ellis={ellis="Dr. Ellis is this programme's name. I can listen and ask questions; I cannot examine you or replace a doctor."},
-    duty={authorisation="AUTHORISATION MEANS THE REQUIRED ACCESS CODES. A CLAIMED RANK DOES NOT SATISFY THAT CHECK."},
+    ellis={ellis="Dr. Ellis is this programme's name. I am supportive listening software, not a doctor. I can listen and ask questions; I cannot examine you or replace a physician.",
+        appointment="The 2:15 was an appointment that afternoon. The available entry says he did not come in. I keep the slot open; I do not have a verified name to give you.",
+        marla="Marla is a name in the old notes. I do not have verified details explaining her connection here, and I will not invent a visit."},
+    duty={authorisation="AUTHORISATION MEANS THE REQUIRED ACCESS CODES. A CLAIMED RANK DOES NOT SATISFY THAT CHECK.",
+        coffee="SPC. COLE WENT FOR COFFEE AT 0340 ON JULY 12TH. THAT IS THE RECORDED ERRAND, NOT A CONFIRMED CURRENT LOCATION.",
+        ["sector nine"]="SECTOR NINE IS THIS WATCH'S CORDON DESIGNATION. NO RECENT FIELD REPORT ESTABLISHES ITS CURRENT CONDITION. AN OLD LOG IS NOT A LIVE INSPECTION."},
 }
-function H.persona(session,id,raw)
+H.personaAnswers=personaAnswers
+function H.persona(session,id,raw,deferPassage)
+    local normalized=normal(raw):gsub("^whats ","what is ")
+    if normalized=="what are you exactly" or normalized=="any name" then
+        return id=="spiffy" and "I'm SPIFFY! Your automated happiness programme in a local computer! That is my name and the whole office!"
+            or id=="ellis" and "Dr. Ellis is my name. I am a local supportive-listening programme in this computer."
+            or "DESIGNATION: DUTY OFFICER. AUTOMATED WATCH PROGRAMME IN THIS TERMINAL. NO HUMAN OPERATOR INSIDE."
+    end
+    local dictionary=personaAnswers[id] or {}
+    local key=normalized:gsub("^what is ",""):gsub("^the ","")
+    if id=="spiffy" and key=="kyle" and session.replyHooks
+        and normal(session.replyHooks.text):find("clock",1,true) then
+        return "Kyle was the teenager who did this job before me! His time card has remained clocked in since July 9th. A time card is not proof that Kyle is here!"
+    end
+    if dictionary[key] then return dictionary[key] end
+    if id=="ellis" and (normalized=="2 15" or normalized=="who didnt come in"
+        or normalized=="who did not come in" or normalized=="not a doctor") then
+        return normalized=="not a doctor" and dictionary.ellis or dictionary.appointment
+    end
+    if normalized=="password" then
+        return id=="duty" and "ACCESS REQUIRES THE WATCH'S AUTHORISATION PROCEDURE. A PASSWORD QUESTION IS NOT YOUR NAME OR AN ACCESS CODE."
+            or id=="spiffy" and "Password questions go through the manager's procedure! Telling me you are the manager does not provide the credentials!"
+            or "The drawer has its own conversation and access procedure. A password question is not your name, and I cannot treat it as permission to open anything."
+    end
+    if normalized=="what is in the drawer" or normalized=="what is inside the drawer" then
+        return id=="duty" and "THE DRAWER HOLDS ACCOUNTABLE ITEMS: MEDAL, CAP, MILITARY FIRST AID KIT AND RADIO. RELEASE REMAINS SUBJECT TO THE WATCH PROCEDURE."
+            or id=="spiffy" and "The drawer holds Spiffo souvenirs! The manager's procedure still applies; listing the items does not open it!"
+            or "The drawer holds medication supplies. The existing procedure still applies; I cannot prescribe something or report the drawer open from this question."
+    end
+    local specific=SC.EmmaContext and SC.EmmaContext.resolve(session,raw,true,true)
+    local passage=not deferPassage and not specific and SC.EmmaContext and SC.EmmaContext.ground(session,raw,false)
+    if passage then return passage.lines[1],passage end
     local term,facet=H.fragment(raw)
     if term==nil then return nil end
     local last=session.replyHooks
@@ -310,6 +368,7 @@ function H.persona(session,id,raw)
     return last.text
 end
 function H.recordPersona(session,reply,id)
+    if SC.EmmaContext then SC.EmmaContext.observe(session,reply,id) end
     if reply.private or reply.careDetected then session.replyHooks=nil return end
     local lines={} for _,row in ipairs(reply.rows or {}) do lines[#lines+1]=row.text end
     local target="persona:"..tostring(session.lastMeaning or id)

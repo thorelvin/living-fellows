@@ -25,7 +25,7 @@ if set(scores) != required:
 for name, score in scores.items():
     if score < data["floor"].get(name, 0):
         raise SystemExit("A checkpoint cannot lower a floor: " + name)
-passed = set(re.findall(r"^PASS ((?:real-|pred-|chain-|lock-)[\w-]+)(?: \||\s*$)", report, re.M))
+passed = set(re.findall(r"^PASS ((?:real-|pred-|chain-|lock-|blind-h[\w-]*-)[\w-]+)(?: \||\s*$)", report, re.M))
 old = set(data["passed"])
 if old - passed:
     raise SystemExit("A checkpoint cannot lose passing rows: " + ", ".join(sorted(old - passed)))

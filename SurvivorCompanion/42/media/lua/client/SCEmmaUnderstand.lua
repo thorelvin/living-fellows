@@ -15,6 +15,7 @@ require "SCEmmaConversation"
 require "SCEmmaHooks"
 require "SCEmmaReferenceData"
 require "SCEmmaReference"
+require "SCEmmaContext"
 local Brain = SC.TerminalBrain
 local D = SC.EmmaLanguageData
 SC.EmmaUnderstand = SC.EmmaUnderstand or {}
@@ -541,6 +542,15 @@ function M.parse(session, text, world, turn, baseParse)
         end
     end
     if worth then return worth,{} end
+    if SC.EmmaContext then
+        local contextual=table.concat(toks," ")..(text:find("?",1,true) and "?" or "")
+        local detail=SC.EmmaContext.resolve(session,contextual,true)
+        if detail then
+            if detail.force or detail.reference then return "guide",{contextSpec=detail,
+                guideId=detail.reference and "reference_"..detail.reference or "context_reference"} end
+            return "context_reference",detail
+        end
+    end
     if SC.EmmaReference then
         local situation,details=SC.EmmaReference.situation(session,text,world,table.concat(toks," "))
         if situation then return situation,details end
@@ -755,6 +765,7 @@ function M.install()
     SC.EmmaReadings.install()
     if SC.EmmaHooks then SC.EmmaHooks.register() end
     if SC.EmmaReference then SC.EmmaReference.register() end
+    if SC.EmmaContext then SC.EmmaContext.register() end
     Brain.registerHandler("followup_clarify",SC.EmmaFollowups.clarify)
     Brain.registerHandler("her_last_operator",function(session,reply)
         reply.category="chat"
@@ -885,7 +896,9 @@ function M.clauses(raw,session,world)
         elseif part~="" then out[#out+1]=part end
         if #out>=3 then break end
     end
-    return #out>0 and out or {raw}
+    -- Keep the original question marker for a single turn. A noun question
+    -- about the previous public reply can differ from the literal command.
+    return #out>1 and out or {raw}
 end
 
 function M.respond(session,raw,world,baseRespond)

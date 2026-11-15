@@ -45,7 +45,7 @@ local world = fixtureWorld()
 
 local state = { name = "Thor",voice="emma" }
 local persona
-local session, out, think, lastIntent, lastPrivate
+local session, out, think, lastIntent, lastPrivate, lastCommand
 -- The same rule as the mod's missed-message log: these never leave the game.
 local privateIntents = { care = true, care_check = true, care_gentle = true, comfort = true, remember = true,
     callme = true, forget = true, recall = true, notes = true }
@@ -65,7 +65,7 @@ end
 fresh()
 
 local function respond(text)
-    out, think, lastIntent, lastPrivate = {}, 0, "", false
+    out, think, lastIntent, lastPrivate, lastCommand = {}, 0, "", false, ""
     local reply
     if persona then
         local facts={days=4,hours=77,time="2:05 PM",hour=14,minute=5,zombies=3,companions=3,
@@ -82,6 +82,7 @@ local function respond(text)
         out[#out + 1] = { note, "note" }
     end
     think = tonumber(reply.thinkMs) or 0
+    lastCommand=reply.command=="tone" and "tone" or ""
     lastIntent = tostring(reply.intent or "")
     lastPrivate = reply.private == true or privateIntents[lastIntent] == true
         or (SC.EmmaCare and SC.EmmaCare.quiet and SC.EmmaCare.quiet(session) and true or false)
@@ -89,7 +90,7 @@ local function respond(text)
 end
 
 local function boot(newSession)
-    out, think, lastIntent, lastPrivate = {}, 0, "", false
+    out, think, lastIntent, lastPrivate, lastCommand = {}, 0, "", false, ""
     if newSession then fresh() end
     if persona then
         out={{SC.TerminalPersonaData[state.voice].title,"boot"},{"Line open. Type a message.","sys"}}
@@ -112,6 +113,7 @@ local function encode()
     local readout = "Living Fellows 0.27.21 / "..state.voice.." / turn " .. tostring(session and session.turns or 0)
     return '{"rows":[' .. table.concat(rows, ",") .. '],"think":' .. tostring(math.floor(think or 0))
         .. ',"intent":' .. quote(lastIntent or "") .. ',"private":' .. (lastPrivate and "true" or "false")
+        .. ',"command":' .. quote(lastCommand or "")
         .. ',"readout":' .. quote(readout) .. '}'
 end
 js.global.EMMA_say = function(...)

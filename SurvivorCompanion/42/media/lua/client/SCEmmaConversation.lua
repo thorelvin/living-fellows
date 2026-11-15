@@ -15,7 +15,14 @@ function C.normal(raw) return table.concat(B.tokens(raw)," "):gsub("^emma ","") 
 function C.begin(session,raw,world,turn)
     local context=session.context
     local answer=C.normal(raw)
+    if answer=="forget our conversation" or answer=="forget this conversation" or answer=="forget the conversation" then
+        return "conversation_forget",{}
+    end
     local expected=context.expect context.expect=nil
+    if expected and expected.kind=="terminal_tone" then
+        if yes[answer] then return "terminal_tone",{} end
+        if no[answer] then return "ack",{} end
+    end
     if expected and expected.kind=="help_me" then
         local value=answer:gsub("^i am ",""):gsub("^im ",""):gsub("^i feel ","")
         if value=="hurt" or value=="wounded" or value=="injured" or value=="bleeding" or value=="in pain" then
@@ -150,7 +157,8 @@ function C.finish(session,raw,reply)
     else
         context.pending=nil
         -- A miss always helps. English words and known nouns never earn a put-down.
-        reply.lines={context.missStreak>1 and "I am still missing the subject. Let's narrow it down." or "I could not place that question yet."}
+        reply.lines={context.missStreak>1 and "I am still missing the subject. Please rephrase or spell the word; let's narrow it down."
+            or "I could not place that question yet. Please rephrase or spell the word."}
         if reply.intent=="did_you_mean" then reply.intent="fallback" end
     end
     local labels={} for _,choice in ipairs(choices) do labels[#labels+1]=choice.label end

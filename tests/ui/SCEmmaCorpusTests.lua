@@ -82,7 +82,7 @@ for _,suite in ipairs({"rows","holdoutA","holdoutB","holdoutC"}) do
     -- Phase B's production-order release receipt is the cumulative floor, not
     -- the older 95% admission threshold. A bigger development set cannot hide
     -- a regression in the unchanged 5,417-row published corpus.
-    local checkpointLost=suite=="rows" and (fit<5216 or wrong>100)
+    local checkpointLost=suite=="rows" and (fit<5217 or wrong>100)
     if checkpointLost or fit/n<0.95 or wrong/n>0.02 or caught~=care or alarms>0 or changed>0 then failed[#failed+1]=suite end
     for id,s in pairs(stats) do
         if s.fit<s.n then print(string.format("EMMA_CORPUS_INTENT %s %s %d/%d wrong=%d",suite,id,s.fit,s.n,s.wrong)) end

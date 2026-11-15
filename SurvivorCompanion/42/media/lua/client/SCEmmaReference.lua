@@ -453,6 +453,12 @@ function R.render(session,reply,turn,world)
 end
 function R.record(session,reply,raw)
     local input=norm(raw)
+    if reply.intent=="sing" then
+        local offer="I can offer a short terminal test tone. Would you like it?"
+        if session.emmaBrief then reply.lines[1]=(reply.lines[1] or "").." "..offer
+        else reply.lines[#reply.lines+1]=offer end
+        session.context.expect={kind="terminal_tone"}
+    end
     if reply.intent=="explain_state" and has(input,"why") and oneOf(input,{"money","budget","funding"}) then
         reply.lines[#reply.lines+1]="The development budget ended before version one. I have no audited reason for the missing funding; that does not establish that Kentucky itself went bankrupt."
     elseif reply.intent=="her_maker" then

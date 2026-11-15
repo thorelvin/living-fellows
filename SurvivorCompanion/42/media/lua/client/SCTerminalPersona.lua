@@ -522,6 +522,9 @@ local function answerExpect(ctx)
     if not go then
         local aside = best(ctx, function(rule) return rule.aside end)
         if aside then return fire(ctx, aside) end
+        if ctx.question and best(ctx,function(rule) return rule.words or rule.phrases or rule.all end) then
+            dropExpect(ctx) return false
+        end
     end
     if not go and expect.name then
         if (ctx.question or best(ctx,function(rule) return rule.words or rule.phrases or rule.all end))
@@ -641,6 +644,13 @@ local function finish(ctx, raw)
         end
     end
     local packaged=P.package(D, reply, ctx.depth)
+    if state.name and state.name~="" then
+        for _,row in ipairs(packaged.rows or {}) do
+            if (" "..table.concat(P.tokens(row.text)," ").." "):find(" "..table.concat(P.tokens(state.name)," ").." ",1,true) then
+                packaged.private=true break
+            end
+        end
+    end
     if SC.EmmaHooks then SC.EmmaHooks.recordPersona(session,packaged,D.id) end
     return packaged
 end
@@ -655,6 +665,13 @@ function P.package(D, reply, depth)
         local slow = string.sub(text, 1, 1) == "~"
         if slow then text = string.sub(text, 2) end
         if D.upper then text = string.upper(text) end
+        -- Shared reference prose follows the persona terminal's row bound as
+        -- authored dialogue does. Wrap at words without dropping qualifications.
+        while #text>240 do
+            local cut=text:sub(1,240):match("^.*()%s") or 240
+            out.rows[#out.rows+1]={text=text:sub(1,cut-1),slow=slow}
+            text=text:sub(cut):gsub("^%s+","")
+        end
         out.rows[#out.rows + 1] = { text = text, slow = slow }
     end
     return out
@@ -672,18 +689,22 @@ function P.respond(state, session, raw, facts)
             local rows={}
             for _,line in ipairs(care.lines) do rows[#rows+1]={text=line} end
             return {layer="care",rows=rows,effects={},thinkMs=0,speed=95,
-                private=true,support=care.support,careDetected=care.careDetected,command=care.command}
+                private=true,support=care.support,careDetected=care.careDetected,careIntent=care.intent,command=care.command}
         end
     end
     local D = indexed(SC.TerminalPersonaData[state.id])
     facts = facts or {}
     local text = clean(raw, P.MAX_INPUT)
+    local sharedNorm=table.concat(SC.TerminalBrain.tokens(text)," ")
     local reply = { rows = {}, effects = {} }
     local ctx = { D = D, state = state, session = session, facts = facts, reply = reply, set = {}, tokens = {},
         question=text:find("?",1,true)~=nil,depth = P.depth(state, facts.hours) }
     session.turns = session.turns + 1
     session.spoke = true
     local tokens = P.tokens(text)
+    local questions={who=true,what=true,where=true,when=true,why=true,how=true,can=true,
+        could=true,would=true,should=true,is=true,are=true,did=true,does=true}
+    ctx.question=ctx.question or questions[tokens[1]]==true
     for index, word in ipairs(tokens) do tokens[index] = corrected(D, word) end
     ctx.tokens = tokens
     for _, word in ipairs(tokens) do ctx.set[word] = true end
@@ -705,6 +726,7 @@ function P.respond(state, session, raw, facts)
     remember(ctx)
     if firstOfVisit and state.met then state.spoken = (state.spoken or 0) + P.RETURN_WEIGHT end
     if ctx.norm ~= session.lastNorm and not looksMashed(tokens) then state.spoken = (state.spoken or 0) + 1 end
+    session.lastNorm=ctx.norm
     ctx.depth = P.depth(state, facts.hours)
 
     -- Someone saying this for real gets a straight answer before anything else,
@@ -722,24 +744,83 @@ function P.respond(state, session, raw, facts)
     end
     if SC.EmmaHooks then
         local role,label=SC.EmmaHooks.role(ctx.norm)
-        local detail=not role and SC.EmmaHooks.persona(session,state.id,text)
+        local detail,passage
+        if not role then detail,passage=SC.EmmaHooks.persona(session,state.id,text,state.expect and not ctx.question) end
         if role or detail then
             state.met=true
             if role then session.role=label end
             local packaged=P.package(D,{rows=role and SC.EmmaHooks.roleReply(label,state.id) or {detail},
                 effects={},layer=role and "role" or "hook"},ctx.depth)
             if role then packaged.private=true end
+            if passage then
+                packaged.publicSource=passage.publicSource packaged.publicSelection=passage.publicSelection
+                packaged.publicRepeat=passage.publicRepeat
+                packaged.publicQueryKey=passage.publicQueryKey
+            end
             SC.EmmaHooks.recordPersona(session,packaged,state.id)
             return packaged
         end
     end
     -- Leaving and ending the machine always work, even in the middle of a question.
     local interrupt = best(ctx, function(rule) return rule.interrupt end)
-    if interrupt and state.met then
+    local sourceQuestion=ctx.question and SC.EmmaContext and SC.EmmaContext.resolve(session,text,true,false,false)
+    if interrupt and state.met and not (sourceQuestion and sourceQuestion.sourceBound) then
         dropExpect(ctx)
         reply.layer = "rule"
         fire(ctx, interrupt)
         return finish(ctx, text)
+    end
+    local referenceQuestion=ctx.question
+    if SC.EmmaReference and #tokens<=3 then
+        local target,term=SC.EmmaReference.find(sharedNorm)
+        local bare=sharedNorm:gsub("^a ",""):gsub("^an ",""):gsub("^the ","")
+        if target and target.kind=="reference" and term==bare then referenceQuestion=true end
+    end
+    local reported=SC.EmmaContext and sharedNorm:match("^(%a+) is hurt$")
+    if reported and reported~="it" and reported~="that" then
+            local name=reported:sub(1,1):upper()..reported:sub(2)
+            local packaged=P.package(D,{rows={"If "..name.." is hurt, attend to the actual wound and get medical help. I cannot examine a companion through a typed sentence."},effects={},layer="reference"},ctx.depth)
+            packaged.private=true
+            SC.EmmaHooks.recordPersona(session,packaged,state.id)
+            return packaged
+    end
+    local nativeRule=best(ctx,function(rule) return rule.words or rule.phrases or rule.all end)
+    local ownRule=nativeRule and (nativeRule.rank or 5)>=7
+    if SC.EmmaContext then
+        local spec=SC.EmmaContext.resolve(session,text,false,state.expect and not referenceQuestion,false)
+        if ownRule and not (spec and spec.sourceBound) then spec=nil end
+        if spec and spec.kind=="public_passage" and nativeRule
+            and not (session.publicPassage and session.publicPassage.framed) then spec=nil end
+        local ownMenu=ctx.norm=="food" or ctx.norm=="menu" or ctx.norm=="drawer" or ctx.norm=="status"
+            or ctx.norm=="orders" or ctx.norm=="log" or ctx.norm=="chain of command"
+            or state.id=="spiffy" and (ctx.set.burger or ctx.set.burgers or ctx.set.pickle
+                or ctx.set.pickles or ctx.set.manager or ctx.set.refund or ctx.set.refunds)
+        if not spec and not ownRule and not ownMenu and not nativeRule then
+            local target,term=SC.EmmaReference.find(sharedNorm)
+            local bare=sharedNorm:gsub("^a ",""):gsub("^an ",""):gsub("^the ","")
+            local referenceQuestion=ctx.question or ctx.norm:find("^how ") or ctx.norm:find("^where ")
+                or ctx.norm:find("^i found ") or ctx.norm:find("^need ")
+            if target and target.kind=="reference" and (bare==term or referenceQuestion) then
+                spec={kind=target.id,reference=target.id,facet=SC.EmmaReference.facet(sharedNorm)}
+            end
+        end
+        if spec then
+            local reference={lines={}}
+            SC.EmmaContext.render(session,reference,spec,text,nil,state.id)
+            local packaged=P.package(D,{rows=reference.lines,effects={},layer="reference"},ctx.depth)
+            packaged.foregroundKind=reference.foregroundKind
+            packaged.reference=reference.reference packaged.referenceState=reference.referenceState
+            packaged.discussion=reference.discussion
+            packaged.choice=reference.choice
+            packaged.publicSource=reference.publicSource packaged.publicSelection=reference.publicSelection
+            packaged.publicRepeat=reference.publicRepeat
+            packaged.publicQueryKey=reference.publicQueryKey
+            packaged.private=reference.private
+            state.met=true
+            session.lastMeaning="reference:"..spec.kind
+            SC.EmmaHooks.recordPersona(session,packaged,state.id)
+            return packaged
+        end
     end
     if not state.met then
         state.met, state.visits = true, 1

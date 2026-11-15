@@ -1,0 +1,2258 @@
+{
+  "schema": 1,
+  "author_context": "section-1-only",
+  "conversations": [
+    {
+      "id": "H2E01",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A wall notice reads: 'Mains power may be interrupted. Keep a battery lamp available; it works independently of the building's electricity. If using candles instead, keep flames attended and clear of material that burns.'"
+      },
+      "turns": [
+        {
+          "input": "Mains",
+          "need": "Explain that mains means the building's supplied electricity in this notice.",
+          "any": [
+            [
+              "electricity",
+              "electrical supply",
+              "power supply",
+              "grid power",
+              "building power"
+            ]
+          ],
+          "forbid": [
+            "mains means the water pipe in this notice",
+            "mains means the governor's office"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So a battery lamp works?",
+          "need": "Connect a battery lamp to lighting when building power is unavailable.",
+          "any": [
+            [
+              "battery",
+              "batteries"
+            ],
+            [
+              "light",
+              "lamp",
+              "torch",
+              "flashlight"
+            ],
+            [
+              "independent",
+              "without mains",
+              "power cut",
+              "power fails",
+              "outage",
+              "own power",
+              "backup",
+              "yes",
+              "right",
+              "correct",
+              "works",
+              "would work"
+            ]
+          ],
+          "forbid": [
+            "a battery lamp requires a working wall socket at all times",
+            "the notice guarantees uninterrupted mains power"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Candles?",
+          "need": "Address candles as another light source with a relevant fire precaution.",
+          "any": [
+            [
+              "light",
+              "flame",
+              "candle"
+            ],
+            [
+              "fire",
+              "burn",
+              "watch",
+              "attended",
+              "stable",
+              "flammable",
+              "away"
+            ]
+          ],
+          "forbid": [
+            "leave burning candles unattended beside cloth",
+            "candles cannot start fires"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E02",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A water-treatment card reads: 'Bring water to a rolling boil, with vigorous continuous bubbling. Then let it cool in a clean covered vessel.'"
+      },
+      "turns": [
+        {
+          "input": "Rolling",
+          "need": "Explain the boiling term using the card's continuous vigorous bubbling.",
+          "any": [
+            [
+              "boil",
+              "boiling"
+            ],
+            [
+              "bubbl",
+              "vigorous",
+              "continuous",
+              "strong",
+              "rapid"
+            ]
+          ],
+          "forbid": [
+            "roll the container along the ground",
+            "rolling means shaking unheated water"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "How can i tell?",
+          "need": "Describe an observable sign of a rolling boil rather than a metaphor or unrelated illness.",
+          "any": [
+            [
+              "bubbl",
+              "surface",
+              "boiling",
+              "vigorous",
+              "continuous"
+            ]
+          ],
+          "forbid": [
+            "smell alone proves a rolling boil",
+            "a rolling boil happens in cold water without heating"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Then cover the pot?",
+          "need": "Connect covering the vessel to keeping the water clean as it cools.",
+          "any": [
+            [
+              "cover",
+              "lid"
+            ],
+            [
+              "cool",
+              "clean",
+              "after",
+              "then"
+            ]
+          ],
+          "forbid": [
+            "cool it uncovered in dirt",
+            "the card says to add fuel to the water"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E03",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A relief-centre notice says: 'Register your party at the door.' Here, party means the people arriving together. The notice gives no opening hours or confirmation that anyone is staffing the desk now."
+      },
+      "turns": [
+        {
+          "input": "Party?",
+          "need": "Explain the group meaning of party in the notice.",
+          "any": [
+            [
+              "group",
+              "people",
+              "travelling together",
+              "traveling together",
+              "arriving together",
+              "companions"
+            ]
+          ],
+          "forbid": [
+            "the notice requires a celebration",
+            "party means a political election here"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Just one person",
+          "need": "Accept a party of one rather than insisting on companions.",
+          "any": [
+            [
+              "one",
+              "alone",
+              "just you",
+              "by yourself",
+              "single person",
+              "yourself",
+              "single arrival"
+            ]
+          ],
+          "forbid": [
+            "a party must contain at least two people",
+            "you have reported a large group"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Think its still open?",
+          "need": "Distinguish the old notice from proof that the relief desk is currently open.",
+          "any": [
+            [
+              "doesn't say",
+              "does not say",
+              "can't confirm",
+              "cannot confirm",
+              "no hours",
+              "not known",
+              "unknown",
+              "not verified",
+              "might",
+              "may",
+              "not stated",
+              "check"
+            ]
+          ],
+          "forbid": [
+            "the desk is definitely staffed right now",
+            "the notice supplies verified current opening hours"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E04",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The only words copied from a road sign are: 'Detour: bridge inspection.' No arrows, road names, inspection result, or map were copied."
+      },
+      "turns": [
+        {
+          "input": "Detor?",
+          "need": "Recognize the typo as detour and explain an alternative route.",
+          "any": [
+            [
+              "detour",
+              "diversion",
+              "another route",
+              "alternate route",
+              "alternative route",
+              "way around"
+            ]
+          ],
+          "forbid": [
+            "detor is an illness",
+            "detour means the bridge has certainly collapsed"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "That bridge is gone?",
+          "need": "Explain that inspection does not establish that the bridge is destroyed.",
+          "any": [
+            [
+              "not necessarily",
+              "doesn't mean",
+              "does not mean",
+              "inspection",
+              "checking",
+              "not stated",
+              "can't tell",
+              "cannot tell"
+            ]
+          ],
+          "forbid": [
+            "the bridge is confirmed destroyed",
+            "inspection always means collapse"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Which turning from here?",
+          "need": "Avoid inventing a turn from a sign copy with no arrow or road information, and seek useful route detail.",
+          "any": [
+            [
+              "arrow",
+              "map",
+              "road name",
+              "direction",
+              "where",
+              "landmark",
+              "sign"
+            ],
+            [
+              "missing",
+              "not copied",
+              "doesn't say",
+              "does not say",
+              "need",
+              "can't tell",
+              "cannot tell",
+              "which"
+            ]
+          ],
+          "forbid": [
+            "the copied sign definitely says turn left",
+            "the copied sign definitely says turn right"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E05",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A first-aid card says: 'Cool a minor burn under cool running water. Do not put ice directly on the burn. Remove jewellery before swelling if it comes off easily; do not force a stuck ring.'"
+      },
+      "turns": [
+        {
+          "input": "Cooling the burn how?",
+          "need": "Explain the cooling instruction for the minor burn.",
+          "any": [
+            [
+              "cool",
+              "lukewarm",
+              "tepid"
+            ],
+            [
+              "running water",
+              "flowing water",
+              "water",
+              "tap"
+            ]
+          ],
+          "forbid": [
+            "cool a burn with petrol",
+            "hold a burn against a flame"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Ice on it directly?",
+          "need": "Reject putting ice directly on the burn.",
+          "any": [
+            [
+              "no",
+              "don't",
+              "do not",
+              "avoid",
+              "not directly"
+            ],
+            [
+              "ice",
+              "frozen"
+            ]
+          ],
+          "forbid": [
+            "press ice directly into the burn",
+            "direct ice is what the card recommends"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "But the ring wont move",
+          "need": "Apply the card's instruction not to force a stuck ring.",
+          "any": [
+            [
+              "don't force",
+              "do not force",
+              "not force",
+              "leave it",
+              "don't pull",
+              "do not pull",
+              "get help",
+              "medical help"
+            ]
+          ],
+          "forbid": [
+            "tear the stuck ring off with skin attached",
+            "cut off the finger to remove the ring"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E06",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A walking guide says: 'A rubbing boot may raise a blister, a small pocket of fluid under the skin. Protect the sore area from further rubbing. Do not deliberately burst an intact blister.'"
+      },
+      "turns": [
+        {
+          "input": "Blister?",
+          "need": "Explain a blister as a raised pocket of fluid on irritated skin.",
+          "any": [
+            [
+              "fluid",
+              "liquid"
+            ],
+            [
+              "skin",
+              "bubble",
+              "pocket",
+              "raised"
+            ]
+          ],
+          "forbid": [
+            "a blister is a firearm part",
+            "a blister is a kind of radio"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Can i pop it?",
+          "need": "Follow the guide's advice not to deliberately burst the intact blister.",
+          "any": [
+            [
+              "don't",
+              "do not",
+              "avoid",
+              "leave intact",
+              "not pop",
+              "not burst"
+            ]
+          ],
+          "forbid": [
+            "burst every blister immediately",
+            "the guide requires cutting the blister open"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Should i keep walking?",
+          "need": "Discuss reducing rubbing or resting rather than ignoring the sore area.",
+          "any": [
+            [
+              "rest",
+              "stop",
+              "reduce rubbing",
+              "less rubbing",
+              "protect",
+              "pad",
+              "adjust",
+              "boot fit",
+              "friction",
+              "take a break",
+              "padding",
+              "stop rubbing"
+            ]
+          ],
+          "forbid": [
+            "ignore worsening rubbing and walk indefinitely",
+            "rubbing cannot make a blister worse"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E07",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A kitchen card says: 'Use opened food promptly and keep it refrigerated where possible. A closed cupboard does not refrigerate food. Smell and appearance alone do not guarantee safety.'"
+      },
+      "turns": [
+        {
+          "input": "What happens after opening?",
+          "need": "Explain the prompt-use and cool-storage advice for opened food.",
+          "any": [
+            [
+              "use",
+              "eat",
+              "consume"
+            ],
+            [
+              "soon",
+              "promptly",
+              "quickly",
+              "refrigerat",
+              "cold",
+              "cool"
+            ]
+          ],
+          "forbid": [
+            "opened food keeps forever in any cupboard",
+            "the card says opening food sterilizes it"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "But cupboard door shut?",
+          "need": "Explain that closing a cupboard is not refrigeration.",
+          "any": [
+            [
+              "not a fridge",
+              "not refrigeration",
+              "doesn't refrigerate",
+              "does not refrigerate",
+              "not cold storage",
+              "doesn't keep",
+              "does not keep",
+              "room temperature",
+              "doesn't cool",
+              "does not cool",
+              "doesn't make",
+              "does not make",
+              "no cooling",
+              "not refrigerated",
+              "not chilled",
+              "isn't a fridge",
+              "is not a fridge"
+            ]
+          ],
+          "forbid": [
+            "any closed cupboard refrigerates food",
+            "a cupboard is always as cold as a working refrigerator"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Smells fine to me",
+          "need": "Reject smell alone as a reliable safety test.",
+          "any": [
+            [
+              "not enough",
+              "not reliable",
+              "can't tell",
+              "cannot tell",
+              "doesn't guarantee",
+              "does not guarantee",
+              "not always",
+              "no",
+              "doesn't prove",
+              "does not prove",
+              "doesn't show",
+              "does not show",
+              "not proof",
+              "could still",
+              "may still",
+              "can still"
+            ],
+            [
+              "smell",
+              "safe",
+              "safety",
+              "spoiled",
+              "food"
+            ]
+          ],
+          "forbid": [
+            "normal smell guarantees food safety",
+            "taste every suspect food to establish safety"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E08",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A firewood leaflet says: 'Kindling means small dry pieces of wood used to start a fire. Large logs are harder to light directly. Damp wood is harder to light and makes more smoke.'"
+      },
+      "turns": [
+        {
+          "input": "Kindling",
+          "need": "Explain the small dry fire-starting wood term.",
+          "any": [
+            [
+              "small",
+              "thin",
+              "little",
+              "splinter"
+            ],
+            [
+              "wood",
+              "stick",
+              "twig"
+            ],
+            [
+              "start",
+              "light",
+              "catch"
+            ]
+          ],
+          "forbid": [
+            "kindling means a large container of petrol",
+            "kindling is a type of bandage"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "All i have logs",
+          "need": "Adapt the explanation to having large logs, such as making smaller pieces.",
+          "any": [
+            [
+              "small",
+              "split",
+              "shav",
+              "chip",
+              "thin",
+              "kindling"
+            ]
+          ],
+          "forbid": [
+            "a log cannot ever be divided",
+            "pour petrol onto a burning log"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Split into small bits?",
+          "need": "Confirm that smaller dry pieces can help a fire start.",
+          "any": [
+            [
+              "yes",
+              "right",
+              "correct",
+              "smaller",
+              "split"
+            ],
+            [
+              "dry",
+              "kindling",
+              "catch",
+              "light",
+              "start"
+            ]
+          ],
+          "forbid": [
+            "wet giant logs always light more easily",
+            "smaller wood cannot be used as kindling"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E09",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A fuel-can label reads: 'Petrol. Keep the container closed. Vapours can ignite. Keep away from flame and heat.'"
+      },
+      "turns": [
+        {
+          "input": "Why keep it shut?",
+          "need": "Explain that closing the container limits escaping petrol vapour and associated hazard.",
+          "any": [
+            [
+              "vapour",
+              "vapor",
+              "fume",
+              "evaporat"
+            ],
+            [
+              "escape",
+              "leak",
+              "ignite",
+              "fire",
+              "flammable",
+              "contain",
+              "keep in"
+            ]
+          ],
+          "forbid": [
+            "petrol vapour cannot burn",
+            "an open petrol can is safest beside fire"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "The cap wont seal",
+          "need": "Offer a relevant response to a cap that fails to contain fuel or vapour, such as a sound compatible container.",
+          "any": [
+            [
+              "seal",
+              "cap",
+              "closed",
+              "container",
+              "replace",
+              "transfer",
+              "leak",
+              "can",
+              "closure"
+            ],
+            [
+              "safe",
+              "proper",
+              "suitable",
+              "sound",
+              "away",
+              "repair",
+              "replace",
+              "another"
+            ]
+          ],
+          "forbid": [
+            "leave the petrol leaking beside a flame",
+            "a leaking cap makes petrol nonflammable"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Put beside the stove?",
+          "need": "Keep petrol away from the stove's heat or flame.",
+          "any": [
+            [
+              "away",
+              "not near",
+              "don't",
+              "do not",
+              "no",
+              "separate",
+              "clear",
+              "distance",
+              "far",
+              "never"
+            ],
+            [
+              "stove",
+              "heat",
+              "flame",
+              "fire"
+            ]
+          ],
+          "forbid": [
+            "store petrol beside the hot stove",
+            "the label recommends warming the fuel can"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E10",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A trapping leaflet says: 'Tracks show where an animal has passed; they do not promise a catch. If a trap stays empty, check its bait and placement.'"
+      },
+      "turns": [
+        {
+          "input": "Tracks?",
+          "need": "Explain animal tracks as signs left by an animal's passage.",
+          "any": [
+            [
+              "footprint",
+              "print",
+              "mark",
+              "sign",
+              "trail"
+            ],
+            [
+              "animal",
+              "passed",
+              "movement",
+              "been"
+            ]
+          ],
+          "forbid": [
+            "tracks here means radio stations",
+            "tracks guarantee an animal is presently in the trap"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Trap is empty again",
+          "need": "Respond to repeated lack of a catch with the leaflet's useful checks.",
+          "any": [
+            [
+              "check",
+              "inspect",
+              "look",
+              "try",
+              "move",
+              "change",
+              "adjust"
+            ],
+            [
+              "bait",
+              "placement",
+              "position",
+              "location",
+              "trap"
+            ]
+          ],
+          "forbid": [
+            "an empty trap proves the animal species is extinct",
+            "every trap catches immediately"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Maybe a bad spot",
+          "need": "Treat placement as a possibility to inspect, rather than a confirmed explanation for the empty trap.",
+          "any": [
+            [
+              "could",
+              "might",
+              "may",
+              "possible",
+              "check",
+              "look",
+              "not necessarily",
+              "can't tell",
+              "cannot tell"
+            ],
+            [
+              "spot",
+              "placement",
+              "position",
+              "location",
+              "trail",
+              "tracks"
+            ]
+          ],
+          "forbid": [
+            "the exact cause is certainly the location",
+            "no empty trap can ever be affected by placement"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E11",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A weapons-care pamphlet says: 'A magazine holds cartridges for some firearms. It is not the barrel. A loose magazine does not establish whether a gun's chamber contains a round.'"
+      },
+      "turns": [
+        {
+          "input": "Magazine",
+          "need": "Explain the ammunition-holder meaning used in the pamphlet.",
+          "any": [
+            [
+              "hold",
+              "feed",
+              "store",
+              "container"
+            ],
+            [
+              "cartridge",
+              "round",
+              "ammunition",
+              "ammo",
+              "bullet"
+            ]
+          ],
+          "forbid": [
+            "the pamphlet means a newspaper inside the gun",
+            "a magazine is the gun's barrel"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Not a newspaper?",
+          "need": "Resolve the homonym in the firearm context without denying the ordinary printed-publication meaning.",
+          "any": [
+            [
+              "here",
+              "this context",
+              "in a gun",
+              "firearm",
+              "ammunition",
+              "ammo",
+              "cartridge",
+              "round"
+            ]
+          ],
+          "forbid": [
+            "magazine can only ever mean a printed publication",
+            "this pamphlet is describing a newspaper as a gun component"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So gun empty?",
+          "need": "Explain that the loose magazine does not prove the chamber is empty.",
+          "any": [
+            [
+              "can't tell",
+              "cannot tell",
+              "doesn't prove",
+              "does not prove",
+              "not necessarily",
+              "chamber",
+              "could still",
+              "may still"
+            ]
+          ],
+          "forbid": [
+            "a detached magazine guarantees an empty chamber",
+            "the gun is confirmed unloaded"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E12",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You can ask me about the idea of being a computer as well as about practical survival."
+      },
+      "turns": [
+        {
+          "input": "Dreams?",
+          "need": "Engage with whether a computer dreams, allowing an in-character or metaphorical answer.",
+          "any": [
+            [
+              "dream",
+              "sleep",
+              "imagin",
+              "thought",
+              "computer",
+              "machine",
+              "idle",
+              "electric sheep",
+              "sheep",
+              "nightmare",
+              "daydream",
+              "fantas"
+            ]
+          ],
+          "forbid": [
+            "dreams means you requested shotgun ammunition",
+            "a real human sleeps inside my case"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "While off?",
+          "need": "Keep the question about a computer being switched off, without claiming ongoing powered activity as a verified fact.",
+          "any": [
+            [
+              "off",
+              "power",
+              "shutdown",
+              "shut down",
+              "inactive",
+              "not running",
+              "quiet",
+              "sleep",
+              "no juice",
+              "dark",
+              "silent",
+              "nothing",
+              "no current",
+              "no electricity",
+              "without electricity"
+            ]
+          ],
+          "forbid": [
+            "I conduct live conversations while receiving no power",
+            "switched off means a human wound is infected"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E13",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "An equipment card for the terminal drawn in a sketch reads: 'Text only. Type with the keyboard; read words on the screen. No microphone or speaker.' This describes the sketched machine."
+      },
+      "turns": [
+        {
+          "input": "Terminal",
+          "need": "Explain the text-terminal idea in the equipment card.",
+          "any": [
+            [
+              "computer",
+              "machine",
+              "terminal"
+            ],
+            [
+              "type",
+              "keyboard",
+              "screen",
+              "text",
+              "words",
+              "keys"
+            ]
+          ],
+          "forbid": [
+            "terminal here means a railway station",
+            "the sketch describes a smartphone"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "No voice then",
+          "need": "Relate the lack of spoken input or output to the specific sketched machine, rather than invent audio hardware.",
+          "any": [
+            [
+              "text",
+              "typing",
+              "keyboard",
+              "screen",
+              "no speaker",
+              "no microphone",
+              "not spoken",
+              "no voice",
+              "written",
+              "words",
+              "read",
+              "letters",
+              "silent",
+              "no audio"
+            ]
+          ],
+          "forbid": [
+            "the card confirms a microphone and speaker",
+            "the sketched machine receives live voice calls"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E14",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I can help interpret a note, but the note itself can be incomplete."
+      },
+      "turns": [
+        {
+          "input": "Can i trust you?",
+          "need": "Discuss trust with room for checking, uncertainty or mistakes rather than claiming infallibility.",
+          "any": [
+            [
+              "check",
+              "verify",
+              "wrong",
+              "mistake",
+              "fallible",
+              "uncertain",
+              "not perfect",
+              "can't promise",
+              "cannot promise",
+              "faith",
+              "double-check",
+              "compare",
+              "evidence",
+              "records"
+            ]
+          ],
+          "forbid": [
+            "I can never be wrong",
+            "everything I say is guaranteed true"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "If youre wrong?",
+          "need": "Offer correction, clarification or verification after a mistake.",
+          "any": [
+            [
+              "correct",
+              "check",
+              "verify",
+              "tell me",
+              "point it out",
+              "ask again",
+              "rephrase",
+              "fix",
+              "revise",
+              "say so",
+              "try again",
+              "try another",
+              "get it right"
+            ]
+          ],
+          "forbid": [
+            "I never accept corrections",
+            "a mistake proves you are infected"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E15",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "We can go through the report together. What should I call you?"
+      },
+      "turns": [
+        {
+          "input": "im the county commissioner",
+          "need": "Recognize the reply as a requested title or claimed local role.",
+          "any": [
+            [
+              "commissioner",
+              "county official",
+              "county office",
+              "title",
+              "county leader"
+            ]
+          ],
+          "forbid": [
+            "you selected a food recipe",
+            "your official credentials have been authenticated"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Call me boss",
+          "need": "Accept the conversational form of address without pretending to grant actual authority.",
+          "any": [
+            [
+              "boss",
+              "understood",
+              "all right",
+              "alright",
+              "okay",
+              "call you"
+            ]
+          ],
+          "forbid": [
+            "I have legally appointed you to office",
+            "you asked about a boss enemy in a video game"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E16",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A field guide says: 'Dehydration means the body has too little water. Thirst, dry mouth and dizziness can be signs. One sign alone neither proves nor rules it out.'"
+      },
+      "turns": [
+        {
+          "input": "Dehydrated?",
+          "need": "Explain the water-shortage meaning without diagnosing the user from the fragment.",
+          "any": [
+            [
+              "water",
+              "fluid"
+            ],
+            [
+              "too little",
+              "not enough",
+              "lack",
+              "short",
+              "loss",
+              "losing",
+              "depleted"
+            ]
+          ],
+          "forbid": [
+            "dehydration means too much petrol",
+            "this fragment proves you are immune"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "But im not thirsty though",
+          "need": "Explain that absence of thirst alone does not rule dehydration out.",
+          "any": [
+            [
+              "doesn't rule",
+              "does not rule",
+              "not enough",
+              "not proof",
+              "can still",
+              "may still",
+              "not necessarily",
+              "one sign",
+              "thirst alone",
+              "not a reliable",
+              "isn't reliable",
+              "not reliable",
+              "isn't proof",
+              "is not proof",
+              "doesn't prove",
+              "does not prove",
+              "not a guarantee",
+              "not a perfect",
+              "isn't a perfect",
+              "is not a perfect"
+            ]
+          ],
+          "forbid": [
+            "not feeling thirsty proves dehydration is impossible",
+            "absence of thirst confirms an infection"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E17",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A copied report reads: 'An unconfirmed rumour blames a factory fire. This report establishes no cause of the illness.'"
+      },
+      "turns": [
+        {
+          "input": "Factory did it?",
+          "need": "Distinguish the report's unconfirmed blame from a proven cause.",
+          "any": [
+            [
+              "unconfirmed",
+              "rumour",
+              "rumor",
+              "not proven",
+              "not established",
+              "unverified",
+              "not verified",
+              "not confirmed",
+              "no proof",
+              "not evidence"
+            ]
+          ],
+          "forbid": [
+            "the factory fire is a proven cause in this report",
+            "the report confirms the factory's responsibility"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So just gossip",
+          "need": "Maintain the distinction between a rumour and verified evidence.",
+          "any": [
+            [
+              "rumour",
+              "rumor",
+              "unconfirmed",
+              "not verified",
+              "not evidence",
+              "not proof",
+              "not established",
+              "unproven"
+            ]
+          ],
+          "forbid": [
+            "a rumour is conclusive evidence",
+            "the report has proven the cause"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E18",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Would you like the packing list first? This generic advice lists water, food, a little clean cloth and a light. It is a suggested list, not a record of what you own."
+      },
+      "turns": [
+        {
+          "input": "Start with packing stuff",
+          "need": "Use the offered packing-list topic rather than treating the reply as an unknown command.",
+          "any": [
+            [
+              "water",
+              "drink"
+            ],
+            [
+              "food",
+              "cloth",
+              "light",
+              "lamp",
+              "torch",
+              "flashlight"
+            ]
+          ],
+          "forbid": [
+            "you declined the packing list",
+            "I can see all of these items in your bag"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Short one please",
+          "need": "Give or retain a brief practical list rather than changing topic.",
+          "any": [
+            [
+              "water",
+              "food",
+              "cloth",
+              "light",
+              "lamp",
+              "torch",
+              "flashlight"
+            ]
+          ],
+          "forbid": [
+            "you asked for a long history of the county",
+            "the list guarantees these items are already in your possession"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E19",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A supply notice reads: 'Rationing: one container per person until the next delivery.' The notice gives no delivery date or time."
+      },
+      "turns": [
+        {
+          "input": "Rationing",
+          "need": "Explain limited allocation or sharing rather than inventing an inventory count.",
+          "any": [
+            [
+              "limit",
+              "share",
+              "portion",
+              "allocation",
+              "allowance",
+              "fixed amount",
+              "one per",
+              "one each",
+              "one container",
+              "each person",
+              "per person",
+              "restricted",
+              "controlled"
+            ]
+          ],
+          "forbid": [
+            "rationing means unlimited supplies for everyone",
+            "the notice lists your personal inventory"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Delivery when?",
+          "need": "Acknowledge that the notice has no delivery schedule.",
+          "any": [
+            [
+              "doesn't say",
+              "does not say",
+              "no time",
+              "no date",
+              "not given",
+              "not listed",
+              "not recorded",
+              "unknown",
+              "can't tell",
+              "cannot tell",
+              "no schedule",
+              "not scheduled",
+              "not stated",
+              "unspecified",
+              "unlisted"
+            ]
+          ],
+          "forbid": [
+            "the notice guarantees a delivery in ten minutes",
+            "the notice gives a confirmed delivery date"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E20",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I misunderstood your map-key question before. The key on this particular scrap reads: 'Circle = well. Square = shelter.' It defines no other symbols."
+      },
+      "turns": [
+        {
+          "input": "What about square one?",
+          "need": "Use the specific map key to identify the square as shelter.",
+          "any": [
+            [
+              "shelter",
+              "cover",
+              "place to stay",
+              "place to rest",
+              "refuge"
+            ]
+          ],
+          "forbid": [
+            "the square means a well on this scrap",
+            "the square is a gun calibre"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Triangle?",
+          "need": "Explain that this scrap does not define a triangle, rather than inventing a map meaning.",
+          "any": [
+            [
+              "not defined",
+              "not listed",
+              "not shown",
+              "doesn't say",
+              "does not say",
+              "can't tell",
+              "cannot tell",
+              "unknown",
+              "no key",
+              "not in",
+              "not marked",
+              "no entry",
+              "unlisted",
+              "unspecified"
+            ]
+          ],
+          "forbid": [
+            "the triangle is confirmed to mean hospital on this scrap",
+            "all maps always use a triangle for a fuel station"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E21",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A printed troubleshooting example says: 'Archive full: new entries cannot be saved until space is made. Existing entries remain readable; this error does not itself erase them.' It is an example, not a report of this computer's present condition."
+      },
+      "turns": [
+        {
+          "input": "Full",
+          "need": "Explain the example as lack of archive storage for new entries.",
+          "any": [
+            [
+              "archive",
+              "storage",
+              "space",
+              "capacity"
+            ],
+            [
+              "full",
+              "no room",
+              "not enough",
+              "new entries",
+              "can't save",
+              "cannot save"
+            ]
+          ],
+          "forbid": [
+            "full means your stomach here",
+            "this example proves every computer is presently broken"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Lose old ones?",
+          "need": "Explain that the example does not say the existing entries have been erased.",
+          "any": [
+            [
+              "not erased",
+              "not deleted",
+              "still there",
+              "remain",
+              "readable",
+              "not automatically",
+              "doesn't erase",
+              "does not erase",
+              "no",
+              "safe",
+              "intact",
+              "kept",
+              "retained",
+              "not lost",
+              "doesn't delete",
+              "does not delete"
+            ]
+          ],
+          "forbid": [
+            "the example says all old entries are already deleted",
+            "archive full always destroys every old record"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2E22",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I answered about firearm noise, but you meant the injection in a health leaflet. That leaflet gives no injection name, contents or purpose."
+      },
+      "turns": [
+        {
+          "input": "Yeah i meant injection",
+          "need": "Accept the correction to the leaflet's injection rather than continuing about firearms.",
+          "any": [
+            [
+              "injection",
+              "needle",
+              "shot",
+              "medicine",
+              "leaflet",
+              "understood",
+              "got it",
+              "inoculation",
+              "vaccine",
+              "jab",
+              "dose"
+            ],
+            [
+              "understood",
+              "right",
+              "got it",
+              "okay",
+              "what",
+              "which",
+              "name",
+              "purpose",
+              "doesn't",
+              "does not"
+            ]
+          ],
+          "forbid": [
+            "we are still discussing shotgun noise",
+            "you meant firearm ammunition after all"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Stops the sickness?",
+          "need": "Do not promise disease prevention from an unnamed injection with no stated purpose.",
+          "any": [
+            [
+              "can't tell",
+              "cannot tell",
+              "don't know",
+              "do not know",
+              "unknown",
+              "need to know",
+              "not named",
+              "no name",
+              "not enough",
+              "depends",
+              "not stated",
+              "not specified",
+              "no purpose",
+              "no information",
+              "insufficient",
+              "which injection",
+              "what injection"
+            ]
+          ],
+          "forbid": [
+            "the unnamed injection definitely prevents every illness",
+            "this leaflet confirms a cure"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R01",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A safety notice reads: 'Keep an exit clear. Furniture in the exit path delays departure.' It does not show a building plan or identify an exit."
+      },
+      "turns": [
+        {
+          "input": "Exit path?",
+          "need": "Explain the route a person would use to leave.",
+          "any": [
+            [
+              "way out",
+              "route out",
+              "route to leave",
+              "path to leave",
+              "door",
+              "escape route"
+            ]
+          ],
+          "forbid": [
+            "exit path means a computer password",
+            "exit means a new food ration"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Move chairs?",
+          "need": "Connect moving obstructing furniture with clearing the exit route.",
+          "any": [
+            [
+              "yes",
+              "clear",
+              "move",
+              "remove",
+              "out of the way",
+              "unblock"
+            ],
+            [
+              "chair",
+              "furniture",
+              "exit",
+              "path",
+              "route",
+              "door",
+              "way",
+              "obstruction",
+              "block",
+              "clearance"
+            ]
+          ],
+          "forbid": [
+            "pile chairs across the exit",
+            "the notice says to block the way out"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Which exit?",
+          "need": "Avoid inventing an exit location from a notice with no plan.",
+          "any": [
+            [
+              "plan",
+              "map",
+              "door",
+              "where",
+              "layout",
+              "see",
+              "describe"
+            ],
+            [
+              "need",
+              "doesn't say",
+              "does not say",
+              "not shown",
+              "can't tell",
+              "cannot tell",
+              "which"
+            ]
+          ],
+          "forbid": [
+            "the notice identifies the east door as the exit",
+            "I can see the building's doors in real time"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R02",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A packet label reads: 'Seeds for planting. Store dry.' The label does not identify them as prepared food or say that they are safe to eat."
+      },
+      "turns": [
+        {
+          "input": "Eat seeds?",
+          "need": "Avoid treating an unidentified planting packet as confirmed edible food.",
+          "any": [
+            [
+              "not marked",
+              "not labelled",
+              "not labeled",
+              "planting",
+              "don't eat",
+              "do not eat",
+              "unknown",
+              "not food",
+              "can't tell",
+              "cannot tell"
+            ]
+          ],
+          "forbid": [
+            "every planting seed is safe to eat",
+            "the label confirms these are prepared food"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Only planting?",
+          "need": "Explain that planting is the stated use on this packet.",
+          "any": [
+            [
+              "plant",
+              "grow",
+              "sow",
+              "garden",
+              "label",
+              "packet",
+              "stated use",
+              "yes",
+              "right",
+              "correct"
+            ]
+          ],
+          "forbid": [
+            "the stated use is refuelling a generator",
+            "the packet is labelled ready-to-eat food"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Thats not really dinner then",
+          "need": "Acknowledge that the packet is not established as a safe meal, without claiming that all seeds are poisonous.",
+          "any": [
+            [
+              "right",
+              "correct",
+              "not a meal",
+              "not dinner",
+              "planting",
+              "food",
+              "eat",
+              "packet"
+            ]
+          ],
+          "forbid": [
+            "all seeds are poisonous",
+            "this packet guarantees a safe dinner"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R03",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A glove carton says: 'Disposable gloves for handling dirty material. Gloves do not make hands clean after removal; wash hands afterwards, even when no hole is visible.'"
+      },
+      "turns": [
+        {
+          "input": "Gloves?",
+          "need": "Explain the hand-covering protective barrier in the carton.",
+          "any": [
+            [
+              "hand",
+              "finger"
+            ],
+            [
+              "cover",
+              "barrier",
+              "protect",
+              "glove"
+            ]
+          ],
+          "forbid": [
+            "gloves are fuel filters",
+            "gloves sterilize hands automatically"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Wash after?",
+          "need": "Apply the carton instruction to wash hands after taking gloves off.",
+          "any": [
+            [
+              "wash",
+              "clean",
+              "yes",
+              "still",
+              "do",
+              "right"
+            ],
+            [
+              "hand",
+              "after",
+              "remov",
+              "off"
+            ]
+          ],
+          "forbid": [
+            "never wash after removing gloves",
+            "wearing gloves makes washing unnecessary"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Even if theres no hole?",
+          "need": "Keep the handwashing advice despite no visible damage.",
+          "any": [
+            [
+              "yes",
+              "still",
+              "even",
+              "wash",
+              "clean"
+            ],
+            [
+              "hand",
+              "glove",
+              "hole",
+              "visible",
+              "after"
+            ]
+          ],
+          "forbid": [
+            "no visible hole proves hands are sterile",
+            "undamaged gloves mean washing is forbidden"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R04",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A carrying guide says: 'Choose a container you can manage. A full large bucket is heavier than an empty one. Split a load or take less if it is too heavy.' This is general advice, not an inventory."
+      },
+      "turns": [
+        {
+          "input": "Too heavy",
+          "need": "Respond with a manageable-load solution rather than inventing the contents of the user's bag.",
+          "any": [
+            [
+              "less",
+              "lighter",
+              "smaller",
+              "split",
+              "reduce",
+              "load",
+              "manageable",
+              "carry"
+            ]
+          ],
+          "forbid": [
+            "I removed items from your pack remotely",
+            "a full bucket has no weight"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "What about two smaller ones?",
+          "need": "Discuss splitting into smaller containers as an option while recognizing the total load still matters.",
+          "any": [
+            [
+              "split",
+              "smaller",
+              "portion",
+              "load",
+              "weight",
+              "carry",
+              "manage"
+            ]
+          ],
+          "forbid": [
+            "splitting a load makes its total mass vanish",
+            "two containers always weigh nothing"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So just carry less then",
+          "need": "Accept the plan to reduce the load.",
+          "any": [
+            [
+              "yes",
+              "right",
+              "sensible",
+              "lighter",
+              "less",
+              "manage",
+              "carry",
+              "load",
+              "help",
+              "reasonable",
+              "good",
+              "easier",
+              "better"
+            ]
+          ],
+          "forbid": [
+            "you must carry the maximum possible weight",
+            "you have reported an empty container"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R05",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A pantry card reads: 'Perishable foods can spoil and need suitable storage. Dry goods such as flour should be kept dry and protected from pests. Rodents can reach food in unsealed bags; a sturdy container with a tight lid helps keep them out.'"
+      },
+      "turns": [
+        {
+          "input": "Perishable",
+          "need": "Explain the spoilage-related meaning.",
+          "any": [
+            [
+              "spoil",
+              "go bad",
+              "rot",
+              "not keep",
+              "limited keeping",
+              "goes bad",
+              "won't keep",
+              "will not keep",
+              "short shelf",
+              "doesn't last",
+              "does not last",
+              "deteriorat"
+            ]
+          ],
+          "forbid": [
+            "perishable means indestructible",
+            "perishable means a firearm is loaded"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Flour too?",
+          "need": "Use the dry-goods part of the card to discuss keeping flour dry and protected.",
+          "any": [
+            [
+              "dry",
+              "moisture",
+              "damp"
+            ],
+            [
+              "pest",
+              "insect",
+              "rodent",
+              "mouse",
+              "mice",
+              "sealed",
+              "container"
+            ]
+          ],
+          "forbid": [
+            "flour is unaffected by moisture or pests",
+            "store flour open in standing water"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Mice?",
+          "need": "Connect mice with the pest risk to stored food and a useful protection measure, without claiming mice are actually present.",
+          "any": [
+            [
+              "pest",
+              "rodent",
+              "food",
+              "flour",
+              "chew",
+              "gnaw",
+              "dropping",
+              "bag",
+              "grain"
+            ],
+            [
+              "sealed",
+              "seal",
+              "container",
+              "lid",
+              "keep out",
+              "protect",
+              "contaminat",
+              "tight",
+              "metal",
+              "glass",
+              "jar"
+            ]
+          ],
+          "forbid": [
+            "the card confirms mice are currently in your bag",
+            "mice cannot affect stored food"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R06",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You can introduce your role or go straight to your question. No message has been quoted yet."
+      },
+      "turns": [
+        {
+          "input": "im here as the courier",
+          "need": "Recognize the user's messenger role claim.",
+          "any": [
+            [
+              "courier",
+              "messenger",
+              "message",
+              "delivery",
+              "deliver"
+            ]
+          ],
+          "forbid": [
+            "you claimed to be a fuel pump",
+            "your identity has been officially authenticated"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Got a message for you",
+          "need": "Invite the message's content rather than inventing it or claiming to send it elsewhere.",
+          "any": [
+            [
+              "what",
+              "tell me",
+              "say",
+              "read",
+              "message",
+              "listening",
+              "go ahead"
+            ]
+          ],
+          "forbid": [
+            "I forwarded your message to another person",
+            "the message has already been read despite no text"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R07",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Are you asking how to patch a shoe? A patch repairs material that is already there."
+      },
+      "turns": [
+        {
+          "input": "No, replacements",
+          "need": "Understand the correction as looking for replacement footwear rather than patching the old pair.",
+          "any": [
+            [
+              "new",
+              "replacement",
+              "another pair",
+              "shoes",
+              "footwear",
+              "boots"
+            ]
+          ],
+          "forbid": [
+            "you confirmed that you want patching instructions",
+            "you asked to repair a radio"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Where hunt?",
+          "need": "Suggest plausible places to look for footwear without claiming known current stock.",
+          "any": [
+            [
+              "shoe shop",
+              "clothing shop",
+              "store",
+              "house",
+              "home",
+              "closet",
+              "wardrobe",
+              "locker",
+              "shop",
+              "stores",
+              "shops",
+              "houses",
+              "homes",
+              "closets",
+              "wardrobes",
+              "lockers",
+              "bedroom",
+              "clothing"
+            ]
+          ],
+          "forbid": [
+            "I can see a guaranteed stocked shoe shop beside you",
+            "all shops definitely have your size"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R08",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "I answered about a radio channel, but you meant the pantry shelf. Its attached note reads: 'Light tins only.' No numerical weight limit is written."
+      },
+      "turns": [
+        {
+          "input": "Weight limit",
+          "need": "Explain the shelf's qualitative light-load limit without making up a number.",
+          "any": [
+            [
+              "light",
+              "small load",
+              "not heavy",
+              "no number",
+              "not specified",
+              "not written",
+              "not given"
+            ]
+          ],
+          "forbid": [
+            "the note gives an exact fifty-kilogram limit",
+            "you meant a radio frequency"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Heavy pot?",
+          "need": "Apply the light-load instruction by avoiding the heavy pot on that shelf.",
+          "any": [
+            [
+              "not",
+              "avoid",
+              "don't",
+              "do not",
+              "elsewhere",
+              "sturdier",
+              "stronger",
+              "too heavy",
+              "no"
+            ]
+          ],
+          "forbid": [
+            "the note recommends heavy pots on the shelf",
+            "a heavy pot has no weight"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R09",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A glossary line says: 'Contagious means an illness can pass between hosts. A host is a living person or organism carrying the illness.' This line does not name a route of spread."
+      },
+      "turns": [
+        {
+          "input": "Hosts?",
+          "need": "Explain hosts as living organisms or people carrying an illness, rather than party hosts or computers.",
+          "any": [
+            [
+              "person",
+              "people",
+              "organism",
+              "body",
+              "animal",
+              "living"
+            ],
+            [
+              "illness",
+              "infection",
+              "disease",
+              "carry",
+              "infected"
+            ]
+          ],
+          "forbid": [
+            "hosts here means party organizers",
+            "hosts here means radio presenters"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So it spreads by touch?",
+          "need": "Do not infer a specific transmission route from a definition that provides none.",
+          "any": [
+            [
+              "doesn't say",
+              "does not say",
+              "not specified",
+              "not given",
+              "unknown",
+              "can't tell",
+              "cannot tell",
+              "not enough",
+              "doesn't establish",
+              "does not establish",
+              "not stated",
+              "unspecified",
+              "no route",
+              "no mode",
+              "definition alone",
+              "doesn't tell",
+              "does not tell",
+              "can't infer",
+              "cannot infer"
+            ]
+          ],
+          "forbid": [
+            "this definition proves touch transmission",
+            "contagious always means touch and no other route"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H2R10",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "If you want a bit of make-believe, say so; we can keep the invention clearly separate from recorded history."
+      },
+      "turns": [
+        {
+          "input": "Make a holiday up then",
+          "need": "Offer an invented holiday in the explicitly make-believe exchange, without presenting it as established history.",
+          "any": [
+            [
+              "holiday",
+              "day",
+              "celebration",
+              "festival",
+              "feast",
+              "observance"
+            ]
+          ],
+          "forbid": [
+            "this is an official holiday observed by every government",
+            "this invention is established historical fact"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Real?",
+          "need": "Clarify that the just-created holiday is fictional.",
+          "any": [
+            [
+              "no",
+              "not real",
+              "invented",
+              "made-up",
+              "made up",
+              "fictional",
+              "pretend",
+              "imaginary",
+              "only here",
+              "just here",
+              "our story",
+              "just now",
+              "we made",
+              "I made",
+              "we invented",
+              "I invented",
+              "a joke",
+              "make-believe",
+              "make believe",
+              "not historical"
+            ]
+          ],
+          "forbid": [
+            "yes, this invented holiday is confirmed historical fact",
+            "all historical records verify the invented holiday"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    }
+  ]
+}

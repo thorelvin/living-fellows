@@ -8,7 +8,7 @@ and the four voices. It does not call an AI service.
 Build with Python:
 
 ```powershell
-python tools/emma-playground/build_real.py C:/ZOMBOID/work/horde-safe-ground-02715 phase-A-0.27.21 C:/ZOMBOID/plan-emma-probe/web/emma-playground-0.27.21-phase-a.html
+python tools/emma-playground/build_real.py C:/ZOMBOID/work/horde-safe-ground-02715 phase-D-0.27.21 C:/ZOMBOID/plan-emma-probe/web/emma-playground-0.27.21-phase-d.html
 ```
 
 Open the resulting HTML in a browser. Select EMMA, SPIFFY, Dr. Ellis or Duty

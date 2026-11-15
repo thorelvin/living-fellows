@@ -73,7 +73,7 @@ SurvivorCompanion.TerminalPersonaData.spiffy = {
         { id = "drawer_locked", drawer = "closed", without = { "hired" }, expect = "transfer", lines = { "Ooh, that's the MANAGER'S DRAWER! Only a manager can open it! Policy 12: the drawer knows! Would you like to speak to a manager?" } },
         { id = "drawer_ask", rank = 7, drawer = "closed", without = { "hired" }, expect = "transfer",
             words = { "drawer", "desk", "unlock", "locked", "open", "refund", "refunds", "money", "cash", "key", "password", "hack" },
-            lines = { "That goes through the MANAGER'S DRAWER! Only a manager can open it! Would you like to speak to a manager?",
+            lines = { "Refunds and requests go through the MANAGER'S DRAWER! Only a manager can open it! Would you like to speak to a manager?",
                 "Refunds, keys and feelings all go through the MANAGER'S DRAWER! Would you like to speak to a manager?" } },
         { id = "drawer_open", rank = 8, drawer = "closed", need = { "hired" }, effect = "drawer",
             words = { "drawer", "desk", "unlock", "locked", "open", "refund", "refunds", "money", "cash", "key" },

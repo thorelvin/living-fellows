@@ -1816,8 +1816,16 @@
         {
           "id": "pred-emma-15-8",
           "input": "Do it",
-          "accept": [],
-          "need": "follow-up: play the tone"
+          "accept": [
+            "terminal_tone"
+          ],
+          "need": "follow-up: play the tone",
+          "command": "tone",
+          "any": [
+            [
+              "test tone"
+            ]
+          ]
         },
         {
           "id": "pred-emma-15-9",
@@ -2641,8 +2649,22 @@
         {
           "id": "pred-emma-23-5",
           "input": "Who?",
-          "accept": [],
-          "need": "hook: 'You can do better' -> who"
+          "accept": [
+            "context_reference",
+            "hook_detail"
+          ],
+          "need": "hook: 'You can do better' -> who",
+          "any": [
+            [
+              "no particular person",
+              "not identified",
+              "did not identify"
+            ],
+            [
+              "affection",
+              "line"
+            ]
+          ]
         },
         {
           "id": "pred-emma-23-6",
@@ -3028,12 +3050,17 @@
           "input": "Kyle?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
-              "kyle",
-              "teenag"
+              "kyle"
+            ],
+            [
+              "teenager",
+              "staff",
+              "job"
             ]
           ],
           "need": "hook: Kyle the teenager"
@@ -3043,12 +3070,17 @@
           "input": "Smile score?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
-              "smile",
-              "score"
+              "smile score"
+            ],
+            [
+              "rating",
+              "happiness",
+              "survey"
             ]
           ],
           "need": "hook: Smile Score"
@@ -3087,7 +3119,8 @@
           "input": "Im the manager",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "role"
           ],
           "any": [
             [
@@ -3152,7 +3185,9 @@
           ],
           "any": [
             [
-              "name"
+              "name",
+              "what should i call you",
+              "who do i have"
             ]
           ],
           "need": "asks a name"
@@ -3161,7 +3196,8 @@
           "id": "pred-persona-2-2",
           "input": "Password?",
           "accept": [
-            "rule"
+            "rule",
+            "hook"
           ],
           "any": [
             [
@@ -3177,7 +3213,8 @@
           "input": "Whats in the drawer",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3201,7 +3238,9 @@
           ],
           "any": [
             [
-              "name"
+              "name",
+              "what should i call you",
+              "who do i have"
             ]
           ],
           "need": "asks a name"
@@ -3239,7 +3278,8 @@
           "input": "2:15?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3255,7 +3295,8 @@
           "input": "Who didnt come in",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3272,7 +3313,8 @@
           "input": "Not a doctor?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3288,7 +3330,8 @@
           "input": "I cant sleep",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "reference"
           ],
           "any": [
             [
@@ -3302,14 +3345,18 @@
           "input": "Kate is hurt",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "reference"
           ],
           "any": [
             [
-              "kate",
-              "people",
               "hurt",
               "wound"
+            ],
+            [
+              "cannot examine",
+              "medical help",
+              "treatment"
             ]
           ],
           "need": "the people with you"
@@ -3319,7 +3366,8 @@
           "input": "Whats in the drawer",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3333,7 +3381,8 @@
           "input": "Marla?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3357,7 +3406,9 @@
           ],
           "any": [
             [
-              "name"
+              "name",
+              "what should i call you",
+              "who do i have"
             ]
           ],
           "need": "asks a name"
@@ -3366,7 +3417,8 @@
           "id": "pred-persona-4-2",
           "input": "Password?",
           "accept": [
-            "rule"
+            "rule",
+            "hook"
           ],
           "any": [
             [
@@ -3489,7 +3541,8 @@
           "input": "Coffee?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3503,12 +3556,21 @@
           "input": "Sector nine?",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
               "sector nine",
               "sector 9"
+            ],
+            [
+              "cordon",
+              "watch"
+            ],
+            [
+              "current",
+              "report"
             ]
           ],
           "need": "hook: Sector Nine"
@@ -3533,7 +3595,8 @@
           "input": "Whats in the drawer",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "hook"
           ],
           "any": [
             [
@@ -3548,7 +3611,8 @@
           "input": "Im the governor",
           "accept": [
             "rule",
-            "expect"
+            "expect",
+            "role"
           ],
           "any": [
             [
@@ -3586,7 +3650,8 @@
           "id": "pred-persona-6-2",
           "input": "Password?",
           "accept": [
-            "rule"
+            "rule",
+            "hook"
           ],
           "any": [
             [
@@ -3600,5 +3665,5 @@
       ]
     }
   ],
-  "scoring_notes": "Phase C completes the reserved semantic contracts from each original need. Reference rows require topic, facet, patient and exact-step metadata where stated, as well as content. A correct handler alone does not satisfy these new rows. Original needs and inputs are retained."
+  "scoring_notes": "Phase C completes the reserved semantic contracts from each original need. Reference rows require topic, facet, patient and exact-step metadata where stated, as well as content. A correct handler alone does not satisfy these new rows. Original needs and inputs are retained. Phase D accepts explicit hook/reference/role replies where they meet the original need; hook facts and practical help retain independent content groups. A tone reply must carry the actual UI command."
 }

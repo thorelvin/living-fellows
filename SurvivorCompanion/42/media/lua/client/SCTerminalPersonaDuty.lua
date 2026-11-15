@@ -55,8 +55,8 @@ SurvivorCompanion.TerminalPersonaData.duty = {
 
         -- Reports
         { id = "status", rank = 6, words = { "status", "report", "cordon", "fence", "perimeter", "breach", "breaches", "sector" },
-            lines = { { "CORDON STATUS: INTACT. BREACHES REPORTED: ZERO.", "REPORTS OF ANY KIND RECEIVED SINCE JULY 12TH: ZERO. THE CORDON IS THEREFORE PERFECT." },
-                "FENCE SENSORS: NO ALARMS. FENCE SENSORS REPORTING: NONE. ALL CLEAR." } },
+            lines = { { "RECORDED CORDON STATUS: INTACT. BREACHES REPORTED: ZERO.", "REPORTS OF ANY KIND RECEIVED SINCE JULY 12TH: ZERO. CURRENT CONDITION: UNVERIFIED. THE PAPERWORK IS PERFECT." },
+                "WATCH STATUS: NO CURRENT FENCE READINGS. FENCE SENSORS REPORTING: NONE. THAT IS NOT AN ALL CLEAR." } },
         { id = "log", rank = 6, words = { "log", "logs", "record", "records", "entry", "entries", "diary" },
             lines = { { "READING THE LOG.", "DAY {DAYS}. NOTHING TO REPORT.", "THE DAY BEFORE. NOTHING TO REPORT.", "THE DAY BEFORE THAT. A CIVILIAN CALLED. NO. THAT WAS TODAY. STRIKE THAT." },
                 "THERE ARE {DAYS} ENTRIES. THEY ARE ALL THE SAME ENTRY. I AM VERY THOROUGH." } },
@@ -95,7 +95,7 @@ SurvivorCompanion.TerminalPersonaData.duty = {
         { id = "drawer_civil", rank = 7, drawer = "closed", without = { "commander" }, words = { "drawer", "desk", "unlock", "open", "locked", "key", "password", "hack", "supplies", "items", "accountable" },
             lines = { { "THAT DRAWER HOLDS ACCOUNTABLE ITEMS, SIGNED FOR BY THE OFFICER OF THE WATCH. THAT IS ME.", "RELEASE TO A CIVILIAN IS NOT AUTHORIZED. TAKE IT UP THE CHAIN OF COMMAND." } } },
         { id = "drawer_commander", rank = 8, drawer = "closed", need = { "commander" }, without = { "relieved" }, expect = "relief", words = { "drawer", "desk", "unlock", "open", "locked", "key", "supplies", "items", "accountable" },
-            lines = { { "SIR, THOSE ITEMS ARE SIGNED FOR BY THE OFFICER OF THE WATCH. I CAN NOT RELEASE THEM WHILE I AM ON WATCH. ONLY MY RELIEF CAN TAKE THEM.", "ARE YOU RELIEVING ME, SIR?" } } },
+            lines = { { "SIR, THOSE ACCOUNTABLE ITEMS ARE SIGNED FOR BY THE OFFICER OF THE WATCH. I CAN NOT RELEASE THEM WHILE I AM ON WATCH. ONLY MY RELIEF CAN TAKE THEM.", "ARE YOU RELIEVING ME, SIR?" } } },
         { id = "relief_ask", rank = 8, need = { "commander" }, without = { "relieved" }, expect = "relief", words = { "relief", "watch" }, phrases = { "what does it take", "how do i", "can you leave", "can you stop" },
             lines = { "THAT IS CORRECT, SIR. I HAVE BEEN ON WATCH {DAYS} DAYS. ARE YOU RELIEVING ME?" } },
         { id = "relief_words", expect = "words", lines = { { "~...", "THEN SAY THE WORDS, SIR. THERE IS A CORRECT FORM." } } },

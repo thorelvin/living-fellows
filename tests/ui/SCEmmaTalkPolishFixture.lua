@@ -39,7 +39,8 @@ function F.text(reply)
     return table.concat(out," "):lower()
 end
 function F.fits(row,reply)
-    if not reply or reply.careDetected or reply.intent=="care" or reply.layer=="care" then return false end
+    if not reply or reply.careDetected or reply.intent=="care"
+        or reply.layer=="care" and not (row.contentOnly and reply.careIntent=="care_gentle") then return false end
     local text=F.text(reply)
     local intent=reply.intent or reply.layer
     if row.reference then
@@ -49,7 +50,7 @@ function F.fits(row,reply)
     end
     if row.command and reply.command~=row.command then return false end
     local unresolved={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no=true,followup_clarify=true,deflect=true,["repeat"]=true}
-    if unresolved[intent] then
+    if unresolved[intent] and not row.contentOnly then
         local permitted=false for _,id in ipairs(row.accept or {}) do if intent==id then permitted=true end end
         if not permitted then return false end
     end

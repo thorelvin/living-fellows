@@ -39,11 +39,12 @@ Release packaging and playground rebuilding remain required deliverables.
 | 3.11 weather | Condition/season-tagged quips, truthful selection and filter-removal negative control | Done in B; native cloud provider and filter removal control pass |
 | 3.4-3.5 topics | Once-built bounded noun/synonym index and six facets; complete requested survival coverage; verified Build 42.22 source comments | Done in C: 637 entries, 27 topics, source receipt, cold-load smoke and full release gate |
 | 3.10/3.13 | Guide/fact repetition handling, requested new situations, companion identity, contextual counts, real-life kindness, no private persistence | Done in C; focused Interface and full release gate pass |
-| D | Independent sealed holdout >=80%, real-talk >=90%/wrong <=3%, predictions >=85%, persona >=95%, all chains converge by second turn, care 100% and no existing-corpus regression | Pending |
-| Playground | Real modules rebuilt after every phase, all four persona choices, browser verification and user session | Rebuilt through C; four-voice/privacy checks pass; visual/user session explicitly deferred |
+| D | Independent sealed holdout >=80%, real-talk >=90%/wrong <=3%, predictions >=85%, persona >=95%, all chains converge by second turn, care 100% and no existing-corpus regression | Public targets pass; frozen blind content review and final checkpoint pending |
+| Playground | Real modules rebuilt after every phase, all four persona choices, browser verification and user session | Rebuilt through D; four-voice/privacy checks pass; visual/user session explicitly deferred |
 
 Independent blind set H was authored from section 1 only in
-`build/emma-talk-polish/blind-h`. Its content must stay unopened until Phase D.
+`build/emma-talk-polish/blind-h`. Its first results and the subsequent independent
+rounds are recorded in `docs/validation/emma-blind-02721.md`.
 
 ## Baseline checkpoint (before production changes)
 
@@ -289,3 +290,29 @@ published regression sets all pass. Hook/reference checks total 4,681/606.
 The Phase C four-voice playground passes its Lua/privacy checks. The user's
 manual test stays deferred. D remains: rare-computer content, the sealed
 holdout, final gates and release delivery. The holdout is still unopened.
+
+## Phase D checkpoint — unfinished
+
+The shared bounded public-context reader and answer planner now handle
+definitions, alternatives, procedures, conditions, corrections and private
+conversational roles across all four voices. The native context, hook,
+reference and persona checks pass. Opened H1–H5 pass their automatic gates;
+all 130 H5 development replies also pass an independent content assessment.
+The four-voice playground is rebuilt from 39 real Lua blocks, with passing
+Lua/privacy and JavaScript syntax checks. The user's manual test stays deferred.
+
+All five existing release checks pass in
+`build/test-results/20261115-125714-68555d` (496.6 seconds), before the final
+H6 gate was added. The production bridge remains byte-identical. The native
+cold load `SC-Harness-20261115-125219-23ff35c7` passes its 15 fixture turns and
+ten ordinary observation checks in a cloned test save.
+
+The final untouched H6 set, written by a new section-1-only author, fails its
+first native automatic gate: EMMA 8/55, rare mean 25/75, weighted 49/240,
+with zero false care detections or unlocks. Its 130 actual replies reproduce
+in the native capture; the independent content review is pending. No H6
+tuning has occurred. Ordinary word meanings and some practical continuations
+remain incomplete. H6 is now part of Interface, so a new release check must
+report this failure. See `docs/validation/emma-blind-02721.md` for all first
+results, frozen-candidate hashes and the distinction from development replays.
+Phase D and the overall plan are not complete; no release is declared.

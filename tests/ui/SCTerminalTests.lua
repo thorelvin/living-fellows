@@ -270,4 +270,13 @@ check(rows[1] == "  1. first" and string.sub(rows[2], 1, 2) == "  ", "indented r
 rows = Terminal.wrap("a\n\nb", 20)
 check(#rows == 3 and rows[2] == "", "blank lines are kept")
 
+local originalFeedback=Terminal.playFeedbackSound
+local testTone
+Terminal.playFeedbackSound=function(name) testTone=name return true end
+window.pendingCommand="tone"
+window:finishCommand()
+Terminal.playFeedbackSound=originalFeedback
+check(testTone==Terminal.LOGIN_SOUND and window.pendingCommand==nil,
+    "the accepted test-tone command reaches the existing local UI sound adapter once")
+
 SC_TEST_REPORT = "Camp computer terminal: " .. T.checks .. " checks passed"

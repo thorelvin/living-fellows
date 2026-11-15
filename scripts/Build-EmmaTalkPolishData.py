@@ -21,7 +21,7 @@ def lua(value):
 
 
 data = {}
-for name in ("real-talk", "predicted", "locks"):
+for name in ("real-talk", "predicted", "locks", "blind-h", "blind-h2", "blind-h3", "blind-h4", "blind-h5", "blind-h6"):
     path = ROOT / "tests/fixtures/emma-talk-polish" / (name + ".json")
     data[name] = json.loads(path.read_text(encoding="utf-8"))
 target = ROOT / "tests/ui/SCEmmaTalkPolishData.lua"

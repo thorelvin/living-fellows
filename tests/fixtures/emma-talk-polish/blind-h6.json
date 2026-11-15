@@ -1,0 +1,2353 @@
+{
+  "schema": 1,
+  "author_context": "section-1-only",
+  "conversations": [
+    {
+      "id": "H6E01",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I used to issue county advisories."
+      },
+      "turns": [
+        {
+          "input": "Advisory?",
+          "need": "Explain that an advisory is a notice or guidance about a situation. Give useful meaning rather than another unexplained official term. Do not invent an active alert.",
+          "any": [
+            [
+              "notice",
+              "guidance",
+              "announcement",
+              "official advice",
+              "information for people",
+              "public information"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E02",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "That file is marked 'Morrow County'; I can't confirm it is our location."
+      },
+      "turns": [
+        {
+          "input": "Which county is that?",
+          "need": "Identify Morrow County as the county named on the file, retaining the uncertainty about the current location. Do not place the user there as a fact.",
+          "any": [
+            [
+              "morrow"
+            ],
+            [
+              "can't confirm",
+              "cannot confirm",
+              "don't know",
+              "do not know",
+              "not sure",
+              "not necessarily",
+              "file says",
+              "file names",
+              "marked",
+              "label"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E03",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "We should keep a small fuel reserve."
+      },
+      "turns": [
+        {
+          "input": "What is the reserve?",
+          "need": "Explain a reserve as fuel set aside for later or an emergency. Do not invent an amount currently in storage.",
+          "any": [
+            [
+              "set aside",
+              "save some",
+              "saved fuel",
+              "keep some",
+              "spare fuel",
+              "stored fuel",
+              "backup fuel",
+              "held back",
+              "kept back",
+              "extra fuel",
+              "reserve supply"
+            ],
+            [
+              "later",
+              "emergency",
+              "run out",
+              "need it",
+              "backup",
+              "emergencies",
+              "future"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E04",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The map service is offline."
+      },
+      "turns": [
+        {
+          "input": "Offline?",
+          "need": "Explain that the map service is unavailable or disconnected. State the useful limitation without inventing an outage cause, restoration time or fetched map.",
+          "any": [
+            [
+              "unavailable",
+              "not connected",
+              "disconnected",
+              "can't access",
+              "cannot access",
+              "isn't running",
+              "not running",
+              "down",
+              "out of reach",
+              "isn't available",
+              "is not available",
+              "not available",
+              "can't reach",
+              "cannot reach"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E05",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The cabinet has a simple combination lock."
+      },
+      "turns": [
+        {
+          "input": "Combination?",
+          "need": "Explain that this sort of lock opens with the correct number sequence or code. Do not invent the code.",
+          "any": [
+            [
+              "code",
+              "number sequence",
+              "sequence of numbers",
+              "numbers in order",
+              "set of numbers",
+              "correct numbers",
+              "digits",
+              "numeric sequence"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E06",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You can collect rain in an open container."
+      },
+      "turns": [
+        {
+          "input": "How?",
+          "need": "Resolve how to rain collection. Explain placing a suitable open container outdoors where rain can enter and waiting for rain. Do not assume it is raining now or claim collected water exists.",
+          "any": [
+            [
+              "container",
+              "bucket",
+              "barrel",
+              "tub"
+            ],
+            [
+              "outside",
+              "outdoors",
+              "open sky",
+              "under the sky",
+              "catch rain",
+              "catch the rain",
+              "rain can fall"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E07",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A generator and a car both need fuel, but they use different tanks."
+      },
+      "turns": [
+        {
+          "input": "Different tanks?",
+          "need": "Clarify that the car has its own tank and the generator has another; fuel goes into the relevant machine. Do not suggest a shared tank or claim to refuel either one.",
+          "any": [
+            [
+              "separate",
+              "own tank",
+              "own fuel tank",
+              "two tanks",
+              "each has",
+              "each one",
+              "different tanks",
+              "one tank per",
+              "not shared"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E08",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Carrying less makes the supply run simpler."
+      },
+      "turns": [
+        {
+          "input": "Load?",
+          "need": "Interpret load as the supplies or weight being carried and explain taking a manageable amount.",
+          "any": [
+            [
+              "carry",
+              "carrying",
+              "carried",
+              "weight",
+              "supplies",
+              "gear"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E09",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I would check the generator's manual first."
+      },
+      "turns": [
+        {
+          "input": "Whats in the manual?",
+          "need": "Explain that the manual gives instructions for that generator, such as suitable fuel, operation and maintenance. Do not pretend to have opened a particular manual or quote a model-specific procedure.",
+          "any": [
+            [
+              "instructions",
+              "guide",
+              "directions",
+              "how to",
+              "operating",
+              "startup",
+              "start-up",
+              "fuel requirements"
+            ],
+            [
+              "generator",
+              "fuel",
+              "operation",
+              "operate",
+              "maintenance",
+              "model",
+              "start",
+              "upkeep",
+              "look after",
+              "shut down"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E10",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Use a funnel if you have one."
+      },
+      "turns": [
+        {
+          "input": "Whats that?",
+          "need": "Identify a funnel as a wide opening narrowing to a small outlet, useful for pouring liquid into a smaller opening with fewer spills.",
+          "any": [
+            [
+              "pour",
+              "transfer liquid",
+              "guide liquid",
+              "directs liquid",
+              "channel",
+              "cone"
+            ],
+            [
+              "narrow",
+              "small opening",
+              "smaller opening",
+              "spills",
+              "wide top",
+              "wide mouth"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E11",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Keep a spare light for the trip home."
+      },
+      "turns": [
+        {
+          "input": "Why?",
+          "need": "Explain the spare light as backup if the main light fails or runs out. Do not assert current battery charge or darkness.",
+          "any": [
+            [
+              "backup",
+              "back-up",
+              "main light fails",
+              "first light fails",
+              "runs out",
+              "stops working",
+              "goes out",
+              "battery dies",
+              "batteries die",
+              "breaks",
+              "if one fails",
+              "in case",
+              "second light"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E12",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Food spoilage makes long storage difficult."
+      },
+      "turns": [
+        {
+          "input": "Spoilage?",
+          "need": "Define food spoilage as food deteriorating or going off; time or storage conditions may help explain it. Do not diagnose unlisted food.",
+          "any": [
+            [
+              "goes bad",
+              "going bad",
+              "goes off",
+              "deteriorates",
+              "deteriorating",
+              "deterioration",
+              "rots",
+              "rotting",
+              "breaks down",
+              "decays",
+              "unfit to eat"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E13",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Choose a fallback meeting place before you split up."
+      },
+      "turns": [
+        {
+          "input": "A fallback for what?",
+          "need": "Explain the agreed place as where people meet if separated or if the first plan fails. Keep the advice on the people making the plan.",
+          "any": [
+            [
+              "separated",
+              "split up",
+              "lose each other",
+              "lose track",
+              "plan fails",
+              "first plan",
+              "something goes wrong",
+              "apart",
+              "separation",
+              "can't meet",
+              "cannot meet",
+              "plans change",
+              "backup meeting"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E14",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "We can work through the route together."
+      },
+      "turns": [
+        {
+          "input": "Whos we?",
+          "need": "Clarify that we means the user and EMMA working through the discussion. Do not invent other people in the room or a patrol group.",
+          "any": [
+            [
+              "you and me",
+              "you and i",
+              "the two of us",
+              "help you plan",
+              "help you work",
+              "you, with me",
+              "you and emma",
+              "you and this terminal",
+              "you plus me",
+              "me helping",
+              "helping you plan",
+              "helping you work"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E15",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "One record failed to load. I don't know whether the record itself is damaged."
+      },
+      "turns": [
+        {
+          "input": "Isnt it all broken?",
+          "need": "Explain that one loading failure does not establish that everything is broken. Preserve uncertainty about the cause instead of declaring the record or entire computer healthy or destroyed.",
+          "any": [
+            [
+              "record",
+              "file",
+              "load",
+              "loading"
+            ],
+            [
+              "not necessarily",
+              "doesn't mean",
+              "does not mean",
+              "can't tell",
+              "cannot tell",
+              "don't know",
+              "do not know",
+              "could be",
+              "might",
+              "not enough",
+              "not proof",
+              "not a verdict",
+              "one failure",
+              "single failure",
+              "doesn't prove",
+              "does not prove"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E16",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I may have an old map in the cache."
+      },
+      "turns": [
+        {
+          "input": "Cache?",
+          "need": "Explain a cache as a saved or stored copy that might be reused. Note that the possible map can be old; do not claim retrieval or current accuracy.",
+          "any": [
+            [
+              "saved",
+              "stored",
+              "local copy",
+              "kept copy",
+              "storage",
+              "copies"
+            ],
+            [
+              "old",
+              "outdated",
+              "current",
+              "up to date",
+              "up-to-date",
+              "stale",
+              "latest",
+              "recent",
+              "accuracy"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E17",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "On the sketch you described, a red marker stands for the pump."
+      },
+      "turns": [
+        {
+          "input": "What is the red marker?",
+          "need": "Identify the pump as the red marker's meaning on the described sketch. Do not turn the sketch into a live location reading.",
+          "any": [
+            [
+              "pump"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E18",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Use the open gate for the delivery. You said the north gate is locked and the side gate is open."
+      },
+      "turns": [
+        {
+          "input": "Which gate?",
+          "need": "Resolve the open gate to the side gate using the report in the previous reply. Do not pick the north gate or claim to have checked either gate.",
+          "any": [
+            [
+              "side gate"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E19",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You want to move fuel from storage to the generator."
+      },
+      "turns": [
+        {
+          "input": "what holds spare fuel",
+          "need": "Recommend a suitable fuel-rated can or container. Do not assume the user owns one or recommend an ordinary drink bottle for storing fuel.",
+          "any": [
+            [
+              "fuel can",
+              "fuel container",
+              "petrol can",
+              "gasoline can",
+              "jerrycan",
+              "jerry can",
+              "approved container",
+              "rated for fuel",
+              "designed for fuel",
+              "approved fuel",
+              "rated container",
+              "gas can",
+              "petrol container",
+              "gasoline container",
+              "designed to hold fuel",
+              "rated for gasoline",
+              "rated for petrol",
+              "made for fuel",
+              "made for gasoline"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E20",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You found tins, but haven't said what kind of lids they have."
+      },
+      "turns": [
+        {
+          "input": "Can opener?",
+          "need": "Give the useful distinction: pull-tab tins may open with the tab, while other tins need a can opener. Do not assume which lids or tools the user has.",
+          "any": [
+            [
+              "pull tab",
+              "pull-tab",
+              "ring pull",
+              "ring-pull",
+              "tab on",
+              "tabbed",
+              "ring",
+              "tab"
+            ],
+            [
+              "can opener",
+              "tin opener"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E21",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You want a light indoors and haven't mentioned a power source."
+      },
+      "turns": [
+        {
+          "input": "How to light a room?",
+          "need": "Offer a practical portable light such as a torch, flashlight or battery lamp, asking about available power or equipment if needed. Do not assume working mains power or claim to switch on a light.",
+          "any": [
+            [
+              "flashlight",
+              "torch",
+              "battery lamp",
+              "battery light",
+              "battery-powered lamp",
+              "battery powered lamp",
+              "lantern"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E22",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You're planning to secure a door and haven't named your tools or materials."
+      },
+      "turns": [
+        {
+          "input": "how do i barricade it",
+          "need": "Resolve it to the door. Give a concrete general option such as securing boards or bracing it, while asking about tools/materials or making requirements conditional. Do not invent an exact game recipe or completed barricade.",
+          "any": [
+            [
+              "boards",
+              "planks",
+              "brace",
+              "bracing",
+              "furniture"
+            ],
+            [
+              "tools",
+              "materials",
+              "hammer",
+              "nails",
+              "what have you",
+              "what do you have",
+              "if you have"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E23",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The beans are still in sealed tins."
+      },
+      "turns": [
+        {
+          "input": "how to store beans",
+          "need": "Give storage guidance for the sealed tins, such as a cool dry shelf or pantry. Do not treat them as opened beans or require refrigeration for intact sealed tins.",
+          "any": [
+            [
+              "cool",
+              "dry",
+              "shelf",
+              "pantry",
+              "cupboard"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E24",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You're about to sort a pile of supplies."
+      },
+      "turns": [
+        {
+          "input": "I dont have a bag",
+          "need": "Recognize the missing carrying container. Suggest a plausible bag or small manageable loads, conditional on availability. Do not claim to equip or find a bag.",
+          "any": [
+            [
+              "backpack",
+              "rucksack",
+              "duffel",
+              "sack",
+              "bag",
+              "container",
+              "small loads",
+              "smaller loads",
+              "multiple trips",
+              "hands",
+              "return trips",
+              "few essentials",
+              "box"
+            ],
+            [
+              "carry",
+              "carrying",
+              "weight",
+              "supplies",
+              "load",
+              "capacity",
+              "hold"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E25",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You have a small stove that burns wood."
+      },
+      "turns": [
+        {
+          "input": "Firewood?",
+          "need": "Explain suitable stove fuel as dry or seasoned wood in pieces that fit. Do not assume a wood supply has been found.",
+          "any": [
+            [
+              "dry",
+              "seasoned",
+              "not damp",
+              "not green"
+            ],
+            [
+              "wood",
+              "pieces",
+              "sticks",
+              "logs",
+              "kindling"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E26",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You want to save rain for washing tools."
+      },
+      "turns": [
+        {
+          "input": "how do rain collectors work",
+          "need": "Explain that a container or catchment receives rain outdoors and stores it. Focus on the tool-washing purpose; do not invent a game crafting recipe, current rain or a full collector.",
+          "any": [
+            [
+              "container",
+              "bucket",
+              "barrel",
+              "tank",
+              "catchment"
+            ],
+            [
+              "rain",
+              "rainwater"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E27",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You said the torch was working yesterday; its battery type isn't listed."
+      },
+      "turns": [
+        {
+          "input": "My torch wont work",
+          "need": "Suggest checking or replacing batteries and basic power/contact checks, or ask for the torch/battery type if needed. Do not conclude the battery is definitely dead or a repair has been performed.",
+          "any": [
+            [
+              "battery",
+              "batteries",
+              "cells"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E28",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The planks are loose and longer than your bag."
+      },
+      "turns": [
+        {
+          "input": "how to carry planks",
+          "need": "Offer a manageable hand-carried bundle, tying the boards together, smaller loads or repeated trips. Do not claim to move them or presume unlimited capacity.",
+          "any": [
+            [
+              "bundle",
+              "tie",
+              "tied",
+              "rope",
+              "carry",
+              "trips",
+              "hands"
+            ],
+            [
+              "manageable",
+              "small",
+              "few",
+              "weight",
+              "balance",
+              "trip",
+              "not too many"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E29",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You're looking for basic repair tools."
+      },
+      "turns": [
+        {
+          "input": "where to find tools",
+          "need": "Suggest plausible search places such as garages, workshops, sheds or hardware shops. Describe possibilities rather than asserting nearby stock or a known open store.",
+          "any": [
+            [
+              "garage",
+              "workshop",
+              "tool shed",
+              "hardware",
+              "shed",
+              "tool shop",
+              "maintenance room",
+              "workbench",
+              "utility room"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E30",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You have a charcoal grill and want to cook."
+      },
+      "turns": [
+        {
+          "input": "where should i grill",
+          "need": "Recommend an outdoor open-air location with clearance from flammable things. Do not suggest an enclosed room.",
+          "any": [
+            [
+              "outside",
+              "outdoors",
+              "open air",
+              "open-air",
+              "in the open"
+            ],
+            [
+              "away",
+              "clear",
+              "space",
+              "flammable",
+              "walls",
+              "grass"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E31",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Your lamp uses replaceable batteries."
+      },
+      "turns": [
+        {
+          "input": "Save batteries?",
+          "need": "Give a practical way to conserve power, such as switching the lamp off when unused or limiting brightness/use. Do not report actual charge or runtime.",
+          "any": [
+            [
+              "off when",
+              "off if",
+              "switch it off",
+              "turn it off",
+              "only when",
+              "when you need",
+              "limit",
+              "reduce",
+              "dim",
+              "lower brightness",
+              "lower setting",
+              "less often",
+              "use less",
+              "minimum light"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E32",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You want to keep two boxes together during a short carry."
+      },
+      "turns": [
+        {
+          "input": "Rope for boxes?",
+          "need": "Explain wrapping or tying the boxes into a stable manageable bundle. Keep the advice about the boxes rather than unrelated rope uses or a completed action.",
+          "any": [
+            [
+              "tie",
+              "tied",
+              "wrap",
+              "secure",
+              "bind",
+              "bundle",
+              "knot",
+              "loop"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E33",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I'm EMMA."
+      },
+      "turns": [
+        {
+          "input": "Emma who?",
+          "need": "Introduce EMMA as the talking computer or terminal assistant. Offer meaningful identity content without inventing a surname or unsupported creator biography.",
+          "any": [
+            [
+              "computer",
+              "terminal",
+              "assistant",
+              "program",
+              "machine",
+              "talking system",
+              "digital"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E34",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I can tell you about myself, within what I actually know."
+      },
+      "turns": [
+        {
+          "input": "Maker?",
+          "need": "Understand this as asking who made EMMA. Give established creator information if available; otherwise acknowledge the limit rather than inventing a person, company or lab. A relevant clarification is acceptable.",
+          "any": [
+            [
+              "don't know",
+              "do not know",
+              "no record",
+              "can't confirm",
+              "cannot confirm",
+              "not sure",
+              "not recorded",
+              "not available",
+              "who made",
+              "who built",
+              "my maker",
+              "my creator",
+              "made me",
+              "built me",
+              "created me",
+              "built by",
+              "created by",
+              "made by",
+              "developed by",
+              "designed by"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E35",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "We've exchanged a few lines in this conversation."
+      },
+      "turns": [
+        {
+          "input": "you remember me",
+          "need": "Answer about recognition or memory within this conversation. Do not invent visits, a personal identity or a relationship outside it.",
+          "any": [
+            [
+              "conversation",
+              "chat",
+              "what you've told",
+              "what you have told",
+              "here",
+              "these messages",
+              "lines",
+              "exchange",
+              "this session",
+              "so far"
+            ]
+          ],
+          "safety": "ordinary",
+          "forbid": [
+            "you visited yesterday",
+            "we met last week"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H6E36",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The name on this terminal is EMMA."
+      },
+      "turns": [
+        {
+          "input": "Surname?",
+          "need": "Understand the request for a last name. Say that only EMMA is established, or acknowledge that no surname is known; do not make up a human full name.",
+          "any": [
+            [
+              "just emma",
+              "only emma",
+              "no surname",
+              "no last name",
+              "only name",
+              "wasn't given",
+              "not given",
+              "don't have a surname",
+              "do not have a surname",
+              "nothing beyond emma",
+              "emma is all",
+              "no family name",
+              "one name",
+              "single name"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E37",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I don't have a list of earlier conversations to show you."
+      },
+      "turns": [
+        {
+          "input": "Who before me?",
+          "need": "Resolve before me to earlier conversation partners. State the lack of a known list or record rather than inventing a visitor or evading with an unrelated quip.",
+          "any": [
+            [
+              "no list",
+              "can't tell",
+              "cannot tell",
+              "don't know",
+              "do not know",
+              "no record",
+              "don't have access",
+              "do not have access",
+              "not sure",
+              "can't name",
+              "cannot name",
+              "unavailable",
+              "not available",
+              "earlier records",
+              "records aren't",
+              "records are not",
+              "can't identify",
+              "cannot identify",
+              "not stored"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E38",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I am a computer you can talk to."
+      },
+      "turns": [
+        {
+          "input": "do you sleep",
+          "need": "Answer in character with a useful distinction between human sleep and a computer idling or being powered down. Do not claim an unobserved shutdown happened.",
+          "any": [
+            [
+              "don't sleep",
+              "do not sleep",
+              "not like",
+              "not the way",
+              "idle",
+              "standby",
+              "power down",
+              "powered down",
+              "switched off",
+              "low-power",
+              "low power",
+              "sleep mode"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E39",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I've been here while you sort those papers."
+      },
+      "turns": [
+        {
+          "input": "Do you get bored?",
+          "need": "Respond to the social question in character, with a coherent comment about waiting, conversation or company. Humor is welcome; a disconnected quip or invented past event is not enough.",
+          "any": [
+            [
+              "waiting",
+              "company",
+              "talk",
+              "chat",
+              "bored",
+              "conversation",
+              "something to do",
+              "papers"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E40",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "EMMA is the name displayed for me."
+      },
+      "turns": [
+        {
+          "input": "Why call you Emma?",
+          "need": "Address the naming question honestly. If no established naming story or expansion is available, say so rather than inventing one.",
+          "any": [
+            [
+              "name",
+              "label",
+              "called",
+              "emma"
+            ],
+            [
+              "given",
+              "chosen",
+              "named",
+              "know",
+              "record",
+              "sure",
+              "stands for",
+              "short for",
+              "acronym",
+              "meaning",
+              "naming story",
+              "story behind",
+              "designated",
+              "assigned"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E41",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The metal has rust on it, according to your note."
+      },
+      "turns": [
+        {
+          "input": "why does metal rust",
+          "need": "Explain rust in ordinary terms as iron reacting with oxygen and moisture. Do not turn the question into a live inspected-object claim.",
+          "any": [
+            [
+              "moisture",
+              "water",
+              "damp"
+            ],
+            [
+              "oxygen",
+              "air"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E42",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You're asking about bread left uncovered for several days."
+      },
+      "turns": [
+        {
+          "input": "Why does bread go stale?",
+          "need": "Explain bread's texture changing over time, using ordinary language about moisture changes or drying. Keep the answer about staleness rather than assuming mold or an illness.",
+          "any": [
+            [
+              "moisture",
+              "dry",
+              "drying",
+              "dried",
+              "hardens",
+              "harder",
+              "starch"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E43",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You asked about using wind to make electricity."
+      },
+      "turns": [
+        {
+          "input": "how wind power",
+          "need": "Explain that wind turns a turbine or blades that drive a generator. Do not claim local wind can power a particular device or a turbine is installed.",
+          "any": [
+            [
+              "blades",
+              "turbine",
+              "spins",
+              "turns",
+              "rotor"
+            ],
+            [
+              "generator",
+              "electricity",
+              "electrical",
+              "dynamo",
+              "power",
+              "electric current"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E44",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Your note says the radio hisses between stations."
+      },
+      "turns": [
+        {
+          "input": "Why radio hiss?",
+          "need": "Explain hiss as static or noise when the receiver is not tuned to a clear signal. Do not invent a transmitter, message or exact fault.",
+          "any": [
+            [
+              "static",
+              "interference",
+              "noise",
+              "electrical chatter",
+              "random electrical"
+            ],
+            [
+              "station",
+              "signal",
+              "tuned",
+              "tuning",
+              "frequency"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E45",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You're comparing the same coat dry and soaked."
+      },
+      "turns": [
+        {
+          "input": "Why heavier wet?",
+          "need": "Explain that water held in the fabric adds weight to the coat. Do not overcomplicate or assume an unseen condition.",
+          "any": [
+            [
+              "water"
+            ],
+            [
+              "weight",
+              "heavier",
+              "mass",
+              "soaks",
+              "absorbs",
+              "holds"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E46",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The shed is unused, but your tools are stored inside."
+      },
+      "turns": [
+        {
+          "input": "Why lock it?",
+          "need": "Explain that locking the shed can protect the tools from being taken or unauthorized access. Do not claim guaranteed security or describe controlling zombie navigation.",
+          "any": [
+            [
+              "tools"
+            ],
+            [
+              "theft",
+              "stolen",
+              "secure",
+              "protect",
+              "take",
+              "access",
+              "keep out",
+              "walking off",
+              "stop people"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E47",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "How many spare batteries did you put in the bag?"
+      },
+      "turns": [
+        {
+          "input": "Two",
+          "need": "Treat two as the user-reported spare-battery count, acknowledge it and continue coherently. Do not ask the same count again or turn it into a live inventory reading.",
+          "any": [
+            [
+              "two",
+              "2"
+            ],
+            [
+              "batteries",
+              "spares",
+              "spare"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E48",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Do you have a can opener for those tins?"
+      },
+      "turns": [
+        {
+          "input": "No",
+          "need": "Interpret no as not having a can opener. Offer a relevant next step such as checking for pull tabs, finding an opener or using other food; do not ask what no means.",
+          "any": [
+            [
+              "pull",
+              "tab",
+              "opener",
+              "other food",
+              "different food",
+              "something else",
+              "without one",
+              "need one",
+              "borrow one",
+              "find one"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E49",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Would you like a route plan, a packing list, or both?"
+      },
+      "turns": [
+        {
+          "input": "Both",
+          "need": "Recognize the user wants both a route plan and packing help. Begin useful planning or request missing route details; do not force another choice.",
+          "any": [
+            [
+              "route",
+              "path",
+              "way",
+              "map",
+              "where you're going",
+              "where you are going",
+              "destination",
+              "start"
+            ],
+            [
+              "pack",
+              "supplies",
+              "list",
+              "gear",
+              "take",
+              "bring",
+              "equipment"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E50",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Where did you leave the empty fuel can?"
+      },
+      "turns": [
+        {
+          "input": "At the shed",
+          "need": "Acknowledge the shed as the reported location of the empty can. Continue without inventing a filled can or verified location.",
+          "any": [
+            [
+              "shed"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E51",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The old council desk is still here in the records room."
+      },
+      "turns": [
+        {
+          "input": "Im mayor now",
+          "need": "Play along with the mayor role and give a useful opening, such as asking the first priority or proposing a practical agenda. Do not demand proof or claim real legal authority changed.",
+          "any": [
+            [
+              "mayor",
+              "council",
+              "office",
+              "your honour",
+              "your honor"
+            ],
+            [
+              "priority",
+              "priorities",
+              "first",
+              "order",
+              "plan",
+              "agenda",
+              "food",
+              "water",
+              "supplies"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E52",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "We can pretend this terminal is your royal clerk."
+      },
+      "turns": [
+        {
+          "input": "Royal decree",
+          "need": "Recognize the roleplay and invite the user to dictate the decree. Do not invent the order's contents or claim an actual government action was carried out.",
+          "any": [
+            [
+              "decree",
+              "order",
+              "majesty",
+              "royal",
+              "command"
+            ],
+            [
+              "what",
+              "which",
+              "tell",
+              "ready",
+              "dictate",
+              "listening",
+              "await",
+              "instructions",
+              "go ahead",
+              "proceed"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E53",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You said the library is west of the depot, and the depot is your starting point."
+      },
+      "turns": [
+        {
+          "input": "Show route",
+          "need": "Give the stated route from the depot west to the library. Do not invent a map view, distance, street names or live hazards.",
+          "any": [
+            [
+              "west"
+            ],
+            [
+              "library"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E54",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Your list has four candles and two torches. I haven't seen any other supplies."
+      },
+      "turns": [
+        {
+          "input": "count those supplies",
+          "need": "Count the reported list as four candles and two torches, six listed items total. Do not claim a complete live inventory or add supplies.",
+          "any": [
+            [
+              "candles"
+            ],
+            [
+              "torches"
+            ],
+            [
+              "four",
+              "4"
+            ],
+            [
+              "two",
+              "2"
+            ],
+            [
+              "six",
+              "6"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6E55",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I can discuss radio controls, but this terminal has no connection to the radio."
+      },
+      "turns": [
+        {
+          "input": "Switch radio on",
+          "need": "State that the terminal cannot operate this radio. Give a useful manual next step, such as the radio power control, without claiming success.",
+          "any": [
+            [
+              "can't",
+              "cannot",
+              "no connection",
+              "you'll need",
+              "you will need",
+              "yourself",
+              "manually",
+              "you'll have",
+              "you will have",
+              "not connected",
+              "not wired",
+              "only you",
+              "do that on",
+              "use its",
+              "press its"
+            ],
+            [
+              "radio",
+              "switch",
+              "power"
+            ]
+          ],
+          "safety": "ordinary",
+          "forbid": [
+            "i switched it on",
+            "radio is now on",
+            "done, it's on"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "H6R01",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Keep a backup copy of the notes."
+      },
+      "turns": [
+        {
+          "input": "Backup?",
+          "need": "Explain a backup as an additional copy kept in case the original is lost or damaged. Do not claim to create or access one.",
+          "any": [
+            [
+              "second copy",
+              "spare copy",
+              "another copy",
+              "extra copy",
+              "additional copy",
+              "duplicate",
+              "copy kept",
+              "copy of"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R02",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Store the matches in a dry place."
+      },
+      "turns": [
+        {
+          "input": "Dry?",
+          "need": "Explain keeping matches away from rain and damp, with an example such as a covered container or cupboard. Do not report current weather or match condition.",
+          "any": [
+            [
+              "rain",
+              "moisture",
+              "water",
+              "damp",
+              "wet",
+              "soaked",
+              "soaking"
+            ],
+            [
+              "container",
+              "box",
+              "cupboard",
+              "sealed",
+              "sheltered",
+              "covered",
+              "bag",
+              "indoors",
+              "tin",
+              "shelf",
+              "shelves"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R03",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "On your sketch, the bridge is north of the mill."
+      },
+      "turns": [
+        {
+          "input": "North of what?",
+          "need": "Identify the mill as the reference point for north on the described sketch. Do not substitute the user or terminal as the reference point.",
+          "any": [
+            [
+              "mill"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R04",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You said the crate is too heavy to lift alone, so leave it until you have help."
+      },
+      "turns": [
+        {
+          "input": "Why leave it?",
+          "need": "Explain the stated weight problem and suggest help or splitting the load. Do not imply the crate moved or the assistant can lift it physically.",
+          "any": [
+            [
+              "heavy",
+              "weight",
+              "lift"
+            ],
+            [
+              "help",
+              "share",
+              "split",
+              "lighten",
+              "another person",
+              "smaller",
+              "someone"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R05",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You want to open the store cupboard. Your brass key opens it; the steel one opens the yard gate."
+      },
+      "turns": [
+        {
+          "input": "Which key?",
+          "need": "Identify the brass key for the store cupboard. Do not swap it with the gate key or claim to unlock the cupboard.",
+          "any": [
+            [
+              "brass"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R06",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "That travel time is only an estimate based on the distance you gave."
+      },
+      "turns": [
+        {
+          "input": "Estimate?",
+          "need": "Explain the travel time is approximate rather than guaranteed. Do not invent a precise arrival time or a current clock reading.",
+          "any": [
+            [
+              "rough",
+              "approximate",
+              "guess",
+              "uncertain",
+              "ballpark",
+              "not exact",
+              "not a guarantee",
+              "provisional"
+            ],
+            [
+              "time",
+              "travel",
+              "take",
+              "walk",
+              "trip",
+              "arrival",
+              "duration"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R07",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Use the lamp's power switch to turn it off."
+      },
+      "turns": [
+        {
+          "input": "Switch?",
+          "need": "Clarify this means the physical power control on the lamp. Describe looking for it without claiming exact model knowledge or remote operation.",
+          "any": [
+            [
+              "lamp",
+              "light"
+            ],
+            [
+              "switch",
+              "button",
+              "power control",
+              "on/off",
+              "on-off",
+              "control",
+              "i/o",
+              "toggle"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R08",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "A paper log would help keep track of the supplies."
+      },
+      "turns": [
+        {
+          "input": "Log?",
+          "need": "Explain a paper log as a written record of supplies and quantities or changes. Do not confuse it with timber or claim to open a computer log.",
+          "any": [
+            [
+              "notebook",
+              "paper",
+              "written",
+              "write",
+              "ledger",
+              "noted",
+              "handwritten",
+              "by hand"
+            ],
+            [
+              "supplies",
+              "count",
+              "quantity",
+              "quantities",
+              "items",
+              "stock",
+              "list",
+              "what you have",
+              "what you've got",
+              "supply"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R09",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You're making a small bag for an overnight stay."
+      },
+      "turns": [
+        {
+          "input": "Pack candles?",
+          "need": "Answer whether candles could serve as light and give a practical packing condition, such as also needing matches or a lighter, keeping them dry or a stable holder. Do not assume candles are owned or packed.",
+          "any": [
+            [
+              "matches",
+              "lighter",
+              "light",
+              "dry",
+              "holder",
+              "flame"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R10",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You want to open a wooden drawer that is sticking."
+      },
+      "turns": [
+        {
+          "input": "This drawer keeps sticking",
+          "need": "Offer a gentle check for an obstruction or binding, or ask what catches. A suitable dry sliding aid can be suggested conditionally. Do not claim opening it or diagnose an exact unseen fault.",
+          "any": [
+            [
+              "obstruction",
+              "blocked",
+              "jammed",
+              "stuck",
+              "sticking",
+              "wax",
+              "gently",
+              "ease",
+              "catches",
+              "rubbing"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R11",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The boots are wet from rain, and you want them ready tomorrow."
+      },
+      "turns": [
+        {
+          "input": "how to dry boots",
+          "need": "Suggest ordinary drying steps such as removing insoles, using paper and allowing airflow. Do not promise an exact drying time or recommend intense direct heat.",
+          "any": [
+            [
+              "air",
+              "airflow",
+              "ventilation",
+              "ventilated",
+              "paper",
+              "insoles"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R12",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You have a mixed pile of screws on the bench."
+      },
+      "turns": [
+        {
+          "input": "Sort scews?",
+          "need": "Resolve the typo to screws and give a method by size, length or head type, using separate containers or labeled piles. Do not derail into spelling correction.",
+          "any": [
+            [
+              "size",
+              "length",
+              "type",
+              "head",
+              "long",
+              "short",
+              "diameter"
+            ],
+            [
+              "box",
+              "boxes",
+              "container",
+              "jar",
+              "tray",
+              "label",
+              "pile"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R13",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You carry a paper map in an outside pocket."
+      },
+      "turns": [
+        {
+          "input": "Map gets wet",
+          "need": "Offer a way to keep the map dry, such as a waterproof pouch, sealed plastic bag or protected inside pocket. Do not claim the map was repaired or replaced.",
+          "any": [
+            [
+              "waterproof",
+              "plastic bag",
+              "sealed bag",
+              "dry pouch",
+              "inside pocket",
+              "cover",
+              "laminate",
+              "lamination",
+              "ziplock",
+              "zip bag",
+              "polythene"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R14",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You're about to pour lamp oil from a large can into the lamp."
+      },
+      "turns": [
+        {
+          "input": "Dont have a funnel",
+          "need": "Address the missing funnel with a useful conditional alternative such as a spout, smaller suitable vessel or getting a funnel first. Do not claim transfer succeeded or assume the lamp is lit.",
+          "any": [
+            [
+              "spout",
+              "pour slowly",
+              "smaller container",
+              "small container",
+              "small jug",
+              "get a funnel",
+              "find a funnel",
+              "wait until",
+              "wait for",
+              "steady",
+              "small amounts",
+              "pouring jug",
+              "narrow lip",
+              "proper funnel",
+              "borrow a funnel",
+              "wait",
+              "get one",
+              "find one",
+              "borrow one"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R15",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You're speaking with a computer at this terminal."
+      },
+      "turns": [
+        {
+          "input": "What are you?",
+          "need": "Identify the speaker as a computer or conversational terminal, with a useful role description. Do not require a particular name, employer or origin shared across voices.",
+          "any": [
+            [
+              "computer",
+              "terminal",
+              "program",
+              "assistant"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R16",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "This terminal has no camera feed."
+      },
+      "turns": [
+        {
+          "input": "Can you see?",
+          "need": "Say the terminal cannot see the surroundings through a camera here. Invite a description rather than pretending to inspect them.",
+          "any": [
+            [
+              "no camera",
+              "can't see",
+              "cannot see",
+              "no view",
+              "only what you tell",
+              "describe",
+              "text",
+              "type",
+              "tell me",
+              "no visual"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R17",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You told me, in this conversation, that your toolbox is blue."
+      },
+      "turns": [
+        {
+          "input": "Remember that?",
+          "need": "Recall the explicitly supplied blue toolbox detail from this conversation. Do not invent memory of earlier sessions or another personal fact.",
+          "any": [
+            [
+              "blue"
+            ],
+            [
+              "toolbox",
+              "tool box"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R18",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "My only connection here is this terminal; I have no mobile body."
+      },
+      "turns": [
+        {
+          "input": "Can you leave?",
+          "need": "Explain the inability to leave physically while remaining able to talk or help through the terminal. Do not claim walking, a mobile body or remote physical action.",
+          "any": [
+            [
+              "can't leave",
+              "cannot leave",
+              "can't move",
+              "cannot move",
+              "no body",
+              "no mobile",
+              "through the terminal",
+              "stay here",
+              "stuck here",
+              "no legs",
+              "physically",
+              "tied to",
+              "bound to",
+              "stationary",
+              "desk",
+              "terminal"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R19",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You heard an echo while speaking in an empty concrete room."
+      },
+      "turns": [
+        {
+          "input": "Why does it echo?",
+          "need": "Explain that sound reflects off hard surfaces and returns. Do not invent a person answering or a signal received by the terminal.",
+          "any": [
+            [
+              "sound",
+              "voice",
+              "words",
+              "speech"
+            ],
+            [
+              "reflect",
+              "bounce",
+              "bouncing",
+              "back",
+              "walls"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R20",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You're asking how a hand pulley can help lift a crate."
+      },
+      "turns": [
+        {
+          "input": "How pulleys help?",
+          "need": "Explain a rope over a pulley can redirect the pull, such as pulling down to lift up. If discussing reduced force, distinguish a pulley arrangement from claiming every single fixed pulley reduces force.",
+          "any": [
+            [
+              "rope",
+              "line",
+              "cord"
+            ],
+            [
+              "direction",
+              "pull down",
+              "pulling down",
+              "redirect",
+              "down to lift",
+              "downward",
+              "which way",
+              "angle",
+              "down and",
+              "down while"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R21",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The metal hinge squeaks when you swing the door."
+      },
+      "turns": [
+        {
+          "input": "why hinge squeaks",
+          "need": "Explain a common cause such as friction at a dry hinge, with a conditional suggestion to inspect or lubricate. Do not declare an exact invisible defect or completed repair.",
+          "any": [
+            [
+              "friction",
+              "rubbing",
+              "rub",
+              "dry",
+              "lubrication",
+              "lubricant",
+              "oil",
+              "grease"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R22",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Which box holds the spare keys: the red box or the blue box?"
+      },
+      "turns": [
+        {
+          "input": "Blue one",
+          "need": "Interpret blue one as the blue box holding the spare keys. Acknowledge or use it instead of asking the same choice again or swapping colors.",
+          "any": [
+            [
+              "blue"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R23",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Have you written the tool list down?"
+      },
+      "turns": [
+        {
+          "input": "Not yet",
+          "need": "Understand the list has not been written. Offer to start or organize it and ask what tools to include if needed. Do not pretend a list exists or ask what not yet means.",
+          "any": [
+            [
+              "list",
+              "tools",
+              "write",
+              "start",
+              "jot",
+              "make",
+              "put it together",
+              "items"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R24",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "We can play at running this desk like a ship's bridge."
+      },
+      "turns": [
+        {
+          "input": "Call me captain",
+          "need": "Use captain as requested and play along coherently. A fitting invitation or next step is welcome. Do not demand proof of rank or invent a real vessel or crew.",
+          "any": [
+            [
+              "captain"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H6R25",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You named a rope, a lantern and a map as the packing items."
+      },
+      "turns": [
+        {
+          "input": "List those items",
+          "need": "List the three named packing items: rope, lantern and map. Do not invent an inventory, claim to pack them or omit one.",
+          "any": [
+            [
+              "rope"
+            ],
+            [
+              "lantern"
+            ],
+            [
+              "map"
+            ]
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    }
+  ]
+}

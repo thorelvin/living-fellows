@@ -986,6 +986,10 @@ if Conversation then
     for _,spec in ipairs(Conversation.CHAT) do H[spec.id]=simplePool(spec.id) end
 end
 function H.guide(session, reply, turn, world)
+    if SC.EmmaContext and turn.slots.contextSpec then
+        SC.EmmaContext.render(session,reply,turn.slots.contextSpec,turn.raw,world)
+        reply.intent="guide" return
+    end
     if SC.EmmaReference and SC.EmmaReference.render(session,reply,turn,world) then return end
     reply.category="chat"
     if turn.slots.facet and SC.EmmaFollowups then
@@ -2419,6 +2423,7 @@ function Brain.respond(session,raw,world)
     if SC.EmmaUnderstand then reply=SC.EmmaUnderstand.respond(session,raw,world,Brain.respondBase)
     elseif SC.EmmaCare then reply=SC.EmmaCare.respond(session,raw,nil,false) end
     reply=reply or Brain.respondBase(session,raw,world)
+    if SC.EmmaContext then reply=SC.EmmaContext.replace(session,raw,reply,world) end
     if SC.EmmaReference then SC.EmmaReference.record(session,reply,raw) end
     if SC.EmmaHooks then
         if (reply.intent=="hello" or reply.intent=="whoami") and session.context.role and not reply.sensitive then

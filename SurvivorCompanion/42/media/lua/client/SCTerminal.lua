@@ -1637,6 +1637,8 @@ function SCTerminalWindow:finishCommand()
     self.pendingCommand = nil
     if command == "close" then
         self.closeAt = nowMs() + 900
+    elseif command == "tone" then
+        Terminal.playFeedbackSound(Terminal.LOGIN_SOUND)
     end
     if self.replyAutoScroll and self.replyAnchor then
         self.readingAnchor = self.replyAnchor

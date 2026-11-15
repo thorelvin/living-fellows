@@ -32,7 +32,7 @@ files = [("SCNamespace", lua / "shared/SCNamespace.lua"), ("SCSpeechColors", lua
 for module in ("SCTerminalLines", "SCTerminalKnowledge", "SCTerminalConversation", "SCTerminalBrain",
                "SCEmmaLanguageData", "SCEmmaWords", "SCEmmaSurvivalData", "SCEmmaSurvival", "SCEmmaFollowups",
                "SCEmmaMindData", "SCEmmaMind", "SCEmmaReadingsData", "SCEmmaBody", "SCOddballForecast",
-               "SCEmmaCalendar", "SCEmmaReadings", "SCEmmaConversation", "SCEmmaHooks", "SCEmmaReferenceData", "SCEmmaReference", "SCEmmaUnderstand", "SCEmmaMissed", "SCEmmaTerminal",
+               "SCEmmaCalendar", "SCEmmaReadings", "SCEmmaConversation", "SCEmmaHooks", "SCEmmaReferenceData", "SCEmmaReference", "SCEmmaAnswers", "SCEmmaContext", "SCEmmaUnderstand", "SCEmmaMissed", "SCEmmaTerminal",
                "SCTerminalLore", "SCTerminalFiles", "SCTerminalPersona", "SCTerminalPersonaSpiffy", "SCTerminalPersonaEllis", "SCTerminalPersonaDuty"):
     files.append((module, lua / "client" / (module + ".lua")))
 sources = [("prelude", PRELUDE)] + [(name, path.read_text(encoding="utf-8")) for name, path in files]
@@ -71,6 +71,7 @@ swap('        <label><input type="checkbox" id="showHeard" checked> Show what sh
      '        <label><input type="checkbox" id="logChat" checked> Log this chat for Claude</label>\n'
      '        <span class="note-card">Care conversations are never logged.</span>')
 swap('''  const say = (text) => {
+    primeTone();
     queue.push(async () => {
       addRow("> " + text, "you");
       await render(call(window.EMMA_say, text), true);
@@ -208,6 +209,7 @@ swap('''  const say = (text) => {
     });
   })();
   const say = (text) => {
+    primeTone();
     queue.push(async () => {
       addRow("> " + text, "you");
       const reply = call(window.EMMA_say, text);

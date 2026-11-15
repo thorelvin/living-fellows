@@ -13,6 +13,18 @@
 - Rare computers guard name capture and compare repeated rules by meaning.
   The seven older computer harnesses and the public talk/lock baselines run
   in Interface. The rebuilt playground offers all four voices.
+- Public-reply hooks keep all four computers on their own subject through
+  short questions and corrections. Bounded source excerpts retain negative
+  and unknown findings; private conversation never becomes a public hook.
+  Claims of office remain conversational titles, with no access privileges.
+- Short follow-ups can ask for a definition, choose an offered alternative,
+  propose a use or continue a procedure. Answers use the supplied public
+  facts and retain uncertainty, without claiming to perform the work.
+- EMMA's practical reference covers 27 topics with six facets, checked against
+  installed 42.22.2 data. In-world guidance comes before labelled game steps.
+  Named injuries, supply counts and reports keep their existing fact readers.
+  Weather quips match observed conditions, and an accepted test-tone offer
+  produces the local terminal sound.
 - Community history retains witnessed event details and permanent landmarks,
   with small event references in companion memories. Optional malformed facts
   are quarantined, and the actual 0.27.18 community serialization still loads.

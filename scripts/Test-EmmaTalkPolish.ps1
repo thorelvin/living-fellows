@@ -27,6 +27,7 @@ if (@($Harness | Where-Object { $_ -match '^(emma_talk_|lock_talk_)' }).Count -g
     $Sources += Join-Path $UI 'SCEmmaTalkPolishFixture.lua'
     $Floor = Join-Path $UI 'SCEmmaTalkPolishBaseline.lua'
     if (Test-Path -LiteralPath $Floor) { $Sources += $Floor }
+    $Sources += Join-Path $UI 'SCEmmaBlindTests.lua'
 }
 $RunRoot = Join-Path $ProjectRoot ('build\emma-talk-polish\harness-' +
     (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
