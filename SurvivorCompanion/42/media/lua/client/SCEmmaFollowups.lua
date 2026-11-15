@@ -15,7 +15,7 @@ F.subjects={
             tools=guide("survival_generator","generator"),needs=guide("survival_generator","generator"),status={intent="power"},
             specialist={intent="skills",query="electrical"},repair=guide("generator","generator"),
             refuel=guide("generator","generator")}},
-    fuel={label="fuel",aliases={"fuel","gasoline","petrol","gas"},guideId="survival_fuel",
+    fuel={label="finding fuel",aliases={"fuel","gasoline","petrol","gas","gas station","gas stations","pump","pumps","siphon"},guideId="survival_fuel",
         rules={find=guide("survival_fuel","fuel")}},
     vehicle={label="vehicle",aliases={"car","cars","vehicle","vehicles","truck","trucks","van","vans"},guideId="survival_car_start",
         rules={fuel=facet("vehicle_fuel"),fuel_level=facet("vehicle_level"),remaining=facet("vehicle_level"),runtime=facet("vehicle_runtime"),tools=guide("survival_car_start","vehicle"),

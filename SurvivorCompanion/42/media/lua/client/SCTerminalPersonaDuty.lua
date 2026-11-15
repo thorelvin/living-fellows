@@ -4,6 +4,9 @@
 SurvivorCompanion = SurvivorCompanion or {}
 SurvivorCompanion.TerminalPersonaData = SurvivorCompanion.TerminalPersonaData or {}
 SurvivorCompanion.TerminalPersonaData.duty = {
+    missHelp="SUBJECT NOT ESTABLISHED. VALID TRAFFIC: STATUS, ORDERS, LOG, CHAIN OF COMMAND.",
+    missAgain="TAKE YOUR TIME, CIVILIAN. REQUEST STATUS, ORDERS, OR LOG.",
+    missMenu="TOPICS: STATUS, ORDERS, LOG, CHAIN OF COMMAND, COLE, OR THE DRAWER.",
     id = "duty", title = "DUTY OFFICER", theme = "green", upper = true, speed = 60, thinkMs = 500, beatEvery = 3,
     speeds = { 60, 55, 48, 40 }, thinks = { 500, 700, 900, 1200 },
     anon = "civilian", homes = { military = true, police = true, security = true, research = true },

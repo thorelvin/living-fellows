@@ -3,6 +3,9 @@
 SurvivorCompanion = SurvivorCompanion or {}
 SurvivorCompanion.TerminalPersonaData = SurvivorCompanion.TerminalPersonaData or {}
 SurvivorCompanion.TerminalPersonaData.spiffy = {
+    missHelp="Try the menu, the manager, or the drawer. I have been trained on all three. Extensively.",
+    missAgain="Let's take one thing at a time. Menu, manager, or drawer?",
+    missMenu="Topics: burgers, pickles, the manager, refunds, SPIFFY, or the drawer.",
     id = "spiffy", title = "SPIFFY", theme = "sand", speed = 95, thinkMs = 180, beatEvery = 3,
     speeds = { 95, 80, 60, 42 }, thinks = { 180, 300, 700, 1400 },
     anon = "Valued Guest", homes = {}, brand = "Spiffos", brandOnly = true,

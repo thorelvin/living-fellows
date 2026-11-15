@@ -831,8 +831,16 @@
         {
           "id": "pred-emma-14-2",
           "input": "hurt",
-          "accept": [],
-          "need": "answer: medical help"
+          "accept": [
+            "guide"
+          ],
+          "need": "answer: medical help",
+          "any": [
+            [
+              "bandage",
+              "dressing"
+            ]
+          ]
         },
         {
           "id": "pred-emma-14-3",
@@ -845,7 +853,9 @@
         {
           "id": "pred-emma-14-4",
           "input": "Heartsick",
-          "accept": [],
+          "accept": [
+            "comfort"
+          ],
           "need": "answer: comfort voice"
         },
         {
@@ -938,14 +948,32 @@
         {
           "id": "pred-emma-15-9",
           "input": "popcorn",
-          "accept": [],
-          "need": "miss that helps: closest topics"
+          "accept": [
+            "fallback",
+            "fallback_echo"
+          ],
+          "need": "miss that helps: closest topics",
+          "any": [
+            [
+              "try:",
+              "topics:"
+            ]
+          ]
         },
         {
           "id": "pred-emma-15-10",
           "input": "Popcorn?",
-          "accept": [],
-          "need": "second miss: short topic menu once"
+          "accept": [
+            "fallback",
+            "fallback_echo"
+          ],
+          "need": "second miss: short topic menu once",
+          "any": [
+            [
+              "try:",
+              "topics:"
+            ]
+          ]
         }
       ]
     },

@@ -17,7 +17,7 @@ replace(W,"turn",function(w,n) w.polishHit=n==-1 and "left" or "right" end)
 replace(P,"dial",function(w) w.polishHit="dial" end)
 replace(P,"code",function() return "123456" end)
 replace(R,"code",function() return "123456" end)
-replace(R,"heard",function() return true end)
+replace(R,"heard",function(s) return s.lock.heard==true end)
 replace(G,"start",function(w) w.polishHit="start" end)
 replace(E,"offers",function(w) w.polishHit="argument" return {} end)
 replace(L,"finishUnlock",function(w) w.polishHit="unlock" return true end)
@@ -66,10 +66,32 @@ end
 -- Exact code checks, hearing requirements and password guesses remain owned by
 -- their original handlers. A menu choice must never stand in for a code.
 for _,kind in ipairs({"phone","radio"}) do
-    for _,raw in ipairs({"999 999","999-999","12345","1","2?","1234567","123a456"}) do
+    for _,raw in ipairs({"999 999","999-999","12345","1","2?","1234567","123a456","123456?","123456."}) do
         local w=window({kind=kind}) L.input(w,raw)
         assert(w.polishHit~="unlock",kind.." falsely unlocked on "..raw)
     end
+    local unheard=window({kind=kind}) unheard.system.lock.heard=false
+    L.input(unheard,"123 456")
+    assert(unheard.polishHit~="unlock",kind.." accepted an unheard key")
+end
+do
+    local exact=SC.TerminalLockCrack.password(window({kind="word",page="crack"}).system)
+    for _,raw in ipairs({exact.."?",exact..".",exact:sub(1,1).." "..exact:sub(2)}) do
+        local w=window({kind="word",page="crack"}) L.input(w,raw)
+        assert(w.polishHit~="unlock","password punctuation/spaces must stay exact")
+    end
+end
+-- Positive controls are paired with removing the reader/explanation boundary.
+-- Each new rule must change an observed outcome, not merely return true.
+local reader=L.read
+for _,id in ipairs({"lock-4","lock-2","lock-29","lock-50","lock-64"}) do
+    local row
+    for _,candidate in ipairs(SC.EmmaTalkPolishData.locks.rows) do if candidate.id==id then row=candidate end end
+    local good=window(row) L.input(good,row.input)
+    L.read=function(_,raw) return raw end
+    local disabled=window(row) L.input(disabled,row.input)
+    L.read=reader
+    assert(evaluate(row,good) and not evaluate(row,disabled),"lock reader mutation was not detected: "..id)
 end
 for _,kind in ipairs({"word","remember"}) do
     local w=window({kind=kind})

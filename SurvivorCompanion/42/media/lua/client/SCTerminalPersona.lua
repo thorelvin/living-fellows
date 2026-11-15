@@ -40,7 +40,7 @@ local CONTRACTIONS = {
     whats = "what is", whos = "who is", wheres = "where is", hows = "how is", theres = "there is",
     hes = "he is", shes = "she is", lets = "let us", u = "you", ur = "your", r = "are",
     pls = "please", plz = "please", thx = "thanks", ty = "thanks", yeah = "yes", yep = "yes",
-    yup = "yes", ya = "yes", nope = "no", nah = "no", okay = "ok", k = "ok", kk = "ok",
+    yup = "yes", ya = "yes", ja = "yes", nei = "no", nope = "no", nah = "no", okay = "ok", k = "ok", kk = "ok",
     hi = "hello", hey = "hello", hiya = "hello", howdy = "hello", yo = "hello", sup = "hello",
     greetings = "hello", heya = "hello", zeds = "zombies", zed = "zombie", gonna = "going to",
     wanna = "want to", gotta = "got to", gimme = "give me",
@@ -53,7 +53,9 @@ local YES_PHRASES = { "i do", "i am", "of course", "go ahead", "do it", "why not
 local NOT_NAMES = { hello = true, yes = true, no = true, why = true, who = true, what = true, where = true,
     when = true, how = true, ok = true, thanks = true, help = true, none = true, nobody = true,
     nothing = true, you = true, me = true, i = true, the = true, a = true, ["not"] = true, fine = true,
-    please = true, sorry = true, maybe = true, stop = true, bye = true, name = true, is = true }
+    please = true, sorry = true, maybe = true, stop = true, bye = true, name = true, is = true,
+    password=true,login=true,drawer=true,open=true,close=true,status=true,orders=true,log=true,
+    coffee=true,manager=true,refund=true,doctor=true,emma=true }
 -- Echoing a stranger's words is the one risky thing a parser does. Never reflect these.
 local BLOCK = { fuck = true, fucking = true, fucker = true, shit = true, bitch = true, cunt = true,
     cock = true, dick = true, pussy = true, ass = true, asshole = true, bastard = true, whore = true,
@@ -459,6 +461,7 @@ local function fire(ctx, rule, depth)
     if rule.effect2 then reply.effects[rule.effect2] = true end
     if rule.expect then state.expect, state.expectTries, state.expectRule = rule.expect, 0, rule.id end
     ctx.fired = rule
+    if rule.id~="repeated" then ctx.meaning=rule.id end
     if rule.next and (depth or 0) < 3 then
         local follow = ctx.D._byId[rule.next]
         if follow and allowed(ctx, follow) then fire(ctx, follow, (depth or 0) + 1) end
@@ -521,6 +524,8 @@ local function answerExpect(ctx)
         if aside then return fire(ctx, aside) end
     end
     if not go and expect.name then
+        if (ctx.question or best(ctx,function(rule) return rule.words or rule.phrases or rule.all end))
+            and not yesOrNo(ctx.tokens,ctx.padded) then dropExpect(ctx) return false end
         local name = P.captureName(ctx.tokens, ctx.padded)
         if name then
             state.name = name
@@ -588,7 +593,15 @@ local function echoWord(tokens)
 end
 
 local function finish(ctx, raw)
+    if ctx.meaning then ctx.session.lastMeaning=ctx.meaning end
     local D, state, session, reply, facts = ctx.D, ctx.state, ctx.session, ctx.reply, ctx.facts
+    if reply.layer=="deflect" or reply.layer=="steer" then
+        session.unknownTurns=math.min(100,(session.unknownTurns or 0)+1)
+        reply.rows={session.unknownTurns%2==0 and (D.missAgain or D.missHelp) or D.missHelp}
+        if session.unknownTurns>=2 and not session.missMenuShown then
+            session.missMenuShown=true reply.rows[#reply.rows+1]=D.missMenu or D.missHelp
+        end
+    else session.unknownTurns=0 end
     local quiet = reply.effects.close or reply.effects.shutdown or reply.effects.drawer or (ctx.fired and ctx.fired.rest)
     if ctx.fired and ctx.fired.beat then session.sinceBeat = 0 end
     session.sinceBeat = session.sinceBeat + 1
@@ -664,7 +677,8 @@ function P.respond(state, session, raw, facts)
     facts = facts or {}
     local text = clean(raw, P.MAX_INPUT)
     local reply = { rows = {}, effects = {} }
-    local ctx = { D = D, state = state, session = session, facts = facts, reply = reply, set = {}, tokens = {}, depth = P.depth(state, facts.hours) }
+    local ctx = { D = D, state = state, session = session, facts = facts, reply = reply, set = {}, tokens = {},
+        question=text:find("?",1,true)~=nil,depth = P.depth(state, facts.hours) }
     session.turns = session.turns + 1
     session.spoke = true
     local tokens = P.tokens(text)
@@ -744,11 +758,6 @@ function P.respond(state, session, raw, facts)
         end
     end
     -- A rule marked `again` wants the repeat: asking twice is how it gets further.
-    if ctx.norm == session.lastNorm and not best(ctx, function(rule) return rule.again end)
-        and fireId(ctx, "repeated") then
-        reply.layer = "repeat"
-        return finish(ctx, text)
-    end
     session.lastNorm = ctx.norm
     if looksMashed(tokens) and fireId(ctx, "mash") then
         reply.layer = "mash"
@@ -779,8 +788,9 @@ function P.respond(state, session, raw, facts)
         end
         -- Saying the same line twice running is what makes a parser feel like one.
         local said = table.concat(variant(ctx, rule) or {}, " ")
-        if said == session.lastSaid and fireId(ctx, "repeated") then
+        if not rule.again and rule.id==session.lastMeaning and said == session.lastSaid and fireId(ctx, "repeated") then
             reply.layer = "repeat"
+            ctx.meaning=rule.id
         else
             fire(ctx, rule)
             session.lastSaid = said

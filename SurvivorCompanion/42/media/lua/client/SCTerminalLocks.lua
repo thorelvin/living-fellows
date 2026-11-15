@@ -193,8 +193,68 @@ function L.record(window,raw,result)
     table.insert(lock.attempts,1,row) while #lock.attempts>6 do table.remove(lock.attempts) end
 end
 function L.active(w) return w.system and w.system.locked and not w.securityPanel end
+-- Command spelling belongs here; proof of a password/code remains in its lock.
+-- In particular, an unrecognised password is returned byte-for-byte unchanged.
+local commandAliases={quit="log off",["log out"]="log off",logout="log off",close="log off",
+    help="ask for help",hint="ask for help",["?"]="ask for help",["what do i do"]="ask for help",how="ask for help",
+    call="place call",dial="place call",answer="place call",next="next page",previous="previous page",prev="previous page",
+    ["turn left"]="left",["turn right"]="right",ja="yes",y="yes",yeah="yes",yep="yes",yup="yes",
+    nei="no",n="no",nope="no",nah="no"}
+local commands={ ["log off"]=true,exit=true,back=true,bypass=true,["other ways in"]=true,
+    ["fine. other ways in."]=true,["failed logins"]=true,yes=true,no=true,["ask for help"]=true,
+    ["place call"]=true,["next page"]=true,["previous page"]=true,left=true,right=true,
+    manual=true,["open manual"]=true,wheel=true,crack=true,["run crack.exe"]=true,case=true,["open the case"]=true}
+local numberWords={one="1",two="2",three="3",four="4",five="5",six="6",seven="7",eight="8",nine="9"}
+function L.read(w,raw)
+    raw=tostring(raw or ""):sub(1,256)
+    local kind=L.kind(w.system)
+    -- UNDELETE's search string is evidence, including its spaces/punctuation.
+    if kind=="search" and not w.lockPage and not w.lockConfirm then return raw end
+    local lower=raw:lower():match("^%s*(.-)%s*$"):gsub("%s+"," ")
+    local command=lower=="?" and "?" or lower:gsub("[?!%.,;:]+$","")
+    if (kind=="phone" or kind=="radio") and not w.lockPage and not w.lockConfirm
+        and lower:find("%d") and lower:match("^[%d%s%-]+$") then
+        return (lower:gsub("[%s%-]",""))
+    end
+    if command:match("^%d$") or command:match("^%d+$") and kind~="phone" and kind~="radio" then return command end
+    if numberWords[command] and (kind=="story" or kind=="emma" or kind=="word" or kind=="remember" or kind=="rival") then
+        return numberWords[command]
+    end
+    if kind=="story" and not w.lockPage and not w.lockConfirm and SC.TerminalLockStory.readChoice then
+        local choice=SC.TerminalLockStory.readChoice(w,command)
+        if choice then return tostring(choice) end
+    end
+    command=commandAliases[command] or command
+    if command=="ask for help" then
+        if kind=="phone" or kind=="radio" or kind=="wheel" or kind=="emma" or kind=="story" then return "lock help" end
+    end
+    if w.lockPage=="case" and command=="open it" then return "1" end
+    if commands[command] then return command end
+    -- These questions are informational; none prepares or completes a recovery.
+    if kind=="phone" and command=="code" or kind=="radio" and (command=="which station" or command=="96.4")
+        or w.lockPage=="case" and command=="battery" or w.lockPage=="crack" and command=="how long" then return command end
+    return raw
+end
+function L.explain(w,command)
+    local kind=L.kind(w.system)
+    if kind=="phone" and (command=="code" or command=="lock help") then
+        return "Place the internal call, answer the telephone there, then type its six-digit code here."
+    elseif kind=="radio" and (command=="which station" or command=="96.4" or command=="lock help") then
+        return "County Key Escrow: 96.4 MHz at 03:00. Listen for this machine's serial, then type its six-digit key."
+    elseif w.lockPage=="case" and command=="battery" then
+        return "Option 2 removes the CMOS battery. It needs a screwdriver and scrap electronics; a soldered battery stays put."
+    elseif w.lockPage=="crack" and command=="how long" then
+        local c=w.system.lock.crack
+        return c and string.format("%.1f hours remaining while this computer has power.",math.max(0,c.requiredHours-c.doneHours)) or "Start CRACK.EXE to see its remaining hours."
+    elseif command=="lock help" then
+        return kind=="wheel" and "Open the manual. Align the named marker, then submit the letter in the requested window."
+            or kind=="emma" and "Choose an argument on screen, 1 to 4. EMMA checks claims against her records."
+            or "Choose a number or the words printed beside it. Start begins a new adventure."
+    end
+end
 function L.input(w,raw,option)
     if not L.active(w) then return false end
+    raw=L.read(w,raw)
     local lower=string.lower(raw:match("^%s*(.-)%s*$"))
     local lock=w.system.lock
     local kind=L.kind(w.system)
@@ -213,6 +273,8 @@ function L.input(w,raw,option)
         if choice then lower=choice.value raw=choice.value else w.securityMessage="Choose a displayed option." return true end
     end
     if lower=="log off" or lower=="exit" then w:close() return true end
+    local explanation=L.explain(w,lower)
+    if explanation then w.securityMessage=explanation return true end
     if kind=="rival" and (lower=="other ways in" or lower=="fine. other ways in." or lower=="bypass"
         or lower=="case" or lower=="open the case" or lower=="crack" or lower=="run crack.exe") then
         w.securityMessage="USER2 is still working. The race opens this machine either way." return true

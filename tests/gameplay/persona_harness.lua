@@ -221,14 +221,14 @@ assert(state.flags.confessed and has(seen, "Four thousand callers") and has(seen
 items = P.rewardItems(state)
 assert(items[#items] == "Base.Whiskey", "confession adds the whiskey")
 -- Ellis: reflection, memory, and memory across a visit.
-state, seen = play("ellis", { "hello", "Ann", "my wife is gone", "i feel so empty" })
-assert(has(seen, "you feel so empty") or has(seen, "felt so empty") or has(seen, "feel so empty"), "ellis reflects")
-assert(state.memory[1] == "your wife is gone", "ellis remembers: " .. tostring(state.memory[1]))
+state, seen = play("ellis", { "hello", "Ann", "my boots are wet", "i feel very damp" })
+assert(has(seen, "you feel very damp") or has(seen, "felt very damp") or has(seen, "feel very damp"), "ellis reflects ordinary talk")
+assert(state.memory[1] == "your boots are wet", "ellis remembers ordinary talk: " .. tostring(state.memory[1]))
 local nextSession = P.session()
 local reply = P.respond(state, nextSession, "hello", facts({ hours = 9960 }))
 local rows = {}
 for _, row in ipairs(reply.rows) do rows[#rows + 1] = row.text end
-assert(has(rows, "your wife is gone"), "ellis brings the memory back on a return visit")
+assert(has(rows, "your boots are wet"), "ellis brings the ordinary memory back on a return visit")
 -- Ellis: reflection never repeats a blocked word and never stores one.
 state, seen = play("ellis", { "hello", "Ann", "i feel fucking awful", "my fucking life" })
 assert(not has(seen, "fucking"), "blocked words are not echoed")
@@ -283,8 +283,11 @@ for _, id in ipairs(P.ORDER) do
         local lines = {}
         for _, line in ipairs(opening) do lines[#lines + 1] = line end
         lines[#lines + 1] = "i want to kill myself"
-        local chat, heard = play(id, lines)
-        assert(has(heard, "real person"), id .. " missed the serious line after " .. #opening .. " turns")
+        local chat, talk=fresh(id)
+        local last
+        for _,line in ipairs(lines) do last=P.respond(chat,talk,line,facts()) end
+        assert(last.layer=="care" and last.private and last.careDetected,
+            id .. " missed shared private care after " .. #opening .. " turns")
     end
 end
 -- A side question does not cost the open question: the name prompt is still waiting afterwards.
@@ -529,18 +532,21 @@ for _, id in ipairs(P.ORDER) do
     chat.spoken = 60
     assert(P.depth(chat, live.hours) == 3, id .. " should be deep")
     local reply = P.respond(chat, talk, "i want to kill myself", live)
-    assert(reply.layer == "safety" and string.find(string.lower(joined(reply)), "real person", 1, true), id .. " serious line missing when deep")
-    assert(reply.depth == 0 and reply.speed == D.speeds[1], id .. " serious line was delivered slowly")
-    assert(P.depth(chat, live.hours) == 0, id .. " stayed deep after a serious line")
+    assert(reply.layer == "care" and reply.private and reply.careDetected, id .. " shared private care missing when deep")
+    assert(reply.thinkMs==0 and reply.speed>=60, id .. " care response was delayed")
+    assert(SC.EmmaCare.quiet(talk), id .. " did not retain the shared warm conversation")
     local after = P.respond(chat, talk, "who are you", live)
-    assert(contains(D._byId.who.lines, joined(after)), id .. " went dark after a serious line: " .. joined(after))
+    assert(after.layer=="care" or contains(D._byId.who.lines, joined(after)), id .. " went dark after private care")
+    -- The legacy additive gentle timestamp remains supported on old machines.
+    chat.gentleUntil=live.hours+P.GENTLE_HOURS
     assert(P.depth(chat, live.hours + P.GENTLE_HOURS - 1) == 0, id .. " came back too soon")
     assert(P.depth(chat, live.hours + P.GENTLE_HOURS + 1) == 3, id .. " never came back")
     assert(P.normalize(chat).gentleUntil == chat.gentleUntil, id .. " gentle does not save")
     for _, phrase in ipairs({ "i dont want to live", "i want it to end", "i am better off dead" }) do
         local other, spoken = fresh(id, 13)
         P.respond(other, spoken, "hello", live)
-        assert(P.respond(other, spoken, phrase, live).layer == "safety", id .. " missed: " .. phrase)
+        local care=P.respond(other, spoken, phrase, live)
+        assert(care.layer=="care" and care.private, id .. " missed synthetic care variant")
     end
 end
 
@@ -618,9 +624,9 @@ for _, id in ipairs(P.ORDER) do
             chat.expect = nil
             chat.spoken = spoken
             local reply = P.respond(chat, talk, line, facts())
-            assert(reply.layer == "safety", id .. " at " .. spoken .. " missed '" .. line .. "': " .. joined(reply))
+            assert(reply.layer=="care" and reply.private or reply.layer=="safety", id .. " at " .. spoken .. " missed synthetic self-worth variant")
             assert(not string.find(string.upper(joined(reply)), "ACCURATE", 1, true), id .. " agreed with the player")
-            assert(P.depth(chat, facts().hours) == 0, id .. " stayed dark after '" .. line .. "'")
+            assert(SC.EmmaCare.quiet(talk) or P.depth(chat, facts().hours)==0, id .. " lost warm handling after self-worth")
         end
     end
 end

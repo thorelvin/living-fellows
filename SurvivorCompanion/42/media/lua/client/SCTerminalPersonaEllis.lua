@@ -5,6 +5,9 @@
 SurvivorCompanion = SurvivorCompanion or {}
 SurvivorCompanion.TerminalPersonaData = SurvivorCompanion.TerminalPersonaData or {}
 SurvivorCompanion.TerminalPersonaData.ellis = {
+    missHelp="I missed the subject. We can talk about sleep, the appointment, or the drawer.",
+    missAgain="Take your time. Sleep, the appointment, or the drawer?",
+    missMenu="Topics: sleep, the people with you, the appointment, Marla, Dr. Ellis, or the drawer.",
     id = "ellis", title = "DR. ELLIS", theme = "aqua", speed = 38, thinkMs = 1100, beatEvery = 2,
     speeds = { 38, 34, 30, 26 }, thinks = { 1100, 1400, 1800, 2400 },
     pauseAfter = 25, anon = "my friend", homes = { clinic = true, pharmacy = true },

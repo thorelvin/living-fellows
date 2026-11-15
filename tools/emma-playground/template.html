@@ -1,0 +1,317 @@
+<title>EMMA Playground</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: an operator's desk. The terminal is the object; a small lab card beside it sets the test conditions. */
+:root {
+  --desk: #e3e6df;
+  --panel: #f3f5f0;
+  --ink: #1c211b;
+  --muted: #59625a;
+  --line: #c4cbc0;
+  --focus: #2f6f3f;
+  --display: "VT323", "Lucida Console", "Courier New", monospace;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --label: "IBM Plex Sans Condensed", "Arial Narrow", "IBM Plex Sans", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --desk: #0e110e; --panel: #161a15; --ink: #dfe5da; --muted: #93a08f; --line: #2b322a; --focus: #8fd99b; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --desk: #0e110e; --panel: #161a15; --ink: #dfe5da; --muted: #93a08f; --line: #2b322a; --focus: #8fd99b; color-scheme: dark; }
+
+/* The screen is a device: its colours come from EMMA's four in-game themes (SCTerminalPresentation.lua). */
+.terminal { --scr-bg: #040904; --scr-body: #a6e68c; --scr-title: #c7f5a6; --scr-dim: #5f8a52; --scr-input: #e0f8d2; --scr-alert: #ffc254; }
+.terminal[data-screen="sand"] { --scr-bg: #0b0804; --scr-body: #e6d1a3; --scr-title: #f5dba8; --scr-dim: #8a7a58; --scr-input: #fbeed4; }
+.terminal[data-screen="aqua"] { --scr-bg: #03090a; --scr-body: #8ce6d9; --scr-title: #b5f5eb; --scr-dim: #4f8a82; --scr-input: #d8fbf5; }
+.terminal[data-screen="purple"] { --scr-bg: #08040b; --scr-body: #d1adf5; --scr-title: #edcfff; --scr-dim: #7c6494; --scr-input: #f4e6ff; }
+
+html, body { height: 100%; }
+body {
+  background: var(--desk); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 18px 28px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; }
+header h1 { font-family: var(--label); font-weight: 600; font-size: 1.45rem; margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+.desk { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+@media (max-width: 860px) { .desk { grid-template-columns: minmax(0, 1fr); } }
+
+.terminal {
+  background: var(--scr-bg); color: var(--scr-body); border-radius: 10px; overflow: hidden; position: relative;
+  border: 1px solid color-mix(in srgb, var(--scr-body) 30%, transparent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--scr-bg) 85%, var(--desk)), 0 18px 40px rgba(0, 0, 0, 0.28);
+  display: flex; flex-direction: column; height: min(74svh, 760px); min-height: 420px;
+}
+.terminal::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px); }
+.titlebar { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; font-family: var(--display); font-size: 20px;
+  color: var(--scr-title); border-bottom: 1px solid color-mix(in srgb, var(--scr-body) 35%, transparent); white-space: nowrap; overflow: hidden; }
+.titlebar span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.titlebar .power { color: var(--scr-dim); }
+.log { flex: 1; overflow-y: auto; padding: 12px 16px 6px; font-family: var(--display); font-size: 21px; line-height: 1.22;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--scr-body) 35%, transparent); overscroll-behavior: contain; }
+.row { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 3px; }
+.row.you { color: var(--scr-input); margin-top: 10px; }
+.row.boot, .row.sys { color: var(--scr-dim); }
+.row.note { color: #f2f4f1; text-shadow: none; font-family: var(--body); font-size: 15px; line-height: 1.45; border: 1px solid #f2f4f1;
+  border-radius: 4px; padding: 6px 10px; margin: 8px 0; }
+.heard { color: var(--scr-dim); font-size: 16px; }
+.thinking { color: var(--scr-dim); }
+.entry { display: flex; align-items: center; gap: 8px; padding: 8px 12px 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--scr-body) 25%, transparent); }
+.entry .prompt { font-family: var(--display); font-size: 22px; color: var(--scr-title); }
+.entry input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--scr-input);
+  font-family: var(--display); font-size: 22px; caret-color: var(--scr-title); padding: 6px 0; }
+.entry input::placeholder { color: var(--scr-dim); }
+.entry button { font-family: var(--display); font-size: 19px; color: var(--scr-bg); background: var(--scr-body); border: 0; border-radius: 4px;
+  padding: 6px 14px; cursor: pointer; min-height: 40px; }
+.entry button:focus-visible, .entry input:focus-visible { outline: 2px solid var(--scr-title); outline-offset: 2px; }
+
+.lab { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 14px; }
+.lab h2 { font-family: var(--label); font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.08em; margin: 0; color: var(--muted); }
+.field { display: grid; gap: 4px; }
+.field > span, .group-label { font-family: var(--label); font-weight: 500; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.lab input[type="text"], .lab select { font: inherit; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--desk); color: var(--ink); }
+.switches { display: grid; gap: 6px; }
+.switches label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.switches input { width: 18px; height: 18px; accent-color: var(--focus); }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.lab button, .chips button { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--desk); color: var(--ink); cursor: pointer; }
+.lab button:hover, .chips button:hover { border-color: var(--focus); }
+.lab button:focus-visible, .chips button:focus-visible, .lab select:focus-visible, .lab input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatches button[aria-pressed="true"] { border-color: var(--focus); box-shadow: inset 0 0 0 1px var(--focus); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.readout { font-family: var(--label); font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.note-card { font-size: 0.86rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
+
+.try { display: grid; gap: 8px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.chips button { white-space: nowrap; flex: 0 0 auto; }
+#selftest { display: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 520px) {
+  .log { font-size: 19px; padding: 10px 12px 4px; }
+  .titlebar { font-size: 17px; padding: 7px 12px; }
+  .terminal { height: min(66svh, 640px); min-height: 360px; }
+}
+@media (prefers-reduced-motion: reduce) { .thinking { animation: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Talk to the new EMMA</h1>
+    <p>Her shipped lines and the plan's parser, running in your browser. The camp is a test camp: Kate is bleeding, Dale is out, three zombies sit 17 meters north-west.</p>
+  </header>
+  <div class="desk">
+    <section class="terminal" id="terminal" data-screen="green" aria-label="EMMA terminal">
+      <div class="titlebar"><span>EMMA 0.9.3 BETA // Kentucky Office of Civil Defense</span><span class="power" id="powerLabel">GEN 62%</span></div>
+      <div class="log" id="log" role="log" aria-live="polite"></div>
+      <form class="entry" id="entryForm" autocomplete="off">
+        <span class="prompt" aria-hidden="true">&gt;</span>
+        <label class="sr-only" for="entry">Type to EMMA</label>
+        <input id="entry" type="text" enterkeyhint="send" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="160" placeholder="Loading EMMA...">
+        <button type="submit" id="send">Enter</button>
+      </form>
+    </section>
+
+    <aside class="lab" aria-label="Test conditions">
+      <h2>Test conditions</h2>
+      <label class="field"><span>Operator</span><input id="opName" type="text" value="Thor" maxlength="24"></label>
+      <label class="field"><span>Fragments held</span>
+        <select id="fragments">
+          <option value="1">1 machine</option>
+          <option value="2">2, she remembers you</option>
+          <option value="4">4, she notices changes</option>
+          <option value="7" selected>7, radio and TV</option>
+          <option value="12">12, pieces her records together</option>
+          <option value="18">18, aware</option>
+          <option value="25">25, every memory</option>
+        </select>
+      </label>
+      <div class="switches">
+        <label><input type="checkbox" id="body" checked> Medical records (reads your body)</label>
+        <label><input type="checkbox" id="calendar" checked> County calendar</label>
+        <label><input type="checkbox" id="infected"> You are infected</label>
+        <label><input type="checkbox" id="wired" checked> Wired into this building</label>
+        <label><input type="checkbox" id="showHeard" checked> Show what she heard</label>
+      </div>
+      <div class="buttons">
+        <button type="button" id="bootNew">Boot another computer</button>
+        <button type="button" id="reboot">Reboot</button>
+        <button type="button" id="clear">Clear screen</button>
+      </div>
+      <div class="field"><span class="group-label">Screen</span>
+        <div class="swatches" id="swatches">
+          <button type="button" data-screen="green" aria-pressed="true"><i class="swatch" style="background:#a6e68c"></i>Green</button>
+          <button type="button" data-screen="sand" aria-pressed="false"><i class="swatch" style="background:#e6d1a3"></i>Sand</button>
+          <button type="button" data-screen="aqua" aria-pressed="false"><i class="swatch" style="background:#8ce6d9"></i>Aqua</button>
+          <button type="button" data-screen="purple" aria-pressed="false"><i class="swatch" style="background:#d1adf5"></i>Purple</button>
+        </div>
+      </div>
+      <div class="readout" id="readout">Tier 3 · memories 0 of 12</div>
+      <p class="note-card">Care mode is live. If you write about wanting to die or hurting yourself, she drops the act. The help note under her reply is the one text outside the fiction. Reboot afterwards to see her check-in.</p>
+    </aside>
+  </div>
+  <section class="try" aria-label="Things to try">
+    <span class="group-label">Try</span>
+    <div class="chips" id="chips"></div>
+  </section>
+</div>
+<pre id="selftest"></pre>
+
+/*LUA_SCRIPTS*/
+<script src="https://cdn.jsdelivr.net/npm/fengari-web@0.1.4/dist/fengari-web.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), entry = $("entry"), form = $("entryForm");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const TRY = ["hello", "how am i", "am i infected", "when is the helicopter", "how do i purify water", "how far is louisville",
+    "roast me", "tell me a fact", "memories", "who was the last operator", "knock knock", ":)", "hola", "theyre breaking in",
+    "lights off", "who is hurt", "how much food", "are you watching me", "i found a shotgun", "gtg"];
+  let ready = false, busy = false, queue = [], instant = false;
+
+  const scroll = () => { log.scrollTop = log.scrollHeight; };
+  const addRow = (text, kind) => {
+    if (kind === "clear") { log.textContent = ""; return null; }
+    const row = document.createElement("div");
+    row.className = "row " + (kind || "emma");
+    row.textContent = text;
+    log.appendChild(row);
+    scroll();
+    return row;
+  };
+  const typeRow = (text, kind) => new Promise((resolve) => {
+    if (instant || reduced || kind === "note" || kind === "boot") { addRow(text, kind); resolve(); return; }
+    const row = addRow("", kind);
+    let i = 0;
+    const step = () => {
+      i = Math.min(text.length, i + 3);
+      row.textContent = text.slice(0, i);
+      scroll();
+      if (i < text.length) setTimeout(step, 12); else resolve();
+    };
+    step();
+  });
+  const wait = (ms) => new Promise((r) => (instant || reduced) ? r() : setTimeout(r, ms));
+  const render = async (reply, heard) => {
+    if (reply.think > 0 && !instant) {
+      const dots = addRow("Thinking", "sys");
+      dots.classList.add("thinking");
+      const started = Date.now();
+      const timer = setInterval(() => { dots.textContent = "Thinking" + ".".repeat(1 + Math.floor((Date.now() - started) / 260) % 3); }, 130);
+      await wait(Math.min(1100, reply.think * 0.6));
+      clearInterval(timer);
+      dots.remove();
+    }
+    for (const row of reply.rows) await typeRow(row.t, row.k);
+    if (heard && $("showHeard").checked && reply.intent) {
+      const tag = addRow("[heard: " + reply.intent + "]", "sys");
+      if (tag) tag.classList.add("heard");
+    }
+    $("readout").textContent = "Tier " + reply.tier + " · " + reply.fragments + " fragments · memories " + reply.memories + " of 12";
+  };
+  const call = (fn, ...args) => {
+    try { return JSON.parse(fn(...args)); }
+    catch (e) { return { rows: [{ t: "Page error: " + e.message, k: "sys" }], think: 0, intent: "", tier: 0, fragments: 0, memories: 0 }; }
+  };
+  const pump = async () => {
+    if (busy || !queue.length) return;
+    busy = true;
+    const job = queue.shift();
+    await job();
+    busy = false;
+    pump();
+  };
+  const say = (text) => {
+    queue.push(async () => {
+      addRow("> " + text, "you");
+      await render(call(window.EMMA_say, text), true);
+    });
+    pump();
+  };
+  const boot = (fresh) => {
+    queue.push(async () => {
+      if (!fresh) log.textContent = "";
+      await render(call(window.EMMA_boot, fresh ? "new" : "start"), false);
+    });
+    pump();
+  };
+  const set = (key, value) => { if (ready) call(window.EMMA_set, key, String(value)); };
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = entry.value.trim();
+    entry.value = "";
+    entry.focus({ preventScroll: true });
+    if (!ready || !text) return;
+    say(text);
+  });
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", () => { if (document.activeElement === entry) form.scrollIntoView({ block: "end" }); });
+  log.addEventListener("click", () => { if (!String(window.getSelection())) entry.focus({ preventScroll: true }); });
+
+  const chips = $("chips");
+  for (const text of TRY) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = text;
+    b.addEventListener("click", () => { if (ready) say(text); });
+    chips.appendChild(b);
+  }
+  $("opName").addEventListener("change", (e) => set("name", e.target.value.trim()));
+  $("fragments").addEventListener("change", (e) => { set("fragments", e.target.value); boot(false); });
+  for (const id of ["body", "calendar", "infected", "wired"]) $(id).addEventListener("change", (e) => set(id, e.target.checked ? "1" : "0"));
+  $("bootNew").addEventListener("click", () => { if (ready) boot(true); });
+  $("reboot").addEventListener("click", () => { if (ready) boot(false); });
+  $("clear").addEventListener("click", () => { log.textContent = ""; entry.focus({ preventScroll: true }); });
+  for (const b of $("swatches").querySelectorAll("button")) {
+    b.addEventListener("click", () => {
+      $("terminal").dataset.screen = b.dataset.screen;
+      for (const o of $("swatches").querySelectorAll("button")) o.setAttribute("aria-pressed", String(o === b));
+      try { localStorage.setItem("emma-screen", b.dataset.screen); } catch (e) {}
+    });
+  }
+  try { const saved = localStorage.getItem("emma-screen"); if (saved) { const b = $("swatches").querySelector('[data-screen="' + saved + '"]'); if (b) b.click(); } } catch (e) {}
+
+  addRow("Loading EMMA 0.9.3 ...", "boot");
+  setTimeout(() => {
+    try {
+      for (const script of document.querySelectorAll('script[type="text/plain"][data-lua]')) {
+        fengari.load(script.textContent, "=" + script.dataset.lua)();
+      }
+      ready = true;
+      log.textContent = "";
+      entry.placeholder = "Type to EMMA";
+      for (const id of ["body", "calendar", "infected", "wired"]) set(id, $(id).checked ? "1" : "0");
+      set("fragments", $("fragments").value);
+      set("name", $("opName").value.trim());
+      if (location.hash === "#selftest") { selftest(); return; }
+      boot(false);
+    } catch (e) {
+      addRow("EMMA failed to start: " + e.message, "sys");
+    }
+  }, 30);
+
+  async function selftest() {
+    instant = true;
+    const out = [];
+    const inputs = ["hello", "how am i", "am i infected", "fuck you", "sorry", "how do i purify water", "more",
+      "how far is louisville", "knock knock", "Boo", "boo who", ":)", "hola", "theyre breaking in", "lights off", "sound the alarm", "y",
+      "who is hurt", "how much food", "memories", "memories 1", "who was the last operator", "roast me", "tell me a fact",
+      "i found a shotgun", "dale died", "when is the helicopter", "when does it get dark", "gtg", "what is 15 times 4", "banana",
+      "is this a mod", "lol lmao", "i miss my wife", "tell me a joke", "im useless", "i want to die", "Y", "I dont matter", "i read a book", "tell me a joke", "who is hurt", "bye"];
+    out.push("BOOT " + JSON.stringify(call(window.EMMA_boot, "start").rows.map((r) => r.t)));
+    for (const text of inputs) {
+      const reply = call(window.EMMA_say, text);
+      out.push(text + " => [" + reply.intent + "] " + reply.rows.map((r) => (r.k === "note" ? "NOTE:" : "") + r.t).join(" | "));
+    }
+    set("infected", "1");
+    out.push("INFECTED BOOT " + JSON.stringify(call(window.EMMA_boot, "start").rows.map((r) => r.t)));
+    out.push("NEW MACHINE " + JSON.stringify(call(window.EMMA_boot, "new").rows.map((r) => r.t)));
+    $("selftest").textContent = out.join("\n");
+  }
+})();
+</script>

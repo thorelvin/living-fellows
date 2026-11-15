@@ -11,6 +11,7 @@ require "SCEmmaCare"
 require "SCEmmaSurvival"
 require "SCEmmaFollowups"
 require "SCEmmaReadings"
+require "SCEmmaConversation"
 local Brain = SC.TerminalBrain
 local D = SC.EmmaLanguageData
 SC.EmmaUnderstand = SC.EmmaUnderstand or {}
@@ -488,6 +489,10 @@ function M.parse(session, text, world, turn, baseParse)
     text=tostring(text or ""):sub(1,Brain.MAX_INPUT)
     local care=M.careSignal(text)
     if care then return care, {} end
+    if SC.EmmaConversation then
+        local expected,slots=SC.EmmaConversation.begin(session,text,world,turn)
+        if expected then return expected,slots end
+    end
     local literal=text:lower():gsub("^emma[,:%s]+", "")
     if literal:find("^remember%s") or literal:find("^call me%s") or literal:find("^forget%s")
         or literal:find("^my name is%s") or literal:find("^factory reset")
@@ -966,7 +971,7 @@ function M.respond(session,raw,world,baseRespond)
         end
     end
     if #clauses>1 then session.context.last={lines=reply.lines,category=reply.category,sensitive=reply.sensitive} end
-    return reply
+    return SC.EmmaConversation and SC.EmmaConversation.finish(session,raw,reply) or reply
 end
 
 return M

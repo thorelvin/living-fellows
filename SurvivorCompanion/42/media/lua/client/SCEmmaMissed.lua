@@ -37,10 +37,23 @@ function Log.record(session,raw,reply,world)
         or SC.EmmaCare and SC.EmmaCare.assess(raw)~=nil
         or clean(raw):lower():find("^remember%s") or clean(raw):lower():find("^call me%s")
     local previous=session.emmaLogPrevious
-    session.emmaLogPrevious=not unsafe and {text=clean(raw),allowed=true} or {allowed=false}
+    local hooks={}
+    if not unsafe then
+        for key in pairs(reply and reply.hooks or {}) do
+            if #hooks<8 and type(key)=="string" then hooks[#hooks+1]=clean(key):sub(1,32) end
+        end
+        table.sort(hooks)
+    end
+    session.emmaLogPrevious=not unsafe and {text=clean(raw),allowed=true,
+        reply=clean(table.concat(reply and reply.lines or {}," ")),hooks=table.concat(hooks,","),
+        previousReply=previous and previous.allowed and previous.reply or ""} or {allowed=false}
     if unsafe or not enabled() or failed or type(getFileWriter)~="function" then return end
     local text=misses[id] and clean(raw) or nil
-    if (id=="did_you_mean_no" or id=="chat_misunderstood") and previous and previous.allowed then text=previous.text end
+    local preceding=previous and previous.allowed and previous.reply or ""
+    local precedingHooks=previous and previous.allowed and previous.hooks or ""
+    if (id=="did_you_mean_no" or id=="chat_misunderstood") and previous and previous.allowed then
+        text=previous.text preceding=previous.previousReply or ""
+    end
     if not text then return end
     if not initialized then
         count=readCount(paths[1]);fileIndex=1
@@ -58,7 +71,8 @@ function Log.record(session,raw,reply,world)
                 tonumber(clock.hour) or 0,tonumber(clock.minute) or 0)
         end
     end
-    if write(paths[fileIndex],stamp.." | "..tostring(id).." | "..text.."\n",append) then count=count+1
+    if write(paths[fileIndex],stamp.." | "..tostring(id).." | "..text.." | previous_reply="..clean(preceding)
+        .." | hooks="..clean(precedingHooks).."\n",append) then count=count+1
     else failed=true end
 end
 function Log.reset() fileIndex,count,initialized,failed=1,0,false,false end

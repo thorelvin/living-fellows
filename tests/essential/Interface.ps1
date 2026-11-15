@@ -70,7 +70,7 @@ foreach ($module in @(
     'SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation', 'SCTerminalBrain',
     'SCEmmaLanguageData', 'SCEmmaWords', 'SCEmmaSurvivalData', 'SCEmmaSurvival',
     'SCEmmaFollowups', 'SCEmmaMindData', 'SCEmmaMind', 'SCEmmaReadingsData', 'SCEmmaBody',
-    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
+    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaConversation', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
     'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',
     'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil', 'SCEmmaJump',
     'SCTerminalPersona', 'SCTerminalPersonaSpiffy', 'SCTerminalPersonaEllis', 'SCTerminalPersonaDuty',
@@ -104,8 +104,25 @@ foreach ($module in @(
     (Join-Path $UI 'SCEmmaTalkPolishFixture.lua'),
     (Join-Path $UI 'SCEmmaTalkPolishBaseline.lua'),
     (Join-Path $Gameplay 'emma_talk_polish_harness.lua'),
-    (Join-Path $Gameplay 'lock_talk_polish_harness.lua')
+    (Join-Path $Gameplay 'lock_talk_polish_harness.lua'),
+    (Join-Path $Gameplay 'emma_talk_questions_harness.lua')
 ) }
+
+# These six harnesses specify the base parser/archive API, predating EMMA's
+# deliberate overrides. Keep their original module isolation. Production EMMA
+# routing and care run above with the full load order and the public corpora.
+$interfaceBaseTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Shared 'SCSpeechColors.lua'))
+foreach ($module in @('SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation',
+    'SCTerminalBrain', 'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation',
+    'SCTerminalBusinessData', 'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCTerminalWorld')) {
+    $interfaceBaseTerminalFiles += Join-Path $Client ($module + '.lua')
+}
+foreach ($name in @('terminal_harness', 'terminal_system_harness', 'terminal_lore_harness',
+    'terminal_knowledge_harness', 'terminal_conversation_harness', 'terminal_grid_harness')) {
+    @{ Name = ('interface-base-' + $name); Files = @($interfaceBaseTerminalFiles) + @((Join-Path $Gameplay ($name + '.lua'))) }
+}
+@{ Name = 'interface-persona-conversations'; Files = @($interfaceTerminalFiles) + @((Join-Path $Gameplay 'persona_harness.lua')) }
 
 $interfaceRadioFiles = @($interfaceTerminalFiles)
 foreach ($module in @('SCTerminalHardware', 'SCTerminalRadio', 'SCTerminalRadioWorkUI', 'SCTerminalRadioUI', 'SCTerminalServices', 'SCRadioWork')) {

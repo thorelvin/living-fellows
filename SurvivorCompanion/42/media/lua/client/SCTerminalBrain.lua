@@ -478,8 +478,8 @@ Brain.INTENTS = {
         phrases = { ["good morning"] = 5, ["good evening"] = 5, ["good afternoon"] = 5,
             ["anyone there"] = 5, ["anybody there"] = 5, ["are you there"] = 6, ["you there"] = 5 } },
     { id = "yes", exact = { "yes", "y", "sure", "correct", "affirmative", "do it", "go ahead",
-        "yes please", "please", "right" } },
-    { id = "no", exact = { "no", "n", "negative", "wrong", "cancel", "never", "no thanks" } },
+        "yes please", "please", "right", "yeah", "yep", "yup", "ja" } },
+    { id = "no", exact = { "no", "n", "negative", "wrong", "cancel", "never", "no thanks", "nope", "nah", "nei" } },
     { id = "ack", exact = { "ok", "alright", "fine", "cool", "got it", "understood", "i see",
         "noted", "ok thanks" } },
 }

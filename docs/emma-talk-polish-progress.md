@@ -16,15 +16,15 @@ Release packaging and playground rebuilding remain required deliverables.
 
 | Requirement | Required evidence | State |
 |---|---|---|
-| A baseline: seven computer harnesses | Actual results against the production load order, before behavior changes | Recorded: 2 pass, 5 fail; repair/wiring pending |
-| 3.1 real talk | All 71 visible turns, prior-reply context, generated variants and seven replay chains; care excluded; baseline committed before behavior | Pending |
-| Predictions | 188 EMMA and 41 persona turns; persona reply-content scoring; per-row non-regression baseline | Pending |
-| 3.14 locks | All lock kinds including Story, EMMA, Search, Rival and password locks; >=95%, exact-password/code safety, negative controls | Pending |
-| 3.3 questions | One-turn expectations, help-me answers, person cancellation, expanded yes/no; unchanged care | Pending |
-| 3.8-3.9 misses | Every miss offers useful choices; once-session menu; bounded context-aware suggestions and logging; negative controls | Pending |
-| 3.12 persona quick fixes | Question/name guard, semantic repeat identity, all seven harnesses in Interface | Pending |
-| Phase A verification | Improved baseline scores with no lost passing row, care 100%, Windows PowerShell 5.1 full gate, rebuilt playground | Pending |
-| V7 baseline | Real Kahlua 60-day simulator, separate game/real clocks, metrics and sample-week transcript before new speech | Pending |
+| A baseline: seven computer harnesses | Actual results against the production load order, before behavior changes | Recorded, repaired, wired and passing |
+| 3.1 real talk | All recovered visible turns, prior-reply context, generated variants and seven replay chains; care excluded; baseline committed before behavior | Done: 72 turns, 288 variants, seven chains |
+| Predictions | 188 EMMA and 41 persona turns; persona reply-content scoring; per-row non-regression baseline | Phase A baseline and floor done; final targets remain pending |
+| 3.14 locks | All lock kinds including Story, EMMA, Search, Rival and password locks; >=95%, exact-password/code safety, negative controls | Done: 74/74; wrong/unheard codes, menu digits and exact passwords checked |
+| 3.3 questions | One-turn expectations, help-me answers, person cancellation, expanded yes/no; unchanged care | Done |
+| 3.8-3.9 misses | Every miss offers useful choices; once-session menu; bounded context-aware suggestions and logging; negative controls | Done for Phase A; hooks/noun-index integration continues in B/C |
+| 3.12 persona quick fixes | Question/name guard, semantic repeat identity, all seven harnesses in Interface | Done; own-word hooks and role-play remain B |
+| Phase A verification | Improved baseline scores with no lost passing row, care 100%, Windows PowerShell 5.1 full gate, rebuilt playground | Full release gate and headless checks pass; browser visual check/user session pending |
+| V7 baseline | Real Kahlua 60-day simulator, separate game/real clocks, metrics and sample-week transcript before new speech | Recorded before companion changes; Phase E work started |
 | V1 ledger | Flat facts and witnesses, observed event producers, 96 history/24 landmarks, small memory references, old-save and malformed-field restore | Pending |
 | V3 scenes | 3-6 tagged beats, 2-3 speakers, personality/relation branches, one party scene, shared budget, immediate cancellation, two-clock scheduling | Pending |
 | V5 relationships | Reason-matched arguments, bounded grudges, reconciliation, modest companion comfort | Pending |
@@ -42,7 +42,7 @@ Release packaging and playground rebuilding remain required deliverables.
 | D | Independent sealed holdout >=80%, real-talk >=90%/wrong <=3%, predictions >=85%, persona >=95%, all chains converge by second turn, care 100% and no existing-corpus regression | Pending |
 | Playground | Real modules rebuilt after every phase, all four persona choices, browser verification and user session | Pending |
 
-Independent blind set H is being authored from section 1 only in
+Independent blind set H was authored from section 1 only in
 `build/emma-talk-polish/blind-h`. Its content must stay unopened until Phase D.
 
 ## Baseline checkpoint (before production changes)
@@ -55,17 +55,23 @@ before fixture extraction; a private preceding reply is never copied.
 
 | Set | Correct / total |
 |---|---|
-| Real turns, reply contracts | 45 / 72 |
-| Generated public variants | 170 / 288 |
+| Real turns, reply contracts | 42 / 72 |
+| Generated public variants | 159 / 288 |
 | EMMA predictions | 74 / 188 |
 | Persona predictions, content contracts | 18 / 41 |
-| Rephrase chains converging by turn two | 5 / 7 |
+| Rephrase chains converging by turn two | 4 / 7 |
 | Expanded lock predictions | 23 / 74 |
 
 The plan's older percentages used different scoring and a different release;
 they are not substituted for this observed baseline. Frozen passing row IDs in
 `tests/fixtures/emma-talk-polish/baseline.json` prohibit row-level regressions.
 The new corpus runs in Interface before any production changes land.
+
+Scoring correction: the first evaluator incorrectly counted an unresolved noun
+echo as a content answer. The original run's recorded intents identify those
+14 invalid row matches and one invalid trapping-chain match. They are excluded
+from the corrected baseline above; every valid original passing row is kept.
+This corrects the measurement, not a production regression.
 
 Seven-harness run: system and lore pass. Terminal, knowledge and conversation
 expect some older routes (help versus help_me, reference versus survival guide,
@@ -76,3 +82,24 @@ reflect a line now handled by care. These failures were preserved in
 
 The sealed independent H set has 145 turns in 60 conversations. SHA256:
 `6a902430b8406e08a536f587ac09b1b12871c76fd269ea55b0cb18511f5ae3a9`.
+
+## Phase A checkpoint
+
+Real turns improve to 44/72, variants 166/288, EMMA predictions 78/188,
+personas 18/41 by content, chains 4/7, locks 74/74. The frozen row floor now
+also retains Phase A passes. B/C/D still owe the plan's final accuracy targets.
+
+All five release checks pass under Windows PowerShell 5.1, including the seven
+older harnesses: `build/test-results/20261115-013924-6915c0` (333.2 seconds).
+The six base-parser/archive harnesses retain their historical module isolation;
+the production parser and all four care routes run in the full-load groups.
+Persona tests now assert the shared private care contract rather than obsolete
+literal wording, and use neutral statements to test ordinary reflection.
+
+The four-voice playground was rebuilt from production modules and checked in
+Lua 5.3, including care privacy on all four voices. Its local file is
+`C:\ZOMBOID\plan-emma-probe\web\emma-playground-0.27.21-phase-a.html`.
+Browser visual verification is unperformed: the browser tool explicitly rejected
+local `file:` navigation. No workaround was attempted. A user session has been
+requested and remains pending. Release ZIPs were built as 0.27.21; work continues
+on this branch under the user's release instruction.

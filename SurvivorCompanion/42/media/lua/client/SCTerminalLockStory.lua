@@ -176,6 +176,13 @@ function G.update(w,now)
 end
 function G.input(w,raw)
     local g=G.ensure(w.system) local number=tonumber(raw)
+    local valid=number and number==math.floor(number) and number>=1
+        and number<=(g.phase=="scene" and 3 or g.phase=="rolling" and 0 or 1)
+    if not valid then
+        local choices=G.choiceWords(w)
+        w.securityMessage=#choices>0 and "Choose "..table.concat(choices,"; ").."." or "The dice are still rolling."
+        return true
+    end
     if g.phase=="title" or g.phase=="dead" then if number==1 then G.start(w) end
     elseif g.phase=="intro" then if number==1 then G.enter(w) end
     elseif g.phase=="scene" and number and number==math.floor(number) and number>=1 and number<=3 then
@@ -195,6 +202,28 @@ function G.input(w,raw)
         w.securityScroll=0
     elseif g.phase=="win" and number==1 then SC.TerminalLocks.finishUnlock(w,"story") end
     return true
+end
+function G.choiceWords(w)
+    local choices={}
+    for _,line in ipairs(G.lines(w)) do
+        local number,label=line:match("^%[(%d)%]%s+(.+)$")
+        if number then choices[#choices+1]=number.." - "..label end
+    end
+    return choices
+end
+function G.readChoice(w,command)
+    local g=G.ensure(w.system)
+    if (g.phase=="title" or g.phase=="dead") and (command=="start" or command=="go" or command=="begin") then return 1 end
+    local found
+    for _,choice in ipairs(G.choiceWords(w)) do
+        local number,label=choice:match("^(%d) %- (.+)$")
+        label=label:lower():gsub("[?!%.,;:]+$","")
+        if command==label or command==label:match("^(%a+)") then
+            if found then return nil end
+            found=tonumber(number)
+        end
+    end
+    return found
 end
 function G.lines(w)
     local g=G.ensure(w.system) local rows={}

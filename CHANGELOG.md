@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.21 - Conversation polish
+
+- Computer locks share a command reader for punctuation, short synonyms,
+  menu words, and spaced six-digit codes. Password and code proof remains
+  with each original lock handler.
+- EMMA accepts answers to her help question, expires unrelated pending
+  questions, offers useful topics after a miss, and reads additional yes/no
+  answers. Missed-input logs retain only permitted public reply context.
+- Rare computers guard name capture and compare repeated rules by meaning.
+  The seven older computer harnesses and the public talk/lock baselines run
+  in Interface. The rebuilt playground offers all four voices.
+- Project Zomboid 42.22.2; bridge protocol `42.22-isocompanion-31` and save
+  schemas are unchanged. Zombie navigation remains native.
+
 ## 0.27.20 - Leave base duty without losing supplies
 
 - Follow and other direct orders explain the actual work or storage blocker

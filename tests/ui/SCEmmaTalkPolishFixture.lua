@@ -42,6 +42,11 @@ function F.fits(row,reply)
     if not reply or reply.careDetected or reply.intent=="care" or reply.layer=="care" then return false end
     local text=F.text(reply)
     local intent=reply.intent or reply.layer
+    local unresolved={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no=true,followup_clarify=true,deflect=true,["repeat"]=true}
+    if unresolved[intent] then
+        local permitted=false for _,id in ipairs(row.accept or {}) do if intent==id then permitted=true end end
+        if not permitted then return false end
+    end
     if #(row.accept or {})>0 then
         local found=false for _,id in ipairs(row.accept) do if intent==id then found=true end end
         if not found then return false end

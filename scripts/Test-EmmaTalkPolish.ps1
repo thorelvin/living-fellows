@@ -5,7 +5,8 @@ param(
     [string[]]$Harness = @('terminal_harness', 'terminal_system_harness',
         'terminal_lore_harness', 'terminal_knowledge_harness',
         'terminal_conversation_harness', 'terminal_grid_harness', 'persona_harness'),
-    [switch]$Baseline
+    [switch]$Baseline,
+    [switch]$ProductionOrder
 )
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -19,7 +20,7 @@ $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 $InterfaceGroups = @(. (Join-Path $Essential 'Interface.ps1'))
 $Sources = @($interfaceTerminalFiles)
 if ($Sources.Count -lt 40) { throw 'Production terminal sources were not resolved.' }
-if ($Harness -contains 'emma_talk_polish_harness' -or $Harness -contains 'lock_talk_polish_harness') {
+if (@($Harness | Where-Object { $_ -match '^(emma_talk_|lock_talk_)' }).Count -gt 0) {
     & python (Join-Path $PSScriptRoot 'Build-EmmaTalkPolishData.py') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Conversation fixture compilation failed.' }
     $Sources += Join-Path $UI 'SCEmmaTalkPolishData.lua'
@@ -47,14 +48,17 @@ try {
         $Timer = [Diagnostics.Stopwatch]::StartNew()
         $PriorPreference = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
+        $RunSources = $Sources
+        $BaseApi = $Name -like 'terminal_*' -and -not $ProductionOrder
+        if ($BaseApi) { $RunSources = @($interfaceBaseTerminalFiles) }
         try {
             & $Java -Xmx256m -XX:ActiveProcessorCount=2 -XX:+UseSerialGC `
-                -cp "$RunRoot;$Jar" KahluaTestRunner @Sources $File *> $Log
+                -cp "$RunRoot;$Jar" KahluaTestRunner @RunSources $File *> $Log
             $Code = $LASTEXITCODE
         } finally { $ErrorActionPreference = $PriorPreference }
         $Timer.Stop()
         $Results += @{ Harness = $Name; ExitCode = $Code;
-            Passed = $Code -eq 0; Seconds = $Timer.Elapsed.TotalSeconds; Log = $Log }
+            Passed = $Code -eq 0; BaseParserAPI = $BaseApi; Seconds = $Timer.Elapsed.TotalSeconds; Log = $Log }
         Write-Output ("{0}: {1}" -f $Name, $(if ($Code -eq 0) { 'PASS' } else { 'FAIL (recorded)' }))
     }
 } finally { Pop-Location }

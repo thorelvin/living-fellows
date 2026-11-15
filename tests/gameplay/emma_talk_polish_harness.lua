@@ -45,8 +45,8 @@ assert(not F.fits({accept={"rule"},any={{"appointment"}}},{layer="rule",rows={{t
 local report={}
 for _,set in ipairs({"real","real-variants","predicted","persona","chains"}) do
     local c=counts[set] report[#report+1]="POLISH_SCORE "..set.." "..c[1].."/"..c[2]
-    if baseline.floor and baseline.floor[set] then assert(c[1]>=baseline.floor[set],set.." score regressed") end
+    if baseline.floor and baseline.floor[set] and c[1]<baseline.floor[set] then regressions[#regressions+1]="floor:"..set end
 end
 for _,line in ipairs(results) do report[#report+1]=line end
 SC_TEST_REPORT=(SC_TEST_REPORT or "")..table.concat(report,"\n").."\n"
-assert(#regressions==0,"previously passing rows regressed: "..table.concat(regressions,", "))
+assert(#regressions==0,"previously passing rows regressed: "..table.concat(regressions,", ").."\n"..table.concat(report,"\n"))
