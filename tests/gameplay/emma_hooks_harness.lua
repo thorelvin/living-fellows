@@ -135,10 +135,15 @@ end
 local s=fresh()
 local original=H.resolve
 H.record(s,{intent="hello",category="chat",lines={"A Paperclip rests here."}})
-check(B.respond(s,"paperclip?",world).intent=="hook_detail","generic public hook has no reference shortcut")
+local unsupported=B.respond(s,"paperclip?",world)
+check(unsupported.intent~="hook_detail" and not text(unsupported):find("a paperclip rests here",1,true),
+    "an unsupported public hook falls through without quoting its source")
+s=fresh()
+H.record(s,{intent="identity",category="chat",lines={"My opinions are developing independently."}})
+check(B.respond(s,"opinions?",world).intent=="hook_detail","a supported public hook has a real definition")
 H.resolve=function() end
 s=fresh()
-H.record(s,{intent="hello",category="chat",lines={"A Paperclip rests here."}})
-check(B.respond(s,"paperclip?",world).intent~="hook_detail","negative control detects removed resolver")
+H.record(s,{intent="identity",category="chat",lines={"My opinions are developing independently."}})
+check(B.respond(s,"opinions?",world).intent~="hook_detail","negative control detects removed resolver")
 H.resolve=original
 SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_HOOKS_PASS checks="..count.." catalog="..#catalog.."\n"

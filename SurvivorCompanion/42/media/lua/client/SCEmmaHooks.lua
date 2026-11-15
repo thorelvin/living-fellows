@@ -181,6 +181,14 @@ local function collect(lines,target)
     end
     return out
 end
+local function hasAnswer(target)
+    if type(target)~="string" then return false end
+    if answers[target] then return true end
+    local lore=target:match("^lore:(.+)$")
+    if lore then return archive[lore]~=nil end
+    local guide=target:match("^guide:(.+)$")
+    return guide~=nil and SC.TerminalConversation.guide(guide)~=nil
+end
 function H.record(session,reply)
     if reply.intent=="conversation_forget" then
         session.conversationCallSign=nil
@@ -191,14 +199,30 @@ function H.record(session,reply)
         comfort=true,conversation_history=true,conversation_forget=true}
     if reply.sensitive or reply.private or reply.careDetected or private[reply.intent] then
         if SC.EmmaContext then SC.EmmaContext.observe(session,{private=true,foregroundKind=reply.foregroundKind,taskLimit=reply.taskLimit}) end
-        session.context.replyHooks=nil return
+        session.context.replyHooks,session.context.suggested=nil,nil return
     end
+    local miss={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no=true,
+        followup_clarify=true,steer=true,deflect=true}
+    if miss[reply.intent] then session.context.replyHooks=nil return end
     if SC.EmmaContext then SC.EmmaContext.observe(session,reply) end
     local last=SC.TerminalConversation.latest(session)
     local target=reply.hookTarget or last and last.id and (last.kind=="lore" or last.kind=="guide")
         and last.kind..":"..last.id or "pool:"..reply.intent
     reply.hooks=collect(reply.lines,target)
+    local selected=hasAnswer(target) and target or nil
+    if not selected then
+        local only,ambiguous
+        for _,value in pairs(reply.hooks) do
+            if hasAnswer(value) then
+                if only and only~=value then ambiguous=true break end
+                only=value
+            end
+        end
+        if not ambiguous then selected=only end
+    end
     session.context.replyHooks={hooks=reply.hooks,target=target,turn=session.turns,at=SC.TerminalConversation.clock(session),
+        selected=selected,
+        replyText=table.concat(reply.lines or {}," "):sub(1,900),
         text=(reply.hookText or table.concat(reply.lines or {}," ")):sub(1,900)}
 end
 local filler={what=true,is=true,are=true,was=true,were=true,the=true,a=true,an=true,explain=true,
@@ -236,8 +260,8 @@ function H.resolve(session,raw)
     if term==nil then return nil end
     local target=term=="" and (last.selected or last.target) or last.hooks[term]
     if not target then return nil end
-    last.selected=target
     local lore=target:match("^lore:(.+)$")
+    if lore and not archive[lore] then return nil end
     local more=facet=="more" or facet=="go on" or facet=="and" or facet=="tell me more"
     if lore and more then
         return "lore",{referenceId=lore,more=true}
@@ -253,7 +277,15 @@ function H.resolve(session,raw)
         page=math.min(page,#(SC.TerminalConversation.guide(guide) or {pages={{}}}).pages)
         return "guide",{guideId=guide,page=page}
     end
-    return "hook_detail",{hook=target,hookTerm=term,hookFacet=facet,hookText=last.text}
+    if not lore and not answers[target] then return nil end
+    if facet=="that" or facet=="what is that" or facet=="what was that" then facet="what" end
+    if not lore and facet~="what" and not answers[target][facet] then return nil end
+    local slots={hook=target,hookTerm=term,hookFacet=facet,hookText=last.text}
+    local rendered=H.render(slots)
+    local previous=normal(last.replyText or last.text or "")
+    if #previous>0 and normal(table.concat(rendered or {}," ")):find(previous,1,true) then return nil end
+    last.selected=target
+    return "hook_detail",slots
 end
 function H.render(slots)
     H.install()
@@ -274,7 +306,7 @@ function H.render(slots)
     end
     local answer=answers[target]
     if answer then return {answer[facet] or answer[1]} end
-    return {"In that line: "..tostring(slots.hookText or "the last subject").." I have no further verified detail in that reply. Name a related subject if you want its file."}
+    return {"No surviving explanation is available for that reference."}
 end
 
 local roleNames={governor="Governor",president="President",mayor="Mayor",captain="Captain",archivist="Archivist",chair="Chair",["head of state"]="Head of state",

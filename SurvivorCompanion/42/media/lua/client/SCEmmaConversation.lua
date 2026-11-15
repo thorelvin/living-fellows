@@ -12,6 +12,22 @@ local stop={what=true,which=true,where=true,when=true,why=true,how=true,who=true
     please=true,tell=true,about=true,can=true,could=true,emma=true,my=true,our=true}
 C.yes,C.no=yes,no
 function C.normal(raw) return table.concat(B.tokens(raw)," "):gsub("^emma ","") end
+function C.defaultSuggestions()
+    return {{id="people",label="people",term="people",slots={},score=9},
+        {id="zombies",label="nearby zombies",term="zombies",slots={},score=9},
+        {id="power",label="power",term="power",slots={},score=9}}
+end
+local ordinals={first=1,second=2,third=3,["first one"]=1,["second one"]=2,["third one"]=3,
+    ["the first one"]=1,["the second one"]=2,["the third one"]=3}
+local function offeredMatch(answer,choice)
+    if answer==C.normal(choice.label) or answer==choice.term then return true end
+    for word in C.normal(choice.label):gmatch("%S+") do
+        if not stop[word] and answer==word then return true end
+        if #word>=5 and #answer>=5 and not answer:find(" ",1,true)
+            and not SC.EmmaUnderstand.known(answer) and B.distance(answer,word,1)<=1 then return true end
+    end
+    return false
+end
 function C.begin(session,raw,world,turn)
     local context=session.context
     local answer=C.normal(raw)
@@ -56,6 +72,25 @@ function C.begin(session,raw,world,turn)
             return B.parseBase(session,raw,world,turn)
         end
         context.personChoices=nil
+    end
+    local suggested=context.suggested
+    if suggested then
+        if session.turns-(suggested.turn or 0)>2 then context.suggested=nil
+        else
+            local number=tonumber(answer) or ordinals[answer]
+            local selected=number and suggested.choices[number]
+            if not selected then
+                for _,choice in ipairs(suggested.choices) do
+                    if offeredMatch(answer,choice) then selected=choice break end
+                end
+            end
+            if selected then
+                context.suggested=nil
+                local slots={} for key,value in pairs(selected.slots or {}) do slots[key]=value end
+                return selected.id,slots
+            end
+            if not yes[answer] and answer~="thanks" and answer~="thank you" then context.suggested=nil end
+        end
     end
 end
 
@@ -144,9 +179,15 @@ local misses={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no
 function C.finish(session,raw,reply)
     local context=session.context
     if reply.intent=="help_me" then context.expect={kind="help_me",at=session.turns} end
-    if not misses[reply.intent] then context.missStreak=0 return reply end
+    if not misses[reply.intent] then
+        context.missStreak=0
+        if reply.intent~="ack" and reply.intent~="thanks" then context.suggested=nil end
+        return reply
+    end
     context.missStreak=math.min(100,(context.missStreak or 0)+1)
     local choices=C.suggestions(session,raw)
+    if #choices==0 then choices=C.defaultSuggestions() end
+    context.suggested={choices=choices,turn=session.turns}
     local known=false
     for word in C.normal(raw):gmatch("%a+") do if #word>=4 and not stop[word] and SC.EmmaUnderstand.known(word) then known=true end end
     local best=choices[1]

@@ -112,6 +112,69 @@ case("F2.extra-pool-coverage",function()
     local found=false for _,term in ipairs(missing) do if term=="opinions" then found=true end end
     check(found,"the hook lint must recognise opinions as a salient term")
 end)
+local function miss(s,raw)
+    s.turns=s.turns+1
+    local r={intent="fallback_echo",category="chat",lines={}}
+    SC.EmmaConversation.finish(s,raw,r) H.record(s,r)
+    return r
+end
+for count=1,2 do
+    case("F3.offered-topic-after-"..count.."-misses",function()
+        local s,respond=fresh("emma")
+        for _=1,count do miss(s,"forraging") end
+        local r=respond("Foraging")
+        check(r.referenceState and r.referenceState.id=="foraging","the advertised topic was swallowed")
+    end)
+end
+case("F3.numbered-choice",function()
+    local s,respond=fresh("emma")
+    miss(s,"xuqzafrobnicate")
+    local offered=s.context.suggested
+    check(offered and offered.choices[2],"a miss did not retain its standing choices")
+    local expected=offered.choices[2].id
+    local r=respond("the second one")
+    check(r.intent==expected,"the second advertised choice did not run")
+end)
+case("F3.choice-typo",function()
+    local s=fresh("emma")
+    miss(s,"forraging")
+    check(s.context.suggested~=nil,"no retained choices")
+    local id,slots=SC.EmmaConversation.begin(s,"FORRAGING",F.world(),{})
+    check(id=="guide" and slots.guideId=="reference_foraging","a one-edit offered term did not select its guide")
+end)
+case("F3.unrelated-question-expires-offer",function()
+    local s,respond=fresh("emma")
+    miss(s,"forraging")
+    check(s.context.suggested~=nil,"no retained offer")
+    local r=respond("what time is it")
+    check(r.intent=="time" and s.context.suggested==nil,"an unrelated question retained the old choices")
+end)
+case("F3.misses-have-no-hooks",function()
+    local s=fresh("emma") miss(s,"forraging")
+    check(s.context.replyHooks==nil,"a fallback advertised words as substantive hooks")
+end)
+case("F3.unsupported-hook-falls-through",function()
+    local s,respond,seed=fresh("emma")
+    local source="A mention of UnchartedProbeTerm appears here."
+    seed(source)
+    check(H.resolve(s,"UnchartedProbeTerm?")==nil,"an unsupported hook acquired a generic quote answer")
+    local r=respond("UnchartedProbeTerm?")
+    check(r.intent~="hook_detail" and not F.text(r):find(source:lower(),1,true),"a hook quoted the entire last reply")
+end)
+case("F3.one-concrete-hook",function()
+    local _,respond,seed=fresh("emma")
+    local source="[MEMORY FAULT AT 0F3A] Everything is fine."
+    seed(source)
+    local r=respond("what's that?")
+    check(r.intent=="hook_detail" and F.text(r):find("checksum",1,true)
+        and not F.text(r):find(source:lower(),1,true),"a sole concrete hook did not explain the fault")
+end)
+case("F3.hook-does-not-echo-itself",function()
+    local _,respond,seed=fresh("emma") seed(identity)
+    local previous=F.text(respond("opinions?"))
+    local r=respond("why?")
+    check(r.intent~="hook_detail" or not F.text(r):find(previous,1,true),"a hook repeated its preceding answer for another input")
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end
