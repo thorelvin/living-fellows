@@ -405,7 +405,7 @@ P.beyond_unknown = {
     "I do not know, and I will not guess. Guessing about crowds gets people killed.",
 }
 P.me_die = {
-    "Not today, if you eat, drink and lock the door. Tomorrow is negotiable.",
+    "I cannot promise tomorrow. Food, clean water and somewhere defensible are a better use of today than asking a computer for a prophecy.",
     "Everyone does, eventually. I would like yours to be later. Help me with that.",
     "I do not know when. I know how to make it later. Ask me how.",
 }

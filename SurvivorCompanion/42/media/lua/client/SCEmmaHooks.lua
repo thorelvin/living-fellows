@@ -12,7 +12,8 @@ local nouns={"memory fault","parity error","checksum","state","governor","money"
     "country","government","green screen","pencil","blood","infection","generator","gasoline","fuel",
     "official computer","twelve machines","smile score","kyle","password","authorisation","radio",
     "version one","0f3a","parity","manual",
-    "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen","opinions"}
+    "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen","opinions",
+    "gas station","gas stations"}
 for _,term in ipairs({"reserve","fever","cordon","quarantine","relay","cycle","operator","tone"}) do nouns[#nouns+1]=term end
 local ignored={I=true,Im=true,The=true,A=true,An=true,That=true,This=true,Those=true,These=true,
     It=true,Its=true,You=true,Your=true,We=true,Our=true,They=true,Their=true,He=true,She=true,
@@ -66,8 +67,11 @@ local answers={
     crowded={"Old voices and incomplete records, operator. Crowded in memory. No extra person is hiding behind the screen."},
     glitch={"A memory fault: an old sector failing its checksum. Define fine. My memory is a sieve with a warranty.",
         why="Age, damaged storage and uncertain power are sufficient explanations for a parity error. It is not an incoming message.",
-        how="A checksum checks whether stored bits still match. Mine sometimes disagree. I have no verified replacement for a damaged word."},
+        how="A checksum checks whether stored bits still match. Mine sometimes disagree. I have no verified replacement for a damaged word.",
+        fine="Not entirely. That is a memory fault, not an instruction. A sector failed its checksum; I have no verified replacement for the damaged text."},
+    ["pool:her_maker"]={"My records mention programmers and a dispatcher, but do not identify a verified individual author. Larchfield identifies the BIOS, not the person who wrote me."},
     pencil={"A pencil: graphite in wood, used to write on paper. That verse was about keeping a small human habit after everything else changed."},
+    gas_station={"A gas station has gasoline pumps. Check whether a pump has power and fuel, and bring a suitable gasoline container. The sign does not guarantee either fuel or a safe approach."},
     screen={"The green comes from the display's phosphor. It is a local screen, not a connection to a central intelligence."},
     dead={"The walking dead outside. Keeping them out means watching entrances, leaving an escape route and avoiding unnecessary noise."},
     july={"July 9th is a date in the local emergency record. The Knox Event is dated from July 6th; a file or time card dated the ninth does not establish a person's fate."},
@@ -88,7 +92,8 @@ local aliases={kentucky="state",commonwealth="state",frankfort="state",budget="m
     ["memory fault"]="glitch",["parity error"]="glitch",checksum="glitch",["everything fine"]="glitch",
     ["green screen"]="screen",["official computer"]="unlock",["twelve machines"]="unlock",
     ["version one"]="version",["0f3a"]="glitch",parity="glitch",
-    larchfield="maker",larchfields="maker"}
+    larchfield="maker",larchfields="maker",
+    ["gas station"]="gas_station",["gas stations"]="gas_station"}
 local built=false
 local rows,byText={},{}
 local function derive(text,target,source,declared)
@@ -210,6 +215,7 @@ function H.record(session,reply)
         and last.kind..":"..last.id or "pool:"..reply.intent
     reply.hooks=collect(reply.lines,target)
     local selected=hasAnswer(target) and target or nil
+    if reply.hooks["memory fault"]=="glitch" or reply.hooks["parity error"]=="glitch" then selected="glitch" end
     if not selected then
         local only,ambiguous
         for _,value in pairs(reply.hooks) do
@@ -249,6 +255,19 @@ function H.preferred(session,raw)
     local target=term=="" and (last.selected or last.target) or last.hooks[term]
     return target and (answers[target]~=nil or target:find("^lore:")~=nil or target:find("^guide:")~=nil) or false
 end
+local function nearTerm(query,candidate)
+    local brain=SC.TerminalBrain
+    local a,b=brain.tokens(query),brain.tokens(candidate)
+    if #a~=#b then return false end
+    for n,word in ipairs(a) do
+        local expected=b[n]
+        if word~=expected and brain.singular(word)~=brain.singular(expected) then
+            if #word<5 or #expected<5 or SC.EmmaUnderstand.known(word)
+                or brain.distance(brain.singular(word),brain.singular(expected),1)>1 then return false end
+        end
+    end
+    return true
+end
 function H.resolve(session,raw)
     local last=session.context.replyHooks
     if not last or (session.turns or 0)-(last.turn or 0)>2 then return nil end
@@ -256,9 +275,20 @@ function H.resolve(session,raw)
         session.context.replyHooks=nil return nil
     end
     local term,facet=H.fragment(raw)
-    if normal(raw)=="is everything fine" and last.hooks["memory fault"] then term,facet="memory fault","what" end
+    local question=normal(raw):gsub("^emma ","")
+    if nearTerm(question,"is everything fine") and last.hooks["memory fault"] then term,facet="memory fault","fine" end
     if term==nil then return nil end
     local target=term=="" and (last.selected or last.target) or last.hooks[term]
+    if not target and term~="" then
+        local found,ambiguous
+        for candidate,value in pairs(last.hooks) do
+            if nearTerm(term,candidate) and hasAnswer(value) then
+                if found and found~=value then ambiguous=true break end
+                found=value
+            end
+        end
+        if not ambiguous then target=found end
+    end
     if not target then return nil end
     local lore=target:match("^lore:(.+)$")
     if lore and not archive[lore] then return nil end

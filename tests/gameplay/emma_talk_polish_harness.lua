@@ -17,7 +17,17 @@ local function run(conversation,set,variants)
     local world=F.world()
     local state=conversation.voice~="emma" and SC.TerminalPersona.new(conversation.voice,11)
     local session=state and SC.TerminalPersona.session() or SC.TerminalBrain.newSession({operator="Thor",random=function() return 1 end})
+    local previousText
     for _,row in ipairs(conversation.turns) do
+        local originalRandom=session.random
+        if row.identity_variant then
+            local pool=SC.TerminalLines.POOLS.identity
+            local selected
+            for n,line in ipairs(pool) do if line:find(row.identity_variant,1,true) then selected=n break end end
+            assert(selected,"the requested public identity variant is missing")
+            session.recent.identity=nil
+            session.random=function(n) return n==#pool and selected or originalRandom(n) end
+        end
         if variants then
             for n,raw in ipairs(F.variants(row.input)) do
                 local s=F.copy(session)
@@ -27,6 +37,13 @@ local function run(conversation,set,variants)
         end
         local reply=state and SC.TerminalPersona.respond(state,session,row.input,F.facts())
             or SC.TerminalBrain.respond(session,row.input,world)
+        session.random=originalRandom
+        if row.identity_variant then assert(F.text(reply):find(row.identity_variant,1,true),"the identity variant was not exercised") end
+        if conversation.strict then
+            assert(F.fits(row,reply),"public user session failed: "..row.id.." intent="..tostring(reply.intent))
+            assert(previousText~=F.text(reply),"consecutive public session replies repeated: "..row.id)
+        end
+        previousText=F.text(reply)
         record(row.id,set,row,reply)
     end
 end

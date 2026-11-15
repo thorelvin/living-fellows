@@ -1210,6 +1210,191 @@
           "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
         }
       ]
+    },
+    {
+      "id": "real-20261115-user",
+      "voice": "emma",
+      "strict": true,
+      "provenance": "Public 14-message playground session supplied in the 0.27.22 handoff; no private care or notes.",
+      "turns": [
+        {
+          "id": "real-20261115-user-1",
+          "input": "Hi",
+          "accept": [
+            "hello"
+          ],
+          "any": [],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-2",
+          "input": "How are you?",
+          "accept": [
+            "feelings"
+          ],
+          "any": [],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-3",
+          "input": "Whats the time?",
+          "accept": [
+            "time"
+          ],
+          "any": [],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-4",
+          "input": "What will happen?",
+          "accept": [
+            "advice"
+          ],
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "bleeding"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-5",
+          "input": "What will heppen to me?",
+          "accept": [
+            "me_die"
+          ],
+          "any": [],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-6",
+          "input": "Foraging",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "foraging"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject.",
+          "reference": {
+            "id": "foraging",
+            "facet": "what"
+          }
+        },
+        {
+          "id": "real-20261115-user-7",
+          "input": "Can i forrage?",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "foraging"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject.",
+          "reference": {
+            "id": "foraging",
+            "facet": "use"
+          }
+        },
+        {
+          "id": "real-20261115-user-8",
+          "input": "Tell me your name",
+          "accept": [
+            "identity"
+          ],
+          "any": [
+            [
+              "emma"
+            ],
+            [
+              "opinions are developing"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject.",
+          "identity_variant": "opinions are developing"
+        },
+        {
+          "id": "real-20261115-user-9",
+          "input": "opinions?",
+          "accept": [
+            "hook_detail"
+          ],
+          "any": [
+            [
+              "plan"
+            ],
+            [
+              "operator"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-10",
+          "input": "How do i kill zombies",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "fight"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-11",
+          "input": "ok",
+          "accept": [
+            "ack"
+          ],
+          "any": [],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-12",
+          "input": "break",
+          "accept": [
+            "fallback_echo"
+          ],
+          "any": [
+            [
+              "rephrase"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-13",
+          "input": "hello",
+          "accept": [
+            "hello"
+          ],
+          "any": [],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        },
+        {
+          "id": "real-20261115-user-14",
+          "input": "how far is louisville",
+          "accept": [
+            "distance"
+          ],
+          "any": [
+            [
+              "distance",
+              "route"
+            ]
+          ],
+          "need": "Public 0.27.21 user log; this turn must answer its own subject."
+        }
+      ]
     }
   ],
   "chains": [
