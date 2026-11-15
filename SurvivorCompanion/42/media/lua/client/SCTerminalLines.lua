@@ -523,6 +523,7 @@ Lines.T = {
     people_head_one = "One survivor on file besides you:",
     people_row = "  {who} .... {state}",
     hurt_head = "{n} of your people need attention:",
+    hurt_head_one = "1 of your people needs attention:",
     hurt_row = "  {who} .... health {health} percent{extra}",
 
     person = "{who}: health {health} percent{extra}. {doing}.",

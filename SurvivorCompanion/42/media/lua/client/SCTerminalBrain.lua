@@ -1429,7 +1429,7 @@ function H.people_hurt(session, reply, turn, world)
     reply.subjects={}
     for _,person in ipairs(rows) do reply.subjects[#reply.subjects+1]={id=person.id,name=person.name} end
     if #rows == 0 then return addPool(session, reply, "hurt_none") end
-    addTemplate(reply, "hurt_head", { n = #rows })
+    addTemplate(reply, #rows==1 and "hurt_head_one" or "hurt_head", { n = #rows })
     local treatableReport
     for _, person in ipairs(rows) do
         addTemplate(reply, "hurt_row", { who = person.name,

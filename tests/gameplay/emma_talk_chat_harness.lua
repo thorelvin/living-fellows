@@ -297,6 +297,19 @@ case("F9.bare-previous-topic-part",function()
     local r=respond("Foraging and how do i kill zombies")
     check(not F.text(r):find("foraging:",1,true) and F.text(r):find("fight",1,true),"a bare prior label displaced the new question")
 end)
+for n=1,2 do
+    case("F10.hurt-head-"..n,function()
+        local s=fresh("emma") local world=F.world()
+        world.people=function()
+            local rows={}
+            for index=1,n do rows[index]={id="hurt-"..index,name="Fixture Person "..index,health=42,bleeding=true} end
+            return rows
+        end
+        local r=B.respond(s,"who is hurt",world)
+        local wanted=n==1 and "1 of your people needs attention:" or "2 of your people need attention:"
+        check(F.text(r):find(wanted,1,true),"the hurt heading has incorrect singular/plural agreement")
+    end)
+end
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end
