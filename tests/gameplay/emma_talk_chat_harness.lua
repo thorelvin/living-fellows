@@ -196,6 +196,28 @@ case("F4.no-uncollected-fragment-labels",function()
         check(not tostring(choice.slots.referenceId):find("^fragment_"),"an uncollected fragment was advertised")
     end
 end)
+for number,raw in ipairs({"what will happen to me","what happens to me","what will become of me",
+    "will i be ok","will i be okay","am i going to be ok","what is going to happen to me","What will heppen to me?"}) do
+    case("F5.personal-future-"..number,function()
+        local _,respond=fresh("emma")
+        local r=respond(raw)
+        check(r.intent=="me_die","the personal future question did not reach me_die: "..tostring(r.intent))
+    end)
+end
+for number,raw in ipairs({"what will happen","what happens now","what happens next","what now"}) do
+    case("F5.practical-future-"..number,function()
+        local _,respond=fresh("emma")
+        local r=respond(raw)
+        check(r.intent=="advice" and F.text(r):find("kate",1,true) and F.text(r):find("bleeding",1,true),
+            "the future question did not give the camp's observed priority")
+        check(#r.lines>=2,"the practical future answer has no no-prophecy lead-in")
+    end)
+end
+case("F5.foraging-verb-typo",function()
+    local _,respond=fresh("emma")
+    local r=respond("Can i forrage?")
+    check(r.referenceState and r.referenceState.id=="foraging","the foraging verb needs the basics guide")
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end

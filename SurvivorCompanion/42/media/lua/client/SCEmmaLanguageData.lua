@@ -235,7 +235,10 @@ D.MORE_INTENTS = {
         ["how many people are left"] = 14, ["where are the zombies coming from"] = 14, ["how many zombies in"] = 12,
         ["is anyone alive in"] = 12, ["how many are left"] = 10, ["where are the hordes"] = 14 } },
     { id = "me_die", phrases = { ["when will i die"] = 14, ["am i going to die"] = 14, ["will i die soon"] = 14,
-        ["how will i die"] = 14, ["will i survive"] = 12, ["am i going to make it"] = 12 } },
+        ["how will i die"] = 14, ["will i survive"] = 12, ["am i going to make it"] = 12,
+        ["what will happen to me"] = 16, ["what happens to me"] = 16, ["what will become of me"] = 16,
+        ["will i be ok"] = 16, ["will i be okay"] = 16, ["am i going to be ok"] = 16,
+        ["what is going to happen to me"] = 16 } },
     { id = "distance", phrases = { ["how far is"] = 12, ["how far to"] = 12, ["which way is"] = 12, ["how do i get to"] = 10,
         ["where is louisville"] = 12, ["where is west point"] = 12, ["where is muldraugh"] = 12, ["where is riverside"] = 12,
         ["where is rosewood"] = 12, ["where is march ridge"] = 12, ["directions to"] = 12, ["how far away is"] = 12 } },
@@ -406,6 +409,12 @@ P.me_die = {
     "Everyone does, eventually. I would like yours to be later. Help me with that.",
     "I do not know when. I know how to make it later. Ask me how.",
 }
+P.advice_future = {
+    "Prophecy was not included in the county budget. The next useful thing is less mysterious.",
+    "I cannot read the future. I can read the current problems; they have been quite forthcoming.",
+    "No verified forecast for your life. There is, however, something worth doing now.",
+    "Tomorrow has not filed its report. We can attend to what is actually happening.",
+}
 -- {town}, {km}, {dir}
 P.distance = {
     "{town} is about {km} kilometers {dir} of here. Roads are rarely straight. Neither is anything else now.",
@@ -465,7 +474,8 @@ D.MORE_EXTENSIONS = {
     { id = "thanks", phrases = { ["much appreciated"] = 12, ["thanks a bunch"] = 12, ["big thanks"] = 12 } },
     { id = "alive", phrases = { ["do you have feelings"] = 14, ["can you feel"] = 12 } },
     { id = "ack", exact = { "sure thing", "okey", "okie", "oki" } },
-    { id = "advice", phrases = { ["help me decide"] = 14, ["what would you do"] = 10 } },
+    { id = "advice", phrases = { ["help me decide"] = 14, ["what would you do"] = 10,
+        ["what will happen"] = 14, ["what happens now"] = 14, ["what happens next"] = 14, ["what now"] = 14 } },
     { id = "sleep", exact = { "night night", "nighty night", "sleep tight" } },
     { id = "rescue", phrases = { ["is the army coming"] = 14, ["army coming"] = 12, ["are they coming for us"] = 12 } },
     { id = "no", exact = { "not now", "no thank you", "nah thanks" } },

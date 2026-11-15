@@ -124,6 +124,11 @@ end
 function R.situation(session,raw,world,normalized)
     local text=normalized and normalized:gsub("^emma ","") or norm(raw)
     local literal=norm(raw)
+    local forage=text:match("^can i (%a+)$") or text:match("^how do i (%a+)$")
+    if forage and (forage=="forage" or not SC.EmmaUnderstand.known(forage)
+        and SC.TerminalBrain.distance(forage,"forage",1)<=1) then
+        return "guide",{guideId="reference_foraging",referenceFacet="use",page=1}
+    end
     local countTypos={cout=true,cunt=true,cont=true,coumt=true,conut=true}
     local leading,rest=literal:match("^(%S+) (.+)$")
     if countTypos[leading] then

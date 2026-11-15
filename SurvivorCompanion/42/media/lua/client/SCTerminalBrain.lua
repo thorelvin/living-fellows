@@ -1702,6 +1702,11 @@ end
 
 function H.advice(session, reply, turn, world)
     reply.category = "advice"
+    local future={ ["what will happen"]=true,["what happens now"]=true,
+        ["what happens next"]=true,["what now"]=true }
+    if turn.slots.futureAdvice or future[table.concat(Brain.tokens(turn.raw or "")," "):gsub("^emma ","")] then
+        addPool(session, reply, "advice_future")
+    end
     local people = peopleList(turn, world)
     for _, person in ipairs(people) do
         if person.away ~= true and person.bleeding == true then

@@ -277,10 +277,10 @@ function M.strongIntent(raw)
     for _,group in ipairs(GROUPS) do
         for _,spec in ipairs(group) do
             for phrase,weight in pairs(spec.phrases or {}) do
-                if weight>=10 and phraseIn(toks,phrase,false) then
+                if weight>=10 and phraseIn(toks,phrase,true) then
                     local admitted=spec.requires==nil
                     for _,required in ipairs(spec.requires or {}) do
-                        if phraseIn(toks,required,false) then admitted=true break end
+                        if phraseIn(toks,required,true) then admitted=true break end
                     end
                     if admitted then return spec.id end
                 end
@@ -565,6 +565,9 @@ function M.parse(session, text, world, turn, baseParse)
         end
     end
     if worth then return worth,{} end
+    for _,phrase in ipairs({"what will happen","what happens now","what happens next","what now"}) do
+        if exactly(toks,phrase,fuzzy) then return "advice",{futureAdvice=true} end
+    end
     if SC.EmmaContext then
         local detail=SC.EmmaContext.resolve(session,text,true)
         if detail then
