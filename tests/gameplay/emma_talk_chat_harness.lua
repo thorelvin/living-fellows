@@ -175,6 +175,27 @@ case("F3.hook-does-not-echo-itself",function()
     local r=respond("why?")
     check(r.intent~="hook_detail" or not F.text(r):find(previous,1,true),"a hook repeated its preceding answer for another input")
 end)
+case("F4.no-junk-future-suggestions",function()
+    local s=fresh("emma")
+    local choices=SC.EmmaConversation.suggestions(s,"What will happen?")
+    check(#choices==0,"question words offered unrelated topics")
+    local r=miss(s,"What will happen?")
+    check(F.text(r):find("try: people, nearby zombies, power",1,true),"a miss without a match needs the standing choices")
+end)
+case("F4.real-near-miss",function()
+    local choices=SC.EmmaConversation.suggestions(fresh("emma"),"forraging")
+    check(choices[1] and choices[1].label=="Foraging","the real foraging typo lost its first suggestion")
+end)
+case("F4.short-word-is-exact",function()
+    local choices=SC.EmmaConversation.suggestions(fresh("emma"),"powe")
+    for _,choice in ipairs(choices) do check(choice.term~="power","four-letter words may not fuzzy-match") end
+end)
+case("F4.no-uncollected-fragment-labels",function()
+    local choices=SC.EmmaConversation.suggestions(fresh("emma"),"last collected repair slip")
+    for _,choice in ipairs(choices) do
+        check(not tostring(choice.slots.referenceId):find("^fragment_"),"an uncollected fragment was advertised")
+    end
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end

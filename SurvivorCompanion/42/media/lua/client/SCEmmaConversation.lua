@@ -9,7 +9,8 @@ local yes={yes=true,y=true,yeah=true,yep=true,yup=true,ja=true,sure=true,correct
 local no={no=true,n=true,nope=true,nah=true,nei=true,negative=true,wrong=true,cancel=true,never=true,["no thanks"]=true}
 local stop={what=true,which=true,where=true,when=true,why=true,how=true,who=true,is=true,are=true,
     the=true,a=true,an=true,["do"]=true,does=true,i=true,we=true,you=true,it=true,that=true,me=true,
-    please=true,tell=true,about=true,can=true,could=true,emma=true,my=true,our=true}
+    please=true,tell=true,about=true,can=true,could=true,emma=true,my=true,our=true,
+    will=true,would=true,should=true,happen=true,going=true}
 C.yes,C.no=yes,no
 function C.normal(raw) return table.concat(B.tokens(raw)," "):gsub("^emma ","") end
 function C.defaultSuggestions()
@@ -148,7 +149,11 @@ local function vocabulary()
                 id="guide" slots={guideId="reference_"..target.id,page=1,referenceFacet=target.facet}
                 label=SC.EmmaReference.definition(target.id).title
             elseif target.kind=="guide" then id="guide" slots={guideId=target.id,page=1} label=row.term
-            elseif target.kind=="lore" then id="lore" slots={referenceId=target.id} label=row.term end
+            -- The archive index has no evidence that this player recovered an
+            -- individual fragment. Do not advertise its file/slip aliases.
+            elseif target.kind=="lore" and not target.id:find("^fragment_") then
+                id="lore" slots={referenceId=target.id} label=row.term
+            end
             if id then for word in row.term:gmatch("%a+") do add(word,id,label,slots,true) end end
         end
     end
@@ -162,17 +167,22 @@ function C.suggestions(session,raw)
     local topic=SC.TerminalConversation.latest(session)
     for _,entry in ipairs(vocabulary()) do
         local best=9
-        for _,word in ipairs(queries) do best=math.min(best,C.distance(word,entry.term)) end
+        for _,word in ipairs(queries) do
+            local limit=#word<=4 and 0 or #word<=7 and 1 or 2
+            if B.distance(word,entry.term,limit)<=limit then
+                best=math.min(best,C.distance(word,entry.term))
+            end
+        end
         local score=best+(entry.noun and 0 or .3)
         if topic and (topic.id==entry.slots.guideId or topic.subject==entry.term) then score=score-.15 end
         local key=entry.id..":"..tostring(entry.slots.guideId or "")
-        if not byId[key] or score<byId[key].score then
+        if best<9 and (not byId[key] or score<byId[key].score) then
             byId[key]={score=score,id=entry.id,label=entry.label,slots=entry.slots,term=entry.term}
         end
     end
     local rows={} for _,entry in pairs(byId) do rows[#rows+1]=entry end
     table.sort(rows,function(a,b) return a.score==b.score and a.label<b.label or a.score<b.score end)
-    local out={} for n=1,math.min(3,#rows) do if rows[n].score<2 then out[#out+1]=rows[n] end end
+    local out={} for n=1,math.min(3,#rows) do out[#out+1]=rows[n] end
     return out
 end
 local misses={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no=true}
