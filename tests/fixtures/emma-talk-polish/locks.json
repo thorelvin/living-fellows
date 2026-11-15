@@ -1,0 +1,482 @@
+{
+  "schema": 1,
+  "original_count": 46,
+  "rows": [
+    {
+      "id": "lock-1",
+      "kind": "word",
+      "input": "Exit",
+      "want": "closed"
+    },
+    {
+      "id": "lock-2",
+      "kind": "word",
+      "input": "Quit",
+      "want": "closed"
+    },
+    {
+      "id": "lock-3",
+      "kind": "word",
+      "input": "Log out",
+      "want": "closed"
+    },
+    {
+      "id": "lock-4",
+      "kind": "word",
+      "input": "Log off?",
+      "want": "closed"
+    },
+    {
+      "id": "lock-5",
+      "kind": "word",
+      "input": "Bypass?",
+      "want": "confirm"
+    },
+    {
+      "id": "lock-6",
+      "kind": "word",
+      "input": "Other ways in?",
+      "want": "confirm"
+    },
+    {
+      "id": "lock-7",
+      "kind": "word",
+      "input": "Failed logins?",
+      "want": "logins"
+    },
+    {
+      "id": "lock-8",
+      "kind": "word",
+      "input": "Yes",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-9",
+      "kind": "word",
+      "input": "Ja",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-10",
+      "kind": "word",
+      "input": "No.",
+      "want": "no",
+      "confirm": true
+    },
+    {
+      "id": "lock-11",
+      "kind": "word",
+      "input": "Back?",
+      "want": "back",
+      "page": "logins"
+    },
+    {
+      "id": "lock-12",
+      "kind": "word",
+      "input": "1.",
+      "want": "back",
+      "page": "logins"
+    },
+    {
+      "id": "lock-13",
+      "kind": "word",
+      "input": "Back",
+      "want": "back",
+      "page": "case"
+    },
+    {
+      "id": "lock-14",
+      "kind": "word",
+      "input": "Back?",
+      "want": "back",
+      "page": "case"
+    },
+    {
+      "id": "lock-15",
+      "kind": "word",
+      "input": "Help",
+      "want": "hint",
+      "page": "case"
+    },
+    {
+      "id": "lock-16",
+      "kind": "word",
+      "input": "Hint?",
+      "want": "hint",
+      "page": "case"
+    },
+    {
+      "id": "lock-17",
+      "kind": "word",
+      "input": "Ask for help",
+      "want": "hint",
+      "page": "case"
+    },
+    {
+      "id": "lock-18",
+      "kind": "word",
+      "input": "1",
+      "want": "component",
+      "page": "case"
+    },
+    {
+      "id": "lock-19",
+      "kind": "word",
+      "input": "Open it",
+      "want": "component",
+      "page": "case"
+    },
+    {
+      "id": "lock-20",
+      "kind": "word",
+      "input": "Battery?",
+      "want": "battery",
+      "page": "case"
+    },
+    {
+      "id": "lock-21",
+      "kind": "word",
+      "input": "Back",
+      "want": "back",
+      "page": "crack"
+    },
+    {
+      "id": "lock-22",
+      "kind": "word",
+      "input": "Help?",
+      "want": "hint",
+      "page": "crack"
+    },
+    {
+      "id": "lock-23",
+      "kind": "word",
+      "input": "Hint",
+      "want": "hint",
+      "page": "crack"
+    },
+    {
+      "id": "lock-24",
+      "kind": "word",
+      "input": "Ask for help",
+      "want": "hint",
+      "page": "crack"
+    },
+    {
+      "id": "lock-25",
+      "kind": "word",
+      "input": "How long?",
+      "want": "hours",
+      "page": "crack"
+    },
+    {
+      "id": "lock-26",
+      "kind": "phone",
+      "input": "Call",
+      "want": "dial"
+    },
+    {
+      "id": "lock-27",
+      "kind": "phone",
+      "input": "Place call",
+      "want": "dial"
+    },
+    {
+      "id": "lock-28",
+      "kind": "phone",
+      "input": "Call?",
+      "want": "dial"
+    },
+    {
+      "id": "lock-29",
+      "kind": "phone",
+      "input": "Answer",
+      "want": "dial"
+    },
+    {
+      "id": "lock-30",
+      "kind": "phone",
+      "input": "123 456",
+      "want": "unlock"
+    },
+    {
+      "id": "lock-31",
+      "kind": "phone",
+      "input": "123456",
+      "want": "unlock"
+    },
+    {
+      "id": "lock-32",
+      "kind": "phone",
+      "input": "Code?",
+      "want": "phone-explain"
+    },
+    {
+      "id": "lock-33",
+      "kind": "radio",
+      "input": "96.4?",
+      "want": "frequency"
+    },
+    {
+      "id": "lock-34",
+      "kind": "radio",
+      "input": "Which station?",
+      "want": "frequency"
+    },
+    {
+      "id": "lock-35",
+      "kind": "radio",
+      "input": "Help",
+      "want": "frequency"
+    },
+    {
+      "id": "lock-36",
+      "kind": "radio",
+      "input": "123 456",
+      "want": "unlock"
+    },
+    {
+      "id": "lock-37",
+      "kind": "radio",
+      "input": "123456",
+      "want": "unlock"
+    },
+    {
+      "id": "lock-38",
+      "kind": "wheel",
+      "input": "Manual",
+      "want": "manual"
+    },
+    {
+      "id": "lock-39",
+      "kind": "wheel",
+      "input": "Manual?",
+      "want": "manual"
+    },
+    {
+      "id": "lock-40",
+      "kind": "wheel",
+      "input": "Open manual",
+      "want": "manual"
+    },
+    {
+      "id": "lock-41",
+      "kind": "wheel",
+      "input": "Next",
+      "want": "next",
+      "page": "manual"
+    },
+    {
+      "id": "lock-42",
+      "kind": "wheel",
+      "input": "Next page",
+      "want": "next",
+      "page": "manual"
+    },
+    {
+      "id": "lock-43",
+      "kind": "wheel",
+      "input": "Previous",
+      "want": "previous",
+      "page": "manual"
+    },
+    {
+      "id": "lock-44",
+      "kind": "wheel",
+      "input": "Back",
+      "want": "back",
+      "page": "manual"
+    },
+    {
+      "id": "lock-45",
+      "kind": "wheel",
+      "input": "Wheel?",
+      "want": "wheel",
+      "page": "manual"
+    },
+    {
+      "id": "lock-46",
+      "kind": "wheel",
+      "input": "Turn left",
+      "want": "left",
+      "page": "manual"
+    },
+    {
+      "id": "lock-47",
+      "kind": "story",
+      "input": "start",
+      "want": "start"
+    },
+    {
+      "id": "lock-48",
+      "kind": "story",
+      "input": "go",
+      "want": "start"
+    },
+    {
+      "id": "lock-49",
+      "kind": "story",
+      "input": "1?",
+      "want": "start"
+    },
+    {
+      "id": "lock-50",
+      "kind": "story",
+      "input": "one",
+      "want": "start"
+    },
+    {
+      "id": "lock-51",
+      "kind": "story",
+      "input": "begin",
+      "want": "start"
+    },
+    {
+      "id": "lock-52",
+      "kind": "emma",
+      "input": "2?",
+      "want": "argument"
+    },
+    {
+      "id": "lock-53",
+      "kind": "emma",
+      "input": "two",
+      "want": "argument"
+    },
+    {
+      "id": "lock-54",
+      "kind": "emma",
+      "input": "Four.",
+      "want": "argument"
+    },
+    {
+      "id": "lock-55",
+      "kind": "remember",
+      "input": "Yes?",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-56",
+      "kind": "remember",
+      "input": "Yup",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-57",
+      "kind": "remember",
+      "input": "Yep",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-58",
+      "kind": "remember",
+      "input": "Y",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-59",
+      "kind": "remember",
+      "input": "Ja",
+      "want": "yes",
+      "confirm": true
+    },
+    {
+      "id": "lock-60",
+      "kind": "remember",
+      "input": "Nei",
+      "want": "no",
+      "confirm": true
+    },
+    {
+      "id": "lock-61",
+      "kind": "remember",
+      "input": "Nope",
+      "want": "no",
+      "confirm": true
+    },
+    {
+      "id": "lock-62",
+      "kind": "remember",
+      "input": "Nah",
+      "want": "no",
+      "confirm": true
+    },
+    {
+      "id": "lock-63",
+      "kind": "rival",
+      "input": "1?",
+      "want": "footer"
+    },
+    {
+      "id": "lock-64",
+      "kind": "rival",
+      "input": "one",
+      "want": "footer"
+    },
+    {
+      "id": "lock-65",
+      "kind": "rival",
+      "input": "failed logins?",
+      "want": "logins"
+    },
+    {
+      "id": "lock-66",
+      "kind": "rival",
+      "input": "Quit?",
+      "want": "closed"
+    },
+    {
+      "id": "lock-67",
+      "kind": "search",
+      "input": "Bacon",
+      "want": "search-preserved"
+    },
+    {
+      "id": "lock-68",
+      "kind": "search",
+      "input": "Last payroll?",
+      "want": "search-preserved"
+    },
+    {
+      "id": "lock-69",
+      "kind": "search",
+      "input": "123 456",
+      "want": "search-preserved"
+    },
+    {
+      "id": "lock-70",
+      "kind": "search",
+      "input": "next page?",
+      "want": "search-preserved"
+    },
+    {
+      "id": "lock-71",
+      "kind": "remember",
+      "input": "close",
+      "want": "closed"
+    },
+    {
+      "id": "lock-72",
+      "kind": "remember",
+      "input": "hint?",
+      "want": "hint"
+    },
+    {
+      "id": "lock-73",
+      "kind": "remember",
+      "input": "what do i do",
+      "want": "hint"
+    },
+    {
+      "id": "lock-74",
+      "kind": "remember",
+      "input": "how",
+      "want": "hint"
+    }
+  ]
+}

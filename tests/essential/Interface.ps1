@@ -99,6 +99,13 @@ foreach ($module in @(
     (Join-Path $UI 'SCEmmaCorpusData.lua'),
     (Join-Path $UI 'SCEmmaCorpusTests.lua')
 ) }
+@{ Name = 'interface-emma-talk-polish'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $UI 'SCEmmaTalkPolishData.lua'),
+    (Join-Path $UI 'SCEmmaTalkPolishFixture.lua'),
+    (Join-Path $UI 'SCEmmaTalkPolishBaseline.lua'),
+    (Join-Path $Gameplay 'emma_talk_polish_harness.lua'),
+    (Join-Path $Gameplay 'lock_talk_polish_harness.lua')
+) }
 
 $interfaceRadioFiles = @($interfaceTerminalFiles)
 foreach ($module in @('SCTerminalHardware', 'SCTerminalRadio', 'SCTerminalRadioWorkUI', 'SCTerminalRadioUI', 'SCTerminalServices', 'SCRadioWork')) {

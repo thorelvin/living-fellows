@@ -1,0 +1,1629 @@
+{
+  "schema": 1,
+  "provenance": {
+    "source": "three public playground sessions; original export and public-only transcript from local session record",
+    "care": "Excluded before extraction; private notes and their previous-reply context excluded",
+    "count_note": "72 recovered visible turns; plan states 71. No recovered public turn omitted.",
+    "starting_commit": "84123716"
+  },
+  "conversations": [
+    {
+      "id": "real-20261109-main",
+      "voice": "emma",
+      "turns": [
+        {
+          "input": "Hi",
+          "previous_reply": "",
+          "observed_intent": "hello",
+          "id": "real-20261109-main-1",
+          "accept": [
+            "hello"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Who are you?",
+          "previous_reply": "Hello again. I recognize the typing. Heavy on the enter key.",
+          "observed_intent": "identity",
+          "id": "real-20261109-main-2",
+          "accept": [
+            "identity"
+          ],
+          "any": [
+            [
+              "emma",
+              "civil defense",
+              "program"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What state?",
+          "previous_reply": "EMMA. Version 0.9.3 beta. The state ran out of money before version one. Then it ran out of state.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-3",
+          "accept": [],
+          "any": [
+            [
+              "kentucky"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Why did state run out of money?",
+          "previous_reply": "state means nothing to me yet. I have made a note. Notes are how I get smarter.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-4",
+          "accept": [],
+          "any": [
+            [
+              "budget",
+              "money",
+              "fund",
+              "state"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What happened to state?",
+          "previous_reply": "state. Interesting word. Put it in a question and I will try harder.",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-5",
+          "accept": [],
+          "any": [
+            [
+              "kentucky",
+              "government",
+              "state"
+            ],
+            [
+              "july",
+              "unavailable",
+              "evacuat",
+              "collapse",
+              "event"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Tell me more",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The Knox Event\n    The Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-6",
+          "accept": [
+            "lore",
+            "guide"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What illness?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The exclusion zone\n    The military perimeter was presented as a means of containing the emergency. To families inside it, a boundary also meant blocked journeys, unanswered questions and people left on opposite sides. A checkpoint recorded in a broadcast is not a current safe exit. I cannot certify any gate, guard or road from this archive.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-7",
+          "accept": [],
+          "any": [
+            [
+              "infection",
+              "illness",
+              "knox"
+            ],
+            [
+              "unknown",
+              "unverified",
+              "not know",
+              "not establish",
+              "cannot",
+              "no verified"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Explain illness?",
+          "previous_reply": "illness. A name, a thing or a mood? I can handle two of those.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-8",
+          "accept": [],
+          "any": [
+            [
+              "infection",
+              "illness",
+              "knox"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What happened to people?",
+          "previous_reply": "I parsed explain and found nothing. Ask about people, supplies, the weather, the county or me.",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-9",
+          "accept": [
+            "lore"
+          ],
+          "any": [
+            [
+              "illness",
+              "infection",
+              "violence",
+              "knox"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Where did it start?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The Knox Event\n    The Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-10",
+          "accept": [],
+          "any": [
+            [
+              "origin",
+              "start",
+              "knox"
+            ],
+            [
+              "unknown",
+              "unverified",
+              "not know",
+              "not establish",
+              "cannot",
+              "no verified"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Who are you?",
+          "previous_reply": "I cannot confirm that place's current safety, supplies or occupants from this terminal. This is background, not a live survey.\n    Archived incident summary: 1993-07-09 - The Knox Event\n    The Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "identity",
+          "id": "real-20261109-main-11",
+          "accept": [
+            "identity"
+          ],
+          "any": [
+            [
+              "emma",
+              "civil defense",
+              "program"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Im the new governor",
+          "previous_reply": "I am a civil defense program. I was supposed to talk to a governor. I am talking to you. We both have to live with that.",
+          "observed_intent": "news_plain",
+          "id": "real-20261109-main-12",
+          "accept": [],
+          "any": [
+            [
+              "governor",
+              "briefing",
+              "state"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Im the governor",
+          "previous_reply": "I hear you. Is there something you want to work through?",
+          "observed_intent": "news_plain",
+          "id": "real-20261109-main-13",
+          "accept": [],
+          "any": [
+            [
+              "governor",
+              "briefing",
+              "state"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "I am head of state",
+          "previous_reply": "I may be missing part of that. Tell me what happened.",
+          "observed_intent": "news_plain",
+          "id": "real-20261109-main-14",
+          "accept": [],
+          "any": [
+            [
+              "governor",
+              "head of state",
+              "briefing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "I want advice",
+          "previous_reply": "Do you want advice, or would you rather keep talking?",
+          "observed_intent": "advice",
+          "id": "real-20261109-main-15",
+          "accept": [
+            "advice"
+          ],
+          "any": [
+            [
+              "bleed",
+              "wound",
+              "kate"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How do i stop that?",
+          "previous_reply": "Kate Miller is bleeding. Stop that before anything else I say matters.",
+          "observed_intent": "guide",
+          "id": "real-20261109-main-16",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "bandage",
+              "dressing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Blood?",
+          "previous_reply": "Bleeding and dressings:\n    Game survival reference; sandbox settings and other mods may change these rules.\n    Bandage the wound. Ripped sheets make an improvised bandage. A sterilized rag also guards against infection.\n    Change a bandage when it gets dirty. Dirty bandages invite infection.\n    Blood belongs inside. Keep it there.\n    Ask tell me more for the next part.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-17",
+          "accept": [],
+          "any": [
+            [
+              "wound",
+              "bleed",
+              "blood"
+            ],
+            [
+              "bandage",
+              "dressing",
+              "pressure"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Whats a bandage?",
+          "previous_reply": "You said blood. I heard blood. That is where it ends.",
+          "observed_intent": "guide",
+          "id": "real-20261109-main-18",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "bandage",
+              "dressing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Why Do people bleed?",
+          "previous_reply": "Bleeding and dressings:\n    Game survival reference; sandbox settings and other mods may change these rules.\n    Bandage the wound. Ripped sheets make an improvised bandage. A sterilized rag also guards against infection.\n    Change a bandage when it gets dirty. Dirty bandages invite infection.\n    Blood belongs inside. Keep it there.\n    Ask tell me more for the next part.",
+          "observed_intent": "people_list",
+          "id": "real-20261109-main-19",
+          "accept": [],
+          "any": [
+            [
+              "vessel",
+              "wound",
+              "injur",
+              "blood"
+            ],
+            [
+              "not a roster",
+              "vessel",
+              "wound",
+              "injur"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "People?",
+          "previous_reply": "3 survivors on file:\n      Kate Miller .... at camp, 12 meters north-east, chopping wood\n      Bob Fisher .... at camp, right here, idle\n      Dale .... out on the expedition",
+          "observed_intent": "people_list",
+          "id": "real-20261109-main-20",
+          "accept": [
+            "people_list"
+          ],
+          "any": [
+            [
+              "kate",
+              "survivor"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Why doesnt i have knox?",
+          "previous_reply": "3 survivors on file:\n      Kate Miller .... at camp, 12 meters north-east, chopping wood\n      Bob Fisher .... at camp, right here, idle\n      Dale .... out on the expedition",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-21",
+          "accept": [
+            "lore"
+          ],
+          "any": [
+            [
+              "unknown",
+              "cannot",
+              "not know",
+              "unverified",
+              "no verified",
+              "does not",
+              "do not"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How does knox transmit?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The Knox Event\n    The Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-22",
+          "accept": [],
+          "any": [
+            [
+              "transmi",
+              "spread",
+              "contact",
+              "bite"
+            ],
+            [
+              "unknown",
+              "unverified",
+              "not know",
+              "not establish",
+              "cannot",
+              "no verified"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Why are you called Emma?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The Knox Event\n    The Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "chat_names",
+          "id": "real-20261109-main-23",
+          "accept": [
+            "chat_names",
+            "identity"
+          ],
+          "any": [
+            [
+              "emma"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Who made you?",
+          "previous_reply": "EMMA fits on the screen and is easier to shout across an office than the procurement description.",
+          "observed_intent": "her_maker",
+          "id": "real-20261109-main-24",
+          "accept": [
+            "her_maker"
+          ],
+          "any": [
+            [
+              "programmer",
+              "dispatcher",
+              "kentucky",
+              "made",
+              "built"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Whats that?",
+          "previous_reply": "Programmers made the parts. A dispatcher made the manners. You can probably tell which is which.\n    [PARITY ERROR 0x07] ... disregard that.",
+          "observed_intent": "lore",
+          "id": "real-20261109-main-25",
+          "accept": [],
+          "any": [
+            [
+              "error",
+              "fault",
+              "parity",
+              "memory",
+              "dispatcher",
+              "programmer"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Whos your maker?",
+          "previous_reply": "I cannot confirm that place's current safety, supplies or occupants from this terminal. This is background, not a live survey.\n    Archived incident summary: 1993-07-09 - The Knox Event\n    The Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "her_maker",
+          "id": "real-20261109-main-26",
+          "accept": [
+            "her_maker"
+          ],
+          "any": [
+            [
+              "kentucky",
+              "dispatcher",
+              "programmer"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Who did you talk to before me?",
+          "previous_reply": "The state of Kentucky owns me, on paper. The paper and the state have both been unavailable since July.",
+          "observed_intent": "did_you_mean",
+          "id": "real-20261109-main-27",
+          "accept": [
+            "her_last_operator"
+          ],
+          "any": [
+            [
+              "marla",
+              "operator"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "No",
+          "previous_reply": "Did you mean \"who is here\"? Type yes or no.",
+          "observed_intent": "did_you_mean_no",
+          "id": "real-20261109-main-28",
+          "accept": [
+            "did_you_mean_no",
+            "no"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Who wrote her previously?",
+          "previous_reply": "Fine. Then I do not know what you meant. Neither do you, it seems.",
+          "observed_intent": "clarify_person",
+          "id": "real-20261109-main-29",
+          "accept": [
+            "her_last_operator",
+            "her_maker"
+          ],
+          "any": [
+            [
+              "marla",
+              "operator",
+              "programmer"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "None",
+          "previous_reply": "Which person do you mean? Type their full name or a number in chat:\n      1. Kate Miller\n      2. Bob Fisher\n      3. Dale",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-30",
+          "accept": [],
+          "any": [
+            [
+              "understood",
+              "nobody",
+              "all right",
+              "cancel",
+              "no one"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What can you do?",
+          "previous_reply": "none? I looked. Twice. Nothing. Try it another way.",
+          "observed_intent": "help",
+          "id": "real-20261109-main-31",
+          "accept": [
+            "help"
+          ],
+          "any": [
+            [
+              "people",
+              "supplies",
+              "status"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Fragments?",
+          "previous_reply": "I understand plain English. Mostly. Things you can ask me:\n      status               camp overview\n      who is here          your survivors and where they are\n      who is hurt          medical report\n      who is best at first aid   recorded skills at camp\n      how is <name>        one survivor, in detail\n      how many <item>      count it in camp storage\n      is that enough for 250   compare the last item with a quantity\n      how much food        food, calories and days left\n      how do I purify water / treat a wound   game survival reference\n      what is everyone doing   jobs and work orders\n      any problems         blocked or stuck jobs\n      shortages / alarms   stock targets and camp alerts\n      refuel generator / refuel <vehicle name>\n      send medic to <name> / retry job <job ID>\n      Requests need your Y/N confirmation before anything happens.\n      You can ask two questions together. Send each action request separately.\n      power / weather / time\n      how am I / am I infected   your condition; requires a recovered medical index\n      my kills / days survived / my skills   your own file, available anywhere\n      when is the helicopter / when will the water stop   recovered county calendar\n      weather tomorrow / next storm   forecast through the next six days\n      when is dawn / when does it get dark   the seasonal almanac\n      any zombies          movement near this building\n      expedition           news from the away team\n      deliveries           returned cargo awaiting storage\n      advice               what I would do, if I had hands\n      how do I <task>      operating help for camp jobs, travel and this station\n      tell me more / check again   follow the topic or refresh its readings\n      what were we talking about / back to <subject>\n      forget that conversation   clear the recent thread; keep saved notes\n      remember <note>      add a short note to the shared EMMA notebook\n      forget everything    choose which shared notes to erase\n      fragments            recovered computers and memory progress\n      factory reset        erase this computer's old files and branding; shared notes remain\n      open radio / scan for broadcasts   mounted walkie-talkie radio desk\n      save this channel as <name> / what did we hear\n      clear / exit\n    Or just talk to me. I am told it helps. I am told a lot of things.",
+          "observed_intent": "fragments",
+          "id": "real-20261109-main-32",
+          "accept": [
+            "fragments"
+          ],
+          "any": [
+            [
+              "memory",
+              "fragment"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Open radio",
+          "previous_reply": "No shared memory is connected to this conversation.",
+          "observed_intent": "expedition",
+          "id": "real-20261109-main-33",
+          "accept": [
+            "radio_help",
+            "radio",
+            "emma_controls"
+          ],
+          "any": [
+            [
+              "radio",
+              "local services"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Tell me about popcorn?",
+          "previous_reply": "",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261109-main-34",
+          "accept": [
+            "fallback",
+            "fallback_echo",
+            "topic_help"
+          ],
+          "any": [
+            [
+              "people",
+              "supplies",
+              "food",
+              "topics"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How do people die?",
+          "previous_reply": "No record of popcorn. Either it does not matter or nobody wrote it down. Usually both.",
+          "observed_intent": "people_list",
+          "id": "real-20261109-main-35",
+          "accept": [],
+          "any": [
+            [
+              "infection",
+              "injur",
+              "blood",
+              "bite",
+              "disease",
+              "death"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How can i kill",
+          "previous_reply": "3 survivors on file:\n      Kate Miller .... at camp, 12 meters north-east, chopping wood\n      Bob Fisher .... at camp, right here, idle\n      Dale .... out on the expedition",
+          "observed_intent": "guide",
+          "id": "real-20261109-main-36",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "fight",
+              "weapon",
+              "zombie"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "real-20261109-report",
+      "voice": "emma",
+      "turns": [
+        {
+          "input": "status",
+          "previous_reply": "",
+          "observed_intent": "status",
+          "id": "real-20261109-report-1",
+          "accept": [
+            "status"
+          ],
+          "any": [
+            [
+              "camp",
+              "people"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "how much food",
+          "previous_reply": "Camp report, 2:05 PM, day 4. /   People ....... 3 on file, 1 hurt, 1 away /   Work ......... 1 in progress, 1 waiting, 1 blocked /   Food ......... about 0.3 days for 3 m",
+          "observed_intent": "food",
+          "id": "real-20261109-report-2",
+          "accept": [
+            "food"
+          ],
+          "any": [
+            [
+              "food",
+              "calori"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "real-20261114",
+      "voice": "emma",
+      "turns": [
+        {
+          "input": "Hi",
+          "previous_reply": "",
+          "observed_intent": "hello",
+          "id": "real-20261114-1",
+          "accept": [
+            "hello"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Tell me about knox",
+          "previous_reply": "Hello. Your manners are improving. Proceed.",
+          "observed_intent": "lore",
+          "id": "real-20261114-2",
+          "accept": [
+            "lore"
+          ],
+          "any": [
+            [
+              "knox"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Exlusion zone?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The Knox Event\nThe Knox Event dates from 6 July 1993. An exclusion zone, disrupted communications and official assurances appear in the early record. Accounts of illness and violence do not supply a verified explanation of its origin. A name for the disaster is easier to obtain than an explanation. This file is background, not a report on the people outside your door.\nArchived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "lore",
+          "id": "real-20261114-3",
+          "accept": [
+            "lore"
+          ],
+          "any": [
+            [
+              "perimeter",
+              "zone"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Tell me more",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The exclusion zone\nThe military perimeter was presented as a means of containing the emergency. To families inside it, a boundary also meant blocked journeys, unanswered questions and people left on opposite sides. A checkpoint recorded in a broadcast is not a current safe exit. I cannot certify any gate, guard or road from this archive.\nArchived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "lore",
+          "id": "real-20261114-4",
+          "accept": [
+            "lore",
+            "guide"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What country?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The telephone failures\nEarly broadcasts discuss communication failures and Knox Telecommunications. People outside the affected area struggle to reach those inside it. Explanations and promises of restored service do not establish what caused the outbreak. An unanswered telephone is a missing contact, not proof of what happened to its owner.\nArchived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-5",
+          "accept": [],
+          "any": [
+            [
+              "united states",
+              "usa",
+              "america"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What county?",
+          "previous_reply": "I know a great many things. country is not yet one of them.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-6",
+          "accept": [],
+          "any": [
+            [
+              "knox county"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "County?",
+          "previous_reply": "county? I looked. Twice. Nothing. Try it another way.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-7",
+          "accept": [],
+          "any": [
+            [
+              "knox county"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How are you?",
+          "previous_reply": "No record of county. Either it does not matter or nobody wrote it down. Usually both.",
+          "observed_intent": "feelings",
+          "id": "real-20261114-8",
+          "accept": [
+            "feelings"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What should i do?",
+          "previous_reply": "Better now. Somebody is typing. I do not know why that matters to me. It does.",
+          "observed_intent": "advice",
+          "id": "real-20261114-9",
+          "accept": [
+            "advice"
+          ],
+          "any": [
+            [
+              "kate",
+              "bleed"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How?",
+          "previous_reply": "Kate Miller is bleeding. Stop that before anything else I say matters.",
+          "observed_intent": "fallback",
+          "id": "real-20261114-10",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "bandage",
+              "dressing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How do i stop bleeding?",
+          "previous_reply": "Was that English? It had the shape of English.\n[PARITY ERROR 0x07] ... disregard that.",
+          "observed_intent": "guide",
+          "id": "real-20261114-11",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "bandage",
+              "dressing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How do i make bandages?",
+          "previous_reply": "Bleeding and dressings:\nGame survival reference; sandbox settings and other mods may change these rules.\nBandage the wound. Ripped sheets make an improvised bandage. A sterilized rag also guards against infection.\nChange a bandage when it gets dirty. Dirty bandages invite infection.\nBlood belongs inside. Keep it there.\nAsk tell me more for the next part.",
+          "observed_intent": "guide",
+          "id": "real-20261114-12",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "rip",
+              "sheet"
+            ],
+            [
+              "bandage",
+              "dressing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Tell me more",
+          "previous_reply": "Bleeding and dressings:\nGame survival reference; sandbox settings and other mods may change these rules.\nBandage the wound. Ripped sheets make an improvised bandage. A sterilized rag also guards against infection.\nChange a bandage when it gets dirty. Dirty bandages invite infection.\nBlood belongs inside. Keep it there.\nAsk tell me more for the next part.",
+          "observed_intent": "guide",
+          "id": "real-20261114-13",
+          "accept": [
+            "lore",
+            "guide"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How do i use them?",
+          "previous_reply": "Bleeding and dressings:\nDisinfect before you bandage: disinfectant, alcohol or an alcohol bandage.\nSheets are bandages waiting to happen. So are most shirts. Rip them before you need them.",
+          "observed_intent": "followup_clarify",
+          "id": "real-20261114-14",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "wound",
+              "health",
+              "bandage",
+              "dressing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Memory fault?",
+          "previous_reply": "I am following the medical help, but I do not have an answer to that detail.\nIf you are changing subjects, name the person or system you mean.\n[MEMORY FAULT AT 0F3A] Everything is fine.",
+          "observed_intent": "recall",
+          "id": "real-20261114-15",
+          "accept": [],
+          "any": [
+            [
+              "memory",
+              "fault",
+              "parity",
+              "error"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Is everything fine?",
+          "previous_reply": "My notes on you are empty. Not my notes about you. Those are extensive.  (private)",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-16",
+          "accept": [],
+          "any": [
+            [
+              "fault",
+              "fine",
+              "memory",
+              "error"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Tell me about trapping.",
+          "previous_reply": "You said everything. I heard everything. That is where it ends.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-17",
+          "accept": [],
+          "any": [
+            [
+              "trap",
+              "snare"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Traps?",
+          "previous_reply": "trapping means nothing to me yet. I have made a note. Notes are how I get smarter.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-18",
+          "accept": [],
+          "any": [
+            [
+              "trap",
+              "snare"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Trapping animals",
+          "previous_reply": "traps. A name, a thing or a mood? I can handle two of those.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-19",
+          "accept": [],
+          "any": [
+            [
+              "trap",
+              "snare"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Please help",
+          "previous_reply": "No record of trapping. Either it does not matter or nobody wrote it down. Usually both.",
+          "observed_intent": "help_me",
+          "id": "real-20261114-20",
+          "accept": [
+            "help_me"
+          ],
+          "any": [
+            [
+              "hurt",
+              "hungry"
+            ],
+            [
+              "hunted",
+              "heartsick"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Heartsick",
+          "previous_reply": "I am here. Say what is wrong in a few words. Hurt, hungry, hunted or heartsick?",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-21",
+          "accept": [
+            "comfort"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Im hunted",
+          "previous_reply": "heartsick is not in my records. Neither, increasingly, is the county.",
+          "observed_intent": "news_plain",
+          "id": "real-20261114-22",
+          "accept": [],
+          "any": [
+            [
+              "sight"
+            ],
+            [
+              "zombie",
+              "cover",
+              "break"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "A gun",
+          "previous_reply": "Tell me a little more. What would you like help with?",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-23",
+          "accept": [],
+          "any": [
+            [
+              "gun",
+              "firearm",
+              "shotgun"
+            ],
+            [
+              "loud",
+              "noise"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Gun",
+          "previous_reply": "gun. I have no file on gun. I have a file on almost everything else.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-24",
+          "accept": [],
+          "any": [
+            [
+              "gun",
+              "firearm",
+              "shotgun"
+            ],
+            [
+              "loud",
+              "noise"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Shotgun",
+          "previous_reply": "You said gun. I heard gun. That is where it ends.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-25",
+          "accept": [],
+          "any": [
+            [
+              "shotgun",
+              "firearm"
+            ],
+            [
+              "shell",
+              "noise",
+              "loud"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Whats a shotgun",
+          "previous_reply": "I know a great many things. shotgun is not yet one of them.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-26",
+          "accept": [],
+          "any": [
+            [
+              "shotgun"
+            ],
+            [
+              "shell",
+              "noise",
+              "loud"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Pistol",
+          "previous_reply": "No record of shotgun. Either it does not matter or nobody wrote it down. Usually both.",
+          "observed_intent": "fallback_echo",
+          "id": "real-20261114-27",
+          "accept": [],
+          "any": [
+            [
+              "pistol",
+              "firearm"
+            ],
+            [
+              "ammo",
+              "noise",
+              "loud",
+              "ammunition"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Grnerator",
+          "previous_reply": "pistol. I have no file on pistol. I have a file on almost everything else.",
+          "observed_intent": "power",
+          "id": "real-20261114-28",
+          "accept": [
+            "power"
+          ],
+          "any": [
+            [
+              "generator"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "How to fuel it?",
+          "previous_reply": "Running on generator power. Fuel 62 percent, condition 88 percent.\nThe generator is loud. Things outside can hear loud. Just a reminder.",
+          "observed_intent": "guide",
+          "id": "real-20261114-29",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "gasoline",
+              "fuel"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What is gasoline?",
+          "previous_reply": "Fuel for generators:\nGenerators run on gasoline. Use a compatible fuel container when refuelling.\nAsk where to find it for fuel sources, or how much fuel is left for a current generator reading.",
+          "observed_intent": "guide",
+          "id": "real-20261114-30",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "fuel",
+              "gasoline"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Where do i find it?",
+          "previous_reply": "Fuel for generators:\nGenerators run on gasoline. Use a compatible fuel container when refuelling.\nAsk where to find it for fuel sources, or how much fuel is left for a current generator reading.",
+          "observed_intent": "guide",
+          "id": "real-20261114-31",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "gas station",
+              "pump",
+              "siphon"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Gas station?",
+          "previous_reply": "Finding gasoline:\nGame survival reference; sandbox settings and other mods may change these rules.\nSiphon gasoline from cars with a hose into a gas can. Parked cars are fuel tanks with wheels.\nTry the pumps at gas stations. When they give you nothing, go back to siphoning.\nGasoline does not grow back. Budget it like it matters, because it does.\nAsk tell me more for the next part.",
+          "observed_intent": "did_you_mean",
+          "id": "real-20261114-32",
+          "accept": [],
+          "any": [
+            [
+              "gas station",
+              "pump"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "No",
+          "previous_reply": "Did you mean \"power\"? Type yes or no.",
+          "observed_intent": "did_you_mean_no",
+          "id": "real-20261114-33",
+          "accept": [
+            "did_you_mean_no",
+            "no"
+          ],
+          "any": [],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Where do i find gas stations?",
+          "previous_reply": "Understood. Rephrase it, or type 'help'.",
+          "observed_intent": "guide",
+          "id": "real-20261114-34",
+          "accept": [
+            "guide"
+          ],
+          "any": [
+            [
+              "gas station",
+              "pump"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    }
+  ],
+  "chains": [
+    {
+      "id": "chain-state",
+      "prefix": [
+        "Who are you?"
+      ],
+      "turns": [
+        {
+          "input": "What state?",
+          "previous_reply": "EMMA. Version 0.9.3 beta. The state ran out of money before version one. Then it ran out of state.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-state-1",
+          "accept": [],
+          "any": [
+            [
+              "kentucky"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Why did state run out of money?",
+          "previous_reply": "state means nothing to me yet. I have made a note. Notes are how I get smarter.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-state-2",
+          "accept": [],
+          "any": [
+            [
+              "budget",
+              "money",
+              "fund",
+              "state"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What happened to state?",
+          "previous_reply": "state. Interesting word. Put it in a question and I will try harder.",
+          "observed_intent": "lore",
+          "id": "chain-state-3",
+          "accept": [],
+          "any": [
+            [
+              "kentucky",
+              "government",
+              "state"
+            ],
+            [
+              "july",
+              "unavailable",
+              "evacuat",
+              "collapse",
+              "event"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "chain-illness",
+      "prefix": [
+        "Tell me about knox"
+      ],
+      "turns": [
+        {
+          "input": "What illness?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The exclusion zone\n    The military perimeter was presented as a means of containing the emergency. To families inside it, a boundary also meant blocked journeys, unanswered questions and people left on opposite sides. A checkpoint recorded in a broadcast is not a current safe exit. I cannot certify any gate, guard or road from this archive.\n    Archived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-illness-1",
+          "accept": [],
+          "any": [
+            [
+              "infection",
+              "illness",
+              "knox"
+            ],
+            [
+              "unknown",
+              "unverified",
+              "not know",
+              "not establish",
+              "cannot",
+              "no verified"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Explain illness?",
+          "previous_reply": "illness. A name, a thing or a mood? I can handle two of those.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-illness-2",
+          "accept": [],
+          "any": [
+            [
+              "infection",
+              "illness",
+              "knox"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "chain-role",
+      "prefix": [
+        "Who are you?"
+      ],
+      "turns": [
+        {
+          "input": "Im the new governor",
+          "previous_reply": "I am a civil defense program. I was supposed to talk to a governor. I am talking to you. We both have to live with that.",
+          "observed_intent": "news_plain",
+          "id": "chain-role-1",
+          "accept": [],
+          "any": [
+            [
+              "governor",
+              "briefing",
+              "state"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Im the governor",
+          "previous_reply": "I hear you. Is there something you want to work through?",
+          "observed_intent": "news_plain",
+          "id": "chain-role-2",
+          "accept": [],
+          "any": [
+            [
+              "governor",
+              "briefing",
+              "state"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "I am head of state",
+          "previous_reply": "I may be missing part of that. Tell me what happened.",
+          "observed_intent": "news_plain",
+          "id": "chain-role-3",
+          "accept": [],
+          "any": [
+            [
+              "governor",
+              "head of state",
+              "briefing"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "chain-county",
+      "prefix": [
+        "Tell me about knox"
+      ],
+      "turns": [
+        {
+          "input": "What country?",
+          "previous_reply": "Archived incident summary: 1993-07-09 - The telephone failures\nEarly broadcasts discuss communication failures and Knox Telecommunications. People outside the affected area struggle to reach those inside it. Explanations and promises of restored service do not establish what caused the outbreak. An unanswered telephone is a missing contact, not proof of what happened to its owner.\nArchived reference, not a live transmission. Ask 'tell me more' for a related file, or choose County files and EMMA.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-county-1",
+          "accept": [],
+          "any": [
+            [
+              "united states",
+              "usa",
+              "america"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "What county?",
+          "previous_reply": "I know a great many things. country is not yet one of them.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-county-2",
+          "accept": [],
+          "any": [
+            [
+              "knox county"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "County?",
+          "previous_reply": "county? I looked. Twice. Nothing. Try it another way.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-county-3",
+          "accept": [],
+          "any": [
+            [
+              "knox county"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "chain-trapping",
+      "prefix": [],
+      "turns": [
+        {
+          "input": "Tell me about trapping.",
+          "previous_reply": "You said everything. I heard everything. That is where it ends.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-trapping-1",
+          "accept": [],
+          "any": [
+            [
+              "trap",
+              "snare"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Traps?",
+          "previous_reply": "trapping means nothing to me yet. I have made a note. Notes are how I get smarter.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-trapping-2",
+          "accept": [],
+          "any": [
+            [
+              "trap",
+              "snare"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Trapping animals",
+          "previous_reply": "traps. A name, a thing or a mood? I can handle two of those.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-trapping-3",
+          "accept": [],
+          "any": [
+            [
+              "trap",
+              "snare"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "chain-firearms",
+      "prefix": [],
+      "turns": [
+        {
+          "input": "A gun",
+          "previous_reply": "Tell me a little more. What would you like help with?",
+          "observed_intent": "fallback_echo",
+          "id": "chain-firearms-1",
+          "accept": [],
+          "any": [
+            [
+              "gun",
+              "firearm",
+              "shotgun"
+            ],
+            [
+              "loud",
+              "noise"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Gun",
+          "previous_reply": "gun. I have no file on gun. I have a file on almost everything else.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-firearms-2",
+          "accept": [],
+          "any": [
+            [
+              "gun",
+              "firearm",
+              "shotgun"
+            ],
+            [
+              "loud",
+              "noise"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Shotgun",
+          "previous_reply": "You said gun. I heard gun. That is where it ends.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-firearms-3",
+          "accept": [],
+          "any": [
+            [
+              "shotgun",
+              "firearm"
+            ],
+            [
+              "shell",
+              "noise",
+              "loud"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Whats a shotgun",
+          "previous_reply": "I know a great many things. shotgun is not yet one of them.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-firearms-4",
+          "accept": [],
+          "any": [
+            [
+              "shotgun"
+            ],
+            [
+              "shell",
+              "noise",
+              "loud"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Pistol",
+          "previous_reply": "No record of shotgun. Either it does not matter or nobody wrote it down. Usually both.",
+          "observed_intent": "fallback_echo",
+          "id": "chain-firearms-5",
+          "accept": [],
+          "any": [
+            [
+              "pistol",
+              "firearm"
+            ],
+            [
+              "ammo",
+              "noise",
+              "loud",
+              "ammunition"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    },
+    {
+      "id": "chain-operator",
+      "prefix": [
+        "Who are you?"
+      ],
+      "turns": [
+        {
+          "input": "Who did you talk to before me?",
+          "previous_reply": "The state of Kentucky owns me, on paper. The paper and the state have both been unavailable since July.",
+          "observed_intent": "did_you_mean",
+          "id": "chain-operator-1",
+          "accept": [
+            "her_last_operator"
+          ],
+          "any": [
+            [
+              "marla",
+              "operator"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "Who wrote her previously?",
+          "previous_reply": "Fine. Then I do not know what you meant. Neither do you, it seems.",
+          "observed_intent": "clarify_person",
+          "id": "chain-operator-2",
+          "accept": [
+            "her_last_operator",
+            "her_maker"
+          ],
+          "any": [
+            [
+              "marla",
+              "operator",
+              "programmer"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        },
+        {
+          "input": "None",
+          "previous_reply": "Which person do you mean? Type their full name or a number in chat:\n      1. Kate Miller\n      2. Bob Fisher\n      3. Dale",
+          "observed_intent": "fallback_echo",
+          "id": "chain-operator-3",
+          "accept": [],
+          "any": [
+            [
+              "understood",
+              "nobody",
+              "all right",
+              "cancel",
+              "no one"
+            ]
+          ],
+          "need": "Answer the subject and facet in this turn; original preceding public reply is retained."
+        }
+      ]
+    }
+  ]
+}

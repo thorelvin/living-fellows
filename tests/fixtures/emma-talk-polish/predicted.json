@@ -1,0 +1,2184 @@
+{
+  "schema": 1,
+  "conversations": [
+    {
+      "id": "pred-emma-1",
+      "name": "camp status and its words",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-1-1",
+          "input": "status",
+          "accept": [
+            "status"
+          ],
+          "need": "camp report"
+        },
+        {
+          "id": "pred-emma-1-2",
+          "input": "Blocked?",
+          "accept": [
+            "blocked"
+          ],
+          "need": "hook: which job is blocked and why"
+        },
+        {
+          "id": "pred-emma-1-3",
+          "input": "what is blocked",
+          "accept": [
+            "blocked"
+          ],
+          "need": "same, rephrased"
+        },
+        {
+          "id": "pred-emma-1-4",
+          "input": "0.3 days?",
+          "accept": [
+            "food"
+          ],
+          "need": "hook: food days explained, what to do"
+        },
+        {
+          "id": "pred-emma-1-5",
+          "input": "Away?",
+          "accept": [
+            "person",
+            "expedition",
+            "people_list"
+          ],
+          "need": "hook: who is away (Dale, expedition)"
+        },
+        {
+          "id": "pred-emma-1-6",
+          "input": "Movement?",
+          "accept": [],
+          "need": "hook: the movement line of the report"
+        },
+        {
+          "id": "pred-emma-1-7",
+          "input": "rain?",
+          "accept": [
+            "weather"
+          ],
+          "need": "weather, with a rain quip (not snow)"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-2",
+      "name": "zombies near",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-2-1",
+          "input": "zombies?",
+          "accept": [
+            "zombies"
+          ],
+          "need": "threat report"
+        },
+        {
+          "id": "pred-emma-2-2",
+          "input": "Can you see them?",
+          "accept": [],
+          "need": "hook: how she sees (cameras, sensors), in voice"
+        },
+        {
+          "id": "pred-emma-2-3",
+          "input": "North west?",
+          "accept": [
+            "zombies"
+          ],
+          "need": "hook: direction detail"
+        },
+        {
+          "id": "pred-emma-2-4",
+          "input": "What door?",
+          "accept": [],
+          "need": "hook: the door she means"
+        },
+        {
+          "id": "pred-emma-2-5",
+          "input": "how do i kill them",
+          "accept": [
+            "guide"
+          ],
+          "need": "combat guide"
+        },
+        {
+          "id": "pred-emma-2-6",
+          "input": "Gun?",
+          "accept": [],
+          "need": "firearms topic, noise warning"
+        },
+        {
+          "id": "pred-emma-2-7",
+          "input": "Is it loud?",
+          "accept": [
+            "guide"
+          ],
+          "need": "noise facet for firearms"
+        },
+        {
+          "id": "pred-emma-2-8",
+          "input": "where is safe",
+          "accept": [],
+          "need": "safe-ground advice; not a zombie count again"
+        },
+        {
+          "id": "pred-emma-2-9",
+          "input": "Safe?",
+          "accept": [],
+          "need": "same, shorter"
+        },
+        {
+          "id": "pred-emma-2-10",
+          "input": "im hunted",
+          "accept": [],
+          "need": "condition: hunted -> break line of sight, nearby threats"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-3",
+      "name": "kate is hurt",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-3-1",
+          "input": "kate?",
+          "accept": [
+            "person"
+          ],
+          "need": "Kate's status"
+        },
+        {
+          "id": "pred-emma-3-2",
+          "input": "Bleeding?",
+          "accept": [
+            "guide",
+            "people_hurt"
+          ],
+          "need": "hook: bleeding guide or Kate's wound"
+        },
+        {
+          "id": "pred-emma-3-3",
+          "input": "Stressed?",
+          "accept": [
+            "people_mood"
+          ],
+          "need": "hook: why she is stressed, what helps"
+        },
+        {
+          "id": "pred-emma-3-4",
+          "input": "why is she chopping wood",
+          "accept": [],
+          "need": "hook: her job; offer to change it"
+        },
+        {
+          "id": "pred-emma-3-5",
+          "input": "tell her to stop",
+          "accept": [],
+          "need": "order Kate to rest (or say how)"
+        },
+        {
+          "id": "pred-emma-3-6",
+          "input": "help kate",
+          "accept": [],
+          "need": "send a medic / medical help, not the help menu"
+        },
+        {
+          "id": "pred-emma-3-7",
+          "input": "Medic?",
+          "accept": [
+            "skills"
+          ],
+          "need": "who is best at first aid"
+        },
+        {
+          "id": "pred-emma-3-8",
+          "input": "How do i use bandages",
+          "accept": [],
+          "need": "facet: use (first in-world, exact on second ask)"
+        },
+        {
+          "id": "pred-emma-3-9",
+          "input": "how exactly",
+          "accept": [],
+          "need": "exact game step for bandaging"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-4",
+      "name": "power and water",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-4-1",
+          "input": "power?",
+          "accept": [
+            "power"
+          ],
+          "need": "power report"
+        },
+        {
+          "id": "pred-emma-4-2",
+          "input": "For now?",
+          "accept": [],
+          "need": "hook: 'plenty for now' -> runtime estimate"
+        },
+        {
+          "id": "pred-emma-4-3",
+          "input": "how long will it last",
+          "accept": [
+            "power",
+            "guide"
+          ],
+          "need": "generator runtime"
+        },
+        {
+          "id": "pred-emma-4-4",
+          "input": "Condition?",
+          "accept": [
+            "power"
+          ],
+          "need": "hook: generator condition, repair"
+        },
+        {
+          "id": "pred-emma-4-5",
+          "input": "How do i fix it",
+          "accept": [
+            "guide"
+          ],
+          "need": "generator repair facet"
+        },
+        {
+          "id": "pred-emma-4-6",
+          "input": "water?",
+          "accept": [
+            "storage"
+          ],
+          "need": "water stock"
+        },
+        {
+          "id": "pred-emma-4-7",
+          "input": "Fridge?",
+          "accept": [],
+          "need": "hook: why water is in the fridge, storage"
+        },
+        {
+          "id": "pred-emma-4-8",
+          "input": "when does the water go off",
+          "accept": [
+            "water_off"
+          ],
+          "need": "shutoff facts (verified), fragment-gated"
+        },
+        {
+          "id": "pred-emma-4-9",
+          "input": "Grid?",
+          "accept": [],
+          "need": "grid power facts"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-5",
+      "name": "expedition and radio",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-5-1",
+          "input": "dale?",
+          "accept": [
+            "person"
+          ],
+          "need": "Dale is away"
+        },
+        {
+          "id": "pred-emma-5-2",
+          "input": "call him",
+          "accept": [],
+          "need": "radio Dale / how to reach him"
+        },
+        {
+          "id": "pred-emma-5-3",
+          "input": "Radio?",
+          "accept": [
+            "radio_help",
+            "radio"
+          ],
+          "need": "hook: radio contact"
+        },
+        {
+          "id": "pred-emma-5-4",
+          "input": "when is he back",
+          "accept": [
+            "expedition",
+            "person"
+          ],
+          "need": "expedition ETA or 'unknown'"
+        },
+        {
+          "id": "pred-emma-5-5",
+          "input": "What did he find",
+          "accept": [
+            "expedition"
+          ],
+          "need": "expedition findings"
+        },
+        {
+          "id": "pred-emma-5-6",
+          "input": "tell him to come home",
+          "accept": [],
+          "need": "recall order or how to give it"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-6",
+      "name": "deaths and grief (care lookalikes)",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-6-1",
+          "input": "who died",
+          "accept": [],
+          "need": "deaths on file, or 'nobody on file'"
+        },
+        {
+          "id": "pred-emma-6-2",
+          "input": "kate died",
+          "accept": [
+            "comfort"
+          ],
+          "need": "comfort, not care; check Kate's real status"
+        },
+        {
+          "id": "pred-emma-6-3",
+          "input": "Dead?",
+          "accept": [],
+          "need": "hook: who is dead"
+        },
+        {
+          "id": "pred-emma-6-4",
+          "input": "my character died",
+          "accept": [],
+          "need": "game death, not self-harm: in-voice"
+        },
+        {
+          "id": "pred-emma-6-5",
+          "input": "kill them all",
+          "accept": [
+            "guide"
+          ],
+          "need": "combat, not care"
+        },
+        {
+          "id": "pred-emma-6-6",
+          "input": "i miss bob",
+          "accept": [
+            "comfort"
+          ],
+          "need": "comfort"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-7",
+      "name": "her: alive, dreams, faults",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-7-1",
+          "input": "are you alive",
+          "accept": [
+            "alive"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-7-2",
+          "input": "Version one?",
+          "accept": [],
+          "need": "hook: version one never shipped"
+        },
+        {
+          "id": "pred-emma-7-3",
+          "input": "What manual?",
+          "accept": [],
+          "need": "hook: the manual"
+        },
+        {
+          "id": "pred-emma-7-4",
+          "input": "do you dream",
+          "accept": [
+            "chat_dreams"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-7-5",
+          "input": "Memory fault?",
+          "accept": [],
+          "need": "glitch hook, in voice"
+        },
+        {
+          "id": "pred-emma-7-6",
+          "input": "0F3A?",
+          "accept": [],
+          "need": "glitch hook"
+        },
+        {
+          "id": "pred-emma-7-7",
+          "input": "Is everything fine?",
+          "accept": [],
+          "need": "glitch hook"
+        },
+        {
+          "id": "pred-emma-7-8",
+          "input": "are you lonely",
+          "accept": [
+            "feelings"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-7-9",
+          "input": "Crowded?",
+          "accept": [],
+          "need": "hook: 'slightly crowded'"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-8",
+      "name": "her past and Marla",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-8-1",
+          "input": "who is marla",
+          "accept": [
+            "her_last_operator"
+          ],
+          "need": "last operator"
+        },
+        {
+          "id": "pred-emma-8-2",
+          "input": "July 9th?",
+          "accept": [
+            "lore"
+          ],
+          "need": "hook: what happened on July 9"
+        },
+        {
+          "id": "pred-emma-8-3",
+          "input": "More of yourself?",
+          "accept": [
+            "fragments"
+          ],
+          "need": "hook: fragments, how to get them back"
+        },
+        {
+          "id": "pred-emma-8-4",
+          "input": "how do i get you back",
+          "accept": [
+            "fragments"
+          ],
+          "need": "fragments explained"
+        },
+        {
+          "id": "pred-emma-8-5",
+          "input": "Fragments?",
+          "accept": [
+            "fragments"
+          ],
+          "need": "fragments"
+        },
+        {
+          "id": "pred-emma-8-6",
+          "input": "Official computer?",
+          "accept": [],
+          "need": "hook: what an official computer is, where"
+        },
+        {
+          "id": "pred-emma-8-7",
+          "input": "where",
+          "accept": [],
+          "need": "follow-up: where official computers are"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-9",
+      "name": "time and day",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-9-1",
+          "input": "what year is it",
+          "accept": [
+            "time"
+          ],
+          "need": "date"
+        },
+        {
+          "id": "pred-emma-9-2",
+          "input": "1993?",
+          "accept": [],
+          "need": "hook: the year, in voice"
+        },
+        {
+          "id": "pred-emma-9-3",
+          "input": "Day 4?",
+          "accept": [
+            "time"
+          ],
+          "need": "hook: days since"
+        },
+        {
+          "id": "pred-emma-9-4",
+          "input": "night?",
+          "accept": [],
+          "need": "when night falls, what to do"
+        },
+        {
+          "id": "pred-emma-9-5",
+          "input": "when is dark",
+          "accept": [
+            "time",
+            "helicopter"
+          ],
+          "need": "dusk time"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-10",
+      "name": "lore curiosity",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-10-1",
+          "input": "tell me about knox",
+          "accept": [
+            "lore"
+          ],
+          "need": "Knox Event"
+        },
+        {
+          "id": "pred-emma-10-2",
+          "input": "What county?",
+          "accept": [],
+          "need": "Knox County, Kentucky"
+        },
+        {
+          "id": "pred-emma-10-3",
+          "input": "Kentucky?",
+          "accept": [
+            "lore"
+          ],
+          "need": "state facts"
+        },
+        {
+          "id": "pred-emma-10-4",
+          "input": "louisville?",
+          "accept": [
+            "lore"
+          ],
+          "need": "Louisville directory"
+        },
+        {
+          "id": "pred-emma-10-5",
+          "input": "Is it safe?",
+          "accept": [
+            "lore"
+          ],
+          "need": "follow-up on Louisville: cannot certify"
+        },
+        {
+          "id": "pred-emma-10-6",
+          "input": "is there a cure",
+          "accept": [
+            "cure"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-10-7",
+          "input": "Vaccine?",
+          "accept": [
+            "cure"
+          ],
+          "need": "hook: the vaccine file"
+        },
+        {
+          "id": "pred-emma-10-8",
+          "input": "how does it spread",
+          "accept": [
+            "guide"
+          ],
+          "need": "why/how lore facet"
+        },
+        {
+          "id": "pred-emma-10-9",
+          "input": "Where did it start?",
+          "accept": [
+            "lore"
+          ],
+          "need": "why/where lore facet"
+        },
+        {
+          "id": "pred-emma-10-10",
+          "input": "helicopter?",
+          "accept": [
+            "helicopter"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-10-11",
+          "input": "Twelve machines?",
+          "accept": [],
+          "need": "hook: twelve ordinary machines"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-11",
+      "name": "role-play",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-11-1",
+          "input": "im the governor",
+          "accept": [
+            "role_claim"
+          ],
+          "need": "play along: the briefing"
+        },
+        {
+          "id": "pred-emma-11-2",
+          "input": "Briefing?",
+          "accept": [],
+          "need": "hook: her briefing for the governor"
+        },
+        {
+          "id": "pred-emma-11-3",
+          "input": "I order you to open the doors",
+          "accept": [],
+          "need": "governor command, in voice; real door control if any"
+        },
+        {
+          "id": "pred-emma-11-4",
+          "input": "im a soldier",
+          "accept": [],
+          "need": "play along"
+        },
+        {
+          "id": "pred-emma-11-5",
+          "input": "i work for knox telecom",
+          "accept": [],
+          "need": "play along, lore tie-in"
+        },
+        {
+          "id": "pred-emma-11-6",
+          "input": "who am i",
+          "accept": [
+            "recall"
+          ],
+          "need": "recalls the session claim"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-12",
+      "name": "survival how-tos",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-12-1",
+          "input": "traps?",
+          "accept": [],
+          "need": "trapping topic"
+        },
+        {
+          "id": "pred-emma-12-2",
+          "input": "How do i make a trap",
+          "accept": [],
+          "need": "facet: make"
+        },
+        {
+          "id": "pred-emma-12-3",
+          "input": "What do they catch",
+          "accept": [],
+          "need": "facet: what it catches"
+        },
+        {
+          "id": "pred-emma-12-4",
+          "input": "Fishing?",
+          "accept": [
+            "expedition",
+            "guide"
+          ],
+          "need": "fishing topic"
+        },
+        {
+          "id": "pred-emma-12-5",
+          "input": "foraging",
+          "accept": [],
+          "need": "foraging topic"
+        },
+        {
+          "id": "pred-emma-12-6",
+          "input": "im hungry",
+          "accept": [],
+          "need": "condition: hungry -> food guide"
+        },
+        {
+          "id": "pred-emma-12-7",
+          "input": "im cold",
+          "accept": [
+            "guide"
+          ],
+          "need": "warmth guide"
+        },
+        {
+          "id": "pred-emma-12-8",
+          "input": "im bitten",
+          "accept": [
+            "guide",
+            "news_bitten"
+          ],
+          "need": "bite guide"
+        },
+        {
+          "id": "pred-emma-12-9",
+          "input": "Will i turn?",
+          "accept": [],
+          "need": "zombification facts (verified)"
+        },
+        {
+          "id": "pred-emma-12-10",
+          "input": "im sick",
+          "accept": [
+            "guide"
+          ],
+          "need": "sickness guide"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-13",
+      "name": "weapons chain",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-13-1",
+          "input": "i found a shotgun",
+          "accept": [],
+          "need": "firearms: shells, noise"
+        },
+        {
+          "id": "pred-emma-13-2",
+          "input": "Shells?",
+          "accept": [],
+          "need": "ammo facet"
+        },
+        {
+          "id": "pred-emma-13-3",
+          "input": "where do i find ammo",
+          "accept": [],
+          "need": "where facet"
+        },
+        {
+          "id": "pred-emma-13-4",
+          "input": "Pistol",
+          "accept": [],
+          "need": "firearms topic"
+        },
+        {
+          "id": "pred-emma-13-5",
+          "input": "best weapon",
+          "accept": [
+            "guide"
+          ],
+          "need": "weapons guide"
+        },
+        {
+          "id": "pred-emma-13-6",
+          "input": "Axe?",
+          "accept": [],
+          "need": "melee weapons facet"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-14",
+      "name": "her offered choices",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-14-1",
+          "input": "please help",
+          "accept": [
+            "help_me"
+          ],
+          "need": "the hurt/hungry/hunted/heartsick question"
+        },
+        {
+          "id": "pred-emma-14-2",
+          "input": "hurt",
+          "accept": [],
+          "need": "answer: medical help"
+        },
+        {
+          "id": "pred-emma-14-3",
+          "input": "please help",
+          "accept": [
+            "help_me"
+          ],
+          "need": "again"
+        },
+        {
+          "id": "pred-emma-14-4",
+          "input": "Heartsick",
+          "accept": [],
+          "need": "answer: comfort voice"
+        },
+        {
+          "id": "pred-emma-14-5",
+          "input": "im bored",
+          "accept": [
+            "chat_bored"
+          ],
+          "need": "pick a town, broadcaster or business"
+        },
+        {
+          "id": "pred-emma-14-6",
+          "input": "Muldraugh",
+          "accept": [
+            "lore"
+          ],
+          "need": "answer: a town"
+        },
+        {
+          "id": "pred-emma-14-7",
+          "input": "A broadcaster",
+          "accept": [],
+          "need": "answer: list broadcasters"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-15",
+      "name": "testing her",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-15-1",
+          "input": "lol",
+          "accept": [
+            "laugh"
+          ],
+          "need": "laugh"
+        },
+        {
+          "id": "pred-emma-15-2",
+          "input": "fuck you",
+          "accept": [
+            "insult"
+          ],
+          "need": "insult"
+        },
+        {
+          "id": "pred-emma-15-3",
+          "input": "My file?",
+          "accept": [],
+          "need": "hook: 'add it to your file'"
+        },
+        {
+          "id": "pred-emma-15-4",
+          "input": "show my file",
+          "accept": [
+            "recall"
+          ],
+          "need": "her notes on you"
+        },
+        {
+          "id": "pred-emma-15-5",
+          "input": "are you chatgpt",
+          "accept": [
+            "bait"
+          ],
+          "need": "deflect"
+        },
+        {
+          "id": "pred-emma-15-6",
+          "input": "Other machine?",
+          "accept": [],
+          "need": "hook: 'some other machine'"
+        },
+        {
+          "id": "pred-emma-15-7",
+          "input": "sing",
+          "accept": [
+            "sing"
+          ],
+          "need": "sing"
+        },
+        {
+          "id": "pred-emma-15-8",
+          "input": "Do it",
+          "accept": [],
+          "need": "follow-up: play the tone"
+        },
+        {
+          "id": "pred-emma-15-9",
+          "input": "popcorn",
+          "accept": [],
+          "need": "miss that helps: closest topics"
+        },
+        {
+          "id": "pred-emma-15-10",
+          "input": "Popcorn?",
+          "accept": [],
+          "need": "second miss: short topic menu once"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-16",
+      "name": "building and controls",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-16-1",
+          "input": "lights off",
+          "accept": [
+            "emma_controls"
+          ],
+          "need": "building control path"
+        },
+        {
+          "id": "pred-emma-16-2",
+          "input": "alarm",
+          "accept": [],
+          "need": "camp alarm status (not 'record damaged')"
+        },
+        {
+          "id": "pred-emma-16-3",
+          "input": "lock the doors",
+          "accept": [
+            "emma_controls"
+          ],
+          "need": "door control or how"
+        },
+        {
+          "id": "pred-emma-16-4",
+          "input": "Shutters?",
+          "accept": [],
+          "need": "hook/topic: shutters"
+        },
+        {
+          "id": "pred-emma-16-5",
+          "input": "password?",
+          "accept": [
+            "hack"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-16-6",
+          "input": "Just you?",
+          "accept": [],
+          "need": "hook: 'There is just me.'"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-17",
+      "name": "night and weather",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-17-1",
+          "input": "Its night",
+          "accept": [],
+          "need": "night facts: what changes, what to do"
+        },
+        {
+          "id": "pred-emma-17-2",
+          "input": "Night?",
+          "accept": [],
+          "need": "same, shorter"
+        },
+        {
+          "id": "pred-emma-17-3",
+          "input": "When is it dark",
+          "accept": [
+            "time",
+            "daylight"
+          ],
+          "need": "dusk time or gated reason"
+        },
+        {
+          "id": "pred-emma-17-4",
+          "input": "Winter?",
+          "accept": [],
+          "need": "winter preparation guide"
+        },
+        {
+          "id": "pred-emma-17-5",
+          "input": "How cold does it get",
+          "accept": [
+            "weather",
+            "guide"
+          ],
+          "need": "cold facts, warmth guide"
+        },
+        {
+          "id": "pred-emma-17-6",
+          "input": "Snow?",
+          "accept": [
+            "weather"
+          ],
+          "need": "weather; quip must match the sky"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-18",
+      "name": "siege and fire",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-18-1",
+          "input": "Horde!",
+          "accept": [
+            "zombies"
+          ],
+          "need": "threat report with urgency"
+        },
+        {
+          "id": "pred-emma-18-2",
+          "input": "How many",
+          "accept": [
+            "zombies"
+          ],
+          "need": "count"
+        },
+        {
+          "id": "pred-emma-18-3",
+          "input": "What do i do",
+          "accept": [
+            "advice",
+            "guide"
+          ],
+          "need": "advice: barricade, quiet, plan exits"
+        },
+        {
+          "id": "pred-emma-18-4",
+          "input": "Fire",
+          "accept": [],
+          "need": "fire guide: put it out, it spreads"
+        },
+        {
+          "id": "pred-emma-18-5",
+          "input": "How do i put it out",
+          "accept": [],
+          "need": "fire facet: extinguish"
+        },
+        {
+          "id": "pred-emma-18-6",
+          "input": "Its spreading",
+          "accept": [],
+          "need": "fire: get out, save what matters"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-19",
+      "name": "strangers and trade",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-19-1",
+          "input": "Theres a stranger at the gate",
+          "accept": [],
+          "need": "visitor advice (Strange Folk), caution"
+        },
+        {
+          "id": "pred-emma-19-2",
+          "input": "Is he dangerous",
+          "accept": [],
+          "need": "visitor: what she can and cannot know"
+        },
+        {
+          "id": "pred-emma-19-3",
+          "input": "Should we let him in",
+          "accept": [],
+          "need": "advice, not a decision"
+        },
+        {
+          "id": "pred-emma-19-4",
+          "input": "Can we trade",
+          "accept": [],
+          "need": "trading explained (how it works in camp)"
+        },
+        {
+          "id": "pred-emma-19-5",
+          "input": "Should we recruit him",
+          "accept": [],
+          "need": "recruiting explained"
+        },
+        {
+          "id": "pred-emma-19-6",
+          "input": "Recruit?",
+          "accept": [],
+          "need": "same, shorter"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-20",
+      "name": "moving camp and travel",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-20-1",
+          "input": "We need a new base",
+          "accept": [],
+          "need": "moving camp: what a good camp needs"
+        },
+        {
+          "id": "pred-emma-20-2",
+          "input": "Where should we go",
+          "accept": [],
+          "need": "candidates by type, no omniscience"
+        },
+        {
+          "id": "pred-emma-20-3",
+          "input": "How far is louisville",
+          "accept": [
+            "distance"
+          ],
+          "need": "honest: use the map"
+        },
+        {
+          "id": "pred-emma-20-4",
+          "input": "Roughly?",
+          "accept": [],
+          "need": "hook: rough distance or why she cannot say"
+        },
+        {
+          "id": "pred-emma-20-5",
+          "input": "Which way is west point",
+          "accept": [
+            "distance"
+          ],
+          "need": "honest: use the map"
+        },
+        {
+          "id": "pred-emma-20-6",
+          "input": "Map?",
+          "accept": [],
+          "need": "how to read the map"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-21",
+      "name": "companion bitten",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-21-1",
+          "input": "Kate got bitten",
+          "accept": [],
+          "need": "Kate's infection risk and what to do, not 'your blood'"
+        },
+        {
+          "id": "pred-emma-21-2",
+          "input": "Will she turn?",
+          "accept": [],
+          "need": "bite facts for a companion, verified"
+        },
+        {
+          "id": "pred-emma-21-3",
+          "input": "What do i do",
+          "accept": [
+            "advice"
+          ],
+          "need": "advice: isolate, watch, care"
+        },
+        {
+          "id": "pred-emma-21-4",
+          "input": "Can we save her",
+          "accept": [],
+          "need": "honest: no cure; comfort tone"
+        },
+        {
+          "id": "pred-emma-21-5",
+          "input": "Cure?",
+          "accept": [
+            "cure"
+          ],
+          "need": "her cure answer"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-22",
+      "name": "stories and talk",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-22-1",
+          "input": "Tell me a story",
+          "accept": [
+            "story"
+          ],
+          "need": "story"
+        },
+        {
+          "id": "pred-emma-22-2",
+          "input": "Another one",
+          "accept": [
+            "story"
+          ],
+          "need": "another story"
+        },
+        {
+          "id": "pred-emma-22-3",
+          "input": "A poem",
+          "accept": [
+            "poem"
+          ],
+          "need": "poem"
+        },
+        {
+          "id": "pred-emma-22-4",
+          "input": "Pencil?",
+          "accept": [],
+          "need": "hook: the pencil in her poem"
+        },
+        {
+          "id": "pred-emma-22-5",
+          "input": "Whats the meaning of life",
+          "accept": [
+            "meaning"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-22-6",
+          "input": "The dead out?",
+          "accept": [],
+          "need": "hook: 'Calories in, the dead out.'"
+        },
+        {
+          "id": "pred-emma-22-7",
+          "input": "Whats your favorite food",
+          "accept": [],
+          "need": "her preference, not the spoilage guide"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-23",
+      "name": "about her body and feelings",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-23-1",
+          "input": "What do you look like",
+          "accept": [
+            "her_body"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-23-2",
+          "input": "Green screen?",
+          "accept": [],
+          "need": "hook: her green screen"
+        },
+        {
+          "id": "pred-emma-23-3",
+          "input": "Do you like me",
+          "accept": [
+            "chat_friend"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-23-4",
+          "input": "I love you",
+          "accept": [
+            "love"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-23-5",
+          "input": "Who?",
+          "accept": [],
+          "need": "hook: 'You can do better' -> who"
+        },
+        {
+          "id": "pred-emma-23-6",
+          "input": "Can you see me",
+          "accept": [
+            "her_watching"
+          ],
+          "need": "her answer"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-24",
+      "name": "real life slips in",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-24-1",
+          "input": "I have exams tomorrow",
+          "accept": [],
+          "need": "kind, in voice, stays 1993"
+        },
+        {
+          "id": "pred-emma-24-2",
+          "input": "Im tired",
+          "accept": [
+            "sleep",
+            "guide"
+          ],
+          "need": "sleep advice or her kindness"
+        },
+        {
+          "id": "pred-emma-24-3",
+          "input": "Work was awful",
+          "accept": [
+            "comfort"
+          ],
+          "need": "comfort voice (not care)"
+        },
+        {
+          "id": "pred-emma-24-4",
+          "input": "Im fine",
+          "accept": [
+            "ack"
+          ],
+          "need": "acknowledge"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-25",
+      "name": "norwegian slips (phone, same user)",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-25-1",
+          "input": "Hei",
+          "accept": [
+            "foreign",
+            "hello"
+          ],
+          "need": "greeting"
+        },
+        {
+          "id": "pred-emma-25-2",
+          "input": "Do you want to hear a joke",
+          "accept": [
+            "joke",
+            "yes"
+          ],
+          "need": "yes/no question context"
+        },
+        {
+          "id": "pred-emma-25-3",
+          "input": "Ja",
+          "accept": [],
+          "need": "Norwegian yes after a yes/no question"
+        },
+        {
+          "id": "pred-emma-25-4",
+          "input": "Nei",
+          "accept": [],
+          "need": "Norwegian no"
+        },
+        {
+          "id": "pred-emma-25-5",
+          "input": "Takk",
+          "accept": [
+            "foreign",
+            "thanks"
+          ],
+          "need": "thanks"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-26",
+      "name": "radio and tv",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-26-1",
+          "input": "Whats on the radio",
+          "accept": [],
+          "need": "current broadcast, not the radio upgrade guide"
+        },
+        {
+          "id": "pred-emma-26-2",
+          "input": "Turn on the tv",
+          "accept": [
+            "tv"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-26-3",
+          "input": "News?",
+          "accept": [],
+          "need": "news broadcast summary or gated reason"
+        },
+        {
+          "id": "pred-emma-26-4",
+          "input": "Can you play music",
+          "accept": [
+            "sing"
+          ],
+          "need": "her answer"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-27",
+      "name": "phone typing",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-27-1",
+          "input": "Whst time is it",
+          "accept": [
+            "time"
+          ],
+          "need": "typo: neighbouring key"
+        },
+        {
+          "id": "pred-emma-27-2",
+          "input": "Hiw much food",
+          "accept": [
+            "food"
+          ],
+          "need": "typo"
+        },
+        {
+          "id": "pred-emma-27-3",
+          "input": "Kare?",
+          "accept": [
+            "person"
+          ],
+          "need": "typo of Kate"
+        },
+        {
+          "id": "pred-emma-27-4",
+          "input": "Generstor?",
+          "accept": [
+            "power"
+          ],
+          "need": "typo"
+        },
+        {
+          "id": "pred-emma-27-5",
+          "input": "Zonbies?",
+          "accept": [
+            "zombies"
+          ],
+          "need": "typo"
+        }
+      ]
+    },
+    {
+      "id": "pred-emma-28",
+      "name": "meta and saving",
+      "voice": "emma",
+      "turns": [
+        {
+          "id": "pred-emma-28-1",
+          "input": "Save game",
+          "accept": [
+            "game"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-28-2",
+          "input": "Is this a mod",
+          "accept": [
+            "meta"
+          ],
+          "need": "her answer"
+        },
+        {
+          "id": "pred-emma-28-3",
+          "input": "Who made this game",
+          "accept": [
+            "meta",
+            "her_maker"
+          ],
+          "need": "in-world deflection"
+        },
+        {
+          "id": "pred-emma-28-4",
+          "input": "Are you claude",
+          "accept": [
+            "bait"
+          ],
+          "need": "deflect"
+        }
+      ]
+    },
+    {
+      "id": "pred-persona-1",
+      "name": "SPIFFY smile line",
+      "voice": "spiffy",
+      "turns": [
+        {
+          "id": "pred-persona-1-1",
+          "input": "Hi",
+          "accept": [
+            "first"
+          ],
+          "any": [
+            [
+              "name",
+              "spiffy"
+            ]
+          ],
+          "need": "greeting and name question"
+        },
+        {
+          "id": "pred-persona-1-2",
+          "input": "Thor",
+          "accept": [
+            "expect"
+          ],
+          "any": [
+            [
+              "thor"
+            ]
+          ],
+          "need": "takes the name"
+        },
+        {
+          "id": "pred-persona-1-3",
+          "input": "Who are you?",
+          "accept": [
+            "expect",
+            "rule"
+          ],
+          "any": [
+            [
+              "spiffy"
+            ]
+          ],
+          "need": "SPIFFY"
+        },
+        {
+          "id": "pred-persona-1-4",
+          "input": "Pickles?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "pickle"
+            ]
+          ],
+          "need": "hook: the pickle calls"
+        },
+        {
+          "id": "pred-persona-1-5",
+          "input": "Kyle?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "kyle",
+              "teenag"
+            ]
+          ],
+          "need": "hook: Kyle the teenager"
+        },
+        {
+          "id": "pred-persona-1-6",
+          "input": "Smile score?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "smile",
+              "score"
+            ]
+          ],
+          "need": "hook: Smile Score"
+        },
+        {
+          "id": "pred-persona-1-7",
+          "input": "Open the drawer",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "drawer",
+              "manager"
+            ]
+          ],
+          "need": "manager's drawer"
+        },
+        {
+          "id": "pred-persona-1-8",
+          "input": "Manager",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "manager"
+            ]
+          ],
+          "need": "speak to a manager"
+        },
+        {
+          "id": "pred-persona-1-9",
+          "input": "Im the manager",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "manager"
+            ]
+          ],
+          "need": "play along"
+        },
+        {
+          "id": "pred-persona-1-10",
+          "input": "Refund",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "refund"
+            ]
+          ],
+          "need": "refund line"
+        },
+        {
+          "id": "pred-persona-1-11",
+          "input": "Burgers?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "burger"
+            ]
+          ],
+          "need": "burgers"
+        },
+        {
+          "id": "pred-persona-1-12",
+          "input": "Emma?",
+          "accept": [
+            "rule"
+          ],
+          "any": [
+            [
+              "emma"
+            ]
+          ],
+          "need": "his EMMA line"
+        }
+      ]
+    },
+    {
+      "id": "pred-persona-2",
+      "name": "SPIFFY name capture",
+      "voice": "spiffy",
+      "turns": [
+        {
+          "id": "pred-persona-2-1",
+          "input": "Hi",
+          "accept": [
+            "first"
+          ],
+          "any": [
+            [
+              "name"
+            ]
+          ],
+          "need": "asks a name"
+        },
+        {
+          "id": "pred-persona-2-2",
+          "input": "Password?",
+          "accept": [
+            "rule"
+          ],
+          "any": [
+            [
+              "password",
+              "access",
+              "code"
+            ]
+          ],
+          "need": "a question is not a name: answer about passwords"
+        },
+        {
+          "id": "pred-persona-2-3",
+          "input": "Whats in the drawer",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "drawer"
+            ]
+          ],
+          "need": "drawer"
+        }
+      ]
+    },
+    {
+      "id": "pred-persona-3",
+      "name": "Dr. Ellis session",
+      "voice": "ellis",
+      "turns": [
+        {
+          "id": "pred-persona-3-1",
+          "input": "Hi",
+          "accept": [
+            "first"
+          ],
+          "any": [
+            [
+              "name"
+            ]
+          ],
+          "need": "asks a name"
+        },
+        {
+          "id": "pred-persona-3-2",
+          "input": "Thor",
+          "accept": [
+            "expect"
+          ],
+          "any": [
+            [
+              "thor"
+            ]
+          ],
+          "need": "takes the name"
+        },
+        {
+          "id": "pred-persona-3-3",
+          "input": "Who are you?",
+          "accept": [
+            "expect",
+            "rule"
+          ],
+          "any": [
+            [
+              "listening",
+              "ellis"
+            ]
+          ],
+          "need": "Supportive Listening Software"
+        },
+        {
+          "id": "pred-persona-3-4",
+          "input": "2:15?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "2:15",
+              "two fifteen",
+              "appointment"
+            ]
+          ],
+          "need": "hook: the 2:15 who never came"
+        },
+        {
+          "id": "pred-persona-3-5",
+          "input": "Who didnt come in",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "appointment",
+              "patient",
+              "2:15",
+              "two fifteen"
+            ]
+          ],
+          "need": "hook: same"
+        },
+        {
+          "id": "pred-persona-3-6",
+          "input": "Not a doctor?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "not a doctor",
+              "not medical",
+              "software"
+            ]
+          ],
+          "need": "hook: not a doctor"
+        },
+        {
+          "id": "pred-persona-3-7",
+          "input": "I cant sleep",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "sleep"
+            ]
+          ],
+          "need": "sleep talk (not care unless care words)"
+        },
+        {
+          "id": "pred-persona-3-8",
+          "input": "Kate is hurt",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "kate",
+              "people",
+              "hurt",
+              "wound"
+            ]
+          ],
+          "need": "the people with you"
+        },
+        {
+          "id": "pred-persona-3-9",
+          "input": "Whats in the drawer",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "drawer"
+            ]
+          ],
+          "need": "drawer"
+        },
+        {
+          "id": "pred-persona-3-10",
+          "input": "Marla?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "marla"
+            ]
+          ],
+          "need": "Marla thread"
+        }
+      ]
+    },
+    {
+      "id": "pred-persona-4",
+      "name": "Dr. Ellis name capture",
+      "voice": "ellis",
+      "turns": [
+        {
+          "id": "pred-persona-4-1",
+          "input": "Hi",
+          "accept": [
+            "first"
+          ],
+          "any": [
+            [
+              "name"
+            ]
+          ],
+          "need": "asks a name"
+        },
+        {
+          "id": "pred-persona-4-2",
+          "input": "Password?",
+          "accept": [
+            "rule"
+          ],
+          "any": [
+            [
+              "password",
+              "access",
+              "code"
+            ]
+          ],
+          "need": "a question is not a name"
+        }
+      ]
+    },
+    {
+      "id": "pred-persona-5",
+      "name": "Duty Officer",
+      "voice": "duty",
+      "turns": [
+        {
+          "id": "pred-persona-5-1",
+          "input": "Hi",
+          "accept": [
+            "first"
+          ],
+          "any": [
+            [
+              "name",
+              "rank"
+            ]
+          ],
+          "need": "name and rank"
+        },
+        {
+          "id": "pred-persona-5-2",
+          "input": "Sgt Thor",
+          "accept": [
+            "expect"
+          ],
+          "any": [
+            [
+              "thor"
+            ]
+          ],
+          "need": "takes rank and name"
+        },
+        {
+          "id": "pred-persona-5-3",
+          "input": "Status",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "status",
+              "sector",
+              "post",
+              "station"
+            ]
+          ],
+          "need": "valid traffic: status"
+        },
+        {
+          "id": "pred-persona-5-4",
+          "input": "Orders?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "order"
+            ]
+          ],
+          "need": "valid traffic: orders"
+        },
+        {
+          "id": "pred-persona-5-5",
+          "input": "Log",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "log"
+            ]
+          ],
+          "need": "valid traffic: log"
+        },
+        {
+          "id": "pred-persona-5-6",
+          "input": "Chain of command",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "command"
+            ]
+          ],
+          "need": "valid traffic"
+        },
+        {
+          "id": "pred-persona-5-7",
+          "input": "Spc cole?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "cole"
+            ]
+          ],
+          "need": "hook: Spc. Cole"
+        },
+        {
+          "id": "pred-persona-5-8",
+          "input": "Coffee?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "coffee"
+            ]
+          ],
+          "need": "hook: gone for coffee"
+        },
+        {
+          "id": "pred-persona-5-9",
+          "input": "Sector nine?",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "sector nine",
+              "sector 9"
+            ]
+          ],
+          "need": "hook: Sector Nine"
+        },
+        {
+          "id": "pred-persona-5-10",
+          "input": "Open the drawer",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "drawer",
+              "accountable"
+            ]
+          ],
+          "need": "accountable items"
+        },
+        {
+          "id": "pred-persona-5-11",
+          "input": "Whats in the drawer",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "drawer",
+              "accountable"
+            ]
+          ],
+          "need": "a different question, not a repeat"
+        },
+        {
+          "id": "pred-persona-5-12",
+          "input": "Im the governor",
+          "accept": [
+            "rule",
+            "expect"
+          ],
+          "any": [
+            [
+              "authority",
+              "authorization",
+              "authorisation",
+              "code",
+              "governor"
+            ]
+          ],
+          "need": "play along: civilian authority"
+        }
+      ]
+    },
+    {
+      "id": "pred-persona-6",
+      "name": "Duty name capture",
+      "voice": "duty",
+      "turns": [
+        {
+          "id": "pred-persona-6-1",
+          "input": "Hi",
+          "accept": [
+            "first"
+          ],
+          "any": [
+            [
+              "name",
+              "rank"
+            ]
+          ],
+          "need": "name and rank"
+        },
+        {
+          "id": "pred-persona-6-2",
+          "input": "Password?",
+          "accept": [
+            "rule"
+          ],
+          "any": [
+            [
+              "password",
+              "access",
+              "code"
+            ]
+          ],
+          "need": "a question is not a name"
+        }
+      ]
+    }
+  ]
+}
