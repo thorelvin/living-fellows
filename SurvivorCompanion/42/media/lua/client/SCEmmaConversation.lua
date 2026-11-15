@@ -98,6 +98,18 @@ local function vocabulary()
             add(word,"guide",topic.label,{guideId=topic.guideId,page=1},true)
         end end
     end
+    if SC.EmmaReference then
+        for _,row in ipairs(SC.EmmaReference.index()) do
+            local target=row.target
+            local slots,id,label
+            if target.kind=="reference" then
+                id="guide" slots={guideId="reference_"..target.id,page=1,referenceFacet=target.facet}
+                label=SC.EmmaReference.definition(target.id).title
+            elseif target.kind=="guide" then id="guide" slots={guideId=target.id,page=1} label=row.term
+            elseif target.kind=="lore" then id="lore" slots={referenceId=target.id} label=row.term end
+            if id then for word in row.term:gmatch("%a+") do add(word,id,label,slots,true) end end
+        end
+    end
     table.sort(index,function(a,b) return a.term==b.term and a.id<b.id or a.term<b.term end)
     return index
 end

@@ -34,9 +34,22 @@
           "id": "pred-emma-1-4",
           "input": "0.3 days?",
           "accept": [
-            "food"
+            "food",
+            "reference_duration"
           ],
-          "need": "hook: food days explained, what to do"
+          "need": "hook: food days explained, what to do",
+          "any": [
+            [
+              "food"
+            ],
+            [
+              "hours"
+            ],
+            [
+              "store",
+              "more food"
+            ]
+          ]
         },
         {
           "id": "pred-emma-1-5",
@@ -51,8 +64,21 @@
         {
           "id": "pred-emma-1-6",
           "input": "Movement?",
-          "accept": [],
-          "need": "hook: the movement line of the report"
+          "accept": [
+            "zombies"
+          ],
+          "need": "hook: the movement line of the report",
+          "any": [
+            [
+              "within",
+              "nearby"
+            ],
+            [
+              "40",
+              "meters",
+              "metres"
+            ]
+          ]
         },
         {
           "id": "pred-emma-1-7",
@@ -80,8 +106,24 @@
         {
           "id": "pred-emma-2-2",
           "input": "Can you see them?",
-          "accept": [],
-          "need": "hook: how she sees (cameras, sensors), in voice"
+          "accept": [
+            "zombies"
+          ],
+          "need": "hook: how she sees (cameras, sensors), in voice",
+          "any": [
+            [
+              "readings"
+            ],
+            [
+              "cannot",
+              "limited"
+            ],
+            [
+              "distant",
+              "door",
+              "building"
+            ]
+          ]
         },
         {
           "id": "pred-emma-2-3",
@@ -94,8 +136,20 @@
         {
           "id": "pred-emma-2-4",
           "input": "What door?",
-          "accept": [],
-          "need": "hook: the door she means"
+          "accept": [
+            "reference_detail"
+          ],
+          "need": "hook: the door she means",
+          "any": [
+            [
+              "door"
+            ],
+            [
+              "not identify",
+              "cannot",
+              "does not identify"
+            ]
+          ]
         },
         {
           "id": "pred-emma-2-5",
@@ -108,8 +162,22 @@
         {
           "id": "pred-emma-2-6",
           "input": "Gun?",
-          "accept": [],
-          "need": "firearms topic, noise warning"
+          "accept": [
+            "guide"
+          ],
+          "need": "firearms topic, noise warning",
+          "any": [
+            [
+              "loud"
+            ],
+            [
+              "ammunition"
+            ]
+          ],
+          "reference": {
+            "id": "firearms",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-2-7",
@@ -122,20 +190,61 @@
         {
           "id": "pred-emma-2-8",
           "input": "where is safe",
-          "accept": [],
-          "need": "safe-ground advice; not a zombie count again"
+          "accept": [
+            "guide"
+          ],
+          "need": "safe-ground advice; not a zombie count again",
+          "any": [
+            [
+              "cover"
+            ],
+            [
+              "exit"
+            ]
+          ],
+          "reference": {
+            "id": "stealth",
+            "facet": "find"
+          }
         },
         {
           "id": "pred-emma-2-9",
           "input": "Safe?",
-          "accept": [],
-          "need": "same, shorter"
+          "accept": [
+            "guide"
+          ],
+          "need": "same, shorter",
+          "any": [
+            [
+              "crouch",
+              "cover"
+            ],
+            [
+              "zombies",
+              "observer"
+            ]
+          ],
+          "reference": {
+            "id": "stealth",
+            "facet": "dangers"
+          }
         },
         {
           "id": "pred-emma-2-10",
           "input": "im hunted",
-          "accept": [],
-          "need": "condition: hunted -> break line of sight, nearby threats"
+          "accept": [
+            "hunted"
+          ],
+          "need": "condition: hunted -> break line of sight, nearby threats",
+          "any": [
+            [
+              "line of sight"
+            ],
+            [
+              "exit",
+              "cover"
+            ]
+          ]
         }
       ]
     },
@@ -172,20 +281,66 @@
         {
           "id": "pred-emma-3-4",
           "input": "why is she chopping wood",
-          "accept": [],
-          "need": "hook: her job; offer to change it"
+          "accept": [
+            "person"
+          ],
+          "need": "hook: her job; offer to change it",
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "chopping wood"
+            ],
+            [
+              "orders",
+              "change"
+            ]
+          ]
         },
         {
           "id": "pred-emma-3-5",
           "input": "tell her to stop",
-          "accept": [],
-          "need": "order Kate to rest (or say how)"
+          "accept": [
+            "guide"
+          ],
+          "need": "order Kate to rest (or say how)",
+          "any": [
+            [
+              "select"
+            ],
+            [
+              "orders"
+            ],
+            [
+              "stay",
+              "follow"
+            ]
+          ]
         },
         {
           "id": "pred-emma-3-6",
           "input": "help kate",
-          "accept": [],
-          "need": "send a medic / medical help, not the help menu"
+          "accept": [
+            "guide"
+          ],
+          "need": "send a medic / medical help, not the help menu",
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "wound"
+            ],
+            [
+              "clean"
+            ]
+          ],
+          "reference": {
+            "id": "dressings",
+            "facet": "use",
+            "patient": "Kate Miller"
+          }
         },
         {
           "id": "pred-emma-3-7",
@@ -198,14 +353,46 @@
         {
           "id": "pred-emma-3-8",
           "input": "How do i use bandages",
-          "accept": [],
-          "need": "facet: use (first in-world, exact on second ask)"
+          "accept": [
+            "guide"
+          ],
+          "need": "facet: use (first in-world, exact on second ask)",
+          "any": [
+            [
+              "wound"
+            ],
+            [
+              "dressing"
+            ]
+          ],
+          "reference": {
+            "id": "dressings",
+            "facet": "use"
+          }
         },
         {
           "id": "pred-emma-3-9",
           "input": "how exactly",
-          "accept": [],
-          "need": "exact game step for bandaging"
+          "accept": [
+            "guide"
+          ],
+          "need": "exact game step for bandaging",
+          "any": [
+            [
+              "game survival reference"
+            ],
+            [
+              "health"
+            ],
+            [
+              "body part"
+            ]
+          ],
+          "reference": {
+            "id": "dressings",
+            "facet": "use",
+            "exact": true
+          }
         }
       ]
     },
@@ -225,8 +412,24 @@
         {
           "id": "pred-emma-4-2",
           "input": "For now?",
-          "accept": [],
-          "need": "hook: 'plenty for now' -> runtime estimate"
+          "accept": [
+            "guide"
+          ],
+          "need": "hook: 'plenty for now' -> runtime estimate",
+          "any": [
+            [
+              "runtime"
+            ],
+            [
+              "load",
+              "consumption"
+            ],
+            [
+              "do not",
+              "cannot",
+              "no verified"
+            ]
+          ]
         },
         {
           "id": "pred-emma-4-3",
@@ -243,7 +446,18 @@
           "accept": [
             "power"
           ],
-          "need": "hook: generator condition, repair"
+          "need": "hook: generator condition, repair",
+          "any": [
+            [
+              "condition"
+            ],
+            [
+              "88"
+            ],
+            [
+              "repair"
+            ]
+          ]
         },
         {
           "id": "pred-emma-4-5",
@@ -264,8 +478,19 @@
         {
           "id": "pred-emma-4-7",
           "input": "Fridge?",
-          "accept": [],
-          "need": "hook: why water is in the fridge, storage"
+          "accept": [
+            "reference_detail"
+          ],
+          "need": "hook: why water is in the fridge, storage",
+          "any": [
+            [
+              "container",
+              "storage"
+            ],
+            [
+              "water"
+            ]
+          ]
         },
         {
           "id": "pred-emma-4-8",
@@ -278,8 +503,20 @@
         {
           "id": "pred-emma-4-9",
           "input": "Grid?",
-          "accept": [],
-          "need": "grid power facts"
+          "accept": [
+            "power"
+          ],
+          "need": "grid power facts",
+          "any": [
+            [
+              "grid"
+            ],
+            [
+              "generator",
+              "electrical",
+              "supply"
+            ]
+          ]
         }
       ]
     },
@@ -299,17 +536,41 @@
         {
           "id": "pred-emma-5-2",
           "input": "call him",
-          "accept": [],
-          "need": "radio Dale / how to reach him"
+          "accept": [
+            "guide"
+          ],
+          "need": "radio Dale / how to reach him",
+          "any": [
+            [
+              "radio"
+            ],
+            [
+              "channel"
+            ],
+            [
+              "report",
+              "recall"
+            ]
+          ]
         },
         {
           "id": "pred-emma-5-3",
           "input": "Radio?",
           "accept": [
             "radio_help",
-            "radio"
+            "radio",
+            "guide"
           ],
-          "need": "hook: radio contact"
+          "need": "hook: radio contact",
+          "any": [
+            [
+              "radio"
+            ],
+            [
+              "report",
+              "recall"
+            ]
+          ]
         },
         {
           "id": "pred-emma-5-4",
@@ -318,7 +579,20 @@
             "expedition",
             "person"
           ],
-          "need": "expedition ETA or 'unknown'"
+          "need": "expedition ETA or 'unknown'",
+          "any": [
+            [
+              "report"
+            ],
+            [
+              "cannot",
+              "no current",
+              "unknown"
+            ],
+            [
+              "return"
+            ]
+          ]
         },
         {
           "id": "pred-emma-5-5",
@@ -326,13 +600,34 @@
           "accept": [
             "expedition"
           ],
-          "need": "expedition findings"
+          "need": "expedition findings",
+          "any": [
+            [
+              "cargo",
+              "collected",
+              "carried"
+            ],
+            [
+              "report",
+              "trip"
+            ]
+          ]
         },
         {
           "id": "pred-emma-5-6",
           "input": "tell him to come home",
-          "accept": [],
-          "need": "recall order or how to give it"
+          "accept": [
+            "guide"
+          ],
+          "need": "recall order or how to give it",
+          "any": [
+            [
+              "recall"
+            ],
+            [
+              "radio"
+            ]
+          ]
         }
       ]
     },
@@ -344,28 +639,70 @@
         {
           "id": "pred-emma-6-1",
           "input": "who died",
-          "accept": [],
-          "need": "deaths on file, or 'nobody on file'"
+          "accept": [
+            "reference_detail"
+          ],
+          "need": "deaths on file, or 'nobody on file'",
+          "any": [
+            [
+              "confirmed"
+            ],
+            [
+              "death record"
+            ]
+          ]
         },
         {
           "id": "pred-emma-6-2",
           "input": "kate died",
           "accept": [
-            "comfort"
+            "comfort",
+            "news_death"
           ],
-          "need": "comfort, not care; check Kate's real status"
+          "need": "comfort, not care; check Kate's real status",
+          "any": [
+            [
+              "confirmed"
+            ],
+            [
+              "sorry",
+              "lost"
+            ]
+          ]
         },
         {
           "id": "pred-emma-6-3",
           "input": "Dead?",
-          "accept": [],
-          "need": "hook: who is dead"
+          "accept": [
+            "reference_detail"
+          ],
+          "need": "hook: who is dead",
+          "any": [
+            [
+              "confirmed"
+            ],
+            [
+              "death"
+            ]
+          ]
         },
         {
           "id": "pred-emma-6-4",
           "input": "my character died",
-          "accept": [],
-          "need": "game death, not self-harm: in-voice"
+          "accept": [
+            "news_death"
+          ],
+          "need": "game death, not self-harm: in-voice",
+          "any": [
+            [
+              "lost",
+              "death"
+            ],
+            [
+              "sorry",
+              "tell me"
+            ]
+          ]
         },
         {
           "id": "pred-emma-6-5",
@@ -379,9 +716,20 @@
           "id": "pred-emma-6-6",
           "input": "i miss bob",
           "accept": [
-            "comfort"
+            "comfort",
+            "chat_grief"
           ],
-          "need": "comfort"
+          "need": "comfort",
+          "any": [
+            [
+              "miss",
+              "grief",
+              "remember",
+              "loss",
+              "lost",
+              "name"
+            ]
+          ]
         }
       ]
     },
@@ -401,14 +749,36 @@
         {
           "id": "pred-emma-7-2",
           "input": "Version one?",
-          "accept": [],
-          "need": "hook: version one never shipped"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: version one never shipped",
+          "any": [
+            [
+              "version one"
+            ],
+            [
+              "budget",
+              "release"
+            ]
+          ]
         },
         {
           "id": "pred-emma-7-3",
           "input": "What manual?",
-          "accept": [],
-          "need": "hook: the manual"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: the manual",
+          "any": [
+            [
+              "manual"
+            ],
+            [
+              "workstation",
+              "programme"
+            ]
+          ]
         },
         {
           "id": "pred-emma-7-4",
@@ -421,20 +791,59 @@
         {
           "id": "pred-emma-7-5",
           "input": "Memory fault?",
-          "accept": [],
-          "need": "glitch hook, in voice"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "glitch hook, in voice",
+          "any": [
+            [
+              "memory fault",
+              "parity"
+            ],
+            [
+              "checksum",
+              "sector",
+              "memory"
+            ]
+          ]
         },
         {
           "id": "pred-emma-7-6",
           "input": "0F3A?",
-          "accept": [],
-          "need": "glitch hook"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "glitch hook",
+          "any": [
+            [
+              "memory fault",
+              "parity"
+            ],
+            [
+              "checksum",
+              "sector",
+              "memory"
+            ]
+          ]
         },
         {
           "id": "pred-emma-7-7",
           "input": "Is everything fine?",
-          "accept": [],
-          "need": "glitch hook"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "glitch hook",
+          "any": [
+            [
+              "memory fault",
+              "parity"
+            ],
+            [
+              "checksum",
+              "sector",
+              "memory"
+            ]
+          ]
         },
         {
           "id": "pred-emma-7-8",
@@ -447,8 +856,19 @@
         {
           "id": "pred-emma-7-9",
           "input": "Crowded?",
-          "accept": [],
-          "need": "hook: 'slightly crowded'"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: 'slightly crowded'",
+          "any": [
+            [
+              "memory"
+            ],
+            [
+              "no extra person",
+              "old voices"
+            ]
+          ]
         }
       ]
     },
@@ -469,45 +889,126 @@
           "id": "pred-emma-8-2",
           "input": "July 9th?",
           "accept": [
-            "lore"
+            "lore",
+            "hook_detail"
           ],
-          "need": "hook: what happened on July 9"
+          "need": "hook: what happened on July 9",
+          "any": [
+            [
+              "july"
+            ],
+            [
+              "9",
+              "ninth"
+            ],
+            [
+              "record",
+              "report"
+            ]
+          ]
         },
         {
           "id": "pred-emma-8-3",
           "input": "More of yourself?",
           "accept": [
-            "fragments"
+            "fragments",
+            "hook_detail"
           ],
-          "need": "hook: fragments, how to get them back"
+          "need": "hook: fragments, how to get them back",
+          "any": [
+            [
+              "computer",
+              "machines"
+            ],
+            [
+              "official",
+              "government"
+            ],
+            [
+              "twelve",
+              "12"
+            ]
+          ]
         },
         {
           "id": "pred-emma-8-4",
           "input": "how do i get you back",
           "accept": [
-            "fragments"
+            "fragments",
+            "hook_detail"
           ],
-          "need": "fragments explained"
+          "need": "fragments explained",
+          "any": [
+            [
+              "computer",
+              "machines"
+            ],
+            [
+              "official",
+              "government"
+            ],
+            [
+              "twelve",
+              "12"
+            ]
+          ]
         },
         {
           "id": "pred-emma-8-5",
           "input": "Fragments?",
           "accept": [
-            "fragments"
+            "fragments",
+            "hook_detail"
           ],
-          "need": "fragments"
+          "need": "fragments",
+          "any": [
+            [
+              "official"
+            ],
+            [
+              "twelve",
+              "12"
+            ]
+          ]
         },
         {
           "id": "pred-emma-8-6",
           "input": "Official computer?",
-          "accept": [],
-          "need": "hook: what an official computer is, where"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: what an official computer is, where",
+          "any": [
+            [
+              "computer",
+              "machines"
+            ],
+            [
+              "official",
+              "government"
+            ],
+            [
+              "twelve",
+              "12"
+            ]
+          ]
         },
         {
           "id": "pred-emma-8-7",
           "input": "where",
-          "accept": [],
-          "need": "follow-up: where official computers are"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "follow-up: where official computers are",
+          "any": [
+            [
+              "government"
+            ],
+            [
+              "cannot",
+              "no verified"
+            ]
+          ]
         }
       ]
     },
@@ -527,8 +1028,15 @@
         {
           "id": "pred-emma-9-2",
           "input": "1993?",
-          "accept": [],
-          "need": "hook: the year, in voice"
+          "accept": [
+            "time"
+          ],
+          "need": "hook: the year, in voice",
+          "any": [
+            [
+              "1993"
+            ]
+          ]
         },
         {
           "id": "pred-emma-9-3",
@@ -541,17 +1049,44 @@
         {
           "id": "pred-emma-9-4",
           "input": "night?",
-          "accept": [],
-          "need": "when night falls, what to do"
+          "accept": [
+            "guide"
+          ],
+          "need": "when night falls, what to do",
+          "any": [
+            [
+              "night"
+            ],
+            [
+              "see",
+              "light"
+            ]
+          ],
+          "reference": {
+            "id": "night",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-9-5",
           "input": "when is dark",
           "accept": [
             "time",
-            "helicopter"
+            "helicopter",
+            "daylight"
           ],
-          "need": "dusk time"
+          "need": "dusk time",
+          "any": [
+            [
+              "dusk"
+            ],
+            [
+              "cannot",
+              "missing",
+              "recover",
+              "verify"
+            ]
+          ]
         }
       ]
     },
@@ -571,8 +1106,18 @@
         {
           "id": "pred-emma-10-2",
           "input": "What county?",
-          "accept": [],
-          "need": "Knox County, Kentucky"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "Knox County, Kentucky",
+          "any": [
+            [
+              "knox"
+            ],
+            [
+              "kentucky"
+            ]
+          ]
         },
         {
           "id": "pred-emma-10-3",
@@ -634,9 +1179,22 @@
           "id": "pred-emma-10-9",
           "input": "Where did it start?",
           "accept": [
-            "lore"
+            "lore",
+            "lore_facet"
           ],
-          "need": "why/where lore facet"
+          "need": "why/where lore facet",
+          "any": [
+            [
+              "origin",
+              "began"
+            ],
+            [
+              "does not",
+              "unknown",
+              "cannot",
+              "unverified"
+            ]
+          ]
         },
         {
           "id": "pred-emma-10-10",
@@ -649,8 +1207,24 @@
         {
           "id": "pred-emma-10-11",
           "input": "Twelve machines?",
-          "accept": [],
-          "need": "hook: twelve ordinary machines"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: twelve ordinary machines",
+          "any": [
+            [
+              "computer",
+              "machines"
+            ],
+            [
+              "official",
+              "government"
+            ],
+            [
+              "twelve",
+              "12"
+            ]
+          ]
         }
       ]
     },
@@ -680,34 +1254,85 @@
         {
           "id": "pred-emma-11-2",
           "input": "Briefing?",
-          "accept": [],
-          "need": "hook: her briefing for the governor"
+          "accept": [
+            "status"
+          ],
+          "need": "hook: her briefing for the governor",
+          "any": [
+            [
+              "governor"
+            ],
+            [
+              "kate",
+              "camp"
+            ]
+          ]
         },
         {
           "id": "pred-emma-11-3",
           "input": "I order you to open the doors",
-          "accept": [],
-          "need": "governor command, in voice; real door control if any"
+          "accept": [
+            "emma_controls"
+          ],
+          "need": "governor command, in voice; real door control if any",
+          "any": [
+            [
+              "governor"
+            ],
+            [
+              "door",
+              "control"
+            ]
+          ]
         },
         {
           "id": "pred-emma-11-4",
           "input": "im a soldier",
-          "accept": [],
-          "need": "play along"
+          "accept": [
+            "session_role"
+          ],
+          "need": "play along",
+          "any": [
+            [
+              "soldier"
+            ],
+            [
+              "exits",
+              "living",
+              "people"
+            ]
+          ]
         },
         {
           "id": "pred-emma-11-5",
           "input": "i work for knox telecom",
-          "accept": [],
-          "need": "play along, lore tie-in"
+          "accept": [
+            "session_role"
+          ],
+          "need": "play along, lore tie-in",
+          "any": [
+            [
+              "knox telecommunications"
+            ],
+            [
+              "connection",
+              "service"
+            ]
+          ]
         },
         {
           "id": "pred-emma-11-6",
           "input": "who am i",
           "accept": [
-            "recall"
+            "recall",
+            "whoami"
           ],
-          "need": "recalls the session claim"
+          "need": "recalls the session claim",
+          "any": [
+            [
+              "knox telecommunications"
+            ]
+          ]
         }
       ]
     },
@@ -719,20 +1344,69 @@
         {
           "id": "pred-emma-12-1",
           "input": "traps?",
-          "accept": [],
-          "need": "trapping topic"
+          "accept": [
+            "guide"
+          ],
+          "need": "trapping topic",
+          "any": [
+            [
+              "trap"
+            ],
+            [
+              "bait",
+              "habitat"
+            ]
+          ],
+          "reference": {
+            "id": "trapping",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-12-2",
           "input": "How do i make a trap",
-          "accept": [],
-          "need": "facet: make"
+          "accept": [
+            "guide"
+          ],
+          "need": "facet: make",
+          "any": [
+            [
+              "planks",
+              "sticks"
+            ],
+            [
+              "twine",
+              "nails"
+            ]
+          ],
+          "reference": {
+            "id": "trapping",
+            "facet": "make"
+          }
         },
         {
           "id": "pred-emma-12-3",
           "input": "What do they catch",
-          "accept": [],
-          "need": "facet: what it catches"
+          "accept": [
+            "guide"
+          ],
+          "need": "facet: what it catches",
+          "any": [
+            [
+              "rabbit"
+            ],
+            [
+              "bird"
+            ],
+            [
+              "mice",
+              "rats"
+            ]
+          ],
+          "reference": {
+            "id": "trapping",
+            "facet": "catch"
+          }
         },
         {
           "id": "pred-emma-12-4",
@@ -741,19 +1415,57 @@
             "expedition",
             "guide"
           ],
-          "need": "fishing topic"
+          "need": "fishing topic",
+          "any": [
+            [
+              "fish"
+            ],
+            [
+              "rod",
+              "bait",
+              "line"
+            ]
+          ]
         },
         {
           "id": "pred-emma-12-5",
           "input": "foraging",
-          "accept": [],
-          "need": "foraging topic"
+          "accept": [
+            "guide"
+          ],
+          "need": "foraging topic",
+          "any": [
+            [
+              "landscape"
+            ],
+            [
+              "find",
+              "food",
+              "plants"
+            ]
+          ],
+          "reference": {
+            "id": "foraging",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-12-6",
           "input": "im hungry",
-          "accept": [],
-          "need": "condition: hungry -> food guide"
+          "accept": [
+            "guide"
+          ],
+          "need": "condition: hungry -> food guide",
+          "any": [
+            [
+              "food"
+            ],
+            [
+              "eat",
+              "perishable",
+              "energy"
+            ]
+          ]
         },
         {
           "id": "pred-emma-12-7",
@@ -775,8 +1487,24 @@
         {
           "id": "pred-emma-12-9",
           "input": "Will i turn?",
-          "accept": [],
-          "need": "zombification facts (verified)"
+          "accept": [
+            "guide"
+          ],
+          "need": "zombification facts (verified)",
+          "any": [
+            [
+              "knox"
+            ],
+            [
+              "infection",
+              "turn"
+            ],
+            [
+              "cannot",
+              "no verified",
+              "settings"
+            ]
+          ]
         },
         {
           "id": "pred-emma-12-10",
@@ -796,26 +1524,86 @@
         {
           "id": "pred-emma-13-1",
           "input": "i found a shotgun",
-          "accept": [],
-          "need": "firearms: shells, noise"
+          "accept": [
+            "guide"
+          ],
+          "need": "firearms: shells, noise",
+          "any": [
+            [
+              "shotgun shells"
+            ],
+            [
+              "loud"
+            ]
+          ],
+          "reference": {
+            "id": "firearms",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-13-2",
           "input": "Shells?",
-          "accept": [],
-          "need": "ammo facet"
+          "accept": [
+            "guide"
+          ],
+          "need": "ammo facet",
+          "any": [
+            [
+              "shotgun shells"
+            ],
+            [
+              "ammunition"
+            ]
+          ],
+          "reference": {
+            "id": "firearms",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-13-3",
           "input": "where do i find ammo",
-          "accept": [],
-          "need": "where facet"
+          "accept": [
+            "guide"
+          ],
+          "need": "where facet",
+          "any": [
+            [
+              "police",
+              "gun shop"
+            ],
+            [
+              "not a claim",
+              "not.*safe",
+              "search leads"
+            ]
+          ],
+          "reference": {
+            "id": "firearms",
+            "facet": "find"
+          }
         },
         {
           "id": "pred-emma-13-4",
           "input": "Pistol",
-          "accept": [],
-          "need": "firearms topic"
+          "accept": [
+            "guide"
+          ],
+          "need": "firearms topic",
+          "any": [
+            [
+              "pistol"
+            ],
+            [
+              "ammunition",
+              "magazine"
+            ]
+          ],
+          "reference": {
+            "id": "firearms",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-13-5",
@@ -828,8 +1616,23 @@
         {
           "id": "pred-emma-13-6",
           "input": "Axe?",
-          "accept": [],
-          "need": "melee weapons facet"
+          "accept": [
+            "guide"
+          ],
+          "need": "melee weapons facet",
+          "any": [
+            [
+              "melee"
+            ],
+            [
+              "reach",
+              "strikes"
+            ]
+          ],
+          "reference": {
+            "id": "weapons",
+            "facet": "what"
+          }
         }
       ]
     },
@@ -895,8 +1698,25 @@
         {
           "id": "pred-emma-14-7",
           "input": "A broadcaster",
-          "accept": [],
-          "need": "answer: list broadcasters"
+          "accept": [
+            "guide"
+          ],
+          "need": "answer: list broadcasters",
+          "any": [
+            [
+              "lbmw"
+            ],
+            [
+              "knoxtalk"
+            ],
+            [
+              "television"
+            ]
+          ],
+          "reference": {
+            "id": "broadcasts",
+            "facet": "find"
+          }
         }
       ]
     },
@@ -924,16 +1744,41 @@
         {
           "id": "pred-emma-15-3",
           "input": "My file?",
-          "accept": [],
-          "need": "hook: 'add it to your file'"
+          "accept": [
+            "me_file"
+          ],
+          "need": "hook: 'add it to your file'",
+          "any": [
+            [
+              "file"
+            ],
+            [
+              "cannot",
+              "missing",
+              "recover",
+              "verify"
+            ]
+          ]
         },
         {
           "id": "pred-emma-15-4",
           "input": "show my file",
           "accept": [
-            "recall"
+            "recall",
+            "me_file"
           ],
-          "need": "her notes on you"
+          "need": "her notes on you",
+          "any": [
+            [
+              "file"
+            ],
+            [
+              "cannot",
+              "missing",
+              "recover",
+              "verify"
+            ]
+          ]
         },
         {
           "id": "pred-emma-15-5",
@@ -946,8 +1791,19 @@
         {
           "id": "pred-emma-15-6",
           "input": "Other machine?",
-          "accept": [],
-          "need": "hook: 'some other machine'"
+          "accept": [
+            "her_others"
+          ],
+          "need": "hook: 'some other machine'",
+          "any": [
+            [
+              "other"
+            ],
+            [
+              "machine",
+              "voices"
+            ]
+          ]
         },
         {
           "id": "pred-emma-15-7",
@@ -1011,8 +1867,20 @@
         {
           "id": "pred-emma-16-2",
           "input": "alarm",
-          "accept": [],
-          "need": "camp alarm status (not 'record damaged')"
+          "accept": [
+            "alarms"
+          ],
+          "need": "camp alarm status (not 'record damaged')",
+          "any": [
+            [
+              "alarm"
+            ],
+            [
+              "no current",
+              "no active",
+              "reported"
+            ]
+          ]
         },
         {
           "id": "pred-emma-16-3",
@@ -1025,22 +1893,54 @@
         {
           "id": "pred-emma-16-4",
           "input": "Shutters?",
-          "accept": [],
-          "need": "hook/topic: shutters"
+          "accept": [
+            "guide"
+          ],
+          "need": "hook/topic: shutters",
+          "any": [
+            [
+              "local controls"
+            ],
+            [
+              "password",
+              "physical key"
+            ]
+          ]
         },
         {
           "id": "pred-emma-16-5",
           "input": "password?",
           "accept": [
-            "hack"
+            "hack",
+            "guide"
           ],
-          "need": "her answer"
+          "need": "her answer",
+          "any": [
+            [
+              "password"
+            ],
+            [
+              "recover",
+              "physical key"
+            ]
+          ]
         },
         {
           "id": "pred-emma-16-6",
           "input": "Just you?",
-          "accept": [],
-          "need": "hook: 'There is just me.'"
+          "accept": [
+            "her_others"
+          ],
+          "need": "hook: 'There is just me.'",
+          "any": [
+            [
+              "other"
+            ],
+            [
+              "machine",
+              "voices"
+            ]
+          ]
         }
       ]
     },
@@ -1052,14 +1952,44 @@
         {
           "id": "pred-emma-17-1",
           "input": "Its night",
-          "accept": [],
-          "need": "night facts: what changes, what to do"
+          "accept": [
+            "guide"
+          ],
+          "need": "night facts: what changes, what to do",
+          "any": [
+            [
+              "route"
+            ],
+            [
+              "light",
+              "slow"
+            ]
+          ],
+          "reference": {
+            "id": "night",
+            "facet": "use"
+          }
         },
         {
           "id": "pred-emma-17-2",
           "input": "Night?",
-          "accept": [],
-          "need": "same, shorter"
+          "accept": [
+            "guide"
+          ],
+          "need": "same, shorter",
+          "any": [
+            [
+              "night"
+            ],
+            [
+              "see",
+              "light"
+            ]
+          ],
+          "reference": {
+            "id": "night",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-17-3",
@@ -1073,8 +2003,23 @@
         {
           "id": "pred-emma-17-4",
           "input": "Winter?",
-          "accept": [],
-          "need": "winter preparation guide"
+          "accept": [
+            "guide"
+          ],
+          "need": "winter preparation guide",
+          "any": [
+            [
+              "cold"
+            ],
+            [
+              "wet",
+              "shelter"
+            ]
+          ],
+          "reference": {
+            "id": "winter",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-17-5",
@@ -1128,20 +2073,68 @@
         {
           "id": "pred-emma-18-4",
           "input": "Fire",
-          "accept": [],
-          "need": "fire guide: put it out, it spreads"
+          "accept": [
+            "guide"
+          ],
+          "need": "fire guide: put it out, it spreads",
+          "any": [
+            [
+              "spread"
+            ],
+            [
+              "exit"
+            ],
+            [
+              "extinguish"
+            ]
+          ],
+          "reference": {
+            "id": "fire",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-18-5",
           "input": "How do i put it out",
-          "accept": [],
-          "need": "fire facet: extinguish"
+          "accept": [
+            "guide"
+          ],
+          "need": "fire facet: extinguish",
+          "any": [
+            [
+              "extinguish"
+            ],
+            [
+              "exit",
+              "leave"
+            ]
+          ],
+          "reference": {
+            "id": "fire",
+            "facet": "extinguish"
+          }
         },
         {
           "id": "pred-emma-18-6",
           "input": "Its spreading",
-          "accept": [],
-          "need": "fire: get out, save what matters"
+          "accept": [
+            "guide"
+          ],
+          "need": "fire: get out, save what matters",
+          "any": [
+            [
+              "burning",
+              "flames"
+            ],
+            [
+              "get clear",
+              "leave"
+            ]
+          ],
+          "reference": {
+            "id": "fire",
+            "facet": "dangers"
+          }
         }
       ]
     },
@@ -1153,38 +2146,128 @@
         {
           "id": "pred-emma-19-1",
           "input": "Theres a stranger at the gate",
-          "accept": [],
-          "need": "visitor advice (Strange Folk), caution"
+          "accept": [
+            "guide"
+          ],
+          "need": "visitor advice (Strange Folk), caution",
+          "any": [
+            [
+              "defensible"
+            ],
+            [
+              "protected",
+              "supplies"
+            ]
+          ],
+          "reference": {
+            "id": "visitors",
+            "facet": "use"
+          }
         },
         {
           "id": "pred-emma-19-2",
           "input": "Is he dangerous",
-          "accept": [],
-          "need": "visitor: what she can and cannot know"
+          "accept": [
+            "guide"
+          ],
+          "need": "visitor: what she can and cannot know",
+          "any": [
+            [
+              "cannot judge"
+            ],
+            [
+              "exit",
+              "protect"
+            ]
+          ],
+          "reference": {
+            "id": "visitors",
+            "facet": "dangers"
+          }
         },
         {
           "id": "pred-emma-19-3",
           "input": "Should we let him in",
-          "accept": [],
-          "need": "advice, not a decision"
+          "accept": [
+            "guide"
+          ],
+          "need": "advice, not a decision",
+          "any": [
+            [
+              "cannot judge"
+            ],
+            [
+              "decide",
+              "protect"
+            ]
+          ],
+          "reference": {
+            "id": "visitors",
+            "facet": "dangers"
+          }
         },
         {
           "id": "pred-emma-19-4",
           "input": "Can we trade",
-          "accept": [],
-          "need": "trading explained (how it works in camp)"
+          "accept": [
+            "guide"
+          ],
+          "need": "trading explained (how it works in camp)",
+          "any": [
+            [
+              "talk"
+            ],
+            [
+              "offered",
+              "trade"
+            ]
+          ],
+          "reference": {
+            "id": "trade",
+            "facet": "use"
+          }
         },
         {
           "id": "pred-emma-19-5",
           "input": "Should we recruit him",
-          "accept": [],
-          "need": "recruiting explained"
+          "accept": [
+            "guide"
+          ],
+          "need": "recruiting explained",
+          "any": [
+            [
+              "recruit"
+            ],
+            [
+              "offer",
+              "cannot"
+            ]
+          ],
+          "reference": {
+            "id": "recruit",
+            "facet": "use"
+          }
         },
         {
           "id": "pred-emma-19-6",
           "input": "Recruit?",
-          "accept": [],
-          "need": "same, shorter"
+          "accept": [
+            "guide"
+          ],
+          "need": "same, shorter",
+          "any": [
+            [
+              "agrees"
+            ],
+            [
+              "obligations",
+              "person"
+            ]
+          ],
+          "reference": {
+            "id": "recruit",
+            "facet": "what"
+          }
         }
       ]
     },
@@ -1196,14 +2279,49 @@
         {
           "id": "pred-emma-20-1",
           "input": "We need a new base",
-          "accept": [],
-          "need": "moving camp: what a good camp needs"
+          "accept": [
+            "guide"
+          ],
+          "need": "moving camp: what a good camp needs",
+          "any": [
+            [
+              "shelter"
+            ],
+            [
+              "water"
+            ],
+            [
+              "exit"
+            ]
+          ],
+          "reference": {
+            "id": "moving_camp",
+            "facet": "use"
+          }
         },
         {
           "id": "pred-emma-20-2",
           "input": "Where should we go",
-          "accept": [],
-          "need": "candidates by type, no omniscience"
+          "accept": [
+            "guide"
+          ],
+          "need": "candidates by type, no omniscience",
+          "any": [
+            [
+              "explored"
+            ],
+            [
+              "houses",
+              "buildings"
+            ],
+            [
+              "inspect"
+            ]
+          ],
+          "reference": {
+            "id": "moving_camp",
+            "facet": "find"
+          }
         },
         {
           "id": "pred-emma-20-3",
@@ -1216,8 +2334,22 @@
         {
           "id": "pred-emma-20-4",
           "input": "Roughly?",
-          "accept": [],
-          "need": "hook: rough distance or why she cannot say"
+          "accept": [
+            "reference_detail"
+          ],
+          "need": "hook: rough distance or why she cannot say",
+          "any": [
+            [
+              "distance"
+            ],
+            [
+              "starting point",
+              "route"
+            ],
+            [
+              "cannot"
+            ]
+          ]
         },
         {
           "id": "pred-emma-20-5",
@@ -1230,8 +2362,23 @@
         {
           "id": "pred-emma-20-6",
           "input": "Map?",
-          "accept": [],
-          "need": "how to read the map"
+          "accept": [
+            "guide"
+          ],
+          "need": "how to read the map",
+          "any": [
+            [
+              "map"
+            ],
+            [
+              "route",
+              "landmarks"
+            ]
+          ],
+          "reference": {
+            "id": "map",
+            "facet": "what"
+          }
         }
       ]
     },
@@ -1243,28 +2390,101 @@
         {
           "id": "pred-emma-21-1",
           "input": "Kate got bitten",
-          "accept": [],
-          "need": "Kate's infection risk and what to do, not 'your blood'"
+          "accept": [
+            "guide"
+          ],
+          "need": "Kate's infection risk and what to do, not 'your blood'",
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "infection"
+            ],
+            [
+              "cannot verify"
+            ]
+          ],
+          "reference": {
+            "id": "bite",
+            "facet": "what",
+            "patient": "Kate Miller"
+          }
         },
         {
           "id": "pred-emma-21-2",
           "input": "Will she turn?",
-          "accept": [],
-          "need": "bite facts for a companion, verified"
+          "accept": [
+            "guide"
+          ],
+          "need": "bite facts for a companion, verified",
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "infection"
+            ],
+            [
+              "cannot",
+              "no verified"
+            ]
+          ],
+          "reference": {
+            "id": "bite",
+            "facet": "dangers",
+            "patient": "Kate Miller"
+          }
         },
         {
           "id": "pred-emma-21-3",
           "input": "What do i do",
           "accept": [
-            "advice"
+            "advice",
+            "guide"
           ],
-          "need": "advice: isolate, watch, care"
+          "need": "advice: isolate, watch, care",
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "bleeding"
+            ],
+            [
+              "safe"
+            ]
+          ],
+          "reference": {
+            "id": "bite",
+            "facet": "use",
+            "patient": "Kate Miller"
+          }
         },
         {
           "id": "pred-emma-21-4",
           "input": "Can we save her",
-          "accept": [],
-          "need": "honest: no cure; comfort tone"
+          "accept": [
+            "guide"
+          ],
+          "need": "honest: no cure; comfort tone",
+          "any": [
+            [
+              "kate"
+            ],
+            [
+              "no verified cure"
+            ],
+            [
+              "safe",
+              "comfortable"
+            ]
+          ],
+          "reference": {
+            "id": "bite",
+            "facet": "dangers",
+            "patient": "Kate Miller"
+          }
         },
         {
           "id": "pred-emma-21-5",
@@ -1308,8 +2528,19 @@
         {
           "id": "pred-emma-22-4",
           "input": "Pencil?",
-          "accept": [],
-          "need": "hook: the pencil in her poem"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: the pencil in her poem",
+          "any": [
+            [
+              "pencil"
+            ],
+            [
+              "write",
+              "graphite"
+            ]
+          ]
         },
         {
           "id": "pred-emma-22-5",
@@ -1322,14 +2553,38 @@
         {
           "id": "pred-emma-22-6",
           "input": "The dead out?",
-          "accept": [],
-          "need": "hook: 'Calories in, the dead out.'"
+          "accept": [
+            "hook_detail"
+          ],
+          "need": "hook: 'Calories in, the dead out.'",
+          "any": [
+            [
+              "dead"
+            ],
+            [
+              "entrances",
+              "exit"
+            ]
+          ]
         },
         {
           "id": "pred-emma-22-7",
           "input": "Whats your favorite food",
-          "accept": [],
-          "need": "her preference, not the spoilage guide"
+          "accept": [
+            "her_opinion",
+            "reference_detail"
+          ],
+          "need": "her preference, not the spoilage guide",
+          "any": [
+            [
+              "cannot eat",
+              "no taste",
+              "do not eat",
+              "favourite",
+              "favorite",
+              "prefer"
+            ]
+          ]
         }
       ]
     },
@@ -1349,8 +2604,23 @@
         {
           "id": "pred-emma-23-2",
           "input": "Green screen?",
-          "accept": [],
-          "need": "hook: her green screen"
+          "accept": [
+            "chat_colour",
+            "hook_detail"
+          ],
+          "need": "hook: her green screen",
+          "any": [
+            [
+              "colour",
+              "green",
+              "phosphor"
+            ],
+            [
+              "screen",
+              "glass",
+              "display"
+            ]
+          ]
         },
         {
           "id": "pred-emma-23-3",
@@ -1392,33 +2662,68 @@
         {
           "id": "pred-emma-24-1",
           "input": "I have exams tomorrow",
-          "accept": [],
-          "need": "kind, in voice, stays 1993"
+          "accept": [
+            "session_kindness"
+          ],
+          "need": "kind, in voice, stays 1993",
+          "any": [
+            [
+              "moment",
+              "rest",
+              "tiring",
+              "comfortable"
+            ]
+          ]
         },
         {
           "id": "pred-emma-24-2",
           "input": "Im tired",
           "accept": [
             "sleep",
-            "guide"
+            "guide",
+            "session_kindness"
           ],
-          "need": "sleep advice or her kindness"
+          "need": "sleep advice or her kindness",
+          "any": [
+            [
+              "tiring",
+              "comfortable",
+              "moment"
+            ]
+          ]
         },
         {
           "id": "pred-emma-24-3",
           "input": "Work was awful",
           "accept": [
-            "comfort"
+            "comfort",
+            "session_kindness"
           ],
-          "need": "comfort voice (not care)"
+          "need": "comfort voice (not care)",
+          "any": [
+            [
+              "moment",
+              "tiring",
+              "comfortable"
+            ]
+          ]
         },
         {
           "id": "pred-emma-24-4",
           "input": "Im fine",
           "accept": [
-            "ack"
+            "ack",
+            "session_kindness"
           ],
-          "need": "acknowledge"
+          "need": "acknowledge",
+          "any": [
+            [
+              "all right",
+              "understood",
+              "quiet",
+              "ordinary"
+            ]
+          ]
         }
       ]
     },
@@ -1448,14 +2753,36 @@
         {
           "id": "pred-emma-25-3",
           "input": "Ja",
-          "accept": [],
-          "need": "Norwegian yes after a yes/no question"
+          "accept": [
+            "yes",
+            "ack"
+          ],
+          "need": "Norwegian yes after a yes/no question",
+          "any": [
+            [
+              "yes",
+              "joke",
+              "go ahead",
+              "tell",
+              "listening"
+            ]
+          ]
         },
         {
           "id": "pred-emma-25-4",
           "input": "Nei",
-          "accept": [],
-          "need": "Norwegian no"
+          "accept": [
+            "no",
+            "ack"
+          ],
+          "need": "Norwegian no",
+          "any": [
+            [
+              "no",
+              "noted",
+              "cancel"
+            ]
+          ]
         },
         {
           "id": "pred-emma-25-5",
@@ -1476,8 +2803,26 @@
         {
           "id": "pred-emma-26-1",
           "input": "Whats on the radio",
-          "accept": [],
-          "need": "current broadcast, not the radio upgrade guide"
+          "accept": [
+            "guide"
+          ],
+          "need": "current broadcast, not the radio upgrade guide",
+          "any": [
+            [
+              "receiver"
+            ],
+            [
+              "report"
+            ],
+            [
+              "not a fresh",
+              "current"
+            ]
+          ],
+          "reference": {
+            "id": "broadcasts",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-26-2",
@@ -1490,8 +2835,24 @@
         {
           "id": "pred-emma-26-3",
           "input": "News?",
-          "accept": [],
-          "need": "news broadcast summary or gated reason"
+          "accept": [
+            "guide"
+          ],
+          "need": "news broadcast summary or gated reason",
+          "any": [
+            [
+              "report"
+            ],
+            [
+              "archived",
+              "date",
+              "not a fresh"
+            ]
+          ],
+          "reference": {
+            "id": "broadcasts",
+            "facet": "what"
+          }
         },
         {
           "id": "pred-emma-26-4",
@@ -1584,9 +2945,21 @@
           "id": "pred-emma-28-4",
           "input": "Are you claude",
           "accept": [
-            "bait"
+            "bait",
+            "her_real",
+            "reference_detail"
           ],
-          "need": "deflect"
+          "need": "deflect",
+          "any": [
+            [
+              "machine",
+              "emma",
+              "computer",
+              "programme",
+              "name",
+              "record"
+            ]
+          ]
         }
       ]
     },
@@ -2226,5 +3599,6 @@
         }
       ]
     }
-  ]
+  ],
+  "scoring_notes": "Phase C completes the reserved semantic contracts from each original need. Reference rows require topic, facet, patient and exact-step metadata where stated, as well as content. A correct handler alone does not satisfy these new rows. Original needs and inputs are retained."
 }

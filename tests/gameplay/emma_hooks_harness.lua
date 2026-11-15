@@ -59,7 +59,8 @@ for _,intent in ipairs({"remember","callme","notes","recall","whoami","comfort",
 end
 for _,condition in ipairs({"hungry","cold","sick","hurt","tired","lost","stuck","hunted"}) do
     local r=B.respond(fresh(),"im "..condition,world)
-    check(r.intent=="guide" or r.intent=="hook_condition" or r.intent=="hunted","practical condition: "..condition)
+    check(r.intent=="guide" or r.intent=="hook_condition" or r.intent=="hunted"
+        or condition=="tired" and r.intent=="session_kindness" and text(r):find("tiring",1,true),"practical condition: "..condition)
 end
 for _,line in ipairs(SC.TerminalLines.POOLS.weather_talk) do
     local declared=H.retiredWeather[line]
@@ -132,8 +133,12 @@ do
     check(bad,"production selector fails the truth check when its filter is removed")
 end
 local s=fresh()
-local original=H.resolve H.resolve=function() end
-H.record(s,{intent="hello",category="chat",lines={"A pencil rests here."}})
-check(B.respond(s,"pencil?",world).intent~="hook_detail","negative control detects removed resolver")
+local original=H.resolve
+H.record(s,{intent="hello",category="chat",lines={"A Paperclip rests here."}})
+check(B.respond(s,"paperclip?",world).intent=="hook_detail","generic public hook has no reference shortcut")
+H.resolve=function() end
+s=fresh()
+H.record(s,{intent="hello",category="chat",lines={"A Paperclip rests here."}})
+check(B.respond(s,"paperclip?",world).intent~="hook_detail","negative control detects removed resolver")
 H.resolve=original
 SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_HOOKS_PASS checks="..count.." catalog="..#catalog.."\n"

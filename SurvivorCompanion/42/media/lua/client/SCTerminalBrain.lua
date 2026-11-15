@@ -986,6 +986,7 @@ if Conversation then
     for _,spec in ipairs(Conversation.CHAT) do H[spec.id]=simplePool(spec.id) end
 end
 function H.guide(session, reply, turn, world)
+    if SC.EmmaReference and SC.EmmaReference.render(session,reply,turn,world) then return end
     reply.category="chat"
     if turn.slots.facet and SC.EmmaFollowups then
         local lines,subject,parent=SC.EmmaFollowups.render(turn.slots,function(name) return ask(turn,world,name) end)
@@ -1218,7 +1219,7 @@ end
 function H.alarms(session, reply, turn, world)
     reply.category = "jobs"
     local facts = ask(turn, world, "alarms")
-    if type(facts) ~= "table" then return addPool(session, reply, "unavailable") end
+    if type(facts) ~= "table" then return add(reply,"No current camp-alarm record is available to this terminal. That does not mean the camp is clear.") end
     if facts.active then
         local alarm = facts.active
         add(reply, "Camp alarm: " .. tostring(alarm.level) .. "; " .. tostring(alarm.count)
@@ -1262,8 +1263,9 @@ end
 
 function H.fragments(session,reply)
     reply.category="memory"
-    return add(reply,SC.EmmaMind and SC.EmmaMind.report(session)
+    add(reply,SC.EmmaMind and SC.EmmaMind.report(session)
         or "Boot an ordinary EMMA computer to connect its shared memory.")
+    add(reply,"Recover distinct ordinary computers to restore memory fragments. Relevant official computers restore specialised records; twelve ordinary machines also recover the medical and county-calendar indexes. Moving one desk does not make a new fragment.")
 end
 function H.her_same(_,reply)
     reply.category="chat"
@@ -1652,7 +1654,9 @@ function H.expedition(session, reply, turn, world)
         elseif expedition.kind=="fish" or expedition.kind=="fishing" then reply.followupSubject,reply.followupParent="fishing","expedition" end
     end
     if type(expedition) ~= "table" or expedition.active ~= true then
-        addPool(session, reply, "expedition_none")
+        if turn.slots.reportedPerson then
+            add(reply,"I have no current expedition report for "..turn.slots.reportedPerson..". I cannot verify cargo or a return time from the away marker. Request a radio report through a working station.")
+        else addPool(session, reply, "expedition_none") end
         local last = type(expedition) == "table" and expedition.last
         if not last then return end
         add(reply, "Last trip: " .. tostring(last.kind or "expedition") .. ".")
@@ -1982,6 +1986,13 @@ local function scored(tokens)
         end
     end
     return best, bestScore, runner, runnerScore
+end
+
+-- Read-only hint for the foreground noun index. Reuse the base intent table
+-- without resolving people, reading providers or preparing a request.
+function Brain.intentHint(tokens)
+    local matched,value=scored(tokens)
+    if matched and value>=Brain.THRESHOLD then return matched.id end
 end
 
 -- A name turns these into a question about that one person. Anything else
@@ -2322,7 +2333,7 @@ function Brain.respond(session, raw, world)
         end
     end
     if Conversation then Conversation.state(session) end
-    local turn = { cache = {} }
+    local turn = { cache = {},raw=raw }
     local intent, slots = Brain.parse(session, raw, world, turn)
     turn.slots = slots or {}
     local reply = newReply(intent)
@@ -2408,6 +2419,7 @@ function Brain.respond(session,raw,world)
     if SC.EmmaUnderstand then reply=SC.EmmaUnderstand.respond(session,raw,world,Brain.respondBase)
     elseif SC.EmmaCare then reply=SC.EmmaCare.respond(session,raw,nil,false) end
     reply=reply or Brain.respondBase(session,raw,world)
+    if SC.EmmaReference then SC.EmmaReference.record(session,reply,raw) end
     if SC.EmmaHooks then
         if (reply.intent=="hello" or reply.intent=="whoami") and session.context.role and not reply.sensitive then
             table.insert(reply.lines,1,session.context.role..".")

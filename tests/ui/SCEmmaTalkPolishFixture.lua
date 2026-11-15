@@ -42,6 +42,12 @@ function F.fits(row,reply)
     if not reply or reply.careDetected or reply.intent=="care" or reply.layer=="care" then return false end
     local text=F.text(reply)
     local intent=reply.intent or reply.layer
+    if row.reference then
+        local actual=reply.referenceState
+        if not reply.reference or not actual then return false end
+        for key,value in pairs(row.reference) do if actual[key]~=value then return false end end
+    end
+    if row.command and reply.command~=row.command then return false end
     local unresolved={fallback=true,fallback_echo=true,did_you_mean=true,did_you_mean_no=true,followup_clarify=true,deflect=true,["repeat"]=true}
     if unresolved[intent] then
         local permitted=false for _,id in ipairs(row.accept or {}) do if intent==id then permitted=true end end

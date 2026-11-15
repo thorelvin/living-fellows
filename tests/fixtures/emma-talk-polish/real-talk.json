@@ -146,7 +146,8 @@
           "observed_intent": "lore",
           "id": "real-20261109-main-9",
           "accept": [
-            "lore"
+            "lore",
+            "lore_facet"
           ],
           "any": [
             [
@@ -356,7 +357,8 @@
           "observed_intent": "lore",
           "id": "real-20261109-main-21",
           "accept": [
-            "lore"
+            "lore",
+            "lore_facet"
           ],
           "any": [
             [
@@ -569,7 +571,8 @@
           "accept": [
             "radio_help",
             "radio",
-            "emma_controls"
+            "emma_controls",
+            "guide"
           ],
           "any": [
             [

@@ -33,14 +33,14 @@ Release packaging and playground rebuilding remain required deliverables.
 | V6 variety | Persisted bounded hashes/counts, least-heard selection, half-pool/up-to-eight window, age/tier layers, additional background stories | Done; 244 focused checks, strict soak and full release gate pass |
 | Voice content | Approximately 700-800 new lines plus clean twins; scene/recall/aftermath/argument depth and immersion lint | 834 unique lines plus clean twins; 3,772 scene/content checks pass |
 | Voice gates | 12.5%-33.3% specific recall, zero false claims, >=3-day no-repeat for pools >=8, scene shape/cadence, aftermath coverage, grief windows, bounded work/save | Strict 60-day run and 17 negative controls pass; wired into Behaviour |
-| H | Cloned-camp live check, readable transcript, tuning | Pending |
-| 3.2 hooks | Declared/derived hooks for all EMMA/persona reply pools, facet and pronoun resolution, salient-term lint with negative control | Pending |
-| 3.6-3.7 world and roles | Lore facets, checked place facts, non-roster why/how, session-only role memory, practical conditions, persona roles | Pending |
-| 3.11 weather | Condition/season-tagged quips, truthful selection and filter-removal negative control | Pending |
-| 3.4-3.5 topics | Once-built bounded noun/synonym index and six facets; complete requested survival coverage; verified Build 42.22 source comments | Pending |
-| 3.10/3.13 | Guide/fact repetition handling, requested new situations, companion identity, contextual counts, real-life kindness, no private persistence | Pending |
+| H | Cloned-camp live check, readable transcript, tuning | Done; two native observations, transcript and clock correction recorded below |
+| 3.2 hooks | Declared/derived hooks for all EMMA/persona reply pools, facet and pronoun resolution, salient-term lint with negative control | Done in B; C expands the catalog to the practical reference |
+| 3.6-3.7 world and roles | Lore facets, checked place facts, non-roster why/how, session-only role memory, practical conditions, persona roles | Done in B; final persona/content targets remain D |
+| 3.11 weather | Condition/season-tagged quips, truthful selection and filter-removal negative control | Done in B; native cloud provider and filter removal control pass |
+| 3.4-3.5 topics | Once-built bounded noun/synonym index and six facets; complete requested survival coverage; verified Build 42.22 source comments | Done in C: 637 entries, 27 topics, source receipt, cold-load smoke and full release gate |
+| 3.10/3.13 | Guide/fact repetition handling, requested new situations, companion identity, contextual counts, real-life kindness, no private persistence | Done in C; focused Interface and full release gate pass |
 | D | Independent sealed holdout >=80%, real-talk >=90%/wrong <=3%, predictions >=85%, persona >=95%, all chains converge by second turn, care 100% and no existing-corpus regression | Pending |
-| Playground | Real modules rebuilt after every phase, all four persona choices, browser verification and user session | Pending |
+| Playground | Real modules rebuilt after every phase, all four persona choices, browser verification and user session | Rebuilt through C; four-voice/privacy checks pass; visual/user session explicitly deferred |
 
 Independent blind set H was authored from section 1 only in
 `build/emma-talk-polish/blind-h`. Its content must stay unopened until Phase D.
@@ -262,3 +262,30 @@ EMMA predictions 82/188, personas 19/41, chains 5/7, locks 74/74. All 407 passin
 rows are retained as the new cumulative floor. The final target gates still
 belong to C/D. The rebuilt Phase B playground passes four-voice/privacy checks;
 the user's deferred playground test remains deferred. C/D remain unfinished.
+
+## Phase C checkpoint
+
+The 637-entry bounded noun index reaches 27 practical topics with six facets.
+In-world answers precede marked exact instructions; repeated exact requests
+remain a short summary rather than alternating back to the same recipe.
+Named injuries, contextual counts, fire, visitors, camp moves, broadcasts,
+generator readings and expedition contact retain their subjects. Existing
+checked requests and relationship follow-ups retain their original readers.
+Kindness and grief are private. See `docs/validation/emma-reference-02721.md`.
+
+All 27 topics cite checked sources. The verifier records 32 source hashes and
+14 selected exact facts from installed Build 42.22.2. A disposable native cold
+load passes all topics and a three-turn reference flow after catching and
+fixing the missing “one” pronoun. It does not claim rendered-terminal coverage.
+
+The full Windows PowerShell 5.1 release gate passes all five checks in
+`build/test-results/20261115-080638-878f07` (456.9 seconds). Public scores:
+72/72 real, 268/288 variants, 186/188 EMMA, 19/41 personas, 7/7 chains, 74/74
+locks. All 626 passing row IDs are retained without removing the prior 407.
+The older corpus improves to 5,217/5,417 (96.31%), with 100 wrong routes,
+care 528/528, zero false alarms and zero protected-input changes. Its three
+published regression sets all pass. Hook/reference checks total 4,681/606.
+
+The Phase C four-voice playground passes its Lua/privacy checks. The user's
+manual test stays deferred. D remains: rare-computer content, the sealed
+holdout, final gates and release delivery. The holdout is still unopened.

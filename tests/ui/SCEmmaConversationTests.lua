@@ -335,10 +335,12 @@ check(ask(session(),"what is 2 plus 2").intent=="math","arithmetic does not beco
 s=session();ask(s,"remember food and water near the door")
 check(#s.notes==1 and s.notes[1]=="food and water near the door","literal notes keep conjunctions")
 check(ask(session(),"i almost died out there").intent~="news_death","surviving danger is not a death report")
+local referenceTopics={bleeding="dressings",fuel="fuel",generator="generator",warmth="winter",weapons="weapons",noise="stealth"}
 for _,topic in ipairs(SC.EmmaSurvivalData) do
     for _,question in ipairs(topic.questions) do
         local r=ask(session(),question)
-        check(r.intent=="guide" and has(r,topic.pages[1][1]),"verified survival topic: "..question)
+        local reference=r.referenceState and r.referenceState.id==referenceTopics[topic.id]
+        check(r.intent=="guide" and (reference or has(r,topic.pages[1][1])),"verified survival topic: "..question)
     end
 end
 s=session();local guide=ask(s,"how do i boil water")

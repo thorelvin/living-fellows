@@ -42,6 +42,10 @@ for _,chain in ipairs(D["real-talk"].chains) do
 end
 -- Semantic scoring has a control: a correctly routed but unrelated answer fails.
 assert(not F.fits({accept={"rule"},any={{"appointment"}}},{layer="rule",rows={{text="The drawer is closed."}}}),"content scoring control")
+assert(not F.fits({accept={"guide"},reference={id="trapping",facet="make"}},
+    {intent="guide",reference=true,referenceState={id="firearms",facet="make"},lines={"A trap."}}),"wrong reference subject fails")
+assert(not F.fits({accept={"guide"},reference={id="trapping",facet="make"}},
+    {intent="guide",reference=true,referenceState={id="trapping",facet="find"},lines={"A trap."}}),"wrong reference facet fails")
 local report={}
 for _,set in ipairs({"real","real-variants","predicted","persona","chains"}) do
     local c=counts[set] report[#report+1]="POLISH_SCORE "..set.." "..c[1].."/"..c[2]

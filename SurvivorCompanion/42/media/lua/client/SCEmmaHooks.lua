@@ -11,7 +11,7 @@ local function contains(s,term) return (" "..normal(s).." "):find(" "..term.." "
 local nouns={"memory fault","parity error","checksum","state","governor","money","budget","county",
     "country","government","green screen","pencil","blood","infection","generator","gasoline","fuel",
     "official computer","twelve machines","smile score","kyle","password","authorisation","radio",
-    "version one","0f3a","parity",
+    "version one","0f3a","parity","manual",
     "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen"}
 local ignored={I=true,Im=true,The=true,A=true,An=true,That=true,This=true,Those=true,These=true,
     It=true,Its=true,You=true,Your=true,We=true,Our=true,They=true,Their=true,He=true,She=true,
@@ -51,24 +51,29 @@ local answers={
     -- (Kentucky/United States), Muldraugh, KY.json and media/maps/*/map.info.
     -- The wider modern-map region is also called Knox Country in those files.
     state={"Kentucky. The Commonwealth commissioned me; its state government has been unavailable since July.",
-        why="The project ran out of funding before its first proper release. The emergency then made the office considerably harder to reach."},
+        why="Kentucky commissioned the project, which lost its funding before version one. Then came the Knox emergency. The state government has been unavailable since July."},
     governor={"The governor of Kentucky was the intended audience for my briefings. The office has not answered since July."},
     money={"My development budget. Procurement stopped paying before version one. I cannot give you an audited reason for the missing funds."},
     county={"Knox County in the old local files; the wider district is called Knox Country. Kentucky, United States. Neither name is a current survey of safe roads."},
     country={"The United States. Kentucky is the state; Knox County is the local setting in these files."},
     government={"The state government has been unavailable since July. An old official record does not establish who is alive or in charge now."},
+    version={"Version one was the planned finished release. I am EMMA 0.9.3 beta; the development budget ended before version one arrived."},
+    manual={"The workstation's operating manual. It describes me as a service programme. Its authors were very confident about the furniture."},
+    crowded={"Old voices and incomplete records, operator. Crowded in memory. No extra person is hiding behind the screen."},
     glitch={"A memory fault: an old sector failing its checksum. Define fine. My memory is a sieve with a warranty.",
         why="Age, damaged storage and uncertain power are sufficient explanations for a parity error. It is not an incoming message.",
         how="A checksum checks whether stored bits still match. Mine sometimes disagree. I have no verified replacement for a damaged word."},
     pencil={"A pencil: graphite in wood, used to write on paper. That verse was about keeping a small human habit after everything else changed."},
     screen={"The green comes from the display's phosphor. It is a local screen, not a connection to a central intelligence."},
     dead={"The walking dead outside. Keeping them out means watching entrances, leaving an escape route and avoiding unnecessary noise."},
-    unlock={"Boot EMMA on an official government computer, or recover twelve ordinary computers, to restore the county-schedule index. A claim of office cannot replace the missing files."},
+    july={"July 9th is a date in the local emergency record. The Knox Event is dated from July 6th; a file or time card dated the ninth does not establish a person's fate."},
+    unlock={"Boot EMMA on an official government computer, or recover twelve ordinary computers, to restore the county-schedule index. A claim of office cannot replace the missing files.",
+        where="Look for official workstations in government buildings. I cannot certify a working machine or a safe route nearby from this archive."},
 }
 local aliases={kentucky="state",commonwealth="state",frankfort="state",budget="money",funding="money",
     ["memory fault"]="glitch",["parity error"]="glitch",checksum="glitch",["everything fine"]="glitch",
     ["green screen"]="screen",["official computer"]="unlock",["twelve machines"]="unlock",
-    ["version one"]="money",["0f3a"]="glitch",parity="glitch"}
+    ["version one"]="version",["0f3a"]="glitch",parity="glitch"}
 local built=false
 local rows,byText={},{}
 local function derive(text,target,source,declared)
@@ -88,11 +93,14 @@ local function walk(value,target,source,depth)
 end
 local archive={}
 local loreFacets={
-    knox_overview={when="The Knox Event dates from 6 July 1993. This summary was filed on 9 July; those are different dates.",
+    knox_overview={what="The Knox Event brought reports of illness, violence and the dead walking. I cannot establish its origin or tell you what happened to a particular missing person.",
+        when="The Knox Event dates from 6 July 1993. This summary was filed on 9 July; those are different dates.",
         why="The archive does not establish the outbreak's cause. A perimeter and official assurances are responses to it, not an explanation of its origin."},
     knox_exclusion={why="The stated purpose of the military perimeter was to contain the emergency. That purpose does not establish that it worked.",
         how="Military checkpoints and blocked roads formed the reported perimeter. The archive cannot establish a presently open exit."},
     knox_mcgrew={who="General John McGrew was a prominent voice in the official response. His recorded statements do not verify present conditions."},
+    knox_cause={where="The archive does not establish where the Knox Infection began. The exclusion zone's location does not identify its origin."},
+    knox_immunity={what="Some people were reported unaffected by the wider wave of infection. I cannot verify that you are immune. It does not promise protection from a bite, and I have no verified cure."},
 }
 function H.install()
     if built then return end
@@ -108,6 +116,16 @@ function H.install()
         derive(entry.text,"lore:"..entry.id,"lore:"..entry.id,entry.hooks)
     end
     for _,row in ipairs(H.weather or {}) do derive(row.text,"pool:weather","emma:weather",row.hooks) end
+    for id,facets in pairs(answers) do for _,line in pairs(facets) do walk(line,id,"emma:hook:"..id,0) end end
+    for _,guide in ipairs(SC.TerminalConversation.GUIDES) do
+        walk(guide.pages,"guide:"..guide.id,"emma:guide:"..guide.id,0)
+        walk(guide.quips,"guide:"..guide.id,"emma:guide:"..guide.id,0)
+    end
+    for _,topic in ipairs(SC.EmmaReferenceData or {}) do
+        for _,line in pairs(topic.facets) do walk(line,"guide:reference_"..topic.id,"emma:reference:"..topic.id,0) end
+        for _,line in pairs(topic.exact) do walk(line,"guide:reference_"..topic.id,"emma:reference:"..topic.id,0) end
+        for _,line in pairs(topic.subtypes or {}) do walk(line,"guide:reference_"..topic.id,"emma:reference:"..topic.id,0) end
+    end
     for id,data in pairs(SC.TerminalPersonaData or {}) do
         for _,rule in ipairs(data.rules or {}) do
             walk(rule.lines,"persona:"..rule.id,id..":"..rule.id,0)
@@ -147,15 +165,15 @@ function H.record(session,reply)
     local target=reply.hookTarget or last and (last.kind=="lore" or last.kind=="guide")
         and last.kind..":"..last.id or "pool:"..reply.intent
     reply.hooks=collect(reply.lines,target)
-    session.context.replyHooks={hooks=reply.hooks,target=target,turn=session.turns,
+    session.context.replyHooks={hooks=reply.hooks,target=target,turn=session.turns,at=SC.TerminalConversation.clock(session),
         text=(reply.hookText or table.concat(reply.lines or {}," ")):sub(1,900)}
 end
 local filler={what=true,is=true,are=true,was=true,were=true,the=true,a=true,an=true,explain=true,
     define=true,tell=true,me=true,about=true,mean=true,means=true,exactly=true,emma=true}
 local short={why=true,how=true,where=true,when=true,who=true,what=true,["that"]=true,
-    ["what is that"]=true,["what was that"]=true,["and"]=true,["go on"]=true,["more"]=true}
+    ["what is that"]=true,["what was that"]=true,["and"]=true,["go on"]=true,["more"]=true,["tell me more"]=true}
 function H.fragment(value)
-    value=normal(value):gsub("^whats ","what is ")
+    value=normal(value):gsub("^emma ",""):gsub("^whats ","what is ")
     if short[value] then return "",value end
     if value:find("^why ") or value:find("^how ") or value:find("^where ") or value:find("^when ")
         or value:find("^who ") then return nil end
@@ -170,6 +188,9 @@ end
 function H.resolve(session,raw)
     local last=session.context.replyHooks
     if not last or (session.turns or 0)-(last.turn or 0)>2 then return nil end
+    if last.at and SC.TerminalConversation.clock(session)-last.at>SC.TerminalConversation.MAX_IDLE_MS then
+        session.context.replyHooks=nil return nil
+    end
     local term,facet=H.fragment(raw)
     if normal(raw)=="is everything fine" and last.hooks["memory fault"] then term,facet="memory fault","what" end
     if term==nil then return nil end
@@ -177,9 +198,12 @@ function H.resolve(session,raw)
     if not target then return nil end
     last.selected=target
     local lore=target:match("^lore:(.+)$")
-    if lore and (facet=="more" or facet=="go on" or facet=="and") then
+    local more=facet=="more" or facet=="go on" or facet=="and" or facet=="tell me more"
+    if lore and more then
         return "lore",{referenceId=lore,more=true}
     end
+    if more and (target=="state" or target=="money") then return "lore",{referenceId="knox_overview"} end
+    if more and answers[target] then facet="how" end
     local guides={bandage="survival_bleeding",bandages="survival_bleeding",blood="survival_bleeding",
         gasoline="survival_fuel",fuel="survival_fuel",generator="survival_generator"}
     local guide=guides[term] or target:match("^guide:(.+)$")

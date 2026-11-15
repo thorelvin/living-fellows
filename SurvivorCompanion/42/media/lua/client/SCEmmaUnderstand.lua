@@ -13,6 +13,8 @@ require "SCEmmaFollowups"
 require "SCEmmaReadings"
 require "SCEmmaConversation"
 require "SCEmmaHooks"
+require "SCEmmaReferenceData"
+require "SCEmmaReference"
 local Brain = SC.TerminalBrain
 local D = SC.EmmaLanguageData
 SC.EmmaUnderstand = SC.EmmaUnderstand or {}
@@ -539,6 +541,10 @@ function M.parse(session, text, world, turn, baseParse)
         end
     end
     if worth then return worth,{} end
+    if SC.EmmaReference then
+        local situation,details=SC.EmmaReference.situation(session,text,world,table.concat(toks," "))
+        if situation then return situation,details end
+    end
     if SC.EmmaHooks then
         local own,slots=SC.EmmaHooks.resolve(session,text)
         if own then return own,slots end
@@ -632,6 +638,10 @@ function M.parse(session, text, world, turn, baseParse)
     if exactId and M.supported(exactId) then return exactId, {} end
     local survivalExact = survivalExact(toks, fuzzy)
     if survivalExact then return "guide", {guideId="survival_"..survivalExact,page=1} end
+    if SC.EmmaReference and not swore then
+        local reference,details=SC.EmmaReference.resolve(session,text,world,true,reading,table.concat(toks," "))
+        if reference then return reference,details end
+    end
     local news, isStatement = statementOf(toks, raw, names, fuzzy)
     if news then
         if table.concat(toks," "):find("almost died",1,true) or table.concat(toks," "):find("nearly died",1,true) then return "news_escape",{} end
@@ -744,6 +754,7 @@ function M.install()
     SC.EmmaSurvival.install()
     SC.EmmaReadings.install()
     if SC.EmmaHooks then SC.EmmaHooks.register() end
+    if SC.EmmaReference then SC.EmmaReference.register() end
     Brain.registerHandler("followup_clarify",SC.EmmaFollowups.clarify)
     Brain.registerHandler("her_last_operator",function(session,reply)
         reply.category="chat"
@@ -954,6 +965,7 @@ function M.respond(session,raw,world,baseRespond)
     local start=session.turns
     for index=1,math.min(2,#clauses) do
         local result=baseRespond(session,clauses[index],world)
+        if SC.EmmaReference then SC.EmmaReference.observe(session,result) end
         session.turns=start+1
         if not reply then reply=result
         else
@@ -961,6 +973,9 @@ function M.respond(session,raw,world,baseRespond)
             reply.thinkMs=math.max(reply.thinkMs or 0,result.thinkMs or 0)
             reply.intent=result.intent
             reply.sensitive=reply.sensitive or result.sensitive
+            reply.private=reply.private or result.private
+            reply.reference=result.reference
+            reply.referenceState=result.referenceState
         end
         if result.proposal or result.command or session.context.pending then break end
     end
