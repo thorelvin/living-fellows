@@ -607,4 +607,73 @@ do
     N.cancel(plain, "engine_route_fixture_complete")
     SC.Topology.classifyEdge = priorTopology
 end
+do
+    -- Three companions approach parked cars on foot, with the leader less
+    -- than the long-distance engine threshold away. A tile-centre collision
+    -- proof rejects the tight gap; native polygon pathing must own the whole
+    -- detour, rather than receiving that same adjacent blocked tile again.
+    local oldTopology, oldCost = SC.Topology.classifyEdge, edgeCost
+    local parked = { {__class="BaseVehicle"}, {__class="BaseVehicle"}, {__class="BaseVehicle"} }
+    local footprints, actors = {}, {}
+    SC.Topology.classifyEdge = function(_, _, to)
+        local vehicle = U.call(to, "getVehicleContainer")
+        if vehicle then return {traversable=false,affordance="vehicle",reason="vehicle_footprint",object=vehicle} end
+        return {traversable=true,cost=1,affordance="open"}
+    end
+    edgeCost = 0
+    -- Coarse vehicle footprints close the tile-centre corridor. The engine
+    -- owns the fractional polygon route; a grid failure cannot prove it shut.
+    for row=0,15 do
+        local tile,car=square(1,row),parked[math.min(3,math.floor(row/6)+1)]
+        footprints[#footprints+1]=tile
+        function tile:getVehicleContainer() return car end
+    end
+    current=current+1000
+    for slot=1,3 do
+        local row=slot*3
+        local value,goal=actor("sc-parked-car-follower-"..slot,0,row),square(12,row)
+        actors[#actors+1]=value
+        local start=value.square
+        function start:getRoom() return nil end
+        function goal:getRoom() return nil end
+        function value:isCompanionPathEdgeClear(from,to)
+            return not (math.min(from.x,to.x)==0 and math.max(from.x,to.x)==1
+                and math.abs(from.y-row)<=1 and math.abs(to.y-row)<=1)
+        end
+        local intent={action="follow_formation",followRecovery=true,stealthAvoidance=false}
+        local accepted,reason
+        for _=1,40 do
+            current=current+100
+            Perf.beginFrame(3,current)
+            accepted,reason=N.request(value,goal,"walk",intent)
+            Perf.endFrame(1)
+            if not tostring(reason):find("^checking_") then break end
+        end
+        local state=N.peek(value)
+        check(accepted and reason=="engine_path" and state.pathSearch==nil
+            and state.nativeLease and state.nativeLease.ultimateGoal==goal
+            and value.lastIntent and value.lastIntent.enginePath==true
+            and value.lastIntent.targetSquare==goal and value.lastIntent.followExitVehicle==nil,
+            "parked-car follower "..slot.." gives the full detour to native pathing without an exit ticket: "..tostring(reason))
+        check(N._followUsesEngine(intent,start,goal,true)
+            and not N._followUsesEngine({action="follow_formation",workCampOnly=true},start,goal,true)
+            and not N._followUsesEngine({action="follow_formation",stealthAvoidance=true},start,goal,true)
+            and not N._followUsesEngine({action="follow_formation",draggingBody=true},start,goal,true)
+            and not N._followUsesEngine({action="follow_formation",preferVerifiedPath=true},start,goal,true),
+            "parked-car routing retains camp, stealth, dragging and verified-route boundaries")
+        function start:getRoom() return {} end
+        check(not N._followUsesEngine(intent,start,goal,true),
+            "a nearby car cannot replace an indoor approach with an outdoor detour")
+        function start:getRoom() return nil end
+        N.cancel(value,"parked_car_fixture_complete")
+    end
+    for _,tile in ipairs(footprints) do tile.getVehicleContainer=nil end
+    current=current+1000 -- Expire only the test's vehicle-neighbour cache.
+    local value,goal=actor("sc-open-follow-after-car",0,7),square(12,7)
+    function value.square:getRoom() return nil end
+    function goal:getRoom() return nil end
+    check(not N._followUsesEngine({action="follow_formation"},value.square,goal,true),
+        "ordinary short open-ground following keeps its existing planner")
+    SC.Topology.classifyEdge,edgeCost=oldTopology,oldCost
+end
 SC_TEST_REPORT = "NAVIGATION_LIVENESS_PASS checks=" .. checks

@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: MIT
-param([string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid')
+param(
+    [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
+    [ValidateSet('stability', 'liveness')][string]$Harness = 'stability'
+)
 $ErrorActionPreference = 'Stop'
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
@@ -16,7 +19,15 @@ $LuaFiles += @('SCGameplayUtil.lua', 'SCBaseObjectRef.lua', 'SCTopology.lua', 'S
     'SCNavTraffic.lua', 'SCNavTraversal.lua', 'SCActionSupervisor.lua', 'SCLocomotion.lua',
     'SCPerformance.lua', 'SCWorkRoutes.lua', 'SCStairTransition.lua',
     'SCNavigation.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
-$LuaFiles += Join-Path $TestRoot 'navigation_stability_regression_harness.lua'
+if ($Harness -eq 'liveness') {
+    $LuaFiles += @('SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua',
+        'SCNativeCombatActions.lua', 'SCNativeWorkActions.lua',
+        'SCNativeMovementActions.lua', 'SCNativeActions.lua') |
+        ForEach-Object { Join-Path $ClientRoot $_ }
+    $LuaFiles += Join-Path $ProjectRoot 'tests\core\navigation_liveness_harness.lua'
+} else {
+    $LuaFiles += Join-Path $TestRoot 'navigation_stability_regression_harness.lua'
+}
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null
 try {
     & $Javac -d $BuildRoot (Join-Path $TestRoot 'KahluaTestRunner.java')
