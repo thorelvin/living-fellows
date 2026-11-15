@@ -346,7 +346,7 @@ do
         "food counts calories and mouths present: " .. joined(reply))
 
     reply = Brain.respond(s, "who is hurt", world)
-    check(has(reply, "1 of your people need attention:") and has(reply, "Kate Miller .... health 42 percent, bleeding, stressed"),
+    check(has(reply, "1 of your people needs attention:") and has(reply, "Kate Miller .... health 42 percent, bleeding, stressed"),
         "the hurt list names Kate with what is wrong: " .. joined(reply))
     reply = Brain.respond(s, "who is here", world)
     check(has(reply, "4 survivors on file:") and has(reply, "Kate Miller .... at camp, 12 meters north-east, chopping wood")
