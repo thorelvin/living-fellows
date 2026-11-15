@@ -158,7 +158,7 @@ local function questionKind(text)
     if has(text,{"put","place","placement","indoors","inside","where should i keep","where do i keep"}) then return "placement" end
     if has(text,{"where"}) and has(text,{"find","get","obtain","from"}) then return "find" end
     if has(text,{"fuel","gasoline","petrol","gas"}) then return "fuel" end
-    if has(text,{"purify","boil","clean it","make it safe"}) then return "purify" end
+    if has(text,{"purify","boil","boiling","clean it","make it safe"}) then return "purify" end
     if has(text,{"drink","safe","tainted","rotten","spoiled"}) then return "safe" end
     if has(text,{"preserve","keep it fresh","keep them fresh","last longer"}) then return "preserve" end
     if has(text,{"cook","cooking"}) then return "cook" end
@@ -202,11 +202,34 @@ local function result(subject,kind,parent)
     return "guide",{guideId=rule.guideId,page=rule.page,followupSubject=rule.subject,
         followupParent=parent}
 end
+local fragmentStop={what=true,which=true,where=true,when=true,why=true,how=true,who=true,
+    is=true,are=true,does=true,["do"]=true,can=true,could=true,should=true,would=true,
+    i=true,we=true,you=true,it=true,its=true,they=true,them=true,their=true,that=true,
+    those=true,these=true,this=true,the=true,a=true,an=true,["and"]=true,also=true,about=true,
+    please=true,["then"]=true,so=true,exactly=true}
+local function canClarify(value,current)
+    if not current then return false end
+    local related={}
+    local spec=F.subjects[current]
+    local guide=spec and SC.TerminalConversation.guide(spec.guideId)
+    local function add(text) for word in tostring(text):lower():gmatch("%a+") do related[word]=true end end
+    if spec then for _,alias in ipairs(spec.aliases) do add(alias) end end
+    for _,page in ipairs(guide and guide.pages or {}) do for _,line in ipairs(page) do add(line) end end
+    local count=0
+    for word in value:gmatch("%a+") do
+        if not fragmentStop[word] then
+            count=count+1
+            if count>3 or not related[word] then return false end
+        end
+    end
+    return true
+end
 function F.resolve(session,raw)
     local c=SC.TerminalConversation
     local value=table.concat(SC.TerminalBrain.tokens(raw)," ")
     local text=" "..value.." "
     if c.more(value) or c.refresh(value) then return nil end
+    if SC.EmmaUnderstand.strongIntent(value) then return nil end
     -- Instructions may use a guide. Requests always keep the existing checked
     -- action path; pronouns never construct an executable request here.
     local advisory=value:find("^how ") or value:find("^why ") or value:find("^when ") or value:find("^should i ")
@@ -255,7 +278,7 @@ function F.resolve(session,raw)
     end
     if not kind or not question then
         if not kind and question and follow and current and latest.kind~="person" and latest.kind~="people"
-            and latest.kind~="item" then return "followup_clarify",{subject=current} end
+            and latest.kind~="item" and canClarify(value,current) then return "followup_clarify",{subject=current} end
         return nil
     end
     if #explicit>1 then return "followup_clarify",{kind=kind,choices=explicit} end
@@ -269,7 +292,7 @@ function F.resolve(session,raw)
     if kind=="fuel" or kind=="fuel_level" or kind=="runtime" and has(text,F.subjects.fuel.aliases) then
         return "followup_clarify",{kind=kind,choices={"generator","vehicle"}}
     end
-    if current then return "followup_clarify",{subject=current} end
+    if current and canClarify(value,current) then return "followup_clarify",{subject=current} end
 end
 function F.render(slots,read)
     local spec=F.facets[slots.facet]

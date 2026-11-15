@@ -234,6 +234,25 @@ case("F6.every-identity-names-emma",function()
         end
     end
 end)
+for number,example in ipairs({{"how far is louisville","distance"},{"who is hurt","people_hurt"},
+    {"status","status"}}) do
+    case("F7.new-subject-"..number,function()
+        local _,respond=fresh("emma") respond("how do i purify water")
+        check(respond(example[1]).intent==example[2],"the water follow-up swallowed a new subject")
+    end)
+end
+case("F7.boiling-stays-water",function()
+    local _,respond=fresh("emma") respond("how do i purify water")
+    local r=respond("what about boiling")
+    check(r.intent=="guide" and F.text(r):find("water",1,true) and F.text(r):find("boil",1,true),
+        "the related boiling fragment lost water")
+end)
+for number,raw in ipairs({"what about Kate","what about Louisville","what about typewriters", "what about the oddly decorated brass typewriter"}) do
+    case("F7.foreign-fragment-"..number,function()
+        local s,respond=fresh("emma") respond("how do i purify water")
+        check(SC.EmmaFollowups.resolve(s,raw)==nil,"an unrelated noun became a water clarification")
+    end)
+end
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end
