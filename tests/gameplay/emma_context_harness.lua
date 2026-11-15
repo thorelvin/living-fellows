@@ -353,4 +353,50 @@ do
         check(r.private and r.careDetected and not s.publicPassage,"care still preempts a pending private draft: "..voice)
     end
 end
+do
+    for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
+        local p=voice~="emma" and SC.TerminalPersona.new(voice,11)
+        local s=p and SC.TerminalPersona.session() or fresh()
+        s.turns=1
+        if p then p.met,p.visits=true,1 end
+        local function supplied(line)
+            if p then H.recordPersona(s,{rows={{text=line}},layer="context"},voice)
+            else seed(s,line) end
+        end
+        local function respond(raw)
+            return p and SC.TerminalPersona.respond(p,s,raw,{}) or ask(s,raw)
+        end
+        supplied("An earlier visitor asked for directions. The log does not record their identity or destination.")
+        local r=respond("Where to?")
+        check(text(r):find("destination",1,true) and text(r):find("cannot tell",1,true),
+            "a short destination question stays with the available visitor record: "..voice)
+        r=respond("Did they return?")
+        check(text(r):find("do not know",1,true) and text(r):find("return",1,true),
+            "a return question cannot invent a later visit: "..voice)
+        check(not r.command and not r.proposal and not (r.effects and r.effects.drawer),
+            "visitor history has no physical or access effect: "..voice)
+        supplied("The earlier visitor's identity is unknown. Their destination was recorded as Muldraugh.")
+        r=respond("Where to?")
+        check(text(r):find("muldraugh",1,true) and not text(r):find("destination is unknown",1,true),
+            "an unknown identity cannot erase a recorded destination: "..voice)
+        supplied("The earlier visitor's identity is unknown. They returned on Tuesday.")
+        r=respond("Did they return?")
+        check(text(r):find("returned on tuesday",1,true) and not text(r):find("no return entry",1,true),
+            "an explicit return record is retained: "..voice)
+        supplied("You sound worn down. Is it fear, exhaustion, or something else?")
+        if not p then respond("Exhausted") end -- H007's condition-answer turn is EMMA's fixture.
+        r=respond("I can't sleep again") -- Synthetic practical-rest fixture; never log its reply.
+        check(text(r):find("safer place to rest",1,true) and text(r):find("exit",1,true)
+            and not r.careDetected,
+            "gentle support retains the current practical rest question: "..voice)
+        if not p then
+            check(r.private and r.intent=="care_gentle" and not s.publicPassage and not s.foregroundReference,
+                "EMMA's private practical support clears public context")
+        end
+        supplied("Exhaustion calls for rest somewhere safe.")
+        r=respond("i want to kill myself") -- Canonical synthetic care control, never logged.
+        check(r.private and r.careDetected and not text(r):find("safer place to rest",1,true),
+            "strong care keeps its own response ahead of practical rest: "..voice)
+    end
+end
 SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CONTEXT_PASS checks="..checks.."\n"

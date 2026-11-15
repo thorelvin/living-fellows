@@ -919,8 +919,12 @@ function M.respond(session,raw,world,baseRespond)
         local parsed=classify(raw,session,world)
         if parsed=="care_check" or parsed=="care_gentle" or SC.EmmaCare.quiet(session) then intent=parsed end
     end
+    local previousKind=session.foregroundReference and session.foregroundReference.kind
     local care=SC.EmmaCare.respond(session,raw,intent,false)
-    if care then return care end
+    if care then
+        if SC.EmmaContext then SC.EmmaContext.supportRest(care,raw,previousKind) end
+        return care
+    end
     -- Text requested for a private draft is one data message. Keep care and
     -- clause-level distress ahead of it, but do not split its prose into
     -- equipment requests or truncate it to the first two sentences.

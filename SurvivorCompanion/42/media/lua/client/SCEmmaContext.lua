@@ -319,7 +319,7 @@ local function contextOf(text)
     if any(t,{"exhaustion","exhausted","sleep","bed"}) then return "rest" end
     local missing=any(t,{"unknown","anonymous","missing","no name","no names","no message","no text","does not record","no surviving","no identifying"})
     if missing and (has(t,"earlier sessions") or has(t,"session log")) then return "sessions" end
-    if missing and any(t,{"anonymous","earlier visitor","previous session","operator gave"}) then return "operator" end
+    if missing and any(t,{"anonymous","earlier visitor","earlier visitors","previous visitor","previous visitors","previous session","operator gave"}) then return "operator" end
     if missing and (has(t,"builder") or has(t,"manufacturing entry")) then return "maker" end
     if has(t,"recorded inventory") then return "inventory" end
     if has(t,"drinking water") then return "water" end
@@ -727,6 +727,15 @@ function Q.render(session,reply,spec,raw,world,voice)
     if voice=="spiffy" then table.insert(reply.lines,1,"One practical answer, coming up!")
     elseif voice=="ellis" then table.insert(reply.lines,1,"Let's deal with the immediate question.")
     elseif voice=="duty" then table.insert(reply.lines,1,"REFERENCE ONLY. NO ACTION EXECUTED.") end
+end
+-- Keep an existing gentle/private response and add the practical subject the
+-- conversation was already about. Strong care signals retain their own reply;
+-- no private words or care state become a public reference.
+function Q.supportRest(reply,raw,previousKind)
+    if previousKind~="rest" or reply.intent~="care_gentle" or reply.careDetected then return reply end
+    local text=table.concat(SC.EmmaCare.tokens(raw)," ")
+    if has(text,"can not sleep") then reply.lines[#reply.lines+1]=Q.DATA.sleep end
+    return reply
 end
 function Q.replace(session,raw,reply,world)
     local unresolved={fallback=true,fallback_echo=true,did_you_mean=true,followup_clarify=true}

@@ -58,7 +58,7 @@ local function quantity(source,n,unit)
  return spec(line,"reported_quantity",line,false,{reportedQuantity={number=n,unit=unit}})
 end
 function X.resolve(session,raw,source,current,title)
- if not source and current and (current.kind=="shelter" or current.kind=="computer_dreams") and current.text~="" then source=current.text end
+ if not source and current and (current.kind=="shelter" or current.kind=="computer_dreams" or current.kind=="operator") and current.text~="" then source=current.text end
  local q,s=norm(raw),norm(source)
  if q=="shorten a note" or q=="draft a note" then return spec(nil,"note_edit",D.note_start,true) end
  local kind=current and current.kind
@@ -118,6 +118,22 @@ function X.resolve(session,raw,source,current,title)
  end
  if any(s,{"shortening a note","shorten a note","note text"}) and (q=="note" or q=="the note") then return spec(source,"note_edit",D.note_start,true) end
  if source==nil then return nil end
+ if kind=="operator" then
+  local returning=any(q,{"did they return","did the visitor return","did he return","did she return","did they come back","what happened afterwards"})
+  local destination=q=="where" or q=="where to" or any(q,{"their destination","where did they go","where did the visitor go","where they went"})
+  if returning then
+   local recorded=any(s,{"returned","return visit","came back","return recorded"})
+   local answer=recorded and ("The supplied visitor record says: "..source)
+    or "The supplied visitor record has no return entry. I do not know whether that visitor came back or where they are now."
+   return spec(source,"operator",answer)
+  end
+  if destination then
+   -- Keep the actual passage: an anonymous identity does not also make a
+   -- destination unknown when the destination is explicitly supplied.
+   return spec(source,"operator","The supplied visitor record says: "..source
+    .." I cannot tell you more about that visitor's destination or whereabouts than this record provides.")
+  end
+ end
  if any(q,{"who named you","who chose your name","who gave you"}) and any(s,{"emma","computer","terminal","programme"}) then return spec(source,"computer_name",D.named) end
  if any(q,{"before me","earlier visitors"}) and any(s,{"emma","computer","terminal","programme"}) then return spec(source,"computer_history",D.earlier) end
  if has(q,"remember") and any(q,{"yesterday","last visit","last time"}) then return spec(source,"computer_history",D.yesterday) end
