@@ -21,6 +21,12 @@ local D = SC.EmmaLanguageData
 SC.EmmaUnderstand = SC.EmmaUnderstand or {}
 local M = SC.EmmaUnderstand
 local Conv = SC.TerminalConversation
+local function guideTitle(raw)
+    local name=table.concat(Brain.tokens(raw)," "):gsub("^emma ","")
+    for _,guide in ipairs(Conv.GUIDES) do
+        if name==table.concat(Brain.tokens(guide.title)," ") then return guide end
+    end
+end
 
 local function set(list) local s = {} for _, v in ipairs(list or {}) do s[v] = true end return s end
 local function trim(s) return (string.gsub(string.gsub(s, "^%s+", ""), "%s+$", "")) end
@@ -577,6 +583,8 @@ function M.parse(session, text, world, turn, baseParse)
         and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text) then
         return "knock",{punchline=table.concat(toks," ")}
     end
+    local title=guideTitle(text)
+    if title then return "guide",{guideId=title.id,page=1} end
     if SC.EmmaContext then
         local detail=SC.EmmaContext.resolve(session,text,true)
         if detail then
@@ -1012,7 +1020,7 @@ function M.respond(session,raw,world,baseRespond)
             end
         end
     end
-    local clauses=M.clauses(raw,session,world)
+    local clauses=guideTitle(raw) and {raw} or M.clauses(raw,session,world)
     -- One distressed clause makes the whole message care: "the generator is
     -- out and i cant take this anymore" must not come back as a power report.
     if #clauses>1 then
@@ -1042,6 +1050,25 @@ function M.respond(session,raw,world,baseRespond)
                     "Ask for one action at a time. I have not prepared or carried out either request."}}
             end
         end
+    end
+    if #clauses>1 then
+        local previous=Conv.latest(session)
+        local seen,parts={},{}
+        local hasNew=false
+        for _,part in ipairs(clauses) do
+            local id,slots=classify(part,session,world)
+            local key=id=="guide" and "guide:"..tostring(slots.guideId)..":"..tostring(slots.page or 1)
+                ..":"..tostring(slots.referenceFacet or slots.facet) or table.concat(Brain.tokens(part)," ")
+            if not seen[key] then
+                seen[key]=true
+                local title=guideTitle(part)
+                local repeats=title and previous and previous.kind=="guide" and previous.id==title.id
+                parts[#parts+1]={text=part,repeats=repeats}
+                if not repeats then hasNew=true end
+            end
+        end
+        clauses={}
+        for _,part in ipairs(parts) do if not hasNew or not part.repeats then clauses[#clauses+1]=part.text end end
     end
     local reply
     local start=session.turns

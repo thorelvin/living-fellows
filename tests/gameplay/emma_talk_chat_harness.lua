@@ -275,6 +275,28 @@ case("F8.care-keeps-priority",function()
     local r=respond("i want to kill myself") -- Existing synthetic care control; no reply body is emitted.
     check(r.careDetected and r.private,"a synthetic care control became joke material")
 end)
+local function occurrences(text,needle)
+    local n,at=0,1
+    while true do local found=text:find(needle,at,true) if not found then return n end n=n+1 at=found+#needle end
+end
+for number,preceding in ipairs({false,true}) do
+    case("F9.whole-guide-title-"..number,function()
+        local _,respond=fresh("emma") if preceding then respond("Foraging") end
+        local r=respond("Bites and Knox infection")
+        local text=F.text(r)
+        check(occurrences(text,"bites and knox infection:")==1 and not text:find("foraging:",1,true),
+            "a whole title split or repeated an older guide")
+    end)
+end
+case("F9.duplicate-compound-part",function()
+    local _,respond=fresh("emma")
+    check(occurrences(F.text(respond("Foraging and Foraging")),"foraging:")==1,"a compound repeats an identical topic")
+end)
+case("F9.bare-previous-topic-part",function()
+    local _,respond=fresh("emma") respond("Foraging")
+    local r=respond("Foraging and how do i kill zombies")
+    check(not F.text(r):find("foraging:",1,true) and F.text(r):find("fight",1,true),"a bare prior label displaced the new question")
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end
