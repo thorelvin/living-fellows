@@ -20,6 +20,9 @@ $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 $InterfaceGroups = @(. (Join-Path $Essential 'Interface.ps1'))
 $Sources = @($interfaceTerminalFiles)
 if ($Sources.Count -lt 40) { throw 'Production terminal sources were not resolved.' }
+if ($Harness -contains 'emma_talk_care_harness') {
+    $Sources += Join-Path $UI 'SCEmmaCorpusData.lua'
+}
 if (@($Harness | Where-Object { $_ -match '^(emma_talk_|lock_talk_)' }).Count -gt 0) {
     & python (Join-Path $PSScriptRoot 'Build-EmmaTalkPolishData.py') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Conversation fixture compilation failed.' }

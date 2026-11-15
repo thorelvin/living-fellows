@@ -270,6 +270,25 @@ local function conceptOf(tokens,fuzzy)
     end
 end
 
+-- Read-only routing strength for public-context/follow-up admission. Do not
+-- call parse recursively, read the world, or infer an executable request.
+function M.strongIntent(raw)
+    local toks=Brain.tokens(raw)
+    for _,group in ipairs(GROUPS) do
+        for _,spec in ipairs(group) do
+            for phrase,weight in pairs(spec.phrases or {}) do
+                if weight>=10 and phraseIn(toks,phrase,false) then
+                    local admitted=spec.requires==nil
+                    for _,required in ipairs(spec.requires or {}) do
+                        if phraseIn(toks,required,false) then admitted=true break end
+                    end
+                    if admitted then return spec.id end
+                end
+            end
+        end
+    end
+end
+
 -- Survival (section 13), rules 9 and 10.
 local STOP = set({ "how", "do", "i", "a", "an", "the", "to", "is", "what", "can", "my", "it", "of", "in", "on", "for",
     "does", "you", "me", "should", "where", "when", "are", "with", "get", "any", "this", "that", "there", "be",

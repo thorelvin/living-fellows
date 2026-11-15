@@ -68,11 +68,14 @@ local function savePassage(session,reply,text)
         reflect=true,recall=true,mash=true,safety=true,hook=true,reference=true,role=true}
     local owned=reply.reference==true or reply.category=="lore"
         or reply.intent and SC.TerminalBrain.hasHandler(reply.intent) or nativeLayers[reply.layer]
+    local old=session.publicPassage
+    local sameSource=reply.publicSource~=nil and old and old.text==source:sub(1,900)
     session.publicPassage={text=source:sub(1,900),framed=framed(source),selected=reply.publicSelection,
         repeated=reply.publicRepeat==true,
         queryKey=reply.publicQueryKey,
         structured=not reply.publicSource and owned==true,
-        turn=session.turns or 0,at=SC.TerminalConversation.clock(session)}
+        turn=sameSource and old.turn or session.turns or 0,
+        at=sameSource and old.at or SC.TerminalConversation.clock(session)}
 end
 local function livePassage(session)
     local c=session.publicPassage
@@ -103,6 +106,12 @@ function Q.ground(session,raw,allowPlain)
     if c.structured and not allowPlain then return nil end
     if not c.framed and SC.EmmaHooks.preferred(session,raw) then return nil end
     local text=norm(raw)
+    local social={hi=true,hello=true,hey=true,ok=true,okay=true,alright=true,fine=true,
+        thanks=true,["thank you"]=true,bye=true,goodbye=true,yes=true,no=true}
+    if social[text] or text:find("^how do i ") or text:find("^how to ")
+        or text:find("^how far ") or text:find("^where is ")
+        or SC.EmmaUnderstand and SC.EmmaUnderstand.strongIntent
+            and SC.EmmaUnderstand.strongIntent(text) then return nil end
     local request=text:gsub("^please ",""):gsub("^can you ",""):gsub("^could you ",""):gsub("^would you ","")
     local action={open=true,close=true,lock=true,unlock=true,refuel=true,send=true,treat=true,
         activate=true,switch=true,start=true,run=true,queue=true,delete=true,reset=true}
@@ -127,10 +136,9 @@ function Q.ground(session,raw,allowPlain)
     end
     if #query>2 and matched/#query<.5 and not any(text,{"it","that","those","them"})
         and not text:find("^but ") and not text:find("^so ") and not text:find("^then ") then return nil end
-    if overlap==0 and not c.framed and not c.selected then return nil end
     local anaphor=any(text,{"it","that","those","them"})
-    local continuation=(c.selected or #query==0 or anaphor) and (#query<=2 or anaphor
-        or text:find("^but ") or text:find("^so ") or text:find("^then ") or text:find("^even "))
+    local lead=text:find("^but ") or text:find("^so ") or text:find("^then ") or text:find("^even ")
+    local continuation=anaphor or lead
     if overlap==0 and not continuation then return nil end
     -- A complete new indexed subject wins over an unrelated old quotation.
     local target=SC.EmmaReference.find(text)
@@ -151,8 +159,7 @@ function Q.ground(session,raw,allowPlain)
         local t=norm(sentence)
         if score>0 and (has(t,"means") or has(t,"is a") or has(t,"is an")) then score=score+.5 end
         if missing and any(t,{"no","not","unknown","unconfirmed","doesnt","cannot"}) then score=score+2 end
-        if overlap==0 and c.selected==n then score=score+.25 end
-        if score>bestScore then best,bestScore=n,score end
+        if score>bestScore or score==bestScore and c.selected==n then best,bestScore=n,score end
     end
     -- Retain neighbouring qualifications: a positive sentence must not lose a
     -- following prohibition, unknown finding or condition during extraction.
@@ -180,12 +187,8 @@ function Q.ground(session,raw,allowPlain)
     end
     if text:find("^yeah ") or text:find("^yes ") or text:find("^no ") and has(text,"meant") then prefix="Understood. "..prefix end
     local queryKey=5381 for at=1,#text do queryKey=(queryKey*33+text:byte(at))%2147483647 end
-    local repeated=c.selected==best and c.queryKey==queryKey
-    if repeated then
-        if c.repeated then return nil end
-        suffix=suffix.." That is the complete surviving statement on this point. Which part needs explaining: the term, the instructions, or a detail missing from the source?"
-    end
-    return {kind="public_passage",lines={prefix..excerpt..suffix},publicSource=c.text,publicSelection=best,publicRepeat=repeated,publicQueryKey=queryKey}
+    if c.selected==best then return nil end
+    return {kind="public_passage",lines={prefix..excerpt..suffix},publicSource=c.text,publicSelection=best,publicRepeat=false,publicQueryKey=queryKey}
 end
 local function state(session) return session.foregroundReference end
 local function current(session)

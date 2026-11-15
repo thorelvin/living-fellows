@@ -97,7 +97,8 @@ foreach ($module in @(
 ) }
 @{ Name = 'interface-emma-corpus'; Files = @($interfaceTerminalFiles) + @(
     (Join-Path $UI 'SCEmmaCorpusData.lua'),
-    (Join-Path $UI 'SCEmmaCorpusTests.lua')
+    (Join-Path $UI 'SCEmmaCorpusTests.lua'),
+    (Join-Path $Gameplay 'emma_talk_care_harness.lua')
 ) }
 @{ Name = 'interface-emma-talk-polish'; Files = @($interfaceTerminalFiles) + @(
     (Join-Path $UI 'SCEmmaTalkPolishData.lua'),
@@ -110,6 +111,7 @@ foreach ($module in @(
     (Join-Path $Gameplay 'emma_hooks_harness.lua'),
     (Join-Path $Gameplay 'emma_reference_harness.lua'),
     (Join-Path $Gameplay 'emma_context_harness.lua'),
+    (Join-Path $Gameplay 'emma_talk_chat_harness.lua'),
     (Join-Path $Gameplay 'emma_talk_blind_harness.lua'),
     (Join-Path $Gameplay 'emma_talk_blind2_harness.lua'),
     (Join-Path $Gameplay 'emma_talk_blind3_harness.lua'),
