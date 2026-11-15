@@ -302,7 +302,7 @@ chat("choice",{"what would you do","if you were me","would you leave","should i 
     "For a practical next step, ask advice. For permission to abandon every difficult decision, my department never received that authority.",
     "A route home is part of an outward journey. People tend to rediscover this after the fuel warning."})
 chat("names",{"why are you called emma","what does emma stand for","do you like your name","can i give you a nickname"},{
-    "Emergency Management Assistant. The acronym was approved before anybody asked whether I could manage this particular emergency.",
+    "EMMA: Emergency Management Assistant. The acronym was approved before anybody asked whether I could manage this particular emergency.",
     "EMMA fits on the screen and is easier to shout across an office than the procurement description.",
     "You may call me what you like. The program and the header will remain EMMA; bureaucracy is occasionally useful for identity protection."})
 chat("coffee_break",{"how was your day","what did you do today","anything interesting today","what is on your mind"},{

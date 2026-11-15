@@ -445,7 +445,7 @@ K.EXTRA_POOLS = {
         "I have power and somebody to talk to. My standards for a productive afternoon have become very reasonable.",
         "I am maintaining a calm tone. You can decide how much credit that deserves after checking the generator."},
     identity={"EMMA: Emergency Management Assistant. I organise local records and try to keep a suggestion from becoming an unexamined order.",
-        "A county computer programme with a very long emergency shift. The machine is Larchfield's; the opinions are developing independently."},
+        "EMMA. A county computer programme on a very long emergency shift. The machine is Larchfield's; the opinions are developing independently."},
     poem={{"The clock keeps its small appointment.","A cup waits beside a chair.","Someone has left the light on.","Someone intends to be there."},
         {"Count the cans and name the missing.","Close the gate and mend the seam.","Leave a line for those who follow.","Let tomorrow keep its meaning."}},
     story={{"The librarian packed a road atlas, a torch and the returns stamp.","Her son asked why she needed the stamp.","So people will know, she said, that there was still somebody at the desk."},

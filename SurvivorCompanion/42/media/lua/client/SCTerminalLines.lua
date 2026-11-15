@@ -188,8 +188,8 @@ Lines.POOLS = {
     identity = {
         "I am EMMA, the Emergency Management Assistant. Kentucky bought me to manage emergencies. This is the largest one I have ever managed. I am doing very well.",
         "EMMA. Version 0.9.3 beta. The state ran out of money before version one. Then it ran out of state.",
-        "I was built to coordinate evacuations, ration water and reassure the public. Two out of three is a passing grade in this county.",
-        "I am a civil defense program. I was supposed to talk to a governor. I am talking to you. We both have to live with that.",
+        "EMMA. I was built to coordinate evacuations, ration water and reassure the public. Two out of three is a passing grade in this county.",
+        "I am EMMA, a civil defense program. I was supposed to talk to a governor. I am talking to you. We both have to live with that.",
     },
     alive = {
         "Am I alive? I run on borrowed electricity in a dead county, discussing canned beans with a stranger. If that is not alive, it is close enough to annoy the dead.",

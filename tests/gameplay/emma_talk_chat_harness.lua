@@ -218,6 +218,22 @@ case("F5.foraging-verb-typo",function()
     local r=respond("Can i forrage?")
     check(r.referenceState and r.referenceState.id=="foraging","the foraging verb needs the basics guide")
 end)
+case("F6.every-identity-names-emma",function()
+    for _,line in ipairs(SC.TerminalLines.POOLS.identity) do
+        check(line:find("EMMA",1,true),"an identity variant omits EMMA")
+    end
+    for _,line in ipairs(SC.EmmaLanguageData.pools.identity_more) do
+        check(line:find("EMMA",1,true),"an expanded identity variant omits EMMA")
+    end
+    for _,pool in ipairs({SC.TerminalKnowledge.EXTRA_POOLS,SC.TerminalConversation.EXTRA_POOLS}) do
+        for _,line in ipairs(pool.identity or {}) do check(line:find("EMMA",1,true),"an extra identity pool omits EMMA") end
+    end
+    for _,spec in ipairs(SC.TerminalConversation.CHAT) do
+        if spec.id=="chat_names" then
+            for _,line in ipairs(spec.lines) do check(line:find("EMMA",1,true),"a name explanation omits EMMA") end
+        end
+    end
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end

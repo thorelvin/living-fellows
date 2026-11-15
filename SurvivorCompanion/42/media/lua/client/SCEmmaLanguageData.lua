@@ -1056,9 +1056,9 @@ P.feelings_more = {
 P.identity_more = {
     "EMMA. Emergency Management Assistant. I am what is left of Kentucky's plan.",
     "I am EMMA. I count, I warn and I remember. Mostly in that order.",
-    "A civil defense program with opinions. The opinions were not in the specification.",
+    "EMMA. A civil defense program with opinions. The opinions were not in the specification.",
     "My name is EMMA. You may have heard of me. You have not. Nobody has. That was the problem.",
-    "I am the voice in the county's computers. All of them. Pleased to meet you. Again, probably.",
+    "I am EMMA, the voice in the county's computers. All of them. Pleased to meet you. Again, probably.",
     "EMMA, version 0.9.3. Not a person. Not merely a program. Somewhere awkward in between.",
 }
 P.alive_more = {
