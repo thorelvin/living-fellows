@@ -1,0 +1,525 @@
+Day 18 00:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 18 00:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 18 00:33 | sc-soak-2 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 18 01:10 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 18 01:23 | sc-soak-2 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 18 01:26 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 18 01:45 | sc-soak-1 | banter.routine | I'm still here. Whatever comes through, we'll handle it.
+Day 18 02:22 | sc-soak-2 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 18 02:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 18 02:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 18 03:03 | sc-soak-3 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 18 03:40 | sc-soak-1 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 18 04:06 | sc-soak-1 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 18 04:07 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 18 04:15 | sc-soak-2 | banter.routine | No need to rush into a bad surprise.
+Day 18 04:52 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 18 05:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 18 05:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 18 05:33 | sc-soak-1 | banter.routine | If we split up, keep your voice low and close.
+Day 18 06:10 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 18 06:45 | sc-soak-3 | banter.routine | No need to rush into a bad surprise.
+Day 18 06:53 | sc-soak-1 | banter.camp.open | Quiet minute. How are you doing, Sam?
+Day 18 06:56 | sc-soak-2 | banter.camp.reply | Ask me again after coffee, June. Real coffee.
+Day 18 07:22 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 18 07:57 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 18 08:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 18 08:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 18 08:33 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 18 09:10 | sc-soak-1 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 18 09:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 18 09:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 18 09:45 | sc-soak-2 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 18 10:22 | sc-soak-3 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 18 10:53 | sc-soak-1 | banter.camp.open | Sam, tell me something that is not about zombies.
+Day 18 10:56 | sc-soak-2 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 18 11:03 | sc-soak-1 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 18 11:40 | sc-soak-2 | banter.routine | Remember to drink some water when you can.
+Day 18 12:06 | sc-soak-1 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 18 12:07 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 18 12:15 | sc-soak-3 | banter.routine | Every creak takes a year off my life.
+Day 18 12:52 | sc-soak-1 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 18 13:23 | sc-soak-2 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 18 13:26 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 18 13:33 | sc-soak-2 | banter.intrusive.camp | I want to stack every chair in here into something tall.
+Day 18 14:10 | sc-soak-3 | banter.routine | I keep checking the exits. Habit now.
+Day 18 14:45 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 18 14:53 | sc-soak-1 | banter.camp.open | Sam, tell me something that is not about zombies.
+Day 18 14:56 | sc-soak-2 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 18 15:22 | sc-soak-2 | banter.routine | You holding up? You don't have to answer right away.
+Day 18 15:57 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 18 16:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 18 16:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 18 16:33 | sc-soak-1 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 18 17:10 | sc-soak-2 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 18 17:23 | sc-soak-2 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 18 17:26 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 18 17:45 | sc-soak-3 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 18 18:22 | sc-soak-1 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 18 18:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 18 18:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 18 19:03 | sc-soak-2 | banter.routine | Quiet places make me listen harder.
+Day 18 19:40 | sc-soak-3 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 18 20:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 18 20:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 18 20:15 | sc-soak-1 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 18 20:52 | sc-soak-2 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 18 21:23 | sc-soak-2 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 18 21:26 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 18 21:33 | sc-soak-3 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 18 22:10 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 18 22:45 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 18 22:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 18 22:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 18 23:22 | sc-soak-3 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 18 23:57 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 19 00:06 | sc-soak-1 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 19 00:07 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 19 00:33 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 19 01:10 | sc-soak-3 | banter.routine | If we split up, keep your voice low and close.
+Day 19 01:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 19 01:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 19 01:45 | sc-soak-1 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 19 02:22 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 19 02:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 19 02:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 19 03:03 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 19 03:40 | sc-soak-1 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 19 04:06 | sc-soak-1 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 19 04:07 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 19 04:15 | sc-soak-2 | banter.routine | If you see trouble first, say it plain.
+Day 19 04:52 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 19 05:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 19 05:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 19 05:33 | sc-soak-1 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 19 06:10 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 19 06:45 | sc-soak-3 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 19 06:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 19 06:56 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 19 07:22 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 19 07:57 | sc-soak-2 | banter.routine | I'll keep looking. You keep watch.
+Day 19 08:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 19 08:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 19 08:33 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 19 09:10 | sc-soak-1 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 19 09:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 19 09:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 19 09:45 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 19 10:22 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 19 10:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 19 10:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 19 11:03 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 19 11:40 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 19 12:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 19 12:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 19 12:15 | sc-soak-3 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 19 12:52 | sc-soak-1 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 19 13:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 19 13:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 19 13:33 | sc-soak-2 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 19 14:10 | sc-soak-3 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 19 14:45 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 19 14:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 19 14:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 19 15:22 | sc-soak-2 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 19 15:57 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 19 16:06 | sc-soak-1 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 19 16:07 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 19 16:33 | sc-soak-1 | banter.routine | Quiet places make me listen harder.
+Day 19 17:10 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 19 17:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 19 17:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 19 17:45 | sc-soak-3 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 19 18:22 | sc-soak-1 | banter.routine | Remember, folks: idle hands get eaten.
+Day 19 18:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 19 18:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 19 19:03 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 19 19:40 | sc-soak-3 | banter.routine | We have time. Let's use it carefully.
+Day 19 20:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 19 20:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 19 20:15 | sc-soak-1 | banter.routine | Somebody used to have a normal day here.
+Day 19 20:52 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 19 21:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 19 21:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 19 21:33 | sc-soak-3 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 19 22:10 | sc-soak-1 | banter.intrusive.camp | I keep thinking about church potlucks. Every casserole. Every one.
+Day 19 22:45 | sc-soak-2 | banter.routine | Quiet places make me listen harder.
+Day 19 22:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 19 22:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 19 23:22 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 19 23:57 | sc-soak-1 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 20 00:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 20 00:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 00:33 | sc-soak-2 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 20 01:10 | sc-soak-3 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 20 01:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 20 01:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 01:45 | sc-soak-1 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 20 02:22 | sc-soak-2 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 20 02:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 20 02:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 03:03 | sc-soak-3 | banter.routine | We have time. Let's use it carefully.
+Day 20 03:40 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 20 04:06 | sc-soak-1 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 20 04:07 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 20 04:15 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 20 04:52 | sc-soak-3 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 20 05:23 | sc-soak-2 | banter.camp.open | Long day, Nick. At least we made it back together.
+Day 20 05:26 | sc-soak-3 | banter.camp.reply | We made it back. I will take that victory, Sam.
+Day 20 05:33 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 20 06:10 | sc-soak-2 | banter.routine | Remember to drink some water when you can.
+Day 20 06:45 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 20 06:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 20 06:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 07:22 | sc-soak-1 | banter.routine | Somebody used to have a normal day here.
+Day 20 07:57 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 20 08:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 20 08:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 08:33 | sc-soak-3 | banter.routine | Somebody used to have a normal day here.
+Day 20 09:10 | sc-soak-1 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 20 09:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 20 09:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 09:45 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 20 10:22 | sc-soak-3 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 20 10:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 20 10:56 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 20 11:03 | sc-soak-1 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 20 11:40 | sc-soak-2 | banter.routine | Nothing moving nearby. Let's keep it that way.
+Day 20 12:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 20 12:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 12:15 | sc-soak-3 | banter.routine | I keep checking the exits. Habit now.
+Day 20 12:52 | sc-soak-1 | banter.routine | Remember, folks: idle hands get eaten.
+Day 20 13:23 | sc-soak-2 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 20 13:26 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 20 13:33 | sc-soak-2 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 20 14:10 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 20 14:45 | sc-soak-1 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 20 14:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 20 14:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 20 15:22 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 20 15:57 | sc-soak-3 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 20 16:06 | sc-soak-1 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 20 16:07 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 20 16:33 | sc-soak-1 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 20 17:15 | sc-soak-2 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 20 17:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 20 17:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 20 17:52 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 20 18:27 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 20 18:53 | sc-soak-1 | banter.camp.open | Quiet minute. How are you doing, Sam?
+Day 20 18:56 | sc-soak-2 | banter.camp.reply | Ask me again after coffee, June. Real coffee.
+Day 20 19:03 | sc-soak-2 | banter.routine | I'll keep looking. You keep watch.
+Day 20 19:40 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 20 20:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 20 20:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 20 20:15 | sc-soak-1 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 20 20:52 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 20 21:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 20 21:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 20 21:33 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 20 22:10 | sc-soak-1 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 20 22:45 | sc-soak-2 | banter.routine | Remember to drink some water when you can.
+Day 20 22:53 | sc-soak-1 | banter.camp.open | Sam, tell me something that is not about zombies.
+Day 20 22:56 | sc-soak-2 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 20 23:22 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 20 23:57 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 21 00:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 21 00:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 21 00:33 | sc-soak-2 | banter.routine | No need to rush into a bad surprise.
+Day 21 01:10 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 21 01:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 21 01:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 21 01:45 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 21 02:22 | sc-soak-2 | banter.routine | Another productive day in scenic Knox County.
+Day 21 02:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 21 02:56 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 21 03:03 | sc-soak-3 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 21 03:40 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 21 04:06 | sc-soak-1 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 21 04:07 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 21 04:15 | sc-soak-2 | banter.routine | I'll keep looking. You keep watch.
+Day 21 04:52 | sc-soak-3 | banter.routine | I'll keep looking. You keep watch.
+Day 21 05:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 21 05:26 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 21 05:33 | sc-soak-1 | banter.routine | Quiet places make me listen harder.
+Day 21 06:10 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 21 06:45 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 21 06:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 21 06:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 21 07:22 | sc-soak-1 | banter.routine | Somebody used to have a normal day here.
+Day 21 07:57 | sc-soak-2 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 21 08:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 21 08:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 21 08:33 | sc-soak-3 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 21 09:10 | sc-soak-1 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 21 09:23 | sc-soak-2 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 21 09:26 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 21 09:45 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 21 10:22 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 21 10:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 21 10:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 21 11:03 | sc-soak-1 | banter.routine | Nothing moving nearby. Let's keep it that way.
+Day 21 11:40 | sc-soak-2 | banter.routine | Remember to drink some water when you can.
+Day 21 12:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 21 12:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 21 12:15 | sc-soak-3 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 21 12:52 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 21 13:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 21 13:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 21 13:33 | sc-soak-2 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 21 14:10 | sc-soak-3 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 21 14:45 | sc-soak-1 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 21 14:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 21 14:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 21 15:22 | sc-soak-2 | banter.routine | If we split up, keep your voice low and close.
+Day 21 15:58 | sc-soak-3 | banter.routine | I'll keep looking. You keep watch.
+Day 21 16:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 21 16:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 21 16:33 | sc-soak-1 | banter.routine | Remember, folks: idle hands get eaten.
+Day 21 17:10 | sc-soak-2 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 21 17:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 21 17:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 21 17:45 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 21 18:22 | sc-soak-1 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 21 18:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 21 18:56 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 21 19:03 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 21 19:40 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 21 20:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 21 20:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 21 20:15 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 21 20:52 | sc-soak-2 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 21 21:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 21 21:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 21 21:33 | sc-soak-3 | banter.routine | If you see trouble first, say it plain.
+Day 21 22:10 | sc-soak-1 | banter.routine | If we split up, keep your voice low and close.
+Day 21 22:45 | sc-soak-2 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 21 22:53 | sc-soak-1 | banter.camp.open | Sam, tell me something that is not about zombies.
+Day 21 22:56 | sc-soak-2 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 21 23:22 | sc-soak-3 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 21 23:58 | sc-soak-1 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 22 00:06 | sc-soak-1 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 22 00:07 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 22 00:33 | sc-soak-2 | banter.routine | No need to rush into a bad surprise.
+Day 22 01:10 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 22 01:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 22 01:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 01:45 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 22 02:22 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 22 02:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 22 02:56 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 03:03 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 22 03:40 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 22 04:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 22 04:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 22 04:15 | sc-soak-2 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 22 04:52 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 22 05:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 22 05:26 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 05:33 | sc-soak-1 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 22 06:10 | sc-soak-2 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 22 06:45 | sc-soak-3 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 22 06:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 22 06:56 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 22 07:22 | sc-soak-1 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 22 07:58 | sc-soak-2 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 22 08:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 22 08:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 22 08:34 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 22 09:09 | sc-soak-1 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 22 09:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 22 09:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 22 09:45 | sc-soak-2 | banter.routine | If you see trouble first, say it plain.
+Day 22 10:22 | sc-soak-3 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 22 10:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 22 10:55 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 22 11:04 | sc-soak-1 | banter.routine | Keep it coming. I've had worse jobs.
+Day 22 11:39 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 22 12:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 22 12:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 12:15 | sc-soak-3 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 22 12:52 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 22 13:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 22 13:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 22 13:34 | sc-soak-2 | banter.routine | No need to rush into a bad surprise.
+Day 22 14:09 | sc-soak-3 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 22 14:45 | sc-soak-1 | banter.routine | Somebody used to have a normal day here.
+Day 22 14:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 22 14:55 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 15:22 | sc-soak-2 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 22 15:58 | sc-soak-3 | banter.routine | If we split up, keep your voice low and close.
+Day 22 16:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 22 16:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 22 16:34 | sc-soak-1 | banter.routine | If you see trouble first, say it plain.
+Day 22 17:09 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 22 17:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 22 17:25 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 17:45 | sc-soak-3 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 22 18:22 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 22 18:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 22 18:55 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 19:04 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 22 19:39 | sc-soak-3 | banter.routine | Folks round here used to wave at strangers. Now we count them.
+Day 22 20:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 22 20:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 20:15 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 22 20:52 | sc-soak-2 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 22 21:23 | sc-soak-2 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 22 21:25 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 22 21:34 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 22 22:09 | sc-soak-1 | banter.routine | I'll keep looking. You keep watch.
+Day 22 22:45 | sc-soak-2 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 22 22:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 22 22:55 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 22 23:22 | sc-soak-3 | banter.routine | If we split up, keep your voice low and close.
+Day 22 23:58 | sc-soak-1 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 23 00:06 | sc-soak-1 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 23 00:07 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 23 00:34 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 23 01:09 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 23 01:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 23 01:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 23 01:45 | sc-soak-1 | banter.routine | Another productive day in scenic Knox County.
+Day 23 02:22 | sc-soak-2 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 23 02:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 23 02:55 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 23 03:04 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 23 03:39 | sc-soak-1 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 23 04:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 23 04:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 23 04:15 | sc-soak-2 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 23 04:52 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 23 05:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 23 05:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 23 05:34 | sc-soak-1 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 23 06:09 | sc-soak-2 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 23 06:45 | sc-soak-3 | banter.intrusive.grief | I keep turning around to tell them something. Goddammit.
+Day 23 06:53 | sc-soak-1 | banter.camp.open | Quiet minute. How are you doing, Sam?
+Day 23 06:55 | sc-soak-2 | banter.camp.reply | Ask me again after coffee, June. Real coffee.
+Day 23 07:22 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 23 07:58 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 23 08:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 23 08:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 23 08:34 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 23 09:09 | sc-soak-1 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 23 09:23 | sc-soak-2 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 23 09:25 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 23 09:45 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 23 10:22 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 23 10:53 | sc-soak-1 | banter.camp.open | Sam, tell me something that is not about zombies.
+Day 23 10:55 | sc-soak-2 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 23 11:04 | sc-soak-1 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 23 11:39 | sc-soak-2 | banter.routine | If we split up, keep your voice low and close.
+Day 23 12:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 23 12:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 23 12:15 | sc-soak-3 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 23 12:52 | sc-soak-1 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 23 13:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 23 13:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 23 13:34 | sc-soak-2 | banter.routine | Somebody used to have a normal day here.
+Day 23 14:09 | sc-soak-3 | banter.routine | We have time. Let's use it carefully.
+Day 23 14:45 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 23 14:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 23 14:55 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 23 15:22 | sc-soak-2 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 23 15:58 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 23 16:06 | sc-soak-1 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 23 16:07 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 23 16:34 | sc-soak-1 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 23 17:09 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 23 17:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 23 17:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 23 17:45 | sc-soak-3 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 23 18:22 | sc-soak-1 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 23 18:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 23 18:55 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 23 19:04 | sc-soak-2 | banter.routine | I'll keep looking. You keep watch.
+Day 23 19:39 | sc-soak-3 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 23 20:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 23 20:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 23 20:15 | sc-soak-1 | banter.routine | I'll keep looking. You keep watch.
+Day 23 20:52 | sc-soak-2 | banter.routine | Take a breath if you need one. I'll keep going.
+Day 23 21:23 | sc-soak-2 | banter.camp.open | Nick, you holding up all right?
+Day 23 21:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 23 21:34 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 23 22:09 | sc-soak-1 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 23 22:45 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 23 22:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 23 22:55 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 23 23:22 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 23 23:58 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 24 00:06 | sc-soak-1 | banter.camp.open | You know, Nick, this almost feels like a normal evening.
+Day 24 00:07 | sc-soak-3 | banter.camp.reply | For a minute, it almost does feel normal.
+Day 24 00:34 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 24 01:09 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 24 01:23 | sc-soak-2 | banter.camp.open | Quiet minute. How are you doing, Nick?
+Day 24 01:25 | sc-soak-3 | banter.camp.reply | Ask me again after coffee, Sam. Real coffee.
+Day 24 01:45 | sc-soak-1 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 24 02:22 | sc-soak-2 | banter.routine | If we split up, keep your voice low and close.
+Day 24 02:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 24 02:55 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 24 03:04 | sc-soak-3 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 24 03:39 | sc-soak-1 | banter.routine | Keep it coming. I've had worse jobs.
+Day 24 04:06 | sc-soak-1 | banter.camp.open | Nick, you holding up all right?
+Day 24 04:07 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 24 04:15 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 24 04:52 | sc-soak-3 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 24 05:23 | sc-soak-2 | banter.camp.open | Nick, tell me something that is not about zombies.
+Day 24 05:25 | sc-soak-3 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 24 05:34 | sc-soak-1 | banter.routine | If you see trouble first, say it plain.
+Day 24 06:09 | sc-soak-2 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 24 06:45 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 24 06:53 | sc-soak-1 | banter.camp.open | Sam, sit with me a minute. The work can wait that long.
+Day 24 06:55 | sc-soak-2 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 24 07:22 | sc-soak-1 | banter.intrusive.camp | I counted the cans twice and got two different goddamn answers.
+Day 24 07:58 | sc-soak-2 | banter.routine | Remember to drink some water when you can.
+Day 24 08:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 24 08:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 24 08:34 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 24 09:09 | sc-soak-1 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 24 09:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 24 09:25 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 24 09:45 | sc-soak-2 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 24 10:22 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 24 10:53 | sc-soak-1 | banter.camp.open | Sam, tell me something that is not about zombies.
+Day 24 10:55 | sc-soak-2 | banter.camp.reply | I miss terrible television. There, no zombies in that sentence.
+Day 24 11:04 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 24 11:39 | sc-soak-2 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 24 12:06 | sc-soak-1 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 24 12:07 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 24 12:15 | sc-soak-3 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 24 12:52 | sc-soak-1 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 24 13:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 24 13:25 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 24 13:34 | sc-soak-2 | banter.routine | Folks round here used to wave at strangers. Now we count them.
+Day 24 14:09 | sc-soak-3 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 24 14:45 | sc-soak-1 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 24 14:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 24 14:55 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 24 15:22 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 24 15:58 | sc-soak-3 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 24 16:06 | sc-soak-1 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 24 16:07 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 24 16:34 | sc-soak-1 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 24 17:09 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 24 17:23 | sc-soak-2 | banter.camp.open | Nick, you have been quiet. I wanted to make sure you are okay.
+Day 24 17:25 | sc-soak-3 | banter.camp.reply | Still here. That counts for a lot, Sam.
+Day 24 17:45 | sc-soak-3 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 24 18:22 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 24 18:53 | sc-soak-1 | banter.camp.open | Sam, what is the first thing you would do if this ended tomorrow?
+Day 24 18:55 | sc-soak-2 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 24 19:04 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 24 19:39 | sc-soak-3 | banter.routine | I'll keep looking. You keep watch.
+Day 24 20:06 | sc-soak-1 | banter.camp.open | Nick, sit with me a minute. The work can wait that long.
+Day 24 20:07 | sc-soak-3 | banter.camp.reply | I can sit a minute. It's good to hear your voice.
+Day 24 20:15 | sc-soak-1 | banter.routine | Another productive day in scenic Knox County.
+Day 24 20:52 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 24 21:23 | sc-soak-2 | banter.camp.open | Nick, what is the first thing you would do if this ended tomorrow?
+Day 24 21:25 | sc-soak-3 | banter.camp.reply | If this ends tomorrow, I sleep until next week.
+Day 24 21:34 | sc-soak-3 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 24 22:09 | sc-soak-1 | banter.routine | Nothing moving nearby. Let's keep it that way.
+Day 24 22:45 | sc-soak-2 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 24 22:53 | sc-soak-1 | banter.camp.open | Sam, you holding up all right?
+Day 24 22:55 | sc-soak-2 | banter.camp.reply | Still here. That counts for a lot, June.
+Day 24 23:22 | sc-soak-3 | banter.routine | We have time. Let's use it carefully.
+Day 24 23:58 | sc-soak-1 | banter.routine | I'm still here. Whatever comes through, we'll handle it.

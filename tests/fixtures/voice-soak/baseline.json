@@ -1,0 +1,31 @@
+{
+  "phase": "pre-V1",
+  "days": 60,
+  "game_hours_per_real_hour": 24,
+  "clock_ticks": 43200,
+  "reloads": 8,
+  "lines": 4506,
+  "specific_recall": 0,
+  "false_claims": 0,
+  "repeats_under_three_days": 3653,
+  "minimum_repeat_days": 0.05,
+  "scenes": 1078,
+  "two_beat_scenes": 1078,
+  "three_plus_beat_scenes": 0,
+  "scripted_events": 26,
+  "aftermath": 0,
+  "speech_hash": 1537253361,
+  "source_sha256": {
+    "SCBanter": "4050d7356e7511f05ac1ddc737cf55a2fa0b2388dbb736feece659c955467aa9",
+    "SCDialogue": "9f087a4f913caa8d5204af6fcb78d3770819bc5667f8371940b57451a7e1949d",
+    "SCCommunity": "234a12cd92b75ac52b73bf14cfb6a7977b4c5acbdb803eb0e7c91f22858d87c5",
+    "SCLifeEvents": "d39013b9d36acaf74a74f84bcb614cfef07f32654c4d2a4d09a6033f7fa3936e",
+    "SCTales": "c61297cc70ae3e9225eaacfc5be0a2666267b2ba84bd311a2f5f9b2da71990ea"
+  },
+  "source_ref": "a3e1f563",
+  "simulator_schema": 2,
+  "one_speaker_scenes": 0,
+  "tag_errors": 0,
+  "fixture_sha256": "87a207008f0fc89bd995f68231001ba2f747dab5adce3a3b2cce366b2e0e39fa",
+  "baseline_note": "Actual registered actors and readable SurvivorDesc names. Historical production sources replayed from a3e1f563 before V1. Legacy untagged tone is unclassified, not proof of the final tone gate."
+}
