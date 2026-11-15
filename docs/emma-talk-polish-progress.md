@@ -217,3 +217,24 @@ final release gate passes with that correction in
 heard-facts/64-companion voice save. The four-voice Phase G
 playground was rebuilt and passes its Lua/privacy checks. Browser visual
 verification remains unavailable under the earlier local-file policy block.
+
+## Phase H checkpoint
+
+The native engine check is complete. An eleven-minute normal-speed cloned-camp
+observation passed ten checks and completed a four-beat comfort scene. A second
+400-second accelerated observation passed eleven checks and completed another;
+two interrupted scenes yielded to actual storage/scavenging work. Starts kept
+the three-minute active-time floor. See `docs/validation/voice-native-02721.md`
+for the transcript, scope and limits. The current user save was not loaded.
+
+Native Kahlua exposed a multiple-return error in the new day-length clock
+reader. The reader now takes exactly one value, and both focused harnesses
+provide the real numeric getter. Interruption diagnostics identify the speech
+or owned action that stopped a scene. The read-only observer remains a test
+helper rather than shipped mod code.
+
+All five Windows PowerShell 5.1 release checks pass in
+`build/test-results/20261115-050300-9f0334` (461.5 seconds). The Phase H
+four-voice playground passes its Lua/privacy checks at
+`C:\ZOMBOID\plan-emma-probe\web\emma-playground-0.27.21-phase-h.html`.
+The user will test later and explicitly asked work to continue. B/C/D remain.

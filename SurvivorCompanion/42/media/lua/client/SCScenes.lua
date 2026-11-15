@@ -24,7 +24,7 @@ function S.tick(current)
     local paused = type(isGamePaused)=="function" and isGamePaused()==true
     if clock.wall and not paused and not clock.paused and game>clock.game then
         local gt=type(getGameTime)=="function" and getGameTime() or nil
-        local dayMinutes=tonumber(select(1,U().call(gt,"getMinutesPerDay"))) or 60
+        local dayMinutes=tonumber((U().call(gt,"getMinutesPerDay"))) or 60
         local normalRate=1440/math.max(1,dayMinutes)
         local elapsed=current-clock.wall
         -- Pausing may stop tick callbacks entirely. Game progress bounds the
@@ -142,22 +142,25 @@ local function eventContext(row,family,first,player)
     return {evidence=evidence,tokens=tokens}
 end
 local function rolesReady(scene,records,host)
-    if scene.ticket and scene.ticket.status=="cancelled" then return false end
-    if scene.event and not SC.Community.historyRow(scene.event.id) then return false end
+    if scene.ticket and scene.ticket.status=="cancelled" then return false,"request_cancelled" end
+    if scene.event and not SC.Community.historyRow(scene.event.id) then return false,"event_unavailable" end
     for n,role in ipairs(scene.roles) do
         local other=n==2 and scene.first or scene.second
         local record=host.record(records,role.actor)
         local view=scene
         if n==3 then view={id=scene.id,kind="scene",faceToFace=false} end
-        if not host.ready(record,role.actor,other,view,true)
-            or state(role.actor).order=="guard" or state(role.actor).order=="work"
-            or (tonumber(state(role.actor).commandSerial) or 0)~=role.commandSerial
-            or not host.unchanged(role.actor,role.spokenAt,role.topic)
+        if (tonumber(state(role.actor).commandSerial) or 0)~=role.commandSerial then return false,"new_order" end
+        if not host.unchanged(role.actor,role.spokenAt,role.topic) then return false,"other_speech:"..tostring(SC.Dialogue.lastSpokenTopic(role.actor)) end
+        if not host.ready(record,role.actor,other,view,true) then
+            local token=SC.ActionSupervisor and SC.ActionSupervisor.current(role.actor)
+            return false,token and "owned_action:"..tostring(token.owner)..":"..tostring(token.action) or "participant_not_ready"
+        end
+        if state(role.actor).order=="guard" or state(role.actor).order=="work"
             or not U().sameFloor(scene.first,role.actor)
             or U().distance(scene.first,role.actor)>10
             or n>1 and not (U().canSee(scene.first,role.actor) or U().canSee(role.actor,scene.first))
             or SC.Factions and SC.Factions.isHostileBetween
-                and SC.Factions.isHostileBetween(scene.first,role.actor,scene.player) then return false end
+                and SC.Factions.isHostileBetween(scene.first,role.actor,scene.player) then return false,"separation_or_duty" end
     end
     return true
 end
@@ -248,8 +251,10 @@ local function complete(scene)
 end
 
 function S.advance(scene,records,current,host)
-    if not rolesReady(scene,records,host) or clock.active>=scene.expiresActive then
+    local ready,why=rolesReady(scene,records,host)
+    if not ready or clock.active>=scene.expiresActive then
         scene.status="interrupted"
+        scene.abortReason=why or "timeout"
         if scene.ticket then scene.ticket.status="cancelled" end
         host.release(scene,"scene_interrupted")
         return false,"scene_interrupted",false
@@ -260,6 +265,7 @@ function S.advance(scene,records,current,host)
     local spoken,reason=speakBeat(scene,current,host)
     if not spoken then
         scene.status="interrupted"
+        scene.abortReason=reason
         if scene.ticket then scene.ticket.status="cancelled" end
         host.release(scene,reason) return false,reason,false
     end

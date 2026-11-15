@@ -5,6 +5,7 @@ local checks,scenario,wall,game,paused=0,0,0,240*3600000,false
 local function check(value,message) checks=checks+1 assert(value,"scene check "..checks..": "..message) end
 function getTimestampMs() return wall end
 function getGameTime() return {getWorldAgeHours=function() return game/3600000 end,
+    getMinutesPerDay=function() return 60 end,
     getTimeOfDay=function() return game/3600000%24 end,getHour=function() return math.floor(game/3600000%24) end} end
 function isGamePaused() return paused end
 local rows,actors,states,captured={},{},{},{}

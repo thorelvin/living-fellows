@@ -8,6 +8,7 @@ local clock,gameHours,paused=0,24,false
 function getTimestampMs() return clock end
 function isGamePaused() return paused end
 function getGameTime() return {
+    getMinutesPerDay=function() return 60 end,
     getWorldAgeHours=function() return gameHours end,
     getHour=function() return math.floor(gameHours%24) end,
     getTimeOfDay=function() return gameHours%24 end,
