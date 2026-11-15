@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.22.2 Edition</p>
-  <p class="version">Release 0.27.10 — First Edition, Thirtieth Printing — You won't die... alone.</p>
+  <p class="version">Release 0.27.22 — First Edition, Thirty-First Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -335,7 +335,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
   <li><a href="#ch15_animals"><strong>Keep a working farm.</strong></a> Farmers tend chickens and cattle, collect eggs and deliver milk, leaving a reserve for calves.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.10</strong>: <a href="#ch15_animals">chickens, cattle and sheep</a>, <a href="#ch15_milk">milk barrels and manure collection</a>, <a href="#ch14_medic">a stocked Medic's kit</a> and <a href="#ch17_fuel">fuel expeditions</a>. New here? Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.22</strong>: <a href="#ch6_squad">squads that share out a fight</a>, <a href="#ch6_hold">holding stairs and doorways</a>, <a href="#ch9_scenes">camp scenes, arguments and shared memories</a>, and <a href="#emma-questions">an EMMA who answers questions about her own words</a>. New here? Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -362,9 +362,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch5b">Ch 5b: Squads and Signals</a></li>
         <li><a href="#ch5c">Ch 5c: Riding Together</a></li>
         <li><a href="#ch6">Ch 6: Combat and the Rules of Engagement</a></li>
+        <li><a href="#ch6_squad">Fighting as a squad</a></li>
+        <li><a href="#ch6_hold">Holding stairs and doorways</a></li>
         <li><a href="#ch7">Ch 7: Scavenging and Gear</a></li>
         <li><a href="#ch8">Ch 8: Needs, Medicine and Death</a></li>
         <li><a href="#ch9">Ch 9: Voices, Moods and Bonds</a></li>
+        <li><a href="#ch9_scenes">Camp scenes and arguments</a></li>
         <li><a href="#ch9b">Ch 9b: Talking with the Fellows</a></li>
         <li><a href="#ch9c">Ch 9c: Who They Are</a></li>
         <li><a href="#ch9d">Ch 9d: Trust, Bonds and Goals</a></li>
@@ -380,11 +383,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
         <li><a href="#ch12">Ch 12: Floors, Stairs and Basements</a></li>
         <li><a href="#ch13">Ch 13: Building from Blueprints</a></li>
         <li><a href="#ch14">Ch 14: Base Duty and Jobs</a></li>
+        <li><a href="#ch14_medic">Stocking the Medic's kit</a></li>
         <li><a href="#ch14b">Ch 14b: Running the Camp</a></li>
         <li><a href="#ch14c">Ch 14c: Base Watch</a></li>
         <li><a href="#ch15">Ch 15: Farming and Animals</a></li>
         <li><a href="#ch15_animals">Chickens, cattle and sheep</a></li>
-        <li><a href="#ch14_medic">Stocking the Medic's kit</a></li>
         <li><a href="#ch15b">Ch 15b: The Kitchen and the Water</a></li>
         <li><a href="#ch16">Ch 16: Laying the Dead to Rest</a></li>
         <li><a href="#emma">Ch 16b: EMMA and Camp Computers</a></li>
@@ -442,7 +445,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The mod targets <strong>Project Zomboid Build 42.22.2</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The exceptions are the mod's own: an expedition or Base Watch may put one companion in a second local view, to keep the area around it loaded.</p>
 
 <h3>Install on 42.22.2</h3>
-<p>This guide covers <strong>Living Fellows 0.27.10</strong>. If a menu choice is missing, check your installed version in <span class="menu">More &rarr; Support</span>.</p>
+<p>This guide covers <strong>Living Fellows 0.27.22</strong>. If a menu choice is missing, check your installed version in <span class="menu">More &rarr; Support</span>.</p>
 <p><strong>The Windows standalone edition is recommended.</strong> It includes Living Fellows' native bridge and needs neither ZombieBuddy nor a Workshop subscription. Download the <a href="https://github.com/thorelvin/living-fellows/releases/latest">standalone Windows ZIP from GitHub Releases</a> that matches your game build.</p>
 <ol class="steps">
   <li><span class="step-n">1</span>Extract the whole ZIP to a normal folder.</li>
@@ -452,7 +455,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ol>
 <p>Keep the extracted folder for <strong>Uninstall.bat</strong>. The installer finds Steam automatically. If Windows refuses access to the game folder, run it as Administrator. For another Steam library:</p>
 <div class="callout callout-recipe"><span class="callout-label">How to — </span><code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code></div>
-<p>The installer puts the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code> and manages its native bridge automatically. It does not edit <code>projectzomboid.jar</code>. With PZO installed, it keeps PZO's launcher and adds Living Fellows alongside it. Uninstall removes Living Fellows' entries while preserving other mods' settings.</p>
+<p>The installer puts the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code> and manages its native bridge automatically. It does not edit <code>projectzomboid.jar</code>. With PZO installed, Living Fellows loads through PZO's own Java mod loader, and PZO's launcher and settings stay as they are. Reinstalling repairs the launch option an older Living Fellows set up. Uninstall removes Living Fellows' entries while preserving other mods' settings.</p>
 <h4>Using the Workshop Instead</h4>
 <p>The Workshop edition uses <strong>ZombieBuddy 2.3.3 or newer</strong>, including its one-time loader installation; a subscription alone does not install that loader. Subscribe to both mods, complete the loader's setup, then enable both for your save. The loader must support your game build. Use the standalone edition for 42.22.2 if that support is not yet available.</p>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>Use <strong>one edition at a time</strong>. Both share the mod ID <code>SurvivorCompanion</code>. When changing installation method, remove the old copy so the game can find the version you intend to use.</div>
@@ -570,6 +573,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Health actions</strong></td><td>Open their health panel, bandage them yourself, or open their inventory</td></tr>
 </table>
 
+<p>Supplies count wherever they are carried. Food, water and clean dressings inside a backpack or a first aid kit count toward Loadout, requests and restocking, and treatment takes the actual dressing out of its container. Clean, dirty and bloody dressings are told apart.</p>
+
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>Opening a companion's <strong>inventory</strong> from the panel holds them where they stand until you close it: downtime, scavenging, base work and any walk are cancelled, so nothing moves out from under your hands. They pick up their order again when the window closes.</div>
 
 <p>A quick look needs no panel. A recruited companion standing within one tile of you, on the same floor, shows up in your loot pane as a backpack with its name on it. Move items in and out there while it carries on with whatever it was doing; the backpack goes away when it steps off. Taking something it holds, wears or has strapped on takes it off the companion too. </p>
@@ -600,6 +605,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="tbl-power">Regroup</td><td>Emergency: come back to me now.</td></tr>
   <tr><td class="tbl-power">Retreat</td><td>Emergency: break contact and fall back.</td></tr>
 </table>
+
+<p>A companion still busy with other work when you give an order waits up to <strong>20 seconds</strong> for that work to put down its supplies and finish its action. A newer order replaces the one waiting. If the time runs out, the companion says what is still in the way, and you can give the order again. A companion leading a <a href="#ch14c">Base Watch</a> has to end the watch before it changes duty.</p>
 
 <h3 id="ch4_world">World Orders</h3>
 <p>Right-click a recruited companion for four quick choices: <span class="menu">Talk</span>, <span class="menu">Follow</span>, <span class="menu">Stay</span> and <span class="menu">Retreat</span>. Open <span class="menu">Living Fellows → <em>their name</em></span> for Orders, Regroup, Send home, Watch, inventory and care. Tasks holds objectives and one-time jobs; Personal holds nicknames and dismissal. The person you clicked receives these actions even if someone else is selected in the panel. When several companions overlap, choose a person by name.</p>
@@ -684,7 +691,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Rear guard</strong></td><td>Behind the group</td><td>A cautious survivor who watches the way you came</td></tr>
 </table>
 
-<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. They take doors and stairs for ordinary travel. A window latched on their side is opened, not smashed; they break glass only when something is attacking them or about to reach them. They climb out of an upper window only onto solid ground or a roof with a checked way on, and a companion that keeps going back and forth through the same window gives that route a two-minute rest. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
+<p>On the move they check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture and crowds, and remember the way back outside. Near parked cars outdoors, a follower can take the game's own route round a blocked line of vehicles to reach its place. They take doors and stairs for ordinary travel. A window latched on their side is opened, not smashed; they break glass only when something is attacking them or about to reach them. They climb out of an upper window only onto solid ground or a roof with a checked way on, and a companion that keeps going back and forth through the same window gives that route a two-minute rest. When danger closes in they back off or strafe on safe ground, and they turn and run when they are overrun.</p>
 
 <h3>What They Can See</h3>
 <p>In clear conditions a companion spots zombies up to <strong>24 tiles</strong> away, but each one has to see the target for itself. Walls, closed doors and other floors block sight. Noise behind a wall produces only an uncertain warning, never a confident callout.</p>
@@ -808,6 +815,19 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <div class="callout callout-tip"><span class="callout-label">Note — </span><strong>Hold fire</strong> sits on top of any doctrine and blocks ordinary shots, whatever the doctrine would allow. Gunfire is loud in Knox County, and loud draws a crowd.</div>
 
+<h3 id="ch6_squad">Fighting as a Squad</h3>
+<p>Companions near each other on the same floor share out the zombies that can reach them. Every zombie gets one defender before any gets a second. A zombie on you, or on a companion it has grabbed, comes first, and a companion already fighting keeps its own zombie. What one of them sees counts for all of them, so a zombie only one can see still gets a defender.</p>
+<p>Then the group decides whether to stand. A fit companion holds two zombies at once and a worn one holds one; <strong>Weapons Free</strong> adds one and <strong>Ranged Support</strong> takes one away. Only free, able companions count. One that is grabbed, in a car, exhausted, down, badly hurt or without a weapon it will use adds nothing, and one on Stay or Guard backs up only fights near its own spot. While the zombies in reach fit what the group can hold, it stands and fights. When they don't, it gives ground, still swinging. When far more are on the way, it pulls out together. Zombies still coming count for more the sooner they will arrive, and the group's choice holds for a moment instead of flipping back and forth.</p>
+<p>When the plan changes, one companion calls it: at most one call every six seconds for the group, and the same call no more than every twenty.</p>
+<table>
+  <tr><th>The group's plan</th><th>What you'll hear</th></tr>
+  <tr><td>Stand and fight</td><td><em>"Hold here. Two apiece, no heroes."</em></td></tr>
+  <tr><td>Give ground</td><td><em>"Give ground! Make them come to us."</em></td></tr>
+  <tr><td>Pull out</td><td><em>"Pull out! Stay together!"</em></td></tr>
+  <tr><td>More on the way</td><td><em>"Second wave behind them."</em></td></tr>
+  <tr><td>A zombie on you that nobody can reach</td><td><em>"I can't reach you! Come to me!"</em></td></tr>
+</table>
+
 <h3>When They Say No</h3>
 <p>A companion who decides a fight is too dangerous says why. It names the reason that actually decided it, such as exhaustion, encirclement, wounds, bad footing, no escape, or an empty weapon, instead of refusing in silence or shouting a generic retreat.</p>
 
@@ -848,9 +868,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3 id="ch6_weapons">Which Weapon They Reach For</h3>
 <p>A companion weighs what it carries against what is in front of it: each weapon's condition, its own skill with that kind of weapon, its stamina and how tired it is. It keeps what is in its hand unless something else is clearly better. A ready gun in range beats a stronger gun that needs reloading. At arm's length or with a crowd closing in, a ready melee weapon beats stopping to reload or clear a jam. Followers ready a better carried weapon before a fight; base workers keep a usable tool in hand.</p>
 <p>A gun only counts if it can fire. Revolvers and shotguns reload from loose rounds. A magazine-fed gun needs a loaded magazine, or a compatible magazine and rounds to fill it. On an ordinary scavenge a companion leaves behind guns it couldn't use, and it won't give up its last working weapon because broken or empty ones fill its quota. A weapon you equip for it stays in hand while it works, until you change Weapon priority.</p>
+<p>A gunner keeps shooting a target it can actually hit and prefers to finish a wounded zombie, while making space from the closest one still on its feet. It can reload or rack a gun while walking, but not while running. Defending itself, a rescue, a target you picked and a withdrawal all still come first.</p>
 
 <h3>Walls, Doors and Fences</h3>
 <p>A companion only swings, shoves or stomps where the blow could really land. A wall, a closed door, a barricade, a closed window or a tall fence between it and the zombie stops the attack before it starts, and the companion walks round to an opening instead of flailing at the obstacle. A low fence, an open or smashed window and an empty frame are no obstacle. Two exceptions: under <strong>Weapons Free</strong> a melee swing may go through a closed, unbarricaded window, and a weapon the game lets strike through a see-through fence, such as a spear, can still reach the zombie behind it. A shove with the same spear can't.</p>
+
+<h3 id="ch6_hold">Holding Stairs and Doorways</h3>
+<p>Companions never fight on a staircase. They meet a climbing zombie at the top landing or at the foot of the stairs, and they never back away or dodge onto the steps. A zombie knocked down on the steps is left there rather than chased. If a companion at the top and a zombie on the top step keep trading blows without landing one, the companion steps back off the landing for a moment so the zombie comes up onto level ground.</p>
+<p>To hold an entrance, aim <span class="menu">Guard here</span> at the square beside a doorway, or at the top landing of a staircase. The guard faces the approach and keeps its position instead of patrolling. Guards sharing the post line up on its protected side: the first holds the entrance, the second stands behind and the rest farther back. On a wide landing, two guards with long enough weapons cover both sides. Guards at the top can notice zombies climbing toward them before the last step and ready their weapons; nobody attacks through a floor or wall.</p>
+<p>If the group keeps calling for withdrawal, or is clearly overwhelmed, the whole post falls back toward you. A personal emergency or an attack already under way still comes first. A doorway post remembers which side it protects after you save and load. Guard on ordinary ground keeps its usual patrol.</p>
 
 <h3>Bites and Pins</h3>
 <p>Zombies hunt companions the way they hunt you. Bites can infect and turn them. A swarm can pull a companion to the ground and pin it there unless you thin the pile in time. A pinned companion always cries for help.</p>
@@ -863,17 +889,18 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 7 -->
 <h2 class="chapter" id="ch7"><img class="ico" src="https://pzwiki.net/w/images/c/c0/Crowbar.png" alt="">Chapter 7: Scavenging and Gear<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<p>A scavenger chooses a container from the outside, the way you would: how far away it is, and what room it stands in. It doesn't know what is inside until it opens it. Once it has, it keeps taking what it needs from that container rather than walking to the next one for one more item. Every transfer plays the rummage animation through and is checked. Empty containers are skipped for a while.</p>
+<p>A scavenger chooses a container from the outside, the way you would: how far away it is, and what room it stands in. It doesn't know what is inside until it opens it. It checks every compartment, including a fridge’s freezer, and one level inside bags or boxes. Filled bags stay where they are while the useful contents are taken out. It meets its own needs first, then collects useful extras for camp until safely full. Up to six items share one rummage animation; larger hauls use another batch at the same container. Empty containers are skipped for a while. A companion may comment once on the best find of the haul, rather than announcing every pickup.</p>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="assets/lf_screenshot-scavenging.jpg" alt="A companion standing in a blood-smeared house says: I found Bra - Strapless. Eww, I got some of it on my hands.">
   <figcaption><span class="plate-no">Plate 3</span> A scavenger reports what it pulled off a body, in its own voice. <span class="credit">Image: Living Fellows</span></figcaption>
 </figure>
 
-<h3>Always Worth Carrying Home</h3>
-<p>Some things run short at every camp, so whoever is short of what, scavengers always carry these home: <img class="ico-sm" src="https://pzwiki.net/w/images/5/50/Nails.png" alt=""><strong>nails</strong>, <img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""><strong>planks</strong>, and <img class="ico-sm" src="https://pzwiki.net/w/images/6/6b/Thread.png" alt=""><strong>thread</strong>, <img class="ico-sm" src="https://pzwiki.net/w/images/9/93/DuctTape.png" alt=""><strong>tape</strong>, scrap and <img class="ico-sm" src="https://pzwiki.net/w/images/6/6d/Battery.png" alt=""><strong>batteries</strong>. Walls, barricades and repairs all start with them.</p>
+<h3>Useful Supplies for Home</h3>
+<p>Once their own needs are covered, scavengers also collect useful food, water, dressings, equipment, books and workshop supplies. That includes: <img class="ico-sm" src="https://pzwiki.net/w/images/5/50/Nails.png" alt=""><strong>nails</strong>, <img class="ico-sm" src="https://pzwiki.net/w/images/0/0d/Plank.png" alt=""><strong>planks</strong>, and <img class="ico-sm" src="https://pzwiki.net/w/images/6/6b/Thread.png" alt=""><strong>thread</strong>, <img class="ico-sm" src="https://pzwiki.net/w/images/9/93/DuctTape.png" alt=""><strong>tape</strong>, scrap and <img class="ico-sm" src="https://pzwiki.net/w/images/6/6d/Battery.png" alt=""><strong>batteries</strong>. Walls, barricades and repairs all start with them.</p>
 
-<p>Scavengers also search containers you have already opened, so a house you went through first is still worth their time.</p>
+<p>Scavengers also search containers you have already opened, so a house you went through first is still worth their time. They stay within the usual search radius and rejoin when you move on; they do not roam the building alone while you leave.</p>
+<p>Back at camp, followers wait for you to stop before putting extras into permitted marked storage. They keep their role’s supplies, the best available rations and protected equipment. Full, unreachable or missing storage leaves the items with their carrier. Delivery survives a reload, retries after three minutes and has a <strong>Retry putting loot away</strong> button on Status. A new order or a moving leader takes priority.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Ha! A box of nails. Now that's a find.<span class="who">— a happy scavenger</span></div>
 
@@ -892,7 +919,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>A companion has two limits. The <strong>pack limit</strong> is its inventory's physical capacity of 50 units: it decides what the companion can pick up, cook, saw or trade. The <strong>carrying limit</strong> comes from the game's own Strength and condition calculation, the load it can carry before it slows and tires. Strong and Stout raise it; Weak and Feeble lower it. <strong>Allow overload</strong> lets a companion go past both, up to a cap (<a href="#ch3b">Chapter 3b</a>).</p>
 <ul>
   <li><strong>At camp</strong>, a companion carrying more than about 70% of its carrying limit puts surplus into matching marked storage. Surplus never goes on the ground, and a companion on Stay or Guard, or on an expedition, doesn't leave its task to shelve it.</li>
-  <li><strong>Away from camp</strong>, only a nearly full pack, about 36 of its 50 units, makes it drop low-value surplus, and never in combat.</li>
+  <li><strong>Routine looting</strong> stops around 72% of the smaller carrying limit, while also checking real bag space and item size. A worn or held bag’s weight reduction counts. This leaves a margin for essentials and avoids picking up items only to drop them on the next update. Explicit work carries and the separate overload option keep their own rules.</li>
   <li><strong>Never surplus</strong>: <img class="ico-sm" src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">keys, field-work cargo and borrowed tools, quest items, chef and cleaning supplies, expedition finds and trade recovery items.</li>
 </ul>
 
@@ -926,7 +953,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Companions catch ordinary colds and cough and sneeze like you do, and a cough makes noise. <span class="menu">Coughs and sneezes</span> and <span class="menu">Ordinary colds</span> in Mod Options turn that down or off; Knox infection and infected wounds are never affected (<a href="#appB_mod">Appendix B</a>).</p>
 
 <h3>Toilet Breaks</h3>
-<p>Companions need the toilet every 6 to 10 game hours, on the road or at camp, but only when it is safe and after food and water. A toilet within 8 tiles comes first. Otherwise they step a few tiles outdoors, away from the group. The resident keeping <a href="#ch14c">Base Watch</a> never steps outside: without a toilet, it skips the break. Two hours late, it turns urgent. There is an animation and a sound, and sometimes a remark about the spot they picked: a garden gnome, a fire hydrant, even a corpse.</p>
+<p>Companions need the toilet every 6 to 10 game hours, on the road or at camp, but only when it is safe and after food and water. A toilet within 8 tiles comes first. Otherwise they step a few tiles outdoors, away from the group. The resident keeping <a href="#ch14c">Base Watch</a> never steps outside: without a toilet, it skips the break. Two hours late, it turns urgent. At a toilet they take off their trousers and underwear and put the same clothes back on afterwards; shirts, shoes and bags stay on. A garment that can't go back on stays worn, and the break goes ahead. There is an animation and a sound, and sometimes a remark about the spot they picked: a garden gnome, a fire hydrant, even a corpse.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>My stomach is reminding me it exists.<span class="who">— a companion getting hungry</span></div>
 
@@ -1041,6 +1068,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>There is more to say during routine work, while following you, and when one or two zombies come at you: Kentucky references, dry post-apocalypse humour, and stressed, low or hopeful lines depending on mood. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Knox County never looked this empty on a weekday.<span class="who">— a follower, walking</span></div>
+
+<h3 id="ch9_scenes">Camp Scenes, Arguments and Making Up</h3>
+<p>Conversations at camp are short scenes of a few lines between two or three companions. Each one answers in character: agreeing, teasing, pushing back, comforting or changing the subject, depending on who they are. Scenes are spaced at least two game hours and a few minutes of real play apart, more with quieter chatter, and danger interrupts them at once.</p>
+<p>After a big moment, such as a death, a close call, an expedition or supply run coming home, or a camp alarm fought off, the group talks it over once, when things have settled. That conversation comes before ordinary chatter.</p>
+<p>An argument names its reason: the supply run, a concealed bite, someone leaving the fight, the shared food or the open door. It can leave a grudge for up to three game days, shorter if the pair come through a close call together, and then they make up.</p>
+<p>Companions also bring up what they saw together: a fight at a named place, the first night at camp, the day someone joined, a burial. They say when it happened in their own words, such as <em>yesterday</em> or <em>back when it was still summer</em>, and anniversaries and familiar places can remind them. A story they only heard keeps the name of the one who told it. Which lines they have already said is saved with the game, so variety survives a reload, and deeper talk about their past opens up with time and trust.</p>
 
 <h3>Tall Tales</h3>
 <p>Companions remember their best fights. Four kills in one fight, or a kill after being pulled down, becomes a story. The companion tells it later, when things are calm at the base or you have stood still for a minute. Every retelling grows the numbers and the title, from "that thing at the gas station" to "the Legend of the Gas Station". A companion who was there may correct it. The teller never backs down.</p>
@@ -1361,7 +1394,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a9/Splint.png" alt=""></td><td><strong>Making splints</strong></td><td>From a clean rag and wood, while they carry fewer than two</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0e/SheetRope.png" alt=""></td><td><strong>Making sheet rope</strong></td><td>For climbing out of windows</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/52/Bucket.png" alt=""></td><td><strong>Washing</strong></td><td>Themselves, their gear, and dirty dressings for reuse, at reachable clean water. Protected items are left alone, and a washed dressing keeps its custom name and favourite mark.</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a0/Sponge.png" alt=""></td><td><strong>Showering</strong></td><td>When grime builds up, at most once every 18 game hours: a working shower within 8 tiles. They undress, wash every trace of blood and dirt away with ten units of the shower's water, and dress again exactly as before. Some sing.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a0/Sponge.png" alt=""></td><td><strong>Showering</strong></td><td>When grime builds up, at most once every 18 game hours: a working shower within 8 tiles. They undress, step inside, wash every trace of blood and dirt away with ten units of the shower's water, and dress again exactly as before. Some sing.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/2/2b/Moodle_Icon_Tired.png" alt=""></td><td><strong>Rest</strong></td><td>A bed or cot, a usable chair, or the floor when no seat or bed is free. A companion tired enough to sleep, by the game's own "not tired enough" mark, looks for a bed, bunks and hospital beds included, then a laid-out sleeping bag, then a couch; ordinary chairs stay seats. One bed takes one companion, double beds too for now, and nobody climbs in beside a sleeper. Small talk waits while it heads to bed. At camp it tries a marked Rest area first, then anywhere in camp. On an ordinary bed it sleeps about six game hours: an hour less on a good bed, an hour more on a bad one, shorter with Insomniac or Needs Less Sleep and longer with Needs More Sleep. Before getting into bed it switches off the bedroom light, and leaves the light on if it can't reach the switch within 12 seconds. Zombies in sight keep it awake. Panic does too, and so does real pain until it is close to collapse, unless it has taken sleeping pills. It won't lie down again within an hour of waking. A chair rest lasts 25 to 85 game minutes. Danger and a new order end any rest. Asleep in a bed, though, it no longer wakes to zombies it could only see: being attacked wakes it, and so do a zombie right beside the bed, one thumping on a door or window nearby, and a shout from the camp alarm (<a href="#ch14_alarm">Ch 14</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/75/Television.png" alt=""></td><td><strong>Television</strong></td><td>A powered TV with the volume up: they take a seat that faces the screen, or stand in the same room where they can see it. At camp they may go one floor up or down to a TV that is on. Skill shows and VHS tapes give each viewer the game's usual XP and recipes, once per line, remembered across saves. They may comment, or note something worth learning.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/3/31/Radio.png" alt=""></td><td><strong>Radio</strong></td><td>A powered radio within reach, or one floor away at camp: they switch it on, tune it to a station (never the squad's own channel), turn the volume up if it is off, then sit nearby and listen, remarking on what they hear. It passes the time; it teaches nothing.</td></tr>
@@ -1735,7 +1768,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/45/WoodAxe.png" alt=""></td><td><strong>Woodcutter</strong></td><td>A lumber area, an axe, and a log yard or marked construction, general or output storage</td><td>Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls the logs to storage. Keeps going while any marked log storage has room for another log, moving to the next container when one fills.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Handsaw.png" alt=""></td><td><strong>Carpenter</strong></td><td>Logs in marked storage or a log yard, a saw, and a second marked container for planks</td><td>Takes one log, saws it into three planks with the vanilla recipe, and stores them. Finished output is recovered after a pause or reload.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/7/77/Shovel.png" alt=""></td><td><strong>Gravekeeper</strong></td><td>A burial ground and shovel, or a safe pyre with a firestarter and petrol</td><td>Finds a body in the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it. A burial takes the body's belongings with it (<a href="#ch16">Ch 16</a>).</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>Existing plots in a Farm area, or a vanilla animal zone within camp work reach; marked farming supplies</td><td>Tends crops, supplies chickens and cattle, collects eggs, cleans hutches and delivers milk (<a href="#ch15">Ch 15</a>).</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/87/Hoe.png" alt=""></td><td><strong>Farmer</strong></td><td>Existing plots in a Farm area, or a vanilla animal zone within camp work reach; marked farming supplies</td><td>Tends crops, supplies chickens, cattle and sheep, collects eggs, cleans hutches, shears wool and delivers milk (<a href="#ch15">Ch 15</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/8/81/Hammer.png" alt=""></td><td><strong>Maintainer</strong></td><td>Marked maintenance targets</td><td>Repairs damaged barricades that need planks.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/5/54/Pot.png" alt=""></td><td><strong>Chef</strong></td><td>Food storage or a camp fridge, ingredients and cookware in camp storage</td><td>Keeps safe meals in the fridge, and cooks one for you on request (<a href="#ch15b">Ch 15b</a>).</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/2/2f/FishingRod.png" alt=""></td><td><strong>Angler</strong></td><td>A fishing bank, a rod and bait</td><td>Fishes the bank and stores the catch in marked food storage (<a href="#ch15b">Ch 15b</a>).</td></tr>
@@ -1763,7 +1796,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="step-n">2</span>Allow withdrawals and make sure the Medic can reach the storage.</li>
   <li><span class="step-n">3</span>Let them pack. They aim to carry <strong>nine clean dressings and one splint</strong> in the kit, using what the camp actually has.</li>
 </ol>
-<p>The kit stays with the Medic rather than being sorted back onto a shelf. Treatment uses its real contents, so keep the medical shelf stocked as supplies are used. A kit does not replace your own first aid: you can still use <span class="menu">Medical Check</span> to treat someone yourself.</p>
+<p>The kit stays with the Medic rather than being sorted back onto a shelf. Treatment uses its real contents, so keep the medical shelf stocked as supplies are used. A kit does not replace your own first aid: you can still use <span class="menu">Medical Check</span> to treat someone yourself. If you remove the Medical shelf, a former Medic keeps the kit as ordinary gear.</p>
 
 <h3>Safety Rules for Camp Work</h3>
 <ul>
@@ -1983,10 +2016,15 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_photo_farm_pasture.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_farm_pasture.webp" width="1280" height="720" alt="Carla milking a cow in a grass pasture behind a wooden fence, with another cow, a calf, separate troughs and storage crates. Crop fields surround the enclosure."></a>
-  <figcaption><span class="plate-no">Photo 11</span> Carla milks a cow in a grass pasture beside the fields. A wooden fence surrounds the animals, with separate feed and water troughs inside and marked storage within reach. <span class="credit">In-game capture: Living Fellows, Build 42.22.2</span></figcaption>
+  <figcaption><span class="plate-no">Photo 9</span> Carla milks a cow in a grass pasture beside the fields. A wooden fence surrounds the animals, with separate feed and water troughs inside and marked storage within reach. <span class="credit">In-game capture: Living Fellows, Build 42.22.2</span></figcaption>
 </figure>
 
 <!-- CH 15b -->
+<figure class="plate terminal-shot">
+  <a href="assets/lf_photo_sheep_shearing.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_sheep_shearing.webp" width="600" height="380" alt="Carla bends over a sheep during the native shearing action in a wooden-fenced grass pasture beside crop fields, with a lamb and chicken nearby."></a>
+  <figcaption><span class="plate-no">Photo 10</span> Carla uses manual shears in the sheep pasture. Farmers gather the wool from the ground and carry it to storage. <span class="credit">Cropped in-game capture: Living Fellows, Build 42.22.2</span></figcaption>
+</figure>
+
 <h2 class="chapter" id="ch15b"><img class="ico" src="https://pzwiki.net/w/images/5/54/Pot.png" alt="">Chapter 15b: The Kitchen and the Water<span class="stage stage-late">Camp Life</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
 <p>Two base jobs feed the camp. Neither makes food out of nothing: the Chef cooks what the camp holds with the game's own recipes, and the Angler pulls real fish out of real water.</p>
@@ -2042,7 +2080,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_photo_grave.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_photo_grave.webp" width="1280" height="720" alt="Jill stands beside a freshly dug open grave in a backyard burial plot, among long mounds of turned earth, with flowers growing nearby and a wooden fence behind."></a>
-  <figcaption><span class="plate-no">Photo 9</span> Jill has dug a new grave beside the older ones. She goes to fetch the body next. <span class="credit">In-game capture: Living Fellows</span></figcaption>
+  <figcaption><span class="plate-no">Photo 11</span> Jill has dug a new grave beside the older ones. She goes to fetch the body next. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
 
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>A body goes into the grave the way it lies, with its clothes and whatever is in its pockets. Search the dead you care about before the gravekeeper reaches them. A pyre is pickier: it leaves a body still carrying items for you.</div>
@@ -2140,7 +2178,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h4>Keep the Question Going</h4>
 <p>Ask about a generator, then <code>what fuel does it use?</code> and <code>where can I find it?</code>. Ask about a companion, then <code>where are they?</code> or <code>what do they need?</code>. The same short follow-ups work for equipment, jobs, expeditions, weather and building controls. EMMA checks the current records again; if a reference is unclear, she asks which person or thing you mean.</p>
-<p>For practical advice, try <code>how do I survive winter?</code>, <code>how do I clean drinking water?</code> or <code>tell me about the Knox infection</code>, then <code>tell me more</code>. Her survival references are stored locally. She can explain what the game records, but missing information stays unknown.</p>
+<p>You can also ask about her own words. After a camp report, ask <code>blocked?</code> or <code>0.3 days?</code>; after a zombie report, <code>what door?</code>. She explains that part instead of repeating the whole reply. A clear new question starts a new subject, even if it shares a word with what she just said.</p>
+<p>When she can't place a question she says so and suggests a few close topics. Type one of them, or say <code>second</code> for the second. After two misses in a row she lists the subjects she knows. She also answers <code>what will happen to me?</code> and plays along with <code>knock knock</code>.</p>
+<p>For practical advice, try <code>how do I survive winter?</code>, <code>how do I clean drinking water?</code> or <code>tell me about the Knox infection</code>, then <code>tell me more</code>. Her practical reference covers 27 topics, from traps, fishing and foraging to generators, the Knox infection and moving camp; for each, ask what it is, how to make it, how to use it, where to find it, why it matters or what its dangers are. Her survival references are stored locally. She can explain what the game records, but missing information stays unknown.</p>
 
 <h3 id="emma-care">When You Are Not All Right</h3>
 <p>EMMA recognizes grief, distress and self-doubt, and asks when she is unsure. You can answer in ordinary words such as <code>yeah</code> or <code>nah, I'm fine</code>. Her jokes and story progress pause while she listens. Questions about your character's injuries or a dangerous supply run still get game advice.</p>
@@ -2327,6 +2367,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Larchfield code wheel</strong></td><td>Open the owner's manual left beside the PC; its last page is the wheel. Turn the marker to the requested letter with the arrow keys, the mouse wheel or the turn buttons, and read the numbered window. Three challenges, or one if you carry a manual of your own. Three wrong letters pause it for ten minutes.</td></tr>
   <tr><td><strong>Make your case to EMMA</strong></td><td>Choose one of four numbered arguments a round. She checks what you claim about days survived, the people with you, a screwdriver in your hand, a zombie nearby or your Electrical skill. A caught lie or an argument she won't hear costs patience. Four points of conviction win; losing her patience twice, or five rounds, closes the discussion for an hour. She remembers how you won.</td></tr>
 </table>
+<p>Lock screens forgive the way people type. Capitals and a trailing full stop or question mark don't matter. <code>quit</code>, <code>log out</code> and <code>close</code> log off; <code>help</code>, <code>hint</code>, <code>?</code> and <code>what do I do</code> ask for help; <code>yeah</code>, <code>yep</code>, <code>nope</code> and <code>nah</code> answer a yes-or-no question. On a numbered choice you can type the number as a word, and a six-digit telephone or radio code may include spaces or dashes. The password or code itself must still be exact.</p>
 
 <details class="terminal-startup">
   <summary>A few computers ask you to step away from the keyboard (spoilers)</summary>
@@ -2729,7 +2770,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CH 18c -->
 <h2 class="chapter" id="ch18c"><img class="ico" src="https://pzwiki.net/w/images/4/43/Map.png" alt="">Chapter 18c: Strange Folk<span class="stage stage-end">Strangers</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
 
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.10 uses native bridge protocol <code>42.22-isocompanion-31</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Release 0.27.22 uses native bridge protocol <code>42.22-isocompanion-31</code>; <span class="menu">More → Support</span> reports an older or mismatched bridge.</div>
 
 <p>Not every stranger is a household looking for supplies. Seventy-three hand-made characters live in Knox County: a butcher with a back room, a deputy still running her checkpoint, a grandmother guarding a child's bedroom with a broken bottle, a man who smeared himself in the dead so they'd leave him alone. Each one is a one-off with their own rules, voice and ending. They use the same standing, trade, combat, navigation and recruitment rules as other survivors, and their animals are real Build 42 animals with names that survive saves.</p>
 
@@ -2752,7 +2793,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Two of them radio for rescue on <strong>90 MHz</strong>: Eli Rourke and Nate Duvall. Hold or wear a powered portable radio tuned to 90 MHz with the volume up, and you'll hear them while their area is loaded, as long as you are more than three tiles away and well inside their radio's range. Eli calls every 90 seconds and Nate a little less often; storm static can garble a call, and the next one gets through. To answer, you need a working two-way radio: right-click it in your inventory and choose <span class="menu">Reply to <em>name</em> on 90 MHz</span>. The rescue location goes on your map.</p>
 
 <h3 id="ch18c_air">On the Air</h3>
-<p>Two more are heard before they are met. <strong>Dwayne Stidham</strong> reads the Gospel Hour on <strong>FM 103.4</strong> at 08:00, 13:00 and 19:00 from a station van, and any radio tuned and in range picks it up. <strong>Garland Hatcher</strong> sends sitreps on <strong>146.6 MHz</strong> at 06:00 and 20:00: the walkers he can count around his camp and tomorrow's weather from the game's own forecast. To talk back, hold or wear a powered two-way walkie-talkie set to 146.6 with the microphone on, within range of his set both ways, then right-click it in your inventory and choose a <span class="menu">146.6: …</span> call. Start by asking who is broadcasting. He trusts you one step more for each day you call, and more than three calls in an hour sends him quiet until 06:00 the next day.</p>
+<p>Two more are heard before they are met. <strong>Dwayne Stidham</strong> reads the Gospel Hour on <strong>FM 103.4</strong> at 08:00, 13:00 and 19:00 from a station van, and any radio tuned and in range picks it up. He boards that van himself and can talk to you from his seat. <strong>Garland Hatcher</strong> sends sitreps on <strong>146.6 MHz</strong> at 06:00 and 20:00: the walkers he can count around his camp and tomorrow's weather from the game's own forecast. To talk back, hold or wear a powered two-way walkie-talkie set to 146.6 with the microphone on, within range of his set both ways, then right-click it in your inventory and choose a <span class="menu">146.6: …</span> call. Start by asking who is broadcasting. He trusts you one step more for each day you call, and more than three calls in an hour sends him quiet until 06:00 the next day.</p>
 
 <h3>The Cast</h3>
 <div class="callout callout-warn"><span class="callout-label">Take care — </span><strong>Spoilers.</strong> The tables below give away each stranger's hook. Skip them if you'd rather meet everyone cold. <strong>✚</strong> marks someone who can join you once the story and trust allow.</div>
@@ -2999,7 +3040,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p><span class="menu">More → Support</span> is the first place to look when something is wrong, and the report it copies is the most useful thing to attach to a bug report.</p>
 <table>
   <tr><th>Line</th><th>What a healthy game shows</th></tr>
-  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.10</td></tr>
+  <tr><td>Living Fellows release</td><td>The version you installed, such as 0.27.22</td></tr>
   <tr><td>Game build / supported build</td><td>42.22.2 on both sides</td></tr>
   <tr><td>Runtime active</td><td>Yes. If not, <strong>Runtime disabled reason</strong> says why.</td></tr>
   <tr><td>Native bridge status, actor provider, bridge protocol</td><td>The bridge is ready, and its protocol matches the expected one. A mismatch means an old or mixed install.</td></tr>
@@ -3055,9 +3096,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>8</td><td>Muldraugh paper map</td><td class="tbl-item">Pzmap_01_public_paper.png</td></tr>
   <tr><td>9</td><td>Zombies on the road</td><td class="tbl-item">DecomposingGroup.jpg</td></tr>
   <tr><td>10</td><td>Convenience store</td><td class="tbl-item">ConvenienceStore_Muldraugh.png</td></tr>
-  <tr><td>Photos 1–10</td><td>Companion panel, right-click menu, boarding, a yard fight, Medical Check, sleep, base layout, a barricade, camp work and a grave. The game's world art in them belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures from a test save, Build 42.21.0</td></tr>
+  <tr><td>Photos 1–8, 11</td><td>Companion panel, boarding, a yard fight, Medical Check, sleep, base layout, a barricade, camp work and a grave. The game's world art in them belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures from a test save, Build 42.21.0</td></tr>
   <tr><td>Screens 1–15</td><td>EMMA, Larchfield BIOS, LARCH/WAVE, LARCH/GRID, local services, the building scanner and owner files. Screens 4, 8, 9 and 11 also show the game's world; that art belongs to The Indie Stone.</td><td>Living Fellows in-game framebuffer captures, Build 42.21.0</td></tr>
-  <tr><td>Photo 11</td><td>A Farmer milking cattle in a grass pasture with a wooden fence, separate troughs and storage. World and animal art belong to The Indie Stone.</td><td>Living Fellows in-game framebuffer capture, Build 42.22.2</td></tr>
+  <tr><td>Photo 9</td><td>A Farmer milking cattle in a grass pasture with a wooden fence, separate troughs and storage. World and animal art belong to The Indie Stone.</td><td>Living Fellows in-game framebuffer capture, Build 42.22.2</td></tr>
+  <tr><td>Photo 10</td><td>Native manual shearing in a fenced sheep pasture beside fields, cropped from the live acceptance capture. World and animal art belong to The Indie Stone.</td><td>Living Fellows in-game framebuffer capture, Build 42.22.2</td></tr>
 </table>
 <p class="tbl-note">Living Fellows is an unofficial mod, not affiliated with or endorsed by The Indie Stone.</p>
 
@@ -3172,7 +3214,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Woodcutter</td><td>Lumber area, axe, storage or a log yard for logs</td></tr>
   <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, firestarter and petrol</td></tr>
-  <tr><td class="k">Farmer</td><td>Crops, chickens, cattle and sheep; see Animal care below</td></tr>
+  <tr><td class="k">Farmer</td><td>Crops; animals in a game animal zone within 30 tiles. Feed, empty milk containers and shears in Farming supplies; milk to barrels marked Milk, wool to Crafting, manure to composters</td></tr>
   <tr><td class="k">Medic</td><td>First aid kit, clean dressings and a splint in Medical storage</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
   <tr><td class="k">Chef</td><td>Food storage or a fridge, food and cookware in storage</td></tr>
@@ -3181,20 +3223,6 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Outdoor work pauses 21:00–06:00 unless allowed. Tired residents sleep before the next job.</p>
 <p>Any available base-duty resident can refuel parked cars and camp generators, inflate tires and wash cars from marked supplies.</p>
 <p class="tbl-note">Ch 14, 15, 15b, 16</p>
-</div>
-
-<div class="card">
-<h4><img src="https://pzwiki.net/w/images/9/96/WateringCan.png" alt="">Animal care</h4>
-<p><span class="k">Farmer on Base duty</span> + the game's animal zone. The whole pen must be within 30 tiles of camp on a camp floor.</p>
-<ul>
-  <li>Separate feed and water troughs. Stock feed, water cans, empty milk containers and shears in <span class="k">Farming supplies</span>.</li>
-  <li><span class="k">Eggs</span> &rarr; Fresh food or Regular food. Fertilised eggs stay in the hutch.</li>
-  <li><span class="k">Milk</span> &rarr; a compatible barrel marked Milk; separate cow and sheep milk. Food storage is a fallback.</li>
-  <li><span class="k">Wool</span> &rarr; Crafting, then General storage.</li>
-  <li><span class="k">Manure</span> &rarr; marked composters, then marked Manure containers.</li>
-</ul>
-<p>Farmers also soothe stressed animals when safe. If work pauses, check the Base job, supplies, space and access.</p>
-<p class="tbl-note">Ch 15</p>
 </div>
 
 <div class="card">
@@ -3226,7 +3254,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ol>
 <p><span class="k">Recall</span>: powered walkie-talkies on you and the leader, same channel → right-click your radio → <em>Living Fellows radio → Expedition → Return immediately</em>.</p>
 <p><span class="k">Wood</span>: 1/2/4/8/12/24 logs or Full load (up to 256). Keep permitted Log Yard, Construction or General storage ready.</p>
-<p><span class="k">Fuel</span>: known gas station, permitted empty or partly filled cans, and trunk space. The car is topped up first. A suitable generator already at the station can power the pump; one the crew starts is stopped before leaving. Filled cans go to Tools, then General storage.</p>
+<p><span class="k">Fuel</span>: a known gas station, empty cans in permitted storage and trunk space. The car fills first; cans go to Tools, then General.</p>
 <p class="tbl-note">Ch 17</p>
 </div>
 
@@ -3257,7 +3285,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <!-- CARD END -->
 
 <div class="page-footer">
-  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.22.2 Edition &nbsp;·&nbsp; Release 0.27.10 &nbsp;·&nbsp; First Edition, Thirtieth Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
+  Field Manual — Living Fellows &nbsp;·&nbsp; Project Zomboid Build 42.22.2 Edition &nbsp;·&nbsp; Release 0.27.22 &nbsp;·&nbsp; First Edition, Thirty-First Printing &nbsp;·&nbsp; ✚ You won't die... alone. ✚
 </div>
 <script>
 (function () {
