@@ -41,6 +41,11 @@
 
 ## 0.27.20 - Leave base duty without losing supplies
 
+- Fix Windows standalone startup with PZO: use its Java mod loader instead of
+  a launch-time Java agent, and mark the standalone payload for that loader.
+  Reinstalling repairs the previous owned launch option while retaining PZO's
+  launcher and settings. Normal launch and uninstall remain reversible.
+
 - Follow and other direct orders explain the actual work or storage blocker
   instead of displaying a cancelled-conversation message.
 - Orders wait up to 20 seconds for previous work to release its supplies and

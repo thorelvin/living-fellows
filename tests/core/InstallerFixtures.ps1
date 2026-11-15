@@ -88,8 +88,10 @@ function Set-ScPzoLauncherFixture($Fixture) {
     $jar = Join-Path $Fixture.game 'pzoptimizer.jar'
     $zip = [System.IO.Compression.ZipFile]::Open($jar, 'Create')
     try {
-        $stream = $zip.CreateEntry('com/pzoptimizer/PZOEntrypoint.class').Open()
-        try { $stream.WriteByte(0) } finally { $stream.Dispose() }
+        foreach ($entry in @('com/pzoptimizer/PZOEntrypoint.class','com/pzoptimizer/JavaModLoader.class')) {
+            $stream = $zip.CreateEntry($entry).Open()
+            try { $stream.WriteByte(0) } finally { $stream.Dispose() }
+        }
     } finally { $zip.Dispose() }
     $config = Get-ScOriginalLauncherConfig | ConvertFrom-Json
     $config.mainClass = 'com/pzoptimizer/PZOEntrypoint'

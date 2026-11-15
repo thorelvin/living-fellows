@@ -71,16 +71,51 @@ function Assert-AgentFixture($Fixture) {
         -Raw -Encoding utf8 | ConvertFrom-Json
     if ($config.mainClass -ne 'com/pzoptimizer/PZOEntrypoint' -or
         @($config.classpath | Where-Object { $_ -ceq 'LivingFellowsBridge.jar' }).Count -ne 1 -or
-        @($config.vmArgs | Where-Object { $_ -ceq '-javaagent:LivingFellowsBridge.jar' }).Count -ne 1 -or
-        $manifest.schemaVersion -ne 4 -or $manifest.launchMode -ne 'agent' -or
-        $manifest.launcherAgentArgument -cne '-javaagent:LivingFellowsBridge.jar' -or
+        @($config.vmArgs | Where-Object { $_ -match '^-javaagent:.*LivingFellowsBridge.jar' }).Count -ne 0 -or
+        $manifest.schemaVersion -ne 4 -or $manifest.launchMode -ne 'pzo-loader' -or
+        $manifest.launcherAgentArgument -ne '' -or
         $manifest.installedMainClass -ne 'com/pzoptimizer/PZOEntrypoint' -or
         $manifest.originalMainClass -ne 'com/pzoptimizer/PZOEntrypoint') {
-        throw 'Recognized PZO launcher did not retain its main with exact owned agent/manifest state.'
+        throw 'Recognized PZO launcher did not retain its main with loader-only bootstrap state.'
     }
 }
 
 switch ($Case) {
+
+'pzo-legacy-agent-upgrade' {
+    $fixture = New-StandaloneFixture 'pzo-legacy-agent-upgrade'
+    $foreignJar = Set-ScPzoLauncherFixture $fixture
+    $foreignHash = (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash
+    $originalHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    # Recreate the exact owned schema-4 launch mode shipped by .19/.20.
+    $legacy = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    $legacy.vmArgs += '-javaagent:LivingFellowsBridge.jar'
+    $legacy | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+    $manifestPath = Join-Path $fixture.bridge 'install-manifest.json'
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $manifest.launchMode = 'agent'
+    $manifest.launcherAgentArgument = '-javaagent:LivingFellowsBridge.jar'
+    $manifest.installedConfigSha256 = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+    foreach ($fault in @('native-config-replace','native-manifest-write')) {
+        $before = Get-InstallFixtureSnapshot $fixture
+        $failed = $false
+        try { Install-AgentFixture $fixture $fault }
+        catch { $failed = $_.Exception.Message -like '*Injected native installer failure*' }
+        if (-not $failed -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+            throw "Legacy PZO agent upgrade did not roll back exactly at $fault."
+        }
+    }
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    Assert-AgentFixture $fixture
+    & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods -InstallDataRoot $fixture.data | Out-Null
+    if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $originalHash -or
+        (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash -ne $foreignHash -or
+        (Test-Path -LiteralPath $fixture.target)) {
+        throw 'Legacy PZO agent upgrade/uninstall did not restore the original PZO state.'
+    }
+}
 
 'pzo-agent-lifecycle' {
     $fixture = New-StandaloneFixture ('pzo-agent-' + $Variant)
@@ -125,6 +160,23 @@ switch ($Case) {
         (Test-Path -LiteralPath $fixture.target) -or
         (Test-Path -LiteralPath (Join-Path $fixture.game 'LivingFellowsBridge.jar'))) {
         throw 'PZO lifecycle changed the foreign JAR or left an owned install active.'
+    }
+}
+
+'pzo-loader-reinstall' {
+    $fixture = New-Fixture 'pzo-loader-reinstall'
+    $foreignJar = Set-ScPzoLauncherFixture $fixture
+    $foreignHash = (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash
+    Install-AgentFixture $fixture
+    $manifest = Get-Content -LiteralPath (Join-Path $fixture.bridge 'install-manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    Copy-Item -LiteralPath $manifest.originalConfigBackup -Destination $fixture.config -Force
+    $restoredHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+    Install-AgentFixture $fixture
+    Assert-AgentFixture $fixture
+    & (Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1') -BridgeRoot $fixture.bridge | Out-Null
+    if ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $restoredHash -or
+        (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash -ne $foreignHash) {
+        throw 'A clean PZO reinstall was not recovered and restored without foreign changes.'
     }
 }
 
@@ -207,12 +259,12 @@ switch ($Case) {
     Install-AgentFixture $fixture
     Assert-AgentFixture $fixture
     $installed = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8
-    foreach ($problem in @('missing-agent', 'duplicate-agent', 'nonexact-agent', 'missing-classpath', 'duplicate-classpath')) {
+    foreach ($problem in @('duplicate-agent', 'nonexact-agent', 'duplicate-classpath')) {
         $config = $installed | ConvertFrom-Json
         switch ($problem) {
             'missing-agent' { $config.vmArgs = @($config.vmArgs | Where-Object { $_ -ne '-javaagent:LivingFellowsBridge.jar' }) }
             'duplicate-agent' { $config.vmArgs += '-javaagent:LivingFellowsBridge.jar' }
-            'nonexact-agent' { $config.vmArgs = @($config.vmArgs | ForEach-Object { if ($_ -eq '-javaagent:LivingFellowsBridge.jar') { '-javaagent:./LivingFellowsBridge.jar' } else { $_ } }) }
+            'nonexact-agent' { $config.vmArgs += '-javaagent:./LivingFellowsBridge.jar' }
             'missing-classpath' { $config.classpath = @($config.classpath | Where-Object { $_ -ne 'LivingFellowsBridge.jar' }) }
             'duplicate-classpath' { $config.classpath += (Join-Path $fixture.bridge 'SurvivorCompanionBridge.jar').Replace('\', '/') }
         }
