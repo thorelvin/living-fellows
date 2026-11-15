@@ -406,6 +406,9 @@ local knockProtected=set({"status","food","storage","people_list","people_hurt",
     "jobs","blocked","skills","shortages","alarms","deliveries","expedition","power","weather","time","date",
     "math","guide","survival","grid_control","notes","recall","help","conversation_history","more",
     "request","remember","forget","callme","factory_reset","yes","no"})
+local knockCommands=set({"tell","show","ask","send","refuel","retry","forget","remember","call",
+    "treat","queue","start","run","open","close","lock","unlock","turn","switch","sound",
+    "activate","reset","delete","remove","help","stop","cancel","exit","bye"})
 
 local ARITH = { { " times ", " * " }, { " multiplied by ", " * " }, { " plus ", " + " }, { " minus ", " - " },
     { " divided by ", " / " } }
@@ -567,6 +570,12 @@ function M.parse(session, text, world, turn, baseParse)
     if worth then return worth,{} end
     for _,phrase in ipairs({"what will happen","what happens now","what happens next","what now"}) do
         if exactly(toks,phrase,fuzzy) then return "advice",{futureAdvice=true} end
+    end
+    local joke=session.emmaKnock
+    if joke and joke.stage==1 and session.turns-joke.at<=3 and #base<=4
+        and not QWORDS[toks[1]] and not knockCommands[toks[1]]
+        and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text) then
+        return "knock",{punchline=table.concat(toks," ")}
     end
     if SC.EmmaContext then
         local detail=SC.EmmaContext.resolve(session,text,true)
@@ -741,12 +750,13 @@ function M.parse(session, text, world, turn, baseParse)
         if not found then brainIntent="fallback" end
     end
     if isStatement and (brainIntent == "fallback" or brainIntent == "did_you_mean" or brainIntent == "mash") then
-        if session.emmaKnock and session.turns-session.emmaKnock.at<=3 and #toks<=8 then
+        if session.emmaKnock and session.emmaKnock.stage==2 and session.turns-session.emmaKnock.at<=3 and #toks<=8 then
             return "knock",{punchline=joined}
         end
         return "news_plain"
     end
-    if brainIntent=="fallback" and session.emmaKnock and session.turns-session.emmaKnock.at<=3 and #toks<=8 then
+    if brainIntent=="fallback" and session.emmaKnock and session.emmaKnock.stage==2
+        and session.turns-session.emmaKnock.at<=3 and #toks<=8 then
         return "knock",{punchline=joined}
     end
     return brainIntent, slots
@@ -813,6 +823,10 @@ function M.install()
         local previous=session.emmaKnock
         if not turn.slots.punchline then
             session.emmaKnock={stage=1,at=session.turns}
+            session.context.item,session.context.itemText=nil,nil
+            if session.context.intent=="storage" or session.context.intent=="food" then session.context.intent=nil end
+            local topics=Conv.state(session).topics
+            for index=#topics,1,-1 do if topics[index].kind=="item" then table.remove(topics,index) end end
             reply.lines=expandedRows(session,"knock_open",{})
         elseif previous and previous.stage==1 then
             session.emmaKnock={stage=2,at=session.turns}

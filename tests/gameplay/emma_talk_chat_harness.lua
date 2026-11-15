@@ -253,6 +253,28 @@ for number,raw in ipairs({"what about Kate","what about Louisville","what about 
         check(SC.EmmaFollowups.resolve(s,raw)==nil,"an unrelated noun became a water clarification")
     end)
 end
+for number,example in ipairs({{prefix="any medicine?",name="Boo"},{name="Kate"}}) do
+    case("F8.knock-name-"..number,function()
+        local _,respond=fresh("emma")
+        if example.prefix then respond(example.prefix) end
+        respond("knock knock")
+        local r=respond(example.name)
+        check(r.intent=="knock" and F.text(r)==example.name:lower().." who?","a lookup swallowed the knock-knock name")
+    end)
+end
+case("F8.explicit-status-wins",function()
+    local _,respond=fresh("emma") respond("knock knock")
+    check(respond("status").intent=="status","an explicit command became a knock-knock name")
+end)
+case("F8.storage-context-cleared",function()
+    local s,respond=fresh("emma") respond("any medicine?") respond("knock knock")
+    check(s.context.item==nil and s.context.itemText==nil,"the joke retained the old storage follow-up")
+end)
+case("F8.care-keeps-priority",function()
+    local _,respond=fresh("emma") respond("knock knock")
+    local r=respond("i want to kill myself") -- Existing synthetic care control; no reply body is emitted.
+    check(r.careDetected and r.private,"a synthetic care control became joke material")
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end
