@@ -180,6 +180,13 @@ function Q.ground(session,raw,allowPlain)
             if #numbered>1 then excerpt=table.concat(numbered,"; ") end
         end
     end
+    if norm(excerpt)==norm(c.text) and best>1
+        and any(norm(sentences[best]),{"no","not","unknown","unconfirmed","cannot"}) then
+        -- A negative finding can answer its own detail question without
+        -- quoting the entire definition and all its neighbouring sentences.
+        excerpt=sentences[best]
+    end
+    if norm(excerpt)==norm(c.text) then return nil end
     local prefix=c.framed and "In that source: " or "In this context, I meant: "
     local suffix=""
     if any(norm(c.text),{"unknown","unconfirmed","no","not","missing"}) then

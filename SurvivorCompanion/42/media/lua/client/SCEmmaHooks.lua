@@ -12,7 +12,7 @@ local nouns={"memory fault","parity error","checksum","state","governor","money"
     "country","government","green screen","pencil","blood","infection","generator","gasoline","fuel",
     "official computer","twelve machines","smile score","kyle","password","authorisation","radio",
     "version one","0f3a","parity","manual",
-    "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen"}
+    "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen","opinions"}
 for _,term in ipairs({"reserve","fever","cordon","quarantine","relay","cycle","operator","tone"}) do nouns[#nouns+1]=term end
 local ignored={I=true,Im=true,The=true,A=true,An=true,That=true,This=true,Those=true,These=true,
     It=true,Its=true,You=true,Your=true,We=true,Our=true,They=true,Their=true,He=true,She=true,
@@ -41,7 +41,10 @@ function H.salient(text)
     local previous="."
     for gap,word in text:gmatch("([^%a]*)([%a][%a']*)") do
         local capital=word:match("^%u") and not ignored[word]
-        if capital and not gap:find("[%.!%?]") and previous~="." then add(out,seen,word) end
+        if capital and not gap:find("[%.!%?]") and previous~="." then
+            add(out,seen,word)
+            if word:find("'s$") then add(out,seen,word:sub(1,-3)) end
+        end
         previous=word
     end
     table.sort(out)
@@ -70,11 +73,22 @@ local answers={
     july={"July 9th is a date in the local emergency record. The Knox Event is dated from July 6th; a file or time card dated the ninth does not establish a person's fate."},
     unlock={"Boot EMMA on an official government computer, or recover twelve ordinary computers, to restore the county-schedule index. A claim of office cannot replace the missing files.",
         where="Look for official workstations in government buildings. I cannot certify a working machine or a safe route nearby from this archive."},
+    opinions={"The county's emergency plan, the last operator, and your habit of asking follow-up questions. The questions are doing rather better than the plan."},
+    emergency={"An urgent situation requiring action to protect people or property. The dictionary is wonderfully brief about the ensuing paperwork."},
+    management={"Management means organising work and resources, or the people put in charge of that job. Being in charge and knowing what to do have never been the same qualification."},
+    assistant={"A helper. In my case, a county programme for records and practical questions. The job description was optimistic about what can be done from behind a screen."},
+    maker={"Larchfield is the manufacturer named by this computer's BIOS. That identifies the machine. It is not a signed confession for everything I say."},
+    bios={"The BIOS is the machine's startup programme. Its identification text names the manufacturer before the usual screen opens. An introduction, not a character reference."},
+    property={"Property means something owned by a person or organisation. A stamp records the claim. It cannot prevent theft, spoilage or poor judgement."},
+    radio={"A radio receives broadcasts; some sets can transmit as well. A voice on a receiver still needs its claims checked. Volume is not a certificate of reliability."},
+    operator={"The person using the terminal. Earlier operators appear in surviving records; an unnamed operator stays unnamed. A job title does not supply a missing identity or destination."},
+    tone={"The manner of speaking: rhythm, emphasis and attitude. A calm tone is useful. It is not proof that the situation deserves one."},
 }
 local aliases={kentucky="state",commonwealth="state",frankfort="state",budget="money",funding="money",
     ["memory fault"]="glitch",["parity error"]="glitch",checksum="glitch",["everything fine"]="glitch",
     ["green screen"]="screen",["official computer"]="unlock",["twelve machines"]="unlock",
-    ["version one"]="version",["0f3a"]="glitch",parity="glitch"}
+    ["version one"]="version",["0f3a"]="glitch",parity="glitch",
+    larchfield="maker",larchfields="maker"}
 local built=false
 local rows,byText={},{}
 local function derive(text,target,source,declared)
@@ -108,6 +122,12 @@ function H.install()
     built=true
     for id,pool in pairs(SC.TerminalLines and SC.TerminalLines.POOLS or {}) do walk(pool,"pool:"..id,"emma:"..id,0) end
     for id,pool in pairs(SC.EmmaLanguageData and SC.EmmaLanguageData.pools or {}) do walk(pool,"pool:"..id,"emma:"..id,0) end
+    for id,pool in pairs(SC.TerminalKnowledge and SC.TerminalKnowledge.EXTRA_POOLS or {}) do
+        walk(pool,"pool:"..id,"emma:knowledge-extra:"..id,0)
+    end
+    for id,pool in pairs(SC.TerminalConversation and SC.TerminalConversation.EXTRA_POOLS or {}) do
+        walk(pool,"pool:"..id,"emma:conversation-extra:"..id,0)
+    end
     for _,entry in ipairs(SC.TerminalLore and SC.TerminalLore.REFERENCE or {}) do
         archive[entry.id]=entry
         entry.facets=entry.facets or loreFacets[entry.id]

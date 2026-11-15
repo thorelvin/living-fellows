@@ -59,6 +59,59 @@ case("F1.strong-overlap",function()
     seed("The directory mentions Louisville. It contains several old Louisville listings. They do not describe the present roads.")
     check(Q.ground(s,"how far is louisville",true)==nil,"word overlap swallowed a strong distance question")
 end)
+case("F2.opinions-answer",function()
+    local _,respond,seed=fresh("emma")
+    seed(identity)
+    local r=respond("opinions?")
+    local text=F.text(r)
+    check(r.intent=="hook_detail" and not text:find(identity:lower(),1,true)
+        and text:find("operator",1,true) and text:find("plan",1,true),
+        "opinions did not receive its own substantive hook answer")
+end)
+case("F2.whole-source-is-not-an-answer",function()
+    local s,_,seed=fresh("emma")
+    seed("The vellum tray holds paper.")
+    check(Q.ground(s,"tray?",true)==nil,"the whole preceding reply was offered as an explanation")
+end)
+case("F2.negative-finding",function()
+    local s,_,seed=fresh("emma")
+    local source="A glossary says that a beldrin is a hand-operated sorting tray. It has no motor."
+    seed(source)
+    local r=Q.ground(s,"Motor then?",true)
+    check(r and table.concat(r.lines," "):find("no motor",1,true)
+        and not table.concat(r.lines," "):find(source,1,true),
+        "a negative finding must answer the detail without repeating the entire glossary")
+end)
+case("F2.extra-pool-coverage",function()
+    local catalog=H.catalog()
+    local domains={}
+    for _,row in ipairs(catalog) do
+        if row.source:find("knowledge-extra",1,true) then domains.knowledge=true end
+        if row.source:find("conversation-extra",1,true) then domains.conversation=true end
+    end
+    check(domains.knowledge and domains.conversation,"both extra-pool tables must be walked explicitly")
+    local function inspect(line,pool)
+        local s,_,seed=fresh("emma")
+        seed(line)
+        for _,term in ipairs(H.salient(line)) do
+            local id,slots=H.resolve(s,term.."?")
+            local answer=id=="hook_detail" and H.render(slots)
+            check(id~=nil and (not answer or not table.concat(answer," "):find("In that line:",1,true)),
+                "extra-pool term has no actual answer: "..pool..":"..term)
+        end
+    end
+    for _,source in ipairs({SC.TerminalKnowledge.EXTRA_POOLS,SC.TerminalConversation.EXTRA_POOLS}) do
+        for pool,rows in pairs(source) do
+            for _,row in ipairs(rows) do
+                if type(row)=="string" then inspect(row,pool)
+                else for _,line in ipairs(row) do inspect(line,pool) end end
+            end
+        end
+    end
+    local missing=H.lint({text=identity,hooks={}})
+    local found=false for _,term in ipairs(missing) do if term=="opinions" then found=true end end
+    check(found,"the hook lint must recognise opinions as a salient term")
+end)
 for _,line in ipairs(failed) do
     SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CHAT_FAIL "..line.."\n"
 end
