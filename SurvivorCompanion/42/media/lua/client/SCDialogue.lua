@@ -4659,6 +4659,7 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     local state = commandState(actor, options.state)
     local voice, mood = styleFor(state, options)
     local source = specification or pools[topic]
+    if SC.VoiceLayers then source=SC.VoiceLayers.extend(topic,source) end
     local candidates = candidatesFor(source, voice, mood, options.includeRegisters)
     local sharedCommon, commonCount = commonLookup(source)
     if #candidates == 0 then
@@ -4671,7 +4672,8 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     local excluded = type(options.excludedLines) == "table" and options.excludedLines or nil
     for _, line in ipairs(candidates) do
         local key = lineKey(line)
-        if key and (not excluded or excluded[key] ~= true)
+        if key and (not SC.VoiceLayers or SC.VoiceLayers.allowed(line,state))
+            and (not excluded or excluded[key] ~= true)
             and interpolate(lineText(line), arguments) ~= nil then
             eligible[#eligible + 1] = line
         end
@@ -4724,6 +4726,12 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         end
     end
     if #available == 0 then available = candidates end
+    if SC.VoiceMemory and SC.VoiceMemory.applies(topic) then
+        available=SC.VoiceMemory.filter(actor,topic,available,function(value)
+            return interpolate(lineText(value),arguments)
+        end,#candidates)
+        if #available==0 then return nil,"dialogue_saved_recent_exhausted" end
+    end
     runtime.sequence = runtime.sequence + 1
     local current = U() and type(U().nowMs) == "function" and U().nowMs() or 0
     local salt = actorId(actor) .. ":" .. topic .. ":" .. tostring(runtime.sequence)
@@ -4774,6 +4782,7 @@ function Dialogue.emitResolved(actor, topic, line, options)
     runtime.lastSpokenAt = current
     runtime.lastSpokenTopic = topic
     runtime.lastDisplayUntil = overhead and current + duration or current
+    if SC.VoiceMemory and SC.VoiceMemory.applies(topic) then SC.VoiceMemory.note(actor,topic,line) end
     return true, line, {
         channel = overhead and "overhead" or "transcript",
         spokenAt = current, displayUntil = runtime.lastDisplayUntil,
@@ -4784,6 +4793,10 @@ function Dialogue.say(actor, topic, specification, arguments, options)
     if speakerAsleep(actor) then return false, "speaker_asleep" end
     local line, detail = Dialogue.choose(actor, topic, specification, arguments, options)
     if not line then return false, detail end
+    if type(options)=="table" and type(options.packetReceipts)=="table" then
+        options.packetProof=options.packetReceipts[line]
+        if not options.packetProof then return false,"dialogue_packet_receipt_missing" end
+    end
     local spoken, result, receipt = Dialogue.emitResolved(actor, topic, line, options)
     if spoken and type(detail) == "table" then
         detail.channel = receipt.channel
@@ -5150,8 +5163,14 @@ end
 
 function Dialogue.poolSize(topic, actor, state, options)
     options = type(options) == "table" and options or {}
-    local voice, mood = styleFor(commandState(actor, state), options)
-    return #candidatesFor(pools[topic], voice, mood, options.includeRegisters)
+    state=commandState(actor,state)
+    local voice, mood = styleFor(state, options)
+    local source=SC.VoiceLayers and SC.VoiceLayers.extend(topic,pools[topic]) or pools[topic]
+    local count=0
+    for _,line in ipairs(candidatesFor(source,voice,mood,options.includeRegisters)) do
+        if not SC.VoiceLayers or SC.VoiceLayers.allowed(line,state) then count=count+1 end
+    end
+    return count
 end
 
 function Dialogue.topics()

@@ -4,7 +4,7 @@
 -- question or present feeling rather than inventing an adventure.
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
-local L = { cards = {}, arguments = {}, aftermath = {}, catalogs = {} }
+local L = { cards = {}, byId = {}, arguments = {}, aftermath = {}, catalogs = {} }
 SC.SceneLines = L
 local tags = { "agree", "tease", "pushback", "comfort", "deflect" }
 local function pool(card, phase, lines, requires, asserts)
@@ -35,6 +35,7 @@ local function card(id, kind, open, replies, follows, close, requires, asserts)
     end
     pool(result, "close", close, requires, asserts)
     L.cards[#L.cards + 1] = result
+    L.byId[id]=result
     return result
 end
 
@@ -421,9 +422,9 @@ L.aftermath.death = card("after_death", "aftermath", {
 
 L.aftermath.close_call = card("after_close", "aftermath", {
     "That close call at {place}. I need a moment to let it sink in.",
-    "We're here after what happened at {place}. I'm still catching up with that.",
+    "We're here after that close call at {place}. I'm still catching up with that.",
     "I keep going back to that narrow escape at {place}.",
-    "After {place}, a quiet minute feels like more than a quiet minute." }, {
+    "After that close call at {place}, a quiet minute feels like more than a quiet minute." }, {
     agree={"A minute sounds right. Let the breathing settle.","We're here for this conversation. Hold on to that."},
     tease={"We could find a less demanding way to appreciate sitting down.","I'd like the next lesson in gratitude to involve a chair."},
     pushback={"We should talk about what to change before we try it again.","Take the minute. Then let's agree on a safer way."},

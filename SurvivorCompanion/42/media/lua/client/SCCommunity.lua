@@ -643,6 +643,7 @@ function Community.latestSharedMemory(first, second)
 end
 
 local eventEffects = {
+    combat_encounter={stress=0,morale=0},
     first_meeting={stress=0,morale=0},recruited={stress=0,morale=0},companion_bitten={stress=0,morale=0},
     expedition_homecoming={stress=0,morale=0},alarm_fought_off={stress=0,morale=0},burial={stress=0,morale=0},
     first_camp_night={stress=0,morale=0},survival_milestone={stress=0,morale=0},
@@ -701,8 +702,8 @@ function Community.knowsEvent(actorOrId,row)
     if SC.SharedHistory then return SC.SharedHistory.known(ensure(),id,row) end
     return false
 end
-function Community.tellEvent(from,to,id,onScreen)
-    return SC.SharedHistory and SC.SharedHistory.tell(ensure(),from,to,id,onScreen) or false
+function Community.tellEvent(from,to,id,onScreen,facts)
+    return SC.SharedHistory and SC.SharedHistory.tell(ensure(),from,to,id,onScreen,facts) or false
 end
 function Community.historyRows()
     -- Callers receive a bounded detached list, never the mutable world ledger.
@@ -730,6 +731,25 @@ function Community.completeAftermath(row)
         end
     end
     return true
+end
+
+-- Packed hashes stay in the Community world document. Direct commands never
+-- copy this history, and no spoken text is retained here.
+function Community.voiceMemoryFor(id)
+    if type(id)~="string" or id=="" or #id>80 then return {p="",b=""} end
+    local world=ensure()
+    world.voiceMemory=type(world.voiceMemory)=="table" and world.voiceMemory or {}
+    local row=world.voiceMemory[id]
+    if type(row)~="table" then
+        local count=0 for _ in pairs(world.voiceMemory) do count=count+1 end
+        row={p="",b="",t=0}
+        if count<64 then world.voiceMemory[id]=row end
+    end
+    return row
+end
+function Community.voiceSceneTime(value)
+    if type(value)=="number" and value==value and value>=0 and value<math.huge then ensure().voiceSceneAt=value end
+    return finite(ensure().voiceSceneAt,-math.huge)
 end
 
 function Community.setGrudge(first, second, reason, eventId, untilAt)
@@ -1115,6 +1135,8 @@ local function normalize(source)
     copy.pairs = type(copy.pairs) == "table" and copy.pairs or {}
     copy.history = type(copy.history) == "table" and copy.history or {}
     if SC.SharedHistory then SC.SharedHistory.normalize(copy) end
+    if SC.VoiceMemory then copy.voiceMemory=SC.VoiceMemory.clean(copy.voiceMemory) end
+    copy.voiceSceneAt=math.max(0,finite(copy.voiceSceneAt,0))
     copy.deaths = type(copy.deaths) == "table" and copy.deaths or {}
     copy.groupMajorCooldownUntil = math.max(0, finite(copy.groupMajorCooldownUntil, 0))
     copy.groupJoyCooldownUntil = math.max(0, finite(copy.groupJoyCooldownUntil, 0))
@@ -1446,6 +1468,8 @@ function Community.restore(source)
     if source == nil then
         document = emptyDocument()
         reservations = {}
+        if SC.Recall then SC.Recall.reset() end
+        if SC.VoiceMemory then SC.VoiceMemory.reset() end
         return true, document
     end
     if SC.SharedHistory then source=SC.SharedHistory.cleanDocument(source) end
@@ -1459,12 +1483,16 @@ function Community.restore(source)
     end
     document = candidate
     reservations = {}
+    if SC.Recall then SC.Recall.reset() end
+    if SC.VoiceMemory then SC.VoiceMemory.reset() end
     return true, document
 end
 
 function Community.reset()
     document = emptyDocument()
     reservations = {}
+    if SC.Recall then SC.Recall.reset() end
+    if SC.VoiceMemory then SC.VoiceMemory.reset() end
 end
 
 Community.reset()

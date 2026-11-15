@@ -2175,7 +2175,7 @@ local function commitConversation(actor, entry, state, id, action, player)
     local staged, copyReason = copyCommandState(state)
     if not staged then return false, "command_state_copy_failed:" .. tostring(copyReason) end
     local storageBefore = snapshotStorage(actor, entry)
-    local ok, sentence, emote, changed, reason = pcall(
+    local ok, sentence, emote, changed, reason, speechReceipt = pcall(
         SC.Relationship.respond, action, actor, player, staged, description)
     if not ok or type(sentence) ~= "string" or sentence == "" then
         restoreStorage(actor, entry, storageBefore)
@@ -2212,7 +2212,7 @@ local function commitConversation(actor, entry, state, id, action, player)
         and SC.UI.instance.selectedTab == "talk") then
         callUI("showMemory", id, state.memories)
     end
-    return true, sentence, emote
+    return true, sentence, emote, speechReceipt
 end
 
 local function showConversation(actor, entry, state, id, action, player)
@@ -2246,7 +2246,7 @@ local function showConversation(actor, entry, state, id, action, player)
                 return false
             end
         end
-        local accepted, result, emote = commitConversation(actor, entry,
+        local accepted, result, emote, speechReceipt = commitConversation(actor, entry,
             stateFor(actor, entry), id, action, player)
         if accepted and type(emote) == "string" and SC.Positioning
             and type(SC.Positioning.activeConversation) == "function" then
@@ -2258,10 +2258,15 @@ local function showConversation(actor, entry, state, id, action, player)
                 not accepted and result or nil) == true
         if accepted then
             local emitted = SC.Dialogue and type(SC.Dialogue.emitResolved) == "function"
-                and SC.Dialogue.emitResolved(actor, "conversation." .. action, result, {
+                and SC.Dialogue.emitResolved(actor, speechReceipt and speechReceipt.topic or "conversation." .. action, result, {
                     transcriptAccepted = transcriptAccepted,
+                    recall = speechReceipt and speechReceipt.known == true,
+                    evidence = speechReceipt,
+                    packetProof = speechReceipt and speechReceipt.packetProof,
                 })
             if not emitted then accepted = false end
+            if emitted and speechReceipt and SC.Recall then SC.Recall.note(actor,speechReceipt) end
+            if emitted and speechReceipt and SC.DeepBackground then SC.DeepBackground.commit(actor,speechReceipt) end
         end
         if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
         return accepted == true

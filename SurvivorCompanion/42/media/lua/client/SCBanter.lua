@@ -2069,7 +2069,7 @@ local function availableForQuietTalk(record, player, current, radius)
         and supervisor.current(record.actor) or nil
     if token ~= nil and (token.owner ~= "downtime"
         or quietAction[token.action] ~= true) then return nil end
-    return commands, token == nil
+    return commands, token == nil and commands.order ~= "base_duty"
 end
 
 sceneHost = function()

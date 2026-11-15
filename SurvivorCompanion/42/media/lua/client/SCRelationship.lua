@@ -400,6 +400,7 @@ function Relationship.observe(actor, player, snapshot, state)
     local danger = tonumber(snapshot and (snapshot.pressure or snapshot.immediateCount)) or 0
     local playerDanger = tonumber(snapshot and snapshot.player and snapshot.player.danger) or 0
     local close = U().distance(actor, player) <= 8 and U().sameFloor(actor, player)
+    if SC.VoiceMemory then SC.VoiceMemory.observeTogether(actor,close and state.recruited==true) end
     local playerGrabbed,grabKnown=U().call(player,"isBeingGrappled")
     local playerDowned,downKnown=U().call(player,"isKnockedDown")
     local sawPlayer=close and U().canSee(actor,player)
@@ -612,7 +613,7 @@ local function keepsakeLine(state)
     return text("IGUI_SC_Keepsake_Reveal_" .. tostring(kind), fallbacks[kind] or fallbacks.memento)
 end
 
-local function backgroundResponse(state)
+local function backgroundResponse(actor,state)
     local trust = clamp(state.trust, 0, 100)
     local allowed = trust >= 80 and 7 or trust >= 70 and 6 or trust >= 55 and 5
         or trust >= 40 and 4 or trust >= 25 and 3 or trust >= 10 and 2 or 1
@@ -646,6 +647,10 @@ local function backgroundResponse(state)
     end
     if revealed < 7 then
         return text("IGUI_SC_Background_Reserved", "Maybe another time. Some things are still hard to talk about."), "undecided", false
+    end
+    if SC.DeepBackground then
+        local line,receipt=SC.DeepBackground.line(actor,state)
+        if line then return line,"yes",false,nil,receipt end
     end
     return backgroundLine("Habit", state.background.habit), "shrug", false
 end
@@ -990,6 +995,10 @@ function Relationship.respond(action, actor, player, state, description)
         return varied(actor, "status." .. tostring(need),
             voiced(state, text(response[1], response[2])), nil, state), response[3], false
     elseif action == "memory" then
+        if SC.Recall then
+            local line,receipt=SC.Recall.prepare(actor,{force=true,player=player,salt="player_request"})
+            if line then return line,"undecided",false,nil,receipt end
+        end
         local memory = latestMemory(state)
         if type(memory) == "table" and memory.kind == "companion_died" then
             local subject = type(memory.subjectName) == "string"
@@ -999,7 +1008,7 @@ function Relationship.respond(action, actor, player, state, description)
         end
         return Relationship.memoryText(memory), "undecided", false
     elseif action == "background" then
-        return backgroundResponse(state)
+        return backgroundResponse(actor,state)
     elseif action == "opinion" then
         local senses = SC.Senses and SC.Senses.cached and SC.Senses.cached(actor)
         local danger = tonumber(description.immediateCount or 0) > 0

@@ -6,6 +6,8 @@ param(
     [switch]$Baseline,
     [switch]$LedgerOnly,
     [switch]$ScenesOnly,
+    [switch]$VarietyOnly,
+    [switch]$RecallOnly,
     [switch]$LegacyDocumentOnly,
     [switch]$CompareBaseline,
     [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_./-]*$')][string]$SourceRef
@@ -32,12 +34,13 @@ if ($SourceRef) {
 $ConfigFile = Join-Path $RunRoot 'soak_config.lua'
 $Strict = if ($Baseline) { 'false' } else { 'true' }
 [IO.File]::WriteAllText($ConfigFile,"SC_VOICE_SOAK_DAYS=$Days`nSC_VOICE_SOAK_STRICT=$Strict`n",[Text.UTF8Encoding]::new($false))
-$Harness = if ($LegacyDocumentOnly) { 'legacy_community_export_harness.lua' } elseif ($LedgerOnly) { 'shared_history_harness.lua' } elseif ($ScenesOnly) { 'scene_harness.lua' } else { 'voice_soak_harness.lua' }
+$Harness = if ($LegacyDocumentOnly) { 'legacy_community_export_harness.lua' } elseif ($LedgerOnly) { 'shared_history_harness.lua' } elseif ($ScenesOnly) { 'scene_harness.lua' } elseif ($VarietyOnly) { 'voice_memory_harness.lua' } elseif ($RecallOnly) { 'recall_harness.lua' } else { 'voice_soak_harness.lua' }
 $ProductionSources=@(Get-ScGameplayFiles | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
 if ($LedgerOnly) {
     $ProductionSources += Join-Path $ProjectRoot 'tests\fixtures\voice-soak\community-02718.lua'
 }
 $Sources = @('--group voice-soak') + $ProductionSources + @($ConfigFile,
+    (Join-Path $Gameplay 'voice_soak_gates.lua'),
     (Join-Path $Gameplay $Harness))
 $GroupFile = Join-Path $RunRoot 'groups.txt'
 [IO.File]::WriteAllLines($GroupFile,[string[]]$Sources,[Text.UTF8Encoding]::new($false))
@@ -73,7 +76,7 @@ if ($LegacyDocumentOnly -and $Code -eq 0) {
     $Document=$Text.Substring($Begin+$BeginMarker.Length,$Finish-$Begin-$BeginMarker.Length).Trim()
     [IO.File]::WriteAllText((Join-Path $RunRoot 'community-02718.lua'),$Document,[Text.UTF8Encoding]::new($false))
 }
-Select-String -LiteralPath $Log -Pattern '^VOICE_SOAK_|^SHARED_HISTORY_|^SCENE_' | ForEach-Object { Write-Output $_.Line }
+Select-String -LiteralPath $Log -Pattern '^VOICE_SOAK_|^SHARED_HISTORY_|^SCENE_|^VARIETY_|^RECALL_' | ForEach-Object { Write-Output $_.Line }
 if ($CompareBaseline -and $Code -eq 0) {
     $Expected=Get-Content -LiteralPath (Join-Path $ProjectRoot 'tests\fixtures\voice-soak\baseline.json') -Raw | ConvertFrom-Json
     $Match=[regex]::Match($Text,'(?m)^VOICE_SOAK_HASH (\d+)')

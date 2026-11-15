@@ -150,8 +150,14 @@ do
     end
     for n=1,64 do
         local heard={}
-        for m=1,24 do heard[m]={eventId="size-event-"..m,from=participants[1]} end
+        for m=1,24 do heard[m]={eventId="size-event-"..m,from=participants[1],fromName="A companion",facts="nptcwy"} end
         maximum.heardEvents["sc-listener-"..n]=heard
+    end
+    if SC.VoiceMemory then
+        for n=1,64 do for k=1,96 do
+            SC.VoiceMemory.note("sc-size-voice-"..n,"banter.routine","Bounded voice "..n.." line "..k)
+        end end
+        maximum.voiceMemory=C.export().voiceMemory
     end
     local restored,why=C.restore(maximum)
     check(restored,"legal bounded ledger, pair memories and heard receipts fit the world copy budget: "..tostring(why))

@@ -70,7 +70,7 @@ local function sceneShape()
     return #captured>=3 and #captured<=6 and count>=2
 end
 
-local lineCount=0
+local lineCount,uniqueLines,uniqueCount=0,{},0
 local function immersion(text)
     if text:find("[^%z\1-\127]") then return false end
     local lower=text:lower()
@@ -83,16 +83,32 @@ local function immersion(text)
 end
 check(not immersion("Use the smartphone in 1996.") and not immersion("Five meters to the hotbar."),
     "immersion lint negative controls reject future technology, units and game terms")
-for _,catalog in ipairs(SC.SceneLines.catalogs) do
+local catalogs={}
+for _,group in ipairs({SC.SceneLines.catalogs,SC.RecallLines and SC.RecallLines.catalogs or {},
+    SC.DeepBackground and SC.DeepBackground.catalogs or {}}) do
+    for _,catalog in ipairs(group) do catalogs[#catalogs+1]=catalog end
+end
+for _,catalog in ipairs(catalogs) do
     local valid,why=SC.DiaryText.validateCatalog(catalog)
     check(valid,"catalog contract: "..tostring(why))
     for _,packet in ipairs(catalog) do for _,variant in ipairs(packet.variants) do
         lineCount=lineCount+1
+        if not uniqueLines[variant.text] then uniqueLines[variant.text]=true uniqueCount=uniqueCount+1 end
         check(not variant.text:find("[^%z\1-\127]") and variant.clean~=nil,"ASCII and clean twin")
         check(not variant.text:lower():find(" meters",1,true),"metres spelling")
         check(not variant.text:lower():find(" xp",1,true) and not variant.text:lower():find("skill tree",1,true),"no game terminology")
         check(immersion(variant.text) and immersion(variant.clean),"full immersion lint on both twins")
     end end
+end
+if SC.VoiceLayers then
+    for _,pool in pairs(SC.VoiceLayers.lines) do for _,line in ipairs(pool) do
+        lineCount=lineCount+1
+        if not uniqueLines[line[1]] then uniqueLines[line[1]]=true uniqueCount=uniqueCount+1 end
+        check(immersion(line[1]) and immersion(line.clean),"layer twins pass immersion lint")
+        check((line.after_day==7 or line.after_day==30 or line.after_day==100)
+            and (line.tier=="trusted" or line.tier=="close" or line.tier=="family"),"explicit age and tier layer")
+    end end
+    check(uniqueCount>=700 and uniqueCount<=850,"requested authored voice depth stays in scope")
 end
 local death=SC.SceneLines.aftermath.death.open.packets
 local validLines=SC.DiaryText.spokenCandidates({evidence={known=true,death=true,has_name=true},tokens={name="Wade"}},death)
@@ -145,6 +161,12 @@ local originalTick=S.tick
 -- Negative control: counting paused time would satisfy the very same floor.
 local brokenElapsed=after-before+80*5000
 check(brokenElapsed>=180000,"pause mutant would be rejected by the floor assertion")
+fresh() start(false) finish()
+local beforeStoppedTicks=S.clock()
+tick(300000,24)
+check(S.clock()==beforeStoppedTicks,"a pause with no callbacks earns no active time")
+tick(5000,24)
+check(S.clock()-beforeStoppedTicks<=1.01,"small game progress cannot count a paused wall interval")
 
 fresh() start(false)
 rows[2].runtime.senses.current.threatCount=1
@@ -276,8 +298,9 @@ check(movement==0,"all tested scenes remained speech-only")
 local originalRegistry,originalSquare=SC.Registry.records,U.gridSquare
 SC.Registry.records=function() error("scene attempted registry discovery") end
 U.gridSquare=function() error("scene attempted a world scan") end
+check(not pcall(U.gridSquare,0,0,0),"world-scan negative control confirms the scan guard is armed")
 fresh() start(false) finish()
 check(sceneShape(),"scene engine needs only its supplied bounded registry view")
 SC.Registry.records,U.gridSquare=originalRegistry,originalSquare
 D.emitResolved=nativeEmit
-SC_TEST_REPORT="SCENE_PASS checks="..checks.." authored_lines="..lineCount
+SC_TEST_REPORT="SCENE_PASS checks="..checks.." authored_lines="..lineCount.." unique_lines="..uniqueCount

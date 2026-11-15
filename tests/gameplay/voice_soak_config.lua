@@ -1,0 +1,3 @@
+-- SPDX-License-Identifier: MIT
+SC_VOICE_SOAK_DAYS=60
+SC_VOICE_SOAK_STRICT=true

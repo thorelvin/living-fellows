@@ -87,6 +87,13 @@ function LifeEvents.emit(kind, fields)
     row.witnesses = participants(type(fields) == "table" and fields.witnesses)
     if row.day==nil then row.day=math.floor(row.at/86400000) end
     if row.hour==nil then row.hour=(row.at/3600000)%24 end
+    if type(getGameTime)=="function" and SC.GameplayUtil then
+        local ok,gt=pcall(getGameTime)
+        if ok and gt then
+            if row.month==nil then row.month=select(1,SC.GameplayUtil.call(gt,"getMonth")) end
+            if row.year==nil then row.year=select(1,SC.GameplayUtil.call(gt,"getYear")) end
+        end
+    end
     if SC.SharedHistory then row=SC.SharedHistory.cleanRow(row) end
     queue[#queue + 1] = row
     while #queue > 128 do table.remove(queue, 1) end
@@ -106,6 +113,7 @@ function LifeEvents.observed(kind,actor,fields)
         values.sourceId=values.sourceId or u.idOf(actor)
         values.sourceName=values.sourceName or u.nameOf(actor)
         if values.place==nil and SC.Tales and SC.Tales.placeOf then values.place=SC.Tales.placeOf(actor) end
+        if values.placeKey==nil and SC.Tales and SC.Tales.placeKey then values.placeKey=SC.Tales.placeKey(actor) end
     end
     if u then
         local target=values.targetId and u.resolveActor and u.resolveActor(values.targetId)

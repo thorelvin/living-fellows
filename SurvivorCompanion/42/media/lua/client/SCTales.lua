@@ -327,6 +327,30 @@ local function placeOf(actor)
 end
 Tales.placeOf=placeOf
 
+-- Stable, read-only building/zone bounds distinguish two places with the same
+-- room label. Missing bounds do not manufacture a matching place.
+function Tales.placeKey(actor)
+    local utility=U()
+    local square=utility.squareOf(actor)
+    local building=select(1,utility.call(square,"getBuilding"))
+    local definition=building and select(1,utility.call(building,"getDef"))
+    local function bounds(object,zone)
+        local x=select(1,utility.call(object,"getX"))
+        local y=select(1,utility.call(object,"getY"))
+        local w=select(1,utility.call(object,zone and "getWidth" or "getW"))
+        local height=select(1,utility.call(object,zone and "getHeight" or "getH"))
+        if type(x)=="number" and type(y)=="number" and type(w)=="number" and type(height)=="number" then
+            return tostring(x)..":"..y..":"..w..":"..height
+        end
+    end
+    local key=definition and bounds(definition,false)
+    if key then return "b:"..key end
+    local zone=select(1,utility.call(square,"getZone"))
+    key=zone and bounds(zone,true)
+    local kind=zone and select(1,utility.call(zone,"getType"))
+    if key and type(kind)=="string" then return ("z:"..kind..":"..key):sub(1,100) end
+end
+
 local function weaponOf(actor)
     local utility = U()
     local item = utility.call(actor, "getPrimaryHandItem")
@@ -335,23 +359,28 @@ local function weaponOf(actor)
     return string.lower(string.sub(name, 1, 40))
 end
 
-local function noteWitnesses(actor, episode)
+local function noteWitnesses(actor, episode, target)
     local utility = U()
     local radius = config("taleWitnessRadius", 12)
     for _, record in ipairs(records()) do
         local other = type(record) == "table" and record.actor or nil
         if other ~= nil and other ~= actor and record.recruited == true
-            and type(record.id) == "string" and not episode.witnesses[record.id]
-            and episode.witnessCount < 4 and not utility.isDead(other)
-            and utility.sameFloor(actor, other) and utility.distance(actor, other) <= radius then
-            episode.witnesses[record.id] = true
-            episode.witnessCount = episode.witnessCount + 1
+            and type(record.id) == "string" and (episode.witnesses[record.id] or episode.witnessCount < 4)
+            and not utility.isDead(other)
+            and utility.sameFloor(actor, other) and utility.distance(actor, other) <= radius
+            and utility.canSee(other,actor) and target and utility.canSee(other,target) then
+            if not episode.witnesses[record.id] then
+                episode.witnesses[record.id] = true
+                episode.witnessCount = episode.witnessCount + 1
+            end
+            episode.witnessKills[record.id]=(episode.witnessKills[record.id] or 0)+1
         end
     end
     local player = playerNow()
     if player ~= nil and utility.sameFloor(actor, player)
-        and utility.distance(actor, player) <= radius then
-        episode.playerThere = true
+        and utility.distance(actor, player) <= radius and utility.canSee(player,actor)
+        and target and utility.canSee(player,target) then
+        episode.playerKillCount=(episode.playerKillCount or 0)+1
     end
 end
 
@@ -359,8 +388,9 @@ local function episodeFor(actor, now)
     local episode = episodes[actor]
     if episode == nil then
         episode = {
-            startedAt = now, lastEventAt = now, kills = 0, witnesses = {}, witnessCount = 0,
+            startedAt = now, lastEventAt = now, kills = 0, witnesses = {}, witnessCount = 0,witnessKills={},
             startHealth = tonumber(U().nativeHealth(actor)) or 100,
+            gameAt=SC.LifeEvents and SC.LifeEvents.now and SC.LifeEvents.now() or worldHours()*3600000,
         }
         episodes[actor] = episode
     end
@@ -373,12 +403,17 @@ function Tales.noteKill(actor, target, now)
     if actor == nil or not utility.isCompanion(actor) then return false, "not_a_companion" end
     now = tonumber(now) or utility.nowMs()
     local episode = episodeFor(actor, now)
+    local key=Tales.placeKey(actor)
+    local weapon=weaponOf(actor)
+    if episode.kills>0 and (not key or not episode.placeKey or key~=episode.placeKey) then episode.mixedPlaces=true end
+    if episode.kills>0 and weapon~=episode.weapon then episode.mixedWeapons=true end
+    episode.placeKey=key
     episode.kills = episode.kills + 1
     episode.lastEventAt = now
     episode.place, episode.placeKind = placeOf(actor)
-    episode.weapon = weaponOf(actor)
+    episode.weapon = weapon
     episode.hour = hourNow()
-    noteWitnesses(actor, episode)
+    noteWitnesses(actor, episode, target)
     if SC.Banter and type(SC.Banter.noteKill) == "function" then
         SC.Banter.noteKill(actor, now)
     end
@@ -489,7 +524,9 @@ local function storeTale(actor, episode, current)
     local tellerId = tostring(U().idOf(actor) or "companion")
     party.serial = party.serial + 1
     local witnesses = {}
-    for id in pairs(episode.witnesses) do witnesses[#witnesses + 1] = id end
+    for id in pairs(episode.witnesses) do
+        if episode.witnessKills[id]==episode.kills then witnesses[#witnesses + 1] = id end
+    end
     table.sort(witnesses)
     local tale = normalizeTale({
         id = "tale:" .. tostring(U().stableHash(tellerId .. ":" .. tostring(current)
@@ -497,9 +534,16 @@ local function storeTale(actor, episode, current)
         day = worldDay(), place = episode.place, placeKind = episode.placeKind,
         timeOfDay = timeOfDay(episode.hour), kills = episode.kills,
         closeCall = episode.closeCall, weapon = episode.weapon,
-        witnesses = witnesses, playerThere = episode.playerThere == true,
+        witnesses = witnesses, playerThere = episode.playerKillCount == episode.kills,
         tellings = 0, lastToldHour = -1,
     })
+    if SC.LifeEvents and SC.LifeEvents.emit then
+        SC.LifeEvents.emit("combat_encounter",{at=episode.gameAt,sourceId=tellerId,sourceName=U().nameOf(actor),
+            participants={tellerId},witnesses=witnesses,kills=episode.kills,
+            weapon=not episode.mixedWeapons and episode.weapon or nil,
+            place=not episode.mixedPlaces and episode.place or "along the route",
+            placeKey=not episode.mixedPlaces and episode.placeKey or nil,outcome="confirmed_kills"})
+    end
     bucket.list[#bucket.list + 1] = tale
     evict(bucket)
     persist(actor)

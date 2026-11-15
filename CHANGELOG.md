@@ -20,6 +20,10 @@
   two-clock scheduling and immediate interruption. Major events receive one
   deferred group reaction. Arguments name their shared reason, can leave a
   bounded grudge, and lead to reconciliation; companion comfort is modest.
+- Companions recall witnessed save events by place, date, anniversary and
+  similar experience. Heard accounts keep their teller and only spoken facts.
+  Saved compact speech history preserves variety across reloads; deeper
+  relationship and background layers unlock with time and trust.
 - Project Zomboid 42.22.2; bridge protocol `42.22-isocompanion-31` and save
   schemas are unchanged. Zombie navigation remains native.
 

@@ -19,6 +19,14 @@
     (Join-Path $Gameplay 'shared_history_harness.lua')) }
 @{ Name = 'behaviour.companion-scenes'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'scene_harness.lua')) }
+@{ Name = 'behaviour.speech-variety'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'voice_memory_harness.lua')) }
+@{ Name = 'behaviour.truthful-recall'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'recall_harness.lua')) }
+@{ Name = 'behaviour.sixty-day-voice-gates'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'voice_soak_config.lua'),
+    (Join-Path $Gameplay 'voice_soak_gates.lua'),
+    (Join-Path $Gameplay 'voice_soak_harness.lua')) }
 @{ Name = 'behaviour.combat-coordination'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'combat_coordination_regression_harness.lua')) }
 

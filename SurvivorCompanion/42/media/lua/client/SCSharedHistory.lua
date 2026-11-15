@@ -6,7 +6,7 @@ local H={} SC.SharedHistory=H
 H.HISTORY_LIMIT,H.LANDMARK_LIMIT,H.TOLD_LIMIT=96,24,24
 local textFields={place=80,sourceName=80,targetName=80,subjectName=80,participantNames=160,
     witnessNames=160,weapon=80,item=80,outcome=120,heardFrom=80,placeKey=100}
-local numberFields={day={0,1000000},hour={0,24},count={0,10000000},kills={0,10000000},wounds={0,1000}}
+local numberFields={day={0,1000000},hour={0,24},month={0,11},year={1,9999},count={0,10000000},kills={0,10000000},wounds={0,1000}}
 local booleanFields={"wasGrabbed","wasDowned","factsQuarantined","communityRecorded","aftermathDone"}
 local landmarks={companion_died=true,companion_death=true,first_meeting=true,rescued_player=true,
     player_rescued=true,player_close_call=true,first_camp_night=true}
@@ -17,6 +17,14 @@ end
 local function text(value,limit)
     if type(value)~="string" then return nil end
     return value:gsub("[%c]"," "):sub(1,limit)
+end
+local function factMask(value)
+    if value=="all" then return "nptcwy" end
+    local out=""
+    for key in ("nptcwy"):gmatch(".") do
+        if type(value)=="string" and value:find(key,1,true) then out=out..key end
+    end
+    return out
 end
 function H.ids(source)
     local out,seen={},{}
@@ -45,7 +53,7 @@ function H.cleanRow(source)
     end end
     for key,bounds in pairs(numberFields) do if source[key]~=nil then
         if finite(source[key],bounds[1],bounds[2]) and (key~="hour" or source[key]<24)
-            and ((key~="day" and key~="kills" and key~="wounds") or source[key]==math.floor(source[key])) then row[key]=source[key]
+            and ((key~="day" and key~="kills" and key~="wounds" and key~="month" and key~="year") or source[key]==math.floor(source[key])) then row[key]=source[key]
         else row[key]=nil bad=true end
     end end
     for _,key in ipairs(booleanFields) do if source[key]~=nil and type(source[key])~="boolean" then row[key]=nil bad=true end end
@@ -56,6 +64,8 @@ end
 function H.cleanDocument(source)
     if type(source)~="table" then return source end
     local out={} for key,value in pairs(source) do out[key]=value end
+    if SC.VoiceMemory then out.voiceMemory=SC.VoiceMemory.clean(source.voiceMemory) end
+    if source.voiceSceneAt~=nil and not finite(source.voiceSceneAt,0,math.huge) then out.voiceSceneAt=nil end
     for _,key in ipairs({"history","landmarks"}) do
         if type(source[key])=="table" then
             local rows={} local inspected=0
@@ -86,7 +96,7 @@ function H.normalize(document)
             local values={}
             for _,row in ipairs(rows) do
                 if type(row)=="table" and type(row.eventId)=="string" and type(row.from)=="string" then
-                    values[#values+1]={eventId=text(row.eventId,100),from=text(row.from,80)}
+                    values[#values+1]={eventId=text(row.eventId,100),from=text(row.from,80),fromName=text(row.fromName,80),facts=factMask(row.facts)}
                     if #values>=H.TOLD_LIMIT then break end
                 end
             end
@@ -119,21 +129,33 @@ function H.known(document,id,row)
         for _,other in ipairs(list) do if other==id then return true end end
     end
     for _,heard in ipairs((document.heardEvents or {})[id] or {}) do
-        if heard.eventId==row.id then return true,heard.from end
+        if heard.eventId==row.id then return true,heard.from,heard.fromName,heard.facts end
     end
     return false
 end
-function H.tell(document,from,to,eventId,onScreen)
+function H.tell(document,from,to,eventId,onScreen,facts)
     local row=H.find(document,eventId)
-    if onScreen~=true or not H.known(document,from,row) or not to or to==from then return false end
+    local knows,source,_,sourceFacts=H.known(document,from,row)
+    if onScreen~=true or not knows or not to or to==from then return false end
+    -- A retelling remains explicitly hearsay; it cannot seed another person's
+    -- first stored account. New knowledge comes from a first-hand teller.
+    if source then return false end
+    local mask=factMask(facts==nil and "all" or facts)
     H.normalize(document)
     local rows=document.heardEvents[to] or {}
-    if H.known(document,to,row) then return false end
+    local already,teller=H.known(document,to,row)
+    if already and not teller then return false end
     if document.heardEvents[to]==nil then
         local count=0 for _ in pairs(document.heardEvents) do count=count+1 end
         if count>=64 then return false end
     end
-    rows[#rows+1]={eventId=eventId,from=from}
+    local actor=SC.GameplayUtil and SC.GameplayUtil.resolveActor and SC.GameplayUtil.resolveActor(from)
+    local name=actor and SC.GameplayUtil.nameOf(actor) or row.sourceId==from and row.sourceName or nil
+    for _,heard in ipairs(rows) do if heard.eventId==eventId then
+        if heard.from==from then heard.facts=factMask(heard.facts..mask) return true end
+        return false
+    end end
+    rows[#rows+1]={eventId=eventId,from=from,fromName=text(name,80),facts=mask}
     while #rows>H.TOLD_LIMIT do table.remove(rows,1) end
     document.heardEvents[to]=rows return true
 end

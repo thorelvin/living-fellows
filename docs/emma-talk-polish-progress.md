@@ -28,11 +28,11 @@ Release packaging and playground rebuilding remain required deliverables.
 | V1 ledger | Flat facts and witnesses, observed event producers, 96 history/24 landmarks, small memory references, old-save and malformed-field restore | Done; 36 ledger checks and full release gate pass |
 | V3 scenes | 3-6 tagged beats, 2-3 speakers, personality/relation branches, one party scene, shared budget, immediate cancellation, two-clock scheduling | Done; focused gates and full release checks pass |
 | V5 relationships | Reason-matched arguments, bounded grudges, reconciliation, modest companion comfort | Done; focused gates and full release checks pass |
-| V4 aftermath | One deferred group reaction per death, close call, homecoming or fought-off alarm; affected speaker first | Implemented; 26/26 simulated events receive one group reaction |
-| V2 recall | Evidence packets and named tokens, real places/relative dates, knowledge and told-by discipline, place/anniversary/similarity/Memory/camp triggers | Pending |
-| V6 variety | Persisted bounded hashes/counts, least-heard selection, half-pool/up-to-eight window, age/tier layers, additional background stories | Pending |
-| Voice content | Approximately 700-800 new lines plus clean twins; scene/recall/aftermath/argument depth and immersion lint | Pending |
-| Voice gates | 12.5%-33.3% specific recall, zero false claims, >=3-day no-repeat for pools >=8, scene shape/cadence, aftermath coverage, grief windows, bounded work/save | Pending |
+| V4 aftermath | One deferred group reaction per death, close call, homecoming or fought-off alarm; affected speaker first | Done; 26/26 simulated events and full release checks pass |
+| V2 recall | Evidence packets and named tokens, real places/relative dates, knowledge and told-by discipline, place/anniversary/similarity/Memory/camp triggers | Done; 53 focused checks, strict soak and final release gate pass |
+| V6 variety | Persisted bounded hashes/counts, least-heard selection, half-pool/up-to-eight window, age/tier layers, additional background stories | Done; 244 focused checks, strict soak and full release gate pass |
+| Voice content | Approximately 700-800 new lines plus clean twins; scene/recall/aftermath/argument depth and immersion lint | 834 unique lines plus clean twins; 3,772 scene/content checks pass |
+| Voice gates | 12.5%-33.3% specific recall, zero false claims, >=3-day no-repeat for pools >=8, scene shape/cadence, aftermath coverage, grief windows, bounded work/save | Strict 60-day run and 17 negative controls pass; wired into Behaviour |
 | H | Cloned-camp live check, readable transcript, tuning | Pending |
 | 3.2 hooks | Declared/derived hooks for all EMMA/persona reply pools, facet and pronoun resolution, salient-term lint with negative control | Pending |
 | 3.6-3.7 world and roles | Lore facets, checked place facts, non-roster why/how, session-only role memory, practical conditions, persona roles | Pending |
@@ -175,3 +175,45 @@ receipt is `build/voice-soak/20261115-031008-700acb`. Phase F's four-voice
 playground was rebuilt and passes all four Lua/privacy checks at
 `C:\ZOMBOID\plan-emma-probe\web\emma-playground-0.27.21-phase-f.html`.
 The user will test the playground later; work on G continues meanwhile.
+
+## Phase G checkpoint
+
+Spoken recall uses the diary compiler's named tokens, evidence prerequisites
+and assertion receipts. First-hand participants/witnesses can teach listeners
+only facts actually used in their accepted spoken packet. Heard accounts save
+the teller and those fields; an unspoken date remains unknown. Retellings are
+explicit hearsay and cannot seed another person's first stored account. The
+fourth beat remains available to a listener who cannot independently recall
+the event. Death memories use supportive replies rather than factual quibbles.
+
+Place triggers compare stable native building/zone bounds, anniversaries fire
+at a week/month, and a new close call can bring up an older one. Talk Memory
+uses the weighted ledger. Confirmed-kill episodes retain a count/weapon only
+when their locations/weapons support that claim; a witness must see the whole
+sequence to quote its count. Restoring history clears the recall cache.
+
+Saved speech variety uses compact hashes, least-heard selection and a widened
+window. Four bounded daily filters protect the three-day interval after exact
+count entries are evicted. The record stays below two KB per companion and
+never enters strict-copied command state. The only added command fields are
+three existing-style reveal flags. Professions, fears and values have 37 new
+continuations, gated by measured game time together and relationship tier;
+busy routine/follow pools have day 7/30/100 layers. Reveals commit on delivery.
+
+The final strict run produces 4,307 lines, including 815 specific recalls
+(18.9%). Individual shares are 18.8%, 20.2% and 17.8%. There are no large-pool repeat
+violations, unsupported claims, speaker/tag/cadence errors, grief-tone errors
+or paused utterances. All 723 scenes complete four beats, and all 26 events
+receive one group reaction. Eight reloads and eight five-minute pauses are
+included. See `docs/validation/voice-soak-02721.md` and its readable week.
+
+All five release checks passed in
+`build/test-results/20261115-041001-aa7da4` (394.8 seconds). A final clock check
+found that a pause can stop callbacks; active credit now also uses game
+progress/day length, and the no-callback pause negative control passes. The
+final release gate passes with that correction in
+`build/test-results/20261115-041738-898805` (392.0 seconds), including the full
+60-day strict simulation in Behaviour and the combined maximum ledger/pairs/
+heard-facts/64-companion voice save. The four-voice Phase G
+playground was rebuilt and passes its Lua/privacy checks. Browser visual
+verification remains unavailable under the earlier local-file policy block.

@@ -23,8 +23,15 @@ function S.tick(current)
     local game = gameMs()
     local paused = type(isGamePaused)=="function" and isGamePaused()==true
     if clock.wall and not paused and not clock.paused and game>clock.game then
-        -- A suspended process cannot turn hours of wall time into chatter.
-        clock.active=clock.active+math.max(0,math.min(10000,current-clock.wall))
+        local gt=type(getGameTime)=="function" and getGameTime() or nil
+        local dayMinutes=tonumber(select(1,U().call(gt,"getMinutesPerDay"))) or 60
+        local normalRate=1440/math.max(1,dayMinutes)
+        local elapsed=current-clock.wall
+        -- Pausing may stop tick callbacks entirely. Game progress bounds the
+        -- wall credit even then; a long suspended callback earns none.
+        if elapsed<=10000 then
+            clock.active=clock.active+math.max(0,math.min(elapsed,(game-clock.game)/normalRate))
+        end
     end
     clock.wall,clock.game,clock.paused=current,game,paused
     return not paused
@@ -136,6 +143,7 @@ local function eventContext(row,family,first,player)
 end
 local function rolesReady(scene,records,host)
     if scene.ticket and scene.ticket.status=="cancelled" then return false end
+    if scene.event and not SC.Community.historyRow(scene.event.id) then return false end
     for n,role in ipairs(scene.roles) do
         local other=n==2 and scene.first or scene.second
         local record=host.record(records,role.actor)
@@ -167,19 +175,27 @@ local function speakBeat(scene,current,host)
     local role,pool,tag,accepts=beat(scene,scene.step)
     if not pool or scene.lastTag and not accepts[scene.lastTag] then return false,"scene_tag_mismatch" end
     local context=scene.context or {evidence={},tokens={}}
+    if scene.card.kind=="shared_story" and pool.topic:find("^recall%.") and SC.Recall then
+        context=SC.Recall.context(role.actor,scene.event)
+        if not context then return false,"scene_evidence_missing" end
+    end
     if scene.event then
         context.evidence.known=SC.Community.knowsEvent(role.actor,scene.event)==true
     end
     local lines,proofs=SC.DiaryText.spokenCandidates(context,pool.packets)
     if #lines==0 then return false,"scene_evidence_missing" end
     local options={state=state(role.actor),sceneId=scene.id,sceneKind=scene.sceneKind,
+        sceneBeat=scene.step,sceneBeats=#scene.beats,sceneActive=clock.active,sceneGame=gameMs(),
         tag=tag,accepts=accepts,eventId=scene.event and scene.event.id,
         tone=scene.card.kind=="joke" and "light" or "serious",aboutDead=scene.family=="death",
+        packetReceipts=proofs,
         salt=scene.id..":"..scene.step}
-    if scene.event and scene.step==1 then
-        options.recall=true options.evidence={known=context.evidence.known,eventId=scene.event.id}
+    if scene.event and (scene.step==1 or pool.topic:find("^recall%.")) then
+        options.recall=true options.evidence={known=context.evidence.known,eventId=scene.event.id,
+            heardFrom=context.heardFrom}
     end
     local spoken,line,detail=host.say(role.actor,pool.topic,{common=lines},options)
+    options.packetReceipts=nil
     if not spoken then return false,line or "scene_speech_rejected" end
     if not proofs[line] then return false,"scene_packet_receipt_missing" end
     role.spokenAt,role.topic=SC.Dialogue.lastSpokenAt(role.actor),pool.topic
@@ -187,11 +203,15 @@ local function speakBeat(scene,current,host)
     scene.lastTag=tag scene.step=scene.step+1
     scene.nextAt=clock.active+2800
     host.spend(current)
+    if scene.step==2 and scene.backgroundReceipt and SC.DeepBackground then SC.DeepBackground.commit(role.actor,scene.backgroundReceipt) end
     -- A spoken first-hand account teaches only those actually in this scene.
     if scene.event then
+        local mask=SC.Recall and SC.Recall.toldFacts(proofs[line],context) or ""
         for _,listener in ipairs(scene.roles) do
-            if listener.actor~=role.actor then SC.Community.tellEvent(id(role.actor),id(listener.actor),scene.event.id,true) end
+            if listener.actor~=role.actor then SC.Community.tellEvent(id(role.actor),id(listener.actor),scene.event.id,true,mask) end
         end
+        if scene.step==2 and SC.Recall then SC.Recall.note(role.actor,{known=true,eventId=scene.event.id,anniversaryKey=scene.anniversaryKey,
+            placeKey=scene.placeKey,similarKey=scene.similarKey}) end
     end
     return true,pool.topic
 end
@@ -229,6 +249,7 @@ end
 
 function S.advance(scene,records,current,host)
     if not rolesReady(scene,records,host) or clock.active>=scene.expiresActive then
+        scene.status="interrupted"
         if scene.ticket then scene.ticket.status="cancelled" end
         host.release(scene,"scene_interrupted")
         return false,"scene_interrupted",false
@@ -238,10 +259,12 @@ function S.advance(scene,records,current,host)
     if current<(role.displayUntil or 0) then return false,"scene_reading",true end
     local spoken,reason=speakBeat(scene,current,host)
     if not spoken then
+        scene.status="interrupted"
         if scene.ticket then scene.ticket.status="cancelled" end
         host.release(scene,reason) return false,reason,false
     end
     if scene.step>#scene.beats then
+        scene.status="finished"
         complete(scene) host.release(scene,"scene_finished") return true,reason,false
     end
     return true,reason,true
@@ -254,7 +277,10 @@ local function start(first,second,third,card,player,current,host,settings)
         sceneKind=settings.kind or card.kind,card=card,first=first.actor,second=second.actor,
         roles={},player=player,step=1,nextAt=clock.active,expiresActive=clock.active+75000,
         faceToFace=false,context=settings.context,event=settings.event,family=settings.family,
-        reason=settings.reason,reasonEventId=settings.reasonEventId,ticket=settings.ticket}
+        reason=settings.reason,reasonEventId=settings.reasonEventId,ticket=settings.ticket,
+        anniversaryKey=settings.anniversaryKey,recallTrigger=settings.recallTrigger,
+        placeKey=settings.placeKey,similarKey=settings.similarKey,
+        backgroundReceipt=settings.backgroundReceipt}
     local grief=S.griefAge()<3 or settings.family=="death"
     scene.branch=S.branch(scene.first,scene.second,card,grief)
     for _,candidate in ipairs({first,second,third}) do
@@ -282,6 +308,8 @@ local function start(first,second,third,card,player,current,host,settings)
     if not spoken then host.release(scene,reason) return nil,reason end
     if settings.ticket then settings.ticket.status="running" end
     lastSceneGame,lastSceneActive=gameMs(),clock.active
+    SC.Community.voiceSceneTime(lastSceneGame)
+    if SC.VoiceMemory then SC.VoiceMemory.noteKey(scene.first,"card:"..card.id) end
     selection=selection+1
     return scene,reason
 end
@@ -292,6 +320,7 @@ local function candidates(player,records,current,host)
         local record=records[n]
         local commands,free=host.quiet(record,player,current,14)
         if commands and select(1,U().call(record.actor,"isMoving"))~=true then
+            if SC.Recall then SC.Recall.observePlace(record.actor) end
             rows[#rows+1]={actor=record.actor,commands=commands,freeToFace=free,
                 atCamp=host.atCamp(record.actor)}
         end
@@ -391,7 +420,8 @@ function S.tryStart(player,records,current,host,priorityOnly)
     end
     if priorityOnly then return nil,"no_priority_scene" end
     local multiplier=SC.Banter.chatterMultiplier()
-    if gameMs()-lastSceneGame<2*3600000*multiplier or clock.active-lastSceneActive<180000*multiplier then
+    local priorGame=math.max(lastSceneGame,SC.Community.voiceSceneTime())
+    if gameMs()-priorGame<2*3600000*multiplier or clock.active-lastSceneActive<180000*multiplier then
         return nil,"scene_cooldown"
     end
     -- Reconciliation has priority over choosing any unrelated quiet pair.
@@ -416,6 +446,16 @@ function S.tryStart(player,records,current,host,priorityOnly)
                 if camp or hash(tostring(math.floor(gameMs()/3600000)))%3==0 then
                     local stressed=(tonumber(first.commands.stress) or 0)>=45 or SC.Community.activeGrief(first.actor)~=nil
                     local helpful=second.commands.personality=="caring" or (pair.opinion or 0)>=35
+                    if camp and SC.DeepBackground and selection%6==0 then
+                        local story,settings=SC.DeepBackground.scene(first.actor,first.commands)
+                        if story then return start(first,second,thirdFor(rows,first,second),story,player,current,host,settings) end
+                    end
+                    if camp and SC.Recall and selection%4~=3 and not (stressed and helpful) then
+                        local third=thirdFor(rows,first,second)
+                        local story,settings=SC.Recall.scene(first.actor,{salt=selection,listener=second.actor,
+                            closer=third and third.actor or second.actor,addDetail=selection%4==0})
+                        if story then return start(first,second,thirdFor(rows,first,second),story,player,current,host,settings) end
+                    end
                     local choices={}
                     for _,card in ipairs(SC.SceneLines.cards) do
                         if card.kind=="plans" or card.kind=="comfort" and stressed and helpful
@@ -428,7 +468,9 @@ function S.tryStart(player,records,current,host,priorityOnly)
                         local comfort={} for _,entry in ipairs(choices) do if entry.kind=="comfort" then comfort[#comfort+1]=entry end end
                         if #comfort>0 then card=comfort[hash(id(first.actor)..gameMs())%#comfort+1] end
                     end
-                    card=card or choices[hash(id(first.actor)..":"..gameMs()..":"..selection)%#choices+1]
+                    card=card or (SC.VoiceMemory and SC.VoiceMemory.chooseKey(first.actor,choices,
+                        id(first.actor)..":"..gameMs()..":"..selection))
+                        or choices[hash(id(first.actor)..":"..gameMs()..":"..selection)%#choices+1]
                     return start(first,second,thirdFor(rows,first,second),card,player,current,host)
                 end
             end
@@ -440,6 +482,7 @@ end
 function S.reset()
     requests={} clock={active=0} nextInspect=0 pending={} pendingCalm={}
     lastSceneGame,lastSceneActive=-math.huge,-math.huge serial=0 cursor=0 selection=0
+    if SC.Recall then SC.Recall.reset() end
 end
 function S._startForTests(...) return start(...) end
 function S._pendingForTests() return pending end

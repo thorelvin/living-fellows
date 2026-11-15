@@ -1,0 +1,474 @@
+Day 18 00:00 | sc-soak-1 | banter.routine | If we split up, keep your voice low and close.
+Day 18 00:19 | sc-soak-1 | recall.escape | I can still place that close call: the firehouse, a few days back. I'd prefer fewer like it.
+Day 18 00:22 | sc-soak-2 | recall.detail_pushback | June was there. Let's keep the rest separate from guessing.
+Day 18 00:26 | sc-soak-1 | recall.escape | I keep a little room in my head for the close call at the firehouse, a few days back. A reminder to be careful.
+Day 18 00:27 | sc-soak-3 | scene.memory_close | We can leave the memory there for a while.
+Day 18 00:36 | sc-soak-2 | banter.routine | I'll keep looking. You keep watch.
+Day 18 01:11 | sc-soak-3 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 18 01:48 | sc-soak-1 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 18 02:19 | sc-soak-2 | recall.escape | I remember the close call at the firehouse, a few days back. A quiet seat means more after that.
+Day 18 02:22 | sc-soak-3 | scene.memory_deflect | Let me hear the rest before I try to find the words.
+Day 18 02:26 | sc-soak-2 | recall.escape | I can still place that close call: the firehouse, a few days back. I'd prefer fewer like it.
+Day 18 02:27 | sc-soak-1 | scene.memory_close | All right. Let it rest beside us a while.
+Day 18 02:36 | sc-soak-2 | banter.routine | Quiet places make me listen harder.
+Day 18 03:11 | sc-soak-3 | banter.routine | Folks round here used to wave at strangers. Now we count them.
+Day 18 03:48 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 18 04:19 | sc-soak-3 | recall.escape | I can still place that close call: the firehouse, last week. I'd prefer fewer like it.
+Day 18 04:22 | sc-soak-1 | scene.memory_comfort | Take your time. I'm here.
+Day 18 04:26 | sc-soak-3 | recall.escape | I keep a little room in my head for the close call at the firehouse, last week. A reminder to be careful.
+Day 18 04:27 | sc-soak-2 | scene.memory_close | A plain story, kept together.
+Day 18 04:36 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 18 05:11 | sc-soak-3 | banter.routine | I'll keep looking. You keep watch.
+Day 18 05:48 | sc-soak-1 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 18 06:19 | sc-soak-1 | scene.watch.open | A watch is easier if you know exactly who takes over.
+Day 18 06:22 | sc-soak-2 | scene.watch.reply_pushback | And a tired person should be allowed to say they're too tired.
+Day 18 06:23 | sc-soak-1 | scene.watch.follow_pushback | Plain meanings. We can save clever for daylight.
+Day 18 06:26 | sc-soak-3 | scene.watch.close | Make sure the next person answers. That's the rule.
+Day 18 06:33 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 18 07:10 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 18 07:45 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 18 08:19 | sc-soak-2 | recall.escape | That narrow escape at the firehouse, last week, makes ordinary worries feel smaller.
+Day 18 08:22 | sc-soak-3 | recall.detail_deflect | June was there. That's the detail I can add.
+Day 18 08:26 | sc-soak-2 | recall.escape | I remember the close call at the firehouse, last week. A quiet seat means more after that.
+Day 18 08:27 | sc-soak-1 | scene.memory_close | Keep the person and the place in it. That's enough.
+Day 18 08:36 | sc-soak-2 | banter.routine | If you see trouble first, say it plain.
+Day 18 09:11 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 18 09:48 | sc-soak-1 | banter.routine | I'll keep looking. You keep watch.
+Day 18 10:19 | sc-soak-3 | recall.homecoming | I think of the homecoming at the firehouse, last week. A little less road in the world for a moment.
+Day 18 10:22 | sc-soak-1 | scene.memory_comfort | You don't have to make it sound smaller for us.
+Day 18 10:26 | sc-soak-3 | recall.homecoming | The firehouse, last week: the expedition came home. I like a story that reaches home.
+Day 18 10:27 | sc-soak-2 | scene.memory_close | All right. Let it rest beside us a while.
+Day 18 10:36 | sc-soak-2 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 18 11:11 | sc-soak-3 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 18 11:48 | sc-soak-1 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 18 12:19 | sc-soak-1 | recall.homecoming | I think of the homecoming at the firehouse, a few days back. A little less road in the world for a moment.
+Day 18 12:22 | sc-soak-2 | scene.memory_pushback | That memory gets a chair, not the whole room.
+Day 18 12:26 | sc-soak-1 | recall.homecoming | I remember that expedition coming home to the firehouse, a few days back. A return is worth remembering.
+Day 18 12:27 | sc-soak-3 | scene.memory_close | Thanks for telling it. We can sit a little longer.
+Day 18 12:36 | sc-soak-2 | banter.routine | Another productive day in scenic Knox County.
+Day 18 13:11 | sc-soak-3 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 18 13:48 | sc-soak-1 | banter.routine | Nothing moving nearby. Let's keep it that way.
+Day 18 14:19 | sc-soak-2 | scene.watch.open | A watch is easier if you know exactly who takes over.
+Day 18 14:22 | sc-soak-3 | scene.watch.reply_deflect | I'd like to discuss sleep by having some.
+Day 18 14:23 | sc-soak-2 | scene.watch.follow_deflect | An excellent suggestion from the sleep committee.
+Day 18 14:26 | sc-soak-1 | scene.watch.close | Make sure the next person answers. That's the rule.
+Day 18 14:33 | sc-soak-2 | banter.routine | Somebody used to have a normal day here.
+Day 18 15:10 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 18 15:45 | sc-soak-1 | banter.routine | Another productive day in scenic Knox County.
+Day 18 16:19 | sc-soak-3 | recall.escape | I remember the close call at the firehouse, last week. A quiet seat means more after that.
+Day 18 16:22 | sc-soak-1 | recall.detail_comfort | I was there. We can remember the people without rushing it.
+Day 18 16:26 | sc-soak-3 | recall.escape | That narrow escape at the firehouse, last week, makes ordinary worries feel smaller.
+Day 18 16:27 | sc-soak-2 | scene.memory_close | The evening has room for an ordinary thought too.
+Day 18 16:36 | sc-soak-2 | banter.intrusive.camp | A porch, a rocking chair, nothing happening. That was luxury.
+Day 18 17:11 | sc-soak-3 | banter.routine | If we split up, keep your voice low and close.
+Day 18 17:48 | sc-soak-1 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 18 18:19 | sc-soak-1 | scene.food.open | I'd like the food put where a hungry person can find it without a search party.
+Day 18 18:22 | sc-soak-2 | scene.food.reply_pushback | Labels won't help if only one person decides the portions.
+Day 18 18:26 | sc-soak-1 | scene.food.follow_pushback | Fair point. We agree on the portions together.
+Day 18 18:27 | sc-soak-3 | scene.food.close | Keep a reserve, share the rest, and tell people where it is.
+Day 18 18:36 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 18 19:11 | sc-soak-3 | banter.routine | Another productive day in scenic Knox County.
+Day 18 19:48 | sc-soak-1 | banter.routine | Remember, folks: idle hands get eaten.
+Day 18 20:19 | sc-soak-2 | recall.homecoming | I think of the homecoming at the firehouse, last week. A little less road in the world for a moment.
+Day 18 20:22 | sc-soak-3 | scene.memory_deflect | I can keep you company without interrupting it.
+Day 18 20:26 | sc-soak-2 | recall.homecoming | That return to the firehouse, last week, belongs among the memories worth keeping.
+Day 18 20:27 | sc-soak-1 | scene.memory_close | The evening has room for an ordinary thought too.
+Day 18 20:36 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 18 21:11 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 18 21:48 | sc-soak-1 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 18 22:19 | sc-soak-3 | scene.chores.open | Can we agree that asking for a hand isn't a declaration of defeat?
+Day 18 22:22 | sc-soak-1 | scene.chores.reply_comfort | We can make room for a tired day without making anybody feel useless.
+Day 18 22:23 | sc-soak-3 | scene.chores.follow_comfort | A tired day with no trial attached would be welcome.
+Day 18 22:26 | sc-soak-2 | scene.chores.close | Ask before resentment starts answering for you.
+Day 18 22:33 | sc-soak-2 | banter.routine | You holding up? You don't have to answer right away.
+Day 19 00:00 | sc-soak-3 | banter.routine | Nothing moving nearby. Let's keep it that way.
+Day 19 00:19 | sc-soak-1 | recall.alarm | I remember the alarm at the firehouse, last week, and being able to call it clear afterwards.
+Day 19 00:22 | sc-soak-2 | recall.detail_pushback | June was there. Let's keep the rest separate from guessing.
+Day 19 00:26 | sc-soak-1 | recall.alarm | That fought-off alarm at the firehouse, last week, earned a place in my memory.
+Day 19 00:27 | sc-soak-3 | scene.memory_close | No need to turn it into a lesson before we're ready.
+Day 19 00:36 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 19 01:11 | sc-soak-2 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 19 01:48 | sc-soak-3 | banter.routine | Remember, folks: idle hands get eaten.
+Day 19 02:19 | sc-soak-2 | recall.homecoming | I remember that expedition coming home to the firehouse, a few days back. A return is worth remembering.
+Day 19 02:22 | sc-soak-3 | scene.memory_deflect | I haven't got much to add, but I'm listening.
+Day 19 02:26 | sc-soak-2 | recall.homecoming | The expedition got back to the firehouse, a few days back. I still like hearing the word 'back'.
+Day 19 02:27 | sc-soak-1 | scene.memory_close | Thanks for telling it. We can sit a little longer.
+Day 19 02:36 | sc-soak-1 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 19 03:11 | sc-soak-2 | banter.routine | Remember to drink some water when you can.
+Day 19 03:48 | sc-soak-3 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 19 04:19 | sc-soak-3 | recall.escape | The firehouse, last week. An escape I'd rather remember than repeat.
+Day 19 04:22 | sc-soak-1 | scene.memory_comfort | I can sit with you while you tell it.
+Day 19 04:23 | sc-soak-3 | recall.escape | That close call at the firehouse, last week, still comes back when things go quiet.
+Day 19 04:26 | sc-soak-2 | scene.memory_close | Thanks for telling it. We can sit a little longer.
+Day 19 04:33 | sc-soak-1 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 19 05:10 | sc-soak-2 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 19 05:45 | sc-soak-3 | banter.routine | If you see trouble first, say it plain.
+Day 19 06:19 | sc-soak-1 | scene.water.open | Can we put the water plan somewhere other than inside one person's head?
+Day 19 06:22 | sc-soak-2 | scene.water.reply_pushback | We need a way to replace it, as well as a place to keep it.
+Day 19 06:26 | sc-soak-1 | scene.water.follow_pushback | That's a fair addition. Write it beside the reserve.
+Day 19 06:27 | sc-soak-3 | scene.water.close | Make the plan simple enough to use when we're tired.
+Day 19 06:36 | sc-soak-1 | banter.routine | Somebody used to have a normal day here.
+Day 19 07:11 | sc-soak-2 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 19 07:48 | sc-soak-3 | banter.routine | Every creak takes a year off my life.
+Day 19 08:19 | sc-soak-2 | recall.escape | That narrow escape at the firehouse, early on, makes ordinary worries feel smaller.
+Day 19 08:22 | sc-soak-3 | recall.detail_deflect | June was there. That's the detail I can add.
+Day 19 08:26 | sc-soak-2 | recall.escape | I can still place that close call: the firehouse, early on. I'd prefer fewer like it.
+Day 19 08:27 | sc-soak-1 | scene.memory_close | Leave the memory here with the company for a minute.
+Day 19 08:36 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 19 09:11 | sc-soak-2 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 19 09:48 | sc-soak-3 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 19 10:19 | sc-soak-3 | recall.escape | The firehouse, last week. Getting through that close call wasn't something I'd take for granted.
+Day 19 10:22 | sc-soak-1 | scene.memory_comfort | I'd rather hear it than have you alone with it.
+Day 19 10:26 | sc-soak-3 | recall.escape | After that escape at the firehouse, last week, I appreciate a plain evening.
+Day 19 10:27 | sc-soak-2 | scene.memory_close | Leave the memory here with the company for a minute.
+Day 19 10:36 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 19 11:11 | sc-soak-2 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 19 11:48 | sc-soak-3 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 19 12:19 | sc-soak-1 | recall.escape | The firehouse, last week. An escape I'd rather remember than repeat.
+Day 19 12:22 | sc-soak-2 | scene.memory_pushback | Careful which part you blame yourself for.
+Day 19 12:23 | sc-soak-1 | recall.escape | That narrow escape at the firehouse, last week, makes ordinary worries feel smaller.
+Day 19 12:26 | sc-soak-3 | scene.memory_close | A plain story, kept together.
+Day 19 12:33 | sc-soak-1 | banter.routine | If you see trouble first, say it plain.
+Day 19 13:10 | sc-soak-2 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 19 13:45 | sc-soak-3 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 19 14:19 | sc-soak-2 | scene.winter.open | I keep thinking about how we'd stay warm if this place got colder.
+Day 19 14:22 | sc-soak-3 | scene.winter.reply_deflect | I'd like a quiet evening before the weather meeting.
+Day 19 14:23 | sc-soak-2 | scene.winter.follow_deflect | All right. The list can wait until morning.
+Day 19 14:26 | sc-soak-1 | scene.winter.close | Dry things first. We can manage one shelf at a time.
+Day 19 14:33 | sc-soak-1 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 19 15:10 | sc-soak-2 | banter.routine | Take a breath if you need one. I'll keep going.
+Day 19 15:45 | sc-soak-3 | banter.routine | I keep checking the exits. Habit now.
+Day 19 16:19 | sc-soak-3 | scene.moving.open | We should agree what would make a move worth the trouble.
+Day 19 16:22 | sc-soak-1 | scene.moving.reply_comfort | Wanting a way out doesn't mean you don't care about this place.
+Day 19 16:23 | sc-soak-3 | scene.moving.follow_comfort | Yes. I want a choice, not a panic.
+Day 19 16:26 | sc-soak-2 | scene.moving.close | Keep a plan, and tell everyone if it changes.
+Day 19 17:48 | sc-soak-1 | banter.intrusive.camp | Sudden urge to sweep the whole place at midnight.
+Day 19 18:19 | sc-soak-1 | scene.winter.open | I'd rather think about cold weather while I can still feel my fingers.
+Day 19 18:22 | sc-soak-2 | scene.winter.reply_pushback | We still have today's needs. We can't put everything aside for winter.
+Day 19 18:23 | sc-soak-1 | scene.winter.follow_pushback | One finished job beats ten worries. Fair enough.
+Day 19 18:26 | sc-soak-3 | scene.winter.close | Nobody needs to solve a whole winter tonight.
+Day 19 20:19 | sc-soak-2 | scene.visitors.open | Kindness is easier when we know where we're asking visitors to stand.
+Day 19 20:22 | sc-soak-3 | scene.visitors.reply_deflect | Trade first. Sleeping arrangements can wait.
+Day 19 20:23 | sc-soak-2 | scene.visitors.follow_deflect | All right. One decision at a time.
+Day 19 20:26 | sc-soak-1 | scene.visitors.close | Clear rules are kinder than a surprise at the gate.
+Day 19 22:19 | sc-soak-3 | scene.winter.open | We should make a list for winter before winter starts making demands.
+Day 19 22:22 | sc-soak-1 | scene.winter.reply_comfort | There are enough hands here to help with the preparations.
+Day 19 22:23 | sc-soak-3 | scene.winter.follow_comfort | A little at a time sounds better than all at once.
+Day 19 22:26 | sc-soak-2 | scene.winter.close | Dry things first. We can manage one shelf at a time.
+Day 20 00:11 | sc-soak-1 | scene.after_close.open | I keep going back to that narrow escape at the firehouse.
+Day 20 00:14 | sc-soak-2 | scene.after_close.reply_pushback | Take the minute. Then let's agree on a safer way.
+Day 20 00:15 | sc-soak-1 | scene.after_close.follow_pushback | Agreed. Rest first, then a better plan.
+Day 20 00:18 | sc-soak-3 | scene.after_close.close | Let it settle. We're listening.
+Day 20 00:37 | sc-soak-2 | scene.after_death.open | Wade is gone. I keep expecting to hear that voice again.
+Day 20 00:40 | sc-soak-3 | scene.after_death.reply_deflect | I can't find much to say either. I can stay.
+Day 20 00:41 | sc-soak-2 | scene.after_death.follow_deflect | Staying is enough. Thank you.
+Day 20 00:44 | sc-soak-1 | scene.after_death.close | Nobody has to hurry this part.
+Day 20 02:37 | sc-soak-3 | scene.quiet.open | I'm tired of feeling like I have to earn every quiet minute.
+Day 20 02:40 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 20 02:41 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 20 02:44 | sc-soak-2 | scene.quiet.close | We can leave it quiet for a bit.
+Day 20 04:37 | sc-soak-1 | scene.visitors.open | What do we tell somebody who wants to trade and stay the night?
+Day 20 04:40 | sc-soak-2 | scene.visitors.reply_pushback | I want a clear distance and an open way out for both sides.
+Day 20 04:41 | sc-soak-1 | scene.visitors.follow_pushback | Then we keep the greeting calm and the precautions plain.
+Day 20 04:44 | sc-soak-3 | scene.visitors.close | We can leave room for a stranger to be frightened too.
+Day 20 06:37 | sc-soak-2 | scene.route.open | Next time we go out, I want an exit picked before an entrance.
+Day 20 06:40 | sc-soak-3 | scene.route.reply_deflect | Can we pick the road after we've sat down a while?
+Day 20 06:41 | sc-soak-2 | scene.route.follow_deflect | Fine. No route decisions on sore feet.
+Day 20 06:44 | sc-soak-1 | scene.route.close | Keep the map handy. We can settle the details before we leave.
+Day 20 08:37 | sc-soak-3 | scene.quiet.open | My thoughts keep going when the rest of me wants to stop.
+Day 20 08:40 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 20 08:41 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 20 08:44 | sc-soak-2 | scene.quiet.close | Take the minute. Nobody is counting it against you.
+Day 20 10:37 | sc-soak-1 | recall.escape | The firehouse, last week. Getting through that close call wasn't something I'd take for granted.
+Day 20 10:40 | sc-soak-2 | scene.memory_pushback | It doesn't have to mean the same thing to everyone.
+Day 20 10:44 | sc-soak-1 | recall.escape | I keep a little room in my head for the close call at the firehouse, last week. A reminder to be careful.
+Day 20 10:45 | sc-soak-3 | scene.memory_close | The evening has room for an ordinary thought too.
+Day 20 12:37 | sc-soak-2 | scene.food.open | We ought to agree which food is for tonight and which is for a bad week.
+Day 20 12:40 | sc-soak-3 | scene.food.reply_deflect | I'm willing to debate this after supper.
+Day 20 12:44 | sc-soak-2 | scene.food.follow_deflect | Fine. A fed audience might be kinder.
+Day 20 12:45 | sc-soak-1 | scene.food.close | Keep a reserve, share the rest, and tell people where it is.
+Day 20 14:37 | sc-soak-3 | scene.shaken.open | I'm here, but I don't feel settled inside my own skin.
+Day 20 14:40 | sc-soak-1 | scene.shaken.reply_comfort | I'm close by. Take your time finding your breath.
+Day 20 14:41 | sc-soak-3 | scene.shaken.follow_comfort | Thanks. Having somebody nearby helps.
+Day 20 14:44 | sc-soak-2 | scene.shaken.close | Let your shoulders come down when they're ready.
+Day 20 16:37 | sc-soak-1 | recall.death | The loss of Wade, earlier today, is part of what this place means to me now.
+Day 20 16:40 | sc-soak-2 | scene.memory_grief_pushback | Don't ask yourself to carry everyone's grief as well as your own.
+Day 20 16:44 | sc-soak-1 | recall.death | I remember losing Wade, earlier today. Some quiet moments still belong to that loss.
+Day 20 16:45 | sc-soak-3 | scene.memory_grief_close | Nobody has to hurry this part.
+Day 20 18:37 | sc-soak-2 | scene.water.open | An empty container is a useful reminder. I'd rather not collect reminders.
+Day 20 18:40 | sc-soak-3 | scene.water.reply_deflect | Could we hold the meeting near a drink?
+Day 20 18:44 | sc-soak-2 | scene.water.follow_deflect | Near a drink is an excellent location.
+Day 20 18:45 | sc-soak-1 | scene.water.close | Clear water, clear labels. Two kinds of reassurance.
+Day 20 20:37 | sc-soak-3 | scene.quiet.open | I could use company without having to be good company.
+Day 20 20:40 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 20 20:41 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 20 20:44 | sc-soak-2 | scene.quiet.close | One breath, then the next. The conversation can wait.
+Day 20 22:37 | sc-soak-1 | recall.death | Wade died earlier today. I'd like to leave room for the person, not just the end.
+Day 20 22:40 | sc-soak-2 | scene.memory_grief_pushback | You don't have to find words that make it bearable for us.
+Day 20 22:44 | sc-soak-1 | recall.death | Wade, lost earlier today. I don't want the name to fade into a number.
+Day 20 22:45 | sc-soak-3 | scene.memory_grief_close | We can sit a little longer.
+Day 21 00:11 | sc-soak-2 | scene.after_home.open | We're back from the expedition. It's good to say that where you can hear it.
+Day 21 00:14 | sc-soak-3 | scene.after_home.reply_deflect | A quiet minute first. No questions until you're ready.
+Day 21 00:18 | sc-soak-2 | scene.after_home.follow_deflect | Thanks. Just a minute, then the details.
+Day 21 00:19 | sc-soak-1 | scene.after_home.close | Stay together a little. There's time to unpack.
+Day 21 02:11 | sc-soak-3 | scene.shaken.open | I'd like to stop bracing for the next thing, just for a minute.
+Day 21 02:14 | sc-soak-1 | scene.shaken.reply_comfort | Stay here with us a little. No need to explain it.
+Day 21 02:15 | sc-soak-3 | scene.shaken.follow_comfort | I'll stay. Just give me a moment.
+Day 21 02:18 | sc-soak-2 | scene.shaken.close | We don't have to fix the whole feeling tonight.
+Day 21 04:11 | sc-soak-1 | scene.moving.open | I'd like a plan for leaving this place, even if we never need to use it.
+Day 21 04:14 | sc-soak-2 | scene.moving.reply_pushback | Every place looks better before you know what's wrong with it.
+Day 21 04:18 | sc-soak-1 | scene.moving.follow_pushback | Fair. We compare real problems, not imagined comforts.
+Day 21 04:19 | sc-soak-3 | scene.moving.close | A home is easier to leave safely when nobody is surprised.
+Day 21 06:11 | sc-soak-2 | recall.alarm | I remember the alarm at the firehouse, last week, and being able to call it clear afterwards.
+Day 21 06:14 | sc-soak-3 | recall.detail_deflect | June was there. That's the detail I can add.
+Day 21 06:18 | sc-soak-2 | recall.alarm | I remember the firehouse, last week: the alarm, then the all clear.
+Day 21 06:19 | sc-soak-1 | scene.memory_close | No need to turn it into a lesson before we're ready.
+Day 21 08:12 | sc-soak-3 | scene.quiet.open | I don't have much conversation in me. I don't want to sit alone, either.
+Day 21 08:14 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 21 08:17 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 21 08:19 | sc-soak-2 | scene.quiet.close | We can leave it quiet for a bit.
+Day 21 10:12 | sc-soak-1 | recall.homecoming | I think of the homecoming at the firehouse, earlier today. A little less road in the world for a moment.
+Day 21 10:14 | sc-soak-2 | scene.memory_pushback | You can remember it without going through it again.
+Day 21 10:17 | sc-soak-1 | recall.homecoming | The expedition came home at the firehouse, earlier today. A useful reminder of what the trip was for.
+Day 21 10:19 | sc-soak-3 | scene.memory_close | All right. Let it rest beside us a while.
+Day 21 12:12 | sc-soak-2 | scene.chores.open | We ought to share the little jobs before they all become somebody's whole day.
+Day 21 12:14 | sc-soak-3 | scene.chores.reply_deflect | Let's choose one little job. A whole list is making me tired.
+Day 21 12:17 | sc-soak-2 | scene.chores.follow_deflect | One small job, after a proper rest.
+Day 21 12:19 | sc-soak-1 | scene.chores.close | Small work still deserves a thank you.
+Day 21 14:12 | sc-soak-3 | scene.quiet.open | I'm tired of feeling like I have to earn every quiet minute.
+Day 21 14:14 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 21 14:15 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 21 14:17 | sc-soak-2 | scene.quiet.close | Take the minute. Nobody is counting it against you.
+Day 21 16:12 | sc-soak-1 | recall.escape | I keep a little room in my head for the close call at the firehouse, early on. A reminder to be careful.
+Day 21 16:14 | sc-soak-2 | scene.memory_pushback | Leave room for somebody else's way of carrying it.
+Day 21 16:17 | sc-soak-1 | recall.escape | After that escape at the firehouse, early on, I appreciate a plain evening.
+Day 21 16:19 | sc-soak-3 | scene.memory_close | Keep the person and the place in it. That's enough.
+Day 21 18:12 | sc-soak-2 | recall.homecoming | I think of the homecoming at the firehouse, a few weeks back. A little less road in the world for a moment.
+Day 21 18:14 | sc-soak-3 | scene.memory_deflect | I don't know what to say to that just yet.
+Day 21 18:17 | sc-soak-2 | recall.homecoming | That return to the firehouse, a few weeks back, belongs among the memories worth keeping.
+Day 21 18:19 | sc-soak-1 | scene.memory_close | We can leave the memory there for a while.
+Day 21 20:12 | sc-soak-3 | scene.quiet.open | My thoughts keep going when the rest of me wants to stop.
+Day 21 20:14 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 21 20:15 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 21 20:17 | sc-soak-2 | scene.quiet.close | One breath, then the next. The conversation can wait.
+Day 21 22:12 | sc-soak-1 | recall.homecoming | The firehouse, a few weeks back: the expedition came home. I like a story that reaches home.
+Day 21 22:14 | sc-soak-2 | recall.detail_pushback | June was there. Let's keep the rest separate from guessing.
+Day 21 22:17 | sc-soak-1 | recall.homecoming | That return to the firehouse, a few weeks back, belongs among the memories worth keeping.
+Day 21 22:19 | sc-soak-3 | scene.memory_close | Leave the memory here with the company for a minute.
+Day 22 00:15 | sc-soak-2 | scene.after_alarm.open | We dealt with that alarm. I'd like a moment before somebody makes another noise.
+Day 22 00:17 | sc-soak-3 | scene.after_alarm.reply_deflect | I have no plans to add to the noise.
+Day 22 00:22 | sc-soak-2 | scene.after_alarm.follow_deflect | Quiet discussion approved.
+Day 22 00:23 | sc-soak-1 | scene.after_alarm.close | A calm minute before the next decision.
+Day 22 02:15 | sc-soak-3 | scene.quiet.open | I could use company without having to be good company.
+Day 22 02:17 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 22 02:19 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 22 02:22 | sc-soak-2 | scene.quiet.close | We can leave it quiet for a bit.
+Day 22 04:15 | sc-soak-1 | scene.route.open | I'd rather take the long road home than argue with a short one full of teeth.
+Day 22 04:17 | sc-soak-2 | scene.route.reply_pushback | The long way has blind corners too. I'd want a look at both.
+Day 22 04:22 | sc-soak-1 | scene.route.follow_pushback | Fair. Two routes, and neither gets our blind trust.
+Day 22 04:23 | sc-soak-3 | scene.route.close | Keep the map handy. We can settle the details before we leave.
+Day 22 06:15 | sc-soak-2 | recall.escape | The firehouse, last week. An escape I'd rather remember than repeat.
+Day 22 06:17 | sc-soak-3 | recall.detail_deflect | June was there. That's the detail I can add.
+Day 22 06:19 | sc-soak-2 | recall.escape | I can still place that close call: the firehouse, last week. I'd prefer fewer like it.
+Day 22 06:22 | sc-soak-1 | scene.memory_close | Keep the person and the place in it. That's enough.
+Day 22 08:15 | sc-soak-3 | scene.quiet.open | I don't have much conversation in me. I don't want to sit alone, either.
+Day 22 08:17 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 22 08:22 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 22 08:23 | sc-soak-2 | scene.quiet.close | Take the minute. Nobody is counting it against you.
+Day 22 10:15 | sc-soak-1 | recall.death | I remember losing Wade, a few days back. Some quiet moments still belong to that loss.
+Day 22 10:17 | sc-soak-2 | scene.memory_grief_pushback | Don't ask yourself to carry everyone's grief as well as your own.
+Day 22 10:22 | sc-soak-1 | recall.death | I keep thinking of Wade. a few days back doesn't feel very far away when I do.
+Day 22 10:23 | sc-soak-3 | scene.memory_grief_close | We'll remember the person, together.
+Day 22 12:15 | sc-soak-2 | scene.moving.open | If we ever move camp, I'd like to choose the next place before we fill the bags.
+Day 22 12:17 | sc-soak-3 | scene.moving.reply_deflect | Can we leave the bags empty until morning?
+Day 22 12:22 | sc-soak-2 | scene.moving.follow_deflect | Bags empty. Discussion postponed until we're rested.
+Day 22 12:23 | sc-soak-1 | scene.moving.close | A home is easier to leave safely when nobody is surprised.
+Day 22 14:15 | sc-soak-3 | scene.quiet.open | I'm tired of feeling like I have to earn every quiet minute.
+Day 22 14:17 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 22 14:20 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 22 14:22 | sc-soak-2 | scene.quiet.close | One breath, then the next. The conversation can wait.
+Day 22 16:15 | sc-soak-1 | recall.homecoming | I remember the return to the firehouse, last week. Nothing grand needed adding.
+Day 22 16:17 | sc-soak-2 | scene.memory_pushback | Don't turn one moment into the whole story.
+Day 22 16:22 | sc-soak-1 | recall.homecoming | Last week, at the firehouse, the expedition returned. That's the part I want to keep.
+Day 22 16:23 | sc-soak-3 | scene.memory_close | We can leave the memory there for a while.
+Day 22 18:15 | sc-soak-2 | recall.alarm | I remember the alarm at the firehouse, earlier today, and being able to call it clear afterwards.
+Day 22 18:17 | sc-soak-3 | scene.memory_deflect | I don't want to put words into your memory.
+Day 22 18:22 | sc-soak-2 | recall.alarm | I remember the firehouse, earlier today: the alarm, then the all clear.
+Day 22 18:23 | sc-soak-1 | scene.memory_close | A plain story, kept together.
+Day 22 20:15 | sc-soak-3 | scene.quiet.open | My thoughts keep going when the rest of me wants to stop.
+Day 22 20:17 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 22 20:20 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 22 20:22 | sc-soak-2 | scene.quiet.close | We can leave it quiet for a bit.
+Day 22 22:15 | sc-soak-1 | recall.alarm | I remember the alarm at the firehouse, earlier today, and being able to call it clear afterwards.
+Day 22 22:17 | sc-soak-2 | recall.detail_pushback | June was there. Let's keep the rest separate from guessing.
+Day 22 22:22 | sc-soak-1 | recall.alarm | The alarm at the firehouse, earlier today, ended. I try to remember the ending as well as the noise.
+Day 22 22:23 | sc-soak-3 | scene.memory_close | Thanks for telling it. We can sit a little longer.
+Day 23 00:00 | sc-soak-2 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 23 00:15 | sc-soak-2 | recall.escape | The firehouse, last week. Getting through that close call wasn't something I'd take for granted.
+Day 23 00:17 | sc-soak-3 | scene.memory_deflect | Give me a moment. I'm trying to hear what matters to you.
+Day 23 00:22 | sc-soak-2 | recall.escape | That narrow escape at the firehouse, last week, makes ordinary worries feel smaller.
+Day 23 00:23 | sc-soak-1 | scene.memory_close | All right. Let it rest beside us a while.
+Day 23 00:36 | sc-soak-3 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 23 01:12 | sc-soak-1 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 23 01:47 | sc-soak-2 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 23 02:15 | sc-soak-3 | scene.quiet.open | I could use company without having to be good company.
+Day 23 02:17 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 23 02:20 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 23 02:22 | sc-soak-2 | scene.quiet.close | Take the minute. Nobody is counting it against you.
+Day 23 02:30 | sc-soak-3 | banter.routine | No need to rush into a bad surprise.
+Day 23 03:06 | sc-soak-1 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 23 03:42 | sc-soak-2 | banter.routine | I'll keep looking. You keep watch.
+Day 23 04:15 | sc-soak-1 | scene.food.open | I'd like the food put where a hungry person can find it without a search party.
+Day 23 04:17 | sc-soak-2 | scene.food.reply_pushback | Labels won't help if only one person decides the portions.
+Day 23 04:22 | sc-soak-1 | scene.food.follow_pushback | Fair point. We agree on the portions together.
+Day 23 04:23 | sc-soak-3 | scene.food.close | Nobody ought to feel like a thief for needing supper.
+Day 23 04:31 | sc-soak-3 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 23 05:07 | sc-soak-1 | banter.routine | I'm still here. Whatever comes through, we'll handle it.
+Day 23 05:44 | sc-soak-2 | banter.intrusive.grief | Nobody's touched their things. Nobody will.
+Day 23 06:15 | sc-soak-2 | recall.escape | After that escape at the firehouse, a few days back, I appreciate a plain evening.
+Day 23 06:17 | sc-soak-3 | recall.detail_deflect | June was there. That's the detail I can add.
+Day 23 06:22 | sc-soak-2 | recall.escape | The firehouse, a few days back. An escape I'd rather remember than repeat.
+Day 23 06:23 | sc-soak-1 | scene.memory_close | The evening has room for an ordinary thought too.
+Day 23 06:31 | sc-soak-3 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 23 07:07 | sc-soak-1 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 23 07:44 | sc-soak-2 | banter.routine | Folks round here used to wave at strangers. Now we count them.
+Day 23 08:15 | sc-soak-3 | scene.quiet.open | I don't have much conversation in me. I don't want to sit alone, either.
+Day 23 08:17 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 23 08:22 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 23 08:23 | sc-soak-2 | scene.quiet.close | One breath, then the next. The conversation can wait.
+Day 23 08:31 | sc-soak-3 | banter.routine | We have time. Let's use it carefully.
+Day 23 09:07 | sc-soak-1 | banter.routine | Mind the mess. Civilization left in a hurry.
+Day 23 09:44 | sc-soak-2 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 23 10:15 | sc-soak-1 | recall.alarm | The alarm at the firehouse, yesterday, is one reason I appreciate an ordinary noise.
+Day 23 10:17 | sc-soak-2 | scene.memory_pushback | That memory gets a chair, not the whole room.
+Day 23 10:22 | sc-soak-1 | recall.alarm | The firehouse, yesterday. That alarm is a sound I don't need repeated.
+Day 23 10:23 | sc-soak-3 | scene.memory_close | No need to turn it into a lesson before we're ready.
+Day 23 10:31 | sc-soak-3 | banter.routine | Somebody used to have a normal day here.
+Day 23 11:07 | sc-soak-1 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 23 11:44 | sc-soak-2 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 23 12:15 | sc-soak-2 | scene.watch.open | We should have a quiet signal for 'come and look at this'.
+Day 23 12:17 | sc-soak-3 | scene.watch.reply_deflect | Can we practise the quiet part right now?
+Day 23 12:20 | sc-soak-2 | scene.watch.follow_deflect | Practice begins now. Meeting nearly over.
+Day 23 12:22 | sc-soak-1 | scene.watch.close | Make sure the next person answers. That's the rule.
+Day 23 12:30 | sc-soak-3 | banter.routine | I'll keep looking. You keep watch.
+Day 23 13:06 | sc-soak-1 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 23 13:42 | sc-soak-2 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 23 14:15 | sc-soak-3 | scene.quiet.open | I'm tired of feeling like I have to earn every quiet minute.
+Day 23 14:17 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 23 14:20 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 23 14:22 | sc-soak-2 | scene.quiet.close | We can leave it quiet for a bit.
+Day 23 14:30 | sc-soak-3 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 23 15:06 | sc-soak-1 | banter.routine | Quiet places make me listen harder.
+Day 23 15:42 | sc-soak-2 | banter.routine | If you see trouble first, say it plain.
+Day 23 16:15 | sc-soak-1 | recall.alarm | The alarm at the firehouse, last week, is one reason I appreciate an ordinary noise.
+Day 23 16:17 | sc-soak-2 | scene.memory_pushback | We can talk without deciding what it says about you.
+Day 23 16:22 | sc-soak-1 | recall.alarm | I think of that alarm at the firehouse, last week. Quiet seemed valuable afterwards.
+Day 23 16:23 | sc-soak-3 | scene.memory_close | A plain story, kept together.
+Day 23 16:31 | sc-soak-3 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 23 17:07 | sc-soak-1 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 23 17:44 | sc-soak-2 | banter.routine | Remember, folks: idle hands get eaten.
+Day 23 18:15 | sc-soak-2 | recall.alarm | Yesterday, at the firehouse, we got through the alarm. I can still place the sound.
+Day 23 18:17 | sc-soak-3 | scene.memory_deflect | I'd rather listen for a minute.
+Day 23 18:22 | sc-soak-2 | recall.alarm | The alarm at the firehouse, yesterday, is one reason I appreciate an ordinary noise.
+Day 23 18:23 | sc-soak-1 | scene.memory_close | Thanks for telling it. We can sit a little longer.
+Day 23 18:31 | sc-soak-3 | banter.routine | Work quiet when we can. Noise draws them like hogs to a bucket.
+Day 23 19:07 | sc-soak-1 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 23 19:44 | sc-soak-2 | banter.routine | Funny how a room can feel crowded with nobody in it.
+Day 23 20:15 | sc-soak-3 | scene.quiet.open | My thoughts keep going when the rest of me wants to stop.
+Day 23 20:17 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 23 20:20 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 23 20:22 | sc-soak-2 | scene.quiet.close | Take the minute. Nobody is counting it against you.
+Day 23 20:30 | sc-soak-3 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 23 21:06 | sc-soak-1 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 23 21:42 | sc-soak-2 | banter.routine | If we split up, keep your voice low and close.
+Day 23 22:15 | sc-soak-1 | recall.death | Wade, lost a few days back. I don't want the name to fade into a number.
+Day 23 22:17 | sc-soak-2 | scene.memory_grief_pushback | You don't have to find words that make it bearable for us.
+Day 23 22:22 | sc-soak-1 | recall.death | Wade died a few days back. I'd like to leave room for the person, not just the end.
+Day 23 22:23 | sc-soak-3 | scene.memory_grief_close | We can sit a little longer.
+Day 23 22:31 | sc-soak-3 | banter.routine | This used to count as a work party. Minus the potluck.
+Day 23 23:07 | sc-soak-1 | banter.routine | Another productive day in scenic Knox County.
+Day 23 23:44 | sc-soak-2 | banter.routine | Good news, no commute. Bad news, the reason why.
+Day 24 00:15 | sc-soak-2 | recall.escape | The firehouse, early on. Getting through that close call wasn't something I'd take for granted.
+Day 24 00:17 | sc-soak-3 | scene.memory_deflect | Let me hear the rest before I try to find the words.
+Day 24 00:22 | sc-soak-2 | recall.escape | I can still place that close call: the firehouse, early on. I'd prefer fewer like it.
+Day 24 00:23 | sc-soak-1 | scene.memory_close | Leave the memory here with the company for a minute.
+Day 24 00:31 | sc-soak-3 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 24 01:07 | sc-soak-1 | banter.routine | I'd trade every dollar in this county for cold sweet tea.
+Day 24 01:44 | sc-soak-2 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 24 02:15 | sc-soak-3 | scene.quiet.open | I could use company without having to be good company.
+Day 24 02:17 | sc-soak-1 | scene.quiet.reply_comfort | I'll stay a while. You don't have to find the right words.
+Day 24 02:20 | sc-soak-3 | scene.quiet.follow_comfort | That's enough. More than enough, just now.
+Day 24 02:22 | sc-soak-2 | scene.quiet.close | One breath, then the next. The conversation can wait.
+Day 24 02:30 | sc-soak-3 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 24 03:06 | sc-soak-1 | banter.routine | The road outside looks calm. I don't trust it yet.
+Day 24 03:42 | sc-soak-2 | banter.routine | Take a breath if you need one. I'll keep going.
+Day 24 04:15 | sc-soak-1 | scene.watch.open | We should have a quiet signal for 'come and look at this'.
+Day 24 04:17 | sc-soak-2 | scene.watch.reply_pushback | A signal needs a meaning everyone knows. No clever improvising.
+Day 24 04:20 | sc-soak-1 | scene.watch.follow_pushback | Agreed. No shame in asking for relief.
+Day 24 04:22 | sc-soak-3 | scene.watch.close | Make sure the next person answers. That's the rule.
+Day 24 04:30 | sc-soak-3 | banter.routine | Folks round here used to wave at strangers. Now we count them.
+Day 24 05:06 | sc-soak-1 | banter.routine | Somebody used to have a normal day here.
+Day 24 05:42 | sc-soak-2 | banter.routine | Dry county jokes hit different when clean water's scarce.
+Day 24 06:15 | sc-soak-2 | scene.winter.open | I'd rather think about cold weather while I can still feel my fingers.
+Day 24 06:17 | sc-soak-3 | scene.winter.reply_deflect | Can we think about one season at a time for a minute?
+Day 24 06:20 | sc-soak-2 | scene.winter.follow_deflect | All right. The list can wait until morning.
+Day 24 06:22 | sc-soak-1 | scene.winter.close | Nobody needs to solve a whole winter tonight.
+Day 24 06:30 | sc-soak-3 | banter.routine | Quiet places make me listen harder.
+Day 24 07:06 | sc-soak-1 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 24 07:42 | sc-soak-2 | banter.routine | Another productive day in scenic Knox County.
+Day 24 08:15 | sc-soak-3 | scene.quiet.open | I don't have much conversation in me. I don't want to sit alone, either.
+Day 24 08:17 | sc-soak-1 | scene.quiet.reply_comfort | Then we'll sit. Nothing else required.
+Day 24 08:22 | sc-soak-3 | scene.quiet.follow_comfort | Thank you for staying.
+Day 24 08:23 | sc-soak-2 | scene.quiet.close | We can leave it quiet for a bit.
+Day 24 08:31 | sc-soak-3 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 24 09:07 | sc-soak-1 | banter.routine | Remember, folks: idle hands get eaten.
+Day 24 09:44 | sc-soak-2 | banter.routine | Kentucky weather never cared who was left to complain about it.
+Day 24 10:15 | sc-soak-1 | recall.escape | I remember the close call at the firehouse, last week. A quiet seat means more after that.
+Day 24 10:17 | sc-soak-2 | scene.memory_pushback | Careful which part you blame yourself for.
+Day 24 10:22 | sc-soak-1 | recall.escape | After that escape at the firehouse, last week, I appreciate a plain evening.
+Day 24 10:23 | sc-soak-3 | scene.memory_close | The evening has room for an ordinary thought too.
+Day 24 10:31 | sc-soak-3 | banter.routine | Maybe a radio's still promising help. Bless its heart.
+Day 24 11:07 | sc-soak-1 | banter.routine | If you see trouble first, say it plain.
+Day 24 11:44 | sc-soak-2 | banter.routine | We have time. Let's use it carefully.
+Day 24 12:15 | sc-soak-2 | scene.visitors.open | If somebody comes asking for help, I'd like us to have agreed on an answer.
+Day 24 12:17 | sc-soak-3 | scene.visitors.reply_deflect | Let's work out the first hello before we offer a bed.
+Day 24 12:22 | sc-soak-2 | scene.visitors.follow_deflect | A calm hello first. That sounds sensible.
+Day 24 12:23 | sc-soak-1 | scene.visitors.close | We can leave room for a stranger to be frightened too.
+Day 24 12:31 | sc-soak-3 | banter.routine | If we split up, keep your voice low and close.
+Day 24 13:07 | sc-soak-1 | banter.routine | Keep an ear on the doors. I'll mind this side.
+Day 24 13:44 | sc-soak-2 | banter.routine | You holding up? You don't have to answer right away.
+Day 24 14:15 | sc-soak-3 | scene.shaken.open | My hands are calmer than my thoughts. That's something, I suppose.
+Day 24 14:17 | sc-soak-1 | scene.shaken.reply_comfort | I'm close by. Take your time finding your breath.
+Day 24 14:20 | sc-soak-3 | scene.shaken.follow_comfort | Thanks. Having somebody nearby helps.
+Day 24 14:22 | sc-soak-2 | scene.shaken.close | Stay a while. There's room.
+Day 24 14:30 | sc-soak-3 | banter.routine | Another productive day in scenic Knox County.
+Day 24 15:06 | sc-soak-1 | banter.routine | Nothing like routine to keep the screaming on the inside.
+Day 24 15:42 | sc-soak-2 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 24 16:15 | sc-soak-1 | scene.chores.open | We ought to share the little jobs before they all become somebody's whole day.
+Day 24 16:17 | sc-soak-2 | scene.chores.reply_pushback | Sharing doesn't mean guessing who is already worn out.
+Day 24 16:22 | sc-soak-1 | scene.chores.follow_pushback | Agreed. Ask first, then divide what remains.
+Day 24 16:23 | sc-soak-3 | scene.chores.close | Nobody sees every job. We can help each other notice.
+Day 24 16:31 | sc-soak-3 | banter.routine | Keeping busy at the end of the world. Mama would be proud.
+Day 24 17:07 | sc-soak-1 | banter.routine | World ended and I'm still on shift. Figures.
+Day 24 17:44 | sc-soak-2 | banter.routine | Quiet enough to hear myself think. Almost.
+Day 24 18:15 | sc-soak-2 | recall.death | I remember losing Wade, a few days back. Some quiet moments still belong to that loss.
+Day 24 18:17 | sc-soak-3 | scene.memory_grief_deflect | We don't have to talk beyond the name just now.
+Day 24 18:22 | sc-soak-2 | recall.death | Wade died a few days back. I'd like to leave room for the person, not just the end.
+Day 24 18:23 | sc-soak-1 | scene.memory_grief_close | Nobody has to hurry this part.
+Day 24 18:31 | sc-soak-3 | banter.routine | Hard to picture a Derby with nobody in the stands.
+Day 24 19:07 | sc-soak-1 | banter.routine | If anybody asks, I'm on break. Have been since July.
+Day 24 19:44 | sc-soak-2 | banter.routine | Quiet places make me listen harder.
+Day 24 20:15 | sc-soak-3 | scene.shaken.open | I keep looking for a reason to stand up again. I need to rest.
+Day 24 20:17 | sc-soak-1 | scene.shaken.reply_comfort | Stay here with us a little. No need to explain it.
+Day 24 20:20 | sc-soak-3 | scene.shaken.follow_comfort | I'll stay. Just give me a moment.
+Day 24 20:22 | sc-soak-2 | scene.shaken.close | Let your shoulders come down when they're ready.
+Day 24 20:30 | sc-soak-3 | banter.routine | Remember, folks: idle hands get eaten.
+Day 24 21:06 | sc-soak-1 | banter.routine | Folks round here used to wave at strangers. Now we count them.
+Day 24 21:42 | sc-soak-2 | banter.routine | Funny thing, the end of the world. Still got chores.
+Day 24 22:15 | sc-soak-1 | scene.winter.open | Dry blankets deserve a place in the plan, beside food and water.
+Day 24 22:17 | sc-soak-2 | scene.winter.reply_pushback | We still have today's needs. We can't put everything aside for winter.
+Day 24 22:20 | sc-soak-1 | scene.winter.follow_pushback | One finished job beats ten worries. Fair enough.
+Day 24 22:22 | sc-soak-3 | scene.winter.close | Dry things first. We can manage one shelf at a time.
+Day 24 22:30 | sc-soak-3 | banter.routine | Tobacco farmers knew the secret: keep your hands busy.
+Day 24 23:06 | sc-soak-1 | banter.routine | We have time. Let's use it carefully.
+Day 24 23:42 | sc-soak-2 | banter.routine | Somebody used to have a normal day here.

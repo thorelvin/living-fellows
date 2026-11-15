@@ -211,10 +211,15 @@ function Text.spokenCandidates(context, catalog)
                     local line = render(variant.text, context.tokens, 320)
                     local clean = render(variant.clean or variant.text, context.tokens, 320)
                     if line and clean then
+                        line=line:gsub("^%l",string.upper)
+                        clean=clean:gsub("^%l",string.upper)
+                        local used={} for token in variant.text:gmatch("{([%w_]+)}") do used[token]=true end
+                        local cleanUsed={} for token in (variant.clean or variant.text):gmatch("{([%w_]+)}") do cleanUsed[token]=true end
                         lines[#lines + 1] = { line, clean = clean }
                         receipts[line] = { packetId = packet.id, variantId = variant.id,
-                            asserts = packet.asserts, requires = packet.requires }
-                        receipts[clean] = receipts[line]
+                            asserts = packet.asserts, requires = packet.requires,usedTokens=used }
+                        receipts[clean] = { packetId=packet.id,variantId=variant.id,
+                            asserts=packet.asserts,requires=packet.requires,usedTokens=cleanUsed }
                     end
                 end
             end
