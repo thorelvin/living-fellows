@@ -130,6 +130,7 @@ function H.install()
     walk(SC.EmmaContext and SC.EmmaContext.DATA or {},"pool:context_reference","emma:context",0)
     walk(SC.EmmaAnswers and SC.EmmaAnswers.DATA or {},"pool:context_reference","emma:answers",0)
     walk(SC.EmmaMeaningData or {},"pool:context_reference","emma:meanings",0)
+    walk(SC.EmmaExchange and SC.EmmaExchange.DATA or {},"pool:context_reference","emma:exchange",0)
     for id,data in pairs(H.personaAnswers or {}) do walk(data,"persona:hook",id..":hooks",0) end
     for id,data in pairs(SC.TerminalPersonaData or {}) do
         for _,rule in ipairs(data.rules or {}) do
@@ -169,7 +170,7 @@ function H.record(session,reply)
     local private={remember=true,callme=true,forget=true,notes=true,recall=true,whoami=true,
         comfort=true,conversation_history=true,conversation_forget=true}
     if reply.sensitive or reply.private or reply.careDetected or private[reply.intent] then
-        if SC.EmmaContext then SC.EmmaContext.observe(session,{private=true,foregroundKind=reply.foregroundKind}) end
+        if SC.EmmaContext then SC.EmmaContext.observe(session,{private=true,foregroundKind=reply.foregroundKind,taskLimit=reply.taskLimit}) end
         session.context.replyHooks=nil return
     end
     if SC.EmmaContext then SC.EmmaContext.observe(session,reply) end
@@ -256,7 +257,7 @@ function H.render(slots)
     return {"In that line: "..tostring(slots.hookText or "the last subject").." I have no further verified detail in that reply. Name a related subject if you want its file."}
 end
 
-local roleNames={governor="Governor",president="President",mayor="Mayor",captain="Captain",["head of state"]="Head of state",
+local roleNames={governor="Governor",president="President",mayor="Mayor",captain="Captain",archivist="Archivist",chair="Chair",["head of state"]="Head of state",
     ["in charge"]="In charge",["head of the county"]="Head of county",["head of county"]="Head of county",
     soldier="Soldier",doctor="Doctor",police="Officer",["police officer"]="Officer",
     scientist="Scientist",["knox telecommunications"]="Knox Telecommunications",["knox telecom"]="Knox Telecommunications"}
@@ -292,6 +293,8 @@ function H.role(raw)
     return value,roleNames[value] or value
 end
 function H.roleReply(role,voice)
+    if role=="Archivist" then return {"Archivist, for this conversation. Shall we start a catalogue or organize a list of papers? Tell me what material we are discussing; no archive has been inspected."} end
+    if role=="Chair" then return {"Chair, for our pretend committee. What goes on the agenda? We can draft a meeting opening here without summoning anyone or granting authority."} end
     if voice=="duty" then return {"CLAIM RECORDED: "..role..". PRESENT AUTHORISATION CODES. A TITLE IS NOT AN ACCESS CODE."} end
     if voice=="spiffy" then return {role.."! A VERY important guest! Management credentials go to the manager. I can offer customer service, which is nearly the same on paper!"} end
     if voice=="ellis" then return {role..". I can use that title for this visit. What would you like to talk about?"} end

@@ -681,6 +681,19 @@ end
 -- One line in, one reply out
 -- ---------------------------------------------------------------------------
 
+local function contextReply(state,session,text,spec,data,depth)
+    local reference={lines={}}
+    SC.EmmaContext.render(session,reference,spec,text,nil,state.id)
+    local packaged=P.package(data,{rows=reference.lines,effects={},layer="reference"},depth)
+    for _,key in ipairs({"foregroundKind","reference","referenceState","discussion","choice","meaningId",
+        "reportedQuantity","taskLimit","publicSource","publicSelection","publicRepeat","publicQueryKey","private"}) do
+        packaged[key]=reference[key]
+    end
+    state.met=true
+    session.lastMeaning="reference:"..spec.kind
+    SC.EmmaHooks.recordPersona(session,packaged,state.id)
+    return packaged
+end
 function P.respond(state, session, raw, facts)
     if SC.EmmaCare then
         local signal=SC.EmmaUnderstand and SC.EmmaUnderstand.careSignal(raw)
@@ -741,6 +754,10 @@ function P.respond(state, session, raw, facts)
         ctx.depth = 0
         fire(ctx, serious)
         return P.package(D, reply, ctx.depth)
+    end
+    if SC.EmmaContext and session.foregroundReference and session.foregroundReference.kind=="note_edit" then
+        local note=SC.EmmaContext.resolve(session,text,false)
+        if note and (note.kind=="note_edit" or note.kind=="note_closed") then return contextReply(state,session,text,note,D,ctx.depth) end
     end
     if SC.EmmaHooks then
         local role,label=SC.EmmaHooks.role(ctx.norm)
@@ -805,21 +822,7 @@ function P.respond(state, session, raw, facts)
             end
         end
         if spec then
-            local reference={lines={}}
-            SC.EmmaContext.render(session,reference,spec,text,nil,state.id)
-            local packaged=P.package(D,{rows=reference.lines,effects={},layer="reference"},ctx.depth)
-            packaged.foregroundKind=reference.foregroundKind
-            packaged.reference=reference.reference packaged.referenceState=reference.referenceState
-            packaged.discussion=reference.discussion
-            packaged.choice=reference.choice
-            packaged.publicSource=reference.publicSource packaged.publicSelection=reference.publicSelection
-            packaged.publicRepeat=reference.publicRepeat
-            packaged.publicQueryKey=reference.publicQueryKey
-            packaged.private=reference.private
-            state.met=true
-            session.lastMeaning="reference:"..spec.kind
-            SC.EmmaHooks.recordPersona(session,packaged,state.id)
-            return packaged
+            return contextReply(state,session,text,spec,D,ctx.depth)
         end
     end
     if not state.met then

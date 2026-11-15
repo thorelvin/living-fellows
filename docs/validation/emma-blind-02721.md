@@ -302,3 +302,178 @@ verified separately by Interface; this is not rendered-terminal coverage.
 The rebuilt playground embeds 41 real Lua modules and passes four-voice and
 privacy checks. Manual user testing remains deferred. D and the overall plan
 remain unfinished; see the handoff for unresolved ambiguity and validation work.
+
+## Phase D resumption after e699c83a
+
+The user resumed Phase D after the one-hour checkpoint. Comparing all 757
+opened H1–H5 replies against the earlier pre-hour engine found six changed
+replies and one lost automatic pass: the candle follow-up selected battery
+lighting instead of the later candle precaution. Independent review accepted
+five of those six meanings, failing the candle reply and flagging an estimate
+answer that drifted from food planning to travel.
+
+The cause of the candle loss was general: the public passage stores up to
+900 characters, but `Brain.tokens` silently applied the 160-character query
+limit when readers examined that passage. Public readers now request the
+bounded 900-character limit; ordinary query tokenization remains 160.
+Supplied definitions later in a passage also retain their contextual sense.
+Nickname declarations are anchored so a why-question or negation cannot
+become a declaration. Context checks grow from 127 to 157, with actual-reply
+negative controls for the lost precaution and unchanged query/source bounds.
+
+All five release checks pass in `20261115-152959-bbeba1` (522.7 seconds,
+23 JVMs). Scores are real 72/72, variants 276/288, predicted 188/188,
+personas 41/41, chains 7/7, locks 74/74. Core remains 5,217/5,417 fitting,
+care 528/528, zero false alarms and zero protected changes. The raised floor
+retains 1,495 passing IDs and all prior 1,481. The core comparison loses zero
+previously fitting rows.
+
+The correction changes 16 opened replies: independent review accepts 12 and
+rejects four, with no new semantic regressions or lost useful qualifications.
+The failures already existed before the correction: H2R04-3 on each rare
+voice does not accept the carry-less plan; H4E02-3 does not address the window
+question. Three fitting split-load answers remain weak because total weight
+is implicit. These findings are retained rather than hidden by automatic
+passes. H1/H3/H6 replies and privacy flags are byte-identical; H6 retains its
+130 independent judgments. H5's three changed replies all fit.
+
+Internal review receipts: `build/emma-talk-polish/opened-resumed-semantic-delta.json`
+and `opened-resumed-b-semantic-delta.json`; actual synthetic input/output
+comparisons remain under `build/emma-phase-d/private-semantic-review/`.
+
+### H7 registration, before authoring and evaluation
+
+One new independent author receives only section 1 and neutral schema/count
+instructions, in a fresh agent with no inherited conversation. The candidate
+was frozen before the author began: 351 Lua/JAR files, manifest digest
+`5d82f6f76ee53e506e368d6aef915ceb23d97752675578386f98729dadcc86c2`.
+The immutable protocol/archive are under `build/emma-talk-polish/blind-h7/`.
+The source is `section-1-only.md`, SHA-256
+`7c1bef2ae3d2940dc781b59a4cf8b8feefb2eaf6ebe6ce45e700737e836f5bd6`.
+
+Design: 32 sequential conversations, 80 turns (22 EMMA conversations/55 turns,
+ten rare conversations/25 turns). Rare cases run on every rare voice. Gates
+remain 80% for EMMA, rare mean and weighted total, in both automatic and
+independent meaning assessment, with zero ordinary false-care detections or
+unlocks. No implementation is changed during the first evaluation. H1–H6
+remain opened sets, and this new result cannot erase their earlier failures.
+The author receives no implementation, dialogue outcomes or prior corpora;
+a status-only message says that the candidate's ordinary release checks pass.
+
+## H7 first result and opened development
+
+The sealed 32-conversation/80-turn H7 file has SHA-256
+`c84bce5ea8621d658bf37da8955800a86160711c82edee950d943dd16c10d1c5`.
+It produces 130 actual replies across the four voices. First native receipt:
+`harness-20261115-154745-5f9a0a`. Automatic scores are EMMA 16/55,
+SPIFFY 7/25, Ellis 7/25, Duty 8/25; rare 22/75, weighted 70/240.
+Independent content review accepts EMMA 5/55 and each rare voice 4/25:
+rare 12/75, weighted 27/240, 17/130 fitting replies. Both registered gates
+fail. False care detections and unlocks are zero. All 130 verdict IDs and
+their input hash are verified, and actual replies reproduce in native Kahlua.
+The engine manifest is unchanged before and after this first evaluation.
+
+The original binding also exposed two test artifacts: a supplied previous
+reply left the visit at turn zero, and a fresh unspecified operator was named
+"Test". The test now counts the preceding turn and uses a generic operator.
+A separate replay after the turn-binding correction still fails. The original
+receipts remain untouched; binding corrections do not turn them into passes.
+
+Development adds ordinary meaning facets and one bounded foreground task
+frame. It supports reported quantities, subtraction, constraints on a draft,
+source explanations, roleplay tasks and fiction continuity. It never saves
+drafts, scans inventory, consumes supplies or operates actors. Another item
+cannot inherit the active item's count. Private draft text is handled before
+clause splitting and credential/command readers, with care and clause-level
+distress retaining priority. All new care controls are synthetic and their
+bodies are excluded from diagnostic output. The note helper preserves the
+supplied words when formatting lines; it does not claim general summarization.
+
+General physical reference was checked against
+[USDA date-label guidance](https://ask.fsis.usda.gov/article/Is-the-dating-of-shelf-stable-foods-required-by-federal-law),
+[Utah Emergency Management on insulation](https://dem.utah.gov/shelter-clothing-and-fire/),
+[USGS on capillarity](https://www.usgs.gov/water-science-school/science/capillary-action-and-water),
+and [RHS on bean supports](https://www.rhs.org.uk/vegetables/beans-for-drying/grow-your-own).
+The USGS passage was available in the search extract; direct opening required
+JavaScript. These support general explanations, not new Build 42 mechanics or
+exact recipes. The existing 27-topic installed-game source verification is
+unchanged.
+
+Independent development-C review accepts 128/130, rejecting two door replies.
+A changed-reply audit of older sets finds four new semantic regressions despite
+passing keywords: bread in a cold-meal example becomes staling, and a silent
+radio's power question becomes reception troubleshooting. Required context
+restores those four texts/privacy flags byte for byte; a separate content
+review accepts all four restorations. Five earlier H1 needs remain unmet
+(H007-2; H045-1 on all rare voices; H045-2 on Ellis). They are not claimed fixed.
+
+An initial ten-reply delta review exposed automatic-result fields; its report
+records that limitation. A separate reviewer then receives a clean transcript
+without automatic fields. That review flags overstatements and a missing
+status answer. After wording corrections, all ten final clean replies fit.
+The other 120 texts/privacy flags are byte-identical to the independently
+reviewed development-C replies. The verified combined final verdict is
+EMMA 55/55 and each rare voice 25/25, weighted 240/240, raw 130/130.
+Artifacts: `build/emma-talk-polish/blind-h7/semantic-first-verdicts.json`,
+`semantic-development-c.json`, `semantic-final-b-clean-delta.json`,
+`semantic-final-c-clean-delta.json`, and `semantic-final-c-combined.json`.
+The final actual-reply transcript hash is
+`f484ee830c30180cf0bbe09d9c62d13fe9cce609151976911701efa9f85958f4`.
+
+Final native automatic score remains EMMA 54/55, rare 75/75, weighted
+237/240, with zero false care or unlocks. All 130 final replies match native
+Kahlua: exact public text and normalized checksums for 16 private replies.
+The one keyword miss remains a miss; neither its needs nor its contract is
+weakened. H7 is required by Interface. All seven sets are now opened, and the
+improvement is development evidence rather than fresh blind success.
+
+All five release checks pass in `20261115-165948-46224c` (522.1 seconds,
+23 JVMs). After final wording changes, Interface passes in
+`20261115-171240-633382` (222.4 seconds, two JVMs). Scores: real 72/72,
+variants 276/288, predictions 188/188, personas 41/41, chains 7/7, locks 74/74.
+Core remains 5,217/5,417 fitting, care 528/528, false alarms zero and protected
+changes zero. Context checks grow to 257. The floor retains 1,625 IDs,
+including every earlier 1,495. The new module and table remain bounded;
+the source JAR is unchanged and no navigation source is modified.
+
+Final source manifest: 352 Lua/JAR files, digest
+`8cd024534a6a0958e2392c6de504c2234dd778d6100bc4f18e4a58055af5b6e5`.
+The rebuilt playground embeds 42 real Lua modules; the manual session stays
+deferred. The user requires a stop/report after the final hour ending
+16:31:45 UTC. D is not declared complete or released.
+
+### Final local verification receipts
+
+The raised 1,625-ID floor passes all eight native public/blind harnesses in
+`build/emma-talk-polish/harness-20261115-171927-41fc8d` (`Baseline=false`).
+The final four-voice playground API also passes private draft entry, requested
+line count, command-like prose and cancellation. Inline JavaScript syntax
+passes. The cold payload's 352 production Lua/JAR files match the source bytes.
+
+Direct standalone packaging initially hits the Windows process command-length
+limit when the Lua compiler receives all long absolute filenames. Rebuilding
+with the verified short junction `C:\ZOMBOID\d21` to this checkout succeeds.
+The final standalone ZIP SHA-256 is
+`b75a59e98578b011569f7f99fcb71a4d37a009bab8811ca0c04bc84f58baa76f`.
+The compilation passes 351 Lua files in normal/debug modes. This is a local
+package, not publication. The short junction is retained for this build path;
+the underlying long-argument compiler limitation remains a tooling follow-up.
+
+Native clone `SC-Harness-20261115-172512-61d21a9b` passes the explicit terminal
+smoke: 44 turns (32 public, 12 private), four voices, 27 topics, 637 reference
+entries and 56 meanings. The invocation used the broader default live harness,
+rather than observation-only mode. That broader run FAILS five gameplay
+checks: native direct-path progress/arrival, room-entry sweep, door-crossing
+round trip, and melee recovery (delay about 11 seconds; target was dead).
+It must not be represented as a passing overall native run.
+The event log is retained under its cache's
+`Lua/SurvivorCompanionHarness/events.log`. These are companion movement/combat
+checks; this dialogue change does not modify navigation code. Their cause is
+not established. A same-seed comparison with the prior checkpoint is needed
+before attributing them to a regression or to dynamic test blockers.
+
+The source is a disposable kitchen test seed, not the user's current save.
+The terminal helper itself performs pure conversation; the broader harness
+does spawn/move test companions and run other gameplay checks in the clone.
+No installed game or source save is modified. Retain the failed receipt and
+triage it before a release; do not change zombie navigation as a recovery.

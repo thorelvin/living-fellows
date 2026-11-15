@@ -1,5 +1,76 @@
 # Conversation checkpoint — 0.27.21
 
+## Latest Phase D checkpoint, 2026-11-15
+
+The user resumed D, then explicitly allowed one further hour,
+15:31:45–16:31:45 UTC. Stop and report at that limit. Work stays on
+`living_fellows/0.27.21`, retaining the standalone startup fix `d72b3fea`.
+Nothing in this checkpoint changes companion or zombie navigation. No 0.27.21
+publication is authorized or claimed here.
+
+The public reader now distinguishes ordinary senses using their actual
+context, keeps the explained subject for short causal/operation questions,
+and handles adjacent-letter transpositions. There are 56 bounded meanings.
+One foreground frame supports reported supply arithmetic and private note
+formatting, including a desired line count. Counts are reported entries, not
+live inventory or physical consumption; another item cannot inherit the last
+item's number. Draft prose cannot dispatch commands or enter credential
+handlers. Care retains priority, and private boundaries clear public context.
+The note formatter preserves supplied words; it is not general summarization.
+
+The new H7 first result fails and is retained: automatic EMMA 16/55,
+rare 22/75, weighted 70/240; independent meanings EMMA 5/55, rare 12/75,
+weighted 27/240 (17/130 actual replies fit). Zero false care or unlocks.
+Two fixture-binding artifacts were also corrected separately: a supplied
+previous reply consumes a turn, and an unspecified operator is not named
+"Test". These corrections do not erase or relabel the first failure.
+
+After development, H7 reaches automatic 54/55 EMMA and 25/25 on each rare
+voice (237/240 weighted). Independent review accepts all 130 final replies:
+120 unchanged development-C judgments plus ten independently reviewed clean
+final-C replies. Native Kahlua reproduces all public text and private reply
+checksums. This is opened-set progress, not fresh blind success. All H1–H7
+are now opened; do not keep creating replacement sets to seek a passing result.
+
+All five release checks pass in `20261115-165948-46224c` (522.1 seconds).
+After final wording corrections, Interface passes in
+`20261115-171240-633382` (222.4 seconds). Care remains 528/528, false alarms
+zero and protected changes zero. The cumulative floor retains 1,625 passing
+IDs, and the context harness now has 257 checks. The playground embeds 42 real
+Lua modules. Final source digest:
+`8cd024534a6a0958e2392c6de504c2234dd778d6100bc4f18e4a58055af5b6e5`
+(352 Lua/JAR files, manifest under `build/emma-phase-d/final-c-candidate.json`).
+
+Four semantic regressions found during development are restored exactly:
+H4R02-2 on every rare voice keeps the cold-meal meaning; H5E16-2 keeps radio
+power use rather than reception troubleshooting. Five earlier H1 needs remain
+unmet in the reviewed slice: H007-2 practical rest/shelter, H045-1 on each rare
+voice for an earlier visitor's unknown destination, and H045-2 on Ellis for
+the missing return record. They are not claimed fixed.
+
+Next work after this checkpoint:
+
+0. Triage the five gameplay-check failures in final native clone
+   `SC-Harness-20261115-172512-61d21a9b`. Its terminal smoke passes all 44 turns,
+   but the broader default live harness fails direct-path progress/arrival,
+   room entry, door crossing and melee recovery (its target was dead).
+   Compare the same seed against `e699c83a`
+   before attributing a regression. No zombie navigation overrides.
+1. Exercise actual generated replies in the deferred four-voice playground
+   session when the user chooses it. The manual session is still deferred.
+2. Fix the five concrete earlier H1 gaps above without changing care behavior.
+3. Check broader continuity on actual terminal replies. The repeated first
+   blind failures demonstrate limits; tuned fixtures do not establish open
+   vocabulary understanding. Do not declare D or the plan complete from these
+   scores alone.
+4. Review packaging and delivery only after the remaining acceptance work.
+   Keep all first-result files, source archives and semantic verdicts.
+
+The final floor recheck, standalone package and native clone results are
+recorded at the end of `docs/validation/emma-blind-02721.md`. No current user
+save is used. Native run directories contain junctions; do not recursively
+delete them as ordinary temporary folders.
+
 ## One-hour resumption, 2026-11-15
 
 The user resumed the remaining `3080f858` work for one hour,

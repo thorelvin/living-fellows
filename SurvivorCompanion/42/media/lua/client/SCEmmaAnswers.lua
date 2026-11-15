@@ -5,7 +5,7 @@ require "SCEmmaReference"
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion
 local A={} SC.EmmaAnswers=A
-local function norm(s) return table.concat(SC.TerminalBrain.tokens(s)," ") end
+local function norm(s) return table.concat(SC.TerminalBrain.tokens(s,900)," ") end
 local function has(s,w) return (" "..s.." "):find(" "..w.." ",1,true)~=nil end
 local function any(s,ws) for _,w in ipairs(ws) do if has(s,w) then return true end end return false end
 local function trim(s) return tostring(s or ""):match("^%s*(.-)%s*$") end

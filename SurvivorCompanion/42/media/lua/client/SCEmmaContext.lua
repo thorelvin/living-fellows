@@ -4,10 +4,11 @@
 require "SCEmmaReference"
 require "SCEmmaAnswers"
 require "SCEmmaMeaning"
+require "SCEmmaExchange"
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion
 local Q={} SC.EmmaContext=Q
-local function norm(raw) return table.concat(SC.TerminalBrain.tokens(raw)," "):gsub("^emma ","") end
+local function norm(raw) return table.concat(SC.TerminalBrain.tokens(raw,900)," "):gsub("^emma ","") end
 local function has(text,word) return (" "..text.." "):find(" "..word.." ",1,true)~=nil end
 local function any(text,words) for _,word in ipairs(words) do if has(text,word) then return true end end return false end
 -- A passage reader, rather than another topic dictionary. Only public output is
@@ -328,7 +329,7 @@ function Q.observe(session,reply,voice)
     if reply.private or reply.sensitive or reply.careDetected then
         session.publicPassage=nil
         session.foregroundReference=reply.foregroundKind and not reply.careDetected
-            and {kind=reply.foregroundKind,text="",turn=session.turns or 0,at=SC.TerminalConversation.clock(session)} or nil
+            and {kind=reply.foregroundKind,text="",taskLimit=reply.taskLimit,turn=session.turns or 0,at=SC.TerminalConversation.clock(session)} or nil
         return
     end
     local lines=reply.lines or {}
@@ -352,6 +353,9 @@ function Q.observe(session,reply,voice)
         facet=reply.referenceState and reply.referenceState.facet,
         discussion=reply.discussion==true,
         choice=reply.choice,
+        meaningId=reply.meaningId,
+        reportedQuantity=reply.reportedQuantity,
+        taskLimit=reply.taskLimit,
         injuryQuestion=text:find("Are you hurt",1,true)~=nil,
         guideQuestion=has(norm(text),"do you want") and has(norm(text),"dressing"),
         waterQuestion=has(norm(text),"how much drinking water"),
@@ -542,8 +546,13 @@ local function conversational(session,raw,text,c,title)
         end
     end
     if any(text,{"rename you","nickname for you"}) then return private("machine_name","machine_name") end
-    local nickname=tostring(raw):match("[Cc]all you ([%a][%a%s%-']+)")
-    if nickname and #nickname<=32 then return {kind="machine_name",private=true,lines={nickname..", as a nickname for this conversation. I am still the same programme underneath it."}} end
+    local nameInput=tostring(raw):match("^%s*(.-)%s*$")
+    local declaring=text:find("^i will call you ") or text:find("^ill call you ") or text:find("^call you ")
+    local nickname=declaring and nameInput:match("[Cc][Aa][Ll][Ll]%s+[Yy][Oo][Uu]%s+(.+)$")
+    if nickname then nickname=nickname:gsub("[%.!]$","") end
+    if nickname and #nickname<=32 and nickname:match("^[%a][%a%s%-']*$") then
+        return {kind="machine_name",private=true,lines={nickname..", as a nickname for this conversation. I am still the same programme underneath it."}}
+    end
     if c and c.kind=="machine_name" and any(text,{"still","emma","same"}) then return private("machine_name","name_kept") end
     if has(text,"imagine") and any(text,{"face","appearance","look like"}) then return private("appearance","imagination") end
     if c and c.kind=="appearance" then
@@ -565,11 +574,18 @@ end
 function Q.resolve(session,raw,contextOnly,deferPassage,allowOwnedPassage)
     local text=norm(raw)
     local c=current(session)
+    local title=session.role or session.context and session.context.role
+    if c and c.kind=="note_edit" then
+        local draft=SC.EmmaExchange.resolve(session,raw,nil,c,title)
+        if draft then return draft end
+    end
     local passage=livePassage(session)
     local source=passage and not passage.structured and passage.text
     local mechanical=source and has(norm(source),"wooden") and has(norm(source),"drawer")
         and any(text,{"sticking","binding","catches"}) and not text:find("^open ") and not text:find("^unlock ")
     if any(text,{"password","manager"}) or has(text,"drawer") and not mechanical then return nil end
+    local task=SC.EmmaExchange.resolve(session,raw,source,c,title)
+    if task then return task end
     if contextOnly and (text:find("^how is ") or text:find("^how much ")) then return nil end
     if source then
         local explained=SC.EmmaMeaning.resolve(session,raw,source)
@@ -578,7 +594,6 @@ function Q.resolve(session,raw,contextOnly,deferPassage,allowOwnedPassage)
             return explained
         end
     end
-    local title=session.role or session.context and session.context.role
     local conversation=conversational(session,raw,text,c,title)
     if conversation then return conversation end
     local answerSource=passage and not passage.structured and passage.text
@@ -702,6 +717,9 @@ function Q.render(session,reply,spec,raw,world,voice)
     if spec.prefix then table.insert(reply.lines,1,spec.prefix) end
     reply.discussion=spec.prefix~=nil
     reply.choice=spec.choice
+    reply.meaningId=spec.meaningId
+    reply.reportedQuantity=spec.reportedQuantity
+    reply.taskLimit=spec.taskLimit
     reply.publicSource=spec.publicSource reply.publicSelection=spec.publicSelection
     reply.publicRepeat=spec.publicRepeat
     reply.publicQueryKey=spec.publicQueryKey

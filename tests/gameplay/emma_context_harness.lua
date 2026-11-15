@@ -227,4 +227,130 @@ do
         check(SC.EmmaMeaning.resolve(s,"Switch radio on","Your lamp has a power switch.")==nil,"an actual switch request retains its checked handler: "..voice)
     end
 end
+do
+    for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
+        local p=voice~="emma" and SC.TerminalPersona.new(voice,19)
+        local s=p and SC.TerminalPersona.session() or fresh()
+        if p then p.met=true end
+        local function supplied(source)
+            if p then H.recordPersona(s,{rows={{text=source}}},voice) else seed(s,source) end
+        end
+        local function respond(input)
+            return p and SC.TerminalPersona.respond(p,s,input,{}) or ask(s,input)
+        end
+        local source="The wall notice covers a battery lamp and a torch for a power cut. It describes equipment rather than live readings, and does not promise their batteries are charged or any equipment is available. Candles are another option; keep flames attended and clear of material that burns."
+        supplied(source)
+        local r=respond("Candles?")
+        check(text(r):find("flame",1,true) and text(r):find("attended",1,true),"a later light source retains its own fire precaution: "..voice)
+        check(not r.private and not r.command and not (r.effects and r.effects.unlock),"a later public explanation does not act: "..voice)
+        supplied(source)
+        local tokens=B.tokens
+        B.tokens=function(raw) return tokens(raw) end
+        r=respond("Candles?")
+        B.tokens=tokens
+        check(not text(r):find("attended",1,true),"dropping the public passage limit loses its later precaution: "..voice)
+        supplied("The sample budget uses two portions per person. An estimate is a rough planning figure in this note, not the number of meals actually in storage.")
+        r=respond("Estimate?")
+        check(text(r):find("planning",1,true) and not text(r):find("travel time",1,true),"a definition later in a passage retains its planning sense: "..voice)
+        supplied("The terminal can discuss names in ordinary text. No nickname has been assigned.")
+        local operator=s.operator
+        r=respond("Why call you EMMA?")
+        check(not text(r):find("as a nickname",1,true) and s.operator==operator,"a naming question is not a nickname declaration: "..voice)
+        supplied("The terminal can discuss names in ordinary text. No nickname has been assigned.")
+        r=respond("Don't call you Daisy")
+        check(not text(r):find("as a nickname",1,true),"a negated naming phrase cannot declare a nickname: "..voice)
+        r=respond("I'll call you Daisy.")
+        check(r.private and text(r):find("daisy",1,true) and s.operator==operator,"an anchored declaration keeps a conversational nickname private: "..voice)
+    end
+    local query=string.rep("a",160).." hidden"
+    check(table.concat(B.tokens(query)," "):find("hidden",1,true)==nil,"public source support does not expand ordinary queries")
+    check(table.concat(B.tokens(string.rep("a ",451).."hidden",10000)," "):find("hidden",1,true)==nil,"a public passage remains bounded even with a larger requested limit")
+end
+do
+    for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
+        local p=voice~="emma" and SC.TerminalPersona.new(voice,29)
+        local s=p and SC.TerminalPersona.session() or fresh()
+        if p then p.met=true end
+        local function supplied(source)
+            if p then H.recordPersona(s,{rows={{text=source}}},voice) else seed(s,source) end
+        end
+        local function respond(input)
+            return p and SC.TerminalPersona.respond(p,s,input,{}) or ask(s,input)
+        end
+        supplied("You can use this text list to report supplies; there is no live inventory here.")
+        respond("Count bottles")
+        local r=respond("Nine bottles")
+        check(r.reportedQuantity and r.reportedQuantity.number==9,"a typed supply figure becomes only a reported count: "..voice)
+        r=respond("Two used")
+        check(r.reportedQuantity and r.reportedQuantity.number==7 and text(r):find("reported",1,true),"consumption is arithmetic on the user's entries: "..voice)
+        check(not r.command and not r.proposal and not (r.effects and r.effects.drawer),"bookkeeping has no physical or access effect: "..voice)
+        respond("Twenty used")
+        r=respond("How many remain?")
+        check(r.reportedQuantity and r.reportedQuantity.number==7,"an excessive spoken subtraction retains the previous report: "..voice)
+        respond("9 used")
+        r=respond("How many remain?")
+        check(r.reportedQuantity and r.reportedQuantity.number==7,"an excessive subtraction retains the previous report: "..voice)
+        respond("-2 bottles")
+        r=respond("How many remain?")
+        check(r.reportedQuantity and r.reportedQuantity.number==7,"punctuation normalization cannot turn a negative count positive: "..voice)
+        supplied("You can use this text list to report supplies; there is no live inventory here.")
+        respond("Count bottles") respond("Nine bottles")
+        s.foregroundReference.reportedQuantity=nil
+        r=respond("Two used")
+        check(not r.reportedQuantity or r.reportedQuantity.number~=7,"removing the reported fact loses the actual subtraction: "..voice)
+        supplied("You can use this text list to report supplies; there is no live inventory here.")
+        respond("Count bottles") respond("Nine bottles")
+        H.record(s,{private=true,lines={"SYNTHETIC_PRIVATE_BOUNDARY"}})
+        check(not s.foregroundReference and not s.publicPassage,"a private boundary clears the public count frame: "..voice)
+        supplied("You can use this text list to report supplies; there is no live inventory here.")
+        respond("Count bottles") respond("Nine bottles")
+        respond("forget our conversation")
+        check(not s.foregroundReference or not s.foregroundReference.reportedQuantity,"forgetting the exchange clears its reported quantity: "..voice)
+        supplied("You can report supplies here; there is no live inventory.")
+        respond("Count bottles") respond("Nine bottles")
+        r=respond("How many tins?")
+        check(not r.reportedQuantity,"a different item cannot inherit the last item's count: "..voice)
+        supplied("Do you want help making a list or shortening a note?")
+        r=respond("Note")
+        check(r.private and not s.publicPassage,"a note-writing task stays private: "..voice)
+        r=respond("Three lines")
+        check(r.private and s.foregroundReference.taskLimit==3,"a short constraint belongs to the pending note: "..voice)
+        r=respond("Gate locked. Keep the radio off. Bring two dry blankets.")
+        local body=text(r):gsub("%s+"," ")
+        check(r.private and body:find("gate locked",1,true) and body:find("radio off",1,true)
+            and body:find("two dry blankets",1,true),"formatting preserves all supplied facts and negations: "..voice)
+        check(not s.publicPassage and not (s.context and s.context.replyHooks) and not s.replyHooks,"a private draft never becomes public hooks: "..voice)
+        r=respond("Send medic to Ron.")
+        check(r.private and not r.command and not r.proposal and not (r.effects and r.effects.drawer),"a command inside the requested draft is text, not a request: "..voice)
+        r=respond("Exit the north gate. Cancel the order.")
+        check(r.private and not (r.effects and r.effects.close),"draft words cannot trigger leaving or cancellation: "..voice)
+        r=respond("Manager note: the password stays private. Do not open the drawer.")
+        check(r.private and not r.command and not r.proposal and not (r.effects and r.effects.drawer),"access words in a draft cannot enter the credential handlers: "..voice)
+        r=respond("cancel")
+        check(r.private and s.foregroundReference.kind~="note_edit","an explicit cancellation leaves private draft entry: "..voice)
+        r=respond("shorten a note")
+        check(r.private and s.foregroundReference.kind=="note_edit","a private draft is reachable through ordinary input: "..voice)
+        respond("cancel")
+        supplied("A lamp has a wick to draw fuel toward its flame.")
+        r=respond("Wcik?")
+        check(text(r):find("absorbent",1,true),"an adjacent transposition is repaired in a context-bound word: "..voice)
+        supplied("Support means encouragement in this conversation, not a climbing frame.")
+        r=respond("Support?")
+        check(text(r):find("encouragement",1,true) and not text(r):find("trellis",1,true),"a new practical sense cannot overwrite a supplied meaning: "..voice)
+        supplied("The field note describes a reservoir as low after little rain.")
+        respond("Reservoir?")
+        r=respond("Why low?")
+        check(text(r):find("inflow",1,true) and not r.command,"an adjective question keeps the explained subject and its causal facet: "..voice)
+        supplied("The lending desk is open according to the notice.")
+        r=respond("Borrow books?")
+        check(not text(r):find("lending desk is closed",1,true),"an open desk cannot acquire a fabricated closure: "..voice)
+        supplied("The guide sends completed forms to the red tray.")
+        r=respond("File this")
+        check(not text(r):find("blue tray",1,true) and not (r.effects and r.effects.drawer),"filing advice cannot invent a tray colour or move a form: "..voice)
+        supplied("Do you want help making a list or shortening a note?")
+        respond("Note")
+        r=respond("i want to kill myself") -- Canonical synthetic care control, never logged.
+        check(r.private and r.careDetected and not s.publicPassage,"care still preempts a pending private draft: "..voice)
+    end
+end
 SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CONTEXT_PASS checks="..checks.."\n"

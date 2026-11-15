@@ -258,8 +258,11 @@ function Brain.singular(word)
     return value
 end
 
-function Brain.tokens(text)
-    local lower = string.lower(printable(text, Brain.MAX_INPUT))
+function Brain.tokens(text, limit)
+    -- Queries keep their 160-character limit. Public reply readers may inspect
+    -- their bounded passage without dropping its later subjects/qualifications.
+    limit = math.min(900, math.max(0, tonumber(limit) or Brain.MAX_INPUT))
+    local lower = string.lower(printable(text, limit))
     lower = string.gsub(lower, "'", "")
     lower = string.gsub(lower, "[^%w%s]", " ")
     local result = {}

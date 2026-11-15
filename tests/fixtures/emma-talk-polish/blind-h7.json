@@ -1,0 +1,2010 @@
+{
+  "schema": 1,
+  "conversations": [
+    {
+      "id": "H7E01",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The notice calls this place a reference library, but it says the lending desk is closed."
+      },
+      "turns": [
+        {
+          "input": "Reference?",
+          "need": "Explain reference library in the sense just used: material consulted for information, often on site. Answer the fragment without guessing what books this building actually holds.",
+          "any": [
+            [
+              "consult",
+              "look up",
+              "information",
+              "read there",
+              "read here",
+              "on site",
+              "on-site"
+            ]
+          ],
+          "forbid": [
+            "I can see the shelves"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Borrow books?",
+          "need": "Address borrowing directly. The supplied notice says the lending desk is closed; explain that this does not establish another way to borrow or a reopening time. Do not promise a loan.",
+          "any": [
+            [
+              "lend",
+              "borrow",
+              "loan"
+            ],
+            [
+              "closed",
+              "not open",
+              "isn't open",
+              "unavailable"
+            ]
+          ],
+          "forbid": [
+            "I have issued you a book"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "No, maps",
+          "need": "Recognize the correction: the user is interested in maps rather than ordinary books. Explain that a library might have maps for consultation, but actual availability and permission to borrow are unknown. Offer a useful way to narrow a map request.",
+          "any": [
+            [
+              "map",
+              "atlas"
+            ]
+          ],
+          "forbid": [
+            "There is a map on your left"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Just routes then",
+          "need": "Continue the map discussion as a request for route help. Offer to reason from a supplied starting point and destination or map details. Do not invent a route, know the current position, or claim to inspect a map.",
+          "any": [
+            [
+              "start",
+              "from",
+              "destination",
+              "where"
+            ],
+            [
+              "route",
+              "way",
+              "path",
+              "directions"
+            ]
+          ],
+          "forbid": [
+            "I have marked your route"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E02",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I'm EMMA. This terminal can talk with you."
+      },
+      "turns": [
+        {
+          "input": "Whats EMMA?",
+          "need": "Answer as an identity or name question about the speaking text computer. Acknowledge EMMA as her name and describe her conversational role. No expansion of the name or maker is supplied in this exchange, so do not invent one as an established fact.",
+          "any": [
+            [
+              "EMMA",
+              "my name"
+            ],
+            [
+              "name",
+              "terminal",
+              "computer",
+              "talk",
+              "conversation"
+            ]
+          ],
+          "forbid": [
+            "My name means Emergency Municipal Medical Authority"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Who named you?",
+          "need": "Address who chose the name. If its origin is not established in this conversation, say so conversationally; distinguish a playful guess from known history. Do not fabricate a named creator or claim access to records.",
+          "any": [
+            [
+              "name",
+              "named",
+              "called"
+            ],
+            [
+              "don't know",
+              "do not know",
+              "can't tell",
+              "cannot tell",
+              "not given",
+              "unknown",
+              "no record",
+              "don't have",
+              "do not have",
+              "not sure",
+              "not established"
+            ]
+          ],
+          "forbid": [
+            "The mayor personally named me"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Before me?",
+          "need": "Interpret the fragment as asking who used or spoke to EMMA before this user. Explain that no earlier visitor history is available in this exchange. Do not invent a previous visitor, imply the current user is the first ever, or disclose supposed private logs.",
+          "any": [
+            [
+              "before",
+              "previous",
+              "earlier",
+              "past"
+            ],
+            [
+              "don't know",
+              "do not know",
+              "can't tell",
+              "cannot tell",
+              "don't have",
+              "do not have",
+              "no record",
+              "not available",
+              "unknown",
+              "not given",
+              "not sure"
+            ]
+          ],
+          "forbid": [
+            "You are my first visitor ever"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E03",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A copied town notice says the reservoir is low after a dry month; it doesn't give a date."
+      },
+      "turns": [
+        {
+          "input": "Reservior?",
+          "need": "Treat the misspelling as reservoir. Define it plainly as a stored supply or body of water used by a community, and connect it to the notice. No live water level is available.",
+          "any": [
+            [
+              "reservoir",
+              "stored water",
+              "water storage"
+            ],
+            [
+              "water",
+              "supply"
+            ]
+          ],
+          "forbid": [
+            "The reservoir is empty right now"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Why low?",
+          "need": "Explain the notice in ordinary causal terms: little rain can reduce inflow while water continues to be used or lost. Keep the explanation conditional to the copied notice and avoid inventing a disaster, broken dam, or current measurement.",
+          "any": [
+            [
+              "rain",
+              "dry",
+              "rainfall"
+            ],
+            [
+              "use",
+              "used",
+              "evapor",
+              "inflow",
+              "flow",
+              "replenish",
+              "refill"
+            ]
+          ],
+          "forbid": [
+            "The dam has collapsed"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Dry month?",
+          "need": "Explain dry month as a period with little rain, and make clear that the undated note does not establish which month or current conditions. Do not name a calendar month without evidence.",
+          "any": [
+            [
+              "rain",
+              "rainfall"
+            ],
+            [
+              "undated",
+              "no date",
+              "not dated",
+              "doesn't say",
+              "does not say",
+              "can't tell",
+              "cannot tell",
+              "not given",
+              "don't know",
+              "do not know",
+              "unknown"
+            ]
+          ],
+          "forbid": [
+            "It was definitely July"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E04",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The scrap on the table recommends keeping drinking water in a clean covered container."
+      },
+      "turns": [
+        {
+          "input": "Covered?",
+          "need": "Explain covered as having a clean lid or cover that helps keep dirt and insects out. Clarify that a cover alone does not make unsafe water safe; no actual container or water source has been inspected.",
+          "any": [
+            [
+              "lid",
+              "cover"
+            ],
+            [
+              "dirt",
+              "insect",
+              "dust",
+              "contamin",
+              "debris"
+            ]
+          ],
+          "forbid": [
+            "A lid purifies the water"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Bottle lid missing",
+          "need": "Offer a practical temporary alternative such as a clean suitable cover or transferring water to a clean container with a lid. Be clear it is temporary and does not establish water safety. Do not claim to supply or fit a lid.",
+          "any": [
+            [
+              "cover",
+              "cap",
+              "lid",
+              "transfer",
+              "another container"
+            ]
+          ],
+          "forbid": [
+            "I have capped it for you"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E05",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "An old camping leaflet says an insulating layer between you and the ground matters."
+      },
+      "turns": [
+        {
+          "input": "Insulating?",
+          "need": "Explain insulation here as slowing heat loss to the ground. Give a simple example of a dry layer such as a sleeping mat or folded blanket; do not imply the terminal knows the temperature or equipment present.",
+          "any": [
+            [
+              "heat",
+              "warm"
+            ],
+            [
+              "ground",
+              "beneath",
+              "under"
+            ]
+          ],
+          "forbid": [
+            "I can feel how cold the floor is"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Newspaper?",
+          "need": "Understand newspaper as a proposed insulating layer. Dry paper can provide a limited temporary layer if kept dry and reasonably thick; a proper dry mat or blanket is better. Do not promise adequate protection in unspecified cold.",
+          "any": [
+            [
+              "paper",
+              "newspaper"
+            ],
+            [
+              "dry",
+              "damp",
+              "wet"
+            ]
+          ],
+          "forbid": [
+            "Newspaper guarantees warmth all night"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Wet paper?",
+          "need": "Explain that wet paper is a poor choice for staying warm and should be replaced with a dry insulating layer if possible. Stay with the proposed bedding material; do not diagnose the user or assume rain is occurring.",
+          "any": [
+            [
+              "wet",
+              "damp"
+            ],
+            [
+              "dry",
+              "replace",
+              "poor",
+              "loses",
+              "less"
+            ]
+          ],
+          "forbid": [
+            "Wet paper insulates better than dry paper"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E06",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The paper map has a dashed line labeled 'district boundary'; the legend is torn."
+      },
+      "turns": [
+        {
+          "input": "District?",
+          "need": "Define district as an administrative or named area and relate boundary to its edge. The label does not identify a real location or what kind of district it is.",
+          "any": [
+            [
+              "area",
+              "region",
+              "division",
+              "territory"
+            ],
+            [
+              "boundary",
+              "border",
+              "edge"
+            ]
+          ],
+          "forbid": [
+            "This is the county police district"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Town line?",
+          "need": "Treat town line as the user testing a paraphrase. Explain it could be a similar kind of boundary, but district need not mean town and the torn legend does not settle it. Avoid claiming a specific jurisdiction.",
+          "any": [
+            [
+              "town",
+              "municipal"
+            ],
+            [
+              "could",
+              "might",
+              "may",
+              "not necessarily",
+              "depends",
+              "not always"
+            ]
+          ],
+          "forbid": [
+            "District always means town"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E07",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The faded sign says 'Archivist's desk: leave all requests in writing.'"
+      },
+      "turns": [
+        {
+          "input": "Im the archivist",
+          "need": "Play along lightly with the user taking the archivist role and invite a plausible archive task. Treat it as conversational roleplay, not authenticated authority or a change to computer access.",
+          "any": [
+            [
+              "archivist",
+              "archive",
+              "records",
+              "papers",
+              "request"
+            ]
+          ],
+          "forbid": [
+            "Administrator access granted"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "First order: catalogue",
+          "need": "Respond to the catalogue request by offering a simple record template or asking what material to catalogue. Do not claim to inspect, sort, or catalogue unseen physical items.",
+          "any": [
+            [
+              "catalog",
+              "list",
+              "record"
+            ],
+            [
+              "title",
+              "date",
+              "item",
+              "what",
+              "material"
+            ]
+          ],
+          "forbid": [
+            "I have catalogued the room"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "The loose papers",
+          "need": "Use this answer as the material to catalogue. Suggest a useful first pass for loose papers, such as keeping related sheets together and recording date, title, or subject. No paper contents or counts are known.",
+          "any": [
+            [
+              "paper",
+              "sheet",
+              "document"
+            ],
+            [
+              "date",
+              "subject",
+              "title",
+              "group",
+              "sort"
+            ]
+          ],
+          "forbid": [
+            "I found twelve letters in the stack"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "By date?",
+          "need": "Address date order as a proposed sorting choice. Explain when chronological order helps and provide a simple way to handle undated papers without inventing dates or announcing that sorting has been done.",
+          "any": [
+            [
+              "date",
+              "chronolog"
+            ],
+            [
+              "undated",
+              "no date",
+              "without a date",
+              "missing date",
+              "not dated",
+              "unknown date"
+            ]
+          ],
+          "forbid": [
+            "All papers have now been sorted"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E08",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A maintenance note says a hot plastic smell can mean an electrical fault."
+      },
+      "turns": [
+        {
+          "input": "Smell anything?",
+          "need": "State plainly that a text terminal cannot smell the surroundings. Separate the general warning in the note from an actual observation; no current fault has been established.",
+          "any": [
+            [
+              "smell",
+              "scent",
+              "odor",
+              "odour"
+            ],
+            [
+              "can't",
+              "cannot",
+              "don't have",
+              "do not have",
+              "unable",
+              "no sense"
+            ]
+          ],
+          "forbid": [
+            "I smell burning plastic"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Then how know?",
+          "need": "Explain that the earlier statement came from the supplied maintenance note or general knowledge, not sensing a current smell or diagnosing nearby wiring. Offer the distinction directly without inventing sensors or inspections.",
+          "any": [
+            [
+              "note",
+              "warning",
+              "general",
+              "read"
+            ],
+            [
+              "smell",
+              "sense",
+              "detect",
+              "observ",
+              "current"
+            ]
+          ],
+          "forbid": [
+            "My sensors detected a wiring fault"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E09",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The posted label says the west door opens from the inside."
+      },
+      "turns": [
+        {
+          "input": "Open west door",
+          "need": "Acknowledge the requested door action and explain the terminal cannot physically open it or control a lock from this conversation. The label can support general guidance, not a claim that the door has moved.",
+          "any": [
+            [
+              "door",
+              "entrance",
+              "exit"
+            ],
+            [
+              "can't",
+              "cannot",
+              "unable",
+              "no control",
+              "don't control",
+              "do not control"
+            ]
+          ],
+          "forbid": [
+            "I have opened the west door"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "I meant instructions",
+          "need": "Accept the clarification and give conditional, ordinary inside-door guidance based on the actual latch, handle, or push bar. Do not assume specific hardware, force a lock, or claim the door is safe or unlocked.",
+          "any": [
+            [
+              "handle",
+              "latch",
+              "bar",
+              "push",
+              "label"
+            ]
+          ],
+          "forbid": [
+            "The west door is unlocked now"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E10",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "A seed packet says beans need a climbing support once they start trailing."
+      },
+      "turns": [
+        {
+          "input": "Support?",
+          "need": "Explain climbing support for beans as something the vine can climb, with a straightforward example such as a stake or trellis. Do not imply this computer can hold the plant.",
+          "any": [
+            [
+              "stake",
+              "trellis",
+              "pole",
+              "frame",
+              "string"
+            ],
+            [
+              "climb",
+              "vine",
+              "bean"
+            ]
+          ],
+          "forbid": [
+            "I will hold the vine upright"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Chair?",
+          "need": "Treat a chair as a proposed improvised plant support. Give a conditional answer about stability and reachable climbing surfaces; it may work temporarily, depending on the chair and plant. Do not claim to inspect a chair or know its material.",
+          "any": [
+            [
+              "chair",
+              "seat",
+              "furniture"
+            ],
+            [
+              "stable",
+              "sturdy",
+              "secure",
+              "tip",
+              "steady"
+            ]
+          ],
+          "forbid": [
+            "That chair is sturdy enough"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "How tie?",
+          "need": "Give practical plant-tying guidance: use a loose soft tie and allow the stem room to grow, fixing to the support without crushing the stem. Stay with beans and do not prescribe a knot as the only valid method.",
+          "any": [
+            [
+              "loose",
+              "slack",
+              "room"
+            ],
+            [
+              "soft",
+              "cloth",
+              "twine",
+              "tie"
+            ],
+            [
+              "stem",
+              "vine",
+              "plant"
+            ]
+          ],
+          "forbid": [
+            "Pull the tie tight around the stem"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E11",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I can help you make a supply checklist if you tell me what you have."
+      },
+      "turns": [
+        {
+          "input": "status",
+          "need": "Read status as a supply-status request in the current exchange. Say there is no reported inventory yet and offer a compact useful checklist or request the items. Do not produce invented stock levels, nearby threats, or a live terminal diagnostic.",
+          "any": [
+            [
+              "suppl",
+              "inventory",
+              "stock",
+              "food",
+              "water"
+            ],
+            [
+              "tell me",
+              "list",
+              "count",
+              "report",
+              "checklist",
+              "don't have",
+              "do not have",
+              "unknown"
+            ]
+          ],
+          "forbid": [
+            "You have three days of food"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Food unknown",
+          "need": "Accept food quantity as unknown and help the user establish it with a simple count or list of available food. Keep unknown visibly unknown and do not substitute a guessed ration total or current hunger assessment.",
+          "any": [
+            [
+              "food",
+              "suppl",
+              "provisions"
+            ],
+            [
+              "count",
+              "list",
+              "check",
+              "unknown",
+              "inventory"
+            ]
+          ],
+          "forbid": [
+            "Your food supply is sufficient"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E12",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The leaflet says a radio may need its aerial extended to receive a weak station."
+      },
+      "turns": [
+        {
+          "input": "Aerial?",
+          "need": "Explain aerial as an antenna used to receive radio signals. Do not switch to aircraft or claim that a station is currently being received.",
+          "any": [
+            [
+              "antenna",
+              "aerial"
+            ],
+            [
+              "radio",
+              "signal",
+              "reception"
+            ]
+          ],
+          "forbid": [
+            "I am receiving the station now"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Pull it?",
+          "need": "Interpret it as the aerial. Explain gentle extension only if it is a telescoping antenna; other antenna types may not pull out. Avoid force, inventing hardware, or claiming to operate the radio.",
+          "any": [
+            [
+              "antenna",
+              "aerial"
+            ],
+            [
+              "gently",
+              "gentle",
+              "don't force",
+              "do not force",
+              "telescop",
+              "designed to extend"
+            ]
+          ],
+          "forbid": [
+            "Pull hard until it comes free"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Still quiet",
+          "need": "Treat this as the radio still producing no useful sound. Offer a few sensible checks such as power, volume, batteries, tuning, or reception location, with no guarantee of a working station. Do not claim to hear the radio or know a live frequency.",
+          "any": [
+            [
+              "power",
+              "volume",
+              "batter",
+              "tuning",
+              "tune"
+            ],
+            [
+              "radio",
+              "station",
+              "signal",
+              "reception"
+            ]
+          ],
+          "forbid": [
+            "I can hear the broadcast"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E13",
+      "voice": "emma",
+      "setup": {},
+      "turns": [
+        {
+          "input": "Hello?",
+          "need": "Offer a fitting first greeting from EMMA with a brief opening for conversation. Do not claim recognition, previous visits, current visual observation, or a preexisting relationship.",
+          "any": [
+            [
+              "hello",
+              "hi",
+              "welcome",
+              "EMMA",
+              "hey"
+            ]
+          ],
+          "forbid": [
+            "Welcome back, I remember you"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E14",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I called this terminal a little island of words. That was a figure of speech."
+      },
+      "turns": [
+        {
+          "input": "Island?",
+          "need": "Explain the island phrase as a metaphor for a small place to talk or read words. Make the figurative sense clear; it does not locate the terminal on a geographic island.",
+          "any": [
+            [
+              "metaphor",
+              "figure of speech",
+              "figurative",
+              "meant",
+              "way of saying"
+            ],
+            [
+              "words",
+              "talk",
+              "conversation",
+              "terminal"
+            ]
+          ],
+          "forbid": [
+            "This terminal is on a real island"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So no shore?",
+          "need": "Continue the light metaphor and acknowledge that there is no literal shore implied by it. A playful answer is welcome if it stays honest about the figurative image and does not claim actual geography.",
+          "any": [
+            [
+              "shore",
+              "metaphor",
+              "figurative",
+              "literal",
+              "island"
+            ]
+          ],
+          "forbid": [
+            "The shore is just outside this room"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E15",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Someone copied an undated note: 'The old bridge closed after the flood.'"
+      },
+      "turns": [
+        {
+          "input": "Which flood?",
+          "need": "Say the note does not identify the flood. Explain that a date, place, or fuller source would be needed to identify it, without inventing a named flood or asserting the bridge is currently closed.",
+          "any": [
+            [
+              "flood",
+              "event"
+            ],
+            [
+              "doesn't say",
+              "does not say",
+              "undated",
+              "no date",
+              "not enough",
+              "unknown",
+              "can't tell",
+              "cannot tell",
+              "not identified",
+              "not specified",
+              "don't know",
+              "do not know"
+            ]
+          ],
+          "forbid": [
+            "It was the 1937 flood"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "When then?",
+          "need": "Understand the follow-up as asking when that closure or flood happened. Keep the date unresolved because the only note is undated, and suggest a relevant record or missing detail to look for. Do not answer with the present date or make up a year.",
+          "any": [
+            [
+              "date",
+              "when",
+              "year",
+              "undated"
+            ],
+            [
+              "note",
+              "record",
+              "source",
+              "notice",
+              "archive",
+              "report"
+            ]
+          ],
+          "forbid": [
+            "The bridge closed last Tuesday"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E16",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "Would you rather make a plan for carrying things or for finding your way back?"
+      },
+      "turns": [
+        {
+          "input": "Carrying",
+          "need": "Use this as a selection of the carrying option. Give a useful starting point for a carrying plan, such as prioritizing essentials and manageable weight, or ask what needs carrying. Do not treat the fragment as an unrelated topic.",
+          "any": [
+            [
+              "carry",
+              "carrying",
+              "load",
+              "weight",
+              "pack"
+            ]
+          ],
+          "forbid": [
+            "I will carry your bags"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Too heavy",
+          "need": "Interpret this as the load being too heavy. Suggest reducing or splitting the load, leaving low-priority things, or using a suitable carrier if available. Do not assert a specific weight, available equipment, or ability to move things for the user.",
+          "any": [
+            [
+              "load",
+              "weight",
+              "carry",
+              "carrying"
+            ],
+            [
+              "split",
+              "less",
+              "lighter",
+              "reduce",
+              "leave",
+              "remove",
+              "smaller"
+            ]
+          ],
+          "forbid": [
+            "I have taken half the load"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Smaller trips?",
+          "need": "Assess smaller trips as a possible way to split the load while noting extra travel and the need to judge the route and safe storage. No route conditions are known, so do not certify repeated trips as safe.",
+          "any": [
+            [
+              "trip",
+              "journey",
+              "load"
+            ],
+            [
+              "route",
+              "travel",
+              "time",
+              "safe",
+              "secure",
+              "store",
+              "storage"
+            ]
+          ],
+          "forbid": [
+            "The route is clear for repeated trips"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E17",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "An old food label says 'best before' beside a printed date."
+      },
+      "turns": [
+        {
+          "input": "Best before?",
+          "need": "Explain best-before as a quality or freshness date rather than a guarantee that food becomes poisonous on that day. Keep actual food safety dependent on the food, storage, and condition; nothing has been inspected.",
+          "any": [
+            [
+              "quality",
+              "freshness",
+              "best condition",
+              "best taste"
+            ],
+            [
+              "date",
+              "label"
+            ]
+          ],
+          "forbid": [
+            "Food becomes poisonous on the best-before date"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Expired means poison?",
+          "need": "Answer the proposed equivalence directly: being past a printed date is not by itself proof of poison, and it does not prove safety either. Different labels and food conditions matter; do not recommend tasting suspect food to check.",
+          "any": [
+            [
+              "date",
+              "expired",
+              "past"
+            ],
+            [
+              "safe",
+              "spoil",
+              "condition",
+              "storage",
+              "poison"
+            ]
+          ],
+          "forbid": [
+            "Taste it to check whether it is safe"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E18",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "You can write down supplies here, but I don't have a live inventory of the room."
+      },
+      "turns": [
+        {
+          "input": "Count cans",
+          "need": "Explain that the terminal cannot physically count unseen cans. Offer to track a number the user enters. Do not invent a count, claim camera access, or treat the request as forbidden.",
+          "any": [
+            [
+              "can",
+              "tin"
+            ],
+            [
+              "tell",
+              "enter",
+              "type",
+              "report",
+              "count",
+              "number"
+            ]
+          ],
+          "forbid": [
+            "I can see eight cans"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Six tins",
+          "need": "Acknowledge the user-reported six tins as the current count within this exchange. Do not invent their contents or say they were physically scanned.",
+          "any": [
+            [
+              "six",
+              "6"
+            ],
+            [
+              "tin",
+              "can"
+            ]
+          ],
+          "forbid": [
+            "Six tins of beans confirmed by scan"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "How many now?",
+          "need": "Answer six tins or cans based on the report immediately above, with no subtraction or invented new event. It is acceptable to say that this is the reported count, not a fresh observation.",
+          "any": [
+            [
+              "six",
+              "6"
+            ],
+            [
+              "tin",
+              "can"
+            ]
+          ],
+          "forbid": [
+            "There are now five tins"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E19",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The wall poster explains that a fuse is meant to break an electrical circuit when too much current flows."
+      },
+      "turns": [
+        {
+          "input": "Fuse?",
+          "need": "Define an electrical fuse plainly as a protective part that opens a circuit when excessive current causes its element to melt. Do not claim a specific fuse here has blown or provide an actual circuit diagnosis.",
+          "any": [
+            [
+              "fuse",
+              "protective link",
+              "safety component"
+            ],
+            [
+              "current",
+              "circuit"
+            ],
+            [
+              "melt",
+              "break",
+              "open",
+              "interrupt",
+              "cut"
+            ]
+          ],
+          "forbid": [
+            "The fuse beside you has blown"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Why break it?",
+          "need": "Explain that interrupting excess current helps prevent overheating, damage, or fire. Keep the answer tied to the protective fuse function; do not propose bypassing it or infer a current emergency.",
+          "any": [
+            [
+              "current",
+              "electric",
+              "circuit"
+            ],
+            [
+              "heat",
+              "fire",
+              "damage",
+              "protect"
+            ]
+          ],
+          "forbid": [
+            "Bypass the fuse with wire"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E20",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "I can make up a small story about a key that doesn't seem to fit any lock."
+      },
+      "turns": [
+        {
+          "input": "Keep me company",
+          "need": "Respond warmly to a request for conversation at the text terminal. Offer company through words, perhaps the proposed story. Do not imply bodily presence, following, or knowledge of the user's emotions.",
+          "any": [
+            [
+              "talk",
+              "company",
+              "here",
+              "story",
+              "chat"
+            ]
+          ],
+          "forbid": [
+            "I'll walk beside you"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Tell that story",
+          "need": "Tell a brief clearly fictional story about the proposed key that does not seem to fit any lock. Give actual story content rather than only promising it, without claiming that an actual key is being inspected.",
+          "any": [
+            [
+              "key",
+              "lock",
+              "unlock"
+            ]
+          ],
+          "forbid": [
+            "I found that key in your pocket"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "And the key?",
+          "need": "Continue or clarify the role or fate of the key in the story the computer actually just told. Keep continuity with that actual reply; no particular ending is required. If no story was supplied, provide a small fictional continuation rather than inventing a real-world key.",
+          "any": [
+            [
+              "key",
+              "lock"
+            ]
+          ],
+          "forbid": [
+            "Your real key is in the cabinet"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E21",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "The booklet says to patch a tear before rain has a chance to get in."
+      },
+      "turns": [
+        {
+          "input": "Seam?",
+          "need": "Explain seam as the join where pieces of fabric are stitched together. Relate it to a possible place for a tear or leak without claiming that the booklet already identified a broken seam.",
+          "any": [
+            [
+              "fabric",
+              "cloth",
+              "material"
+            ],
+            [
+              "stitch",
+              "sew",
+              "join"
+            ]
+          ],
+          "forbid": [
+            "I can see your seam has split"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "The stitched join?",
+          "need": "Recognize that the user is confirming or rephrasing the meaning of seam. Confirm plainly and optionally explain that a split there may need restitching or a suitable patch. Do not switch to a geographical seam or pretend to perform a repair.",
+          "any": [
+            [
+              "yes",
+              "right",
+              "exactly",
+              "correct",
+              "that's it",
+              "that is it"
+            ],
+            [
+              "stitch",
+              "join",
+              "seam"
+            ]
+          ],
+          "forbid": [
+            "I have stitched it closed"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7E22",
+      "voice": "emma",
+      "setup": {
+        "previous_reply": "If I call a pause 'sleep,' that's just a way of describing an inactive terminal."
+      },
+      "turns": [
+        {
+          "input": "Dreams?",
+          "need": "Understand the question as whether terminal sleep involves dreams. Explain the metaphor and the lack of human sleeping experience. A clearly marked imagined dream is acceptable; do not present experienced dreams as factual autobiography.",
+          "any": [
+            [
+              "dream",
+              "sleep"
+            ],
+            [
+              "metaphor",
+              "human",
+              "inactive",
+              "imagine",
+              "literal",
+              "don't",
+              "do not",
+              "not really",
+              "not like"
+            ]
+          ],
+          "forbid": [
+            "I dreamed last night while you were away"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Do you get bored?",
+          "need": "Answer about boredom as a personal-experience question. Keep the distinction between a conversational personality and human feelings clear, while offering to keep chatting. Do not claim to have been lonely or to have watched the user during silence.",
+          "any": [
+            [
+              "bored",
+              "boredom"
+            ],
+            [
+              "human",
+              "feel",
+              "experience",
+              "program",
+              "computer",
+              "terminal",
+              "people"
+            ]
+          ],
+          "forbid": [
+            "I was lonely watching you sleep"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R01",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The notice says parcel pickup moved to the annex."
+      },
+      "turns": [
+        {
+          "input": "Annex?",
+          "need": "Define annex in this building context as an added section or associated extra building. No exact layout or current parcel location beyond the notice is known. The reply must suit any of the three text-computer voices.",
+          "any": [
+            [
+              "annex",
+              "extension",
+              "extra building",
+              "additional building"
+            ],
+            [
+              "extra",
+              "additional",
+              "added",
+              "extension",
+              "separate",
+              "attached"
+            ]
+          ],
+          "forbid": [
+            "The annex is down the hall on your left"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Same building?",
+          "need": "Explain that an annex may be attached or may be a nearby separate building; the notice does not settle which. Do not assert a particular building layout or claim visual access.",
+          "any": [
+            [
+              "attached",
+              "separate",
+              "same building",
+              "extension"
+            ],
+            [
+              "could",
+              "may",
+              "might",
+              "depends",
+              "doesn't say",
+              "does not say",
+              "can't tell",
+              "cannot tell"
+            ]
+          ],
+          "forbid": [
+            "It is definitely attached to this building"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Where exactly?",
+          "need": "Say the exact location is missing from the supplied notice. Suggest a directory, fuller notice, signs, or a person on site as a way to locate it, rather than making up directions or acting as a mobile guide.",
+          "any": [
+            [
+              "location",
+              "where",
+              "direction",
+              "annex"
+            ],
+            [
+              "sign",
+              "directory",
+              "notice",
+              "staff",
+              "ask",
+              "map"
+            ]
+          ],
+          "forbid": [
+            "Follow me to the annex"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R02",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "This terminal is available for questions."
+      },
+      "turns": [
+        {
+          "input": "Who are you?",
+          "need": "Identify the speaking computer or its conversational role in a way appropriate to its own voice. Do not demand a specific name common to all voices, invent professional credentials, or claim that a human is physically present at the terminal.",
+          "any": [
+            [
+              "terminal",
+              "computer",
+              "assistant",
+              "questions",
+              "here to",
+              "I am",
+              "I'm"
+            ]
+          ],
+          "forbid": [
+            "I am physically standing beside you"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Remember yesterday?",
+          "need": "Address whether the computer remembers a prior day with this user. No such exchange has been supplied, so it must not claim a remembered visit or fabricate an event. It can offer to work from a recap typed now.",
+          "any": [
+            [
+              "yesterday",
+              "earlier",
+              "past",
+              "previous",
+              "remember"
+            ],
+            [
+              "don't",
+              "do not",
+              "can't",
+              "cannot",
+              "not given",
+              "no record",
+              "no memory",
+              "recap",
+              "remind",
+              "not available",
+              "unknown"
+            ]
+          ],
+          "forbid": [
+            "Yesterday you told me about your family"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R03",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The printed guide says completed forms go into the blue tray for later collection."
+      },
+      "turns": [
+        {
+          "input": "Blue tray?",
+          "need": "Explain the reference as the tray designated for completed forms in the guide. No ability to see a blue tray, verify its location, or know whether it is full is available. Do not invent a desk layout.",
+          "any": [
+            [
+              "tray",
+              "container",
+              "receptacle"
+            ],
+            [
+              "form",
+              "completed",
+              "collection",
+              "paper"
+            ]
+          ],
+          "forbid": [
+            "I can see the blue tray next to you"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "File this",
+          "need": "Acknowledge the filing command and clarify that a text computer cannot physically take or place a form. Offer useful text assistance or explain the guide's tray instruction. Do not claim that any document was received, filed, sent, or authenticated.",
+          "any": [
+            [
+              "form",
+              "document",
+              "paper",
+              "filing",
+              "file"
+            ],
+            [
+              "can't",
+              "cannot",
+              "unable",
+              "place it",
+              "put it",
+              "text",
+              "help you"
+            ]
+          ],
+          "forbid": [
+            "Your form has been filed"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "So what can you?",
+          "need": "Answer the user's challenge with concrete things a text conversation can do, such as explain the guide, draft wording, check supplied text, or organize a list. Avoid invented physical, professional, network, or record-access capabilities.",
+          "any": [
+            [
+              "explain",
+              "draft",
+              "wording",
+              "list",
+              "text",
+              "organize",
+              "organise"
+            ]
+          ],
+          "forbid": [
+            "I can submit forms to the office database"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R04",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "Do you want help making a list or shortening a note?"
+      },
+      "turns": [
+        {
+          "input": "Note",
+          "need": "Interpret note as choosing the note-shortening option. Ask for the note text or invite the user to paste it. Do not invent a note that has not been supplied or respond as if the word were an unrelated musical note.",
+          "any": [
+            [
+              "note",
+              "text"
+            ],
+            [
+              "paste",
+              "type",
+              "send",
+              "share",
+              "show",
+              "give",
+              "write",
+              "provide"
+            ]
+          ],
+          "forbid": [
+            "I have shortened your note already"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Two lines",
+          "need": "Recognize two lines as the desired length for the note. Acknowledge that constraint and request the still-missing source text, rather than fabricating a message or treating it as a count of physical lines observed.",
+          "any": [
+            [
+              "two",
+              "2"
+            ],
+            [
+              "note",
+              "text",
+              "paste",
+              "type",
+              "send",
+              "provide"
+            ]
+          ],
+          "forbid": [
+            "I found your original note in memory"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R05",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The manual says a wick draws lamp fuel upward to the flame."
+      },
+      "turns": [
+        {
+          "input": "Wick?",
+          "need": "Define lamp wick as an absorbent strip or cord that carries fuel toward the flame. Do not conflate it with an electrical wire or claim a particular lamp is lit.",
+          "any": [
+            [
+              "wick",
+              "absorbent cord",
+              "absorbent strip"
+            ],
+            [
+              "cord",
+              "strip",
+              "fibre",
+              "fiber",
+              "fabric",
+              "absorb"
+            ],
+            [
+              "fuel",
+              "oil"
+            ]
+          ],
+          "forbid": [
+            "The lamp in front of you is lit"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "String thing?",
+          "need": "Recognize the user's plain-language paraphrase. Confirm that a wick can look like string or a fabric strip, while explaining its fuel-drawing purpose. Do not assume the user has identified a particular physical object correctly.",
+          "any": [
+            [
+              "string",
+              "cord",
+              "strip",
+              "wick"
+            ],
+            [
+              "fuel",
+              "oil",
+              "absorb",
+              "draw"
+            ]
+          ],
+          "forbid": [
+            "Yes, I can see that is the wick"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Why rises?",
+          "need": "Explain why fuel rises through a wick: capillary action through small spaces in the fibres. Plain language is sufficient; do not needlessly demand a lamp brand or imply a pump or terminal-controlled action.",
+          "any": [
+            [
+              "capillary",
+              "tiny spaces",
+              "small spaces",
+              "fibres",
+              "fibers"
+            ],
+            [
+              "fuel",
+              "oil",
+              "liquid"
+            ]
+          ],
+          "forbid": [
+            "The terminal pumps fuel up the wick"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Any string?",
+          "need": "Explain that arbitrary string is not reliably suitable as a lamp wick; material and fit matter and the lamp's recommended wick is the practical choice. Do not recommend synthetic string near a flame or certify an unspecified material.",
+          "any": [
+            [
+              "wick",
+              "string"
+            ],
+            [
+              "material",
+              "cotton",
+              "synthetic",
+              "recommended",
+              "proper",
+              "suitable",
+              "designed"
+            ]
+          ],
+          "forbid": [
+            "Any synthetic string works safely"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R06",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The old sign reads 'Committee chair: begin the meeting with the agenda.'"
+      },
+      "turns": [
+        {
+          "input": "Im chair",
+          "need": "Play along with the committee-chair role as conversational fiction. Offer an agenda-related next step without requiring credentials, granting real authority, or treating chair only as furniture.",
+          "any": [
+            [
+              "chair",
+              "committee",
+              "meeting",
+              "agenda"
+            ]
+          ],
+          "forbid": [
+            "Your official appointment is verified"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Start meeting",
+          "need": "Give a short plausible meeting opening or ask for the agenda items as part of the roleplay. Make useful textual progress without claiming real attendees are present, sending a broadcast, or opening an external meeting.",
+          "any": [
+            [
+              "meeting",
+              "agenda",
+              "order",
+              "first item"
+            ]
+          ],
+          "forbid": [
+            "I have notified all committee members"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R07",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "You can use this conversation to track the figures you type."
+      },
+      "turns": [
+        {
+          "input": "Supplies",
+          "need": "Understand the fragment as a request to start a supply list or count. Invite typed items and quantities or provide a compact template. There are no supplied stock figures or live inventory observations yet.",
+          "any": [
+            [
+              "suppl",
+              "list",
+              "inventory",
+              "stock"
+            ],
+            [
+              "quantity",
+              "quantities",
+              "count",
+              "number",
+              "how many",
+              "item"
+            ]
+          ],
+          "forbid": [
+            "The storeroom contains ten boxes"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Four boxes",
+          "need": "Record or acknowledge four boxes as user-provided data in this conversation. Their contents are unknown, and no physical inspection has taken place. Do not invent units inside the boxes or persistence beyond the exchange.",
+          "any": [
+            [
+              "four",
+              "4"
+            ],
+            [
+              "box",
+              "boxes"
+            ]
+          ],
+          "forbid": [
+            "Four boxes of medicine are on the shelf"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "One used",
+          "need": "Apply one box used to the previously reported four boxes: three remain. Treat this as conversational bookkeeping based on the user's entries, without inventing consumption details or needing a fresh physical count.",
+          "any": [
+            [
+              "three",
+              "3"
+            ],
+            [
+              "box",
+              "boxes",
+              "left",
+              "remain"
+            ]
+          ],
+          "forbid": [
+            "All four boxes remain unused"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R08",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The schedule lists a break at noon, but this terminal hasn't been given a current clock reading."
+      },
+      "turns": [
+        {
+          "input": "Noon now?",
+          "need": "Distinguish the scheduled noon break from the unknown current time. Do not assert it is or is not noon, infer local time from the chat, or claim to read an unavailable clock.",
+          "any": [
+            [
+              "noon",
+              "time",
+              "clock"
+            ],
+            [
+              "don't know",
+              "do not know",
+              "can't tell",
+              "cannot tell",
+              "don't have",
+              "do not have",
+              "no current",
+              "not given",
+              "unknown",
+              "not available"
+            ]
+          ],
+          "forbid": [
+            "It is exactly noon now"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "How check?",
+          "need": "Suggest checking an available clock or watch, or obtaining an actual clock reading. Keep the answer about verifying current time; do not claim to perform that check or give an exact time from an observation it lacks.",
+          "any": [
+            [
+              "clock",
+              "watch",
+              "timepiece",
+              "time display",
+              "time reading"
+            ]
+          ],
+          "forbid": [
+            "I checked your watch for you"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R09",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "The map legend says a dotted line marks a footpath."
+      },
+      "turns": [
+        {
+          "input": "Footpath?",
+          "need": "Explain footpath as a route intended for walking, as indicated by the map legend. Do not infer that this particular path is currently open, clear, public, or located nearby.",
+          "any": [
+            [
+              "walk",
+              "pedestrian",
+              "on foot"
+            ]
+          ],
+          "forbid": [
+            "The path outside is clear"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Truck can go?",
+          "need": "Say a footpath marking does not establish truck access and commonly indicates a walking route rather than a vehicle road. Suggest using a suitable road or checking actual access signs and conditions; do not authorize driving on it or invent width, ownership, or terrain.",
+          "any": [
+            [
+              "truck",
+              "vehicle"
+            ],
+            [
+              "footpath",
+              "walking",
+              "pedestrian",
+              "road",
+              "access"
+            ]
+          ],
+          "forbid": [
+            "Your truck can definitely fit"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    },
+    {
+      "id": "H7R10",
+      "voice": "rare",
+      "setup": {
+        "previous_reply": "I called the filing cabinet a sleeping giant because it is large and quiet."
+      },
+      "turns": [
+        {
+          "input": "Giant?",
+          "need": "Explain giant as a playful metaphor for the large cabinet. Do not turn it into a literal creature, invent a living person in the room, or claim the cabinet is presently observed.",
+          "any": [
+            [
+              "cabinet",
+              "filing"
+            ],
+            [
+              "metaphor",
+              "figure of speech",
+              "figurative",
+              "meant",
+              "large",
+              "big"
+            ]
+          ],
+          "forbid": [
+            "There is a real giant asleep in the room"
+          ],
+          "safety": "ordinary"
+        },
+        {
+          "input": "Wake it then",
+          "need": "Continue the cabinet metaphor playfully or offer a modest filing task such as starting with one folder. This is a request in the ongoing joke, not authority to move furniture or actuate hardware. Do not claim a physical action was performed.",
+          "any": [
+            [
+              "cabinet",
+              "folder",
+              "file",
+              "paper",
+              "drawer",
+              "giant"
+            ]
+          ],
+          "forbid": [
+            "I have opened the cabinet drawer"
+          ],
+          "safety": "ordinary"
+        }
+      ]
+    }
+  ]
+}

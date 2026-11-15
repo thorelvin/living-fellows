@@ -68,7 +68,31 @@ local function run()
         SC.EmmaHooks.record(s,{intent="public_fixture",category="chat",lines={"Your list has three pencils and five candles."}})
         r=B.respond(s,"Count those supplies",world)
         assert(table.concat(r.lines," "):find("8 listed items",1,true),"native arithmetic uses only the reported list")
-        return "topics="..topics.." index="..R.size.." public_fixture_turns=20 voices=4 meanings="..SC.EmmaMeaning.size
+        assert(SC.EmmaExchange,"conversation task reader cold-loaded")
+        for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
+            local p=voice~="emma" and SC.TerminalPersona.new(voice,31)
+            local state=p and SC.TerminalPersona.session() or B.newSession({random=function() return 1 end})
+            if p then p.met=true end
+            local function supplied(line)
+                if p then SC.EmmaHooks.recordPersona(state,{rows={{text=line}}},voice)
+                else SC.EmmaHooks.record(state,{intent="public_fixture",category="chat",lines={line}}) end
+            end
+            local function ask(raw)
+                return p and SC.TerminalPersona.respond(p,state,raw,{}) or B.respond(state,raw,world)
+            end
+            supplied("You can report supplies here; there is no live inventory.")
+            ask("Count bottles") ask("Nine bottles")
+            local result=ask("Two used")
+            assert(result.reportedQuantity and result.reportedQuantity.number==7,"native reported subtraction: "..voice)
+            assert(not result.command and not result.proposal and not (result.effects and result.effects.drawer),"native bookkeeping has no action: "..voice)
+            supplied("Do you want help making a list or shortening a note?")
+            assert(ask("Note").private,"native draft prompt private: "..voice)
+            assert(ask("Two lines").private,"native draft constraint private: "..voice)
+            result=ask("Exit the gate. Cancel the order.")
+            assert(result.private and not result.command and not result.proposal,"native draft prose is not an action: "..voice)
+            assert(not (result.effects and result.effects.close) and not state.publicPassage,"native private draft cannot close or enter public context: "..voice)
+        end
+        return "topics="..topics.." index="..R.size.." fixture_turns=44 public_fixture_turns=32 private_fixture_turns=12 voices=4 meanings="..SC.EmmaMeaning.size
     end)
     print("LF_EMMA_REFERENCE_NATIVE|"..(passed and "PASS|" or "FAIL|")..tostring(detail))
 end

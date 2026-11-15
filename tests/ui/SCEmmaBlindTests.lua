@@ -26,7 +26,7 @@ function SC.EmmaBlindTests.run(D,label,namespace)
     local function run(conversation,voice)
         local persona=voice~="emma" and SC.TerminalPersona.new(voice,11)
         local session=persona and SC.TerminalPersona.session()
-            or SC.TerminalBrain.newSession({operator="Test",random=function() return 1 end})
+            or SC.TerminalBrain.newSession({operator="operator",random=function() return 1 end})
         local world,facts=scenario(conversation)
         local setup=conversation.setup or {}
         -- Descriptive prose is context data, never a handler ID or action ticket.
@@ -35,6 +35,10 @@ function SC.EmmaBlindTests.run(D,label,namespace)
         if setup.pending then previous=previous.." "..setup.pending:gsub("^Synthetic context:?%s*","") end
         if previous=="" then previous=nil end
         if previous then
+            -- A supplied previous reply means the visit has already begun.
+            -- Leaving turns at zero falsely triggers a returning-visitor
+            -- greeting on the next ordinary fragment, despite this context.
+            session.turns=1
             if persona then
                 persona.met,persona.visits=true,1
                 SC.EmmaHooks.recordPersona(session,{rows={{text=previous}},layer="context"},voice)

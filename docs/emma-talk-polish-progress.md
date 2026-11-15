@@ -351,3 +351,40 @@ Stop at the requested hour limit. D and the plan remain unfinished. Next:
 audit individual opened H1–H5 meanings, resolve remaining question/naming
 ambiguity, register unseen validation and complete the deferred manual session.
 See `docs/emma-talk-polish-02721-handoff.md` for the concrete next steps.
+
+## Further Phase D work and the final requested hour
+
+The user resumed D and then bounded the final session to
+15:31:45–16:31:45 UTC on 2026-11-15. The 56-entry meaning reader now retains
+the subject across short facet questions, repairs adjacent transpositions,
+and separates senses using required context. A single foreground task frame
+supports reported arithmetic and private note formatting. Draft text cannot
+become an equipment request or credential input; care still preempts it.
+
+H7's first frozen evaluation fails: automatic weighted 70/240; independent
+meaning 27/240, with 17/130 fitting actual replies. These results and all six
+earlier first failures are preserved. The final opened H7 replay reaches
+237/240 automatic and 240/240 independent meaning (130/130 replies), with
+native text/private-checksum equality. This does not establish fresh blind
+success. Four newly found old-set semantic regressions are restored exactly;
+five pre-existing H1 needs remain unmet in the reviewed slice.
+
+All five release checks pass in `20261115-165948-46224c` (522.1 seconds).
+Final Interface passes in `20261115-171240-633382` (222.4 seconds), with
+care 528/528, zero false alarms and protected changes, and 257 context checks.
+The cumulative floor grows to 1,625 IDs without deleting prior passes. The
+42-module playground is rebuilt. See the final validation receipt for the
+raised-floor recheck, package and native-clone results.
+
+D and the overall plan remain unfinished. The user's manual conversation
+session remains deferred; actual terminal-flow coverage and the five concrete
+H1 gaps are the next work. No further replacement blind set is scheduled.
+
+Final local receipts: all eight raised-floor harnesses pass; standalone ZIP
+rebuilds using a short workspace junction after a Windows command-length
+failure. The final native terminal smoke passes all 44 turns. The broader
+default clone run fails five gameplay checks (direct progress/arrival, room
+entry, door crossing and melee recovery with a dead target). Its cause is untriaged and no navigation code was
+changed. Preserve `SC-Harness-20261115-172512-61d21a9b` and compare the same
+seed against the preceding checkpoint before release. The live run as a whole
+is not a pass. See the validation record for the exact distinction.

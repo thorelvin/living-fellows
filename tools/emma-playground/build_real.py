@@ -32,7 +32,7 @@ files = [("SCNamespace", lua / "shared/SCNamespace.lua"), ("SCSpeechColors", lua
 for module in ("SCTerminalLines", "SCTerminalKnowledge", "SCTerminalConversation", "SCTerminalBrain",
                "SCEmmaLanguageData", "SCEmmaWords", "SCEmmaSurvivalData", "SCEmmaSurvival", "SCEmmaFollowups",
                "SCEmmaMindData", "SCEmmaMind", "SCEmmaReadingsData", "SCEmmaBody", "SCOddballForecast",
-               "SCEmmaCalendar", "SCEmmaReadings", "SCEmmaConversation", "SCEmmaHooks", "SCEmmaReferenceData", "SCEmmaReference", "SCEmmaMeaningData", "SCEmmaMeaning", "SCEmmaAnswers", "SCEmmaContext", "SCEmmaUnderstand", "SCEmmaMissed", "SCEmmaTerminal",
+               "SCEmmaCalendar", "SCEmmaReadings", "SCEmmaConversation", "SCEmmaHooks", "SCEmmaReferenceData", "SCEmmaReference", "SCEmmaMeaningData", "SCEmmaMeaning", "SCEmmaExchange", "SCEmmaAnswers", "SCEmmaContext", "SCEmmaUnderstand", "SCEmmaMissed", "SCEmmaTerminal",
                "SCTerminalLore", "SCTerminalFiles", "SCTerminalPersona", "SCTerminalPersonaSpiffy", "SCTerminalPersonaEllis", "SCTerminalPersonaDuty"):
     files.append((module, lua / "client" / (module + ".lua")))
 sources = [("prelude", PRELUDE)] + [(name, path.read_text(encoding="utf-8")) for name, path in files]

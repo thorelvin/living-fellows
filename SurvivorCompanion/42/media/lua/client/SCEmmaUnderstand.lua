@@ -842,8 +842,14 @@ function M.install()
     Brain.registerHandler("news_escape",function(_,reply)
         reply.lines={"You made it back. Good. Take a moment before you try that again."};reply.category="chat"
     end)
-    Brain.registerHandler("emma_controls",function(_,reply)
+    Brain.registerHandler("emma_controls",function(session,reply,turn)
         reply.lines={"Use Local services and choose the named equipment. Read its checked request before confirming it."};reply.category="chat"
+        local passage=session.publicPassage
+        local source=passage and not passage.structured and passage.text
+        if source and source:lower():find("door",1,true) and turn.raw:lower():find("door",1,true) then
+            reply.lines={"I cannot physically open that door or control its lock from this conversation. Its posted label is guidance, not a connection to the hardware. I have not opened it."}
+            reply.publicSource=source reply.foregroundKind="door_instructions"
+        end
     end)
     Brain.registerHandler("fallback_echo",function(session,reply,turn)
         local fields={word=(turn.slots or {}).word or "that"}
@@ -915,6 +921,26 @@ function M.respond(session,raw,world,baseRespond)
     end
     local care=SC.EmmaCare.respond(session,raw,intent,false)
     if care then return care end
+    -- Text requested for a private draft is one data message. Keep care and
+    -- clause-level distress ahead of it, but do not split its prose into
+    -- equipment requests or truncate it to the first two sentences.
+    if SC.EmmaContext and session.foregroundReference and session.foregroundReference.kind=="note_edit" then
+        local note=SC.EmmaContext.resolve(session,raw,true)
+        if note and (note.kind=="note_edit" or note.kind=="note_closed") then
+            for _,part in ipairs(M.clauses(raw,session,world)) do
+                local signal=classify(part,session,world)
+                if signal=="care_check" or signal=="care_gentle" then
+                    local protected=SC.EmmaCare.respond(session,raw,signal,false)
+                    if protected then return protected end
+                elseif signal=="worth" then return baseRespond(session,part,world) end
+            end
+            session.turns=(session.turns or 0)+1
+            local reply={intent="context_reference",category="guide",thinkMs=0}
+            SC.EmmaContext.render(session,reply,note,raw,world)
+            SC.TerminalConversation.record(session,raw,reply,{guideId="context_reference",page=1})
+            return reply
+        end
+    end
     local negative=SC.EmmaCare.tokens(raw)
     local actions={refuel=true,retry=true,send=true,treat=true,lock=true,unlock=true,open=true,
         close=true,turn=true,switch=true,sound=true,start=true,run=true,activate=true,queue=true,
