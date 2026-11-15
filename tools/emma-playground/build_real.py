@@ -6,6 +6,7 @@ The Lua load order matches tests/essential/Interface.ps1 (interfaceTerminalFiles
 SCTerminalFiles, which is what Brain.respond needs.
 """
 import pathlib
+import re
 import sys
 
 here = pathlib.Path(__file__).parent
@@ -301,6 +302,7 @@ page = page.replace('  const TRY = [', '  $("voice").addEventListener("change", 
 assert page.count("/*LUA_SCRIPTS*/") == 1
 page = page.replace("/*LUA_SCRIPTS*/", "\n".join(blocks))
 version = (root / "VERSION.txt").read_text(encoding="utf-8").strip()
-page = page.replace("Living Fellows 0.27.5", "Living Fellows " + version)
+# The template and the glue each carry an older release number; stamp them all.
+page = re.sub(r"Living Fellows \d+\.\d+\.\d+", "Living Fellows " + version, page)
 out_path.write_bytes(page.encode("utf-8"))
 print("page bytes", len(page.encode("utf-8")), "lua blocks", len(blocks))

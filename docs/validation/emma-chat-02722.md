@@ -183,3 +183,24 @@ SHA-256: `3ff034f3eadb3140ac4a1b41de3dba549e226ea7d80c48fd9a1393d14839992c`.
 Native bridge: `37f83b3c1bf9b20c9a5fa7a9086c2d8b5ff831cc4612ef261b742915f6300433`.
 The release and the playground are prepared locally. No remote release or playground
 publication was performed. The user's installed 0.27.21 test copy remains unchanged.
+
+## Review fix (Claude)
+
+Review of `3a342689`, `fbb26fee` and `f103f6ea` found one live F1-class bug. A
+fallback excerpt of an owned reply (for example "is it stale" after the status
+table) was saved as a plain passage, so the next clear question that shared a
+word with it ("any food?") was quoted from the report instead of reaching storage.
+An excerpt now keeps its source's owned flag, and the pre-intent context check
+never quotes an owned reply; the excerpt remains a last resort after every handler.
+Case `F1.owned-excerpt-yields` passes with the fix and fails with either half reverted.
+Across 1,524 public playground turns in all four voices, the fix changes three
+EMMA replies, each to the right handler; personas are unchanged.
+
+`3a342689`'s `suppliedFacts` answers change no reply in those 1,524 turns: 58 of
+its 64 rules match source text that exists only in the blind H2-H7 fixtures. With
+them disabled, H2-H5 weighted scores fall from 210, 228, 237 and 240 of 240 to
+129, 130, 154 and 201, so these opened sets now measure stored answers, not
+generalization.
+
+The playground builder now stamps every "Living Fellows x.y.z" label; the glue's
+readout still said 0.27.21 on the 0.27.22 page.

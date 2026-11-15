@@ -72,6 +72,18 @@ case("F1.strong-overlap",function()
     seed("The directory mentions Louisville. It contains several old Louisville listings. They do not describe the present roads.")
     check(Q.ground(s,"how far is louisville",true)==nil,"word overlap swallowed a strong distance question")
 end)
+case("F1.owned-excerpt-yields",function()
+    -- A fallback excerpt of the status table must not become a plain passage
+    -- that answers the next clear question by quoting the report again.
+    local s,respond=fresh("emma")
+    respond("status")
+    local quoted=respond("is it stale")
+    check(quoted.foregroundKind=="public_passage","the precondition excerpt of the owned report was not produced")
+    check(s.publicPassage and s.publicPassage.structured==true,"an excerpt turned the owned report into a plain passage")
+    local r=respond("any food?")
+    check(r.intent=="storage" and r.foregroundKind~="public_passage" and F.text(r):find("food",1,true),
+        "an excerpt of the owned report swallowed a clear supply question")
+end)
 case("F2.opinions-answer",function()
     local _,respond,seed=fresh("emma")
     seed(identity)

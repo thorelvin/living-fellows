@@ -70,10 +70,13 @@ local function savePassage(session,reply,text)
         or reply.intent and SC.TerminalBrain.hasHandler(reply.intent) or nativeLayers[reply.layer]
     local old=session.publicPassage
     local sameSource=reply.publicSource~=nil and old and old.text==source:sub(1,900)
+    -- An excerpt of an owned reply (a status table, a storage count, an identity
+    -- line) stays owned. Otherwise one fallback quotation would turn that reply
+    -- into a plain passage that pre-empts the next clear question ("any food?").
     session.publicPassage={text=source:sub(1,900),framed=framed(source),selected=reply.publicSelection,
         repeated=reply.publicRepeat==true,
         queryKey=reply.publicQueryKey,
-        structured=not reply.publicSource and owned==true,
+        structured=sameSource and old.structured==true or not reply.publicSource and owned==true,
         turn=sameSource and old.turn or session.turns or 0,
         at=sameSource and old.at or SC.TerminalConversation.clock(session)}
 end
@@ -674,8 +677,10 @@ function Q.resolve(session,raw,contextOnly,deferPassage,allowOwnedPassage)
     if c and c.kind=="affection" and text=="who" then return row("affection") end
     -- A real guide/known facet keeps its own reader. A passage answer or an
     -- unclassified term is evidence context, not a broad index topic switch.
+    -- Before intent parsing (contextOnly), an owned reply is never quoted: its
+    -- excerpt is only a last resort once no handler has understood the input.
     local grounded=not deferPassage and (not c or c.kind=="public_passage" or not related(c,text))
-        and Q.ground(session,raw,c and c.kind=="public_passage")
+        and Q.ground(session,raw,c and c.kind=="public_passage" and not contextOnly)
     if grounded then return grounded end
     if c then
         local target,term=SC.EmmaReference.find(text)
