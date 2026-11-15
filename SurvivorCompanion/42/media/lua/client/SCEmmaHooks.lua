@@ -13,7 +13,7 @@ local nouns={"memory fault","parity error","checksum","state","governor","money"
     "official computer","twelve machines","smile score","kyle","password","authorisation","radio",
     "version one","0f3a","parity","manual",
     "traps","trapping","bandage","bandages","firearms","shotgun","food","water","dead","screen","opinions",
-    "gas station","gas stations"}
+    "gas station","gas stations","dysentery"}
 for _,term in ipairs({"reserve","fever","cordon","quarantine","relay","cycle","operator","tone"}) do nouns[#nouns+1]=term end
 local ignored={I=true,Im=true,The=true,A=true,An=true,That=true,This=true,Those=true,These=true,
     It=true,Its=true,You=true,Your=true,We=true,Our=true,They=true,Their=true,He=true,She=true,
@@ -87,6 +87,11 @@ local answers={
     radio={"A radio receives broadcasts; some sets can transmit as well. A voice on a receiver still needs its claims checked. Volume is not a certificate of reliability."},
     operator={"The person using the terminal. Earlier operators appear in surviving records; an unnamed operator stays unnamed. A job title does not supply a missing identity or destination."},
     tone={"The manner of speaking: rhythm, emphasis and attitude. A calm tone is useful. It is not proof that the situation deserves one."},
+    -- Survival card term (SCEmmaSurvivalData water card). NHS: dysentery is a bowel
+    -- infection causing diarrhoea with blood or mucus, cramps and fever; spread by
+    -- contaminated water, food and hands; the danger is fluid loss.
+    dysentery={"Dysentery is a gut infection spread by dirty water, unwashed hands and contaminated food. It brings bloody diarrhoea, cramps and fever, and the fluid loss is what makes it dangerous. Hence the card: boil the water first.",
+        how="Prevent it: boil or purify drinking water, wash your hands, and keep food covered and away from waste. Someone already sick needs plenty of clean water and rest. I cannot diagnose them from a typed sentence."},
 }
 local aliases={kentucky="state",commonwealth="state",frankfort="state",budget="money",funding="money",
     ["memory fault"]="glitch",["parity error"]="glitch",checksum="glitch",["everything fine"]="glitch",

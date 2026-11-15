@@ -204,3 +204,30 @@ generalization.
 
 The playground builder now stamps every "Living Fellows x.y.z" label; the glue's
 readout still said 0.27.21 on the 0.27.22 page.
+
+## Second chat log (Claude)
+
+A Codex-terminal session (replay `plan-emma-probe/web/replays/log-2026-11-15-codex.json`)
+showed eight live faults, all reproduced on `afd4b23a` and fixed:
+
+- "tell me more" after a context answer re-rendered an empty answer ("no live view
+  outside"): context answers no longer become conversation topics.
+- Excerpts quoted "Ask tell me more for the next part" and the reference disclaimer;
+  screen hints are dropped from a saved passage. Dysentery on the water card now has
+  a definition, so "what is dysentry?" is explained rather than quoted.
+- "whats its dangers?" read as a definition request; a named danger now wins over a
+  "what is" opening. "tell me more" on a reference topic moves to a part not yet shown,
+  and "i found a shotgun" no longer opens with a shelf count.
+- Answers to EMMA's help question: "heartsick" and "lonely" reached the `comfort`
+  intent, which only the care responder renders, so they got a miss line ("Was that
+  English?"). `comfort` now reaches care; a menu answer is one support reply, not a
+  three-turn grief mode; "hungry", "hunted" and "heartsick" accept a near spelling.
+- Style commands ("talk normally", "keep it short") end a knock-knock joke instead of
+  becoming its name or punchline.
+- Pronouns and short item follow-ups only use subjects from the last two turns ("were
+  did they go?" no longer reports Kate; "Is it big?" is not a stock search for "big").
+
+Cases `R2.*` in the chat harness; each of the twelve single-fix reverts fails its own
+case in Kahlua. Across 1,524 playground turns in all four voices the fixes change nine
+replies, each intended. Known, not changed: after genuine grief, EMMA's four-turn
+comfort mode also answers a danger message ("im hunted") with a grief line.

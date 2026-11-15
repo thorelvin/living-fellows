@@ -516,11 +516,29 @@ function Follow.people(text)
     if words:find(" sick",1,true) then return "guide",{guideId="survival_sickness",page=1} end
     return "fallback",{}
 end
+-- Reply-style commands ("talk normally", "keep it short") stay commands even
+-- in the middle of a knock-knock joke. Kept on M: file locals are at the limit.
+function M.styleCommand(toks)
+    if not M.styleExact then
+        M.styleExact={}
+        for _,group in ipairs(GROUPS) do
+            for _,spec in ipairs(group) do
+                if spec.id=="quiet" or spec.id=="normal" then
+                    for _,phrase in ipairs(spec.exact or {}) do M.styleExact[phrase]=true end
+                end
+            end
+        end
+    end
+    return M.styleExact[table.concat(toks," ")]==true
+end
 local function foregroundStart(session,text,base,toks,fuzzy)
+    -- A style command abandons an unfinished joke instead of becoming its name.
+    if session.emmaKnock and M.styleCommand(toks) then session.emmaKnock=nil end
     local joke=session.emmaKnock
     if joke and joke.stage==1 and session.turns-joke.at<=3 and #base<=4
         and not QWORDS[toks[1]] and not knockCommands[toks[1]]
-        and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text) then
+        and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text)
+        and not M.styleCommand(toks) then
         return "knock",{punchline=table.concat(toks," ")}
     end
 end
@@ -655,7 +673,7 @@ function M.parse(session, text, world, turn, baseParse)
     if follow then return follow,followSlots end
     local knockQuestion=QWORDS[toks[1]] and not (toks[1]=="do" and toks[2]=="not")
     if session.emmaKnock and session.emmaKnock.stage==2 and session.turns-session.emmaKnock.at<=3
-        and #base<=8 and not text:find("?",1,true) and not knockQuestion then
+        and #base<=8 and not text:find("?",1,true) and not knockQuestion and not M.styleCommand(toks) then
         -- Data and checked requests keep their real handler. Otherwise the
         -- next short statement is the punchline, even if it mentions a joke.
         -- Count typed words: expanding "don't" and "it's" adds tokens, and
@@ -976,14 +994,25 @@ end
 function M.respond(session,raw,world,baseRespond)
     M.install()
     local intent=M.careSignal(raw)
+    local menuOpen=session.context and session.context.expect and session.context.expect.kind=="help_me"
     if not intent then
         -- The parse includes the care safety net, so classify every message:
         -- a net result must reach care before clause splitting or any joke.
         local parsed=classify(raw,session,world)
-        if parsed=="care_check" or parsed=="care_gentle" or SC.EmmaCare.quiet(session) then intent=parsed end
+        -- "comfort" (heartsick or lonely after her help question, "</3") has no
+        -- data handler: it must reach care, never a generic miss line.
+        if parsed=="care_check" or parsed=="care_gentle" or parsed=="comfort" or SC.EmmaCare.quiet(session) then intent=parsed end
     end
     local previousKind=session.foregroundReference and session.foregroundReference.kind
+    local comfortBefore=session.comfortTurns
     local care=SC.EmmaCare.respond(session,raw,intent,false)
+    -- A heartsick or lonely answer to her own help menu is one warm reply. It
+    -- does not open a grief conversation that would hold the next three messages.
+    -- Only her open help question counts; other comfort or self-worth keeps care's mode.
+    if care and intent=="comfort" and menuOpen then
+        session.context.expect=nil
+        if not (comfortBefore and comfortBefore>0) then session.comfortTurns=nil end
+    end
     if care then
         if SC.EmmaContext then SC.EmmaContext.supportRest(care,raw,previousKind) end
         return care

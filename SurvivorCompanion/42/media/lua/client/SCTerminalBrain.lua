@@ -2201,6 +2201,10 @@ function Brain.parse(session, raw, world, turn)
             and (intent==nil or intent=="power" or intent=="storage") then return "power",{} end
         local entity=Conversation.latest(session,{person=true,people=true,item=true})
         local namedPerson=Conversation.latest(session,{person=true,people=true})
+        -- "They" and "she" point at someone mentioned in the last couple of
+        -- turns, not at a hurt list from several subjects ago.
+        if entity and (session.turns or 0)-(entity.turn or 0)>2 then entity=nil end
+        if namedPerson and (session.turns or 0)-(namedPerson.turn or 0)>2 then namedPerson=nil end
         if pronoun and namedPerson and (intent==nil or intent=="people_hurt" or intent=="jobs"
             or intent=="people_mood" or intent=="skills" or intent=="storage" or intent=="sleep") then
             if namedPerson.kind=="people" then return "clarify_person",{people=namedPerson.people,aspect=Conversation.aspect(joined)} end
@@ -2252,8 +2256,11 @@ function Brain.parse(session, raw, world, turn)
     local words, shown = itemWords(rest), shownWords(rest)
     if #words > 0 and #words <= 3 then
         local itemTopic=Conversation and Conversation.latest(session,{item=true})
+        -- An old supply question does not make every later word an item name,
+        -- and "is it big?" asks about it rather than for a stock of "big".
+        if itemTopic and (session.turns or 0)-(itemTopic.turn or 0)>2 then itemTopic=nil end
         local lastIntent = itemTopic and itemTopic.intent or context.intent
-        if followUp or lastIntent == "storage" or lastIntent == "food"
+        if followUp or not thing and (lastIntent == "storage" or lastIntent == "food")
             or (best and best.id == "storage") then
             return "storage", { item = words, itemText = shown }
         end

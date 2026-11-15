@@ -500,6 +500,10 @@ function C.record(session, raw, reply, slots)
         while #state.history>C.MAX_HISTORY do table.remove(state.history,1) end
     end
     if reply.error or C.neutral(reply.intent) then return end
+    -- A context answer explains part of an earlier reply from that turn's own
+    -- evidence. It cannot be re-rendered later, so "tell me more" continues the
+    -- earlier subject (the guide page it came from) instead of an empty answer.
+    if reply.intent=="context_reference" then return end
     local topic={intent=reply.intent,originIntent=reply.intent,kind="data",turn=session.turns or 0,label=reply.intent,at=state.lastAt}
     local intent=reply.intent
     if intent=="person" and slots.person then

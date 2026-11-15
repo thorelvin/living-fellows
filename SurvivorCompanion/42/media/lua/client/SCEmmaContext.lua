@@ -347,7 +347,15 @@ function Q.observe(session,reply,voice)
     end
     local lines=reply.lines or {}
     if voice then lines={} for _,row in ipairs(reply.rows or {}) do lines[#lines+1]=row.text end end
-    local text=table.concat(lines," "):sub(1,900)
+    -- Navigation hints and the reference disclaimer are screen furniture, not
+    -- content: an excerpt must never quote "Ask tell me more" back as meaning.
+    local content={}
+    for _,line in ipairs(lines) do
+        local value=tostring(line or "")
+        if not (value:find("^Ask tell me more") or value:find("^Game survival reference;")
+            or value:find("^Ask how to make it, how to use it")) then content[#content+1]=value end
+    end
+    local text=table.concat(content," "):sub(1,900)
     savePassage(session,reply,text)
     local topic=not voice and SC.TerminalConversation.latest(session)
     local old=current(session)

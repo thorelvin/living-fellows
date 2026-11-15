@@ -71,6 +71,8 @@ function R.find(raw)
 end
 function R.facet(raw)
     local text=norm(raw)
+    -- A named danger wins over a "what is" opening: "whats its dangers?".
+    if oneOf(text,{"danger","dangers","dangerous","risk","risks"}) then return "dangers" end
     if text:find("^what is ") or text:find("^what are ") then return "what" end
     if text:find("^why ") then return "why" end
     if text:find("^where ") then return "find" end
@@ -427,6 +429,16 @@ function R.render(session,reply,turn,world)
     if not topic.facets[facet] then facet="what" end
     local last=session.context.reference
     if not last and id=="fuel" and (norm(raw)=="tell me more" or norm(raw)=="more") then facet="find" end
+    -- "Tell me more" continues with a part of this topic not shown yet, rather
+    -- than repeating the short version of the part already given.
+    local asked=norm(raw)
+    local continuing=not slots.referenceFacet and last and last.id==id
+        and (asked=="tell me more" or asked=="more" or asked=="go on" or asked=="what else" or asked=="and")
+    if continuing then
+        for _,name in ipairs({"what","use","make","find","why","dangers","catch","noise","change"}) do
+            if topic.facets[name] and not (last.seen and last.seen[name]) and name~=last.facet then facet=name break end
+        end
+    end
     local target,found=R.find(raw)
     local term=slots.referenceTerm or target and target.kind=="reference" and target.id==id and found
         or last and last.id==id and last.term
@@ -436,7 +448,8 @@ function R.render(session,reply,turn,world)
     local exact=slots.referenceExact or same and depth>=2 or has(norm(raw),"exactly")
     local patient=slots.referencePatient or last and last.id==id and last.patient
     local lines={topic.title..":"}
-    local inventory=depth==1 and stock(slots,world)
+    -- "I found a shotgun" reports a find; a shelf count would read as a denial.
+    local inventory=depth==1 and not oneOf(norm(raw),{"found","picked up","got","i have","ive got"}) and stock(slots,world)
     if inventory then lines[#lines+1]=inventory end
     if patient then lines[#lines+1]="For "..patient..": "..(id=="bite"
         and "if a bite is involved, use this as a reference for that injury. I cannot verify an infection from a typed sentence."
@@ -452,8 +465,13 @@ function R.render(session,reply,turn,world)
     reply.category="guide" reply.lines=lines reply.reference=true
     if id=="recruit" then reply.followupSubject="relationships" end
     if slots.referencePrivate then reply.private=true end
+    local seen={[facet]=true}
+    if last and last.id==id then
+        for name in pairs(last.seen or {}) do seen[name]=true end
+        if last.facet then seen[last.facet]=true end
+    end
     reply.referenceState={id=id,facet=facet,depth=depth,turn=session.turns,patient=patient,exact=deliveredExact==true,term=term,
-        exactSeen=deliveredExact==true or exactSeen==true,at=SC.TerminalConversation.clock(session)}
+        exactSeen=deliveredExact==true or exactSeen==true,seen=seen,at=SC.TerminalConversation.clock(session)}
     return true
 end
 function R.record(session,reply,raw)

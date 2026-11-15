@@ -42,6 +42,15 @@ function C.begin(session,raw,world,turn)
     end
     if expected and expected.kind=="help_me" then
         local value=answer:gsub("^i am ",""):gsub("^im ",""):gsub("^i feel ","")
+        -- The four words she offered also accept a near spelling ("hearsick",
+        -- "heathsick", "hungy"): one slip for six letters, two for nine.
+        if not value:find(" ") and value:sub(1,4)~="hurt" then
+            for _,offered in ipairs({"hungry","hunted","heartsick"}) do
+                local limit=#offered>=8 and 2 or 1
+                if value~=offered and math.abs(#value-#offered)<=limit and value:sub(1,1)==offered:sub(1,1)
+                    and SC.TerminalBrain.distance(value,offered,limit)<=limit then value=offered break end
+            end
+        end
         if value=="hurt" or value=="wounded" or value=="injured" or value=="bleeding" or value=="in pain" then
             return "guide",{guideId="survival_bleeding",page=1}
         elseif value=="hungry" or value=="starving" or value=="need food" then

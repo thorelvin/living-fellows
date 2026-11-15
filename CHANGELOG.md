@@ -15,6 +15,14 @@
   Private care retains priority and is excluded from public conversation context.
 - One hurt survivor uses singular wording. The public fourteen-message chat is
   a strict regression fixture, alongside the existing conversation floors.
+- From a second chat log: "tell me more" after an explained word continues the
+  earlier subject, reference topics move on to a part not yet shown, and
+  "what's its dangers?" gets the dangers. Excerpts no longer quote screen hints,
+  and dysentery on the water card is explained. Heartsick or lonely answers to
+  EMMA's help question, including near spellings, reach her support reply
+  instead of a miss line. Style commands end a knock-knock joke, a reported
+  find is not answered with a shelf count, and pronouns and short follow-ups
+  refer only to subjects from the last two turns.
 - Carries forward practical rest and visitor-record follow-up repairs. Standalone
   uses the existing wrapper loader and bridge protocol `42.22-isocompanion-31`
   for Project Zomboid 42.22.2; save schema and native behavior are unchanged.
