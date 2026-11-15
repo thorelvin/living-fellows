@@ -516,6 +516,39 @@ function Follow.people(text)
     if words:find(" sick",1,true) then return "guide",{guideId="survival_sickness",page=1} end
     return "fallback",{}
 end
+local function foregroundStart(session,text,base,toks,fuzzy)
+    for _,phrase in ipairs({"what will happen","what happens now","what happens next","what now"}) do
+        if exactly(toks,phrase,fuzzy) then return "advice",{futureAdvice=true} end
+    end
+    local joke=session.emmaKnock
+    if joke and joke.stage==1 and session.turns-joke.at<=3 and #base<=4
+        and not QWORDS[toks[1]] and not knockCommands[toks[1]]
+        and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text) then
+        return "knock",{punchline=table.concat(toks," ")}
+    end
+    local title=guideTitle(text)
+    if title then return "guide",{guideId=title.id,page=1} end
+end
+local function residentNames(toks,world,turn)
+    local names={}
+    -- Resident statements alone need a name vocabulary. No actor scan for
+    -- ordinary chat or guides, and no camp readings from outside terminals.
+    if toks[1] and toks[2] and (VERBS[toks[2]] or toks[2]=="is" or toks[2]=="died")
+        and not LEADS[toks[1]] and not QWORDS[toks[1]] and world and type(world.camp)=="function" then
+        local okay,camp=pcall(world.camp)
+        if okay and type(camp)=="table" and camp.inside==true and type(world.people)=="function" then
+            local called,people=pcall(world.people)
+            if called and type(people)=="table" then
+                turn.cache=turn.cache or {};turn.cache.people=people
+                for index,person in ipairs(people) do
+                    if index>256 then break end
+                    for word in tostring(person.name or ""):lower():gmatch("%a+") do names[word]=true end
+                end
+            end
+        end
+    end
+    return names
+end
 function M.parse(session, text, world, turn, baseParse)
     turn=turn or {cache={}}
     text=tostring(text or ""):sub(1,Brain.MAX_INPUT)
@@ -547,7 +580,6 @@ function M.parse(session, text, world, turn, baseParse)
         and (answer=="yes" or answer=="no" or answer=="ok" or answer=="y" or answer=="n"
             or answer=="first" or answer=="second" or answer=="third" or tonumber(answer))
         or Brain.arithmetic(text) then return baseParse(session,text,world,turn) end
-    local names = {}
     SC.EmmaSurvival.install()
     text = contractions(text)
     local raw = string.lower(trim(text))
@@ -574,17 +606,10 @@ function M.parse(session, text, world, turn, baseParse)
         end
     end
     if worth then return worth,{} end
-    for _,phrase in ipairs({"what will happen","what happens now","what happens next","what now"}) do
-        if exactly(toks,phrase,fuzzy) then return "advice",{futureAdvice=true} end
+    do
+        local intent,slots=foregroundStart(session,text,base,toks,fuzzy)
+        if intent then return intent,slots end
     end
-    local joke=session.emmaKnock
-    if joke and joke.stage==1 and session.turns-joke.at<=3 and #base<=4
-        and not QWORDS[toks[1]] and not knockCommands[toks[1]]
-        and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text) then
-        return "knock",{punchline=table.concat(toks," ")}
-    end
-    local title=guideTitle(text)
-    if title then return "guide",{guideId=title.id,page=1} end
     if SC.EmmaContext then
         local detail=SC.EmmaContext.resolve(session,text,true)
         if detail then
@@ -670,22 +695,7 @@ function M.parse(session, text, world, turn, baseParse)
         toks = stripped
     end
     local joined = table.concat(toks, " ")
-    -- Resident statements alone need a name vocabulary. No actor scan for
-    -- ordinary chat or guides, and no camp readings from outside terminals.
-    if toks[1] and toks[2] and (VERBS[toks[2]] or toks[2]=="is" or toks[2]=="died")
-        and not LEADS[toks[1]] and not QWORDS[toks[1]] and world and type(world.camp)=="function" then
-        local okay,camp=pcall(world.camp)
-        if okay and type(camp)=="table" and camp.inside==true and type(world.people)=="function" then
-            local called,people=pcall(world.people)
-            if called and type(people)=="table" then
-                turn.cache=turn.cache or {};turn.cache.people=people
-                for index,person in ipairs(people) do
-                    if index>256 then break end
-                    for word in tostring(person.name or ""):lower():gmatch("%a+") do names[word]=true end
-                end
-            end
-        end
-    end
+    local names=residentNames(toks,world,turn)
     local exactId = exactFirst(toks, fuzzy)
     if exactId and M.supported(exactId) then return exactId, {} end
     local survivalExact = survivalExact(toks, fuzzy)
