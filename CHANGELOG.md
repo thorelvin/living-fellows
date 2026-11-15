@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.27.22 - Parked cars and conversation follow-ups
+
+- Outdoor followers near parked vehicles can use the native polygon route to
+  their formation goal, including short routes around a blocked line of cars.
+  The reported parking scene still needs a live retest. Zombie navigation is unchanged.
+- EMMA stops repeating an old context excerpt when a new question arrives.
+  Offered topics, opinions, future questions, knock-knock names and complete
+  guide titles now have their intended replies. Every identity variant names EMMA.
+- Public hook explanations have real answers, bounded spelling correction and
+  no whole-reply quote fallback. Suggestions withhold uncollected fragment labels.
+  Private care retains priority and is excluded from public conversation context.
+- One hurt survivor uses singular wording. The public fourteen-message chat is
+  a strict regression fixture, alongside the existing conversation floors.
+- Carries forward practical rest and visitor-record follow-up repairs. Standalone
+  uses the existing wrapper loader and bridge protocol `42.22-isocompanion-31`
+  for Project Zomboid 42.22.2; save schema and native behavior are unchanged.
+
 ## 0.27.21 - Conversation polish
 
 - Computer locks share a command reader for punctuation, short synonyms,

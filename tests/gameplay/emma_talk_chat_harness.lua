@@ -38,6 +38,19 @@ for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
         end)
     end
 end
+for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
+    case("F1."..voice..".actual-opinions-chain",function()
+        local _,respond,seed=fresh(voice)
+        seed(identity)
+        local previous=F.text(respond("opinions?"))
+        for _,raw in ipairs({"How do i kill zombies","ok","break","hello","how far is louisville"}) do
+            local r=respond(raw)
+            check(r.foregroundKind~="public_passage" and F.text(r)~=previous,
+                "the actual opinions chain repeated or swallowed another input")
+            previous=F.text(r)
+        end
+    end)
+end
 case("F1.source-deadline",function()
     local s,_,seed=fresh("emma")
     local tick=100 s.nowMs=function() return tick end

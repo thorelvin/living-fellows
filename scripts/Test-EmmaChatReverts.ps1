@@ -2,7 +2,9 @@
 # Exercise each public-chat fix with its original module reverted in an isolated
 # source snapshot. The working tree and local game installation are never edited.
 [CmdletBinding()]
-param([string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid')
+param(
+    [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
+    [ValidateSet('F1','F2','F3','F4','F5','F6','F7','F8','F9','F10')][string[]]$Only = @())
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Core = Join-Path $ProjectRoot 'tests/core'
@@ -31,6 +33,7 @@ $Fixes = @(
     @{Id='F8'; Commit='50c53de9'; Modules=@('SCEmmaUnderstand')},
     @{Id='F9'; Commit='3e620d8b'; Modules=@('SCEmmaUnderstand')},
     @{Id='F10'; Commit='95bb6dfe'; Modules=@('SCTerminalBrain','SCTerminalLines')})
+if ($Only.Count -gt 0) { $Fixes = @($Fixes | Where-Object { $Only -contains $_.Id }) }
 $RunRoot = Join-Path $ProjectRoot ('build/emma-talk-polish/reverts-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $RunRoot | Out-Null
 $Javac = & (Join-Path $PSScriptRoot 'Resolve-TestJavac.ps1')
