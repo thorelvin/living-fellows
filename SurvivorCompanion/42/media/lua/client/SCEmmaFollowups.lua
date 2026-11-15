@@ -206,7 +206,9 @@ local fragmentStop={what=true,which=true,where=true,when=true,why=true,how=true,
     is=true,are=true,does=true,["do"]=true,can=true,could=true,should=true,would=true,
     i=true,we=true,you=true,it=true,its=true,they=true,them=true,their=true,that=true,
     those=true,these=true,this=true,the=true,a=true,an=true,["and"]=true,also=true,about=true,
-    please=true,["then"]=true,so=true,exactly=true}
+    please=true,["then"]=true,so=true,exactly=true,much=true,many=true,have=true}
+local attributes={hungry=true,thirsty=true,tired=true,sad=true,happy=true,stressed=true,
+    injured=true,hurt=true,bleeding=true,sleeping=true}
 local function canClarify(value,current)
     if not current then return false end
     local related={}
@@ -216,10 +218,11 @@ local function canClarify(value,current)
     if spec then for _,alias in ipairs(spec.aliases) do add(alias) end end
     for _,page in ipairs(guide and guide.pages or {}) do for _,line in ipairs(page) do add(line) end end
     local count=0
+    local pronoun=has(" "..value.." ",{"it","its","they","them","their","that","those","these"})
     for word in value:gmatch("%a+") do
         if not fragmentStop[word] then
             count=count+1
-            if count>3 or not related[word] then return false end
+            if count>3 or not related[word] and not (pronoun and attributes[word]) then return false end
         end
     end
     return true

@@ -260,6 +260,13 @@ case("F7.boiling-stays-water",function()
     check(r.intent=="guide" and F.text(r):find("water",1,true) and F.text(r):find("boil",1,true),
         "the related boiling fragment lost water")
 end)
+case("F7.old-person-item-stay-retired",function()
+    local _,respond=fresh("emma")
+    respond("who is hurt") respond("how many nails") respond("how do i use a generator")
+    check(respond("are they hungry").intent=="followup_clarify","an equipment pronoun revived an older person")
+    local r=respond("how much do we have")
+    check(r.intent=="followup_clarify","a context-only quantity revived an older item")
+end)
 for number,raw in ipairs({"what about Kate","what about Louisville","what about typewriters", "what about the oddly decorated brass typewriter"}) do
     case("F7.foreign-fragment-"..number,function()
         local s,respond=fresh("emma") respond("how do i purify water")
