@@ -45,11 +45,12 @@ foreach ($metadataPath in @(
     $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding utf8
     $metadata = [regex]::Replace($metadata, '(?m)^require=\\ZombieBuddy\r?\n', '')
     $metadata = [regex]::Replace($metadata, '(?m)^ZBVersionMin=2\.3\.3\r?\n', '')
+    $metadata = [regex]::Replace($metadata, '(?m)^javaPkgName=[^\r\n]*\r?\n?', '')
     $metadata = $metadata.Replace(
         'Requires ZombieBuddy 2.3.3 or newer.',
         'Uses the bundled standalone bridge installer.')
     if (($metadata -match '(?m)^require=\\ZombieBuddy$') -or
-        ($metadata -match '(?m)^ZBVersionMin=')) {
+        ($metadata -match '(?m)^ZBVersionMin=|^javaPkgName=')) {
         throw "Standalone payload retained its Workshop dependency: $metadataPath"
     }
     [System.IO.File]::WriteAllText($metadataPath, $metadata, $utf8NoBom)

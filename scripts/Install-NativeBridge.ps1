@@ -60,22 +60,28 @@ function Test-BridgeAgentArgument([string]$Argument) {
 }
 function Assert-PzoClasspath($Configuration) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $entrypointFound = $false
+    $loaderFound = $false
     foreach ($entry in @($Configuration.classpath | Select-Object -First 128)) {
         if ([string]::IsNullOrWhiteSpace([string]$entry)) { continue }
         $path = if ([System.IO.Path]::IsPathRooted([string]$entry)) { [string]$entry }
             else { Join-Path $GameRoot ([string]$entry) }
         if (Test-Path -LiteralPath $path -PathType Container) {
-            if (Test-Path -LiteralPath (Join-Path $path 'com\pzoptimizer\PZOEntrypoint.class') -PathType Leaf) { return }
+            if (Test-Path -LiteralPath (Join-Path $path 'com\pzoptimizer\PZOEntrypoint.class') -PathType Leaf) { $entrypointFound = $true }
+            if (Test-Path -LiteralPath (Join-Path $path 'com\pzoptimizer\JavaModLoader.class') -PathType Leaf) { $loaderFound = $true }
         } elseif ([System.IO.Path]::GetExtension($path) -ieq '.jar' -and
             (Test-Path -LiteralPath $path -PathType Leaf)) {
             $archive = $null
             try {
                 $archive = [System.IO.Compression.ZipFile]::OpenRead($path)
-                if ($archive.GetEntry('com/pzoptimizer/PZOEntrypoint.class')) { return }
+                if ($archive.GetEntry('com/pzoptimizer/PZOEntrypoint.class')) { $entrypointFound = $true }
+                if ($archive.GetEntry('com/pzoptimizer/JavaModLoader.class')) { $loaderFound = $true }
             } catch { } finally { if ($archive) { $archive.Dispose() } }
         }
     }
-    throw 'PZO launcher is configured but its PZOEntrypoint class is missing from the launcher classpath; repair PZO before installing Living Fellows.'
+    if (-not $entrypointFound -or -not $loaderFound) {
+        throw 'PZO launcher is configured but its PZOEntrypoint or JavaModLoader class is missing from the launcher classpath; repair PZO before installing Living Fellows.'
+    }
 }
 
 function Invoke-Fault([string]$Boundary) {
@@ -175,10 +181,10 @@ if ($config.mainClass -eq $WrapperMain -and $null -eq $existingManifest) {
 if (-not (Test-HostMain ([string]$config.mainClass)) -and $config.mainClass -ne $WrapperMain) {
     throw "Refusing to replace an unknown Project Zomboid mainClass: $($config.mainClass)"
 }
-$launchMode = if (Test-PzoMain ([string]$config.mainClass)) { 'agent' } else { 'wrapper' }
+$launchMode = if (Test-PzoMain ([string]$config.mainClass)) { 'pzo-loader' } else { 'wrapper' }
 $classpathMatches = @($config.classpath | Where-Object { Test-BridgeClasspathEntry ([string]$_) })
 $agentMatches = @($config.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) })
-if ($launchMode -eq 'agent') { Assert-PzoClasspath $config }
+if ($launchMode -eq 'pzo-loader') { Assert-PzoClasspath $config }
 $recoveredGameReinstall = $false
 $migratedExternalLauncher = $false
 $preserveLauncherEdits = $false
@@ -195,7 +201,7 @@ if ($existingManifest) {
         throw 'Existing native bridge manifest does not own this normalized game/config/bridge path set.'
     }
     $previousMode = if ($existingManifest.launchMode) { [string]$existingManifest.launchMode } else { 'wrapper' }
-    if ($previousMode -notin @('wrapper', 'agent')) { throw 'Unknown owned native bridge launch mode; refusing update.' }
+    if ($previousMode -notin @('wrapper', 'agent', 'pzo-loader')) { throw 'Unknown owned native bridge launch mode; refusing update.' }
     $activeOwnedLauncher = $false
     if ($config.mainClass -eq $WrapperMain -and $previousMode -eq 'wrapper') {
         if ($classpathMatches.Count -ne 1 -or $agentMatches.Count -ne 0) {
@@ -207,7 +213,7 @@ if ($existingManifest) {
         # A game reinstall or another launcher's clean install can replace the
         # JSON while our verified LocalAppData ownership record remains.
         $recoveredGameReinstall = $true
-    } elseif ($launchMode -eq 'agent' -and $previousMode -eq 'agent') {
+    } elseif ($launchMode -eq 'pzo-loader' -and $previousMode -eq 'agent') {
         if ($classpathMatches.Count -ne 1 -or $agentMatches.Count -ne 1 -or
             [string]$agentMatches[0] -cne $AgentArgument -or
             [string]$existingManifest.launcherAgentArgument -cne $AgentArgument -or
@@ -216,7 +222,15 @@ if ($existingManifest) {
             throw 'PZO bootstrap agent or classpath ownership is missing, changed or duplicated; refusing update.'
         }
         $activeOwnedLauncher = $true
-    } elseif ($launchMode -eq 'agent' -and $previousMode -eq 'wrapper' -and
+    } elseif ($launchMode -eq 'pzo-loader' -and $previousMode -eq 'pzo-loader') {
+        if ($classpathMatches.Count -ne 1 -or $agentMatches.Count -ne 0 -or
+            [string]$existingManifest.launcherAgentArgument -ne '' -or
+            -not (Test-PzoMain ([string]$existingManifest.installedMainClass)) -or
+            -not (Test-PzoMain ([string]$existingManifest.originalMainClass))) {
+            throw 'PZO loader or classpath ownership is missing, changed or duplicated; refusing update.'
+        }
+        $activeOwnedLauncher = $true
+    } elseif ($launchMode -eq 'pzo-loader' -and $previousMode -eq 'wrapper' -and
         $classpathMatches.Count -eq 1 -and $agentMatches.Count -eq 0) {
         # PZO preserves existing classpath entries when it replaces the main.
         # Adopt that current PZO configuration as the new uninstall baseline,
@@ -307,8 +321,8 @@ if ($metadata.protocol -ne $ExpectedProtocol -or
     $metadata.compiledGame -ne $ExpectedCompiledGame) {
     throw "Native bridge metadata mismatch. Expected protocol=$ExpectedProtocol supportedGame=$ExpectedSupportedGame compiledGame=$ExpectedCompiledGame; received protocol=$($metadata.protocol) supportedGame=$($metadata.supportedGame) compiledGame=$($metadata.compiledGame)."
 }
-if ($launchMode -eq 'agent' -and (-not $metadata.hasAgent -or $metadata.premainClass -cne $AgentMain)) {
-    throw 'Native bridge JAR has no compatible bootstrap agent for PZO; use the matching current Living Fellows package.'
+if ($launchMode -eq 'pzo-loader' -and (-not $metadata.hasAgent -or $metadata.premainClass -cne $AgentMain)) {
+    throw 'Native bridge JAR has no compatible bootstrap entry for PZO; use the matching current Living Fellows package.'
 }
 New-Item -ItemType Directory -Path $BridgeRoot, $ConfigBackupRoot -Force | Out-Null
 
@@ -342,6 +356,7 @@ $originalConfigHash = if ($migratedExternalLauncher) {
 }
 
 $reuseCurrentConfig = $existingManifest -and -not $recoveredGameReinstall -and
+    $previousMode -eq $launchMode -and
     $classpathMatches.Count -eq 1 -and
     ([string]$classpathMatches[0]).Replace('\', '/').Equals($launcherJarArgument,
         [System.StringComparison]::OrdinalIgnoreCase)
@@ -352,7 +367,10 @@ if (-not $reuseCurrentConfig) {
     $newClasspath += $launcherJarArgument
     if ($launchMode -eq 'wrapper') { $config.mainClass = $WrapperMain }
     else {
-        $config.vmArgs = @($config.vmArgs | Where-Object { -not (Test-BridgeAgentArgument ([string]$_)) }) + @($AgentArgument)
+        # ProjectZomboid64.exe embeds the JVM without loading jli.dll. A Java
+        # agent here prevents the VM from starting, before console.txt exists.
+        # PZO loads the standalone JAR's Premain-Class through JavaModLoader.
+        $config.vmArgs = @($config.vmArgs | Where-Object { -not (Test-BridgeAgentArgument ([string]$_)) })
     }
     $config.classpath = @($newClasspath)
 }
@@ -416,7 +434,7 @@ $manifest = [ordered]@{
     wrapperMainClass = $WrapperMain
     launchMode = $launchMode
     installedMainClass = [string]$config.mainClass
-    launcherAgentArgument = if ($launchMode -eq 'agent') { $AgentArgument } else { '' }
+    launcherAgentArgument = ''
     originalMainClass = $originalMainClass
     originalClasspath = @($originalClasspath)
     originalConfigBackup = $backupPath

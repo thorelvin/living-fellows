@@ -84,6 +84,11 @@ Mount a walkie-talkie on a powered camp computer and assign a **Survivor radio w
 
 **Project Zomboid 42.22.2 · Windows standalone · Single-player.** Multiplayer and additional human split-screen players are not supported.
 
+With **PZO (prop11)**, the installer keeps PZO's launcher and uses its Java mod
+loader to start Living Fellows. Allow the Living Fellows bridge if PZO asks.
+Re-run `Install.bat` from the current download to repair the older LF Java-agent
+startup option, which can prevent the Windows game executable from starting.
+
 1. Download the **[standalone Windows ZIP][standalone]** and extract the whole folder.
 2. Close Project Zomboid and run **Install.bat** from that folder.
 3. Start the game and enable **Living Fellows** in **Mods**. For an existing save, enable it under **More… → Choose Mods** too.

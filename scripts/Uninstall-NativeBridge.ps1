@@ -92,7 +92,7 @@ if ($ExpectedCurrentConfigSha256 -and $configHash -ne $ExpectedCurrentConfigSha2
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding utf8 | ConvertFrom-Json
 $wrapper = [string]$manifest.wrapperMainClass
 $launchMode = if ($manifest.launchMode) { [string]$manifest.launchMode } else { 'wrapper' }
-if ($launchMode -notin @('wrapper', 'agent')) { throw 'Unknown native bridge launch mode; refusing automatic rollback.' }
+if ($launchMode -notin @('wrapper', 'agent', 'pzo-loader')) { throw 'Unknown native bridge launch mode; refusing automatic rollback.' }
 $agentMatches = @($config.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) })
 if ($launchMode -eq 'agent') {
     if (-not (Test-PzoMain ([string]$config.mainClass)) -or
@@ -101,6 +101,13 @@ if ($launchMode -eq 'agent') {
         [string]$manifest.launcherAgentArgument -cne $AgentArgument -or
         $agentMatches.Count -ne 1 -or [string]$agentMatches[0] -cne $AgentArgument) {
         throw 'PZO bootstrap agent ownership is missing, changed or duplicated; refusing automatic rollback.'
+    }
+} elseif ($launchMode -eq 'pzo-loader') {
+    if (-not (Test-PzoMain ([string]$config.mainClass)) -or
+        -not (Test-PzoMain ([string]$manifest.installedMainClass)) -or
+        -not (Test-PzoMain ([string]$manifest.originalMainClass)) -or
+        [string]$manifest.launcherAgentArgument -ne '' -or $agentMatches.Count -ne 0) {
+        throw 'PZO loader or classpath ownership is missing, changed or duplicated; refusing automatic rollback.'
     }
 } elseif ($config.mainClass -ne $wrapper -or $agentMatches.Count -ne 0) {
     throw "Launcher mainClass changed after installation; refusing automatic rollback: $($config.mainClass)"
@@ -152,7 +159,7 @@ if ($mode -eq 'selective') {
     }
     $updatedConfigText = $config | ConvertTo-Json -Depth 100
     $roundTrip = $updatedConfigText | ConvertFrom-Json
-    $mainRestored = if ($launchMode -eq 'agent') { Test-PzoMain ([string]$roundTrip.mainClass) }
+    $mainRestored = if ($launchMode -in @('agent', 'pzo-loader')) { Test-PzoMain ([string]$roundTrip.mainClass) }
         else { [string]$roundTrip.mainClass -eq [string]$manifest.originalMainClass }
     if (-not $mainRestored -or
         @($roundTrip.classpath | Where-Object {

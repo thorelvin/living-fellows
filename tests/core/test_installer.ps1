@@ -239,6 +239,8 @@ try {
     foreach ($variant in @('exact', 'selective')) { Add-InstallerCase 'pzo-agent-lifecycle' $variant }
     foreach ($variant in @('clean', 'wrapper-migration')) { Add-InstallerCase 'pzo-agent-recovery' $variant }
     Add-InstallerCase 'pzo-agent-rejected'
+    Add-InstallerCase 'pzo-legacy-agent-upgrade'
+    Add-InstallerCase 'pzo-loader-reinstall'
     Invoke-ScParallelSteps -Steps $cases.ToArray() -Throttle $Jobs -Label 'installer cases'
 
     $legacy = Join-Path $GameRoot 'zombie\characters\IsoSurvivor.class'
