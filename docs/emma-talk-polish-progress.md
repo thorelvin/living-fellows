@@ -323,3 +323,31 @@ the failing H6 gate are checkpointed in `e589b191`; the subsequent Interface
 run `build/test-results/20261115-131330-21187d` confirms the required failure.
 See `docs/emma-talk-polish-02721-handoff.md` for the exact resume steps and
 local artifacts. The manual playground session remains deferred.
+
+## One-hour resumption, 2026-11-15
+
+The user resumed the remaining `3080f858` work for 13:18:48–14:18:48 UTC.
+The standalone startup fix `d72b3fea` remains on 0.27.21. The new bounded
+41-entry meaning reader, supplied directions/list arithmetic and short replies
+work across four voices. Original source words and custom definitions retain
+their meanings; personal facts stay private and no navigation code changes.
+
+Opened H6 development reaches 130/130 automatic and independently fitting
+replies: 126 unchanged verdicts plus four independently reviewed corrections.
+Native Kahlua reproduces all replies/private checksums. The final hour candidate
+has zero reply/privacy differences from those reviewed replies. The original
+first H6 failure remains the fresh result; H1–H6 are all opened.
+
+All five release checks pass in `20261115-145300-3be5db` (516.3 seconds),
+with care 528/528, zero false alarms and zero protected-input changes. The
+passing-row floor grows to 1,481 without removing old IDs; context tests grow
+to 127. The final core-corpus comparison loses zero previously fitting rows.
+Native cold loading passes 20 turns/four voices and ten observations in a
+disposable test-save clone. The 41-module playground passes voice/privacy
+checks. A later priority guard caught four H6 regressions; the failed receipt
+is retained, and final correction verification is in the validation record.
+
+Stop at the requested hour limit. D and the plan remain unfinished. Next:
+audit individual opened H1–H5 meanings, resolve remaining question/naming
+ambiguity, register unseen validation and complete the deferred manual session.
+See `docs/emma-talk-polish-02721-handoff.md` for the concrete next steps.

@@ -70,7 +70,7 @@ foreach ($module in @(
     'SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation', 'SCTerminalBrain',
     'SCEmmaLanguageData', 'SCEmmaWords', 'SCEmmaSurvivalData', 'SCEmmaSurvival',
     'SCEmmaFollowups', 'SCEmmaMindData', 'SCEmmaMind', 'SCEmmaReadingsData', 'SCEmmaBody',
-    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaConversation', 'SCEmmaHooks', 'SCEmmaReferenceData', 'SCEmmaReference', 'SCEmmaAnswers', 'SCEmmaContext', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
+    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaConversation', 'SCEmmaHooks', 'SCEmmaReferenceData', 'SCEmmaReference', 'SCEmmaMeaningData', 'SCEmmaMeaning', 'SCEmmaAnswers', 'SCEmmaContext', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
     'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',
     'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil', 'SCEmmaJump',
     'SCTerminalPersona', 'SCTerminalPersonaSpiffy', 'SCTerminalPersonaEllis', 'SCTerminalPersonaDuty',

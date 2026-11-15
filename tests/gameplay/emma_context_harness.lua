@@ -179,4 +179,52 @@ do
         end
     end
 end
+do
+    for _,voice in ipairs({"emma","spiffy","ellis","duty"}) do
+        local p=voice~="emma" and SC.TerminalPersona.new(voice,17)
+        local s=p and SC.TerminalPersona.session() or fresh()
+        if p then p.met=true end
+        local function supplied(source)
+            if p then H.recordPersona(s,{rows={{text=source}}},voice) else seed(s,source) end
+        end
+        local function respond(input)
+            return p and SC.TerminalPersona.respond(p,s,input,{}) or ask(s,input)
+        end
+        supplied("The catalogue service is offline.")
+        local r=respond("Offline?")
+        check(text(r):find("unavailable",1,true),"a word need not already have its definition in the source: "..voice)
+        check(not r.command and not r.proposal and not (r.effects and r.effects.drawer),"a meaning answer has no action: "..voice)
+        supplied("The catalogue service is offline.")
+        local saved=SC.EmmaMeaning.resolve
+        SC.EmmaMeaning.resolve=function() end
+        r=respond("Offline?")
+        SC.EmmaMeaning.resolve=saved
+        check(not text(r):find("unavailable",1,true),"removing the meaning reader loses the actual explanation: "..voice)
+        supplied("A glossary says: 'Cache means a cupboard in this story. It is not a computer record.'")
+        r=respond("Cache?")
+        check(text(r):find("cupboard",1,true) and not text(r):find("saved or stored copy",1,true),"provided meanings take priority over an ordinary sense: "..voice)
+        supplied("On your sketch, the greenhouse is south of the barn.")
+        r=respond("South of what?")
+        check(text(r):find("barn",1,true) and text(r):find("reference point",1,true),"a direction keeps its supplied reference object: "..voice)
+        supplied("Your list has three pencils and five candles.")
+        r=respond("Count those supplies")
+        check(text(r):find("8 listed items",1,true),"reported quantities are added without a live inventory: "..voice)
+        supplied("Where did you leave the empty container?")
+        r=respond("At the shed")
+        check(r.private and text(r):find("shed",1,true) and not s.publicPassage,"reported locations preserve the original words and stay private: "..voice)
+        supplied("How many spare candles did you pack?")
+        r=respond("Three")
+        check(text(r):find("three",1,true) and text(r):find("reported count",1,true),"a number answers the preceding quantity question: "..voice)
+        supplied("How many brothers did you mention?")
+        r=respond("Two")
+        check(r.private and not s.publicPassage,"personal quantity answers do not enter public context: "..voice)
+        supplied("The red gate is open if its latch has been released; nobody checked that. The blue gate is locked.")
+        r=respond("Which gate?")
+        check(not text(r):find("use the red gate",1,true),"a conditional state cannot become a confirmed route choice: "..voice)
+        supplied("Your lamp has a power switch.")
+        r=respond("Switch?")
+        check(text(r):find("physical power control",1,true) and not r.command,"a control noun question explains the control without operating it: "..voice)
+        check(SC.EmmaMeaning.resolve(s,"Switch radio on","Your lamp has a power switch.")==nil,"an actual switch request retains its checked handler: "..voice)
+    end
+end
 SC_TEST_REPORT=(SC_TEST_REPORT or "").."EMMA_CONTEXT_PASS checks="..checks.."\n"

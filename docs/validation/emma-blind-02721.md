@@ -243,3 +243,62 @@ The later clone `SC-Harness-20261115-112524-50504550` passes the expanded
 15-turn smoke, including offered map/water topics and the original word
 `stove` on every rare voice. All ten observation checks pass. The following
 call-sign clearing refinement is covered by the context and release harnesses.
+
+## Opened H6 development during the requested hour
+
+The user resumed `3080f858` for 13:18:48–14:18:48 UTC on 2026-11-15.
+The 0.27.21 startup hotfix `d72b3fea` is retained. All first-result artifacts
+above remain immutable; the historical pause statements describe that time.
+
+The candidate adds a bounded 41-entry ordinary-meaning table and pure reader,
+practical facets, supplied spatial/list relations and reported conversation
+facts. It preserves original source words before typo correction and supplied
+definitions before ordinary senses. Personal counts/location remain private;
+public list arithmetic is explicitly reported rather than live inventory.
+No providers, persistence, actor actions or navigation are added by the reader.
+Primary sources checked for canned-food and charcoal advice:
+[USDA](https://ask.fsis.usda.gov/article/How-long-can-you-keep-canned-goods),
+[CPSC](https://www.cpsc.gov/Safety-Education/Safety-Education-Centers/Carbon-Monoxide-Information-Center/Charcoal).
+These do not claim exact Build 42 recipes.
+
+Hour-A independent review accepts 126/130 actual replies. Its four failures
+are task confusion between lighting and torch repair, plus the three rare
+voices failing to explain a switch. Those four corrected hour-B replies are
+independently accepted in a separate delta. The other 126 texts/privacy flags
+are unchanged. Combined verdict: EMMA 55/55, each rare voice 25/25,
+weighted 240/240. These are opened development scores, not fresh blind success.
+
+Artifacts: `build/emma-talk-polish/blind-h6/semantic-hour-a.json`,
+`semantic-hour-b-delta.json`, `semantic-hour-b-combined.json`; actual replies
+under `build/emma-phase-d/private-semantic-review/`. The hour-B candidate
+manifest digest is `ecd7d6c653d68fd00a83016394a23c943fb44250a43960d1f5349d72a91363a4`.
+All 130 replies match native Kahlua, using exact public text and normalized
+private checksums. The final hour capture has zero text/privacy differences
+from hour B; its review input SHA-256 is
+`24c8fdda123fbac905aba6805eaf6c6998d72dc741c0995d2270c07b57353e70`.
+Only synthetic fixtures are used. Private-flagged bodies remain internal.
+
+All five release checks pass in `build/test-results/20261115-145300-3be5db`
+(516.3 seconds, 23 direct JVMs). Public scores: real 72/72, variants 275/288,
+EMMA predictions 188/188, personas 41/41, chains 7/7, locks 74/74. Core remains
+5,217/5,417 fitting, care 528/528, false care alarms zero, protected changes
+zero. The final core comparison has zero losses against phase C. The floor
+now retains 1,481 passing IDs, including all prior 626; context has 127 checks.
+
+A later priority guard initially regressed four H6 rows; Interface receipt
+`20261115-151011-8a87d9` correctly fails the retained-ID floor. Corrections
+distinguish exact term definitions, containment questions and missing facets.
+Final Interface receipt `20261115-151347-c96cf5` passes in 218.9 seconds
+(two direct JVMs), including the raised 1,481-ID floor and all opened H1–H6
+automatic gates. This targeted run follows the final priority corrections;
+the five-check release receipt above precedes them. No Java or non-dialogue
+runtime source changed between the two receipts.
+
+Native clone `SC-Harness-20261115-150334-eff5f74a` passes its explicit
+`LF_EMMA_REFERENCE_NATIVE` smoke (20 turns, four voices, 27 topics,
+637 index entries, 41 meanings), plus ten observation checks. It uses a
+disposable test-seed clone, not the user's save. The last priority guards are
+verified separately by Interface; this is not rendered-terminal coverage.
+The rebuilt playground embeds 41 real Lua modules and passes four-voice and
+privacy checks. Manual user testing remains deferred. D and the overall plan
+remain unfinished; see the handoff for unresolved ambiguity and validation work.

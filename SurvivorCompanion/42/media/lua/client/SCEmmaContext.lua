@@ -3,6 +3,7 @@
 -- One bounded public reply, no saved user text, world scan or action dispatch.
 require "SCEmmaReference"
 require "SCEmmaAnswers"
+require "SCEmmaMeaning"
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion
 local Q={} SC.EmmaContext=Q
@@ -564,12 +565,22 @@ end
 function Q.resolve(session,raw,contextOnly,deferPassage,allowOwnedPassage)
     local text=norm(raw)
     local c=current(session)
-    if any(text,{"password","drawer","manager"}) then return nil end
+    local passage=livePassage(session)
+    local source=passage and not passage.structured and passage.text
+    local mechanical=source and has(norm(source),"wooden") and has(norm(source),"drawer")
+        and any(text,{"sticking","binding","catches"}) and not text:find("^open ") and not text:find("^unlock ")
+    if any(text,{"password","manager"}) or has(text,"drawer") and not mechanical then return nil end
     if contextOnly and (text:find("^how is ") or text:find("^how much ")) then return nil end
+    if source then
+        local explained=SC.EmmaMeaning.resolve(session,raw,source)
+        if explained then
+            if explained.kind=="public_passage" and c and c.kind~="public_passage" then explained.kind=c.kind end
+            return explained
+        end
+    end
     local title=session.role or session.context and session.context.role
     local conversation=conversational(session,raw,text,c,title)
     if conversation then return conversation end
-    local passage=livePassage(session)
     local answerSource=passage and not passage.structured and passage.text
         or title and c and c.kind=="role" and session.context and session.context.roleSource
     if answerSource then

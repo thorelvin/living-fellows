@@ -1,8 +1,64 @@
-# Conversation work paused — 0.27.21
+# Conversation checkpoint — 0.27.21
 
-Paused by the user on 2026-11-15: a critical bug takes priority. Do not resume
-dialogue implementation until the user resumes it. Phase D and the plan are
-unfinished. The manual playground session is explicitly deferred.
+## One-hour resumption, 2026-11-15
+
+The user resumed the remaining `3080f858` work for one hour,
+13:18:48–14:18:48 UTC. Stop at that limit. Phase D and the plan remain
+unfinished. The manual playground session remains deferred.
+
+Retain `d72b3fea`, the 0.27.21 cherry-pick of the standalone/PZO startup fix.
+Its original `b803a1aa` is already pushed on 0.27.20. This checkpoint does
+not publish 0.27.21 or replace that fix.
+
+The resumed changes add 41 bounded ordinary meanings and practical facets,
+supplied directions/list arithmetic and short follow-ups across four voices.
+Original source words survive typo correction. Custom meanings retain
+priority; personal facts stay private, and written plans or conversational
+titles do not grant permissions or act. No navigation code was changed.
+
+Opened H6 development reaches 130/130 automatic and independently fitting
+replies: 126 retained judgments plus four separately reviewed corrections.
+All 130 reproduce in native Kahlua, including private normalized checksums.
+The original first H6 failures remain unchanged. This is opened-set progress,
+not fresh blind success or evidence that arbitrary dialogue is solved.
+
+All five release checks passed in `build/test-results/20261115-145300-3be5db`
+(516.3 seconds). The cumulative floor increases from 626 to 1,481 passing IDs
+without dropping old IDs; context checks increase from 79 to 127. A later
+priority guard initially regressed four H6 rows in `20261115-151011-8a87d9`.
+That failed receipt is retained; the corrected final Interface rerun is
+`20261115-151347-c96cf5` passes in 218.9 seconds, including the raised floor.
+
+Native clone `SC-Harness-20261115-150334-eff5f74a` passes ten observation
+checks and the explicit terminal smoke: 20 turns, four voices, 27 topics,
+637 reference entries and 41 meanings. It uses a disposable test-seed clone,
+not the user's save. It proves cold loading/pure dialogue, not rendered UI.
+The last priority guards are checked separately by Interface. The playground
+now embeds 41 real Lua modules and passes four-voice/privacy checks.
+
+Next work, if the user resumes:
+
+1. Inspect the final Interface receipt. Preserve the cumulative floor and
+   every first-failure artifact.
+2. Audit individual opened H1–H5 meanings after the definition-priority guard;
+   aggregate scores do not prove every useful reply was retained.
+3. Resolve remaining question/operation ambiguity. Inspect the unanchored
+   conversational nickname matcher: “Why call you X?” can still become a
+   naming request outside source-specific handling.
+4. Register further unseen validation before opening a new set. All H1–H6
+   are opened; tuned replays must keep their development label.
+5. Complete the deferred manual four-voice session when the user chooses it,
+   then final release checks before declaring D or the plan complete.
+
+Internal synthetic artifacts: `build/emma-phase-d/private-semantic-review/`
+contains hour-B/final replies and native comparison evidence. Independent
+review: `build/emma-talk-polish/blind-h6/semantic-hour-b-combined.json`.
+Private-flagged synthetic bodies must stay out of public diagnostics.
+
+## Historical pause at 3080f858
+
+The following sections describe the earlier pause and first failed H6 result.
+The resumption above supersedes their current-status statements.
 
 ## Workspace and checkpoint
 

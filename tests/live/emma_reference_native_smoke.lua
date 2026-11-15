@@ -52,7 +52,23 @@ local function run()
         r=B.respond(s,"Reading it",world)
         assert(r.referenceState and r.referenceState.id=="map" and r.referenceState.facet=="use","native offered reference choice")
         assert(not r.command and not r.proposal,"native choice is text only")
-        return "topics="..topics.." index="..R.size.." public_fixture_turns=15 voices=4"
+        assert(SC.EmmaMeaning and SC.EmmaMeaning.size<=64,"ordinary meanings cold-loaded")
+        SC.EmmaHooks.record(s,{intent="public_fixture",category="chat",lines={"The catalogue service is offline."}})
+        r=B.respond(s,"Offline?",world)
+        assert(table.concat(r.lines," "):find("unavailable",1,true),"native explanation without a supplied definition")
+        for _,voice in ipairs({"spiffy","ellis","duty"}) do
+            local p,ps=SC.TerminalPersona.new(voice,23),SC.TerminalPersona.session()
+            p.met=true
+            SC.EmmaHooks.recordPersona(ps,{rows={{text="The catalogue service is offline."}}},voice)
+            r=SC.TerminalPersona.respond(p,ps,"Offline?",{})
+            local joined={} for _,row in ipairs(r.rows) do joined[#joined+1]=row.text end
+            assert(table.concat(joined," "):lower():find("unavailable",1,true),"native ordinary meaning: "..voice)
+            assert(not r.effects.drawer and not r.effects.unlock,"native meaning has no access effect: "..voice)
+        end
+        SC.EmmaHooks.record(s,{intent="public_fixture",category="chat",lines={"Your list has three pencils and five candles."}})
+        r=B.respond(s,"Count those supplies",world)
+        assert(table.concat(r.lines," "):find("8 listed items",1,true),"native arithmetic uses only the reported list")
+        return "topics="..topics.." index="..R.size.." public_fixture_turns=20 voices=4 meanings="..SC.EmmaMeaning.size
     end)
     print("LF_EMMA_REFERENCE_NATIVE|"..(passed and "PASS|" or "FAIL|")..tostring(detail))
 end

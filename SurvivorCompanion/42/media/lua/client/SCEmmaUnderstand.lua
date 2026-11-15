@@ -498,6 +498,10 @@ function M.parse(session, text, world, turn, baseParse)
         if expected then return expected,slots end
     end
     local literal=text:lower():gsub("^emma[,:%s]+", "")
+    if literal:match("^remember that%?%s*$") and SC.EmmaContext then
+        local detail=SC.EmmaContext.resolve(session,text,true)
+        if detail and detail.sourceBound and detail.private then return "context_reference",detail end
+    end
     if literal:find("^remember%s") or literal:find("^call me%s") or literal:find("^forget%s")
         or literal:find("^my name is%s") or literal:find("^factory reset")
         or literal:find("^refuel%s") or literal:find("^retry%s") or literal:find("^send%s")
@@ -543,8 +547,7 @@ function M.parse(session, text, world, turn, baseParse)
     end
     if worth then return worth,{} end
     if SC.EmmaContext then
-        local contextual=table.concat(toks," ")..(text:find("?",1,true) and "?" or "")
-        local detail=SC.EmmaContext.resolve(session,contextual,true)
+        local detail=SC.EmmaContext.resolve(session,text,true)
         if detail then
             if detail.force or detail.reference then return "guide",{contextSpec=detail,
                 guideId=detail.reference and "reference_"..detail.reference or "context_reference"} end

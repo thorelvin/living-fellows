@@ -789,7 +789,7 @@ function P.respond(state, session, raw, facts)
     if SC.EmmaContext then
         local spec=SC.EmmaContext.resolve(session,text,false,state.expect and not referenceQuestion,false)
         if ownRule and not (spec and spec.sourceBound) then spec=nil end
-        if spec and spec.kind=="public_passage" and nativeRule
+        if spec and spec.kind=="public_passage" and not spec.sourceBound and nativeRule
             and not (session.publicPassage and session.publicPassage.framed) then spec=nil end
         local ownMenu=ctx.norm=="food" or ctx.norm=="menu" or ctx.norm=="drawer" or ctx.norm=="status"
             or ctx.norm=="orders" or ctx.norm=="log" or ctx.norm=="chain of command"

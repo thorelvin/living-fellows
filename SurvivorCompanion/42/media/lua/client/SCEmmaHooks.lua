@@ -129,6 +129,7 @@ function H.install()
     end
     walk(SC.EmmaContext and SC.EmmaContext.DATA or {},"pool:context_reference","emma:context",0)
     walk(SC.EmmaAnswers and SC.EmmaAnswers.DATA or {},"pool:context_reference","emma:answers",0)
+    walk(SC.EmmaMeaningData or {},"pool:context_reference","emma:meanings",0)
     for id,data in pairs(H.personaAnswers or {}) do walk(data,"persona:hook",id..":hooks",0) end
     for id,data in pairs(SC.TerminalPersonaData or {}) do
         for _,rule in ipairs(data.rules or {}) do
@@ -255,7 +256,7 @@ function H.render(slots)
     return {"In that line: "..tostring(slots.hookText or "the last subject").." I have no further verified detail in that reply. Name a related subject if you want its file."}
 end
 
-local roleNames={governor="Governor",president="President",["head of state"]="Head of state",
+local roleNames={governor="Governor",president="President",mayor="Mayor",captain="Captain",["head of state"]="Head of state",
     ["in charge"]="In charge",["head of the county"]="Head of county",["head of county"]="Head of county",
     soldier="Soldier",doctor="Doctor",police="Officer",["police officer"]="Officer",
     scientist="Scientist",["knox telecommunications"]="Knox Telecommunications",["knox telecom"]="Knox Telecommunications"}
@@ -302,7 +303,7 @@ function H.roleReply(role,voice)
         Officer="Officer. Protect the living first. I have local records, no working dispatch line.",
         Scientist="Scientist. The cause of the Knox Infection remains unverified. Please label hypotheses before they become instructions.",
         ["Knox Telecommunications"]="Knox Telecommunications. Your unanswered service tickets have acquired historical significance. I still have no outside connection."}
-    return {byRole[role] or role..". Noted. Credentials are a paper problem and paper is in short supply."}
+    return {byRole[role] or role..". What needs attention first? We can begin with people, drinking water, food and a safe way out; tell me your priority."}
 end
 local personaAnswers={
     spiffy={kyle="Kyle was the teenager who did this job before me! I am the automated replacement! The old record does not establish where Kyle is now!",
