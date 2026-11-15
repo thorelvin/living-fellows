@@ -430,6 +430,7 @@ function H.persona(session,id,raw,deferPassage)
             or "The drawer holds medication supplies. The existing procedure still applies; I cannot prescribe something or report the drawer open from this question."
     end
     local specific=SC.EmmaContext and SC.EmmaContext.resolve(session,raw,true,true)
+    if specific then return nil end
     local passage=not deferPassage and not specific and SC.EmmaContext and SC.EmmaContext.ground(session,raw,false)
     if passage then return passage.lines[1],passage end
     local term,facet=H.fragment(raw)

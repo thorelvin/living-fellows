@@ -517,14 +517,16 @@ function Follow.people(text)
     return "fallback",{}
 end
 local function foregroundStart(session,text,base,toks,fuzzy)
-    for _,phrase in ipairs({"what will happen","what happens now","what happens next","what now"}) do
-        if exactly(toks,phrase,fuzzy) then return "advice",{futureAdvice=true} end
-    end
     local joke=session.emmaKnock
     if joke and joke.stage==1 and session.turns-joke.at<=3 and #base<=4
         and not QWORDS[toks[1]] and not knockCommands[toks[1]]
         and not knockProtected[table.concat(toks," ")] and not M.strongIntent(text) then
         return "knock",{punchline=table.concat(toks," ")}
+    end
+end
+local function topicStart(text,toks,fuzzy)
+    for _,phrase in ipairs({"what will happen","what happens now","what happens next","what now"}) do
+        if exactly(toks,phrase,fuzzy) then return "advice",{futureAdvice=true} end
     end
     local title=guideTitle(text)
     if title then return "guide",{guideId=title.id,page=1} end
@@ -617,6 +619,13 @@ function M.parse(session, text, world, turn, baseParse)
                 guideId=detail.reference and "reference_"..detail.reference or "context_reference"} end
             return "context_reference",detail
         end
+    end
+    -- A specific symptom or container clarification is more precise than a
+    -- general next-step question or a bare guide label. Generic excerpts still
+    -- yield to these independent topics through the strong-intent guard.
+    do
+        local intent,slots=topicStart(text,toks,fuzzy)
+        if intent then return intent,slots end
     end
     if SC.EmmaReference then
         local situation,details=SC.EmmaReference.situation(session,text,world,table.concat(toks," "))

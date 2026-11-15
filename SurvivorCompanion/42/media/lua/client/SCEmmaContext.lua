@@ -394,6 +394,8 @@ local relatedWords={
     bite={"bite","scratch","doomed","turn"},unavailable_radio={"radio","tune","set","frequency","report","outside"},
     firearms={"gun","pistol","ammo","ammunition","bullet","bullets","fits","loud"},
     water={"water","rain","container","bottle","clear","clean","drink","empty","zero","none"},
+    container_choice={"water","fuel","barrel","drum","safe"},
+    filter_choice={"filter","funnel","use"},
     inventory={"inventory","enough","last","us"},time_unknown={"time","date","day","clock"},
     solitude={"alone","prefer","nobody"},quick={"slower","slow"},
 }
@@ -591,6 +593,7 @@ function Q.resolve(session,raw,contextOnly,deferPassage,allowOwnedPassage)
     end
     local passage=livePassage(session)
     local source=passage and not passage.structured and passage.text
+        or c and (c.meaningId or c.kind=="source_answer" or c.kind=="shelter" or c.kind=="pump") and c.text
     local mechanical=source and has(norm(source),"wooden") and has(norm(source),"drawer")
         and any(text,{"sticking","binding","catches"}) and not text:find("^open ") and not text:find("^unlock ")
     if any(text,{"password","manager"}) or has(text,"drawer") and not mechanical then return nil end
@@ -607,6 +610,7 @@ function Q.resolve(session,raw,contextOnly,deferPassage,allowOwnedPassage)
     local conversation=conversational(session,raw,text,c,title)
     if conversation then return conversation end
     local answerSource=passage and not passage.structured and passage.text
+        or c and (c.meaningId or c.kind=="source_answer" or c.kind=="shelter" or c.kind=="pump") and c.text
         or title and c and c.kind=="role" and session.context and session.context.roleSource
     if answerSource then
         local planned=SC.EmmaAnswers.answer(session,raw,answerSource,c)
