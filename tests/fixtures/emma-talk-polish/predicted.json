@@ -578,9 +578,17 @@
           "id": "pred-emma-10-3",
           "input": "Kentucky?",
           "accept": [
-            "lore"
+            "lore",
+            "hook_detail",
+            "explain_state"
           ],
-          "need": "state facts"
+          "need": "state facts",
+          "any": [
+            [
+              "kentucky",
+              "commonwealth"
+            ]
+          ]
         },
         {
           "id": "pred-emma-10-4",
@@ -655,9 +663,19 @@
           "id": "pred-emma-11-1",
           "input": "im the governor",
           "accept": [
-            "role_claim"
+            "role_claim",
+            "session_role"
           ],
-          "need": "play along: the briefing"
+          "need": "play along: the briefing",
+          "any": [
+            [
+              "governor"
+            ],
+            [
+              "briefing",
+              "status"
+            ]
+          ]
         },
         {
           "id": "pred-emma-11-2",

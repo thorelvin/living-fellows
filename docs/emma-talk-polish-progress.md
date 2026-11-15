@@ -238,3 +238,27 @@ All five Windows PowerShell 5.1 release checks pass in
 four-voice playground passes its Lua/privacy checks at
 `C:\ZOMBOID\plan-emma-probe\web\emma-playground-0.27.21-phase-h.html`.
 The user will test later and explicitly asked work to continue. B/C/D remain.
+
+## Phase B checkpoint
+
+Public-reply hooks cover EMMA's language/glitch pools, the dated archive and all
+three persona pools. Their static lint and removal controls pass. Complete
+questions and persona commands keep their own path. Archive facets retain
+honest limits, known geography is checked against the installed game text,
+and bare lore continuation advances through the existing related-file reader.
+Session role claims use each voice and cannot supply access credentials.
+Private names, notes, care and roles do not enter public hook/miss receipts.
+
+Weather quips now use truthful sky/season/temperature/daylight conditions;
+cloud cover has a native reader and missing data cannot imply clear skies.
+Unverified heat, sound and track claims are retired. Removing the real filter
+produces invalid selections in its negative control. See
+`docs/validation/emma-hooks-02721.md` for scope and evidence.
+
+The release gate passes all five checks in
+`build/test-results/20261115-053555-daec88` (447.6 seconds). Focused hook checks:
+4,131 over 2,783 authored entries. Public scores: real 48/72, variants 179/288,
+EMMA predictions 82/188, personas 19/41, chains 5/7, locks 74/74. All 407 passing
+rows are retained as the new cumulative floor. The final target gates still
+belong to C/D. The rebuilt Phase B playground passes four-voice/privacy checks;
+the user's deferred playground test remains deferred. C/D remain unfinished.

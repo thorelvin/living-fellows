@@ -12,6 +12,7 @@ require "SCEmmaSurvival"
 require "SCEmmaFollowups"
 require "SCEmmaReadings"
 require "SCEmmaConversation"
+require "SCEmmaHooks"
 local Brain = SC.TerminalBrain
 local D = SC.EmmaLanguageData
 SC.EmmaUnderstand = SC.EmmaUnderstand or {}
@@ -538,8 +539,16 @@ function M.parse(session, text, world, turn, baseParse)
         end
     end
     if worth then return worth,{} end
+    if SC.EmmaHooks then
+        local own,slots=SC.EmmaHooks.resolve(session,text)
+        if own then return own,slots end
+    end
     local ownFollow,ownSlots=Follow.own(session,toks)
     if ownFollow then return ownFollow,ownSlots end
+    if SC.EmmaHooks then
+        local direct,details=SC.EmmaHooks.direct(session,text)
+        if direct then return direct,details end
+    end
     if Follow.spreadQuestion(toks) then return "guide",{guideId="survival_bite",page=1} end
     if literal:find("^go back") or literal:find("^back to") then return baseParse(session,text,world,turn) end
     if phraseIn(toks,"scan radio channels",fuzzy) then return "guide",{guideId="scanner",page=1} end
@@ -734,6 +743,7 @@ function M.install()
     M.installed=true
     SC.EmmaSurvival.install()
     SC.EmmaReadings.install()
+    if SC.EmmaHooks then SC.EmmaHooks.register() end
     Brain.registerHandler("followup_clarify",SC.EmmaFollowups.clarify)
     Brain.registerHandler("her_last_operator",function(session,reply)
         reply.category="chat"

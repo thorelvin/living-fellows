@@ -5845,14 +5845,19 @@ SC_EMMA_CORPUS = {
         ["jobs"] = {["person"]=true},
         ["joke"] = {["chat_goodnews"]=true},
         ["laugh"] = {["smile"]=true},
+        -- Phase B: dated explanation facets retain the lore subject.
+        ["lore"] = {["lore_facet"]=true},
         ["math"] = {["math"]=true},
         ["me_infected"] = {["cure"]=true},
         ["me_status"] = {["me_need"]=true},
         ["memories"] = {["lore"]=true},
         ["nearest"] = {["lore"]=true},
         ["news_bitten"] = {["me_infected"]=true},
-        ["news_hurt"] = {["me_need"]=true, ["me_status"]=true},
-        ["news_plain"] = {["expedition"]=true, ["weather"]=true, ["weather_talk"]=true},
+        -- Phase B: practical condition help replaces generic personal-news chat;
+        -- an explicit occupation/title is a session claim. Content is checked
+        -- in emma_hooks_harness, without changing any care equivalence.
+        ["news_hurt"] = {["me_need"]=true, ["me_status"]=true, ["guide"]=true},
+        ["news_plain"] = {["expedition"]=true, ["weather"]=true, ["weather_talk"]=true, ["session_role"]=true},
         ["panic"] = {["zombies"]=true},
         ["play"] = {["game"]=true},
         ["power_off"] = {["grid_control"]=true},

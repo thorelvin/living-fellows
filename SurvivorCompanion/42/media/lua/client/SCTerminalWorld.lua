@@ -315,6 +315,8 @@ function World.new(player, object)
             rain = tonumber(call(climate, "getPrecipitationIntensity")) or 0,
             snow = call(climate, "isSnowing") == true,
             fog = tonumber(call(climate, "getFogIntensity")) or 0,
+            -- Build 42: media/lua/shared/Foraging/forageSystem.lua also uses it.
+            cloud = tonumber(call(climate, "getCloudIntensity")),
             wind = tonumber(call(climate, "getWindIntensity")) or 0,
         }
     end

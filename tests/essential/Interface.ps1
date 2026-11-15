@@ -70,7 +70,7 @@ foreach ($module in @(
     'SCTerminalLines', 'SCTerminalKnowledge', 'SCTerminalConversation', 'SCTerminalBrain',
     'SCEmmaLanguageData', 'SCEmmaWords', 'SCEmmaSurvivalData', 'SCEmmaSurvival',
     'SCEmmaFollowups', 'SCEmmaMindData', 'SCEmmaMind', 'SCEmmaReadingsData', 'SCEmmaBody',
-    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaConversation', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
+    'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaConversation', 'SCEmmaHooks', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
     'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',
     'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil', 'SCEmmaJump',
     'SCTerminalPersona', 'SCTerminalPersonaSpiffy', 'SCTerminalPersonaEllis', 'SCTerminalPersonaDuty',
@@ -105,7 +105,8 @@ foreach ($module in @(
     (Join-Path $UI 'SCEmmaTalkPolishBaseline.lua'),
     (Join-Path $Gameplay 'emma_talk_polish_harness.lua'),
     (Join-Path $Gameplay 'lock_talk_polish_harness.lua'),
-    (Join-Path $Gameplay 'emma_talk_questions_harness.lua')
+    (Join-Path $Gameplay 'emma_talk_questions_harness.lua'),
+    (Join-Path $Gameplay 'emma_hooks_harness.lua')
 ) }
 
 # These six harnesses specify the base parser/archive API, predating EMMA's

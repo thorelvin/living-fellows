@@ -210,7 +210,7 @@ check(ask(session(),"who is here").intent=="people_list","the roster question st
 check(ask(session(),"how are people doing").intent~="people_die","how people are doing is not a death question")
 for _,raw in ipairs({"Im the new governor","im the governor","I am head of state","i am in charge now"}) do
     local result=ask(session(),raw)
-    check(result.intent=="role_claim" and not has(result,"work through"),"a claimed title gets banter, not therapy: "..raw)
+    check((result.intent=="role_claim" or result.intent=="session_role") and not has(result,"work through"),"a claimed title gets banter, not therapy: "..raw)
 end
 for _,raw in ipairs({"Who did you talk to before me?","who used you before","who wrote her previously"}) do
     check(ask(session(),raw).intent=="her_last_operator","previous operator, asked another way: "..raw)

@@ -640,7 +640,9 @@ local function finish(ctx, raw)
             for index = #rows, 1, -1 do table.insert(reply.rows, 1, rows[index]) end
         end
     end
-    return P.package(D, reply, ctx.depth)
+    local packaged=P.package(D, reply, ctx.depth)
+    if SC.EmmaHooks then SC.EmmaHooks.recordPersona(session,packaged,D.id) end
+    return packaged
 end
 
 -- `~` opens a slow row: the typewriter crawls, which is how a pause is written.
@@ -717,6 +719,19 @@ function P.respond(state, session, raw, facts)
         ctx.depth = 0
         fire(ctx, serious)
         return P.package(D, reply, ctx.depth)
+    end
+    if SC.EmmaHooks then
+        local role,label=SC.EmmaHooks.role(ctx.norm)
+        local detail=not role and SC.EmmaHooks.persona(session,state.id,text)
+        if role or detail then
+            state.met=true
+            if role then session.role=label end
+            local packaged=P.package(D,{rows=role and SC.EmmaHooks.roleReply(label,state.id) or {detail},
+                effects={},layer=role and "role" or "hook"},ctx.depth)
+            if role then packaged.private=true end
+            SC.EmmaHooks.recordPersona(session,packaged,state.id)
+            return packaged
+        end
     end
     -- Leaving and ending the machine always work, even in the middle of a question.
     local interrupt = best(ctx, function(rule) return rule.interrupt end)

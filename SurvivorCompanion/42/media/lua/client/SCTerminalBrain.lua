@@ -1341,7 +1341,8 @@ function H.weather(session, reply, turn, world)
     if not fahrenheit then return addPool(session, reply, "unavailable") end
     addTemplate(reply, "weather", { tempF = fahrenheit, tempC = celsius, sky = skyText(weather) })
     if (tonumber(weather.rain) or 0) >= 0.15 or roll(session, 3) == 1 then
-        addPool(session, reply, "weather_talk")
+        if SC.EmmaHooks then add(reply,SC.EmmaHooks.weatherLine(session,weather,ask(turn,world,"clock")))
+        else addPool(session, reply, "weather_talk") end
     end
 end
 
@@ -2407,6 +2408,13 @@ function Brain.respond(session,raw,world)
     if SC.EmmaUnderstand then reply=SC.EmmaUnderstand.respond(session,raw,world,Brain.respondBase)
     elseif SC.EmmaCare then reply=SC.EmmaCare.respond(session,raw,nil,false) end
     reply=reply or Brain.respondBase(session,raw,world)
+    if SC.EmmaHooks then
+        if (reply.intent=="hello" or reply.intent=="whoami") and session.context.role and not reply.sensitive then
+            table.insert(reply.lines,1,session.context.role..".")
+            reply.private=true
+        end
+        SC.EmmaHooks.record(session,reply)
+    end
     if SC.EmmaMissed then SC.EmmaMissed.record(session,raw,reply,world) end
     return reply
 end
