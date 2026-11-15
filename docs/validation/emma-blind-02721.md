@@ -198,8 +198,11 @@ SPIFFY 8/25, Ellis 8/25, Duty 9/25; rare mean 25/75 and weighted 49/240
 native replay captures all 130 actual replies, reproduces all first outcomes,
 and matches the internal review transcript, including the one synthetic
 private role reply's normalized checksum. The production manifest is unchanged.
-The independent content verdict is pending. Root inspected sample needs after
-the automatic result was recorded while that review was running; no tuning
+The independent content verdict also fails: EMMA 8/55 and each rare voice
+4/25; rare mean 12/75, weighted 36/240 (15%), and 20/130 useful actual replies.
+All 130 verdict IDs are present, with no duplicates, and the review's input
+hash matches the captured transcript. Root inspected sample needs after the
+automatic result was recorded while that review was running; no tuning
 followed the inspection. The frozen candidate remains the review subject.
 
 The sampled failures include ordinary meanings absent from the last reply:
@@ -216,6 +219,9 @@ All five existing Windows PowerShell 5.1 checks passed in
 including opened H1–H5 and the added procedure, negated-date, question-marker
 and literal-exit controls. This run precedes H6's first evaluation and wiring.
 The new required blind gate fails as recorded above; phase D is unfinished.
+The follow-up Interface run, `build/test-results/20261115-131330-21187d`,
+fails at H6 as intended (128.0 seconds). No production changes followed the
+frozen candidate. Work is paused at the user's request for a critical bug.
 The final four-voice playground embeds 39 real Lua blocks and passes its Lua,
 privacy and JavaScript syntax checks. The user's manual session is deferred.
 

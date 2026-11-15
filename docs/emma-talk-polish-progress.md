@@ -310,9 +310,16 @@ ten ordinary observation checks in a cloned test save.
 The final untouched H6 set, written by a new section-1-only author, fails its
 first native automatic gate: EMMA 8/55, rare mean 25/75, weighted 49/240,
 with zero false care detections or unlocks. Its 130 actual replies reproduce
-in the native capture; the independent content review is pending. No H6
-tuning has occurred. Ordinary word meanings and some practical continuations
+in the native capture. Independent content review also fails: EMMA 8/55,
+each rare voice 4/25, weighted 36/240 (15%), with all 130 verdicts present.
+No H6 tuning has occurred. Ordinary word meanings and some practical continuations
 remain incomplete. H6 is now part of Interface, so a new release check must
 report this failure. See `docs/validation/emma-blind-02721.md` for all first
 results, frozen-candidate hashes and the distinction from development replays.
 Phase D and the overall plan are not complete; no release is declared.
+
+The user paused this work on 2026-11-15 to prioritize a critical bug. Code and
+the failing H6 gate are checkpointed in `e589b191`; the subsequent Interface
+run `build/test-results/20261115-131330-21187d` confirms the required failure.
+See `docs/emma-talk-polish-02721-handoff.md` for the exact resume steps and
+local artifacts. The manual playground session remains deferred.
