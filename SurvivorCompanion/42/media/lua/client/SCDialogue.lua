@@ -4784,7 +4784,7 @@ function Dialogue.say(actor, topic, specification, arguments, options)
     if speakerAsleep(actor) then return false, "speaker_asleep" end
     local line, detail = Dialogue.choose(actor, topic, specification, arguments, options)
     if not line then return false, detail end
-    local spoken, result, receipt = Dialogue.emitResolved(actor, topic, line)
+    local spoken, result, receipt = Dialogue.emitResolved(actor, topic, line, options)
     if spoken and type(detail) == "table" then
         detail.channel = receipt.channel
         detail.displayUntil = receipt.displayUntil

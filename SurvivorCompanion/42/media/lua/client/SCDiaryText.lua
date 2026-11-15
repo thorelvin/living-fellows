@@ -197,6 +197,32 @@ function Text.validateCatalog(catalog, voices)
     return true
 end
 
+-- Spoken packets use the same evidence gates and literal token renderer as
+-- diary entries. Selection stays with Dialogue so speech shares its variety
+-- memory. The returned receipt describes only the validated candidates.
+function Text.spokenCandidates(context, catalog)
+    if type(context) ~= "table" or type(context.evidence) ~= "table"
+        or type(context.tokens) ~= "table" then return {}, {} end
+    local lines, receipts = {}, {}
+    for _, packet in ipairs(catalog or {}) do
+        if requirementsPass(packet.requires, packet.forbids, context.evidence) then
+            for _, variant in ipairs(packet.variants or {}) do
+                if requirementsPass(variant.requires, variant.forbids, context.evidence) then
+                    local line = render(variant.text, context.tokens, 320)
+                    local clean = render(variant.clean or variant.text, context.tokens, 320)
+                    if line and clean then
+                        lines[#lines + 1] = { line, clean = clean }
+                        receipts[line] = { packetId = packet.id, variantId = variant.id,
+                            asserts = packet.asserts, requires = packet.requires }
+                        receipts[clean] = receipts[line]
+                    end
+                end
+            end
+        end
+    end
+    return lines, receipts
+end
+
 -- Returns a draft or nil plus a reason. Generation never commits anything: the
 -- caller records history and anchors only after a supervised writing action
 -- and a verified append to the exact physical book.

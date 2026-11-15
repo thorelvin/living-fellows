@@ -26,9 +26,9 @@ Release packaging and playground rebuilding remain required deliverables.
 | Phase A verification | Improved baseline scores with no lost passing row, care 100%, Windows PowerShell 5.1 full gate, rebuilt playground | Full release gate and headless checks pass; browser visual check/user session pending |
 | V7 baseline | Real Kahlua 60-day simulator, separate game/real clocks, metrics and sample-week transcript before new speech | Done; historical pre-V1 replay and current facts-only replay match exactly |
 | V1 ledger | Flat facts and witnesses, observed event producers, 96 history/24 landmarks, small memory references, old-save and malformed-field restore | Done; 36 ledger checks and full release gate pass |
-| V3 scenes | 3-6 tagged beats, 2-3 speakers, personality/relation branches, one party scene, shared budget, immediate cancellation, two-clock scheduling | Pending |
-| V5 relationships | Reason-matched arguments, bounded grudges, reconciliation, modest companion comfort | Pending |
-| V4 aftermath | One deferred group reaction per death, close call, homecoming or fought-off alarm; affected speaker first | Pending |
+| V3 scenes | 3-6 tagged beats, 2-3 speakers, personality/relation branches, one party scene, shared budget, immediate cancellation, two-clock scheduling | Done; focused gates and full release checks pass |
+| V5 relationships | Reason-matched arguments, bounded grudges, reconciliation, modest companion comfort | Done; focused gates and full release checks pass |
+| V4 aftermath | One deferred group reaction per death, close call, homecoming or fought-off alarm; affected speaker first | Implemented; 26/26 simulated events receive one group reaction |
 | V2 recall | Evidence packets and named tokens, real places/relative dates, knowledge and told-by discipline, place/anniversary/similarity/Memory/camp triggers | Pending |
 | V6 variety | Persisted bounded hashes/counts, least-heard selection, half-pool/up-to-eight window, age/tier layers, additional background stories | Pending |
 | Voice content | Approximately 700-800 new lines plus clean twins; scene/recall/aftermath/argument depth and immersion lint | Pending |
@@ -133,3 +133,45 @@ All five Windows PowerShell 5.1 release checks pass:
 passes in `build/voice-soak/20261115-023417-e69405`. Phase E adds no authored
 companion speech. F/G still owe the scene, recall, repeat, aftermath and tone
 targets; zero tagged-tone errors in legacy untagged speech proves none of them.
+
+## Phase F checkpoint
+
+The generalized scene occupies the existing `party.exchange` slot. Authored
+turns accept explicit reply tags; B branches by personality and pair tension.
+The engine supports three to six beats and two or three speakers. Default camp
+cards have four beats. Starts use two game hours and a three-minute active wall
+clock floor, both scaled by the existing chatter option. Paused time earns no
+cooldown credit. Scenes spend the existing party budget and exclude work and
+guard orders. Existing idle face poses are the only optional movement.
+
+The focused harness passes 2,687 checks, including catalog/clean-twin
+lint, three/six-beat boundaries, wrong-tag and missing-knowledge controls,
+danger/order/urgent-speech cancellation, paused-time scheduling, bounded saved
+grudges, early reconciliation after shared escape, modest comfort and four
+aftermath families. New danger restarts the thirty-second calm interval.
+All 581 authored lines have clean twins. No new zombie navigation is involved.
+
+Argument requests use actual pair memories. A generic worked-together memory
+cannot become a bad run. Bite, flight, food and door accusations additionally
+require a ledger row known to both people, identifying the accused as the
+source; food must explicitly belong to the shared reserve. These reason
+adapters do not infer a concealed bite from private infection state or create
+new theft/door/fleeing simulations. The existing run producer supplies the
+currently observed run reason. Shoves remain rare, nearby, healthy-companion
+outcomes of the existing autonomy action, after speech finishes.
+
+The 60-day development run records 723 completed scenes (all four beats),
+26/26 event reactions, no unsupported recall receipts and no reply-tag errors.
+Exact repeats and the final recall share still fail their eventual G gates;
+this phase does not claim those targets. Evidence:
+`build/voice-soak/20261115-031039-3fc7c2`. The simulator's alarm outcome was
+corrected to the actual producer's `all_clear`; the frozen pre-V1 baseline
+remains unchanged. Lifecycle and Interface checks pass in
+`build/test-results/20261115-030334-96cc74`.
+
+All five Windows PowerShell 5.1 release checks pass in
+`build/test-results/20261115-031039-a49bbe` (336.4 seconds). The focused scene
+receipt is `build/voice-soak/20261115-031008-700acb`. Phase F's four-voice
+playground was rebuilt and passes all four Lua/privacy checks at
+`C:\ZOMBOID\plan-emma-probe\web\emma-playground-0.27.21-phase-f.html`.
+The user will test the playground later; work on G continues meanwhile.

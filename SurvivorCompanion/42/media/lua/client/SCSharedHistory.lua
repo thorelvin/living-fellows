@@ -7,7 +7,7 @@ H.HISTORY_LIMIT,H.LANDMARK_LIMIT,H.TOLD_LIMIT=96,24,24
 local textFields={place=80,sourceName=80,targetName=80,subjectName=80,participantNames=160,
     witnessNames=160,weapon=80,item=80,outcome=120,heardFrom=80,placeKey=100}
 local numberFields={day={0,1000000},hour={0,24},count={0,10000000},kills={0,10000000},wounds={0,1000}}
-local booleanFields={"wasGrabbed","wasDowned","factsQuarantined","communityRecorded"}
+local booleanFields={"wasGrabbed","wasDowned","factsQuarantined","communityRecorded","aftermathDone"}
 local landmarks={companion_died=true,companion_death=true,first_meeting=true,rescued_player=true,
     player_rescued=true,player_close_call=true,first_camp_night=true}
 local function finite(value,minimum,maximum)

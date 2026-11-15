@@ -1823,9 +1823,15 @@ local function releaseExchangePositions(exchange, reason)
     end
 end
 
+local sceneHost
 local function exchangePulse(records, current)
     local exchange = party.exchange
     if type(exchange) ~= "table" then return false, "no_exchange", false end
+    if exchange.generalized and SC.Scenes then
+        local spoken, reason, busy = SC.Scenes.advance(exchange, records, current, sceneHost())
+        if not busy then party.exchange = nil end
+        return spoken, reason, busy
+    end
     if current >= (exchange.expiresAt or 0) then
         releaseExchangePositions(exchange, "conversation_timed_out")
         party.exchange = nil
@@ -2055,6 +2061,7 @@ end
 local function availableForQuietTalk(record, player, current, radius)
     local commands = available(record, player, current, radius, true)
     if not commands then return nil end
+    if commands.order == "guard" or commands.order == "work" then return nil end
     if SC.Positioning and type(SC.Positioning.activeConversation) == "function"
         and SC.Positioning.activeConversation(record.actor) ~= nil then return nil end
     local supervisor = SC.ActionSupervisor
@@ -2065,7 +2072,36 @@ local function availableForQuietTalk(record, player, current, radius)
     return commands, token == nil
 end
 
+sceneHost = function()
+    return { quiet = availableForQuietTalk, ready = exchangeParticipantReady,
+        calm = function(record) return calm(recordSnapshot(record)) end,
+        record = recordForActor, unchanged = speechUnchanged,
+        atCamp = atCamp, release = releaseExchangePositions,
+        budget = function(current) return Banter.incidentalBudgetAllows(current) end,
+        spend = function(current) party.lastFlavorAt = current end,
+        face = function(first, second, sceneId)
+            return faceConversation(first, second, "scene", "yes", "yes", sceneId)
+        end,
+        say = function(actor, topic, specification, options)
+            options.specification = specification
+            return speak(actor, topic, commandState(actor), nil, options)
+        end }
+end
+
+local function sceneStartPulse(player, records, current, priorityOnly)
+    if party.exchange then return false, "scene_busy", true end
+    local scene, reason, waiting = SC.Scenes.tryStart(player, records, current, sceneHost(), priorityOnly)
+    if scene then
+        party.exchange = scene
+        party.lastCampConversationAt = current
+        for _, role in ipairs(scene.roles) do actorState(role.actor).lastCampTalkAt = current end
+        return true, reason, true
+    end
+    return false, reason, waiting
+end
+
 local function campConversationPulse(player, records, current)
+    if SC.Scenes then return sceneStartPulse(player, records, current, false) end
     if current - party.lastCampConversationAt
         < chatterGap("campConversationPartyCooldownMs", 60000) then
         return false, "camp_conversation_cooldown"
@@ -3065,24 +3101,34 @@ function Banter.update(player, records, current)
     if not enabled() then return false, "banter_disabled" end
     if player == nil or U().isDead(player) then return false, "banter_no_player" end
     current = tonumber(current) or U().nowMs()
+    if SC.Scenes and not SC.Scenes.tick(current) then return false, "banter_paused" end
     if type(records) ~= "table" then
         records = SC.Registry and type(SC.Registry.records) == "function"
             and SC.Registry.records() or {}
     end
-    if SC.NicknameLife and type(SC.NicknameLife.pulse) == "function" then
+    local exchanged, exchangeReason, exchangeBusy = exchangePulse(records, current)
+    if exchanged or exchangeBusy then return exchanged, exchangeReason end
+    if SC.Scenes then
+        local spoken, reason, waiting = sceneStartPulse(player, records, current, true)
+        if spoken or waiting then return spoken, reason end
+    end
+    local grieving = SC.Scenes and SC.Scenes.griefAge() < 3
+    if not grieving and SC.NicknameLife and type(SC.NicknameLife.pulse) == "function" then
         local spoken, reason = SC.NicknameLife.pulse(current)
         if spoken then return true, reason end
     end
-    local exchanged, exchangeReason, exchangeBusy = exchangePulse(records, current)
-    if exchanged or exchangeBusy then return exchanged, exchangeReason end
     local greeted, greetingReason = greetingPulse(player, records, current)
     if greeted then return true, greetingReason end
     local interiorSpoken, interiorReason = interiorPartyPulse(player, records, current)
     if interiorSpoken then return true, interiorReason end
     local idle, inVehicle = trackIdle(player, current)
-    if SC.Tales and type(SC.Tales.update) == "function" then
+    if not grieving and SC.Tales and type(SC.Tales.update) == "function" then
         local ok, telling, taleReason = pcall(SC.Tales.update, player, records, current)
         if ok and telling then return true, taleReason end
+    end
+    if grieving then
+        local spoken, reason = campConversationPulse(player, records, current)
+        return spoken, reason or "grief_quiet"
     end
     local placed, placeReason = placePulse(player, records, current)
     if placed then return true, placeReason end
@@ -3106,6 +3152,7 @@ function Banter.reset(actor)
     end
     party = freshParty()
     actors = setmetatable({}, { __mode = "k" })
+    if SC.Scenes then SC.Scenes.reset() end
     return true
 end
 
@@ -3126,6 +3173,9 @@ end
 function Banter._partyForTests()
     return party
 end
+
+function Banter._sceneStartForTests(...) return sceneStartPulse(...) end
+function Banter._sceneHostForTests() return sceneHost() end
 
 function Banter._intrusiveForTests(actor, commands, records, current, kind)
     return intrusivePulse(actor, commands, records, current, kind)

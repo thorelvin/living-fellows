@@ -715,6 +715,37 @@ function Community.historyRows()
     return rows
 end
 
+-- A completed group reaction is part of its bounded event row, including a
+-- retained landmark. Duplicate death producers refer to the same loss.
+function Community.completeAftermath(row)
+    if type(row) ~= "table" or type(row.id) ~= "string" then return false end
+    local death = row.kind == "companion_died" or row.kind == "companion_death"
+    for _, list in ipairs({ ensure().history, ensure().landmarks or {} }) do
+        for _, other in ipairs(list) do
+            if other.id == row.id or (death and (other.kind == "companion_died"
+                or other.kind == "companion_death")
+                and (other.targetId or other.sourceId) == (row.targetId or row.sourceId)) then
+                other.aftermathDone = true
+            end
+        end
+    end
+    return true
+end
+
+function Community.setGrudge(first, second, reason, eventId, untilAt)
+    local pair = Community.relation(first, second, true)
+    local reasons = { last_run=true, hidden_bite=true, fled_fight=true, food_eaten=true, door_open=true }
+    if not pair or not reasons[reason] then return false end
+    pair.grudge = { reason = clean(reason, "", 24), eventId = clean(eventId, "", 100),
+        startedAt = now(), untilAt = math.min(now() + hours(72), math.max(now(), finite(untilAt, now()))) }
+    return true
+end
+
+function Community.clearGrudge(first, second)
+    local pair = Community.relation(first, second, false)
+    if pair then pair.grudge = nil end
+end
+
 local function fulfillSupplyExpectation(id, eventTime)
     local mind = Community.mindFor(id)
     if not mind then return end
@@ -1103,6 +1134,16 @@ local function normalize(source)
             pair.tension = clamp(pair.tension, 0, 100)
             pair.familiarity = clamp(pair.familiarity, 0, 100)
             pair.memories = type(pair.memories) == "table" and pair.memories or {}
+            local grudge = pair.grudge
+            if type(grudge) == "table" and type(grudge.reason) == "string"
+                and type(grudge.eventId) == "string" and tonumber(grudge.startedAt)
+                and tonumber(grudge.untilAt) then
+                pair.grudge = { reason = clean(grudge.reason, "", 24),
+                    eventId = clean(grudge.eventId, "", 100),
+                    startedAt = math.max(0, finite(grudge.startedAt, 0)),
+                    untilAt = math.max(0, math.min(finite(grudge.untilAt, 0),
+                        finite(grudge.startedAt, 0) + hours(72))) }
+            else pair.grudge = nil end
         end
     end
     local deathRows = {}
@@ -1330,6 +1371,16 @@ local function validatePair(pair, key, path)
         if type(pair.memories[index]) ~= "table" then
             return restoreFailure(path .. ".memories[" .. tostring(index) .. "]",
                 "expected record")
+        end
+    end
+    if pair.grudge ~= nil then
+        local g=pair.grudge
+        local reasons={last_run=true,hidden_bite=true,fled_fight=true,food_eaten=true,door_open=true}
+        if type(g)~="table" or not reasons[g.reason] or type(g.eventId)~="string"
+            or #g.eventId>100 or not finiteNumber(g.startedAt) or g.startedAt<0
+            or not finiteNumber(g.untilAt) or g.untilAt<g.startedAt
+            or g.untilAt>g.startedAt+hours(72) then
+            return restoreFailure(path..".grudge", "invalid bounded grudge")
         end
     end
     return true

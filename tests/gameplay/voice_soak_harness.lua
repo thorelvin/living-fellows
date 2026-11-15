@@ -108,6 +108,8 @@ local function observed(kind,day)
         fields.participants={fallen.id}
         fields.witnesses={"sc-soak-1","sc-soak-2","sc-soak-3"}
         fields.outcome="died" fields.count=nil fields.kills=nil fields.weapon=nil
+    elseif kind=="alarm_fought_off" then
+        fields.outcome="all_clear"
     end
     local row=SC.LifeEvents.emit(kind,fields)
     eventRows[#eventRows+1]=row

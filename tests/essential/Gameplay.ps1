@@ -71,6 +71,8 @@ function Get-ScGameplayFiles {
         'SCTales.lua',
         'SCIntrusiveLines.lua',
         'SCBanter.lua',
+        'SCSceneLines.lua',
+        'SCScenes.lua',
         'SCWorkVoiceLines.lua',
         'SCGestures.lua',
         'SCObjectives.lua',

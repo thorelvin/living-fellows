@@ -16,6 +16,10 @@
 - Community history retains witnessed event details and permanent landmarks,
   with small event references in companion memories. Optional malformed facts
   are quarantined, and the actual 0.27.18 community serialization still loads.
+- Camp conversations use tagged scenes with personality-based replies,
+  two-clock scheduling and immediate interruption. Major events receive one
+  deferred group reaction. Arguments name their shared reason, can leave a
+  bounded grudge, and lead to reconciliation; companion comfort is modest.
 - Project Zomboid 42.22.2; bridge protocol `42.22-isocompanion-31` and save
   schemas are unchanged. Zombie navigation remains native.
 

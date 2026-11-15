@@ -170,7 +170,8 @@ local function closestCompanion(actor, maximumDistance, requireMemory)
             local distance = U().distance(actor, other)
             local relation = SC.Community.relation(id, U().idOf(other), false)
             local memory = SC.Community.latestSharedMemory(id, U().idOf(other))
-            if distance <= maximumDistance and (not requireMemory or memory ~= nil) then
+            local reason = requireMemory and SC.Scenes and SC.Scenes.argumentReason(actor, other)
+            if distance <= maximumDistance and (not requireMemory or reason ~= nil) then
                 local score = finite(relation and relation.tension, 0) * 2 - distance
                 if bestScore == nil or score > bestScore then
                     best, bestScore = other, score
@@ -542,6 +543,7 @@ end
 
 finishEpisode = function(actor, runtime, reason, kind, completed)
     local episode = runtime.episode
+    if episode and episode.sceneTicket and SC.Scenes then SC.Scenes.cancel(episode.sceneTicket) end
     local released, releaseReason = cancelVisual(actor, episode)
     if released ~= true then return false, releaseReason or "episode_release_pending" end
     local id = U().idOf(actor)
@@ -814,37 +816,21 @@ local function updateArgument(actor, runtime, episode, snapshot)
         return finishEpisode(actor, runtime, "argument_safety_interrupt", episode.kind, false)
     end
     if episode.stage == "begin" or episode.stage == "approach" then
-        local preferred = U().config("conversationPreferredDistance") or 1.65
-        if U().distance(actor, target) > preferred + 0.6 then
-            episode.stage = "approach"
-            if SC.Navigation and type(SC.Navigation.request) == "function" then
-                local accepted, reason = SC.Navigation.request(actor, U().squareOf(target), "walk", {
-                    action = "approach_interaction", reason = "address_shared_memory",
-                    targetSquare = U().squareOf(target),
-                })
-                return accepted == true, reason or "approaching_argument"
-            end
+        local ticket, why = SC.Scenes and SC.Scenes.requestArgument(actor, target)
+        if not ticket then return finishEpisode(actor, runtime, why or "no_shared_argument_reason", episode.kind, false) end
+        episode.sceneTicket, episode.stage = ticket, "scene"
+        return true, "argument_waiting_scene"
+    elseif episode.stage == "scene" then
+        local ticket = episode.sceneTicket
+        if not ticket or ticket.status == "cancelled" then
+            return finishEpisode(actor, runtime, "argument_scene_interrupted", episode.kind, false)
         end
-        moveActor(actor, "walk", { action = "face_conversation", target = target })
-        U().move(target, "walk", { action = "face_conversation", target = actor })
-        sayDialogue(actor, "stress.argument.open", nil,
-            "We need to talk about the last run. You took a risk with all of us.")
-        episode.stage, episode.nextAt = "reply", U().nowMs() + 2600
-        return true, "argument_opened"
-    elseif episode.stage == "reply" then
-        if U().nowMs() < episode.nextAt then return true, "argument_waiting_reply" end
-        sayDialogue(target, "stress.argument.reply", nil,
-            "We made the best call we had. Shouting will not change it.")
-        local relation = SC.Community.relation(U().idOf(actor), U().idOf(target), true)
-        local profile = commandState(actor).personalityProfile or {}
-        local escalate = finite(relation.tension, 0) >= 75 and finite(profile.compassion, 50) < 70
-        episode.stage = escalate and "shove" or "resolve"
-        episode.nextAt = U().nowMs() + 2200
-        emit("argument", {
-            sourceId = U().idOf(actor), targetId = U().idOf(target),
-            participants = { U().idOf(actor), U().idOf(target) },
-        })
-        return true, escalate and "argument_escalating" or "argument_resolving"
+        if ticket.status ~= "finished" then return true, "argument_scene_active" end
+        if ticket.outcome == "shove" then
+            episode.stage, episode.nextAt = "shove", U().nowMs() + 2200
+            return true, "argument_escalating"
+        end
+        return finishEpisode(actor, runtime, "argument_" .. tostring(ticket.outcome), episode.kind)
     elseif episode.stage == "shove" then
         if U().nowMs() < episode.nextAt then return true, "argument_escalating" end
         local accepted = moveActor(actor, "walk", { action = "shove", target = target,
