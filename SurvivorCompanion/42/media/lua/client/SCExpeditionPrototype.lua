@@ -6430,6 +6430,22 @@ function Expedition.finishAtPlayer(player)
         Events.OnDeviceText.Remove(radioTextReceived)
     end
     mission.terminal = "returned"
+    if homecomingSpeaker and SC.LifeEvents and SC.LifeEvents.observed then
+        local ids,names={},{}
+        for _,member in ipairs(mission.roster) do
+            if #ids<16 then ids[#ids+1]=member.id names[#names+1]=member.name or member.id end
+        end
+        local receipt=mission.integration
+        local broughtBack
+        if receipt and type(receipt.items)=="table" then
+            broughtBack=0
+            for _,item in ipairs(receipt.items) do if item.returned==true or item.stored==true then broughtBack=broughtBack+1 end end
+        end
+        SC.LifeEvents.observed("expedition_homecoming",homecomingSpeaker,{
+            participants=ids,participantNames=table.concat(names,", "),
+            count=broughtBack,
+            outcome=intactRoster and "crew_returned" or "returned_with_losses"})
+    end
     if not (mission.scout and mission.scout.kind == "home")
         and intactRoster and homecomingSpeaker ~= nil
         and SC.Dialogue and type(SC.Dialogue.say) == "function" then

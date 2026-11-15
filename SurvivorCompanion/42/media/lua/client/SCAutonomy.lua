@@ -130,6 +130,9 @@ local function emit(kind, fields)
             end
             if count > 64 and oldestKey then recentEvents[oldestKey] = nil end
         end
+        if SC.LifeEvents.observed then
+            return SC.LifeEvents.observed(kind,type(fields)=="table" and U().resolveActor(fields.sourceId),fields)
+        end
         return SC.LifeEvents.emit(kind, fields)
     end
 end

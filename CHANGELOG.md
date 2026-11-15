@@ -13,6 +13,9 @@
 - Rare computers guard name capture and compare repeated rules by meaning.
   The seven older computer harnesses and the public talk/lock baselines run
   in Interface. The rebuilt playground offers all four voices.
+- Community history retains witnessed event details and permanent landmarks,
+  with small event references in companion memories. Optional malformed facts
+  are quarantined, and the actual 0.27.18 community serialization still loads.
 - Project Zomboid 42.22.2; bridge protocol `42.22-isocompanion-31` and save
   schemas are unchanged. Zombie navigation remains native.
 

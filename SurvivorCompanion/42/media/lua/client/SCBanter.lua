@@ -1762,6 +1762,16 @@ local function beginExchange(first, second, openTopic, replyTopic,
             beatDelay + 5000), kind = kind,
     }
     party.lastFlavorAt = current
+    if kind=="meeting" and SC.LifeEvents and SC.LifeEvents.observed then
+        local firstId,secondId=U().idOf(first),U().idOf(second)
+        local known=false
+        for _,row in ipairs(SC.Community and SC.Community.historyRows and SC.Community.historyRows() or {}) do
+            if row.kind=="first_meeting" and (row.sourceId==firstId and row.targetId==secondId
+                or row.sourceId==secondId and row.targetId==firstId) then known=true break end
+        end
+        if not known then SC.LifeEvents.observed("first_meeting",first,{
+            participants={firstId,secondId},targetId=secondId,targetName=U().nameOf(second),outcome="introduced"}) end
+    end
     return true, openTopic
 end
 

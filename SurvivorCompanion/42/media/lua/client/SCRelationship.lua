@@ -260,6 +260,7 @@ local function recordEvent(state, kind, changes)
     if type(changes.objectiveKind) == "string" then memory.objectiveKind = changes.objectiveKind end
     if type(changes.subjectId) == "string" then memory.subjectId = changes.subjectId end
     if type(changes.subjectName) == "string" then memory.subjectName = changes.subjectName end
+    if type(changes.eventId)=="string" then memory.eventId=changes.eventId:sub(1,100) end
     if changes.witnessed ~= nil then memory.witnessed = changes.witnessed == true end
     state.memories[#state.memories + 1] = memory
     local maximum = tonumber(U().config("maxMemories")) or 24
@@ -399,11 +400,16 @@ function Relationship.observe(actor, player, snapshot, state)
     local danger = tonumber(snapshot and (snapshot.pressure or snapshot.immediateCount)) or 0
     local playerDanger = tonumber(snapshot and snapshot.player and snapshot.player.danger) or 0
     local close = U().distance(actor, player) <= 8 and U().sameFloor(actor, player)
+    local playerGrabbed,grabKnown=U().call(player,"isBeingGrappled")
+    local playerDowned,downKnown=U().call(player,"isKnockedDown")
+    local sawPlayer=close and U().canSee(actor,player)
     if not runtime then
         observations[actor] = {
             sampledAt = now, health = health, wounds = wounds, hunger = hunger, thirst = thirst,
             danger = danger, playerDanger = playerDanger, playerHealth = playerHealth,
             playerWounds = playerWounds, cooldowns = {}, persistedAt = now,
+            playerGrabbed=sawPlayer and grabKnown and playerGrabbed==true,playerDowned=sawPlayer and downKnown and playerDowned==true,
+            playerRestrictedSince=sawPlayer and (playerGrabbed or playerDowned) and now or nil,
         }
         return false
     end
@@ -464,6 +470,27 @@ function Relationship.observe(actor, player, snapshot, state)
     runtime.hunger, runtime.thirst = hunger, thirst
     runtime.danger, runtime.playerDanger = danger, playerDanger
     runtime.playerHealth, runtime.playerWounds = playerHealth, playerWounds
+    local restricted=sawPlayer and (grabKnown and playerGrabbed==true or downKnown and playerDowned==true)
+    if restricted and not runtime.playerRestrictedSince then runtime.playerRestrictedSince=now end
+    local offense=SC.Combat and SC.Combat.peek and SC.Combat.peek(actor)
+    if sawPlayer and runtime.playerRestrictedSince and offense
+        and (tonumber(offense.lastAcceptedOffenseAt) or -math.huge)>=runtime.playerRestrictedSince
+        and select(1,U().call(offense.lastOffensiveTarget,"getTarget"))==player then
+        runtime.playerCoverAt=offense.lastAcceptedOffenseAt
+    end
+    if sawPlayer and (runtime.playerGrabbed or runtime.playerDowned)
+        and (not runtime.playerGrabbed or grabKnown and playerGrabbed==false)
+        and (not runtime.playerDowned or downKnown and playerDowned==false) and not U().isDead(player)
+        and SC.LifeEvents and SC.LifeEvents.observed then
+        local helped=runtime.playerCoverAt and runtime.playerRestrictedSince
+            and runtime.playerCoverAt>=runtime.playerRestrictedSince
+        SC.LifeEvents.observed(helped and "rescued_player" or "player_close_call",actor,{participants={U().idOf(actor),"player:local"},
+            targetId="player:local",wasGrabbed=runtime.playerGrabbed==true,wasDowned=runtime.playerDowned==true,
+            outcome=helped and "freed_with_cover" or "player_got_free"})
+    end
+    if not restricted then runtime.playerRestrictedSince=nil runtime.playerCoverAt=nil end
+    runtime.playerGrabbed=sawPlayer and grabKnown and playerGrabbed==true
+    runtime.playerDowned=sawPlayer and downKnown and playerDowned==true
     if meaningful or (changed and now - (runtime.persistedAt or 0) >= 60000) then
         runtime.persistedAt = now
         return true, meaningful and "relationship_event" or "time_together", events

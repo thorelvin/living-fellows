@@ -480,6 +480,17 @@ local function clear(current, reason)
     alert = nil
     if not finished then return end
     local spotter = U().resolveActor(finished.spotterId)
+    if reason=="clear" and finished.fought and spotter and SC.LifeEvents and SC.LifeEvents.observed then
+        local witnesses={}
+        for id in pairs(finished.told or {}) do
+            local actor=U().resolveActor(id)
+            if actor and id~=finished.spotterId and U().sameFloor(actor,spotter)
+                and U().distance(actor,spotter)<=10 and U().canSee(actor,spotter) and #witnesses<16 then witnesses[#witnesses+1]=id end
+        end
+        table.sort(witnesses)
+        SC.LifeEvents.observed("alarm_fought_off",spotter,{participants={finished.spotterId},witnesses=witnesses,
+            outcome="all_clear",count=finished.count})
+    end
     local told = 0
     for _ in pairs(finished.told) do told = told + 1 end
     if reason == "clear" and spotter and told > 0 and not sleeping(spotter) then

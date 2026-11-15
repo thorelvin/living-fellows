@@ -30,6 +30,7 @@ function Get-ScGameplayFiles {
         'SCDialogue.lua',
         'SCAllegiance.lua',
         'SCLifeEvents.lua',
+        'SCSharedHistory.lua',
         'SCCommunity.lua',
         'SCBackground.lua',
         'SCThreatSet.lua',

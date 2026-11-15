@@ -793,9 +793,12 @@ local function localPlayer()
 end
 
 local function participantsOf(row)
-    local result = {}
-    for _, id in ipairs(type(row.participants) == "table" and row.participants or {}) do
-        if type(id) == "string" then result[#result + 1] = id end
+    local result,seen = {},{}
+    for _,list in ipairs({row.participants or {},row.witnesses or {}}) do
+        for n,id in ipairs(type(list)=="table" and list or {}) do
+            if n>16 then break end
+            if type(id)=="string" and not seen[id] then result[#result+1]=id seen[id]=true end
+        end
     end
     return result
 end
@@ -811,6 +814,15 @@ function Diary.observeLifeEvent(row)
         local day = tostring(clock.dayKey)
         local admitted = false
         local function offer(writer, specification)
+            specification.facts=specification.facts or {}
+            specification.tokens=specification.tokens or {}
+            for _,key in ipairs({"place","day","hour","count","weapon","outcome"}) do
+                local value=row[key]
+                if SC.DiaryText.validToken(value) then
+                    specification.facts["event."..key]=true
+                    specification.tokens["event_"..key]=value
+                end
+            end
             if admit(writer, specification, clock) == true then admitted = true end
         end
         if kind == "witnessed_injury" then

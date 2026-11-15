@@ -59,7 +59,7 @@ local function stableFields(source)
     local result, count = {}, 0
     if type(source) ~= "table" then return result end
     for key, value in pairs(source) do
-        if type(key) == "string" and key ~= "participants" then
+        if type(key) == "string" and key ~= "participants" and key~="witnesses" then
             local kind = type(value)
             if kind == "string" then result[key] = clean(value, "", 160)
             elseif kind == "number" then result[key] = finite(value, 0)
@@ -79,10 +79,15 @@ function LifeEvents.emit(kind, fields)
     if type(kind) ~= "string" or kind == "" then return nil, "invalid_event_kind" end
     local row = stableFields(fields)
     row.kind = clean(kind, "event", 48)
-    row.id = "life-" .. tostring(nextSerial)
-    nextSerial = nextSerial + 1
     row.at = math.max(0, math.floor(finite(type(fields) == "table" and fields.at, gameTimeMs())))
+    local wall=SC.GameplayUtil and SC.GameplayUtil.nowMs and SC.GameplayUtil.nowMs() or 0
+    row.id = "life-"..tostring(row.at).."-"..tostring(math.floor(finite(wall,0))).."-"..tostring(nextSerial)
+    nextSerial = nextSerial + 1
     row.participants = participants(type(fields) == "table" and fields.participants)
+    row.witnesses = participants(type(fields) == "table" and fields.witnesses)
+    if row.day==nil then row.day=math.floor(row.at/86400000) end
+    if row.hour==nil then row.hour=(row.at/3600000)%24 end
+    if SC.SharedHistory then row=SC.SharedHistory.cleanRow(row) end
     queue[#queue + 1] = row
     while #queue > 128 do table.remove(queue, 1) end
     -- Private diaries observe without draining; SCCommunity owns the queue.
@@ -90,6 +95,33 @@ function LifeEvents.emit(kind, fields)
         pcall(SC.Diary.observeLifeEvent, row)
     end
     return row
+end
+
+-- Producers call this while they already own the observed actor/facts. Looking
+-- up at most 16 named registry IDs does not discover actors or infer witnesses.
+function LifeEvents.observed(kind,actor,fields)
+    local values={} for key,value in pairs(fields or {}) do values[key]=value end
+    local u=SC.GameplayUtil
+    if actor and u then
+        values.sourceId=values.sourceId or u.idOf(actor)
+        values.sourceName=values.sourceName or u.nameOf(actor)
+        if values.place==nil and SC.Tales and SC.Tales.placeOf then values.place=SC.Tales.placeOf(actor) end
+    end
+    if u then
+        local target=values.targetId and u.resolveActor and u.resolveActor(values.targetId)
+        if target and not values.targetName then values.targetName=u.nameOf(target) end
+        for _,key in ipairs({"participants","witnesses"}) do
+            local names={}
+            for n,id in ipairs(type(values[key])=="table" and values[key] or {}) do
+                if n>16 then break end
+                local known=u.resolveActor and u.resolveActor(id)
+                if known then names[#names+1]=u.nameOf(known) end
+            end
+            local nameKey=key=="participants" and "participantNames" or "witnessNames"
+            if #names>0 and values[nameKey]==nil then values[nameKey]=table.concat(names,", ") end
+        end
+    end
+    return LifeEvents.emit(kind,values)
 end
 
 function LifeEvents.drain(limit)

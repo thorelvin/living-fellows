@@ -1627,6 +1627,10 @@ local function handleRecruit(actor, entry, state, payload, player)
     if SC.Diary and type(SC.Diary.noteRecruited) == "function" then
         pcall(SC.Diary.noteRecruited, actor, player)
     end
+    if SC.LifeEvents and SC.LifeEvents.observed then
+        SC.LifeEvents.observed("recruited",actor,{participants={U().idOf(actor)},
+            targetId="player:local",outcome="joined"})
+    end
     return true, "recruited"
 end
 

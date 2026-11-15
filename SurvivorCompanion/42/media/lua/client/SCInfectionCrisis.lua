@@ -703,6 +703,15 @@ local function newCrisis(subject, subjectId, medical, player, cause)
             end
         end
     end
+    if witnessedBite and not isPlayerSubject(subjectId) and SC.LifeEvents and SC.LifeEvents.observed then
+        local witnesses={}
+        for witnessId,member in pairs(crisis.participants) do
+            if witnessId~=subjectId and member.knowledge=="confirmed" and #witnesses<16 then witnesses[#witnesses+1]=witnessId end
+        end
+        table.sort(witnesses)
+        SC.LifeEvents.observed("companion_bitten",subject,{participants={subjectId},witnesses=witnesses,
+            targetId=subjectId,targetName=crisis.subjectName,count=crisis.biteCount,outcome="observed_bite"})
+    end
     return crisis
 end
 

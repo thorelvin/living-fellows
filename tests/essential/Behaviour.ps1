@@ -14,6 +14,9 @@
     )
 }
 @{ Name = 'behaviour.follow-and-access'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'gameplay_harness.lua') }
+@{ Name = 'behaviour.shared-history'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $ProjectRoot 'tests\fixtures\voice-soak\community-02718.lua'),
+    (Join-Path $Gameplay 'shared_history_harness.lua')) }
 @{ Name = 'behaviour.combat-coordination'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'combat_coordination_regression_harness.lua')) }
 

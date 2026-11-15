@@ -325,6 +325,7 @@ local function placeOf(actor)
     if place then return place.label, "zone" end
     return OPEN_PLACE, "open"
 end
+Tales.placeOf=placeOf
 
 local function weaponOf(actor)
     local utility = U()

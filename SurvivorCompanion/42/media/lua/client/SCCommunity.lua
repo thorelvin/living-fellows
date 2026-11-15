@@ -4,11 +4,15 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.LifeEvents and type(require) == "function" then pcall(require, "SCLifeEvents") end
+if not SC.SharedHistory and type(require)=="function" then pcall(require,"SCSharedHistory") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.Community = SC.Community or {}
 local Community = SC.Community
 Community.VERSION = 2
+-- Fixed ledger caps coexist with the existing minds and pair memories.
+-- The copy limit remains bounded while admitting a legal full world ledger.
+Community.COPY_ENTRIES=65536
 
 local document
 local reservations = {}
@@ -66,7 +70,7 @@ local function minutes(value) return math.floor(finite(value, 0) * 60000) end
 local function emptyDocument()
     return {
         version = Community.VERSION,
-        minds = {}, pairs = {}, history = {}, deaths = {},
+        minds = {}, pairs = {}, history = {}, deaths = {}, landmarks={},heardEvents={},historyFlags={},
         groupMajorCooldownUntil = 0,
         groupJoyCooldownUntil = 0,
         lastSupplyRunAt = now(),
@@ -456,6 +460,7 @@ function Community.noteCompanionDeath(record)
         subjectDisplayName = displayName,
         subjectGender = gender, startedAt = current })
     local affected = 0
+    local ledgerWitnesses={}
     -- The registry also contains neutral encounters and loaded faction actors.
     -- Scan a bounded superset so those records cannot push a recruited teammate
     -- out of a maxCompanions-sized prefix.
@@ -471,6 +476,7 @@ function Community.noteCompanionDeath(record)
             local opinion = clamp(pair and pair.opinion or 0, -100, 100)
             local witnessed = record.actor ~= nil and U().sameFloor(actor, record.actor)
                 and U().distance(actor, record.actor) <= 14
+            if witnessed and U().canSee(actor,record.actor) and #ledgerWitnesses<16 then ledgerWitnesses[#ledgerWitnesses+1]=survivorId end
             local intensity = clamp(30 + familiarity * 0.38 + math.max(0, trust) * 0.2
                 + math.max(0, opinion) * 0.08 + (witnessed and 18 or 0), 25, 100)
             local acuteMin = finite(U().config("griefAcuteMinHours"), 18)
@@ -531,10 +537,15 @@ function Community.noteCompanionDeath(record)
             affected = affected + 1
         end
     end
-    history({ id = "death:" .. record.id .. ":" .. tostring(current),
+    local deathRow={ id = "death:" .. record.id .. ":" .. tostring(current),
         kind = "companion_died", at = current, sourceId = record.id,
         subjectName = name, subjectDisplayName = displayName,
-        subjectGender = gender, affected = affected })
+        subjectGender = gender, affected = affected,participants={record.id},witnesses=ledgerWitnesses,
+        sourceName=name,targetId=record.id,targetName=name,outcome="died",communityRecorded=true}
+    if SC.LifeEvents and SC.LifeEvents.observed then
+        deathRow=SC.LifeEvents.observed("companion_died",record.actor,deathRow)
+    end
+    history(deathRow)
     return true, { affected = affected, subjectId = record.id,
         subjectName = name, subjectDisplayName = displayName, subjectGender = gender }
 end
@@ -632,6 +643,10 @@ function Community.latestSharedMemory(first, second)
 end
 
 local eventEffects = {
+    first_meeting={stress=0,morale=0},recruited={stress=0,morale=0},companion_bitten={stress=0,morale=0},
+    expedition_homecoming={stress=0,morale=0},alarm_fought_off={stress=0,morale=0},burial={stress=0,morale=0},
+    first_camp_night={stress=0,morale=0},survival_milestone={stress=0,morale=0},
+    companion_died={stress=0,morale=0},player_close_call={stress=0,morale=0},
     companion_hurt = { stress = 18, morale = -6, opinion = 1, tension = 4 },
     witnessed_injury = { stress = 14, morale = -5, opinion = 2, tension = 2 },
     shared_escape = { stress = -8, morale = 8, opinion = 5, trust = 4, tension = -6 },
@@ -667,13 +682,37 @@ local function eventThoughtText(row)
 end
 
 history = function(row)
+    if SC.SharedHistory then row=SC.SharedHistory.cleanRow(row) end
     local copy = stableCopy(row, 4, { count = 96 }) or {}
     ensure().history[#ensure().history + 1] = copy
-    local limit = U().config("mindHistoryLimit") or 96
+    local limit = math.min(96,U().config("mindHistoryLimit") or 96)
     while #ensure().history > limit do table.remove(ensure().history, 1) end
+    if SC.SharedHistory then SC.SharedHistory.retain(ensure(),copy) end
     if SC.BaseLife and type(SC.BaseLife.noteHistory) == "function" then
         pcall(SC.BaseLife.noteHistory, "community_" .. tostring(row.kind), copy)
     end
+end
+
+function Community.historyRow(id)
+    return SC.SharedHistory and SC.SharedHistory.find(ensure(),id)
+end
+function Community.knowsEvent(actorOrId,row)
+    local id=type(actorOrId)=="string" and actorOrId or U().idOf(actorOrId)
+    if SC.SharedHistory then return SC.SharedHistory.known(ensure(),id,row) end
+    return false
+end
+function Community.tellEvent(from,to,id,onScreen)
+    return SC.SharedHistory and SC.SharedHistory.tell(ensure(),from,to,id,onScreen) or false
+end
+function Community.historyRows()
+    -- Callers receive a bounded detached list, never the mutable world ledger.
+    local rows,seen={},{}
+    for _,list in ipairs({ensure().landmarks or {},ensure().history}) do
+        for _,row in ipairs(list) do if type(row.id)=="string" and not seen[row.id] then
+            rows[#rows+1]=stableCopy(row,4,{count=96}) seen[row.id]=true
+        end end
+    end
+    return rows
 end
 
 local function fulfillSupplyExpectation(id, eventTime)
@@ -699,13 +738,13 @@ function Community.processEvents(limit)
         local effect = eventEffects[row.kind] or { stress = 2, morale = 0 }
         for _, id in ipairs(row.participants or {}) do
             if string.sub(id, 1, 3) == "sc-" then
-                Community.addThought(id, {
+                if (effect.stress or 0)~=0 or (effect.morale or 0)~=0 then Community.addThought(id, {
                     key = tostring(row.id) .. ":" .. id,
                     kind = row.kind, text = eventThoughtText(row),
                     stress = effect.stress or 0, morale = effect.morale or 0,
                     at = row.at, expiresAt = row.at + hours(row.kind == "social_fight" and 48 or 24),
                     sourceId = row.sourceId, targetId = row.targetId, memoryId = row.id,
-                })
+                }) end
                 if row.kind == "supply_run_completed" then fulfillSupplyExpectation(id, row.at) end
             end
         end
@@ -725,7 +764,24 @@ function Community.processEvents(limit)
                 end
             end
         end
-        history(row)
+        if not row.communityRecorded then history(row) end
+        -- Existing mood effects above are unchanged. The relationship memory
+        -- carries only the ledger ID, not another copy of its facts.
+        if SC.Relationship and SC.Relationship.noteEvent then
+            local seen={}
+            local ids={}
+            for _,list in ipairs({row.participants or {},row.witnesses or {},{row.sourceId}}) do
+                for _,id in ipairs(list) do if type(id)=="string" and not seen[id] then ids[#ids+1]=id seen[id]=true end end
+            end
+            for _,id in ipairs(ids) do
+                local actor=U().resolveActor(id)
+                local state=actor and commandState(actor)
+                if state and state.recruited then
+                    SC.Relationship.noteEvent(state,row.kind,{at=row.at,eventId=row.id})
+                    persistActor(actor)
+                end
+            end
+        end
     end
     return #events
 end
@@ -752,6 +808,7 @@ function Community.updateMind(actor, state, snapshot, context)
     local elapsed = mind.lastEvaluatedAt > 0 and math.max(interval,
         math.min(hours(1), current - mind.lastEvaluatedAt)) or interval
     mind.lastEvaluatedAt = current
+    if SC.SharedHistory then SC.SharedHistory.observeClock(ensure(),actor,state) end
     refreshGrief(actor, mind, current)
     for index = #mind.thoughts, 1, -1 do
         if finite(mind.thoughts[index].expiresAt, 0) <= current then table.remove(mind.thoughts, index) end
@@ -1020,12 +1077,13 @@ end
 
 local function normalize(source)
     if type(source) ~= "table" then return emptyDocument() end
-    local copy = stableCopy(source, 8, { count = 16384 })
+    local copy = stableCopy(source, 8, { count = Community.COPY_ENTRIES })
     if type(copy) ~= "table" then return emptyDocument() end
     copy.version = Community.VERSION
     copy.minds = type(copy.minds) == "table" and copy.minds or {}
     copy.pairs = type(copy.pairs) == "table" and copy.pairs or {}
     copy.history = type(copy.history) == "table" and copy.history or {}
+    if SC.SharedHistory then SC.SharedHistory.normalize(copy) end
     copy.deaths = type(copy.deaths) == "table" and copy.deaths or {}
     copy.groupMajorCooldownUntil = math.max(0, finite(copy.groupMajorCooldownUntil, 0))
     copy.groupJoyCooldownUntil = math.max(0, finite(copy.groupJoyCooldownUntil, 0))
@@ -1079,7 +1137,7 @@ local function normalize(source)
     for index = (U().config("mindPairLimit") or 64) + 1, #pairRows do
         copy.pairs[pairRows[index].key] = nil
     end
-    local historyLimit = U().config("mindHistoryLimit") or 96
+    local historyLimit = math.min(96,U().config("mindHistoryLimit") or 96)
     while #copy.history > historyLimit do table.remove(copy.history, 1) end
     return copy
 end
@@ -1330,7 +1388,7 @@ local function validateRestoreSource(source)
 end
 
 function Community.export()
-    return stableCopy(ensure(), 8, { count = 16384 })
+    return stableCopy(ensure(), 8, { count = Community.COPY_ENTRIES })
 end
 
 function Community.restore(source)
@@ -1339,7 +1397,8 @@ function Community.restore(source)
         reservations = {}
         return true, document
     end
-    local stable, reason = stableCopy(source, 12, { count = 16384 })
+    if SC.SharedHistory then source=SC.SharedHistory.cleanDocument(source) end
+    local stable, reason = stableCopy(source, 12, { count = Community.COPY_ENTRIES })
     if stable == nil then return restoreFailure("$.community", reason or "copy failed") end
     local valid, validationReason = validateRestoreSource(stable)
     if not valid then return false, validationReason end

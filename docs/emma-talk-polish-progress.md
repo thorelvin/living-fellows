@@ -24,8 +24,8 @@ Release packaging and playground rebuilding remain required deliverables.
 | 3.8-3.9 misses | Every miss offers useful choices; once-session menu; bounded context-aware suggestions and logging; negative controls | Done for Phase A; hooks/noun-index integration continues in B/C |
 | 3.12 persona quick fixes | Question/name guard, semantic repeat identity, all seven harnesses in Interface | Done; own-word hooks and role-play remain B |
 | Phase A verification | Improved baseline scores with no lost passing row, care 100%, Windows PowerShell 5.1 full gate, rebuilt playground | Full release gate and headless checks pass; browser visual check/user session pending |
-| V7 baseline | Real Kahlua 60-day simulator, separate game/real clocks, metrics and sample-week transcript before new speech | Recorded before companion changes; Phase E work started |
-| V1 ledger | Flat facts and witnesses, observed event producers, 96 history/24 landmarks, small memory references, old-save and malformed-field restore | Pending |
+| V7 baseline | Real Kahlua 60-day simulator, separate game/real clocks, metrics and sample-week transcript before new speech | Done; historical pre-V1 replay and current facts-only replay match exactly |
+| V1 ledger | Flat facts and witnesses, observed event producers, 96 history/24 landmarks, small memory references, old-save and malformed-field restore | Done; 36 ledger checks and full release gate pass |
 | V3 scenes | 3-6 tagged beats, 2-3 speakers, personality/relation branches, one party scene, shared budget, immediate cancellation, two-clock scheduling | Pending |
 | V5 relationships | Reason-matched arguments, bounded grudges, reconciliation, modest companion comfort | Pending |
 | V4 aftermath | One deferred group reaction per death, close call, homecoming or fought-off alarm; affected speaker first | Pending |
@@ -103,3 +103,33 @@ Browser visual verification is unperformed: the browser tool explicitly rejected
 local `file:` navigation. No workaround was attempted. A user session has been
 requested and remains pending. Release ZIPs were built as 0.27.21; work continues
 on this branch under the user's release instruction.
+
+## Phase E checkpoint
+
+The authoritative 60-day baseline uses registered actors with SurvivorDesc
+names. It was replayed against archived pre-V1 sources (`a3e1f563`) after those
+fixture corrections. Hash `1537253361`: 4,506 lines, 1,078 two-beat scenes,
+3,653 repeats inside three game days, zero specific recall and no group
+aftermaths. The current V1 implementation reproduces the entire speech hash.
+See `docs/validation/voice-soak-baseline.md` and its sample-week transcript.
+
+The ledger keeps separate participants and witnesses, flat names and details,
+96 recent rows, 24 permanent landmarks and bounded on-screen told-by receipts.
+Companion memories hold event IDs. Producers cover introductions, recruitment,
+observed bites, player restriction/release (with accepted cover distinguished),
+expedition returns with verified cargo counts, fought-off alarms, closed
+graves, first camp nights and day 7/30/100 milestones. Symptom-only infection
+does not manufacture a witnessed bite. Old saves never gain invented past
+milestones. Existing diary adapters retain the event's optional detail tokens.
+
+The restore harness loads a document exported by the actual 0.27.18 modules
+and compares every old field. Malformed optional facts are quarantined without
+mutating the input. A legal full ledger exposed the old copy-entry limit; the
+bounded budget is now 65,536 entries, with all individual store caps retained.
+The full-capacity world remains saveable. All 36 ledger checks pass.
+
+All five Windows PowerShell 5.1 release checks pass:
+`build/test-results/20261115-023417-0dbfb7` (330.9 seconds). The exact comparison
+passes in `build/voice-soak/20261115-023417-e69405`. Phase E adds no authored
+companion speech. F/G still owe the scene, recall, repeat, aftermath and tone
+targets; zero tagged-tone errors in legacy untagged speech proves none of them.

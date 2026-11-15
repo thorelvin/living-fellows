@@ -3010,6 +3010,10 @@ local function pollFill(actor, order, state, context)
     SC.BaseLife.forgetProductionGrave(order.id, work.grave)
     if ceremony(actor, info, context.runtime) then state.pendingSalute = true end
     placeMarker(order, info)
+    if SC.LifeEvents and SC.LifeEvents.observed then
+        SC.LifeEvents.observed("burial",actor,{participants={context.actorId},outcome="grave_closed",
+            targetName=info.fallenDisplayName or info.fallenName,count=info.corpses})
+    end
     return true, "production_grave_closed"
 end
 
