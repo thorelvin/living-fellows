@@ -464,7 +464,8 @@ smoke: 44 turns (32 public, 12 private), four voices, 27 topics, 637 reference
 entries and 56 meanings. The invocation used the broader default live harness,
 rather than observation-only mode. That broader run FAILS five gameplay
 checks: native direct-path progress/arrival, room-entry sweep, door-crossing
-round trip, and melee recovery (delay about 11 seconds; target was dead).
+round trip, and melee recovery (engine recovery delay still positive; target
+was dead). The logged delay value is not interpreted as seconds.
 It must not be represented as a passing overall native run.
 The event log is retained under its cache's
 `Lua/SurvivorCompanionHarness/events.log`. These are companion movement/combat
@@ -477,3 +478,13 @@ The terminal helper itself performs pure conversation; the broader harness
 does spawn/move test companions and run other gameplay checks in the clone.
 No installed game or source save is modified. Retain the failed receipt and
 triage it before a release; do not change zombie navigation as a recovery.
+
+Follow-up reading of the melee check: its second strike must be rejected with
+`native_melee_recovery`, but the first strike had already killed the target.
+`SCNativeActions.attack` validates a dead target before checking recovery, so
+the actual rejection is `attack target is dead`. The first strike and its
+damage checks pass. This outcome does not establish a broken cooldown gate;
+the test needs a live target when checking recovery. The two direct-path
+failures are progress and arrival assertions on the same ten-second walk,
+not two independently reproduced movement bugs. The room sweep reports a
+dynamic blockage; the door round trip stops in its approach stage.
