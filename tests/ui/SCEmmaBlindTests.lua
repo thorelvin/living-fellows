@@ -1,5 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Shared scorer: fixed supplied facts, public context, all-three-voices weighting.
+-- H2-H7 are opened regression sets, not blind evidence: SCEmmaAnswers holds
+-- answers written for their sources (without them H2-H4 score 54-64%).
 local SC=SurvivorCompanion
 SC.EmmaBlindTests={}
 function SC.EmmaBlindTests.run(D,label,namespace)

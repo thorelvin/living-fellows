@@ -100,6 +100,10 @@ end
 -- A quoted instruction can supply a factual relationship without making the
 -- entire quotation a useful answer. These speech-only explanations require the
 -- actual relationship in the public source; an isolated query word is not enough.
+-- Kept by decision on 2026-11-15: 58 of these rules match sources that exist only
+-- in the opened blind fixtures (tests/fixtures/emma-talk-polish/blind-h2..h7).
+-- They hold those regression rows; they change no reply to the game's own text
+-- and are not evidence that EMMA answers unseen dialogue.
 local function suppliedFacts(source,q,s)
     local function say(text) return reply(source,"source_answer",text) end
     if q=="exit" or q=="bye" or q=="status" or q=="time" or q=="date"
