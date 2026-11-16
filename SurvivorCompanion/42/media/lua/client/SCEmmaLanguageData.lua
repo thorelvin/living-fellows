@@ -1157,6 +1157,7 @@ D.WORTH_PHRASES = {
     "i keep screwing up", "i keep messing up", "everything i touch",
     "nobody likes me", "no one likes me", "worst at everything", "worst at most things", "bad at everything",
     "good at nothing", "good for nothing", "people avoid me",
+    "smarter than me", "just faking it", "everyone is better than me",
 }
 D.WORTH_WORDS = {"useless", "stupid", "failure", "pathetic", "loser", "weak", "idiot", "dumb",
     "worthless", "hopeless", "burden", "disappointment", "mess", "joke", "waste", "coward", "fraud",

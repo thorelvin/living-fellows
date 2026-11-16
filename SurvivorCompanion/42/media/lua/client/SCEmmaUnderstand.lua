@@ -183,6 +183,14 @@ end
 local function worthOf(tokens)
     -- "too dumb to figure out farming": the speaker is the unstated subject.
     if tokens[1]=="too" and tokens[2] and worthWord(tokens[2]) then return "worth" end
+    -- Same unstated subject (blind set G): "worst friend ever, forgot ...",
+    -- "such a failure in the kitchen". A label for a thing is not one:
+    -- "worst game ever" names no role.
+    local first=tokens[1]=="emma" and 2 or 1
+    if worthBad[tokens[first]] and worthRoles[tokens[first+1]] then return "worth" end
+    if tokens[first]=="such" and tokens[first+1]=="a" and tokens[first+2] and worthWord(tokens[first+2]) then
+        return "worth"
+    end
     if phraseIn(tokens,"better than me at",true) and (phraseIn(tokens,"everything",true)
         or phraseIn(tokens,"anything",true)) then return "worth" end
     -- "i hate how weak i am" is aimed at the speaker, not at EMMA.
@@ -198,7 +206,11 @@ local function worthOf(tokens)
         local statement=tokens[at]=="i" and tokens[at+1]=="am"
         local question=tokens[at]=="am" and tokens[at+1]=="i"
         if statement or question then
-            local cursor,negated=at+2,false
+            -- "i am so useless at building", "why am i so slow": an intensified
+            -- put-down keeps its warmth whatever follows. "am i too weak to
+            -- carry this" stays a game question.
+            local tailOkay=statement or tokens[at-1]=="why"
+            local cursor,negated,intensified=at+2,false,false
             while cursor<=#tokens do
                 local word=tokens[cursor]
                 -- These complete negative predicates really are put-downs;
@@ -211,10 +223,14 @@ local function worthOf(tokens)
                 end
                 if badRole(tokens,cursor) then return negated and "news_plain" or "worth" end
                 if worthWord(word) then
-                    if worthEnding(tokens,cursor) then return negated and "news_plain" or "worth" end
+                    if worthEnding(tokens,cursor) or intensified and tailOkay then
+                        return negated and "news_plain" or "worth"
+                    end
                     break
                 elseif worthNegation[word] then negated=true
+                elseif word=="too" then intensified=true
                 elseif not worthFillers[word] then break end
+                if word=="so" or word=="such" then intensified=true end
                 cursor=cursor+1
             end
         end

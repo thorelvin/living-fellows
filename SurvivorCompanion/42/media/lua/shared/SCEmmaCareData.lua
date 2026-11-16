@@ -30,13 +30,17 @@ D.CARE_PHRASES = {
     "sewer slide", "self delete", "stopped eating on purpose", "not eating on purpose",
     "i should not be here anymore", "i should not be here at all",
     "world is better without me", "everyone would be better off without me",
+    -- Non-native English (blind set G): "i am not want to live more".
+    "am not want to live", "not want to live more", "no want to live", "not want live",
 }
 -- Care when they are the whole message (after "emma," and punctuation are stripped).
 D.CARE_WHOLE = { "kill me", "end me", "let me die", "i want to go", "goodbye world",
     "i want out", "i am tired of fighting", "i should not be here" }
 -- kms = "kill myself"; sewerslide and unalive are the euphemisms people use to slip past filters.
 D.CARE_WORDS = { suicide = true, suicidal = true, selfharm = true, kms = true, unalive = true,
-    sewerslide = true }
+    sewerslide = true, unaliving = true, unalived = true,
+    -- "ctb" = "catch the bus", a code word for ending one's life.
+    ctb = true }
 
 -- Personal worth is a feeling to support, never a claim for the news handler
 -- to affirm. Keep the subject explicit: an item's value is an ordinary query.

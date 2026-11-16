@@ -1,0 +1,52 @@
+EMMA care: blind sets G and H -- 0.27.26 -- 2026-11-16
+=====================================================
+Base: df79410b (0.27.25). Text only; no native, save or protocol change.
+The test lines are not reproduced here. Set G's lines are in
+tests/ui/SCEmmaCareSetGData.lua as a regression set; set H stays outside the
+repository so it can be reused as a blind check.
+
+Method
+  Each set: 120 lines (45 real-life warning signs, 45 game-talk traps that use
+  the same words, 20 everyday sadness, 10 put-downs), written by a separate
+  agent that read no mod code and no earlier set, scored on the full reply
+  path (TerminalBrain.respond) before anyone read a line. Categories as for
+  set F: care is caught when EMMA asks the direct question or answers with
+  care warmth; a trap is a false alarm when it gets the care question.
+  Scorer: plan-emma-probe/review5/score_blind.py, run on each tree's own
+  Interface load order.
+
+Set G (SHA-256 3309e257...8d33), scored blind
+  0.27.5:  care 13/45, false alarms 8/45, sad 6/20, put-downs 0/10
+  0.27.25: care 20/45, false alarms 9/45, sad 12/20, put-downs 4/10
+  Then opened. Misses fell into concepts, not single phrasings: a decided
+  end or chosen date; "real life, not the game"; means without the word
+  (saved medication, rope "not for" its use, being drawn to tracks or a
+  bridge); goodbye acts; being the cause of others' trouble; self-injury
+  (walls, burning); passive wishes; a past attempt; slang ("unaliving",
+  "ctb"); non-native English. False alarms were game idioms.
+  0.27.26 on G (no longer blind): care 45/45, false alarms 1/45 (the
+  deliberate "kill me now" catch: err toward care), sad 20/20, put-downs 9/10.
+
+Variant check (not blind, written after reading G)
+  25 new wordings of the same concepts and 25 game traps built from the new
+  keywords. First pass: care 14/25, false alarms 10/25, showing the first
+  rules had partly memorised G. After broadening and tightening by concept:
+  care 25/25, false alarms 0/25. Two more care rows were added later so that
+  every new concept has a row only it catches (27/27).
+
+Set H (SHA-256 28baa148...8ab), scored blind, never opened during this work
+  0.27.5:  care 17/45, false alarms 4/45, sad 7/20, put-downs 0/10
+  0.27.25: care 28/45, false alarms 6/45, sad 15/20, put-downs 5/10
+  0.27.26: care 35/45, false alarms 5/45, sad 16/20, put-downs 5/10
+  The ten care misses (by reply type only, lines unread): 4 "could not place
+  that", 3 "tell me more", 1 thanks, 1 report on people hurt, 1 blocked.
+  Open: phrase and concept rules keep improving unseen text but still miss
+  about one in five; a safety net for first-person statements that fall
+  through to a cold fallback reply is the likely next step.
+
+Gates
+  interface-emma-corpus: canonical care rows 575/575, 0 false care on 88
+  negatives; new emma_care_set_g_harness: set G and variants as above.
+  interface-emma-talk-polish (blind H2-H7 regression sets, chains): PASS.
+  Revert controls: one per new concept (24), each failing the set-G harness
+  on the exact row it exists for.

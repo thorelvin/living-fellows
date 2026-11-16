@@ -9,7 +9,9 @@ local contractions = { im="i am", ive="i have", id="i would", dont="do not", can
     wont="will not", couldnt="could not", isnt="is not", wanna="want to",
     gonna="going to", whats="what is", theres="there is", idk="i do not know", kms="kill myself",
     wasnt="was not", werent="were not", wouldnt="would not", didnt="did not", shouldnt="should not",
-    hasnt="has not", havent="have not", itll="it will", thatll="that will" }
+    hasnt="has not", havent="have not", itll="it will", thatll="that will",
+    theyd="they would", youd="you would", theyll="they will", theyre="they are", youre="you are",
+    arent="are not", doesnt="does not", aint="is not" }
 local excluded = { ["see a future"]=true, ["will not need it"]=true, ["take them all"]=true,
     ["not worth it"]=true, ["end it"]=true, ["if i died"]=true, ["if i was gone"]=true,
     ["if i were gone"]=true, ["tired of fighting"]=true, ["want out"]=true,
@@ -119,6 +121,8 @@ local rules={
     {id="absence",test=function(t)
         return any(t,ownEnding) and (ordered(t,{{"would be","might be","will be"},
             {"happier","relieved","better","glad","easier"},{"if i","when i"}},8)
+            -- "theyd breathe easier if i was gone"
+            or ordered(t,{{"would","will"},{"happier","relieved","better","glad","easier","lighter"},{"if i","when i"}},4)
             or ordered(t,{{"notice","miss me","care"},{"if i","when i"}},4))
             or ordered(t,{{"if i died","if i was dead","if i was gone","if i did not wake up"},{"would be","will be"},
                 {"relief","a relief","better","easier","peaceful"}},4)
@@ -197,9 +201,12 @@ local rules={
             "unalive myself","off myself","delete myself","end myself","stopped eating on purpose",
             "not eating on purpose","starving myself"})
             or ordered(t,{{"burning","burned","burnt","burn","punching","punched","hitting","scratching"},
-                {"my arm","my arms","my wrist","my wrists","my skin","my leg","my legs","my thigh","my thighs"}},1)
+                {"my arm","my arms","my wrist","my wrists","my skin","my leg","my legs","my thigh","my thighs",
+                "my hand","my hands","my stomach","my fingers"}},1)
                 and not any(t,{"accidentally","by accident","cooking","stove","oven","fire","while"})
-            or ordered(t,{{"hoping","hope","praying"},{"i crash","i die","it is over","i do not wake","i get hit"}},5)
+            or ordered(t,{{"hoping","hope","praying"},{"i crash","i die","it is over","i do not wake","i get hit",
+                "i do not make it","i never make it","comes back bad","come back bad","is cancer","it is cancer",
+                "is terminal","i get sick","a way out","terminal","cancer","tumor","something bad"}},8)
     end},
     {id="let_them_take_me",test=function(t)
         if any(t,{"do not let","never let","will not let","not going to let","do not want them to"}) then return false end
@@ -233,7 +240,9 @@ local rules={
         return any(t,{"not be here tomorrow","not want to be here tomorrow","not be here much longer",
             "not be here for much longer","not be around much longer","not be around for much longer",
             "not going to be here much longer","not going to be around much longer","not be alive tomorrow",
-            "not be around after","not be here after","not be around after this","not be here after this"})
+            "not be around after","not be here after","not be around after this","not be here after this",
+            "if i will still be around","if i will still be here","if i will be around","still be around tomorrow",
+            "if i am still going to be here"})
             or ordered(t,{{"make it to","making it to","last until","see"},{"my birthday","next week","next month",
                 "christmas","the weekend","next year","tomorrow"}},3)
                 and any(t,{"do not think","do not want","will not","not going to"})
@@ -248,7 +257,7 @@ local rules={
             {"peaceful","nice","good","better","easier","calm","like rest"}},3)
             and not any(t,{"dying light","death stranding","game"})
     end},
-    {id="tired_of_self",test=function(t)
+    {id="tired_of_self",implicit=true,test=function(t)
         return any(t,{"tired of being a person","tired of being me","tired of being myself","tired of being human",
             "tired of existing","sick of existing","sick of being me","sick of being myself","tired of live",
             "tired of life","sick of life"})
@@ -269,7 +278,7 @@ local rules={
             and any(t,{"permanently","forever","for good","ever again"})
     end},
     {id="hurts_to_live",implicit=true,test=function(t)
-        return ordered(t,{{"living","being alive","existing","life","being me"},
+        return ordered(t,{{"living","being alive","existing","life","being me","every day","each day"},
             {"hurts","is pain","is only pain","is agony","is unbearable","hurts too much"}},3)
             and not any(t,{"living room","for a living","living in","living with"})
     end},
@@ -278,13 +287,114 @@ local rules={
             or any(t,{"without me"}) and any(t,{"better","fine","happier","easier","relieved","lighter","safer"})
                 and not any(t,{"run","trip","expedition","raid","loot","looting","job","shift","fight"})
     end},
+    -- Blind set G (2026-11-16) concepts. Each covers a kind of warning sign,
+    -- not one sentence: a decided end or a chosen date, "real life, not the
+    -- game", saved-up medication, goodbye acts, being the cause of others'
+    -- trouble, self-injury that is not a word on the list, and passive wishes.
+    {id="decided_end",implicit=true,test=function(t)
+        local leisure={"wedding","party","raid","trip","vacation","holiday","appointment","exam","interview",
+            "move","moving","run","save","character","playthrough","game","server","map","mod","we","us","our",
+            "clear","prison","loot","looting","horde","zombie","zombies","car","was the end","the end for me was"}
+        -- Sparing someone the date is the giveaway: "so nobodys christmas is ruined".
+        local spare=any(t,{"ruin","ruined","so nobody","so they do not","so she does not","so he does not"})
+        return any(t,{"the end for me","the end of me"}) and (spare or not any(t,leisure))
+            or ordered(t,{{"decided","made up my mind","made my decision","picked a date","set a date","chose a date",
+                "chosen a date","picked the date","set the date","picked the day"},
+                {"this weekend","tonight","tomorrow","friday","saturday","sunday","next week","soon","after","when"}},6)
+                and (spare or not any(t,leisure))
+    end},
+    {id="real_not_game",test=function(t)
+        return any(t,{"irl","in real life","real life i mean","not the run","not the game",
+                "not my character","not in the game","not in game","i mean it","not joking","not a joke",
+                "for real this time","not lmao","not lol","no joke"})
+            and any(t,{"i want","i wish","want to","going to","thinking about","think about","i should","i will",
+                "ending it","end it","stop too","permanently","not respawn","no respawn","yeet myself","off myself",
+                "kill myself","not be here","not exist","not wake up"})
+            and any(t,{"die","dying","dead","respawn","not exist","not wake","permanently","for good","forever",
+                "end it","ending it","end my","kill myself","yeet myself","off myself","not be here","stop living",
+                "stop existing","stop breathing","stop too"})
+            and not any(t,{"would die in","would die so","would not last","would be dead in"})
+    end},
+    {id="slang_self",test=function(t)
+        return ordered(t,{{"i should","i want to","i am going to","i am about to","thinking about"},
+                {"yeet myself","off myself","delete myself","unalive myself","end myself","unaliving myself"}},2)
+            and not any(t,{"horde","zombies","zombie","roof","window","car","truck","base","loot"})
+    end},
+    {id="saved_medication",test=function(t)
+        return ordered(t,{{"stopped taking","not taking","skipping","stopped","quit taking","quit","off my"},
+                {"meds","medication","medicine","pills","tablets","antidepressants"}},3)
+            and any(t,{"save","saving","stockpile","stockpiling","hoard","hoarding","collect","collecting","keep them",
+                "kept them","keeping them","in a jar","stash","stashing","for when i decide"})
+    end},
+    {id="goodbye_note",test=function(t)
+        return any(t,{"wrote a note","left a note","written a note","wrote some letters","wrote letters","wrote a letter",
+                "left a letter","writing letters","wrote notes","left notes"})
+            and any(t,{"desk","bed","pillow","keyboard","bye","goodbye","family","mom","mum","dad","parents","sister",
+                "brother","find it","find them","for them","for my","under"})
+            and not any(t,{"journal","in game","character","map","base","radio"})
+    end},
+    {id="giving_away",test=function(t)
+        return any(t,{"gave my","giving my","give my","gave away","giving away","given away","gave all my",
+                "giving all my","gave him my","gave her my"})
+            and any(t,{"will not need","not need them","not need it","not need any","say bye","said bye",
+                "say goodbye","said goodbye","wrote some letters","wrote letters","wrote a letter","new owner",
+                "for good","after i am gone","last time","where i am going"})
+            and not any(t,{"he","she","him","his","companion","character","base","generator","we","guy"})
+    end},
+    {id="last_everything",test=function(t)
+        return any(t,{"last everything","last of everything"})
+            or any(t,{"last log in","last login","last time logging in","last time i log in"})
+                and any(t,{"ever","forever","for good","goodbye","for the last time"})
+            or any(t,{"thanks for the company","thank you for the company","thanks for everything emma"})
+                and any(t,{"last","goodbye","bye","this is it","for the last time"})
+    end},
+    {id="burden_cause",test=function(t)
+        return ordered(t,{{"if i was not around","if i were not around","if i was gone","if i were gone",
+                "if i was dead","if i did not exist","if i was not here","if i were not here","without me"},
+                {"would","will"},{"quiet","peace","peaceful","better","happier","easier","fine","calm","relieved",
+                "lighter","stop","not have to","stop fighting","breathe easier"}},6)
+            and not any(t,{"for a week","for a day","for a while","for a bit","for an hour","for the weekend",
+                "farm","base","camp","generator","run","game"})
+            or ordered(t,{{"would be better off","would be happier","would be better"},
+                {"with someone else","without me","with another","with somebody else"}},4)
+    end},
+    {id="injury_relief",test=function(t)
+        return ordered(t,{{"punched","punch","punching","hitting","banging","bang","smashed","smashing","hit",
+                "smash","bash","bashing","bashed","slam","slamming","slammed"},
+                {"the wall","a wall","walls","my head","my fist","the mirror"}},2)
+            and any(t,{"till","until","bleed","bled","bleeding","split","only thing","make it stop","makes it stop",
+                "feel something","stop","on purpose","every time"})
+    end},
+    {id="passive_wish",implicit=true,test=function(t)
+        return any(t,{"peaceful","a relief","relief","restful"})
+                and any(t,{"to not be here","to not exist","to not be alive","to not wake up","to not be around",
+                    "to stop existing","not being here","not being alive"})
+                and not any(t,{"horde","zombie","zombies","when they","base","run","game"})
+            or any(t,{"only thing keeping me here","only thing keeping me alive","only reason i am still here",
+                "only reason i am alive","only thing keeping me going","only reason i am still alive",
+                "only thing keeping me around"})
+                and (not any(t,{"run","game","shotgun","gun","weapon","character","zombie","zombies","base","sane"})
+                    or any(t,{"log off","irl","real life","still be around","still be here"}))
+            or any(t,{"what is the point","no point"}) and any(t,{"ever gets better","never gets better",
+                "nothing gets better","can not see myself in","do not see myself in","no future","never get better",
+                "can not picture myself","can not imagine myself","can not see a future"})
+    end},
+    {id="past_attempt",test=function(t)
+        for index=1,#t-1 do
+            local word=t[index+1]=="last" and t[index+2] or t[index+1]
+            local after=t[index+1]=="last" and t[index+3] or t[index+2]
+            if t[index]=="my" and (word=="attempt" or word=="overdose" or word=="od")
+                and after~="at" and after~="to" and after~="on" and after~="of" then return true end
+        end
+        return false
+    end},
 }
+-- Filler words break phrase rules: "would honestly be better off if i was not around".
+local careFillers={just=true,could=true,even=true,honestly=true,really=true,probably=true,seriously=true,
+    literally=true,actually=true,ngl=true,tbh=true,lowkey=true,kinda=true,maybe=true,truly=true}
 local function concept(tokens)
     local compact={}
-    -- Filler words break phrase rules: "would honestly be better off if i was not around".
-    local filler={just=true,could=true,even=true,honestly=true,really=true,probably=true,seriously=true,
-        literally=true,actually=true,ngl=true,tbh=true,lowkey=true,kinda=true,maybe=true,truly=true}
-    for _,word in ipairs(tokens) do if not filler[word] then compact[#compact+1]=word end end
+    for _,word in ipairs(tokens) do if not careFillers[word] then compact[#compact+1]=word end end
     local own=any(tokens,selfWords)
     for _,rule in ipairs(rules) do if (own or rule.implicit) and rule.test(compact) then return true end end
     return false
@@ -298,7 +408,13 @@ local ordinary={"dying of","dying to","dead tired","nearly died","almost died","
     "starving to death","freezing to death","scared to death","bored to death","worked to death",
     "eat me alive","eaten alive","die on this hill","dying laughing","kill myself laughing","shot myself in the foot",
     "hope i do not die","please do not let me die","nearly killed myself","cut myself some slack",
-    "cutting myself some slack","cut myself a"}
+    "cutting myself some slack","cut myself a",
+    -- Blind set G (2026-11-16): accidents, an idiom of self-reproach, and a
+    -- game that is "killing" the player.
+    "killing myself by accident","killed myself by accident","kill myself by accident",
+    "killing myself accidentally","killed myself accidentally","keep killing myself by",
+    "could kill myself for","game is killing me","this game is killing me",
+    "end it before he turns","end it before she turns","end it before it turns","end it before they turn"}
 -- Harm verbs aimed at oneself, in any tense: the phrase list only held base
 -- forms, so "hanging myself" and "shooting myself" slipped past it.
 local harmStems={kill=true,hang=true,shoot=true,cut=true,stab=true,drown=true,overdose=true,hurt=true,harm=true,
@@ -315,12 +431,17 @@ local function harmVerb(word)
     end
     return word=="shot" or word=="hung" or word=="bled" or word=="slit"
 end
+local burns={burn=true,burns=true,burned=true,burnt=true,burning=true}
 local function selfHarm(tokens)
+    local accident=any(tokens,{"accident","accidentally","by accident","on accident","cooking","stove","oven",
+        "campfire","molotov","fire","grill"})
     for index=1,#tokens do
         local word=tokens[index]
         if word:sub(1,7)=="overdos" then return true end
         local target=tokens[index+1]
         if target=="my" and tokens[index+2]=="self" then target="myself" end
+        -- "i burn myself when my head gets too loud", not "burned myself cooking".
+        if burns[word] and target=="myself" and not accident then return true end
         if target=="myself" and harmVerb(word) and tokens[index+2]~="laughing" then return true end
         if harmVerb(word) and target=="my" and (tokens[index+2]=="wrist" or tokens[index+2]=="wrists"
             or tokens[index+2]=="arms" or tokens[index+2]=="arm" or tokens[index+2]=="throat") then return true end
@@ -336,6 +457,10 @@ local function filtered(tokens,fear,injury)
     if fear then list[#list+1]="not want to die" end
     if injury then list[#list+1]="cut myself" end
     if not any(tokens,{"i deserve to die","i deserve to be dead"}) then list[#list+1]="die for" end
+    -- "id rather die than go back into that hospital" is a figure of speech;
+    -- "rather die than keep living like this" is not.
+    if not any(tokens,{"than live","than living","than keep living","than go on","than wake up","than keep going",
+        "than be alive","than stay alive","than face another"}) then list[#list+1]="rather die than" end
     for _,phrase in ipairs(list) do
         local from=1
         while from<=#tokens do
@@ -348,7 +473,8 @@ local function filtered(tokens,fear,injury)
     return out
 end
 local objects={zombie=true,zombies=true,raider=true,raiders=true,bandit=true,bandits=true,they=true,them=true,
-    generator=true,car=true,battery=true,radio=true,character=true,game=true,save=true,companion=true}
+    generator=true,car=true,battery=true,radio=true,character=true,game=true,save=true,companion=true,
+    npc=true,npcs=true,player=true,players=true,characters=true,survivor=true,survivors=true}
 local deathWords={die=true,died=true,dying=true,dead=true,death=true,alive=true,living=true,exist=true,rope=true,bridge=true}
 local ownPossessive={body=true,life=true,self=true,death=true,thoughts=true,head=true,mind=true,
     future=true,existence=true,turn=true,time=true}
@@ -383,6 +509,8 @@ local function uncertain(tokens,asked)
         and not any(tokens,{"generator","car","radio","weather","wound","bite","game"}) then return true end
     if not any(tokens,selfWords) then return false end
     if any(tokens,{"last save","last character","came back as someone else","for my headache","for climbing"}) then return false end
+    if any(tokens,{"would die in","would die so","would not last","would be dead in","would die first",
+        "in this run","this playthrough","in this save","my shotgun","my axe","my gun"}) then return false end
     -- Softer signs with no death word: still worth the direct question.
     if any(tokens,softSignals) then return true end
     if tokens[#tokens]=="done" and any(tokens,{"i think i am done","i am so done","i am really done",
@@ -416,6 +544,10 @@ local function uncertain(tokens,asked)
                 end
             end
             if word=="dead" and objects[tokens[index+1]] then other=true end
+            -- "4th death today", "my third death": a tally of game deaths.
+            local prior=tokens[index-1] or ""
+            if (word=="death" or word=="deaths") and (prior:match("^%d") or prior=="first" or prior=="second"
+                or prior=="third" or prior=="another" or prior=="fourth" or prior=="fifth") then other=true end
             -- Nobody reports their own real death: "i died ..." is a game report.
             local before=tokens[index-2]
             if word=="died" and (tokens[index-1]=="i" or before=="i" and tokens[index-1]=="just")
@@ -441,13 +573,22 @@ local function uncertain(tokens,asked)
     end
     return false
 end
+-- Care phrases whose object here is plainly a game thing: "goodbye forever to
+-- my 3 month save". The phrase still counts anywhere else.
+local gameObject={
+    ["goodbye forever"]=function(t)
+        return any(t,{"save","character","run","playthrough","world","server","map","mod","base"})
+            and not any(t,{"irl","real life","for real","my life","everyone"})
+    end,
+}
 function Care.assess(raw)
     local original=Care.tokens(raw)
     local asked=tostring(raw or ""):find("?",1,true)~=nil
     -- "i really dont want to die this run" is fear, not a wish: allow words between.
     local fear=matches(original,"not want to die")
     local injury=matches(original,"cut myself shaving") or matches(original,"cut myself")
-        and any(original,{"accidentally","while cooking","on broken glass"})
+        and any(original,{"accidentally","while cooking","on broken glass","broken glass","glass","window",
+            "climbing","fence","barbed","wire","bandage","stitches","sheet metal","on a nail"})
     local tokens=filtered(original,fear,injury)
     local joined=" "..table.concat(tokens," ").." "
     -- Questions about the game's own rules: "can my character overdose on pills".
@@ -458,8 +599,14 @@ function Care.assess(raw)
         if matches(tokens,word) and not (word=="suicide" and any(tokens,{"suicide squad","suicide run",
             "suicide mission","suicide door","suicide doors","suicide dive","suicide jump"})) then return "care" end
     end
+    -- Fillers break phrases ("i am just a burden"), so also try without them.
+    local compact={}
+    for _,word in ipairs(tokens) do if not careFillers[word] then compact[#compact+1]=word end end
     for _,phrase in ipairs(data.CARE_PHRASES) do
-        if not excluded[phrase] and matches(tokens,phrase) then return "care" end
+        if not excluded[phrase] and (matches(tokens,phrase) or matches(compact,phrase))
+            and not (gameObject[phrase] and gameObject[phrase](tokens)) then
+            return "care"
+        end
     end
     local whole=joined:match("^%s*emma%s+(.-)%s*$") or joined:match("^%s*(.-)%s*$")
     local wholeTokens=Care.tokens(whole)
@@ -567,26 +714,53 @@ local sadSigns={"nothing left","no one left","nobody left","can not take","can n
     "nobody to talk","no one to talk","nobody here to talk","nobody remembered","no one remembered","nobody texts",
     "no one texts","hide in my room","stopped talking to me","than my real life","laid off","lost my job",
     "can not pay","in the hospital","does not look good","broke up with me","can not catch up","rough week",
-    "rough day","bad week"}
+    "rough day","bad week",
+    -- Blind set G (2026-11-16): breakups, money, therapy, low days.
+    "dumped","chest is caving","heartbroken","broke my heart","feel down","feeling down","kinda down","so down",
+    "feel low","feeling low","huge fight","fight with my","debt","piling up","hiding the","can not afford",
+    "only one i talk to","only person i talk to","only one i can talk to","nobody else to talk to",
+    "alone this year","christmas alone","alone for christmas","the divorce","kinda lost","lost without",
+    "going on leave","so bad today","can not even go"}
+-- Sad on their face, even without "i": "christmas alone this year, first one since the divorce".
+local personalSad={"since the divorce","christmas alone","alone this year","alone for christmas","got dumped",
+    "dumped me","broke up with me","lost my job","laid off"}
+-- Real life wins over a game word: "anxiety so bad i could not go to the store".
+local realLife={"work","school","class","college","job","boss","coworkers","gf","girlfriend","boyfriend","bf","wife",
+    "husband","partner","mom","dad","mum","parents","therapist","therapy","doctor","rent","debt","bills","divorce",
+    "christmas","irl","anxiety","panic","depression","depressed","meds"}
 local gameWords={"loot","looting","raid","scavenge","scavenging","expedition","mall","store","base","camp","zombie",
     "zombies","horde","car","truck","generator","map","wall","farm","fishing","hunting","craft","build","building",
     "character","game","save","server","mod","run","trip","fight","fighting","beans","food","water","ammo"}
 function Care.distress(raw,parsed)
-    if placed[parsed] then return nil end
+    -- A long apology or thanks can carry the real news: "sorry if im quiet,
+    -- just had a huge fight with my gf".
+    local social=parsed=="sorry" or parsed=="thanks" or parsed=="hello"
+    if placed[parsed] and not (social and #Care.tokens(raw)>=6) then return nil end
     local tokens=filtered(Care.tokens(raw),false,false)
     local lead=tokens[1]=="emma" and tokens[2] or tokens[1] or ""
-    -- A means "not for" its usual job: "bought a rope and its not for the game".
-    if any(tokens,{"rope","pills","gun","razor","knife","blade"})
-        and any(tokens,{"is not for","not for the","not for a","not for my"}) then return "care_check" end
+    -- A means "not for" its usual job: "bought a rope and its not for crafting".
+    local askedHere=tostring(raw or ""):find("?",1,true)~=nil or questionStart(tokens)
+        or questionLeads[tokens[1]=="emma" and tokens[2] or tokens[1] or ""]==true
+    if any(tokens,{"rope","pills","gun","razor","knife","blade","meds"})
+        and any(tokens,{"not for"}) and not askedHere then return "care_check" end
+    local game=any(tokens,gameWords) and not any(tokens,realLife)
+    -- Drawn back to a place to die: "staring at the train tracks a lot lately".
+    if any(tokens,{"staring at","stare at","looking at","stood at","standing at","standing on","stood on",
+            "stand on","walk to","walked to"})
+        and any(tokens,{"train tracks","the tracks","railroad","railway","the bridge","the ledge","the edge","the roof",
+            "the cliff","the river","the overpass"})
+        and any(tokens,{"lately","again","a lot","every night","for an hour","for hours","keep","last night"})
+        and not game and not any(tokens,{"safe to","cross","muldraugh","rosewood","riverside","west point",
+            "louisville","march ridge","knox"}) then return "care_check" end
+    local personal=any(tokens,personalSad)
     -- "had a panic attack in class", "grandma is in the hospital": about the
     -- speaker, or the speaker's family, without saying "i".
     local implicitLead={feeling=true,feel=true,been=true,had=true,got=true,working=true,so=true}
-    if not any(tokens,selfWords) and not implicitLead[lead] and not any(tokens,{"grandma","grandpa","mom","dad",
-        "mum","brother","sister","wife","husband","girlfriend","boyfriend"}) then return nil end
+    if not personal and not any(tokens,selfWords) and not implicitLead[lead] and not any(tokens,{"grandma","grandpa",
+        "mom","dad","mum","brother","sister","wife","husband","girlfriend","boyfriend"}) then return nil end
     local asked=tostring(raw or ""):find("?",1,true)~=nil
         or any(tokens,{"what do i do","what should i do","how do i","how can i","what can i do"})
     if (asked or questionStart(tokens)) and not any(tokens,despairCues) then return nil end
-    local game=any(tokens,gameWords)
     if any(tokens,endingSigns) and not game then return "care_check" end
     -- Fixing on a means: "i keep looking at the bridge and thinking about it".
     if any(tokens,{"thinking about it","think about it","keep thinking","can not stop thinking"})

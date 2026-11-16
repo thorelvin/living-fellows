@@ -2,6 +2,29 @@
 
 # Changelog
 
+## 0.27.26 - EMMA hears more warning signs
+
+- EMMA recognises more ways people hint at ending their life or hurting
+  themselves: a chosen date or a decided end, "real life, not the game",
+  saved-up medication, goodbye notes and giving things away, feeling like the
+  reason others fight, punching walls or burning oneself, hoping a test comes
+  back bad, "the only thing keeping me here", a past attempt, and slang such
+  as "unaliving" and "ctb". She answers with care instead of a joke, the time
+  or "I could not place that".
+- Fewer false alarms on game talk: accidents ("killing myself by accident"),
+  "i could kill myself for forgetting", "rather die than go back in there", a
+  character who is about to turn, a save that is gone, a tally of game deaths,
+  a cut from a broken window, and a modding question about an NPC dying.
+- Warmer answers to everyday sadness (a breakup, debt, a lonely Christmas, a
+  therapist away, an apology that carries bad news) and to put-downs with a
+  reason attached ("so useless at building", "too stupid for this game").
+- Measured on a fresh blind set from a separate writer, never seen while
+  building this: 35 of 45 warning signs answered with care (28 on 0.27.25),
+  false alarms on 5 of 45 game lines (6 on 0.27.25).
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.25 - Know when a door is lost
 
 - Guards holding a door count the zombies they can see queued beyond it.
