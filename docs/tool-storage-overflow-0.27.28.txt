@@ -1,0 +1,56 @@
+Tool storage overflow -- candidate for 0.27.28 -- 2026-11-16
+
+Reproduced a matching bug in borrowed-tool returns: returnToStorage pinned
+the original container and stopped with destination_full despite other
+marked Tools stores having space. Ordinary sorting already checks all stores.
+
+Tool returns now prefer their original Tools shelf, then another loaded,
+permitted Tools store when it is full or disabled for deposits. Exact-item
+native capacity and current deposit permission are checked before transfer.
+If all are full, the companion keeps the exact tool. A target filling during
+Loot cancels that pose and retargets. Repeated completion recognises the exact
+tool already delivered. Receipt owners follow the actual destination so a
+successful overflow transfer does not remain owed to the original shelf.
+Production, vehicle/generator refuelling, upkeep and wood-expedition return
+verification are covered; borrowed force-entry crowbars share the selector.
+Other supply categories retain their source-return contract.
+
+Native before/after: three registered native crates with capacity 3, each
+filled by two native 1.5-weight hammers. One fresh companion, normal LF
+walking, native Loot pose and verified identity transfer. Disposable saves,
+LF only, isolated source bridge; user save and installed mod untouched.
+No zombie paths, movement flags or navigation states changed.
+
+                              Baseline              Candidate
+First full; two spare          destination_full       Second crate, 5.07 s
+First two full                 Not reached            Third crate, 5.01 s
+All three full                 Not reached            Exact tool retained
+Third then emptied             Not reached            Third crate, 5.22 s
+
+Baseline SC-Harness-20261116-173745-e67a560f: expected recorder FAIL, runner
+exit 1 at the reported symptom. Candidate 173940-6ccccf14: recorder PASS,
+runner exit 0; all three deposits plus full-store hold/recovery verified.
+First attempt 173537-aaef1c73 failed fixture spawning and is excluded.
+
+55 focused Kahlua checks pass, included in Cargo's essential gate: original
+preference, full first/first two, exact fit, disabled original/secondary,
+unloaded secondary, all-full hold and recovery, idempotency, filling during
+Loot, and ordinary sorting seeing both secondary stores.
+Full production integration passes new dig-graves cases: borrow shovel,
+fill source, repay to second/third, complete order and clear ownership.
+Both test suites fail with original 764c0fa7 SCBaseWork restored in an isolated
+copy (exit 1 at expected overflow assertions); current tests exit 0.
+
+Windows PowerShell 5.1 Test-Project: all five routine checks PASS (690.3 s).
+Current payload: 351 Lua files compile normal/debug. Final live fixture also
+compiles with debug metadata. No source changes after the tested payload;
+verification.json records hashes and all acceptance results.
+
+This confirms a shared tool REPAYMENT bug, not which activity the reporting
+player used. Other return callers have harness coverage; each vehicle/farm
+activity was not separately repeated live. No new save schema or protocol.
+
+Source fix on fix/tools-02728, baseline 764c0fa7. Version 0.27.28 is reserved;
+this is not a release or installation. Metadata/installed game remain 0.27.26.
+No push, tag, Workshop upload or release packaging was requested or performed.
+Evidence: C:/ZOMBOID/outputs/tool-storage-02728/.

@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Ordered production sources and compact outcomes; each group gets a fresh Lua environment.
+@{ Name = 'tool-storage-overflow'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCWorkTransport.lua'),
+    (Join-Path $Essential 'tool_storage_overflow_harness.lua')) }
+
 @{ Name = 'fuel-inlet-and-camp-refuel-recovery'; Files = @(
     (Join-Path $Core 'vehicle_refuel_fixture.lua'),
     (Join-Path $Client 'SCBaseFuel.lua'),

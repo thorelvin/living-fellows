@@ -15804,6 +15804,9 @@ end
 Harness.probeBaseMaintenance = function(...)
     return externalProbe("SCBaseMaintenanceProbe", ...)
 end
+Harness.probeToolStorage = function(...)
+    return externalProbe("SCToolStorageProbe", ...)
+end
 
 Harness.probeCleaningMixtures = function(...)
     return externalProbe("SCCleaningMixturesProbe", ...)
@@ -16453,6 +16456,8 @@ local function tick()
         Harness.probeFollowerBoarding(Harness,current,check,result,setPhase)
     elseif string.sub(tostring(Harness.phase),1,11)=="needs_food_" then
         Harness.probeNeedsPriority(Harness,current,check,result,setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 13) == "tool_storage_" then
+        Harness.probeToolStorage(Harness,current,check,result,setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 14) == "solo_firearms_" then
         Harness.probeSoloFirearms(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 13) == "squad_combat_" then
@@ -17493,6 +17498,8 @@ local function onGameStart()
         setPhase("follower_car_ai_setup",Harness.startedAt)
     elseif Harness.config.needs_priority_probe == "true" then
         setPhase("needs_food_setup",Harness.startedAt)
+    elseif Harness.config.tool_storage_probe == "true" then
+        setPhase("tool_storage_load",Harness.startedAt)
     elseif Harness.config.solo_firearms_probe == "true" then
         setPhase("solo_firearms_load", Harness.startedAt)
     elseif Harness.config.squad_combat_probe == "true" then

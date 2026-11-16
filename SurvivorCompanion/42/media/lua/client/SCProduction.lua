@@ -1442,8 +1442,15 @@ local function returnBorrowedTool(actor, order, state)
         return blockOrder(order, "base_work_unavailable")
     end
     state.phase = "returning_tool"
-    local ok, reason = SC.BaseWork.returnToStorage(actor, state, borrowed.storage,
+    local ok, reason, destination, container = SC.BaseWork.returnToStorage(actor, state, borrowed.storage,
         borrowed.container, borrowed.item)
+    if destination and container and destination ~= borrowed.storage then
+        borrowed.storage, borrowed.container = destination, container
+        local loans = state.job and state.job.target and state.job.target.productionTools
+        local receipt = loans and loans[pending.key]
+        if receipt then receipt.sourceStorageId = destination.id end
+        if SC.BaseLife.noteWorkOwnershipMutation then SC.BaseLife.noteWorkOwnershipMutation() end
+    end
     if ok == true and reason == "base_supply_returned" then
         Disposal.clearToolLoan(order, state, pending.key, borrowed.item)
         state.borrowedTools[pending.key] = nil

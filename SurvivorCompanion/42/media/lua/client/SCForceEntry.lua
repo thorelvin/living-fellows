@@ -202,6 +202,14 @@ function F.returnPending(actor, snapshot)
     local row = SC.BaseLife.storage(m.sourceId)
     local container, object
     if row then container, object = SC.BaseLife.resolveContainer(row) end
+    if row and row.category == "tools" and container and SC.BaseWork and SC.BaseWork.returnDestination then
+        local destination, target = SC.BaseWork.returnDestination(actor, row, container, item)
+        if destination and target then
+            row, container = destination, target
+            object = SC.BaseLife.resolveObject(row)
+            m.sourceId = row.id
+        end
+    end
     if not container or not object or not SC.BaseLife.storageAcceptsDeposit(row, container)
         or U().containerHasRoom(container, actor, item) ~= true then
         return defer()

@@ -1573,6 +1573,40 @@ end
 -- Graves: dig, bury, fill, ceremony
 -- ---------------------------------------------------------------------------
 
+for filled=1,2 do
+    local ctx=setup()
+    local shelves={ctx.toolsObject}
+    for index=2,3 do
+        shelves[index]=makeStorage(sq(index+1,-1))
+        check(SC.BaseLife.registerStorage(shelves[index],"tools"),"overflow tool shelf registers")
+    end
+    local shovel=makeItem("Base.Shovel",{tags={diggrave=true}})
+    ctx.toolsObject.container:AddItem(shovel)
+    local order=start(ctx,{operation="dig_graves",zoneId=ctx.burial.id,requested=1})
+    local reason
+    for _=1,8 do
+        _,reason=tick(ctx)
+        if SC.NativeActions.workKind(ctx.actor)=="dig_grave" then break end
+    end
+    check(SC.NativeActions.workKind(ctx.actor)=="dig_grave" and shovel.container==ctx.actor.inventory,
+        "overflow grave job first borrows the exact shovel")
+    for index=1,3 do
+        shelves[index].container.capacity=1
+        if index<=filled then shelves[index].container:AddItem("Base.Stone") end
+    end
+    current(ctx.actor):perform()
+    for _=1,14 do
+        _,reason=tick(ctx)
+        if SC.BaseLife.productionOrder(order.id).state=="completed" then break end
+    end
+    check(shovel.container==shelves[filled+1].container
+        and SC.BaseLife.productionOrder(order.id).state=="completed",
+        "completed production repays the exact tool to shelf " .. (filled+1)
+            .. " when earlier shelves fill: " .. tostring(reason))
+    check(shovel.modData.LF_ProductionToolKey==nil and shovel.modData.LF_ProductionOrderId==nil,
+        "successful overflow repayment clears the production ownership markers")
+end
+
 do
     local ctx = setup()
     local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })

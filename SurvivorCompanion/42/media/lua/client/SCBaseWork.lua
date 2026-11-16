@@ -494,7 +494,7 @@ local function transferFromStorage(actor, state, storage, container, item)
         or reason or "base_supply_transfer_failed"
 end
 
--- Return an exact borrowed supply to the exact marked container it came from.
+-- Move an exact supply to its selected marked container.
 -- This mirrors withdrawal: the worker approaches the storage, visibly uses it,
 -- revalidates the registration at commit time, and verifies the identity move.
 local function transferToStorage(actor, state, storage, container, item, requireDeposits, options)
@@ -3814,8 +3814,65 @@ function BaseWork.withdrawFromStorage(actor, state, storage, container, item)
     return transferFromStorage(actor, state, storage, container, item)
 end
 
+-- Prefer a loan's source. A full Tools shelf may be repaid to another marked
+-- Tools shelf; ordinary supply returns keep their original-source contract.
+-- Selection never grants deposit permission to an overflow destination.
+function BaseWork.returnDestination(actor, storage, container, item)
+    if type(storage) ~= "table" or storage.category ~= "tools"
+        or SC.BaseLife.storage(storage.id) ~= storage
+        or SC.BaseLife.resolveContainer(storage) ~= container then
+        return storage, container
+    end
+    if U().inventoryContains(container, item) then return storage, container end
+    local alternatives = SC.BaseLife.storageRows("tools")
+    -- Idempotent completion if the exact tool was already repaid to overflow.
+    local owner = select(1, U().call(item, "getContainer"))
+    for _, row in ipairs(alternatives) do
+        if row.id ~= storage.id then
+            local destination = SC.BaseLife.resolveContainer(row)
+            if destination and owner == destination and U().inventoryContains(destination, item) then
+                return row, destination
+            end
+        end
+    end
+    local room, reason = U().containerHasRoom(container, actor, item)
+    local permitted, permissionReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+    if permitted and (room == true or reason ~= "destination_full") then return storage, container end
+    if not permitted and permissionReason ~= "base_storage_deposits_disabled" then return storage, container end
+    for _, row in ipairs(alternatives) do
+        if row.id ~= storage.id then
+            local destination = SC.BaseLife.resolveContainer(row)
+            if destination and SC.BaseLife.resolveObject(row)
+                and SC.BaseLife.storageAcceptsDeposit(row, destination) == true
+                and U().containerHasRoom(destination, actor, item) == true then
+                return row, destination
+            end
+        end
+    end
+    return nil, nil, not permitted and permissionReason or "destination_full"
+end
+
 function BaseWork.returnToStorage(actor, state, storage, container, item)
-    return transferToStorage(actor, state, storage, container, item)
+    local destination, target, selectionReason = BaseWork.returnDestination(actor, storage, container, item)
+    if not destination then return false, selectionReason end
+    local overflow = destination ~= storage
+    local previous = state.toolReturnDestination
+    if state.visualAt ~= nil and (not previous or previous.item ~= item or previous.container ~= target) then
+        local native = SC.NativeActions
+        local cancel = native and (native.cancelVisual or native.clearVisual)
+        if cancel then
+            local called, cleared = pcall(cancel, actor)
+            if not called or cleared == false then return false, "base_storage_animation_cancel_failed" end
+        end
+        state.visualAt = nil
+    end
+    state.toolReturnDestination = { item = item, container = target }
+    local handled, reason = transferToStorage(actor, state, destination, target, item,
+        overflow or destination.category == "tools")
+    if handled == true and reason == "base_supply_returned" then state.toolReturnDestination = nil end
+    -- Receipt owners that verify the final container must follow a retarget
+    -- rather than continuing to demand ownership by the now-full original.
+    return handled, reason, destination, target
 end
 
 function BaseWork.depositToStorage(actor, state, storage, container, item, options)

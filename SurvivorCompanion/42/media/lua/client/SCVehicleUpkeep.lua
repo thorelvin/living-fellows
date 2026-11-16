@@ -829,8 +829,12 @@ function Upkeep.update(actor, baseState, job)
     end
     if home ~= "loaded" then return false, "base_storage_unloaded", true end
     if carried then
-        local returned, reason = SC.BaseWork.returnToStorage(actor, baseState,
+        local returned, reason, destination, targetContainer = SC.BaseWork.returnToStorage(actor, baseState,
             storage, container, item)
+        if destination and targetContainer then
+            storage, container = destination, targetContainer
+            target.sourceStorageId = destination.id
+        end
         if returned ~= true and reason == "base_storage_action_rejected"
             and U().directInteractionAccess then
             local object = SC.BaseLife.resolveObject(storage)

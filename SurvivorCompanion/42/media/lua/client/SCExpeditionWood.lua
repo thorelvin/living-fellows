@@ -998,7 +998,12 @@ function Wood.returnTools(actor, ctx)
     local transient = rt(wood)
     transient.returns = transient.returns or {}
     transient.returns[memberId] = transient.returns[memberId] or {}
-    local returned, reason = SC.BaseWork.returnToStorage(actor, transient.returns[memberId], storage, container, item)
+    local returned, reason, destination, targetContainer = SC.BaseWork.returnToStorage(
+        actor, transient.returns[memberId], storage, container, item)
+    if destination and targetContainer then
+        storage, container = destination, targetContainer
+        loan.storageId = destination.id
+    end
     if returned and reason == "base_supply_returned" then
         if U().inventoryContains(container, item) ~= true or call(item, "getContainer") ~= container then
             return false, "wood_axe_return_unverified", false
