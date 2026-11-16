@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.27.28 - Tools find room on another shelf
+
+- Companions returning borrowed tools try another marked Tools container when
+  their original store is full. A full first store no longer hides the second
+  or third. If all are full, they keep the exact tool until it can be stored.
+- Tool returns respect deposit permissions and the space needed by the actual
+  item. If a chosen shelf fills during the loot animation, they try another.
+- Production jobs, borrowed crowbars, refuelling, vehicle upkeep and wood
+  expeditions follow the actual return container so a successful deposit does
+  not leave the tool marked as still owed to its original shelf.
+- Verified with three real crates: the old version stops at a full first
+  container; this version uses the second, then the third, and holds the tool
+  safely when every container is full. Regression tests cover exact-fit
+  capacity, permissions, unloaded stores and a shelf filling during Loot.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.26 - EMMA hears more warning signs
 
 - EMMA recognises more ways people hint at ending their life or hurting

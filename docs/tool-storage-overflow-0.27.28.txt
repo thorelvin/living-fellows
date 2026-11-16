@@ -1,4 +1,4 @@
-Tool storage overflow -- candidate for 0.27.28 -- 2026-11-16
+Tool storage overflow -- 0.27.28 -- 2026-11-16
 
 Reproduced a matching bug in borrowed-tool returns: returnToStorage pinned
 the original container and stopped with destination_full despite other
@@ -50,7 +50,16 @@ This confirms a shared tool REPAYMENT bug, not which activity the reporting
 player used. Other return callers have harness coverage; each vehicle/farm
 activity was not separately repeated live. No new save schema or protocol.
 
-Source fix on fix/tools-02728, baseline 764c0fa7. Version 0.27.28 is reserved;
-this is not a release or installation. Metadata/installed game remain 0.27.26.
-No push, tag, Workshop upload or release packaging was requested or performed.
+Source fix checkpoint e6d251b6, baseline 764c0fa7. User requested the
+0.27.28 release branch push after these tests. Release metadata now names
+0.27.28; the unchanged bridge classes are rebuilt with that release label.
 Evidence: C:/ZOMBOID/outputs/tool-storage-02728/.
+
+Release validation: Windows PowerShell 5.1 Test-Project.ps1 -Release exited
+0; Build, Lifecycle, Behaviour, Cargo and Interface all PASS (938.8 s).
+Evidence run: build/test-results/20261116-180525-660925/summary.json.
+All 18 installer transaction cases pass, including optimizer adapter recovery
+and upgrade. Workshop and standalone 0.27.28 archives validate successfully.
+The bridge JAR differs from the source checkpoint only in its manifest
+release label; all class bytes match. Native acceptance is the separate
+before/after run above; the release gate does not launch a live game.
