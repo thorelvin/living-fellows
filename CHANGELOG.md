@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.29 - Make room for the next swing
+
+- Fit companions fighting alone on open outdoor ground keep a local melee
+  exchange against small groups: backstep, make a short turn-and-run when
+  crowded, then face the pursuers and time the next swing for their weapon.
+- Short blades wait for a useful opening. An older target commitment or a
+  zombie falling down no longer turns that local footwork into withdrawal.
+- Running needs a verified broad lane. Injury, exhaustion, flanks, blocked
+  ground and squad withdrawal retain their existing safety responses; held
+  posts and stairs retain their own combat handling.
+- A watched companion no longer counts itself as nearby backup.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; bridge release metadata is updated.
+
 ## 0.27.28 - Tools find room on another shelf
 
 - Companions returning borrowed tools try another marked Tools container when

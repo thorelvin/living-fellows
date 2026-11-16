@@ -2,6 +2,29 @@
 
 # Real sandbox harness
 
+`-SoloMeleeProbe` records one real Base Watch fighter against 0..5 native
+zombies, using ten common melee weapons. Cases are weapon-major: crowbar 1..6,
+bat 7..12, axe 13..18, hand axe 19..24, wood axe 25..30, machete 31..36,
+hunting knife 37..42, hammer 43..48, lead pipe 49..54, crafted spear 55..60.
+Use `-SoloMeleeStartCase` / `-SoloMeleeEndCase` for a range, or
+`-SoloMeleeCases '4,10,40,53'` for selected cases in that order. Each case gets
+a fresh fighter, fixed skills, full starting endurance and a full-condition
+weapon. Measurement makes no stat refills or equipment grants. Only initial
+native detection is seeded; zombie pursuit, collision and damage remain native.
+
+Run comparisons with `-LivingFellowsOnly -IsolatedSourceBridge -LowImpact
+-EngineSound`, the same explicit `-SeedSave`, and fresh clones for each repeat.
+`-SourcePayloadProjectRoot` selects an unchanged older release while retaining
+the current test fixture. Static corpse removal requires all 2,025 cleanup
+squares loaded and reads the native static lists back before the next case.
+The result CSV and motion/contact traces are written as `solo-melee-*.txt`
+under the clone's `Lua/SurvivorCompanionHarness` directory. Recorder PASS means
+complete measurements; combat acceptance must separately inspect outcomes,
+health, retreat and spacing. `scripts/Test-SoloMeleeFixture.ps1` tests the
+cleanup fixture with its recorded old-cleanup negative; the specialist
+`scripts/Test-OpenGroundMelee.ps1` verifies the production policy and five
+independent reverted-fix negatives.
+
 Grid control uses `-GridControlProbe -EngineSound -LivingFellowsOnly -NoSteam
 -IsolatedSourceBridge`. `-EngineSound` enables the real AmbientStreamManager
 while muting only the copied options. It surveys all seven sites, mounts actual

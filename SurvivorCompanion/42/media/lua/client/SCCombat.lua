@@ -12,6 +12,9 @@ end
 if not SC.Topology and type(require) == "function" then
     pcall(require, "SCTopology")
 end
+if not SC.MeleeKiting and type(require) == "function" then
+    pcall(require, "SCMeleeKiting")
+end
 
 SC.Combat = SC.Combat or {}
 local Combat = SC.Combat
@@ -2432,13 +2435,16 @@ local function healthySupportCount(actor, snapshot)
             local ok, value = pcall(SC.Medical.isDowned, ally.actor)
             downed = ok and value == true
         end
-        if stillAllied and ally.actor and not downed
+        -- Base Watch and expedition leaders may be their own player anchor.
+        -- That identity is never another pair of hands in a solo fight.
+        if stillAllied and ally.actor and ally.actor ~= actor and not downed
             and utility.sameFloor(actor, ally.actor)
             and (tonumber(ally.distanceSq) or utility.distanceSq(actor, ally.actor)) <= radiusSq
             and (tonumber(ally.health) or utility.nativeHealth(ally.actor)) > 30 then count = count + 1 end
     end
     local player = type(snapshot.player) == "table" and snapshot.player or nil
-    if player and player.available and player.actor and not utility.isDead(player.actor)
+    if player and player.available and player.actor and player.actor ~= actor
+        and not utility.isDead(player.actor)
         and utility.sameFloor(actor, player.actor) and utility.distanceSq(actor, player.actor) <= radiusSq
         and (tonumber(player.health) or utility.nativeHealth(player.actor)) > 30 then count = count + 1 end
     return count
@@ -2794,10 +2800,16 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     -- Let local bite risk choose which fighter must move on this pulse.
     local squadWithdrawal = squadMode == "disengage"
         and (close >= 1 or (tonumber(snapshot.incomingCount) or 0) >= 2)
+    local localKite, localKiteReason
+    if not guard and SC.MeleeKiting then
+        localKite, localKiteReason = SC.MeleeKiting.context(
+            actor, snapshot, options.target, weapon, readiness)
+    end
     local overrun = woundedWithdrawal or immediate >= 3 or snapshot.encircled == true
         or squadWithdrawal
         or readiness.staminaCritical and (immediate >= 1 or close >= 2)
         or risk >= threshold
+    if localKite then overrun = false end
     local cause
     if overrun then
         if woundedWithdrawal then cause = "health"
@@ -2832,6 +2844,8 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
         pushDelta = pushDelta,
         playerRequested = socialContext.playerRequested,
         pushed = socialContext.pushed,
+        localKite = localKite,
+        localKiteReason = localKiteReason,
     }
 end
 
@@ -3620,6 +3634,13 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
             }
         end
     end
+    local localKite = SC.MeleeKiting and SC.MeleeKiting.context(
+        actor, snapshot, target, weapon, readiness)
+    if localKite and not (states[actor] and states[actor].guardPost) then
+        local planned = SC.MeleeKiting.action(actor, target, weapon, readiness,
+            localKite, states[actor] or {}, utility.nowMs())
+        if planned then actions = { planned } end
+    end
     if SC.Topology and type(SC.Topology.strikeBarrier) == "function" then
         local barrier
         -- Visibility is not strike clearance. Remove each blocked physical
@@ -4142,8 +4163,12 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
         for _, pair in ipairs(pairs) do
             if pair.target.actor == state.target then previous = pair break end
         end
+        -- A commitment to the older target cannot turn verified local footwork
+        -- against the nearest pursuer back into a full withdrawal.
         local emergency = urgentTargetChange(best.target, previous and previous.target)
             or previous and offensiveAction(best.action) and not offensiveAction(previous.action)
+            or best.action.localKite == true and previous
+                and previous.action.localKite ~= true
         local margin = tonumber(U().config("combatTargetPairMargin")) or 8
         local committed = now < (state.targetCommitUntil or 0)
         if not committed then margin = margin * 0.5 end
@@ -5188,8 +5213,9 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     elseif action.kind == "backstep" then
         -- A loaded gun can retain native aim while walking backward. Jogging
         -- with it lowered resets native aim steadiness at every spacing pulse.
-        local guarded = action.rangedReposition and not action.rangedService
+        local guarded = not action.kiteRun and (action.rangedReposition and not action.rangedService
             or not action.rangedReposition and spacingFacesTarget(state, targetActor, utility.nowMs())
+        )
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
@@ -5197,7 +5223,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
                 actor, targetActor, "backstep", snapshot)
             if moveX == nil then return false, "backstep_blocked:" .. tostring(vectorReason) end
         end
-        accepted, nativeReason = utility.move(actor, action.rangedService and "jog" or "walk", {
+        accepted, nativeReason = utility.move(actor, (action.kiteRun or action.rangedService) and "jog" or "walk", {
             action = "backstep", target = targetActor, awayFrom = action.spacingThreat or targetActor,
             dx = moveX, dy = moveY, keepFacing = guarded, weaponReady = guarded,
             allowMovingTurn = not guarded,
@@ -5262,6 +5288,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     end
     return true, action.kind == "hold_range" and action.recoveryReason
         and "combat_recovery_wait"
+        or action.kiteRun == true and "kite_run"
         or action.kind == "hold_range" and nativeReason == "anticipatory_backpedal"
             and "anticipatory_backpedal"
         or action.kind == "hold_range" and action.closingWait == true
@@ -5551,6 +5578,7 @@ function Combat.update(actor, player, runtime)
         end
     end
     if overrun.overrun then state.retreatUntil = now + (utility.config("combatOverrunHoldMs") or 2600) end
+    if overrun.localKite then state.retreatUntil = nil end
     local keepRetreating = now < (state.retreatUntil or 0)
         and overrun.risk >= (utility.config("combatOverrunRecoveryRisk") or 38)
     if state.postSwingBackstepUntil and now >= state.postSwingBackstepUntil then
@@ -5865,6 +5893,9 @@ function Combat.update(actor, player, runtime)
         return false, reason
     end
     clearRejection(state, rootRuntime)
+    if SC.MeleeKiting and reason ~= "combat_recovery_wait" then
+        SC.MeleeKiting.accept(actor, target.actor, chosen, state, now)
+    end
     if reason ~= "combat_recovery_wait" and (chosen.kind == "shoot" or chosen.kind == "melee"
         or chosen.kind == "shove" or chosen.kind == "stomp") then
         claimTarget(target.actor, actor, now, state.cohortKey, combatRole,

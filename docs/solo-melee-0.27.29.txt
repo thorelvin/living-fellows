@@ -1,0 +1,117 @@
+Open-ground solo melee -- 0.27.29
+
+Behavior
+
+A fit, armed lone companion on verified outdoor ground keeps a local melee
+exchange with a small frontal group. It backsteps to protect the weapon's
+inner range, makes a bounded forward run when crowded, turns back, and lets
+the nearest pursuer enter that weapon's next native swing window. Waiting
+between steps prevents short blades from matching a zombie's walking speed
+forever without creating an attack opening.
+
+Admission requires a loaded, outdoor three-metre escape corridor with clear
+flanks, normal floor and no stairs or trees. The allowance covers at most five
+nearby upright threats clustered on the pursuer side. Health, wounds,
+endurance reserve, fatigue, load, flanks, encirclement, blocked ground, human
+threats and squad withdrawal retain their ordinary safety gates. Held posts
+and stairs retain their existing policy. The native swing lease and physical
+strike-barrier, range, collision and recovery gates remain authoritative.
+
+Base Watch's player anchor can be the watched companion. Self identity is
+excluded from support counts. An older target commitment cannot replace
+verified local footwork against the nearest pursuer with full withdrawal.
+Risk keeps the open lane while target selection changes or the selected
+zombie falls; ordinary safe-finisher rules still own the floor attack.
+
+Only companions move differently. Zombie navigation is untouched. Initial
+spotted(companion,true) is the sole seeded detection in the live fixture.
+
+Validation method
+
+The earlier football field and native Base Watch view are reused. Each case
+has a fresh recruited fighter, Strength/Fitness 5, melee/Maintenance 3,
+standard clothing, one full-condition weapon and full starting endurance.
+There are no stat refills, equipment grants or player support during combat.
+Native game speed, collision, damage and zombie pursuit are retained;
+multi-hit is inherited TRUE. Native damage callbacks and observed health
+changes are recorded separately from contacts and deaths.
+
+Fresh clones of the same seed are compared with unchanged 0.27.28. Native
+random rolls are not synchronized. Every trial begins with a loaded-floor
+cleanup of all 2,025 squares and native static-corpse readback. One isolated
+human observer stays away from the fight. A recorder PASS means complete
+evidence; combat outcomes have separate acceptance.
+
+Problem cases: crowbar/3, baseball bat/3, hunting knife/3 and lead pipe/4.
+Controls: crowbar and hunting knife with 0, 1 and 2 zombies. Empty fields
+must remain idle; combat controls must clear without injury or withdrawal.
+
+Production and fixture regressions
+
+scripts/Test-OpenGroundMelee.ps1 compiles the changed production files with
+the game's normal and debug Kahlua compiler. Its production-path checks
+cover local risk, weapon-specific waiting and early strikes, bounded runs,
+target commitment, self support, strike barriers and safety refusals.
+Individual source-copy reverts of self support, overrun admission, action
+scoring, forward-running gait and target commitment must each exit nonzero.
+The ordinary Behaviour release check also includes the policy harness.
+
+scripts/Test-SoloMeleeFixture.ps1 verifies native static-corpse removal and
+readback, including a nonzero-exit old moving-object-cleanup negative.
+Existing coordination, squad and guard-post production harnesses are run
+separately. Exhaustion, injury, blocked-ground and flank negatives are
+harness coverage; the healthy field trials do not establish their live
+success rates.
+
+Accepted native results
+
+Two fresh-clone repetitions of each problem case used the exact final
+SCCombat/SCMeleeKiting source, verified by SHA-256. All eight fights cleared
+at 100 health with zero observed retreat time, zero overrun time and no
+backward damaging contacts. The unchanged baseline had one clear, four
+withdrawals and three deaths across the corresponding eight fights.
+
+                         0.27.28 clears   0.27.29 clears   Fixed seconds
+Crowbar / 3                   0 / 2           2 / 2        18.21, 15.10
+Baseball bat / 3              0 / 2           2 / 2        20.46, 23.34
+Hunting knife / 3             0 / 2           2 / 2        40.34, 32.57
+Lead pipe / 4                 1 / 2           2 / 2        26.90, 38.77
+
+The exact final source also passed all six 0/1/2-zombie controls: both empty
+fields stayed idle, and all four fights cleared unhurt without withdrawal.
+An earlier control batch independently recorded the same clean outcomes.
+
+Additional five-zombie stress observations on the final source: crowbar
+cleared five unhurt in 28.34 s; hunting knife cleared five unhurt in 87.40 s.
+Both recorded zero retreat and overrun time. These are one trial each, not
+repeated five-zombie acceptance or a measured safe enemy-count limit.
+
+Kiting can use substantial ground: the longer accepted three-zombie knife
+fight reached 31.82 m from its start; the five-zombie knife fight reached
+29.10 m. Each run pulse is bounded, but the whole encounter is not confined
+to that pulse's three-metre lane. Native stationary swings still own their
+animation; the observed behavior is footwork, settle, strike, footwork.
+
+Accepted exact-source runs:
+  SC-Harness-20261116-191232-9eb38ee7: four problem cases.
+  SC-Harness-20261116-192432-a667ccbe: four problem cases, six controls,
+    two additional five-zombie observations.
+Unchanged baseline runs:
+  SC-Harness-20261116-184238-b9e206d2
+  SC-Harness-20261116-190830-ff72fa36
+Earlier development trials are retained separately and excluded from the
+exact-source eight-fight comparison. Every recorder and runner exited 0;
+separate result checks require the accepted clears, health and retreat data.
+
+Final release validation
+
+Windows PowerShell 5.1 Test-Project.ps1 -Release passed all five checks in
+949.3 s, including 18/18 installer transaction cases. The policy harness
+passed 37 checks with five nonzero-exit reverted-fix controls. Coordination,
+squad (68 checks) and guard-post (97 checks) harnesses passed. The final live
+fixture compiled in normal/debug modes and passed its seven cleanup checks;
+the old-cleanup negative exited 1.
+
+The remaining six weapon types, broader repeated four/five-zombie coverage
+and single-hit settings still need native coverage of this tuning. This
+report establishes the recorded outdoor cases, not general survival rates.

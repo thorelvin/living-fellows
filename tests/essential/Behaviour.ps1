@@ -29,6 +29,8 @@
     (Join-Path $Gameplay 'voice_soak_harness.lua')) }
 @{ Name = 'behaviour.combat-coordination'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'combat_coordination_regression_harness.lua')) }
+@{ Name = 'behaviour.open-ground-melee'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'open_ground_melee_harness.lua')) }
 
 @{ Name = 'behaviour.combat-squad'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'combat_squad_harness.lua')) }

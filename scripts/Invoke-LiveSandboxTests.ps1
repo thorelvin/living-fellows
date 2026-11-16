@@ -245,6 +245,10 @@ param(
     [switch]$GiftedEquipmentProbe,
     # Repeated native squad-versus-zombie survival trials in a cloned save.
     [switch]$SquadCombatProbe,
+    [switch]$SoloMeleeProbe,
+    [ValidateRange(1,60)][int]$SoloMeleeStartCase = 1,
+    [ValidateRange(1,60)][int]$SoloMeleeEndCase = 60,
+    [ValidatePattern('^(\d{1,2})(,\d{1,2})*$|^$')][string]$SoloMeleeCases = '',
     [switch]$SoloFirearmsProbe,
     [switch]$SoloFirearmsCalibrate,
     [switch]$SoloFirearmsEmptyStart,
@@ -1018,6 +1022,12 @@ if ($TeamDriveRestartResume -and [string]::IsNullOrWhiteSpace($SeedSave)) {
 }
 if ($ExternalUiControl -and $HiddenWindow) {
     throw '-ExternalUiControl requires a visible game window.'
+}
+if ($SoloMeleeStartCase -gt $SoloMeleeEndCase) {
+    throw '-SoloMeleeStartCase must not exceed -SoloMeleeEndCase.'
+}
+foreach ($meleeCase in @($SoloMeleeCases -split ',' | Where-Object { $_ })) {
+    if ([int]$meleeCase -lt 1 -or [int]$meleeCase -gt 60) { throw 'Solo melee case numbers must be 1..60.' }
 }
 if ($SquadCombatPhoto -and -not $SquadCombatProbe) {
     throw '-SquadCombatPhoto requires -SquadCombatProbe.'
@@ -2170,6 +2180,10 @@ $config = @(
     ('companion_transfer_probe=' + $CompanionTransferProbe.IsPresent.ToString().ToLowerInvariant()),
     ('gifted_equipment_probe=' + $GiftedEquipmentProbe.IsPresent.ToString().ToLowerInvariant()),
     ('squad_combat_probe=' + $SquadCombatProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('solo_melee_probe=' + $SoloMeleeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('solo_melee_start_case=' + $SoloMeleeStartCase),
+    ('solo_melee_end_case=' + $SoloMeleeEndCase),
+    ('solo_melee_cases=' + $SoloMeleeCases),
     ('solo_firearms_probe=' + $SoloFirearmsProbe.IsPresent.ToString().ToLowerInvariant()),
     ('solo_firearms_calibrate=' + $SoloFirearmsCalibrate.IsPresent.ToString().ToLowerInvariant()),
     ('solo_firearms_empty_start=' + $SoloFirearmsEmptyStart.IsPresent.ToString().ToLowerInvariant()),
@@ -2356,6 +2370,10 @@ $manifest = [ordered]@{
     woodExpeditionStockEquipment = $WoodExpeditionStockEquipment.IsPresent
     woodExpeditionQuietSite = $WoodExpeditionQuietSite.IsPresent
     squadCombatProbe = $SquadCombatProbe.IsPresent
+    soloMeleeProbe = $SoloMeleeProbe.IsPresent
+    soloMeleeStartCase = $SoloMeleeStartCase
+    soloMeleeEndCase = $SoloMeleeEndCase
+    soloMeleeCases = $SoloMeleeCases
     soloFirearmsProbe = $SoloFirearmsProbe.IsPresent
     soloFirearmsCalibrate = $SoloFirearmsCalibrate.IsPresent
     soloFirearmsEmptyStart = $SoloFirearmsEmptyStart.IsPresent

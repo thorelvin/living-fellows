@@ -15957,6 +15957,9 @@ end
 Harness.probeSoloFirearms = function(...)
     return externalProbe("SCSoloFirearmsProbe", ...)
 end
+Harness.probeSoloMelee = function(...)
+    return externalProbe("SCSoloMeleeProbe", ...)
+end
 
 Harness.probeStairCombat = function(...)
     return externalProbe("SCStairCombatProbe", ...)
@@ -16460,6 +16463,8 @@ local function tick()
         Harness.probeToolStorage(Harness,current,check,result,setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 14) == "solo_firearms_" then
         Harness.probeSoloFirearms(Harness, current, check, result, setPhase)
+    elseif string.sub(tostring(Harness.phase), 1, 11) == "solo_melee_" then
+        Harness.probeSoloMelee(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 13) == "squad_combat_" then
         Harness.probeSquadCombat(Harness, current, check, result, setPhase)
     elseif string.sub(tostring(Harness.phase), 1, 13) == "stair_combat_" then
@@ -17502,6 +17507,8 @@ local function onGameStart()
         setPhase("tool_storage_load",Harness.startedAt)
     elseif Harness.config.solo_firearms_probe == "true" then
         setPhase("solo_firearms_load", Harness.startedAt)
+    elseif Harness.config.solo_melee_probe == "true" then
+        setPhase("solo_melee_load", Harness.startedAt)
     elseif Harness.config.squad_combat_probe == "true" then
         setPhase("squad_combat_setup", Harness.startedAt)
     elseif Harness.config.stair_combat_probe == "true" then

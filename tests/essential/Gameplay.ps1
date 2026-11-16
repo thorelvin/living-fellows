@@ -46,6 +46,7 @@ function Get-ScGameplayFiles {
         'SCNavigation.lua',
         'SCPositioning.lua',
         'SCCombat.lua',
+        'SCMeleeKiting.lua',
         'SCMedical.lua',
         'SCMedicKit.lua',
         'SCScavengeLoot.lua',
