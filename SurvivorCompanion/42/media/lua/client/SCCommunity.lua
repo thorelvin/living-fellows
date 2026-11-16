@@ -817,8 +817,10 @@ function Community.processEvents(limit)
         end
         if not row.communityRecorded then history(row) end
         -- Existing mood effects above are unchanged. The relationship memory
-        -- carries only the ledger ID, not another copy of its facts.
-        if SC.Relationship and SC.Relationship.noteEvent then
+        -- carries only the ledger ID, not another copy of its facts. It is not
+        -- doubled for kinds the companion records itself, and a repeat of the
+        -- same event refreshes one memory (SCRelationship.noteSharedEvent).
+        if SC.Relationship and SC.Relationship.noteSharedEvent then
             local seen={}
             local ids={}
             for _,list in ipairs({row.participants or {},row.witnesses or {},{row.sourceId}}) do
@@ -827,8 +829,8 @@ function Community.processEvents(limit)
             for _,id in ipairs(ids) do
                 local actor=U().resolveActor(id)
                 local state=actor and commandState(actor)
-                if state and state.recruited then
-                    SC.Relationship.noteEvent(state,row.kind,{at=row.at,eventId=row.id})
+                if state and state.recruited
+                    and SC.Relationship.noteSharedEvent(state,row.kind,row.at,row.id) then
                     persistActor(actor)
                 end
             end

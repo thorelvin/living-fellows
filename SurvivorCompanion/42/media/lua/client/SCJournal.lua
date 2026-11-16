@@ -72,9 +72,11 @@ local function timeline(state)
     local maximum = U().config("maxJournalMemories") or 12
     for index = #memories, math.max(1, #memories - maximum + 1), -1 do
         local memory = memories[index]
-        if type(memory) == "table" then
-            local textValue = SC.Relationship and type(SC.Relationship.memoryText) == "function"
-                and SC.Relationship.memoryText(memory) or tostring(memory.kind or "memory")
+        local textValue = type(memory) == "table" and (SC.Relationship
+            and type(SC.Relationship.memoryText) == "function"
+            and SC.Relationship.memoryText(memory) or tostring(memory.kind or "memory"))
+        -- Back-to-back memories that read the same are one line, newest kept.
+        if textValue and not (result[#result] and result[#result].text == textValue) then
             result[#result + 1] = {
                 kind = tostring(memory.kind or "memory"),
                 text = textValue,

@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.23 - Ritual line and companion memories
+
+- The More tab's ritual line shows its stage and completion count. It printed
+  the raw placeholders `%1$s` and `%2$s`.
+- Shared events (fights, alarms, homecomings, burials, arguments and the
+  rest) were copied into each companion's own memories since 0.27.21 without a
+  line of their own, so the journal and Talk repeated "I remember us getting
+  through another day together." Each kind now has its own line. A run of the
+  same event keeps one memory instead of pushing older ones out, and kinds a
+  companion already records itself (joining, a rescue, a death) are no longer
+  doubled. Saves that already hold repeated lines show each one once.
+- Standalone uses the existing wrapper loader and bridge protocol
+  `42.22-isocompanion-31` for Project Zomboid 42.22.2; save schema and native
+  behavior are unchanged.
+
 ## 0.27.22 - Parked cars and conversation follow-ups
 
 - Outdoor followers near parked vehicles can use the native polygon route to

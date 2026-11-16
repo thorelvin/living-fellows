@@ -163,4 +163,50 @@ do
     check(restored,"legal bounded ledger, pair memories and heard receipts fit the world copy budget: "..tostring(why))
     check(C.export()~=nil,"a full bounded ledger remains saveable")
 end
+do
+    -- 0.27.23: since 0.27.21 every shared event was copied into the companion's
+    -- own memories with no line, so the journal and Talk repeated "another day
+    -- together" for each fight, and real memories were pushed out.
+    C.reset() E.reset()
+    local actor=T.actor("sc-memory",1,1,{recruited=true})
+    local registered=T.registry["sc-memory"]
+    T.registry["sc-memory"]=actor
+    local state=SC.Commands.peek(actor)
+    check(state and state.recruited,"the memory test companion is recruited")
+    state.memories={}
+    local generic=SC.Relationship.memoryText({kind="no_such_kind"})
+    E.emit("combat_encounter",{participants={"sc-memory"},sourceId="sc-memory",kills=2})
+    C.processEvents()
+    check(#state.memories==1 and state.memories[1].kind=="combat_encounter",
+        "a shared fight reaches the companion's memories once")
+    local line=SC.Relationship.memoryText(state.memories[1])
+    check(line~=generic and line:find("fought",1,true)~=nil,"a shared fight has its own memory line: "..tostring(line))
+    local firstId=state.memories[1].eventId
+    E.emit("combat_encounter",{participants={"sc-memory"},sourceId="sc-memory",kills=3})
+    C.processEvents()
+    check(#state.memories==1 and state.memories[1].eventId~=firstId,
+        "a second fight in a row refreshes one memory instead of adding another")
+    E.emit("recruited",{participants={"sc-memory"},targetId="player:local",outcome="joined"})
+    E.emit("rescued_player",{participants={"sc-memory","player:local"},targetId="player:local"})
+    C.processEvents()
+    check(#state.memories==1,"kinds the companion records itself are not copied a second time")
+    E.emit("bottle_smashed",{participants={"sc-memory"}})
+    C.processEvents()
+    E.emit("combat_encounter",{participants={"sc-memory"},sourceId="sc-memory",kills=1})
+    C.processEvents()
+    check(#state.memories==3,"a different event in between keeps both fights")
+    for _,kind in ipairs({"combat_encounter","alarm_fought_off","expedition_homecoming","supply_run_completed",
+        "supply_run_rough","promise_broken","first_meeting","first_camp_night","survival_milestone",
+        "companion_bitten","burial","player_close_call","witnessed_injury","encouraged","joy_shared",
+        "argument","reconciled","social_fight","breakdown_finished","bottle_smashed","furniture_hit"}) do
+        check(SC.Relationship.memoryText({kind=kind,eventId="e:"..kind})~=generic,"shared kind has its own line: "..kind)
+    end
+    -- Saves from 0.27.21/0.27.22 already hold runs of the same line.
+    state.memories={{kind="worked",at=1},{kind="old_shared",eventId="a",at=2},
+        {kind="old_shared",eventId="b",at=3},{kind="old_shared",eventId="c",at=4}}
+    local journal=SC.Journal.build(actor,state,{name="Memory Fellow"})
+    check(#journal.memories==2 and journal.memories[1].text==generic and journal.memories[2].kind=="worked",
+        "back-to-back identical memory lines show once in the journal")
+    T.registry["sc-memory"]=registered
+end
 SC_TEST_REPORT="SHARED_HISTORY_PASS checks="..checks

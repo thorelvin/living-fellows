@@ -34,5 +34,17 @@ class TranslationReferences(unittest.TestCase):
             self.assertNotIn("%", re.sub(r"%%|%[1-9]", "", english[key]), key)
 
 
+    def test_information_line_labels_take_one_value(self):
+        # addInformationLine(panel, y, key, value) fills only %1. A label with
+        # %2 showed raw placeholders ("Stage: %1$s | Completed %2$s times").
+        english = json.loads((TRANSLATE / "EN/UI.json").read_text(encoding="utf-8"))
+        offenders = []
+        for path in (PAYLOAD / "42/media/lua/client").glob("*.lua"):
+            source = path.read_text(encoding="utf-8-sig")
+            for key in re.findall(r"addInformationLine\(\s*[^,]+,\s*[^,]+,\s*\"([A-Za-z0-9_]+)\"", source):
+                if re.search(r"%[2-9]", english.get(key, "")):
+                    offenders.append(f"{path.name}: {key}")
+        self.assertFalse(offenders, offenders)
+
 if __name__ == "__main__":
     unittest.main()

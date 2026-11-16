@@ -222,6 +222,33 @@ local memoryText = {
     player_hit_after_ceasefire = { "IGUI_SC_Memory_PlayerHitAfterCeasefire", "I spared you, and you attacked me again. There will be no second ceasefire." },
 }
 
+-- Shared-history events (SCCommunity) reach every companion who took part or
+-- watched. Each kind needs its own line; without one the journal and Talk fell
+-- back to the generic day-together line for every fight.
+local sharedMemoryText = {
+    combat_encounter = { "IGUI_SC_Memory_SharedFight", "We fought off the dead and lived through it." },
+    alarm_fought_off = { "IGUI_SC_Memory_SharedAlarm", "The camp alarm went off, and we held the place." },
+    expedition_homecoming = { "IGUI_SC_Memory_SharedHomecoming", "We made it back from a run together." },
+    supply_run_completed = { "IGUI_SC_Memory_SharedSupplyRun", "The last supply run brought us home together." },
+    supply_run_rough = { "IGUI_SC_Memory_SharedRoughRun", "The last run went badly." },
+    promise_broken = { "IGUI_SC_Memory_SharedPromiseBroken", "The promised supply run never happened." },
+    first_meeting = { "IGUI_SC_Memory_SharedFirstMeeting", "I remember meeting one of the others for the first time." },
+    first_camp_night = { "IGUI_SC_Memory_SharedFirstCampNight", "I remember our first night in this camp." },
+    survival_milestone = { "IGUI_SC_Memory_SharedMilestone", "We have lasted longer than I thought we would." },
+    companion_bitten = { "IGUI_SC_Memory_SharedBitten", "Someone in our group got bitten. I keep coming back to it." },
+    burial = { "IGUI_SC_Memory_SharedBurial", "We put someone in the ground and said what we could." },
+    player_close_call = { "IGUI_SC_Memory_SharedCloseCall", "You nearly did not get free that time." },
+    witnessed_injury = { "IGUI_SC_Memory_SharedInjury", "I watched someone get hurt." },
+    encouraged = { "IGUI_SC_Memory_SharedEncouraged", "Someone took the time to steady me." },
+    joy_shared = { "IGUI_SC_Memory_SharedJoy", "Someone's good mood lifted the room." },
+    argument = { "IGUI_SC_Memory_SharedArgument", "That argument is still sitting with me." },
+    reconciled = { "IGUI_SC_Memory_SharedReconciled", "We faced the problem instead of letting it grow." },
+    social_fight = { "IGUI_SC_Memory_SharedSocialFight", "Things between us became physical." },
+    breakdown_finished = { "IGUI_SC_Memory_SharedBreakdown", "The strain broke through for a while. It passed, but I remember it." },
+    bottle_smashed = { "IGUI_SC_Memory_SharedBottle", "A bottle got smashed when the strain boiled over." },
+    furniture_hit = { "IGUI_SC_Memory_SharedFurniture", "Someone took their anger out on the furniture." },
+}
+
 function Relationship.memoryText(memory)
     if type(memory) ~= "table" then
         if type(memory) == "string" and memory ~= "" then return memory end
@@ -238,7 +265,7 @@ function Relationship.memoryText(memory)
         return text("IGUI_SC_Memory_GoalCompletedNamed", "We did it: %1.",
             SC.Objectives.label(memory.objectiveKind))
     end
-    local specification = memoryText[memory.kind]
+    local specification = memoryText[memory.kind] or sharedMemoryText[memory.kind]
     if specification then return text(specification[1], specification[2]) end
     return text("IGUI_SC_Memory_Generic", "I remember us getting through another day together.")
 end
@@ -277,6 +304,23 @@ end
 
 function Relationship.noteEvent(state, kind, changes)
     return recordEvent(state, kind, changes)
+end
+
+-- A companion keeps its own measured memory of kinds it records itself
+-- (recruited, rescued_player, shared_escape and the rest), so the shared copy
+-- is not added twice. A run of the same event keeps one memory, refreshed,
+-- instead of pushing the older ones out of the bounded list.
+function Relationship.noteSharedEvent(state, kind, at, eventId)
+    if type(state) ~= "table" or type(kind) ~= "string"
+        or memoryText[kind] or kind == "companion_died" then return nil end
+    Relationship.initialize(nil, state)
+    local last = state.memories[#state.memories]
+    if type(last) == "table" and last.kind == kind and type(last.eventId) == "string" then
+        last.at = math.max(0, math.floor(tonumber(at) or U().nowMs()))
+        if type(eventId) == "string" then last.eventId = eventId:sub(1, 100) end
+        return last, false
+    end
+    return recordEvent(state, kind, { at = at, eventId = eventId }), true
 end
 
 local function careHour()

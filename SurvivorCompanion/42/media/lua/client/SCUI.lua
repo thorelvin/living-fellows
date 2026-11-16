@@ -4522,8 +4522,10 @@ function SCUIDetail:buildJournal(panel, row)
     if ritual.known then
         y = self:addInformationLine(panel, y, "UI_SC_Journal_RitualName",
             ritual.label or UI.stateText(ritual.id))
-        y = self:addInformationLine(panel, y, "UI_SC_Journal_RitualStage",
-            UI.stateText(ritual.stage), tostring(tonumber(ritual.completions) or 0))
+        -- addInformationLine fills only %1; format both values first.
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Journal_RitualStage", UI.stateText(ritual.stage),
+                tostring(math.floor(tonumber(ritual.completions) or 0))))
         if ritual.relicStatus then
             y = self:addInformationLine(panel, y, "UI_SC_Journal_RelicStatus",
                 UI.stateText(ritual.relicStatus))
