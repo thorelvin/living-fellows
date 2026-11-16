@@ -97,3 +97,7 @@ Probe changes
   SCStairCombatProbe: modes "safeground" (paired on/off trials) and "door"
   (doorway cases only); the observer waits at the farthest indoor spot on
   the defenders' floor; timeline shows each follower's safe-ground seat.
+
+Correction (2026-11-16, 0.27.25): the ordinary doorway case (2 guards v 3)
+is not reliably clean. An A/B on unmodified 0.27.24 code failed it in three
+of three runs; see docs/horde-door-withdrawal-0.27.25.txt.

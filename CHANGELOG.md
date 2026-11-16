@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.25 - Know when a door is lost
+
+- Guards holding a door count the zombies they can see queued beyond it.
+  Twelve at a door two guards can hold four of is now a withdrawal at once,
+  not fifteen seconds of holding a door that cannot be kept; three still get
+  fought at the door.
+- A moment's lull while a crowd shuffles in and out of sight no longer
+  restarts the guards' count toward falling back. A guard's own short
+  retreats still do, so footwork alone never gives up a door.
+- A door guard forced to retreat goes back into the room, never out through
+  its own door into the queue.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.24 - Doorways, wide stairs and pulling out together
 
 - "Guard here" on a doorway holds. The front guard stays in line with the

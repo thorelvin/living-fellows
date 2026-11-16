@@ -906,6 +906,20 @@ local function guardStep(H, current, check, result, setPhase)
                     .. "/sectors" .. fmt(overrun.occupiedSectors) .. "/internal" .. fmt(readiness.internalRisk)
                     .. "/seat" .. tostring(combat and combat.guardPost and combat.guardPost.auto
                         and combat.guardPost.rank or "-")
+                -- What this guard itself perceives: visible zombies, how many
+                -- of them are beyond the door, and the squad's own numbers.
+                local seen, beyond = 0, 0
+                local snapshot = rt.senses and rt.senses.current
+                local guardPost = rt.guardPost and rt.guardPost.post
+                for index, threat in ipairs(snapshot and snapshot.threats or {}) do
+                    if index > 64 then break end
+                    if threat.visible ~= false and threat.x then
+                        seen = seen + 1
+                        if guardPost and SC.GuardPost.beyondDoor(guardPost, threat.x, threat.y) then beyond = beyond + 1 end
+                    end
+                end
+                states[#states] = states[#states] .. "/seen" .. seen .. "/beyond" .. beyond
+                    .. "/cap" .. tostring(plan and plan.capacity) .. "/act" .. tostring(plan and plan.active)
 
             end
             local zombies = {}

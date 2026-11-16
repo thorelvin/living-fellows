@@ -667,6 +667,28 @@ function Post.autoForActor(actor, squadView, commands)
         position = { x = seat.x, y = seat.y, z = seat.z } }
 end
 
+-- Zombies this door guard can see in or beyond the opening, within 10 m of
+-- it. The squad forecast leaves out a queue standing a few metres outside
+-- (it has no time to reach anyone yet), so twelve at a door looked like five
+-- (0.27.24 live run): the guards held 15 s against a door they could not keep.
+function Post.doorQueue(actor, runtime, state)
+    if not state or not state.post or state.post.kind ~= "door" then return 0 end
+    local snapshot = runtime and runtime.senses and runtime.senses.current
+    local _, _, az = U().position(actor)
+    local mx, my = doorMouth(state.post)
+    local count = 0
+    for index, threat in ipairs(type(snapshot) == "table" and snapshot.threats or {}) do
+        if index > 64 then break end
+        local x, y, z = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
+        if x and y and threat.visible ~= false and threat.posture ~= "downed"
+            and (z == nil or az == nil or math.floor(z) == math.floor(az))
+            and inOpening(state.post, x, y) and (x - mx)^2 + (y - my)^2 <= 100 then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 function Post.observe(actor, runtime, plan, now)
     local state = runtime and runtime.guardPost
     if not state then return false end
@@ -676,13 +698,32 @@ function Post.observe(actor, runtime, plan, now)
     local combat = SC.Combat and SC.Combat.peek and SC.Combat.peek(actor)
     local risk = combat and combat.overrun
     local personalWithdrawal = combat and combat.retreating == true and risk and risk.overrun == true
+    -- A queue at the door counts like arrivals: more than the guards hold plus
+    -- the usual margin is a withdrawal, four more is an immediate one.
+    local capacity = plan and tonumber(plan.capacity) or nil
+    local queue = Post.doorQueue(actor, runtime, state)
+    local margin = tonumber(U().config("combatSquadDisengageMargin")) or 2
     local squadWithdrawal = plan and plan.mode == "disengage"
+        or capacity ~= nil and queue > capacity + margin
+    -- The squad's judgement flickers while a crowd shuffles in and out of
+    -- sight: a calm shorter than guardChokeCalmMs does not restart its count.
+    -- A guard's own retreat is footwork and restarts as soon as it stops.
+    if squadWithdrawal then state.squadSince, state.calmSince = state.squadSince or now, nil
+    elseif state.squadSince then
+        state.calmSince = state.calmSince or now
+        if now - state.calmSince >= (U().config("guardChokeCalmMs") or 1000) then
+            state.squadSince, state.calmSince = nil, nil
+        end
+    end
+    if personalWithdrawal then state.disengageSince = state.disengageSince or now
+    else state.disengageSince = nil end
     if squadWithdrawal or personalWithdrawal then
-        state.disengageSince = state.disengageSince or now
-        local overwhelming = squadWithdrawal and (tonumber(plan.forecast) or 0)
-            >= (tonumber(plan.capacity) or math.huge) + 4
+        local forecast = math.max(plan and tonumber(plan.forecast) or 0, queue)
+        local overwhelming = squadWithdrawal and forecast >= (capacity or math.huge) + 4
             or personalWithdrawal and (risk.cause == "health" or risk.cause == "encircled")
-        if overwhelming or now - state.disengageSince >= (U().config("guardChokeDisengageMs") or 2500) then
+        local held = math.max(state.squadSince and now - state.squadSince or 0,
+            state.disengageSince and now - state.disengageSince or 0)
+        if overwhelming or held >= (U().config("guardChokeDisengageMs") or 2500) then
             state.withdrawn = true
             for _, record in ipairs(SC.Registry.records()) do
                 if record.actor and matches(record.actor, state.post) then
@@ -692,7 +733,7 @@ function Post.observe(actor, runtime, plan, now)
                 end
             end
         end
-    else state.disengageSince = nil end
+    end
     return state.withdrawn == true
 end
 

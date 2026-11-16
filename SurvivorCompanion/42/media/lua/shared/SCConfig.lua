@@ -1010,6 +1010,9 @@ local valueData = {
     guardRadius = 5,
     guardChokeHoldRadius = 0.7,
     guardChokeDisengageMs = 2500,
+    -- A calm shorter than this between withdrawal signals does not restart
+    -- the count above.
+    guardChokeCalmMs = 1000,
     -- Long enough for a guard to finish a natural idle/read/repair cycle
     -- between short patrol legs instead of pacing continuously.
     guardPatrolIntervalMs = 30000,

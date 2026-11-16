@@ -656,6 +656,21 @@ check(realigned and realignWhy == "guard_door_realign" and doorIntent
     "D05 a front guard pushed out of the door line steps back into it with a zombie in reach: "
         .. tostring(realigned) .. "/" .. tostring(realignWhy))
 dax, day = 40.5, 40.5
+local inDoor = f.zombie(40, 39)
+inDoor.getX, inDoor.getY = function() return 40.5 end, function() return 40.15 end
+-- A door guard forced to retreat never runs out through its own door.
+local oldRequest, oldTarget, retreatGoal = SC.Navigation.request, SC.Navigation.retreatTarget
+SC.Navigation.request = function(_, goal) retreatGoal = goal; return true, "routing" end
+SC.Navigation.retreatTarget = function() return nil end
+SC.Combat._executeRetreatForTests(doorA, f.player, { threats = { { actor = inDoor } },
+        escapeSquares = { { square = square(40, 37), score = 100 }, { square = square(40, 43), score = 1 } } },
+    { actor = inDoor }, true, { guardPost = doorState }, SC.Commands.effective(doorA))
+SC.Navigation.request, SC.Navigation.retreatTarget = oldRequest, oldTarget
+check(retreatGoal == square(40, 43), "D09 a door guard's retreat never goes out through the door into the queue")
+local inDoorSquare = square(40, 39)
+for index = #inDoorSquare.moving, 1, -1 do
+    if inDoorSquare.moving[index] == inDoor then table.remove(inDoorSquare.moving, index) end
+end
 end
 doorwayChecks()
 
@@ -841,4 +856,68 @@ local function safeGroundChecks()
     Squad.reset()
 end
 safeGroundChecks()
+
+-- Overwhelmed doorway (0.27.25). The guards saw eleven zombies beyond the door
+-- while the squad forecast counted five, and a flickering squad mode kept
+-- restarting the withdrawal count: they held a lost door for 15 s.
+local function doorQueueChecks()
+    local qa, qra = fighter("queue-a", 20, 31)
+    local qb = fighter("queue-b", 21, 31)
+    local queueDoor = doorway(20, 30)
+    SC.Commands.issue(qa.id, "guard", { target = queueDoor }, f.player)
+    SC.Commands.issue(qb.id, "guard", { target = queueDoor }, f.player)
+    local post = P.forActor(qa, qra)
+    local outside = {}
+    for index = 1, 9 do
+        outside[index] = f.zombie(19 + (index - 1) % 3, 28 - math.floor((index - 1) / 3))
+    end
+    local function seeing(count)
+        local rows = {}
+        for index = 1, count do
+            local zombie = outside[index]
+            rows[index] = { actor = zombie, x = zombie:getX(), y = zombie:getY(), z = 0, visible = true }
+        end
+        qra.senses = { current = { threats = rows } }
+    end
+    local function fresh()
+        post.withdrawn, post.disengageSince, post.calmSince, post.squadSince = false, nil, nil, nil
+        if qb.runtime and qb.runtime.guardPost then qb.runtime.guardPost.withdrawn = false end
+        local peer = f.registry[qb.id] and f.registry[qb.id].runtime and f.registry[qb.id].runtime.guardPost
+        if peer then peer.withdrawn = false end
+    end
+    local engaging = { mode = "engage", capacity = 4, forecast = 3 }
+    local start = f.clock + 500000
+    fresh(); seeing(9)
+    check(post and post.post.kind == "door" and P.observe(qa, qra, engaging, start),
+        "Q01 nine zombies queued at a door two guards hold four of: they pull out at once")
+    fresh(); seeing(7)
+    local early = P.observe(qa, qra, engaging, start)
+    local late = P.observe(qa, qra, engaging, start + 2600)
+    check(not early and late, "Q02 seven queued: the guards pull out after the usual hold, not at once")
+    fresh(); seeing(3)
+    P.observe(qa, qra, engaging, start)
+    check(not P.observe(qa, qra, engaging, start + 5000), "Q03 three queued at a door: the guards hold it")
+    fresh(); seeing(0)
+    local pulling = { mode = "disengage", capacity = 4, forecast = 6 }
+    P.observe(qa, qra, pulling, start)
+    P.observe(qa, qra, engaging, start + 800)
+    P.observe(qa, qra, pulling, start + 1200)
+    check(P.observe(qa, qra, pulling, start + 2600),
+        "Q04 a brief calm between pull-out signals does not restart the count")
+    -- A guard's own retreat is footwork: a short stop restarts its count
+    -- (0.27.25 live run gave up a 2v3 door when it did not).
+    fresh(); seeing(0)
+    local stepping = { retreating = true, overrun = { overrun = true, cause = "immediate_count" } }
+    local oldPeek = SC.Combat.peek
+    SC.Combat.peek = function(who) if who == qa then return stepping end return oldPeek(who) end
+    P.observe(qa, qra, engaging, start)
+    stepping.retreating = false
+    P.observe(qa, qra, engaging, start + 2000)
+    stepping.retreating = true
+    local footwork = P.observe(qa, qra, engaging, start + 2600)
+    SC.Combat.peek = oldPeek
+    check(not footwork, "Q05 a guard's own short retreats with a stop between them do not add up")
+    fresh(); qra.senses = nil
+end
+doorQueueChecks()
 SC_TEST_REPORT = "GUARD_POST_PASS checks=" .. f.checks()

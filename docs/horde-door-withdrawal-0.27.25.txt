@@ -1,0 +1,58 @@
+Overwhelmed doorway withdrawal -- 0.27.25 -- 2026-11-16
+======================================================
+Base: 47024196 (0.27.24). Project Zomboid 42.22.2, single-player, Living Fellows only.
+Bridge protocol 42.22-isocompanion-31 and save schemas unchanged; Lua only.
+
+Problem (0.27.24 follow-up)
+  Two guards holding a house door against twelve zombies took 9 s and 15.5 s
+  to fall back in two 0.27.24 runs, once with 2 bites. 0.27.23 left in 2.5 s
+  only because it fled from any door with three zombies at it.
+  Instrumented run SC-Harness-20261116-133606-86682525: each guard saw 11
+  zombies beyond the door while the squad forecast counted 5 to 6. The
+  forecast counts zombies within 4.5 m plus arrivals with a time to reach
+  anyone; a queue standing a few metres outside has neither. The squad mode
+  flickered between engage and disengage, and every flicker restarted the
+  2.5 s count toward giving up the post.
+
+Changes (SCGuardPost.lua, SCCombat.lua, SCConfig.lua)
+  1. Post.doorQueue: zombies a door guard sees in or beyond the opening within
+     10 m. Post.observe treats a queue larger than the squad's capacity plus
+     the disengage margin as a pull-out signal, and capacity plus 4 as an
+     immediate one (the same lines the squad forecast uses).
+  2. Squad pull-out signals keep counting through a calm shorter than
+     guardChokeCalmMs (1000 ms). A guard's own retreats restart their count as
+     soon as they stop, as before. (A first version let personal retreats
+     accumulate too; live it gave up an ordinary 2v3 door, so it was split.)
+  3. A door guard's retreat never picks a square beyond its door (escape
+     squares, the shared retreat square and route fallbacks). Live run
+     SC-Harness-20261116-134516-84bf3969 lost a guard that retreated out
+     through the door into the queue.
+  Tried and reverted: a straight or diagonal step back for a front guard with
+  a zombie in the opening. It let zombies into the post square or past the
+  guard; the door hold keeps 0.27.24's hold-still behaviour.
+
+Automated
+  guard_post_harness: Q01-Q05 and D09 added. Each has a single-change revert
+  control that fails its own check with a non-zero exit (q-immediate,
+  q-sustained, q-hold, q-calm, q-footwork, d-no-exit).
+  Release gate and Test-Source: see the release commit.
+
+Live, door-only probe (-StairCombatMode door), player 33 m away, crowbars
+  2v12 overwhelmed door, final logic: withdrew in 1.00 s, 0.97 s and 0.96 s,
+  no bites, full health (SC-Harness-20261116-134704-a4b790c3,
+  SC-Harness-20261116-135051-0c700445, SC-Harness-20261116-140415-6bf3e55d).
+  Runs 4 and 11 had no door step change; run 5 had the since-reverted
+  diagonal step, which does not touch the withdrawal path.
+  0.27.24: 9.0 s clean and 15.5 s with 2 bites.
+
+Correction to the 0.27.24 write-up
+  docs/horde-last-part-0.27.24.txt reported the ordinary doorway case (2
+  guards v 3) clean in three runs. It is not reliably clean. An A/B on
+  unmodified 0.27.24 game code with today's probe failed it in all three runs
+  (2 kills, one guard dead with 2 bites, 1 kill). Across all runs today it
+  passed 4 of 7 on 0.27.24 code and 3 of 12 on 0.27.25 builds (including
+  builds with since-removed changes). Failure modes seen: the front guard is
+  pushed out of the door line and a zombie then stands on its spot, so the
+  step back into line is refused; zombies slip past into the room; a guard
+  holding still with a zombie in the opening is bitten. This remains open.
+  It was already worse on 0.27.23, which abandoned the door at once.

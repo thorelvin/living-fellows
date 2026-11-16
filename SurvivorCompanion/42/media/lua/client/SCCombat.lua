@@ -4642,9 +4642,16 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
     local tether = retreatTether(actor, player, snapshot, commands)
     local shared, sharedPlan = sharedRetreatSquare(
         actor, currentState, snapshot, target, now, player, commands)
+    -- A door guard never retreats through its own door into the queue.
+    local doorPost = currentState.guardPost and currentState.guardPost.post
+    if not (doorPost and doorPost.kind == "door" and SC.GuardPost) then doorPost = nil end
+    local function outsideDoor(square)
+        local x, y = utility.position(square)
+        return doorPost ~= nil and x ~= nil and SC.GuardPost.beyondDoor(doorPost, x + 0.5, y + 0.5)
+    end
     local function routeAllowed(square)
         local key = square and utility.squareKey(square)
-        if not key or currentState.retreatBlockedKey == key
+        if not key or outsideDoor(square) or currentState.retreatBlockedKey == key
             and now < (currentState.retreatBlockedUntil or 0) then return false end
         local owner = sharedPlan and sharedPlan.reserved[key]
         return owner == nil or owner == actor
@@ -4667,12 +4674,12 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
     end
     local escape
     for _, candidate in ipairs(snapshot.escapeSquares or {}) do
-        if retreatCandidateAllowed(tether, candidate.square) then
+        if retreatCandidateAllowed(tether, candidate.square) and not outsideDoor(candidate.square) then
             escape = candidate
             break
         end
     end
-    if shared then
+    if shared and not outsideDoor(shared) then
         escape = { square = shared, danger = sharedPlan and sharedPlan.danger or 0 }
     end
     if remembered and retreatPlan and (tonumber(retreatPlan.danger) or 0) >= 5
