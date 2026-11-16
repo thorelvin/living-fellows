@@ -1,0 +1,99 @@
+Horde combat, last part -- 0.27.24 -- 2026-11-16
+================================================
+Base: ab731155 (0.27.23). Project Zomboid 42.22.2, single-player, Living Fellows only.
+Bridge protocol 42.22-isocompanion-31 and save schemas unchanged; Lua only.
+
+Scope
+  1. Two-wide staircases: early climber warning on every parallel column.
+  2. Doorway posts ("Guard here" on a door): the front guard stays in line with
+     the opening; zombies queued behind the one in the opening are not counted
+     as contacts, for every seated guard; a zombie staggered just through the
+     opening is still the head of the queue, not a breach.
+  3. Squad pull-out: one fit, armed rear guard (nearest the zombies; the follow
+     formation's rear guard wins a near tie) covers for up to 3 s while safe,
+     then follows. Unarmed or hurt members never cover.
+  4. Automatic safe ground: a doorway or stair top within 4 m of the player on
+     the player's floor, with every nearby zombie coming through it, taken by
+     followers (nearest at the front) when the group gives ground or is
+     outnumbered or even. Kept while the player stays within 5 m and no zombie
+     is more than 2 m inside; dropped on pull-out. Never searched off the
+     player's floor. Bounded: at most 81 squares, once a second.
+
+Decision refined during the work (flag for the user)
+  The plan said safe ground triggers "when the group must give ground". Live,
+  the zombies queued outside a door do not count as arrivals until they are
+  through it, so "give ground" came only after the door was lost. The trigger
+  now also fires while engaging when there are at least as many zombies as
+  fit fighters, all coming through the choke.
+
+Automated
+  Release gate: PROJECT_TEST_PASS checks=5 profile=release (serial, 256 MB,
+  two processors), 563.9 s, evidence build/test-results/20261116-130152-74372e.
+  Test-Source -Scope All: PASS. Live harness static: PASS, 152 assertions.
+  guard_post_harness: 91 checks (I08-I09 wide stairs, D00-D07 doorway,
+  S01-S15 safe ground). combat_squad_harness: 68 checks (W01-W06 rear guard,
+  rear-guard call-out).
+  Negative controls: 34 single-change reverts, each failing its own named check
+  with a non-zero exit (wide stairs 1, doorway 7, rear guard 7, safe ground
+  19). S11 ("never upstairs from below") is guarded by five independent
+  conditions; its control removes all five.
+
+Live, disposable clones of one seed save, one game at a time, isolated source
+bridge, real crowbars, native zombies, no immunity or mid-fight healing.
+
+  Baseline 0.27.23 (SC-Harness-20261116-120441-2b30cbcc)
+    Stair top 2v3: 3 kills, 0 bites, early warning at z 0.14.
+    Doorway 2v3: guards retreated at once (risk 71 vs 60: three queued
+    zombies counted as contacts); the post was released within 3 s.
+
+  Doorway hold, after the fix
+    SC-Harness-20261116-121347-9bb7bac3: 2v3 3 kills, 0 bites, 100% health;
+      2v12 both withdrew in 2.5 s unhurt (before the rear guard existed).
+    SC-Harness-20261116-125010-9c63bc81 (Base Watch view, player 33 m away):
+      stair top 2v3: 3 kills, 0 bites, min health 97.3%, early warning z 0.13.
+      doorway 2v3: 3 kills, 0 bites, min health 95.4%, max drift 1.91 m.
+      doorway 2v12: INVALID as a withdrawal test. Base Watch re-anchors
+      on-duty camp residents to the watched companion (BaseWatch.contextFor),
+      so the second guard fell back toward the first, still at the door, and
+      died; the watched guard's own Retreat order pointed at itself. In normal
+      play a Guard-here companion is not in Base Watch.
+    SC-Harness-20261116-125705-72408aa3 (no Base Watch, player 33 m away):
+      doorway 2v3: 3 kills, 0 bites, 100% health.
+      doorway 2v12: both withdrew, 1 kill, 2 bites, min health 90.4%, after
+      15.5 s. Slower than 0.27.23's 2.5 s: the squad saw only 3 to 5 of the 12
+      (the queue outside was out of sight), so its mode flickered between
+      engage and disengage and the sustained-withdrawal timer kept resetting,
+      while the door queue rule kept personal pressure low. Open follow-up.
+
+  Automatic safe ground (new probe mode -StairCombatMode safeground)
+    Two followers and the player inside a house, zombies spawned outside the
+    door. Trial 1 safe ground on, trial 2 off (combatSafeGroundRadius 0).
+    Player standing in the open 2.5 m behind the door (several runs): the
+    player died with safe ground on and off; seats were assigned but the
+    followers could not reach the door before contact. These runs led to the
+    trigger, nearest-first, opening-slack and pending-footwork changes.
+    SC-Harness-20261116-125936-b855442f, player walled off in a side room
+    1.6 m from the door, 2 followers v 3:
+      on:  player survived; one follower died (2 bites); 1 kill; seats used
+           for 340 samples, held at position for 51.
+      off: the player died.
+    One trial each. This shows the feature acting, not a measured benefit.
+
+  Squad arena (open ground, Stay order, three crowbar companions)
+    SC-Harness-20261116-131127-b94d057e, 0.27.24:
+      3v2: 9/9 survivors, 6/6 kills, lowest health 98.5%.
+      3v6: 7/9 survivors, 12/18 kills (2, 6, 4); a companion died in trials 1 and 3.
+    Paired control SC-Harness-20261116-131544-0afa84fc, unmodified 0.27.23,
+    same seed and fixture:
+      3v6: 8/9 survivors, 15/18 kills (4, 5, 6); a companion died in trial 1.
+    0.27.23 already falls short of the 0.27.14 to 0.27.16 benchmarks (9/9,
+    18/18). 0.27.24 is one death worse over three trials, inside the spread
+    these arenas show. In this scene only the pull-out rear guard can act (no
+    followers, no doors); the arena does not log squad modes, so whether a
+    pull-out happened is not recorded. Not a measured improvement or
+    regression; worth a longer paired run.
+
+Probe changes
+  SCStairCombatProbe: modes "safeground" (paired on/off trials) and "door"
+  (doorway cases only); the observer waits at the farthest indoor spot on
+  the defenders' floor; timeline shows each follower's safe-ground seat.

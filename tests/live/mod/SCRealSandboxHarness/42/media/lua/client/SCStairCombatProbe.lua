@@ -305,7 +305,10 @@ local function distantGuardObserver(SC, H)
             if minimum >= (OBSERVER_SETUP_DISTANCE+2)^2 then
                 -- Leave room for a genuine retreat without bringing the
                 -- fighting companions into the observer's three-tile clearance.
-                local score = building and call(square,"getBuilding")==building and 10000+minimum or -minimum
+                -- The player is kept out of harm's way: wait in the farthest
+                -- indoor spot on this floor (the 0.27.24 runs watch through
+                -- Base Watch or the zoomed-out screenshots instead).
+                local score = minimum
                 if not bestScore or score > bestScore then best,bestScore = square,score end
             end
         end
@@ -505,6 +508,11 @@ local function guardStep(H, current, check, result, setPhase)
         H.stair = findStair(SC, math.floor(x), math.floor(y), 70,H.guardSiteBuilding)
         H.guardRecoveryOnly = H.config.stair_combat_mode == "recovery"
         H.guardStairsOnly = H.config.stair_combat_mode == "stairs" or H.guardRecoveryOnly
+        -- Automatic safe ground (0.27.24): two followers and the player stand
+        -- inside, a few metres behind a house door; zombies come from outside.
+        -- Trial 1 uses safe ground; trial 2 is the control with it switched off.
+        -- The control runs last: the player stands in the fight's path and may die.
+        H.guardSafeGround = H.config.stair_combat_mode == "safeground"
         H.guardTrial, H.guardTrials = 1, number(H.config.stair_combat_trials, 3)
         H.guardDoor = not H.guardStairsOnly and guardDoor(SC, math.floor(x), math.floor(y)) or nil
         if not H.stair or (not H.guardStairsOnly and not H.guardDoor) then return fail("guard_geometry", "stairs="
@@ -513,14 +521,21 @@ local function guardStep(H, current, check, result, setPhase)
         pcall(function() H.player:setGhostMode(true) end)
         pcall(function() if SC.UI then SC.UI.close() end end)
         pcall(function() getPlayerInventory(0):setVisible(false); getPlayerLoot(0):setVisible(false) end)
-        H.guardCase = 1
+        -- "door" runs only the two doorway cases (hold, then overwhelmed).
+        H.guardCase = (H.guardSafeGround or H.config.stair_combat_mode == "door") and 2 or 1
         H.guardActors, H.guardZombies = {}, {}
         setPhase("stair_combat_guard_prepare", current); return
     end
     if H.phase == "stair_combat_guard_prepare" then
         if current < (H.guardNextAt or 0) then return end
-        if H.guardCase > 3 or H.guardStairsOnly and H.guardTrial > H.guardTrials then
+        if H.guardCase > 3 or H.guardStairsOnly and H.guardTrial > H.guardTrials
+            or H.guardSafeGround and H.guardTrial > 2 then
+            if H.guardSafeGround then SC.Config._values.combatSafeGroundRadius = 4 end
             setPhase("finish", current); return
+        end
+        if H.guardSafeGround then
+            SC.Config._values.combatSafeGroundRadius = H.guardTrial == 1 and 4 or 0
+            H.guardSeatSamples, H.guardSeatHeld = 0, 0
         end
         local square = H.guardCase == 1 and H.stair.landing or H.guardDoor.square
         local post = SC.GuardPost.detect(H.player, square, H.guardCase > 1 and {
@@ -634,6 +649,53 @@ local function guardStep(H, current, check, result, setPhase)
                 if not item then return fail("guard_cover_weapon", "crowbar creation failed") end
                 cover:setPrimaryHandItem(item)
             end
+            if H.guardSafeGround then
+                local p = H.guardPost
+                local room = call(U.gridSquare(p.x, p.y, p.z), "getRoom")
+                local taken = { [key(U.gridSquare(p.x, p.y, p.z))] = true }
+                -- Free floor in the same room as the door post, nearest first.
+                local function inside(depths, sides)
+                    for _, depth in ipairs(depths) do for _, side in ipairs(sides) do
+                        local sq = U.gridSquare(p.x + p.dx * depth - p.dy * side, p.y + p.dy * depth + p.dx * side, p.z)
+                        if sq and not taken[key(sq)] and U.isSquareFree(sq) and call(sq, "TreatAsSolidFloor") == true
+                            and call(sq, "getRoom") == room and not SC.Combat.atStairs(sq) then
+                            taken[key(sq)] = true
+                            return sq
+                        end
+                    end end
+                end
+                local stand
+                do
+                    -- Safe ground only acts within 4 m of the player. Keep the
+                    -- player that close, on the protected side, but in another
+                    -- room, so the fight at the door cannot reach the player.
+                    local best
+                    for dy = -4, 4 do for dx = -4, 4 do
+                        local sq = U.gridSquare(p.x + dx, p.y + dy, p.z)
+                        local cx, cy = p.x + dx + 0.5, p.y + dy + 0.5
+                        local d2 = (cx - p.x - 0.5)^2 + (cy - p.y - 0.5)^2
+                        if sq and d2 <= 3.8^2 and (cx - p.x - 0.5) * p.dx + (cy - p.y - 0.5) * p.dy >= 0.5
+                            and U.isSquareFree(sq) and call(sq, "TreatAsSolidFloor") == true
+                            and call(sq, "getRoom") ~= nil and call(sq, "getRoom") ~= room
+                            and (not best or d2 < best.d2) then best = { square = sq, d2 = d2 } end
+                    end end
+                    stand = best and best.square
+                    if not stand then return fail("safe_ground_side_room", "no other room within 4 m of the door") end
+                    taken[key(stand)] = true
+                end
+                if not stand then return fail("safe_ground_player", "no free floor three metres inside the door") end
+                for _, actor in ipairs(H.guardActors) do
+                    local spot = inside({ 2, 3, 1, 4 }, { -1, 1, 0, -2, 2 })
+                    if not spot then return fail("safe_ground_spot", "no free floor beside the player") end
+                    actor:teleportTo(spot:getX() + 0.5, spot:getY() + 0.5, p.z)
+                    local ordered, reason = SC.Commands.issue(SC.Registry.idOf(actor), "follow", nil, H.player)
+                    if not ordered or call(actor, "getModData").SC_Order ~= "follow" then
+                        return fail("safe_ground_follow", reason) end
+                end
+                H.player:teleportTo(stand:getX() + 0.5, stand:getY() + 0.5, p.z)
+                H.player:setCurrentSquare(stand)
+                setPhase("stair_combat_guard_quiet", current); return
+            end
             for i, actor in ipairs(H.guardActors) do
                 local p = H.guardPost
                 actor:teleportTo(p.x + p.dx * (i - 1) + 0.5,
@@ -677,7 +739,15 @@ local function guardStep(H, current, check, result, setPhase)
                 guardPhoto(H,"base-watch-ready")
             end
         end
-        if not H.guardObserverReadyAt then
+        if H.guardSafeGround then
+            local nearest = math.huge
+            for _, actor in ipairs(H.guardActors) do nearest = math.min(nearest, U.distance(actor, H.player)) end
+            if nearest > 4 then return fail("safe_ground_ready", "followers strayed " .. fmt(nearest)) end
+            local sx, sy = U.position(H.player)
+            result("PASS", "safe_ground_ready_" .. H.guardTrial, "radius=" .. tostring(U.config("combatSafeGroundRadius"))
+                .. " player_to_door=" .. fmt(math.sqrt((sx - H.guardPost.x - 0.5)^2 + (sy - H.guardPost.y - 0.5)^2)))
+        end
+        if not H.guardSafeGround and not H.guardObserverReadyAt then
             local observer = distantGuardObserver(SC,H)
             if not observer then return fail("guard_observer_clearance","no safe same-floor observer tile at least " .. OBSERVER_SETUP_DISTANCE .. " metres from both defenders") end
             H.player:teleportTo(observer:getX()+0.5,observer:getY()+0.5,observer:getZ())
@@ -685,8 +755,9 @@ local function guardStep(H, current, check, result, setPhase)
             H.guardObserverReadyAt = current+1000
             return
         end
-        if current < H.guardObserverReadyAt then return end
+        if not H.guardSafeGround and current < H.guardObserverReadyAt then return end
         local ox,oy,oz = U.position(H.player)
+        if not H.guardSafeGround then
         local separation = math.huge
         for _,actor in ipairs(H.guardActors) do separation = math.min(separation,U.distance(actor,H.player)) end
         if math.abs(oz-H.guardPost.z)>0.01 or call(call(H.player,"getCurrentSquare"),"getZ")~=H.guardPost.z
@@ -704,6 +775,7 @@ local function guardStep(H, current, check, result, setPhase)
         end
         result("PASS", "guard_settled_" .. H.guardCase,
             "kind=" .. H.guardPost.kind .. " anchor=" .. key(call(H.guardActors[1], "getSquare")))
+        end
         if H.guardWatchStarted then
             -- The observer's bedroom is outside the landing's original
             -- clearance radius. Remove ambient actors before the measured
@@ -747,7 +819,13 @@ local function guardStep(H, current, check, result, setPhase)
     if H.phase == "stair_combat_guard_observe" then
         if current < H.guardNextSample then return end
         H.guardNextSample = current + 100
-        if not alive(H.player) then return fail("guard_observer_alive", "observer died; trial invalid") end
+        if not alive(H.player) then
+            if H.guardSafeGround then
+                return fail("safe_ground_player_alive_" .. H.guardTrial, "the player died with safe_ground_radius="
+                    .. tostring(U.config("combatSafeGroundRadius")) .. " seat_samples=" .. tostring(H.guardSeatSamples))
+            end
+            return fail("guard_observer_alive", "observer died; trial invalid")
+        end
         local observerZ = select(3,U.position(H.player))
         if math.abs(observerZ-H.guardPost.z)>0.01 then return fail("guard_observer_floor",tostring(observerZ)) end
         local live, dead, retreating, bites, lowestHealth, resetSettled = 0, 0, 0, 0, 100, 0
@@ -756,7 +834,13 @@ local function guardStep(H, current, check, result, setPhase)
             if alive(actor) then
                 local separation = U.distance(actor,H.player)
                 H.guardObserverClosest = math.min(H.guardObserverClosest,separation)
-                if separation < OBSERVER_SETUP_DISTANCE then return fail("guard_observer_entered_arena","minimum_distance=" .. fmt(separation)) end
+                if separation < OBSERVER_SETUP_DISTANCE and not H.guardSafeGround then return fail("guard_observer_entered_arena","minimum_distance=" .. fmt(separation)) end
+                local combatNow = H.guardSafeGround and SC.Combat.peek(actor)
+                local seat = combatNow and combatNow.guardPost
+                if seat and seat.auto then
+                    H.guardSeatSamples = H.guardSeatSamples + 1
+                    if SC.GuardPost.atPosition(actor, seat) then H.guardSeatHeld = H.guardSeatHeld + 1 end
+                end
             end
             local assessment = SC.Medical.assess(actor)
             bites = bites + (assessment.bites or 0)
@@ -820,6 +904,8 @@ local function guardStep(H, current, check, result, setPhase)
                     .. "/covered" .. tostring(overrun.coveredStair)
                     .. "/holds" .. tostring(plan and plan.holds) .. "/support" .. fmt(overrun.support)
                     .. "/sectors" .. fmt(overrun.occupiedSectors) .. "/internal" .. fmt(readiness.internalRisk)
+                    .. "/seat" .. tostring(combat and combat.guardPost and combat.guardPost.auto
+                        and combat.guardPost.rank or "-")
 
             end
             local zombies = {}
@@ -858,6 +944,7 @@ local function guardStep(H, current, check, result, setPhase)
             or live < 2 or current - H.guardStarted > (H.guardStairsOnly and 90000 or 45000) then
             guardPhoto(H, tostring(H.guardCase) .. "-" .. H.guardTrial .. "-end")
             local passed = live == 2 and H.guardSlope == 0 and (H.guardCase ~= 3 or retreating == 2)
+                and (not H.guardSafeGround or H.guardTrial ~= 1 or H.guardSeatSamples > 0)
                 and (H.guardRecoveryOnly or H.guardCase == 3 or dead == #H.guardZombies)
                 and (not H.guardStairsOnly or H.guardEarly)
                 and (not H.guardRecoveryOnly or resetFinished and H.guardEarly and bites == 0)
@@ -868,12 +955,17 @@ local function guardStep(H, current, check, result, setPhase)
                 .. " reset_settled=" .. tostring(H.guardResetReachedAt ~= nil)
                 .. " lowest_health=" .. fmt(lowestHealth) .. " bites=" .. bites
                 .. " observer_floor=" .. fmt(observerZ) .. " observer_closest=" .. fmt(H.guardObserverClosest)
-            local id = "guard_live_" .. H.guardCase .. "_" .. H.guardTrial
-            if not passed then return fail(id, detail) end
+            if H.guardSafeGround then
+                detail = detail .. " safe_ground_radius=" .. tostring(U.config("combatSafeGroundRadius"))
+                    .. " seat_samples=" .. H.guardSeatSamples .. " seat_held=" .. H.guardSeatHeld
+            end
+            local id = (H.guardSafeGround and "safe_ground_live_" or "guard_live_") .. H.guardCase .. "_" .. H.guardTrial
+            if not passed and not H.guardSafeGround then return fail(id, detail) end
             check(id, passed, detail)
             guardCleanup(H)
             H.guardNextAt = current + 3000
-            if H.guardStairsOnly then H.guardTrial = H.guardTrial + 1 else H.guardCase = H.guardCase + 1 end
+            if H.guardStairsOnly or H.guardSafeGround then H.guardTrial = H.guardTrial + 1
+            else H.guardCase = H.guardCase + 1 end
             H.guardFightPhoto = nil
             setPhase("stair_combat_guard_prepare", current)
         end
@@ -882,7 +974,8 @@ end
 
 function Probe.step(H, current, check, result, setPhase)
     if H.config.stair_combat_mode == "guard" or H.config.stair_combat_mode == "stairs"
-        or H.config.stair_combat_mode == "recovery" then
+        or H.config.stair_combat_mode == "recovery" or H.config.stair_combat_mode == "safeground"
+        or H.config.stair_combat_mode == "door" then
         return guardStep(H, current, check, result, setPhase)
     end
     local SC = SurvivorCompanion

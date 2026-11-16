@@ -2212,6 +2212,31 @@ local pools = {
         },
         caring = { "Together! I'm not leaving anyone." },
     },
+    ["combat.squad.doorway"] = {
+        common = {
+            "Doorway, behind us. We hold it there.", "Into the doorway. Make them come one at a time.",
+            "Hold the door! One at a time.", "Back to the door. Let them queue.",
+            { "Door! Choke the bastards there.", clean = "Door! Choke them there." },
+        },
+        practical = { "Doorway. One way in, one at a time." },
+    },
+    ["combat.squad.stairs"] = {
+        common = {
+            "Top of the stairs. One at a time.", "Hold the top. Let them climb to us.",
+            "Stairs! They come up single file.",
+            { "Hold the stairs, damn it!", clean = "Hold the stairs, darn it!" },
+        },
+        practical = { "Stair top. Single file. Hit them as they come." },
+    },
+    ["combat.squad.rear_guard"] = {
+        common = {
+            "Go! I've got the rear.", "Move! I'll hold them a moment.",
+            "Get going. I'm right behind you.", "I'll slow them down. Go!",
+            { "Go, damn it! I've got them.", clean = "Go, darn it! I've got them." },
+        },
+        brave = { "Go on. They'll have to get past me first." },
+        caring = { "Get them out of here! I'm right behind you." },
+    },
     ["combat.squad.incoming"] = {
         common = {
             "More coming.", "Second wave behind them.", "Heads up, more on the way.",

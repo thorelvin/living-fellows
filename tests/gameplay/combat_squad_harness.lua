@@ -345,8 +345,10 @@ for _ = 1, 8 do Squad.forActor(a, nil, present(4), "party:squad", tick(260)) end
 check(#spoken == 1, "a change inside the group gap stays quiet: " .. table.concat(spoken, ","))
 tick(6000)
 Squad.forActor(a, nil, present(9), "party:squad", tick(260))
-check(#spoken == 2 and spoken[2] == "combat.squad.disengage",
-    "after the gap the next change is called out: " .. table.concat(spoken, ","))
+-- 0.27.24: a pull-out with a fit, armed rear guard is called by the rear
+-- guard itself ("Go! I've got the rear.").
+check(#spoken == 2 and spoken[2] == "combat.squad.rear_guard",
+    "after the gap the next change is called out, by the rear guard: " .. table.concat(spoken, ","))
 Squad.reset()
 spoken = {}
 local guarded = zombie(1, 1)
@@ -356,6 +358,71 @@ Squad.forActor(a, f.player, guardScene, "party:squad", tick(7000))
 check(#spoken == 0, "a zombie on the player that a fighter covers needs no call-out: "
     .. table.concat(spoken, ","))
 SC.Dialogue.say = say
+
+-- 6. Withdrawing together (0.27.24): one fit, armed member covers the others
+-- and leaves last; the rest pull out at once.
+local function withdrawalChecks()
+    a.square, b.square, c.square = f.cell:getGridSquare(0, 0, 0),
+        f.cell:getGridSquare(1, 0, 0), f.cell:getGridSquare(0, 2, 0)
+    local pack = {}
+    for index = 1, 9 do pack[index] = zombie(3 + (index - 1) % 3, -1 + math.floor((index - 1) / 3)) end
+    local function viewOf(member, now, extra)
+        local others = {}
+        for _, other in ipairs({ a, b, c }) do if other ~= member then others[#others + 1] = other end end
+        local scene = snapshot(others, pack)
+        for key, value in pairs(extra or {}) do scene[key] = value end
+        return Squad.forActor(member, nil, scene, "party:withdraw", now)
+    end
+    Squad.reset()
+    local start = tick(7000)
+    local va, vb, vc = viewOf(a, start), viewOf(b, start), viewOf(c, start)
+    check(va and vb and vc and va.mode == "disengage" and vc.mode == "disengage"
+            and vb.rearGuard and vb.covering and vb.mode == "give_ground" and not va.rearGuard,
+        "W01 pulling out, the fit armed member nearest the zombies covers and the rest go: "
+            .. tostring(va and va.mode) .. "/" .. tostring(vb and vb.mode) .. "/" .. tostring(vc and vc.mode))
+    local usableNow, responseNow = SC.Combat.primaryWeaponUsable, SC.Combat.unarmedResponse
+    SC.Combat.primaryWeaponUsable = function(x) return x ~= b end
+    SC.Combat.unarmedResponse = function() return "fight" end
+    Squad.reset()
+    local t2 = tick(7000)
+    local unarmedA, unarmedB = viewOf(a, t2), viewOf(b, t2)
+    SC.Combat.primaryWeaponUsable, SC.Combat.unarmedResponse = usableNow, responseNow
+    check(unarmedB and not unarmedB.rearGuard and unarmedB.mode == "disengage"
+            and unarmedA and unarmedA.rearGuard,
+        "W02 an unarmed member never covers the others, even nearest the zombies")
+    Squad.reset()
+    local t3 = tick(7000)
+    viewOf(a, t3)
+    local late
+    for _ = 1, 13 do viewOf(a, tick(250)) end
+    late = viewOf(b, clock)
+    check(late and late.rearGuard and not late.covering and late.mode == "disengage",
+        "W03 the rear guard covers for three seconds at most, then pulls out too")
+    Squad.reset()
+    local t4 = tick(7000)
+    viewOf(a, t4)
+    local pressed = viewOf(b, t4, { reachableImmediateCount = 2 })
+    check(pressed and pressed.rearGuard and not pressed.covering and pressed.mode == "disengage",
+        "W04 two zombies on the rear guard end its cover at once")
+    Squad.reset()
+    local t5 = tick(7000)
+    viewOf(a, t5)
+    b.body.health = 60
+    local hurt = viewOf(b, t5)
+    b.body.health = 100
+    check(hurt and hurt.rearGuard and not hurt.covering and hurt.mode == "disengage",
+        "W05 a hurt rear guard stops covering and pulls out")
+    Squad.reset()
+    local t6 = tick(7000)
+    viewOf(a, t6)
+    a.square = f.cell:getGridSquare(3, 3, 0)
+    viewOf(a, tick(260))
+    local kept = viewOf(b, clock)
+    a.square = f.cell:getGridSquare(0, 0, 0)
+    check(kept and kept.rearGuard, "W06 the rear guard keeps the job for the whole withdrawal")
+    Squad.reset()
+end
+withdrawalChecks()
 
 Squad.reset()
 SC.Combat.primaryWeaponUsable, SC.Navigation.openSegment, SC.ZombieFacts =

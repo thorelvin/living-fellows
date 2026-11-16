@@ -110,6 +110,23 @@ local function slotSquare(actor, post, offset)
     return previous
 end
 
+-- Two long melee weapons may hold both sides of a landing's incoming column.
+local function wideLanding(actor, post, members)
+    local wide = post.kind == "stairs" and #members >= 2 and slotSquare(actor, post, { 0, -1 })
+        and slotSquare(actor, post, { 0, 1 })
+    if wide then
+        for rank = 1, 2 do
+            local weapon = select(1, U().call(members[rank], "getPrimaryHandItem"))
+            local _, reach = SC.Combat.meleeRange(members[rank], weapon)
+            local condition = select(1, U().call(weapon, "getCondition"))
+            if not weapon or select(1, U().call(weapon, "isRanged")) == true
+                or (tonumber(condition) or 0) <= 0
+                or (tonumber(reach) or 0) < 1.2 then wide = false; break end
+        end
+    end
+    return wide and true or false
+end
+
 -- Native references remain in the actor's existing runtime, never in its order.
 function Post.forActor(actor, runtime, commands, now)
     local data = U().modData(actor)
@@ -148,18 +165,7 @@ function Post.forActor(actor, runtime, commands, now)
         end
     end
     table.sort(members, function(a, b) return tostring(U().idOf(a)) < tostring(U().idOf(b)) end)
-    local wide = post.kind == "stairs" and #members >= 2 and slotSquare(actor, post, { 0, -1 })
-        and slotSquare(actor, post, { 0, 1 })
-    if wide then
-        for rank = 1, 2 do
-            local weapon = select(1, U().call(members[rank], "getPrimaryHandItem"))
-            local _, reach = SC.Combat.meleeRange(members[rank], weapon)
-            local condition = select(1, U().call(weapon, "getCondition"))
-            if not weapon or select(1, U().call(weapon, "isRanged")) == true
-                or (tonumber(condition) or 0) <= 0
-                or (tonumber(reach) or 0) < 1.2 then wide = false; break end
-        end
-    end
+    local wide = wideLanding(actor, post, members)
     local cursor = 1
     for rank, peer in ipairs(members) do
         local square
@@ -193,11 +199,34 @@ function Post.point(state)
         y = p.y + 0.5 + (state.post and state.post.dy or 0) * inset, z = p.z }
 end
 
+-- The middle of the door opening, on the edge between the post square and the
+-- approach side.
+local function doorMouth(post)
+    return post.x + 0.5 - post.dx * 0.5, post.y + 0.5 - post.dy * 0.5
+end
+
+-- Beyond the door edge, on the side the zombies come from.
+function Post.beyondDoor(post, x, y)
+    if not post or post.kind ~= "door" or x == nil then return false end
+    local mx, my = doorMouth(post)
+    return (x - mx) * post.dx + (y - my) * post.dy < -0.05
+end
+
 function Post.atPosition(actor, state)
     local p = Post.point(state)
     local x, y, z = U().position(actor)
-    return p and x ~= nil and math.floor(z or 0) == p.z
-        and (x - p.x)^2 + (y - p.y)^2 <= (state.inset and 0.3 or state.post.kind == "stairs" and math.min(0.3, U().config("guardChokeHoldRadius") or 0.7) or U().config("guardChokeHoldRadius") or 0.7)^2
+    if not p or x == nil or math.floor(z or 0) ~= p.z then return false end
+    local radius = state.inset and 0.3 or state.post.kind == "stairs"
+        and math.min(0.3, U().config("guardChokeHoldRadius") or 0.7) or U().config("guardChokeHoldRadius") or 0.7
+    if state.post.kind == "door" and state.rank == 1 then
+        -- The front guard must stay in line with the opening. Off to one side,
+        -- its swings cross the door jamb and land nowhere (0.27.16 live run),
+        -- although it is still well inside the hold radius.
+        local along = (x - p.x) * state.post.dx + (y - p.y) * state.post.dy
+        local lateral = math.abs((x - p.x) * state.post.dy - (y - p.y) * state.post.dx)
+        return lateral <= 0.3 and along >= -0.35 and along <= radius
+    end
+    return (x - p.x)^2 + (y - p.y)^2 <= radius^2
 end
 
 -- A failed stair exchange temporarily opens the landing for the climber.
@@ -233,12 +262,119 @@ function Post.stairInset(actor, runtime, depth, now)
     return fits
 end
 
+-- A door lets one zombie through at a time. The rest queue outside, where
+-- they cannot reach the front guard or surround it, however close they stand.
+-- Count the one in the opening (and a second only once it is in the opening
+-- too); keep the full list for routes, strikes and the squad forecast. A
+-- zombie staggered just through the opening is still the head of that queue;
+-- only one well inside the room is a breach.
+local DOOR_OPENING = 1.1
+
+local function inOpening(post, x, y)
+    local mx, my = doorMouth(post)
+    return Post.beyondDoor(post, x, y) or (x - mx)^2 + (y - my)^2 <= DOOR_OPENING^2
+end
+
+local function doorView(actor, state, snapshot)
+    if type(state.rank) ~= "number" or not Post.atPosition(actor, state) or not SC.CombatThreatModel then return snapshot end
+    local ax, ay, az = U().position(actor)
+    local mx, my = doorMouth(state.post)
+    local personal, outside = {}, {}
+    for index, threat in ipairs(snapshot.threats or {}) do
+        -- Never reduce pressure on incomplete or unexpectedly large observations.
+        if index > 32 then return snapshot end
+        local facts = SC.ZombieFacts.get(threat.actor)
+        if facts.zombie and not facts.gone and math.floor(facts.z) == math.floor(az)
+            and inOpening(state.post, facts.x, facts.y) then
+            outside[#outside + 1] = { threat = threat, d2 = (facts.x - mx)^2 + (facts.y - my)^2 }
+        else personal[#personal + 1] = threat end
+    end
+    table.sort(outside, function(a, b) return a.d2 < b.d2 end)
+    local queued, queuedCount = {}, 0
+    for index, row in ipairs(outside) do
+        if index == 1 or index == 2 and row.d2 <= 0.8^2 then personal[#personal + 1] = row.threat
+        else queued[row.threat.actor], queuedCount = true, queuedCount + 1 end
+    end
+    if queuedCount == 0 then return snapshot end
+    local reachable = SC.CombatThreatModel.reachable(personal, ax, ay, az)
+        or { immediate = 0, close = 0, occupied = 0 }
+    local view = {}
+    for key, value in pairs(snapshot) do view[key] = value end
+    view.doorQueuedThreats = queued
+    view.reachableImmediateCount, view.immediateCount, view.closeImmediateCount =
+        reachable.immediate, reachable.immediate, reachable.immediate
+    view.reachableCloseCount, view.closeThreatCount = reachable.close, reachable.close
+    view.reachableThreatSectors, view.occupiedThreatSectors = reachable.occupied, reachable.occupied
+    view.localPressure = SC.CombatThreatModel.localPressure(reachable.immediate, reachable.close, reachable.immediate)
+    view.directionalPressure = reachable.immediate * 1.8
+        + math.max(0, reachable.close - reachable.immediate) * 0.55
+        + math.max(0, reachable.occupied - 1) * 0.6
+    -- A line queued through one opening cannot surround anyone.
+    view.encircled = snapshot.encircled == true and reachable.surrounded == true
+    return view
+end
+
+-- Holding a door with at most two zombies able to reach the front guard, all
+-- of them in or beyond the opening, is a covered position like a stair top.
+function Post.coveredDoor(actor, state, snapshot)
+    if not state or state.withdrawn or not state.post or state.post.kind ~= "door"
+        or not state.position or not Post.atPosition(actor, state) then return false end
+    local ax, ay, az = U().position(actor)
+    local count = 0
+    for index, threat in ipairs(snapshot.threats or {}) do
+        if index > 32 then return false end
+        local facts = SC.ZombieFacts.get(threat.actor)
+        if facts.zombie and not facts.gone and (facts.posture ~= "downed" or facts.gettingUp)
+            and math.floor(facts.z) == math.floor(az) and threat.obstructed ~= true
+            and (facts.x - ax)^2 + (facts.y - ay)^2 <= (U().config("combatCloseThreatRadius") or 4.5)^2 then
+            if not inOpening(state.post, facts.x, facts.y) then return false end
+            if not (snapshot.doorQueuedThreats and snapshot.doorQueuedThreats[threat.actor]) then
+                count = count + 1
+            end
+        end
+    end
+    return count > 0 and count <= 2
+end
+
+-- A front guard pushed out of the door line steps back into it, even with a
+-- zombie close by, as long as the spot is not in body contact with that zombie
+-- and the step crosses no other one.
+function Post.realign(actor, state, snapshot, target)
+    if not state or state.withdrawn or not state.post or state.post.kind ~= "door"
+        or state.rank ~= 1 or Post.atPosition(actor, state) then return nil end
+    local p = Post.point(state)
+    local ax, ay, az = U().position(actor)
+    if not p or not ax or math.floor(az or 0) ~= p.z or U().distance(actor, p) > 1.25 then return nil end
+    local tx, ty = U().position(target and target.actor)
+    if tx and (p.x - tx)^2 + (p.y - ty)^2 < 0.6^2 then return nil end
+    local dx, dy = p.x - ax, p.y - ay
+    local len2 = dx * dx + dy * dy
+    for index, threat in ipairs(snapshot.threats or {}) do
+        if index > 32 then break end
+        local ox, oy = U().position(threat.actor)
+        if ox and threat.actor ~= (target and target.actor) and len2 > 0.0001 then
+            local t = math.max(0, math.min(1, ((ox - ax) * dx + (oy - ay) * dy) / len2))
+            if (ax + t * dx - ox)^2 + (ay + t * dy - oy)^2 < 0.6^2 then return nil end
+        end
+    end
+    if not usable(U().gridSquare(state.position.x, state.position.y, p.z))
+        or not SC.Navigation.openSegment(actor, p.x, p.y, p.z) then return nil end
+    local accepted, reason = U().move(actor, "walk", { action = "return_to_guard",
+        target = target and target.actor, keepFacing = target ~= nil, weaponReady = true,
+        microSteered = true, movementTarget = true, targetPosition = p,
+        dx = dx, dy = dy, movementArrivalTolerance = 0.08, movementTargetTtlMs = 500 })
+    return accepted, accepted and "guard_door_realign" or reason
+end
+
 -- A covered stair entrance differs from an open indoor fight only while all
 -- standing contacts remain on its approach side.
 -- Keep the complete physical observation for routes, strikes and squad forecasts.
 -- A zombie committed to another fit guard is not also this guard's personal
 -- attacker until it reaches body contact. Reconsider on every combat update.
 function Post.combatView(actor, player, state, snapshot)
+    if state and not state.withdrawn and state.post and state.post.kind == "door" and state.position then
+        return doorView(actor, state, snapshot)
+    end
     if not state or state.withdrawn or state.post.kind ~= "stairs" or not state.position
         or not SC.CombatThreatModel or not Post.atPosition(actor, state) then return snapshot end
     local ax, ay, az = U().position(actor)
@@ -348,7 +484,7 @@ function Post.move(actor, state, snapshot)
         return faced == true, "guard_choke_holding"
     end
     local point = Post.point(state)
-    if state.post.kind == "stairs" and state.rank == 1 and not state.inset
+    if state.rank == 1 and (state.post.kind == "stairs" and not state.inset or state.post.kind == "door")
         and U().distance(actor, point) <= 1.25
         and SC.Navigation.openSegment(actor, point.x, point.y, point.z) then
         local accepted, why = U().move(actor, "walk", { action = "return_to_guard",
@@ -357,9 +493,178 @@ function Post.move(actor, state, snapshot)
             movementTargetTtlMs = 750 })
         return accepted, accepted and "guard_landing_align" or why
     end
-    return SC.Navigation.request(actor, U().gridSquare(p.x, p.y, p.z), "walk", {
+    return SC.Navigation.request(actor, U().gridSquare(p.x, p.y, p.z), state.auto and "jog" or "walk", {
         action = "return_to_guard", snapshot = snapshot, arrivalDistance = state.post.kind == "stairs" and 0.25 or 0.65, requireSameSquare = true,
     })
+end
+
+-- Automatic safe ground (0.27.24) ---------------------------------------------
+-- While the group gives ground and the player stands within a few metres of a
+-- doorway or the top of a staircase, the followers take that choke in front of
+-- the player instead of backing off in the open. Only the player's own floor
+-- is searched, only around the player, at most once a second, so companions
+-- never lead the player anywhere and never go upstairs on their own.
+
+local function ownsDoor(square)
+    local owns = false
+    if square then U().squareObjects(square, function(object)
+        if U().instanceOf(object, "IsoDoor") or select(1, U().call(object, "isDoor")) == true then
+            owns = true; return false
+        end
+    end, 16) end
+    return owns
+end
+
+-- The post still shields the player: the player stays on its protected side
+-- and close to it, every standing zombie near it is on the approach side (or
+-- only just through the opening, within slack metres of it), and at least one
+-- zombie is actually coming that way.
+local function shields(post, plan, player, slack)
+    local px, py, pz = U().position(player)
+    if px == nil or math.floor(pz or 0) ~= post.z then return false end
+    local keep = tonumber(U().config("combatSafeGroundKeepRadius")) or 5
+    if (px - post.x - 0.5)^2 + (py - post.y - 0.5)^2 > keep * keep then return false end
+    if post.kind == "door" and Post.beyondDoor(post, px, py) then return false end
+    local coming = 0
+    for index, threat in ipairs(plan.threats or {}) do
+        if index > 64 then return false end
+        if threat.stairIncoming then
+            if post.kind == "stairs" then coming = coming + 1 end
+        elseif threat.x and (threat.x - post.x - 0.5)^2 + (threat.y - post.y - 0.5)^2 <= 64 then
+            if post.kind ~= "door" then return false end
+            local mx, my = doorMouth(post)
+            if not Post.beyondDoor(post, threat.x, threat.y)
+                and (threat.x - mx)^2 + (threat.y - my)^2 > slack * slack then return false end
+            coming = coming + 1
+        end
+    end
+    return coming > 0
+end
+
+-- A route that passes a standing zombie on the near side of the choke is no
+-- route to safe ground.
+local function routeClear(member, post, plan)
+    local tx, ty = post.x + 0.5, post.y + 0.5
+    local dx, dy = tx - member.x, ty - member.y
+    local len2 = dx * dx + dy * dy
+    -- Already at the choke: the zombie in the opening is the fight, not a
+    -- blocked route.
+    if len2 <= 1.5 * 1.5 then return true end
+    for index, threat in ipairs(plan.threats or {}) do
+        if index > 64 then return false end
+        if not threat.stairIncoming and threat.x
+            and not (post.kind == "door" and inOpening(post, threat.x, threat.y)) then
+            local t = math.max(0, math.min(1, ((threat.x - member.x) * dx + (threat.y - member.y) * dy) / len2))
+            if (member.x + t * dx - threat.x)^2 + (member.y + t * dy - threat.y)^2 < 0.9^2 then return false end
+        end
+    end
+    return true
+end
+
+-- Positions for the followers that can reach the post, with the same slot
+-- pattern as "Guard here", never on the player's own square. Unlike a guard
+-- order, the fight is already coming: the follower nearest the choke takes
+-- the front, and that order holds for as long as the safe ground does.
+local function claim(post, plan, player, since, order)
+    local followers, distance = {}, {}
+    for _, member in ipairs(plan.members or {}) do
+        local data = U().modData(member.actor)
+        if member.capable and type(data) == "table" and data.SC_Recruited == true
+            and (data.SC_Order == "follow" or data.SC_Order == "regroup")
+            and math.floor(member.z or 0) == post.z and routeClear(member, post, plan) then
+            followers[#followers + 1] = member.actor
+            distance[member.actor] = (member.x - post.x - 0.5)^2 + (member.y - post.y - 0.5)^2
+        end
+        if #followers >= 16 then break end
+    end
+    if #followers == 0 then return nil end
+    local place = {}
+    for index, actor in ipairs(order or {}) do place[actor] = index end
+    table.sort(followers, function(a, b)
+        local pa, pb = place[a], place[b]
+        if pa and pb then return pa < pb end
+        if pa or pb then return pa ~= nil end
+        if distance[a] ~= distance[b] then return distance[a] < distance[b] end
+        return tostring(U().idOf(a)) < tostring(U().idOf(b))
+    end)
+    local avoid = U().squareOf(player)
+    local candidates = wideLanding(followers[1], post, followers) and wideStairSlots
+        or post.kind == "stairs" and stairSlots or slots
+    local seats, cursor, seated = setmetatable({}, { __mode = "k" }), 1, 0
+    for rank, peer in ipairs(followers) do
+        local square
+        repeat
+            if not candidates[cursor] then break end
+            square = slotSquare(peer, post, candidates[cursor]); cursor = cursor + 1
+            if square and square == avoid then square = nil end
+        until square
+        if not square then break end
+        local x, y, z = U().position(square)
+        seats[peer], seated = { rank = rank, x = x, y = y, z = z }, seated + 1
+    end
+    if seated == 0 then return nil end
+    return { post = post, since = since, seats = seats, order = followers }
+end
+
+-- Called by the squad plan on each rebuild. Keeps the previous plan's safe
+-- ground while it still shields the player; otherwise, when the group must
+-- give ground, looks for one around the player.
+function Post.autoPick(plan, previous, player, now)
+    if type(plan) ~= "table" or not player or not U().isValidActor(player) then return nil end
+    local prior = previous and previous.safeGround
+    if prior and (plan.mode == "give_ground" or plan.mode == "engage")
+        and shields(prior.post, plan, player, 2.0) then
+        plan.safeGroundSearchAt = previous.safeGroundSearchAt
+        return claim(prior.post, plan, player, prior.since, prior.order)
+    end
+    -- Giving ground comes too late at a door: the zombies queued outside do
+    -- not count as arrivals until they are through it (0.27.24 live run). So
+    -- a choke is also taken while the group is still engaging, as soon as
+    -- there are at least as many zombies as fit fighters. shields() then
+    -- requires every one of them to be coming through it.
+    local outnumbered = plan.mode == "engage" and #(plan.threats or {}) >= math.max(1, tonumber(plan.capable) or 0)
+    if plan.mode ~= "give_ground" and plan.wanted ~= "give_ground" and not outnumbered then return nil end
+    local searchAt = previous and tonumber(previous.safeGroundSearchAt) or 0
+    plan.safeGroundSearchAt = searchAt
+    if now < searchAt then return nil end
+    plan.safeGroundSearchAt = now + (tonumber(U().config("combatSafeGroundSearchMs")) or 1000)
+    local px, py, pz = U().position(player)
+    if px == nil then return nil end
+    pz = math.floor(pz or 0)
+    if pz ~= math.floor(plan.z or 0) then return nil end
+    local radius = tonumber(U().config("combatSafeGroundRadius")) or 4
+    local reach, bx, by = math.ceil(radius), math.floor(px), math.floor(py)
+    local best, bestD2
+    for dx = -reach, reach do for dy = -reach, reach do
+        local x, y = bx + dx, by + dy
+        local square = U().gridSquare(x, y, pz)
+        local anchors = {}
+        if square and ownsDoor(square) then anchors[1] = square end
+        if pz > 0 and topPiece(U().gridSquare(x, y, pz - 1)) then
+            for _, d in ipairs(directions) do anchors[#anchors + 1] = U().gridSquare(x + d[1], y + d[2], pz) end
+        end
+        for _, anchor in ipairs(anchors) do
+            local post = anchor and Post.detect(player, anchor)
+            if post and post.z == pz then
+                local d2 = (post.x + 0.5 - px)^2 + (post.y + 0.5 - py)^2
+                if d2 <= radius * radius and (bestD2 == nil or d2 < bestD2
+                        or d2 == bestD2 and (post.x < best.x or post.x == best.x and post.y < best.y))
+                    and shields(post, plan, player, DOOR_OPENING) then
+                    best, bestD2 = post, d2
+                end
+            end
+        end
+    end end
+    return best and claim(best, plan, player, now) or nil
+end
+
+-- The combat-side post for one follower, from its squad view.
+function Post.autoForActor(actor, squadView, commands)
+    local ground = type(squadView) == "table" and squadView.safeGround or nil
+    local seat = ground and ground.seat
+    if not seat or commands and commands.temporaryStay == true then return nil end
+    return { auto = true, post = ground.post, rank = seat.rank, serial = ground.since,
+        position = { x = seat.x, y = seat.y, z = seat.z } }
 end
 
 function Post.observe(actor, runtime, plan, now)

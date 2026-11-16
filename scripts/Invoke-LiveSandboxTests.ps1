@@ -252,7 +252,7 @@ param(
     # Stair combat facts: one companion and one zombie at opposite ends of a real staircase.
     [switch]$StairCombatProbe,
     [switch]$StairCombatBaseWatch,
-    [ValidateSet('measurement', 'guard', 'stairs', 'recovery')][string]$StairCombatMode = 'measurement',
+    [ValidateSet('measurement', 'guard', 'stairs', 'recovery', 'safeground', 'door')][string]$StairCombatMode = 'measurement',
     [ValidateSet('nearby', 'rosewood_firestation')][string]$StairCombatSite = 'nearby',
     [ValidateRange(1, 5)][int]$StairCombatTrials = 3,
     [ValidateRange(1, 12)][int]$StairCombatZombies = 3,

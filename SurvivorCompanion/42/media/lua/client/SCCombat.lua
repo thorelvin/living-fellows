@@ -2696,7 +2696,8 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
         and immediate <= 2 and close <= 2
         and occupied <= 2 and not snapshot.encircled
         and not (snapshot.squadPlan and snapshot.squadPlan.mode == "disengage")
-        and SC.GuardPost and SC.GuardPost.coveredStair(actor, guard, snapshot)
+        and SC.GuardPost and (SC.GuardPost.coveredStair(actor, guard, snapshot)
+            or SC.GuardPost.coveredDoor ~= nil and SC.GuardPost.coveredDoor(actor, guard, snapshot))
     local contributors = {}
     local function contribution(cause, value)
         value = tonumber(value) or 0
@@ -4621,6 +4622,23 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
     local utility = U()
     local currentState = state or stateFor(actor)
     local now = utility.nowMs()
+    -- Safe ground is the first place to fall back to. A member forced out of
+    -- its seat gives the seat up instead of shuttling back into the crowd.
+    local ground = currentState.guardPost
+    if ground and ground.auto and SC.GuardPost then
+        if SC.GuardPost.atPosition(actor, ground) then
+            currentState.safeGroundAbandoned = ground.serial
+        elseif currentState.safeGroundAbandoned ~= ground.serial
+            and SC.Navigation and type(SC.Navigation.request) == "function" then
+            local goal = utility.gridSquare(ground.position.x, ground.position.y, ground.position.z)
+            local ok = goal and SC.Navigation.request(actor, goal, "jog", {
+                action = "combat_retreat", snapshot = snapshot, awayFrom = target and target.actor,
+                urgent = true, escapeSpeedOverride = true, survivalCritical = survivalCritical == true,
+                arrivalDistance = 0.4, requireSameSquare = true,
+            })
+            if ok then return true, "safe_ground" end
+        end
+    end
     local tether = retreatTether(actor, player, snapshot, commands)
     local shared, sharedPlan = sharedRetreatSquare(
         actor, currentState, snapshot, target, now, player, commands)
@@ -4973,12 +4991,19 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             and (target and target.distanceSq or math.huge) > 2.5^2 then
             return SC.GuardPost.move(actor, state.guardPost, snapshot)
         end
-        if state.guardPost.post and state.guardPost.post.kind == "stairs"
+        if state.guardPost.post and state.guardPost.post.kind == "door" then
+            local stepped, reason = SC.GuardPost.realign(actor, state.guardPost, snapshot, target)
+            if stepped ~= nil then return stepped, reason end
+        end
+        -- A safe-ground seat not reached yet, with a zombie close, leaves the
+        -- ordinary footwork alone: standing still in the open is no seat.
+        local seatPending = state.guardPost.auto and not SC.GuardPost.atPosition(actor, state.guardPost)
+        if not seatPending and state.guardPost.post and state.guardPost.post.kind == "stairs"
             and (action.kind == "backstep" or action.kind == "kite" or action.kind == "approach") then
             local stepped, reason = SC.GuardPost.combatStep(actor, state.guardPost, snapshot, target, action)
             if stepped ~= nil then return stepped, reason end
         end
-        action = { kind = "hold_range", score = action.score, guardHold = true }
+        if not seatPending then action = { kind = "hold_range", score = action.score, guardHold = true } end
     end
     if action.kind == "shoot" or action.kind == "melee"
         or action.kind == "shove" or action.kind == "stomp" then
@@ -5335,7 +5360,13 @@ function Combat.update(actor, player, runtime)
         actor, player, snapshot, state.cohortKey, now) or nil
     snapshot.squadPlan = state.squadPlan
     state.guardPost = SC.GuardPost and SC.GuardPost.forActor(actor, rootRuntime, commands, now)
-    if state.guardPost then SC.GuardPost.observe(actor, rootRuntime, state.squadPlan, now) end
+    -- A follower with a seat on the squad's safe ground holds it like a post.
+    -- Forced off it once, it fights on without it for the rest of that fight.
+    if not state.guardPost and SC.GuardPost and SC.GuardPost.autoForActor then
+        local ground = SC.GuardPost.autoForActor(actor, state.squadPlan, commands)
+        if ground and state.safeGroundAbandoned ~= ground.serial then state.guardPost = ground end
+    end
+    if state.guardPost and not state.guardPost.auto then SC.GuardPost.observe(actor, rootRuntime, state.squadPlan, now) end
     if state.guardPost then snapshot = SC.GuardPost.combatView(actor, player, state.guardPost, snapshot) end
     local performance = SC.Performance
     local phaseStarted = performance and performance.preciseNowMs()

@@ -30,22 +30,42 @@ function Stair.column(actor, state, now)
     end
     local key = x .. ":" .. y .. ":" .. z
     if state.columnKey == key and now < (state.columnNextAt or 0) then return state.column end
-    state.columnKey, state.columnNextAt, state.column = key, now + 500, nil
+    state.columnKey, state.columnNextAt, state.column, state.columns = key, now + 500, nil, nil
+    local function columnAt(lx, ly, d)
+        local landing = U().gridSquare(lx, ly, z)
+        return landing and select(1, U().call(landing, "TreatAsSolidFloor")) == true
+            and not SC.Topology.squareHasStairs(landing)
+            and piece(U().gridSquare(lx + d[1], ly + d[2], z - 1), "stairsT")
+            and piece(U().gridSquare(lx + d[1] * 2, ly + d[2] * 2, z - 1), "stairsM")
+            and piece(U().gridSquare(lx + d[1] * 3, ly + d[2] * 3, z - 1), "stairsB")
+    end
     for _, offset in ipairs({ { 0, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 } }) do
         local lx, ly = x + offset[1], y + offset[2]
-        local landing = U().gridSquare(lx, ly, z)
-        if landing and select(1, U().call(landing, "TreatAsSolidFloor")) == true
-            and not SC.Topology.squareHasStairs(landing) then
-            for _, d in ipairs(directions) do
-                if piece(U().gridSquare(lx + d[1], ly + d[2], z - 1), "stairsT")
-                    and piece(U().gridSquare(lx + d[1] * 2, ly + d[2] * 2, z - 1), "stairsM")
-                    and piece(U().gridSquare(lx + d[1] * 3, ly + d[2] * 3, z - 1), "stairsB") then
-                    state.column = { x = lx, y = ly, z = z, dx = d[1], dy = d[2] }
-                    return state.column
+        for _, d in ipairs(directions) do
+            if columnAt(lx, ly, d) then
+                state.column = { x = lx, y = ly, z = z, dx = d[1], dy = d[2] }
+                -- A wide staircase is several parallel columns side by side.
+                -- A zombie may climb any of them, so watch each adjoining one.
+                local columns = { state.column }
+                for _, side in ipairs({ -1, 1 }) do
+                    for step = 1, 2 do
+                        local sx, sy = lx - d[2] * side * step, ly + d[1] * side * step
+                        if not columnAt(sx, sy, d) then break end
+                        columns[#columns + 1] = { x = sx, y = sy, z = z, dx = d[1], dy = d[2] }
+                    end
                 end
+                state.columns = columns
+                return state.column
             end
         end
     end
+end
+
+-- Every parallel column of the staircase found by Stair.column, nearest first.
+function Stair.columns(actor, state, now)
+    local column = Stair.column(actor, state, now)
+    if not column then return {} end
+    return state.columns or { column }
 end
 
 function Stair.onColumn(facts, column)
@@ -64,9 +84,12 @@ function Stair.incoming(actor, state, now)
     local memory = state.stairs
     if now < (memory.nextIncomingAt or 0) then return memory.incoming or {} end
     memory.nextIncomingAt = now + 250
-    local column = Stair.column(actor, memory, now)
-    local landing = column and U().gridSquare(column.x, column.y, column.z)
-    if not landing or not U().canSee(actor, landing) then
+    local watched = {}
+    for _, column in ipairs(Stair.columns(actor, memory, now)) do
+        local landing = U().gridSquare(column.x, column.y, column.z)
+        if landing and U().canSee(actor, landing) then watched[#watched + 1] = column end
+    end
+    if #watched == 0 then
         memory.progress, memory.incoming, memory.known = nil, nil, nil; return {}
     end
     local records, progress, seen, known, count = {}, {}, {}, {}, 0
@@ -75,7 +98,7 @@ function Stair.incoming(actor, state, now)
             known[zombie], count = entry, count + 1
         end
     end
-    for i = 1, 3 do
+    for _, column in ipairs(watched) do for i = 1, 3 do
         local square = U().gridSquare(column.x + column.dx * i, column.y + column.dy * i, column.z - 1)
         local objects = select(1, U().call(square, "getMovingObjects"))
         local objectCount = objects and SC.NativeList.size(objects) or 0
@@ -101,7 +124,7 @@ function Stair.incoming(actor, state, now)
                 end
             end
         end
-    end
+    end end
     memory.progress, memory.incoming, memory.known = progress, records, known
     return records
 end

@@ -592,6 +592,15 @@ local valueData = {
     -- A squad mode holds this long before an ordinary change; escalation to
     -- disengage is immediate.
     combatSquadModeDwellMs = 1500,
+    -- Withdrawing together: the rear guard keeps covering the others for at
+    -- most this long, and only while that stays safe for it.
+    combatSquadRearGuardCoverMs = 3000,
+    -- Automatic safe ground: a doorway or stair top this close to the player
+    -- while the group gives ground. It is kept while the player stays within
+    -- the second distance, and searched for at most once per interval.
+    combatSafeGroundRadius = 4,
+    combatSafeGroundKeepRadius = 5,
+    combatSafeGroundSearchMs = 1000,
     -- Squad call-outs: one line per group at most this often, and the same
     -- line topic again only after the second gap.
     combatSquadCallOutGapMs = 6000,

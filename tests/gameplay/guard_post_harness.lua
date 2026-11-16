@@ -213,6 +213,37 @@ local safe, safetyReason = SC.Senses.isCompleteObservation({ valid = true, threa
     scanDiscoveryComplete = true, scanVisualComplete = true })
 check(not safe and safetyReason == "danger_nearby",
     "I05 an incoming climber prevents an all-clear without inflating undead attack counts")
+do
+-- A two-wide staircase is two parallel columns. The firehouse run (0.27.18)
+-- missed every climber on the second one. A column beyond a gap is another
+-- staircase and stays unwatched.
+stairPart(5, 1, "stairsTN"); local wideMid = stairPart(5, 2, "stairsMN"); stairPart(5, 3, "stairsBN")
+stairPart(7, 1, "stairsTN"); local farMid = stairPart(7, 2, "stairsMN"); stairPart(7, 3, "stairsBN")
+local wideClimber, farClimber, wideHeight = f.zombie(5, 2), f.zombie(7, 2), 0.2
+wideClimber.getZ = function() return wideHeight end
+farClimber.getZ = function() return wideHeight end
+wideMid.moving[#wideMid.moving + 1] = wideClimber
+farMid.moving[#farMid.moving + 1] = farClimber
+local wideState = {}
+f.clock = f.clock + 1000
+SC.ZombieFacts.reset()
+SC.StairCombat.incoming(s1, wideState, f.clock)
+wideHeight, height, f.clock = 0.35, 0.7, f.clock + 300
+SC.ZombieFacts.reset()
+local wideIncoming, sawWide, sawFar = SC.StairCombat.incoming(s1, wideState, f.clock), false, false
+for _, entry in ipairs(wideIncoming) do
+    if entry.actor == wideClimber and entry.column.x == 5 then sawWide = true end
+    if entry.actor == farClimber then sawFar = true end
+end
+check(sawWide, "I08 a climber on the second column of a two-wide staircase is forecast")
+check(not sawFar and #SC.StairCombat.columns(s1, wideState, f.clock) == 2,
+    "I09 a staircase beyond a gap is not part of the watched landing")
+wideMid.moving, farMid.moving = {}, {}
+for _, x in ipairs({ 5, 7 }) do for y = 1, 3 do
+    local tile = square(x, y, 0)
+    tile.HasStairs, tile.objects = nil, {}
+end end
+end
 
 r1.senses = { current = { threats = {}, allies = {}, escapeSquares = {} } }
 SC.Combat.update(s1, f.player, r1)
@@ -532,4 +563,282 @@ personal.overrun.cause = "health"
 check(P.observe(withdrawing,wr,holding,18000) and cv.guardPost.withdrawn,
     "G42 a wounded retreating guard cannot leave its partner holding the abandoned choke")
 SC.Combat.peek = oldPeek
+
+local function doorwayChecks()
+-- Doorway hold (0.27.24). The 0.27.23 live door case retreated at once: three
+-- zombies queued outside the door counted as three contacts, and the front
+-- guard, pushed to the side of the opening, swung across the jamb.
+local doorA, dra = fighter("door-a", 40, 41)
+local doorB, drb = fighter("door-b", 41, 41)
+local frontDoor = doorway(40, 40)
+SC.Commands.issue(doorA.id, "guard", { target = frontDoor }, f.player)
+SC.Commands.issue(doorB.id, "guard", { target = frontDoor }, f.player)
+local doorState = P.forActor(doorA, dra)
+check(doorState and doorState.post.kind == "door" and doorState.rank == 1
+        and doorState.position.x == 40 and doorState.position.y == 40,
+    "D00 the front door guard holds the square just inside the door")
+local dax, day = 40.5, 40.5
+doorA.getX, doorA.getY = function() return dax end, function() return day end
+doorA.square = square(40, 40)
+dax, day = 41.1, 40.5
+local beside = P.atPosition(doorA, doorState)
+dax, day = 40.5, 41.1
+local deeper = P.atPosition(doorA, doorState)
+check(not beside and deeper,
+    "D01 the front door guard must stand in line with the opening, not off to one side")
+dax, day = 40.5, 40.5
+local queue = { f.zombie(40, 39), f.zombie(40, 38), f.zombie(40, 37) }
+local queueThreats = {}
+for index, zombie in ipairs(queue) do
+    queueThreats[index] = { actor = zombie, x = zombie:getX(), y = zombie:getY(), z = 0 }
+end
+local queueView = { threats = queueThreats, allies = {}, escapeSquares = {},
+    reachableImmediateCount = 3, reachableCloseCount = 3, reachableThreatSectors = 1,
+    localPressure = 4.5, encircled = false,
+    squadPlan = { mode = "engage", supportCount = 1, holds = 2 } }
+SC.ZombieFacts.reset()
+local funnel = P.combatView(doorA, f.player, doorState, queueView)
+check(funnel ~= queueView and funnel.reachableImmediateCount == 1
+        and funnel.doorQueuedThreats and funnel.doorQueuedThreats[queue[2]] and funnel.doorQueuedThreats[queue[3]]
+        and funnel.threats == queueThreats and queueView.reachableImmediateCount == 3,
+    "D02 zombies queued behind the one in the opening are not counted as contacts")
+dra.senses = { current = { threats = {}, allies = {}, escapeSquares = {} } }
+SC.Combat.update(doorA, f.player, dra)
+SC.Combat.peek(doorA).guardPost = doorState
+square(40, 40).room = {}
+local doorReadiness = SC.Combat.readiness
+SC.Combat.readiness = function() return { health = 100, support = 1, capacity = 2,
+    escapeDanger = 3, internalRisk = 24, footing = { crowd = 0 }, staminaCritical = false } end
+local swarmed = SC.Combat.assessOverrun(doorA, queueView, { range = 1.3 }, {})
+local holdingDoor = SC.Combat.assessOverrun(doorA, funnel, { range = 1.3 }, {})
+check(swarmed.overrun and not holdingDoor.overrun and holdingDoor.coveredStair,
+    "D03 a fit front guard holds a door against a queue it would flee in the open")
+local inside = f.zombie(40, 42)
+queueThreats[#queueThreats + 1] = { actor = inside, x = inside:getX(), y = inside:getY(), z = 0 }
+SC.ZombieFacts.reset()
+local breached = P.combatView(doorA, f.player, doorState, queueView)
+check(not P.coveredDoor(doorA, doorState, breached),
+    "D04 a zombie on the protected side cancels the covered-door allowance")
+table.remove(queueThreats)
+local backState = P.forActor(doorB, drb)
+doorB.getX, doorB.getY = function() return 40.5 end, function() return 41.5 end
+SC.ZombieFacts.reset()
+local backView = backState and backState.rank == 2 and P.combatView(doorB, f.player, backState, queueView)
+check(backView and backView ~= queueView and backView.doorQueuedThreats
+        and backView.reachableImmediateCount <= 1,
+    "D07 the guard behind the door also counts only the zombie coming through")
+-- A zombie staggered just through the opening is still the head of the
+-- queue, not a breach (0.27.24 live door run: the guard fled into the room).
+local stepped = f.zombie(40, 40)
+stepped.getY = function() return 40.2 end
+queueThreats[#queueThreats + 1] = { actor = stepped, x = 40.5, y = 40.2, z = 0 }
+SC.ZombieFacts.reset()
+local throughView = P.combatView(doorA, f.player, doorState, queueView)
+check(throughView.doorQueuedThreats and P.coveredDoor(doorA, doorState, throughView)
+        and throughView.reachableImmediateCount <= 2,
+    "D06 a zombie staggered just through the opening is the head of the queue, not a breach")
+table.remove(queueThreats)
+local steppedSquare = square(40, 40)
+for index = #steppedSquare.moving, 1, -1 do
+    if steppedSquare.moving[index] == stepped then table.remove(steppedSquare.moving, index) end
+end
+SC.Combat.readiness = doorReadiness
+local doorMove, doorIntent = U.move
+U.move = function(_, _, request) doorIntent = request; return true, "accepted" end
+dax, day = 41.15, 40.5
+SC.ZombieFacts.reset()
+local realigned, realignWhy = SC.Combat._executeForTests(doorA, f.player, { threats = { queueThreats[1] } },
+    { actor = queue[1], distanceSq = 1.3 }, { range = 1.2, equipped = true }, { kind = "backstep" },
+    SC.Commands.effective(doorA), { guardPost = doorState })
+U.move = doorMove
+check(realigned and realignWhy == "guard_door_realign" and doorIntent
+        and math.abs(doorIntent.targetPosition.x - 40.5) < 0.01,
+    "D05 a front guard pushed out of the door line steps back into it with a zombie in reach: "
+        .. tostring(realigned) .. "/" .. tostring(realignWhy))
+dax, day = 40.5, 40.5
+end
+doorwayChecks()
+
+-- Automatic safe ground (0.27.24): while the group gives ground and the player
+-- stands within 4 m of a doorway or stair top, the followers take that choke
+-- in front of the player. Never somewhere else, never upstairs on their own.
+local function safeGroundChecks()
+    local player, Squad = f.player, SC.CombatSquad
+    local oldUsable, oldOpen = SC.Combat.primaryWeaponUsable, SC.Navigation.openSegment
+    SC.Combat.primaryWeaponUsable = function() return true end
+    SC.Navigation.openSegment = function() return true end
+    local homeSquare = player.square
+    local function follower(id, x, y, z)
+        local actor = fighter(id, x, y, z)
+        actor.modData.SC_Order, actor.modData.SC_Recruited = "follow", true
+        return actor
+    end
+    local function rows(list, z)
+        local result = {}
+        for index, zombie in ipairs(list) do
+            result[index] = { actor = zombie, x = zombie:getX(), y = zombie:getY(), z = z or 0,
+                visible = true, obstructed = false }
+        end
+        return result
+    end
+    local sa, sb = follower("safe-a", 30, 11), follower("safe-b", 31, 12)
+    local from, door = doorway(30, 10)
+    from.objects[#from.objects + 1] = door
+    player.square = square(30, 11)
+    local pack = { f.zombie(28, 8), f.zombie(29, 8), f.zombie(30, 8), f.zombie(31, 8), f.zombie(32, 8) }
+    local function scene(threats, extra)
+        local result = { allies = { { actor = sb, health = 100 } }, threats = threats, escapeSquares = {} }
+        for key, value in pairs(extra or {}) do result[key] = value end
+        return result
+    end
+    local clock = f.clock + 100000
+    Squad.reset()
+    local view = Squad.forActor(sa, player, scene(rows(pack)), "party:safe", clock)
+    local ground = view and view.safeGround
+    check(view and view.mode == "give_ground" and ground and ground.post.kind == "door"
+            and ground.post.x == 30 and ground.post.y == 10 and ground.post.dy == 1
+            and ground.seat and ground.seat.rank == 1 and ground.seat.y == 10,
+        "S01 giving ground beside a doorway, the group takes it, the first one in the opening: "
+            .. tostring(view and view.mode) .. "/" .. tostring(ground and ground.post.kind))
+    local other = Squad.forActor(sb, player, scene(rows(pack)), "party:safe", clock)
+    check(other and other.safeGround and other.safeGround.seat and other.safeGround.seat.rank == 2
+            and other.safeGround.seat.y == 12,
+        "S02 the next follower stands behind the first, never on the player's square")
+    -- A zombie just through the opening is the fight at the door, not a lost
+    -- door (0.27.24 live run dropped the seat at that moment). One well inside
+    -- the room is.
+    local through = f.zombie(31, 11)
+    through.getX, through.getY = function() return 31.2 end, function() return 11.2 end
+    local withThrough = rows(pack)
+    withThrough[#withThrough + 1] = { actor = through, x = 31.2, y = 11.2, z = 0, visible = true, obstructed = false }
+    local held = Squad.forActor(sa, player, scene(withThrough), "party:safe", clock + 300)
+    local deep = f.zombie(32, 13)
+    local withDeep = rows(pack)
+    withDeep[#withDeep + 1] = rows({ deep })[1]
+    local lost = Squad.forActor(sa, player, scene(withDeep), "party:safe", clock + 600)
+    check(held and held.safeGround and held.safeGround.seat and lost and lost.safeGround == nil,
+        "S13 a zombie just through the opening keeps the doorway; one well inside the room ends it")
+    -- The fight is already coming: the follower nearest the door takes the
+    -- front, whatever its id (0.27.24 live run sent the farthest one).
+    sa.square, sb.square = square(31, 13), square(30, 11)
+    Squad.reset()
+    local nearFirst = Squad.forActor(sb, player, { allies = { { actor = sa, health = 100 } },
+        threats = rows(pack), escapeSquares = {} }, "party:safe", clock + 900)
+    local farSecond = Squad.forActor(sa, player, scene(rows(pack)), "party:safe", clock + 900)
+    sa.square, sb.square = square(30, 11), square(31, 12)
+    check(nearFirst and nearFirst.safeGround and nearFirst.safeGround.seat
+            and nearFirst.safeGround.seat.rank == 1 and farSecond and farSecond.safeGround
+            and farSecond.safeGround.seat and farSecond.safeGround.seat.rank == 2,
+        "S14 the follower nearest the doorway takes the front seat")
+    player.square = square(33, 14)
+    Squad.reset()
+    local far = Squad.forActor(sa, player, scene(rows(pack)), "party:safe", clock + 5000)
+    check(far and far.mode == "give_ground" and far.safeGround == nil,
+        "S03 a doorway five metres from the player is not the group's to take")
+    player.square = square(30, 11)
+    local inside = f.zombie(32, 11)
+    local breached = rows(pack)
+    breached[#breached + 1] = rows({ inside })[1]
+    Squad.reset()
+    local mixed = Squad.forActor(sa, player, scene(breached), "party:safe", clock + 10000)
+    check(mixed and mixed.safeGround == nil,
+        "S04 a zombie already on the player's side of the door rules the doorway out")
+    Squad.reset()
+    local calm = Squad.forActor(sa, player, scene(rows({ pack[1] })), "party:safe", clock + 15000)
+    check(calm and calm.mode == "engage" and calm.safeGround == nil,
+        "S05 one zombie against two fighters moves nobody")
+    -- At a door, giving ground comes too late: the queue outside does not count
+    -- as arriving until it is through (0.27.24 live run). Even numbers coming
+    -- through a doorway in front of the player are reason enough to hold it.
+    Squad.reset()
+    local even = Squad.forActor(sa, player, scene(rows({ pack[2], pack[3] })), "party:safe", clock + 17000)
+    check(even and even.mode == "engage" and even.safeGround and even.safeGround.post.kind == "door",
+        "S12 two zombies coming through a doorway at two fighters: they hold the doorway")
+    -- Combat: the seat is held like a guard post and is the first fallback.
+    Squad.reset()
+    view = Squad.forActor(sa, player, scene(rows(pack)), "party:safe", clock + 20000)
+    local seat = SC.GuardPost.autoForActor(sa, view, SC.Commands.effective(sa))
+    local oldRequest, goal, speed = SC.Navigation.request
+    SC.Navigation.request = function(_, square_, how) goal, speed = square_, how; return true, "routing" end
+    sa.square = square(30, 13)
+    local moved, movedWhy = SC.Combat._executeForTests(sa, player, scene(rows(pack)),
+        { actor = pack[3], distanceSq = 25 }, { range = 1.2, equipped = true }, { kind = "backstep" },
+        SC.Commands.effective(sa), { guardPost = seat })
+    check(seat and seat.auto and moved and goal == square(30, 10) and speed == "jog",
+        "S06 a follower away from its seat jogs to it instead of backing off in the open: "
+            .. tostring(movedWhy))
+    local close = f.zombie(31, 14)
+    local stepMove = U.move
+    U.move = function() return true, "accepted" end
+    local _, footworkWhy = SC.Combat._executeForTests(sa, player, scene(rows({ close })),
+        { actor = close, distanceSq = 1.2 }, { range = 1.2, equipped = true }, { kind = "backstep" },
+        SC.Commands.effective(sa), { guardPost = seat })
+    U.move = stepMove
+    check(footworkWhy ~= "hold_range",
+        "S15 short of its seat with a zombie close, a follower keeps its footwork: " .. tostring(footworkWhy))
+    goal = nil
+    local retreatState = { guardPost = seat }
+    local fell, fellWhy = SC.Combat._executeRetreatForTests(sa, player, scene(rows(pack)),
+        { actor = pack[3] }, true, retreatState, SC.Commands.effective(sa))
+    check(fell and fellWhy == "safe_ground" and goal == square(30, 10),
+        "S07 safe ground is the first place to fall back to")
+    sa.square = square(30, 10)
+    goal = nil
+    SC.Combat._executeRetreatForTests(sa, player, scene(rows(pack)),
+        { actor = pack[3] }, true, retreatState, SC.Commands.effective(sa))
+    check(retreatState.safeGroundAbandoned == seat.serial and goal ~= square(30, 10),
+        "S08 a member forced out of its seat gives it up instead of shuttling back")
+    SC.Navigation.request = oldRequest
+    sa.square = square(30, 11)
+    -- More arriving than the group can hold: the safe ground is dropped and
+    -- the group withdraws as usual, with no Retreat order.
+    local crowd = rows(pack)
+    for x = 27, 33 do crowd[#crowd + 1] = rows({ f.zombie(x, 7) })[1] end
+    view = Squad.forActor(sa, player, scene(crowd), "party:safe", clock + 20300)
+    check(view and (view.mode == "disengage" or view.covering) and view.safeGround == nil
+            and sa.modData.SC_Order == "follow",
+        "S09 pulling out drops the safe ground without changing anyone's order")
+    -- Upstairs only with the player: a stair top on the floor above is never
+    -- searched from below, and is taken when the player is up there.
+    local function part(x, y, kind)
+        local tile = square(x, y, 0)
+        tile.HasStairs = function() return true end
+        tile.objects[#tile.objects + 1] = {
+            isStairsObject = function() return true end, getType = function() return kind end }
+    end
+    part(40, 21, "stairsTN"); part(40, 22, "stairsMN"); part(40, 23, "stairsBN")
+    local ua, ub = follower("stairs-a", 39, 18, 1), follower("stairs-b", 41, 18, 1)
+    player.square = square(40, 18, 1)
+    local climbers, incoming = {}, {}
+    local column = { x = 40, y = 20, z = 1, dx = 0, dy = 1 }
+    for index = 1, 5 do
+        local climber = f.zombie(40, 20 + math.min(3, index))
+        climbers[index] = climber
+        incoming[index] = { actor = climber, column = column, observedAt = clock + 30000,
+            stairIncoming = true, arrivingMs = 1500 }
+    end
+    local oldNow = U.nowMs
+    U.nowMs = function() return clock + 30000 end
+    SC.ZombieFacts.reset()
+    Squad.reset()
+    local upstairs = Squad.forActor(ua, player, { allies = { { actor = ub, health = 100 } },
+        threats = {}, stairIncoming = incoming, escapeSquares = {} }, "party:stairs", clock + 30000)
+    U.nowMs = oldNow
+    check(upstairs and upstairs.safeGround and upstairs.safeGround.post.kind == "stairs"
+            and upstairs.safeGround.post.z == 1 and upstairs.safeGround.post.y == 20,
+        "S10 with the player upstairs, the group holds the stair top against climbers: "
+            .. tostring(upstairs and upstairs.mode))
+    local da, db = follower("below-a", 39, 25), follower("below-b", 41, 25)
+    player.square = square(40, 24)
+    local below = { f.zombie(38, 28), f.zombie(39, 28), f.zombie(40, 28), f.zombie(41, 28), f.zombie(42, 28) }
+    Squad.reset()
+    local downstairs = Squad.forActor(da, player, { allies = { { actor = db, health = 100 } },
+        threats = rows(below), escapeSquares = {} }, "party:below", clock + 40000)
+    check(downstairs and downstairs.mode == "give_ground" and downstairs.safeGround == nil,
+        "S11 from below, the stair top upstairs is never a place to fall back to")
+    player.square = homeSquare
+    SC.Combat.primaryWeaponUsable, SC.Navigation.openSegment = oldUsable, oldOpen
+    Squad.reset()
+end
+safeGroundChecks()
 SC_TEST_REPORT = "GUARD_POST_PASS checks=" .. f.checks()

@@ -2,6 +2,30 @@
 
 # Changelog
 
+## 0.27.24 - Doorways, wide stairs and pulling out together
+
+- "Guard here" on a doorway holds. The front guard stays in line with the
+  opening and fights the zombie coming through; the ones queued outside no
+  longer count as attackers, so guards stop abandoning a door they can hold.
+  A zombie staggered just through the opening is still the one in the door,
+  not a breach.
+- Climbers on a wide staircase are seen early on every column, not only the
+  one beside the landing.
+- When the group pulls out, the fittest armed fighter nearest the zombies
+  covers the others for up to three seconds and tells them to go, then
+  follows. It stops covering at once if it is hurt, winded, surrounded or has
+  two zombies on it. Unarmed and hurt companions never cover.
+- Safe ground: when zombies come at the group through a doorway or up the
+  stairs within 4 m of you, and there are at least as many of them as
+  fighters (or the group must give ground), followers take that doorway or
+  stair top in front of you, the nearest one at the front. They never go
+  upstairs on their own and never lead you anywhere. The spot is dropped when
+  the group pulls out, when you move away, or once zombies are well inside;
+  a companion forced out of its spot fights on without it.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; the rebuilt bridge carries matching release
+  metadata.
+
 ## 0.27.23 - Ritual line and companion memories
 
 - The More tab's ritual line shows its stage and completion count. It printed

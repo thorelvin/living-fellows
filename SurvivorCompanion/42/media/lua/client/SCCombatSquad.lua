@@ -287,15 +287,20 @@ end
 
 local DOCTRINE_SHIFT = { weapons_free = 1, ranged_support = -1 }
 
+local function fitMember(member)
+    local utility = U()
+    return (tonumber(member.health) or 0)
+            >= (tonumber(utility.config("combatSquadFitHealth")) or 70)
+        and utility.characterStatValue(member.actor, "ENDURANCE", 1)
+            >= (tonumber(utility.config("combatSquadFitEndurance")) or 0.5)
+end
+
 -- How many zombies this member can hold at once: two when fit, one when worn,
 -- shifted by its doctrine, never below one while it can fight at all.
 function Squad.holds(member)
     if not member or not member.capable then return 0 end
     local utility = U()
-    local fit = (tonumber(member.health) or 0)
-            >= (tonumber(utility.config("combatSquadFitHealth")) or 70)
-        and utility.characterStatValue(member.actor, "ENDURANCE", 1)
-            >= (tonumber(utility.config("combatSquadFitEndurance")) or 0.5)
+    local fit = fitMember(member)
     local base = fit and (tonumber(utility.config("combatSquadZombiesPerFighter")) or 2) or 1
     local data = utility.modData(member.actor)
     local doctrine = type(data) == "table" and data.SC_CombatDoctrine or nil
@@ -361,6 +366,34 @@ local function build(actor, snapshot, cohort, now, x, y, z, player, previous)
             mode, modeSince = previous.mode, since
         end
     end
+    -- Withdrawing together (horde plan 4.5): one fit, armed member covers the
+    -- others and leaves last. It is the one nearest the zombies, the
+    -- follow-formation rear guard winning a near tie, and it keeps the job
+    -- for the whole withdrawal while it can still do it.
+    local withdrawal
+    if mode == "disengage" then
+        local before = previous and previous.mode == "disengage" and previous.withdrawal or nil
+        local rear, bestScore
+        for _, member in ipairs(members) do
+            if member.capable and member.capability and member.capability.weapon == "armed"
+                and fitMember(member) then
+                local front = math.huge
+                for _, threat in ipairs(threats) do
+                    if not threat.stairIncoming then
+                        front = math.min(front, distanceSq(member.x, member.y, threat.x, threat.y))
+                    end
+                end
+                local score = math.sqrt(front)
+                if player and SC.Positioning and type(SC.Positioning.cqbRole) == "function"
+                    and SC.Positioning.cqbRole(member.actor, player) == "rear_guard" then
+                    score = score - 1.5
+                end
+                if before and before.rearGuard == member.actor then score = score - 1000 end
+                if bestScore == nil or score < bestScore then rear, bestScore = member, score end
+            end
+        end
+        withdrawal = { since = before and before.since or now, rearGuard = rear and rear.actor or nil }
+    end
     local held = assign(members, threats)
     for _, threat in pairs(held) do threat.covered = true end
     local assignments = setmetatable({}, { __mode = "k" })
@@ -380,12 +413,45 @@ local function build(actor, snapshot, cohort, now, x, y, z, player, previous)
                 protected = wounded, reason = wounded and "cover" or mode }
         end
     end
-    return { cohort = cohort, x = x, y = y, z = z, members = members,
+    local fresh = { cohort = cohort, x = x, y = y, z = z, members = members,
         assignments = assignments, threats = threats, mode = mode,
         supportProofs = setmetatable({}, { __mode = "k" }),
         active = active, incoming = incoming, capable = capableCount,
         capacity = capacity, forecast = forecast, wanted = wanted, modeSince = modeSince,
+        withdrawal = withdrawal,
         refreshedAt = now, nextRefreshAt = now + 250, expires = now + 750 }
+    -- Safe ground near the player while giving ground (horde plan 4.7).
+    if SC.GuardPost and type(SC.GuardPost.autoPick) == "function" then
+        fresh.safeGround = SC.GuardPost.autoPick(fresh, previous, player, now)
+    end
+    return fresh
+end
+
+-- The rear guard covers while that is safe for it: a short window from the
+-- start of the withdrawal, still fit, not surrounded, at most one zombie in
+-- contact, and another member still leaving close behind it. Anything else and
+-- it withdraws like the rest. Its own overrun rules still apply on top.
+function Squad.covering(actor, plan, snapshot, now)
+    local withdrawal = type(plan) == "table" and plan.mode == "disengage" and plan.withdrawal or nil
+    if not withdrawal or withdrawal.rearGuard ~= actor then return false end
+    now = now or U().nowMs()
+    if now - (tonumber(withdrawal.since) or now)
+        >= (tonumber(U().config("combatSquadRearGuardCoverMs")) or 3000) then return false end
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    if snapshot.encircled == true then return false end
+    local immediate = tonumber(snapshot.reachableImmediateCount)
+        or tonumber(snapshot.immediateCount) or 0
+    if immediate > 1 then return false end
+    local x, y = position(actor)
+    if x == nil then return false end
+    local own, leaving = nil, false
+    for _, member in ipairs(plan.members or {}) do
+        if member.actor == actor then own = member
+        elseif distanceSq(x, y, member.x, member.y) <= 36 then leaving = true end
+    end
+    if not own or not leaving then return false end
+    own.health = U().nativeHealth(actor)
+    return Squad.capability(actor, own.health).ready == true and fitMember(own)
 end
 
 -- One line per group when its judgement changes: holding, giving ground,
@@ -397,6 +463,10 @@ function Squad.callOutTopic(previous, plan)
     if type(plan) ~= "table" then return nil end
     for _, threat in ipairs(plan.threats or {}) do
         if threat.onPlayer == true and not threat.covered then return "combat.squad.uncovered" end
+    end
+    if plan.safeGround and not (previous and previous.safeGround) then
+        return plan.safeGround.post and plan.safeGround.post.kind == "stairs"
+            and "combat.squad.stairs" or "combat.squad.doorway"
     end
     local before = previous and previous.mode or nil
     if plan.mode ~= before then
@@ -422,6 +492,16 @@ local function callOut(previous, plan, now)
     local repeatGap = tonumber(U().config("combatSquadCallOutRepeatMs")) or 20000
     if now < (tonumber(record.any) or 0) + groupGap
         or now < (tonumber(record[topic]) or 0) + repeatGap then return nil end
+    -- Pulling out with a rear guard: it tells the others to go.
+    local rear = topic == "combat.squad.disengage" and plan.withdrawal and plan.withdrawal.rearGuard or nil
+    if rear and Squad.covering(rear, plan, nil, now) then
+        local spoken = SC.Dialogue.say(rear, "combat.squad.rear_guard", nil, {}, { recentLimit = 4 })
+        if spoken == true then
+            record.any, record[topic] = now, now
+            return "combat.squad.rear_guard"
+        end
+        return nil
+    end
     for _, member in ipairs(plan.members or {}) do
         if member.capable then
             local spoken = SC.Dialogue.say(member.actor, topic, nil, {}, { recentLimit = 4 })
@@ -479,6 +559,18 @@ function Squad.forActor(actor, player, snapshot, cohort, now)
         capacity = plan.capacity, forecast = plan.forecast, holds = 1 }
     for _, member in ipairs(plan.members) do
         if member.actor == actor then view.holds = member.holds or 1 break end
+    end
+    if plan.safeGround then
+        view.safeGround = { post = plan.safeGround.post, since = plan.safeGround.since,
+            seat = plan.safeGround.seats and plan.safeGround.seats[actor] or nil }
+    end
+    -- While the others pull out, the covering rear guard gives ground instead:
+    -- it keeps swinging and backs off, but doesn't run yet.
+    if plan.withdrawal and plan.withdrawal.rearGuard == actor then
+        view.rearGuard = true
+        if Squad.covering(actor, plan, snapshot, now) then
+            view.mode, view.covering = "give_ground", true
+        end
     end
     -- Support is spent once. A member already assigned to another zombie is
     -- fighting it, not standing by for this one; a member held to a stay or

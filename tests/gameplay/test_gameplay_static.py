@@ -1088,6 +1088,15 @@ def main() -> int:
             and "SC.GuardPost.combatView(actor, player, state.guardPost, snapshot)" in sources["SCCombat.lua"],
             "stair warnings and recovery must connect sensing, combat, decisions and guard positions")
 
+    squad_source = (CLIENT / "SCCombatSquad.lua").read_text(encoding="utf-8")
+    require("SC.GuardPost.autoPick(fresh, previous, player, now)" in squad_source
+            and "Squad.covering(actor, plan, snapshot, now)" in squad_source
+            and "SC.GuardPost.autoForActor(actor, state.squadPlan, commands)" in sources["SCCombat.lua"]
+            and "SC.GuardPost.realign(actor, state.guardPost, snapshot, target)" in sources["SCCombat.lua"]
+            and "SC.GuardPost.coveredDoor(actor, guard, snapshot)" in sources["SCCombat.lua"]
+            and "function Post.autoPick" in guard_post,
+            "safe ground, doorway holds and the covering rear guard must stay wired into the squad plan and combat")
+
     print(
         f"Static gameplay contracts PASS: {CHECKS} assertions, "
         f"{len(OWNED)} sources, {len(REQUIRED_COMMANDS)} commands"
