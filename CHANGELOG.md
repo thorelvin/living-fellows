@@ -2,6 +2,31 @@
 
 # Changelog
 
+## 0.27.30 - Close the gap and use the right skill
+
+- Solo fighters step cautiously back into reach when a nearby group stops
+  closing. Long guarded waits outside useful weapon range now have a limit.
+- Combat reads the game's registered weapon categories. Planks use long-blunt
+  skill, wrenches use short-blunt skill, and sledgehammers use long-blunt skill.
+  A known untrained skill stays untrained.
+- Heavy tools amplify actual fatigue in combat decisions. A fresh companion
+  no longer treats the weight of a held sledgehammer as exhaustion. Endurance
+  reserves and genuine exhaustion withdrawal remain in force.
+- Ground finishers use the same posture-aware safety check when selected and
+  executed. Two prone zombies no longer veto every finishing strike or stomp;
+  a nearby upright attacker still blocks the opening.
+- When the rear escape lane ends, fit solo fighters can turn into a separately
+  verified sideways lane instead of backing to a field boundary.
+- Short blades wait for enough time to recover from a native stab before
+  another pursuer can reach grabbing distance. A bounded diagonal escape can
+  change the pursuit angle when several walkers bunch together; an occasional
+  normal defensive shove can open a strike or finisher.
+- Native field coverage includes hand axe, plank, standard axe, wood axe,
+  sledgehammer, wrench and kitchen knife, each against 0..5 zombies. Damage,
+  stamina use, wear and zombie navigation remain native.
+- Supports Project Zomboid 42.22.2. Bridge protocol `42.22-isocompanion-31`
+  and save schemas are unchanged; bridge release metadata is updated.
+
 ## 0.27.29 - Make room for the next swing
 
 - Fit companions fighting alone on open outdoor ground keep a local melee

@@ -83,6 +83,49 @@ actions=SC.Combat._actionUtilitiesForTests(actor,nil,snapshot,target,weapon,nil,
 check(actions[1].kind=="hold_range" and context()~=nil,
     "turning away to run retains local evasion but requires facing the pursuer before another strike")
 target.bearing="front"
+enemy.worldX=actor:getX()+1.2;target.distanceSq=1.2^2;target.closingSpeed=1.6
+rear.worldX=actor:getX()+2.2
+check(SC.MeleeKiting.action(actor,target,weapon,ready,context(),{},1000).kind~="melee",
+    "a short blade waits when a second pursuer can arrive during native recovery")
+enemy.worldX=actor:getX()+1.1;target.distanceSq=1.1^2
+local control=SC.MeleeKiting.action(actor,target,weapon,ready,context(),{},1000)
+check(control.kind=="shove" and control.kiteControl,
+    "a short blade can control the front contact when a stab cannot recover safely")
+local controlState={}
+SC.MeleeKiting.accept(actor,enemy,control,controlState,1000)
+check(SC.MeleeKiting.action(actor,target,weapon,ready,context(),controlState,1200).kind~="shove",
+    "a control shove cannot replace every following decision")
+check(SC.MeleeKiting.action(actor,target,weapon,ready,context(),controlState,2800).kind=="shove",
+    "another bounded control opening is available after recovery")
+local wideItem=f.item("Base.Axe","Weapon",{range=1.2,minRange=0.61})
+local _,_,wideWeapon=SC.Combat.meleeRange(actor,wideItem);wideWeapon.equipped=true
+local wideContext=SC.MeleeKiting.context(actor,snapshot,target,wideWeapon,ready)
+check(SC.MeleeKiting.action(actor,target,wideWeapon,ready,wideContext,{},1000).kind=="melee",
+    "a wider weapon keeps its safe ordinary strike instead of short-blade control")
+rear.worldX=actor:getX()+3.2
+check(SC.MeleeKiting.action(actor,target,weapon,ready,context(),{},1000).kind=="melee",
+    "a short blade can counter when the other pursuer leaves recovery time")
+enemy.worldX=actor:getX()+3.47;target.distanceSq=3.47^2;target.closingSpeed=0
+rear.worldX=actor:getX()+4.5
+local waitingState={}
+local waitingAction=SC.MeleeKiting.action(actor,target,weapon,ready,context(),waitingState,1000)
+check(waitingAction.kind=="hold_range","a new quiet gap gets a brief guarded wait")
+SC.MeleeKiting.accept(actor,enemy,waitingAction,waitingState,1000)
+check(SC.MeleeKiting.action(actor,target,weapon,ready,context(),waitingState,2000).kind=="hold_range",
+    "the waiting interval cannot turn into immediate rushing")
+local reentry=SC.MeleeKiting.action(actor,target,weapon,ready,context(),waitingState,2300)
+check(reentry.kind=="approach" and reentry.stalledApproach
+    and reentry.minimumDistance<weapon.range,
+    "a stalled 3.47-metre gap gets a bounded weapon-specific re-entry")
+enemy.worldX=actor:getX()+3.1;target.distanceSq=3.1^2;target.closingSpeed=1
+SC.MeleeKiting.accept(actor,enemy,waitingAction,waitingState,2400)
+check(waitingState.kiteWait.at==2400
+    and SC.MeleeKiting.action(actor,target,weapon,ready,context(),waitingState,3000).kind=="hold_range",
+    "observed closing progress restarts the guarded wait")
+target.closingSpeed=0;target.attacking=true
+check(SC.MeleeKiting.action(actor,target,weapon,ready,context(),waitingState,4000).kind~="approach",
+    "an active attack cannot trigger stalled-target re-entry")
+target.attacking=false;target.closingSpeed=1
 enemy.worldX=actor:getX()+1.35;target.distanceSq=1.35^2;rear.worldX=actor:getX()+1.55
 local state={}
 local action=SC.MeleeKiting.action(actor,target,weapon,ready,context(),state,1000)
@@ -142,6 +185,76 @@ check(context()==nil,"a building in the run lane prevents open-ground classifica
 laneSquare.room=nil;laneSquare.hasFloor=false
 check(context()==nil,"missing floor prevents open-ground classification")
 laneSquare.hasFloor=true
+local savedVector,savedSegment=SC.Navigation.combatVector,SC.Navigation.openSegment
+SC.Navigation.combatVector=function(_,_,kind)
+    if kind=="kite" then return 0,1,true end
+    return -1,0,false
+end
+SC.Navigation.openSegment=function(_,x) return x>=actor:getX()-1 end
+local turned=context()
+check(turned and turned.moveX==0 and turned.moveY==1 and turned.microSteered,
+    "a blocked rear lane turns into a separately verified lateral escape")
+local sideSquare=f.cell:getGridSquare(4,6,0)
+sideSquare.hasTree=true
+check(context()==nil,"a tree in the lateral lane prevents the escape alternative")
+sideSquare.hasTree=false
+SC.Navigation.openSegment=function() return false end
+check(context()==nil,"blocked rear and lateral lanes preserve the ordinary safety policy")
+SC.Navigation.openSegment=function(_,x) return x>=actor:getX()-1 end
+SC.Navigation.combatVector=function(_,_,kind)
+    if kind=="kite" then return nil,nil,false,"blocked" end
+    return -1,0,false
+end
+check(context()==nil,"native lateral steering refusal cannot be replaced with an unchecked turn")
+SC.Navigation.combatVector,SC.Navigation.openSegment=savedVector,savedSegment
+SC.Navigation.combatVector=function(_,_,kind)
+    if kind=="kite" then return 0,1,false end
+    return -1,0,false
+end
+SC.Navigation.openSegment=function() return true end
+local oldClear=actor.isCompanionMovementClear
+function actor:isCompanionMovementClear() return true end
+local curve=context()
+check(curve and curve.curveEscape and curve.moveX< -0.6 and curve.moveY>0.6,
+    "clustered pursuers get a fully checked diagonal escape for a short blade")
+local curveAction=SC.MeleeKiting.action(actor,target,weapon,ready,curve,{},1000)
+check(curveAction.kiteRun and curveAction.kiteCurve,
+    "the diagonal escape uses the existing bounded turn-and-run")
+local curveState={}
+SC.MeleeKiting.accept(actor,enemy,curveAction,curveState,1000)
+check(curveState.kiteBurst and curveState.kiteBurst.curve,
+    "only accepting the escape preserves its curved run episode")
+function actor:isCompanionMovementClear() return false end
+curve=context()
+check(curve and not curve.curveEscape and curve.moveY==0,
+    "native diagonal refusal retains the already checked rear lane")
+function actor:isCompanionMovementClear() return true end
+local diagonalSquare=f.cell:getGridSquare(2,6,0);diagonalSquare.hasTree=true
+curve=context()
+check(curve and not curve.curveEscape and curve.moveY==0,
+    "a tree anywhere in the diagonal lane prevents the curved escape")
+diagonalSquare.hasTree=false
+actor.isCompanionMovementClear=oldClear
+SC.Navigation.combatVector,SC.Navigation.openSegment=savedVector,savedSegment
+local furthestProbe=0
+function actor:isCompanionMovementClear(x,y)
+    furthestProbe=math.max(furthestProbe,math.sqrt((x-self:getX())^2+(y-self:getY())^2))
+    return x>=self:getX()-1
+end
+local laneX,laneY,_,laneWhy=previousVector(actor,enemy,"kite",snapshot,3)
+check(furthestProbe>2.99 and laneX and math.abs(laneX)<0.01 and math.abs(laneY)>0.99,
+    "full-lane steering selects a three-metre sideways escape before the fence: probe="
+        .. tostring(furthestProbe) .. " vector=" .. tostring(laneX) .. ":" .. tostring(laneY)
+        .. " reason=" .. tostring(laneWhy))
+SC.Navigation.openSegment=function() return false end
+check(previousVector(actor,enemy,"kite",snapshot,3)==nil,
+    "full-lane steering still rejects a blocked segment between the endpoints")
+SC.Navigation.openSegment=savedSegment
+furthestProbe=0
+previousVector(actor,enemy,"kite",snapshot)
+check(furthestProbe>0.44 and furthestProbe<0.46,
+    "ordinary companion steering retains its original short probe by default")
+actor.isCompanionMovementClear=oldClear
 SC.Combat.readiness=oldReadiness
 SC.Navigation.combatVector,SC.Navigation.openSegment=previousVector,previousSegment
 SC_TEST_REPORT="Open-ground melee PASS checks=" .. checks

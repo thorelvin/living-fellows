@@ -62,4 +62,40 @@ $negativeLog = [IO.File]::ReadAllText((Join-Path $logs 'negative.log'))
 if ($negativeLog -notmatch 'corpse leaves its static square list') {
     throw 'Negative control failed for an unexpected reason.'
 }
-Write-Output "SOLO_MELEE_FIXTURE_PASS normal=true debug=true positive_exit=0 old_cleanup_exit=$negativeExit logs=$logs"
+$oldRoster = [regex]::Replace($text, '(?m)^    \{"Base\.(?:Plank|Wrench)"[^\r\n]*\r?\n', '')
+if ($oldRoster -eq $text) { throw 'Old-roster negative control did not change the roster.' }
+$oldRosterPath = Join-Path $logs 'old-roster-negative.lua'
+[IO.File]::WriteAllText($oldRosterPath,$oldRoster,[Text.UTF8Encoding]::new($false))
+$rosterExit = Invoke-RecordedJava @('-cp',$classpath,'KahluaTestRunner',$oldRosterPath,$harness) (Join-Path $logs 'roster-negative.log')
+if ($rosterExit -eq 0) { throw 'Old-roster negative control unexpectedly passed.' }
+if ([IO.File]::ReadAllText((Join-Path $logs 'roster-negative.log')) -notmatch 'extended requested weapons') {
+    throw 'Old-roster negative control failed for an unexpected reason.'
+}
+$oldLimit=$text.Replace('return math.max(30,math.min(300,seconds))*1000','return 90000')
+if ($oldLimit -eq $text) { throw 'Old-limit negative control did not change the fixture.' }
+$oldLimitPath=Join-Path $logs 'old-limit-negative.lua'
+[IO.File]::WriteAllText($oldLimitPath,$oldLimit,[Text.UTF8Encoding]::new($false))
+$limitExit=Invoke-RecordedJava @('-cp',$classpath,'KahluaTestRunner',$oldLimitPath,$harness) (Join-Path $logs 'limit-negative.log')
+if ($limitExit -eq 0) { throw 'Old-limit negative control unexpectedly passed.' }
+if ([IO.File]::ReadAllText((Join-Path $logs 'limit-negative.log')) -notmatch 'configured native observation limit') {
+    throw 'Old-limit negative control failed for an unexpected reason.'
+}
+$oldWithdrawal=$text.Replace('return episodeSeconds>=5 and episodeDistance>=8 and maxDisplacement>26','return episodeSeconds>1 and maxDisplacement>26')
+if ($oldWithdrawal -eq $text) { throw 'Old-withdrawal negative did not change the fixture.' }
+$oldWithdrawalPath=Join-Path $logs 'old-withdrawal-negative.lua'
+[IO.File]::WriteAllText($oldWithdrawalPath,$oldWithdrawal,[Text.UTF8Encoding]::new($false))
+$withdrawalExit=Invoke-RecordedJava @('-cp',$classpath,'KahluaTestRunner',$oldWithdrawalPath,$harness) (Join-Path $logs 'withdrawal-negative.log')
+if ($withdrawalExit -eq 0) { throw 'Old-withdrawal negative unexpectedly passed.' }
+if ([IO.File]::ReadAllText((Join-Path $logs 'withdrawal-negative.log')) -notmatch 'brief retreat after long kiting') {
+    throw 'Old-withdrawal negative failed for an unexpected reason.'
+}
+$oldReceipt=$text.Replace('return tostring(runId) .. ":" .. tostring(caseIndex) .. ":" .. tostring(started) .. ":" .. tostring(index)','return {}')
+if ($oldReceipt -eq $text) { throw 'Old-receipt negative did not change the fixture.' }
+$oldReceiptPath=Join-Path $logs 'old-receipt-negative.lua'
+[IO.File]::WriteAllText($oldReceiptPath,$oldReceipt,[Text.UTF8Encoding]::new($false))
+$receiptExit=Invoke-RecordedJava @('-cp',$classpath,'KahluaTestRunner',$oldReceiptPath,$harness) (Join-Path $logs 'receipt-negative.log')
+if ($receiptExit -eq 0) { throw 'Old-receipt negative unexpectedly passed.' }
+if ([IO.File]::ReadAllText((Join-Path $logs 'receipt-negative.log')) -notmatch 'a zombie receipt is a durable unique value') {
+    throw 'Old-receipt negative failed for an unexpected reason.'
+}
+Write-Output "SOLO_MELEE_FIXTURE_PASS normal=true debug=true positive_exit=0 old_cleanup_exit=$negativeExit old_roster_exit=$rosterExit old_limit_exit=$limitExit old_withdrawal_exit=$withdrawalExit old_receipt_exit=$receiptExit logs=$logs"

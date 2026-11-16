@@ -4901,7 +4901,7 @@ end
 -- Probe a short continuous step, then try deterministic nearby headings. The
 -- actor's stable side preference prevents alternating left/right around the same
 -- obstacle on consecutive combat ticks.
-function Navigation.combatVector(actor, target, kind, snapshot)
+function Navigation.combatVector(actor, target, kind, snapshot, clearanceDistance)
     local utility = U()
     local ax, ay, az = utility.position(actor)
     local tx, ty = utility.position(target)
@@ -4922,6 +4922,7 @@ function Navigation.combatVector(actor, target, kind, snapshot)
         or { 0, side * math.rad(45), -side * math.rad(45),
             side * math.rad(90), -side * math.rad(90) }
     local probeDistance = math.max(0.1,
+        tonumber(clearanceDistance) or
         tonumber(utility.config("combatSteeringProbeDistance")) or 0.45)
     local sourceSquare = utility.squareOf(actor)
     local nativeProbeAvailable = utility.hasMethod(actor, "isCompanionMovementClear")
@@ -5033,9 +5034,14 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             end
         end
         if clear and sourceSquare and destination and not sameSquare(sourceSquare, destination) then
-            clear = select(1, passableEdge(sourceSquare, destination, 1, {
-                actor = actor, now = utility.nowMs(), allowOccupiedGoal = false,
-            })) == true
+            if clearanceDistance ~= nil and probeDistance > 1 then
+                -- A long escape proposal spans several square edges.
+                clear = Navigation.openSegment(actor, toX, toY, az) == true
+            else
+                clear = select(1, passableEdge(sourceSquare, destination, 1, {
+                    actor = actor, now = utility.nowMs(), allowOccupiedGoal = false,
+                })) == true
+            end
         end
         if clear then
             for _, body in ipairs(crowdFacts) do

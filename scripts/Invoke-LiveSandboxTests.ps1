@@ -246,9 +246,10 @@ param(
     # Repeated native squad-versus-zombie survival trials in a cloned save.
     [switch]$SquadCombatProbe,
     [switch]$SoloMeleeProbe,
-    [ValidateRange(1,60)][int]$SoloMeleeStartCase = 1,
-    [ValidateRange(1,60)][int]$SoloMeleeEndCase = 60,
+    [ValidateRange(1,84)][int]$SoloMeleeStartCase = 1,
+    [ValidateRange(1,84)][int]$SoloMeleeEndCase = 60,
     [ValidatePattern('^(\d{1,2})(,\d{1,2})*$|^$')][string]$SoloMeleeCases = '',
+    [ValidateRange(30,300)][int]$SoloMeleeTrialSeconds = 90,
     [switch]$SoloFirearmsProbe,
     [switch]$SoloFirearmsCalibrate,
     [switch]$SoloFirearmsEmptyStart,
@@ -1027,7 +1028,7 @@ if ($SoloMeleeStartCase -gt $SoloMeleeEndCase) {
     throw '-SoloMeleeStartCase must not exceed -SoloMeleeEndCase.'
 }
 foreach ($meleeCase in @($SoloMeleeCases -split ',' | Where-Object { $_ })) {
-    if ([int]$meleeCase -lt 1 -or [int]$meleeCase -gt 60) { throw 'Solo melee case numbers must be 1..60.' }
+    if ([int]$meleeCase -lt 1 -or [int]$meleeCase -gt 84) { throw 'Solo melee case numbers must be 1..84.' }
 }
 if ($SquadCombatPhoto -and -not $SquadCombatProbe) {
     throw '-SquadCombatPhoto requires -SquadCombatProbe.'
@@ -2184,6 +2185,7 @@ $config = @(
     ('solo_melee_start_case=' + $SoloMeleeStartCase),
     ('solo_melee_end_case=' + $SoloMeleeEndCase),
     ('solo_melee_cases=' + $SoloMeleeCases),
+    ('solo_melee_trial_seconds=' + $SoloMeleeTrialSeconds),
     ('solo_firearms_probe=' + $SoloFirearmsProbe.IsPresent.ToString().ToLowerInvariant()),
     ('solo_firearms_calibrate=' + $SoloFirearmsCalibrate.IsPresent.ToString().ToLowerInvariant()),
     ('solo_firearms_empty_start=' + $SoloFirearmsEmptyStart.IsPresent.ToString().ToLowerInvariant()),
@@ -2374,6 +2376,7 @@ $manifest = [ordered]@{
     soloMeleeStartCase = $SoloMeleeStartCase
     soloMeleeEndCase = $SoloMeleeEndCase
     soloMeleeCases = $SoloMeleeCases
+    soloMeleeTrialSeconds = $SoloMeleeTrialSeconds
     soloFirearmsProbe = $SoloFirearmsProbe.IsPresent
     soloFirearmsCalibrate = $SoloFirearmsCalibrate.IsPresent
     soloFirearmsEmptyStart = $SoloFirearmsEmptyStart.IsPresent

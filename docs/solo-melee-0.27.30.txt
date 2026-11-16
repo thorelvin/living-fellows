@@ -1,0 +1,185 @@
+Solo melee tool follow-up -- 0.27.30
+
+Requested: hand axe, plank, long axe, sledgehammer, wrench and kitchen knife.
+Both the standard Axe and WoodAxe are included to cover the long-axe wording.
+
+Recorded results on the shipped gameplay source
+
+42 usable cells cover seven idle controls and 35 fights against 1..5 zombies.
+There are 32 unhurt clears, two injured withdrawals and one healthy timeout.
+Every empty control stayed idle. This is observed coverage, not a win rate.
+
+Weapon          Clears / 5   Lowest health   Minimum endurance   Five-zombie result
+Hand axe            4            90.65              0.97          CLEAR, 21.13 s
+Plank               5           100.00              0.78          CLEAR, 57.80 s
+Standard axe        5           100.00              0.94          CLEAR, 28.13 s
+Wood axe            5           100.00              0.89          CLEAR, 25.80 s
+Sledgehammer        5           100.00              0.72          CLEAR, 29.23 s
+Wrench              4            81.66              0.97          WITHDREW, 48.60 s
+Kitchen knife       4           100.00              0.94          TIMEOUT, 180.09 s
+
+HandAxe/4 took a bite during a swing and withdrew; Wrench/5 was also injured
+during a swing and withdrew. Those pressure cases remain open. KitchenKnife/5
+killed two without injury or retreat; the remaining zombies moved beyond the
+Stay order's engagement range. The companion resumed holding instead of
+chasing them. A wider-tool arrival/control experiment still produced an
+injured withdrawal and was rejected from this release.
+
+Coverage combines 40 completed cells from SC-Harness-20261116-222738-2ed2c3dc
+with KitchenKnife/4 from SC-Harness-20261116-220742-e91c38a4 and KitchenKnife/5
+from SC-Harness-20261116-222046-0b03bcb2. All four gameplay source hashes match.
+The long batch failed its strict identity guard in KitchenKnife/4 when a live
+zombie's marker became nil; KitchenKnife/5 was not started in that batch.
+No outcome is inferred for the invalid attempt. The two supplementary cells
+are previously completed measurements from separate clones, not replacements
+for valid losing fights. The hand-axe and wrench losses remain in the table.
+
+KitchenKnife/3 has two independent observations on this gameplay source:
+unhurt clears in 108.02 s and 37.83 s, both with zero full retreat. The first
+used four native shoves. KitchenKnife/4 cleared unhurt in 87.53 s with two
+shoves. The supplementary /4 and /5 records each have one valid observation;
+failed tracking attempts do not constitute independent completed repeats.
+The recorded maximum stationary span in the 42-cell screen is 4.86 s.
+
+Changes
+
+Combat reads the current native WeaponCategory API when assessing the held
+weapon's skill. Build 42.22 HandWeapon has isOfWeaponCategory and does not
+have getCategories. The old fallback could rate a plank or wrench as having
+no applicable skill, or guess SmallBlunt for a sledgehammer. Recognized skill
+zero stays zero, and compatibility category lists remain a fallback.
+
+The guarded waiting gap is bounded. After 1.2 seconds without meaningful
+closing progress, a healthy lone fighter with an eligible open lane may
+re-enter its weapon's desired range under guard. Normal forward clearance,
+strike barriers, native recovery and attack ownership still apply. Observed
+closing progress restarts the wait, and an active attack prevents re-entry.
+This moves only the companion, leaving native zombie navigation untouched.
+
+A heavy tool's nominal endurance cost magnifies actual fatigue in risk and
+ordinary strike scoring. It is not treated as exhaustion merely because it
+is held. The high endurance reserve, real native stamina use, encirclement,
+injury and exhaustion withdrawal triggers remain in force.
+
+Floor-finisher execution uses the same posture-aware safety check as scoring.
+Two knocked-down walkers no longer veto a finishing swing or stomp through the older
+aggregate count. A nearby upright attacker still closes the opening, the
+victim's live grounded state is checked, and the conservative count remains
+the fallback when posture-aware safety is unavailable.
+
+When the full rear lane ends, local footwork can use the companion's ordinary
+sideways steering. That heading must independently pass the same broad
+three-metre geometry, terrain and floor checks. This avoids backing straight
+to a field boundary while a usable lateral lane exists. Native steering
+refusal, a blocked lateral lane, a tree or missing floor still rejects it.
+
+Short blades also reserve time for the other pursuers. A strike needs more
+than 1.2 seconds before another standing contact can reach the close grabbing
+envelope, using observed closing speed with a conservative minimum. This
+guards the native stab and recovery; it does not shorten either animation.
+When those contacts are bunched, an eligible short blade can use a diagonal
+turn-and-run to gain distance while changing the pursuit angle. Its native
+step clearance and entire broad lane are checked separately. The ordinary
+1.3-second / 2.8-metre run bound remains; refusal retains a checked rear lane.
+The alternate steering proposal uses the entire three-metre clearance too.
+Its ordinary short probe stays the default for other companion callers; the
+longer proposal verifies the full continuous segment rather than treating
+two endpoints several metres apart as one adjacent square edge.
+If a nearby cluster leaves no safe short-blade stab, the companion can use
+an ordinary defensive shove, at most once per 1.6 seconds. Native knockback
+and knockdown can then open a strike or finisher. Wider weapons retain their
+ordinary attack preference. This avoids making safe spacing an endless orbit.
+
+Method
+
+Same outdoor football field, real Base Watch ownership, isolated disposable
+save clones and native zombies as the 0.27.29 report. Fresh companion per
+case, Strength/Fitness 5, melee/Maintenance 3, standard clothing, one starting
+full-condition weapon, no backup grants or mid-fight stat refills. Normal
+game speed and inherited multi-hit TRUE. Only initial detection is seeded;
+pursuit, collision, damage, wear and weapon breakage remain native.
+
+The case table preserves 1..60 and appends plank 61..66, sledgehammer 67..72,
+wrench 73..78 and kitchen knife 79..84. Each weapon has cases for 0..5 zombies.
+Loaded-floor cleanup reads all 2,025 native square static lists back between
+cases. Selected cases can be repeated in fresh-clone runs.
+
+The baseline and earlier screens capped fights at 90 seconds. Later diagnostic
+trials used 150 seconds; final observations allow 180 seconds. The recorder's
+withdrawal endpoint now requires five continuous seconds and eight metres of
+pull-out outside the original 26-metre radius. Earlier screens ended after
+one cumulative retreat second outside that radius, which could censor brief
+spacing after long kiting. All raw retreat time remains recorded. These
+measurement changes preclude comparing the screen totals as success rates.
+
+Baseline screen
+
+Unmodified 0.27.29: SC-Harness-20261116-201728-cb02c49c.
+All 42 requested cells recorded: seven idle controls and 35 combat cells.
+All companions stayed at 100 health. 34 fights cleared. Kitchen knife / 5
+timed out at 90.08 s after four kills, with full endurance and condition 8.
+That case included a 27.94-second stationary stretch; the selected target
+remained outside useful reach during long guarded waits.
+
+The longest stationary spans included Axe/3 at 25.81 s, Axe/5 at 40.33 s,
+Sledgehammer/2 at 18.79 s and KitchenKnife/3 at 30.74 s. These are observed
+trials, not intrinsic weapon rankings. Sledgehammer/5 cleared at 69% endurance
+in the baseline, demonstrating that genuine heavy-tool stamina use remains.
+
+The first development pilot exposed a separate false withdrawal: a healthy
+sledgehammer fighter killed four, then withdrew at 91% endurance while the
+nominal cost alone supplied about 61 internal-risk points. That pilot is
+retained for diagnosis and excluded from final gameplay acceptance.
+
+Development pilots
+
+SC-Harness-20261116-204629-bf874cec repeats eleven observed trouble/stress
+cases with the initial skill, gap and fatigue fixes: Axe/3, Axe/5, Sledgehammer/2,/3,/5,
+HandAxe/5, Plank/5, WoodAxe/5, Wrench/5 and KitchenKnife/3,/5. All eleven
+clear at 100 health without full withdrawal. Sledgehammer/5 clears in 30.17 s
+with minimum endurance 0.68; KitchenKnife/5 clears in 56.29 s with minimum
+endurance 0.93 and condition 4. The knife receives no replacement weapon.
+This pilot predates the later ground-finisher and lateral-lane fixes.
+
+The next full screen, SC-Harness-20261116-205421-e9130804, exposed those two
+remaining weaknesses. It recorded 32 clears, one timeout and two withdrawals
+in 35 fights, all unhurt, with seven clean idle controls. Sledgehammer/4
+timed out after two kills while two downed zombies were counted against the
+finisher's duplicate aggregate veto (82.94 s maximum stationary span).
+KitchenKnife/4 and /5 landed native hits but backed across the field to its
+fence, then withdrew with one kill each. These failures are retained and
+excluded from final acceptance. The ground-execution and blocked-rear-lane
+regressions both failed before their corresponding fixes were applied.
+
+Verification
+
+Focused harness: 60 footwork, 20 readiness and eight finisher-execution checks,
+normal/debug Kahlua compilation, sixteen independently reverted source
+controls rejected by exit
+status. Fixture: 33 checks with old-cleanup, old-roster, old-limit,
+old-withdrawal and old-receipt negatives. The recorder now uses a unique
+durable text receipt; strict mismatches still invalidate the affected trial.
+Missing markers can still occur in long field chases, so failed identity
+attempts remain excluded rather than silently counting another zombie.
+Existing coordination, squad (68 checks) and guard-post (97 checks) harnesses pass.
+The exhaustion/injury/unsafe-ground negatives are harness coverage; healthy
+field fights do not establish live success rates for those emergencies.
+
+The full Windows PowerShell 5.1 release gate passed all five groups and all
+18 installer boundary cases. Evidence: 20261116-222803-375bfe, 962.15 seconds.
+The wider-tool experiment was reverted byte-for-byte to this validated
+payload, and source checks passed again. The local release gate does not
+launch the game; native observations above are separate evidence.
+
+Gameplay source SHA-256 values of the tested payload:
+SCCombat.lua        E855D44D1453FB282AF528E9295227EB1E6F0B48A29C554F97EC68CACFA64FE8
+SCMeleeKiting.lua    A24C62664BCB43AB8AFDCBF5FB79CEC1FA7F1C955C871235941BD20B5001DDDC
+SCNavigation.lua    90BA3946E38C3E78D9007D8BF11418CE8B702F36E29DA262A3C03588F65C0872
+SCNativeActions.lua E7ECD14CB69228AFA8E733ED28A6B66B929CF30B87D47552B979466693239A03
+Bridge JAR          C733CBAF44CE620915ACEF972A685FC3A2944E2F275C21FD3EF96974B25C7AD3
+
+Limits: multi-hit TRUE only, one field layout, moderate fixed skills and
+uncontrolled native combat rolls. Broad four/five-zombie repeats and single-hit
+settings remain future coverage. The injured hand-axe/wrench cases and long
+chase tracking limit are retained in the evidence. Native zombie navigation,
+weapon damage, range, wear, endurance use and attack ownership are unchanged.

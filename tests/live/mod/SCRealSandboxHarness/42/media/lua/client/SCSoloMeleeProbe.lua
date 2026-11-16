@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
--- Live field trials: one real watched LF companion, ten ordinary melee
+-- Live field trials: one real watched LF companion, fourteen ordinary melee
 -- weapons, 0..5 native zombies. Only initial companion detection is seeded.
 -- No mid-fight stat changes, zombie steering, artificial collisions or damage.
 local Probe = {}
@@ -11,7 +11,25 @@ local WEAPONS = {
     {"Base.WoodAxe","WoodAxe"}, {"Base.Machete","Machete"},
     {"Base.HuntingKnife","HuntingKnife"}, {"Base.Hammer","Hammer"},
     {"Base.LeadPipe","LeadPipe"}, {"Base.SpearCrafted","CraftedSpear"},
+    {"Base.Plank","Plank"}, {"Base.Sledgehammer","Sledgehammer"},
+    {"Base.Wrench","Wrench"}, {"Base.KitchenKnife","KitchenKnife"},
 }
+function Probe.trialTimeoutMs(config)
+    local seconds=tonumber(config and config.solo_melee_trial_seconds) or 90
+    if seconds~=seconds then seconds=90 end
+    return math.max(30,math.min(300,seconds))*1000
+end
+function Probe.withdrawalComplete(episodeSeconds,episodeDistance,maxDisplacement)
+    return episodeSeconds>=5 and episodeDistance>=8 and maxDisplacement>26
+end
+function Probe.receiptToken(runId,caseIndex,started,index)
+    return tostring(runId) .. ":" .. tostring(caseIndex) .. ":" .. tostring(started) .. ":" .. tostring(index)
+end
+function Probe.weaponForCase(index)
+    index=tonumber(index)
+    if not index or index~=math.floor(index) or index<1 or index>#WEAPONS*6 then return nil end
+    return WEAPONS[math.floor((index-1)/6)+1],(index-1)%6
+end
 local COLUMNS = {"case","weapon","zombies","outcome","kills","health","lowest_health","bites","seconds",
     "endurance_start","endurance_end","condition_start","condition_end","melee_skill","maintenance_skill",
     "native_min_range","native_max_range","accepted_min_range","accepted_max_range",
@@ -20,7 +38,9 @@ local COLUMNS = {"case","weapon","zombies","outcome","kills","health","lowest_he
     "collision_events","empty_collisions","evidence_landed","evidence_no_effect","shoves","stomps",
     "kite_seconds","backward_seconds","attack_backward_seconds","retreat_seconds","retreat_episodes","overrun_seconds",
     "max_displacement","max_still_seconds","minimum_player_distance","swing_sounds","unexpected_weapon_samples",
-    "minimum_hit_distance","maximum_hit_distance","actions","retreat_causes"}
+    "minimum_hit_distance","maximum_hit_distance","actions","retreat_causes",
+    "lowest_endurance","model_skill","model_perk","weapon_broken","final_held_type",
+    "initial_model_skill","initial_model_perk","max_retreat_episode_seconds","max_retreat_episode_distance"}
 local function call(o,m,...)
     if o==nil then return nil end
     local okay,value=pcall(function(...) return o[m](o,...) end,...)
@@ -232,6 +252,8 @@ local function equip(SC,s,H)
     s.item:setCondition(s.item:getConditionMax())
     a:setPrimaryHandItem(s.item)
     if call(s.item,"isTwoHandWeapon")==true then a:setSecondaryHandItem(s.item) end
+    local _,_,record=SC.Combat.meleeRange(a,s.item)
+    s.initialModel=SC.Combat.readiness(a,{threats={},allies={},escapeSquares={}},record,{})
     for _,order in ipairs({{"set_combat_doctrine","weapons_free"},{"set_weapon_priority","melee"},{"stay"}}) do
         local ok,why=SC.Commands.issue(SC.Registry.idOf(a),order[1],order[2],s.player)
         if not ok then return false,why end
@@ -282,7 +304,7 @@ function Probe.step(H,current,check,result,setPhase)
         for value in string.gmatch(tostring(H.config.solo_melee_cases or ""),"%d+") do
             s.selected[#s.selected+1]=tonumber(value)
         end
-        if #s.selected>0 then s.cursor=1;s.index=s.selected[1];s.last=60 end
+        if #s.selected>0 then s.cursor=1;s.index=s.selected[1];s.last=#WEAPONS*6 end
     end
     local function fail(name,detail)
         photo(H,"blocked-" .. s.index .. "-" .. name)
@@ -334,8 +356,8 @@ function Probe.step(H,current,check,result,setPhase)
         H.clearZombiesNear(H.player,60)
         s.case=s.index
         s.removedBodies=0
-        s.weapon=WEAPONS[math.floor((s.case-1)/6)+1]
-        s.count=(s.case-1)%6
+        s.weapon,s.count=Probe.weaponForCase(s.case)
+        if not s.weapon then return fail("case_number",s.case) end
         -- Releasing a distant watched map can unload the range. Bring the
         -- primary map here and wait for its real squares before asking to spawn.
         H.player:teleportTo(s.arena.x+3,s.arena.y,0)
@@ -422,12 +444,14 @@ function Probe.step(H,current,check,result,setPhase)
         s.started=current;s.nextSample=current;s.previousSample=current;s.zombies={};s.kills=0
         s.samples={};s.impacts={};s.actions={};s.causes={};s.lowestHealth=100
         s.retreatSeconds=0;s.retreatEpisodes=0;s.wasRetreating=false;s.overrunSeconds=0
+        s.retreatStarted=nil;s.retreatOrigin=nil;s.maxRetreatEpisodeSeconds=0;s.maxRetreatEpisodeDistance=0
         s.kiteSeconds=0;s.backwardSeconds=0;s.attackBackwardSeconds=0
         s.contacts=0;s.accepted=0;s.loss=0;s.backwardImpacts=0;s.backwardDamage=0
         s.outsideNative=0;s.outsideTolerance=0;s.behindFacing=0;s.unknownMotion=0
         s.collisions=0;s.emptyCollisions=0;s.landed=0;s.noEffect=0;s.shoves=0;s.stomps=0
         s.maxDisplacement=0;s.minPlayerDistance=math.huge;s.maxStill=0;s.stillSince=current
         s.unexpectedWeapon=0;s.minHit=math.huge;s.maxHit=0;s.motion=nil;s.lastEvidenceAt=nil
+        s.lowestEndurance=1
         s.initialEndurance=num(call(s.actor:getStats(),"get",CharacterStat.ENDURANCE),-1)
         s.initialCondition=num(call(s.item,"getCondition"),-1)
         s.soundStart=num(call(s.actor,"getCompanionSwingSounds"))
@@ -501,7 +525,8 @@ function Probe.step(H,current,check,result,setPhase)
             local list=addZombiesInOutfit(math.floor(x),math.floor(y),0,1,nil,0)
             local z=call(list,"get",0)
             if not z then return fail("zombie_spawn",i) end
-            local token={};z:getModData().SC_SoloMelee=token
+            local token=Probe.receiptToken(H.config.run_id,s.case,s.started,i)
+            z:getModData().SC_SoloMelee=token
             local health=num(call(z,"getHealth"),1)
             s.zombies[#s.zombies+1]={actor=z,token=token,dead=false,initialHealth=health,lastHealth=health}
             z:spotted(s.actor,true)
@@ -526,14 +551,22 @@ function Probe.step(H,current,check,result,setPhase)
         s.lowestHealth=math.min(s.lowestHealth,U.nativeHealth(s.actor))
         local combat=SC.Combat.peek(s.actor) or {}
         local readiness=combat.readiness or {}
+        local endurance=num(call(s.actor:getStats(),"get",CharacterStat.ENDURANCE))
+        s.lowestEndurance=math.min(s.lowestEndurance,endurance)
         local action=tostring(combat.lastAction or "idle")
         s.actions[action]=(s.actions[action] or 0)+dt
         local retreat=combat.retreating==true
         if retreat then
             s.retreatSeconds=s.retreatSeconds+dt
-            if not s.wasRetreating then s.retreatEpisodes=s.retreatEpisodes+1 end
+            if not s.wasRetreating then
+                s.retreatEpisodes=s.retreatEpisodes+1;s.retreatStarted=current;s.retreatOrigin=p
+            end
+            s.maxRetreatEpisodeSeconds=math.max(s.maxRetreatEpisodeSeconds,(current-s.retreatStarted)/1000)
+            s.maxRetreatEpisodeDistance=math.max(s.maxRetreatEpisodeDistance,distance(p,s.retreatOrigin))
             local cause=tostring(combat.overrun and combat.overrun.cause or action)
             s.causes[cause]=(s.causes[cause] or 0)+dt
+        else
+            s.retreatStarted=nil;s.retreatOrigin=nil
         end
         s.wasRetreating=retreat
         if combat.overrun and combat.overrun.overrun then s.overrunSeconds=s.overrunSeconds+dt end
@@ -546,10 +579,13 @@ function Probe.step(H,current,check,result,setPhase)
             if call(s.actor,"isPerformingAttackAnimation")==true then s.attackBackwardSeconds=s.attackBackwardSeconds+dt end
         end
         local nearest=math.huge
-        for _,r in ipairs(s.zombies) do
+        for i,r in ipairs(s.zombies) do
             local hp=num(call(r.actor,"getHealth"),r.lastHealth)
             s.loss=s.loss+math.max(0,r.lastHealth-hp);r.lastHealth=hp
-            if not r.dead and call(r.actor,"getModData").SC_SoloMelee~=r.token then return fail("zombie_identity","receipt changed") end
+            if not r.dead and call(r.actor,"getModData").SC_SoloMelee~=r.token then
+                return fail("zombie_identity","receipt changed case=" .. s.case .. " zombie=" .. i
+                    .. " actual=" .. tostring(call(r.actor,"getModData").SC_SoloMelee))
+            end
             if not r.dead and call(r.actor,"isDead")==true then r.dead=true;s.kills=s.kills+1 end
             if not r.dead then nearest=math.min(nearest,distance(p,point(r.actor))) end
         end
@@ -571,17 +607,21 @@ function Probe.step(H,current,check,result,setPhase)
         if alive(s.actor) and call(s.actor,"getPrimaryHandItem")~=s.item then s.unexpectedWeapon=s.unexpectedWeapon+1 end
         s.samples[#s.samples+1]={format((current-s.started)/1000),format(p.x),format(p.y),
             nearest<math.huge and format(nearest) or "",format(U.nativeHealth(s.actor)),
-            format(call(s.actor:getStats(),"get",CharacterStat.ENDURANCE)),action,tostring(retreat),
+            format(endurance),action,tostring(retreat),
             tostring(combat.overrun and combat.overrun.cause),tostring(back),
             tostring(call(s.actor,"isPerformingAttackAnimation")),s.kills,format(call(s.item,"getCondition")),
             tostring(combat.overrun and combat.overrun.localKiteReason),tostring(readiness.support),
-            tostring(readiness.immediate),tostring(readiness.close),tostring(readiness.enduranceReserve)}
+            tostring(readiness.immediate),tostring(readiness.close),tostring(readiness.enduranceReserve),
+            tostring(readiness.combatSkill),tostring(readiness.combatSkillName),
+            tostring(readiness.weaponCost),tostring(readiness.internalRisk),
+            tostring(combat.kiteBurst and combat.kiteBurst.curve==true or false)}
         local outcome
         if not alive(s.actor) then outcome="DEAD"
         elseif s.count==0 and current-s.started>=10000 then outcome="IDLE"
         elseif s.count>0 and s.kills==s.count then outcome="CLEAR"
-        elseif s.maxDisplacement>26 and s.retreatSeconds>1 then outcome="WITHDREW"
-        elseif current-s.started>=90000 then outcome="TIMEOUT" end
+        elseif Probe.withdrawalComplete((current-(s.retreatStarted or current))/1000,
+            s.retreatOrigin and distance(p,s.retreatOrigin) or 0,s.maxDisplacement) then outcome="WITHDREW"
+        elseif current-s.started>=Probe.trialTimeoutMs(H.config) then outcome="TIMEOUT" end
         if not outcome then return end
         local medical=SC.Medical.assess(s.actor)
         local row={case=s.case,weapon=s.weapon[2],zombies=s.count,outcome=outcome,kills=s.kills,
@@ -600,10 +640,16 @@ function Probe.step(H,current,check,result,setPhase)
             overrun_seconds=format(s.overrunSeconds),max_displacement=format(s.maxDisplacement),max_still_seconds=format(s.maxStill),
             minimum_player_distance=format(s.minPlayerDistance),swing_sounds=num(call(s.actor,"getCompanionSwingSounds"))-s.soundStart,
             unexpected_weapon_samples=s.unexpectedWeapon,minimum_hit_distance=s.minHit<math.huge and format(s.minHit) or "",
-            maximum_hit_distance=s.contacts>0 and format(s.maxHit) or "",actions=histogram(s.actions),retreat_causes=histogram(s.causes)}
+            maximum_hit_distance=s.contacts>0 and format(s.maxHit) or "",actions=histogram(s.actions),retreat_causes=histogram(s.causes),
+            max_retreat_episode_seconds=format(s.maxRetreatEpisodeSeconds),
+            max_retreat_episode_distance=format(s.maxRetreatEpisodeDistance),
+            lowest_endurance=format(s.lowestEndurance),model_skill=tostring(readiness.combatSkill),
+            model_perk=tostring(readiness.combatSkillName),weapon_broken=tostring(num(call(s.item,"getCondition"))<=0),
+            final_held_type=U.itemType(call(s.actor,"getPrimaryHandItem")) or "none",
+            initial_model_skill=tostring(s.initialModel.combatSkill),initial_model_perk=tostring(s.initialModel.combatSkillName)}
         s.rows[#s.rows+1]=row
         if not writeRows(H) or not writeTrace(s,"samples",
-            "seconds,x,y,nearest,health,endurance,action,retreating,overrun_cause,backward,attack_animation,kills,condition,kite_context,support,immediate,close,reserve",s.samples)
+            "seconds,x,y,nearest,health,endurance,action,retreating,overrun_cause,backward,attack_animation,kills,condition,kite_context,support,immediate,close,reserve,model_skill,model_perk,weapon_cost,internal_risk,kite_curve",s.samples)
             or not writeTrace(s,"impacts",
             "seconds,zombie,weapon,melee,distance,facing_dot,moving,backward,zombie_health,event,actor_x,actor_y,zombie_x,zombie_y,action_or_damage,frame_dx,frame_dy,frame_ms,motion_age_ms",s.impacts)
             then return fail("results_write",s.case) end
@@ -620,7 +666,7 @@ function Probe.step(H,current,check,result,setPhase)
             return
         end
         if #s.selected>0 then
-            s.cursor=s.cursor+1;s.index=s.selected[s.cursor] or 61
+            s.cursor=s.cursor+1;s.index=s.selected[s.cursor] or s.last+1
         else s.index=s.index+1 end
         setPhase("solo_melee_prepare",current)
     end

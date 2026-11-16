@@ -31,6 +31,10 @@
     (Join-Path $Gameplay 'combat_coordination_regression_harness.lua')) }
 @{ Name = 'behaviour.open-ground-melee'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'open_ground_melee_harness.lua')) }
+@{ Name = 'behaviour.melee-weapon-readiness'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'melee_weapon_readiness_harness.lua')) }
+@{ Name = 'behaviour.ground-finisher-execution'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'ground_finisher_execution_harness.lua')) }
 
 @{ Name = 'behaviour.combat-squad'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'combat_squad_harness.lua')) }

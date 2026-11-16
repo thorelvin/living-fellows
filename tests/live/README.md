@@ -3,9 +3,13 @@
 # Real sandbox harness
 
 `-SoloMeleeProbe` records one real Base Watch fighter against 0..5 native
-zombies, using ten common melee weapons. Cases are weapon-major: crowbar 1..6,
+zombies, using fourteen melee weapons. Cases are weapon-major: crowbar 1..6,
 bat 7..12, axe 13..18, hand axe 19..24, wood axe 25..30, machete 31..36,
-hunting knife 37..42, hammer 43..48, lead pipe 49..54, crafted spear 55..60.
+hunting knife 37..42, hammer 43..48, lead pipe 49..54, crafted spear 55..60,
+plank 61..66, sledgehammer 67..72, wrench 73..78, kitchen knife 79..84.
+The default remains 1..60; the appended cases preserve the earlier IDs.
+`-SoloMeleeTrialSeconds` sets the observation cap per fight (30..300 seconds,
+default 90). This extends measurement only; native mechanics are unchanged.
 Use `-SoloMeleeStartCase` / `-SoloMeleeEndCase` for a range, or
 `-SoloMeleeCases '4,10,40,53'` for selected cases in that order. Each case gets
 a fresh fighter, fixed skills, full starting endurance and a full-condition
@@ -20,10 +24,24 @@ squares loaded and reads the native static lists back before the next case.
 The result CSV and motion/contact traces are written as `solo-melee-*.txt`
 under the clone's `Lua/SurvivorCompanionHarness` directory. Recorder PASS means
 complete measurements; combat acceptance must separately inspect outcomes,
-health, retreat and spacing. `scripts/Test-SoloMeleeFixture.ps1` tests the
-cleanup fixture with its recorded old-cleanup negative; the specialist
-`scripts/Test-OpenGroundMelee.ps1` verifies the production policy and five
-independent reverted-fix negatives.
+health, retreat and spacing. Extended traces include the actual model skill,
+perk, weapon cost and lowest endurance; results also record breakage and the
+final held item. `scripts/Test-SoloMeleeFixture.ps1` tests cleanup and stable
+case mapping and observation limits with old-cleanup, old-roster, old-limit,
+old-withdrawal and old-receipt
+negatives. The specialist
+`scripts/Test-OpenGroundMelee.ps1` verifies footwork, skill lookup and heavy-tool
+fatigue assessment and floor-finisher execution with sixteen individual
+reverted-fix negatives, including the stalled waiting gap, both premature
+heavy-tool withdrawal penalties, the conflicting prone-threat veto and the
+blocked-rear-lane alternative, short-blade recovery clearance and the bounded
+diagonal escape, matching full-lane steering clearance and short-blade control.
+WITHDREW requires a continuous five-second retreat moving at least eight
+metres outside the original 26-metre radius. A short spacing episode after
+long kiting does not end measurement; all cumulative retreat time remains in
+the results alongside maximum episode duration/displacement.
+Zombie receipts are unique text values that survive serialization; missing or
+wrong receipts still invalidate a trial rather than crediting another zombie.
 
 Grid control uses `-GridControlProbe -EngineSound -LivingFellowsOnly -NoSteam
 -IsolatedSourceBridge`. `-EngineSound` enables the real AmbientStreamManager

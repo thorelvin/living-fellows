@@ -2460,22 +2460,43 @@ local meleePerks = {
     Axe = true, Blunt = true, LongBlade = true, LongBlunt = true,
     SmallBlade = true, SmallBlunt = true, Spear = true,
 }
+local nativeMeleePerks = {
+    { "AXE", "Axe" }, { "BLUNT", "Blunt" },
+    { "LONG_BLADE", "LongBlade" }, { "SMALL_BLADE", "SmallBlade" },
+    { "SMALL_BLUNT", "SmallBlunt" }, { "SPEAR", "Spear" },
+}
 
 weaponSkill = function(actor, weapon)
     if not weapon then return 0, "Unarmed" end
     if weapon.ranged then return U().perkLevel(actor, "Aiming", 0), "Aiming" end
-    local best, bestName = 0, "Melee"
+    local best, bestName, recognized = 0, "Melee", false
+    -- Build 42.22 uses registered WeaponCategory objects, not getCategories().
+    -- Ask the held item so instance overrides also count. A known level zero
+    -- stays zero: "Sledgehammer" must never guess SmallBlunt from its name.
+    if WeaponCategory ~= nil then
+        for _, entry in ipairs(nativeMeleePerks) do
+            local okay, category = pcall(function() return WeaponCategory[entry[1]] end)
+            if okay and category ~= nil
+                and select(1, U().call(weapon.item, "isOfWeaponCategory", category)) == true then
+                local level = U().perkLevel(actor, entry[2], 0)
+                if not recognized or level > best then best, bestName = level, entry[2] end
+                recognized = true
+            end
+        end
+    end
+    if recognized then return best, bestName end
     local categories, ok = U().call(weapon.item, "getCategories")
     if ok and categories then
         U().each(categories, 12, function(category)
             local name = tostring(category)
             if meleePerks[name] then
                 local level = U().perkLevel(actor, name, 0)
-                if level > best then best, bestName = level, name end
+                if not recognized or level > best then best, bestName = level, name end
+                recognized = true
             end
         end)
     end
-    if best > 0 then return best, bestName end
+    if recognized then return best, bestName end
     local itemType = string.lower(tostring(weapon.type or ""))
     local inferred = string.find(itemType, "axe", 1, true) and "Axe"
         or (string.find(itemType, "knife", 1, true)
@@ -2569,7 +2590,9 @@ function Combat.readiness(actor, snapshot, weapon, commands)
     local internalRisk = (1 - endurance) * 24 + panic * 5 + stress * 0.1
         + pain * 4 + tired * 3 + heavyLoad * 4 + woundPressure * 5
         + math.max(0, 45 - morale) * 0.12
-        + math.max(0, weaponCost - 1.5) * 2.5
+        -- Weapon cost already raises the endurance reserve. It magnifies
+        -- actual fatigue; carrying a heavy tool is not exhaustion by itself.
+        + math.max(0, weaponCost - 1.5) * 2.5 * (1 - endurance)
     local externalRisk = immediate * 12 + math.max(0, close - capacity) * 8
         + math.max(0, occupied - 1) * 12 + escapeDanger * 5
         + localFootingRisk
@@ -3557,7 +3580,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                     score = 58 + weapon.damage * 5 + readiness.combatSkill * 1.8
                         + readiness.strength * 0.6 + readiness.weaponQuality * 8
                         - pressure * 3 - fatiguePenalty
-                        - math.max(0, readiness.weaponCost - 1.5) * 3,
+                        - math.max(0, readiness.weaponCost - 1.5) * 3 * (1 - readiness.endurance),
                 }
             elseif anticipatoryLead then
                 actions[#actions + 1] = {
@@ -5058,12 +5081,18 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         utility.stop(actor)
         return false, "friendly_in_attack_lane"
     end
+    local postureChecked = false
     if targetActor ~= nil and SC.CombatSquad
+        and type(SC.CombatSquad.safeFinisher) == "function"
         and (action.kind == "stomp"
-            or (action.kind == "melee" and action.floorAttack == true))
-        and not SC.CombatSquad.safeFinisher(actor, targetActor, snapshot) then
-        utility.stop(actor)
-        return false, "finisher_unsafe"
+            or (action.kind == "melee" and action.floorAttack == true)) then
+        if not SC.CombatSquad.safeFinisher(actor, targetActor, snapshot) then
+            utility.stop(actor)
+            return false, "finisher_unsafe"
+        end
+        -- Match floor-finisher scoring: the aggregate count includes prone
+        -- zombies too. A posture-aware clearance must not then be vetoed by it.
+        postureChecked = true
     end
     if weapon and not weapon.equipped and action.kind ~= "shove"
         and action.kind ~= "stomp" and action.drawSpacing ~= true then
@@ -5089,7 +5118,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         if action.floorAttack == true then
             local grounded = groundedTarget(targetActor)
             if not grounded or utility.isDead(targetActor)
-                or (tonumber(snapshot.closeImmediateCount)
+                or not postureChecked and (tonumber(snapshot.closeImmediateCount)
                     or tonumber(snapshot.immediateCount) or 0)
                     > (utility.config("combatStompMaxImmediate") or 1) then
                 return false, "ground_melee_target_invalid"
@@ -5111,7 +5140,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
         local grounded = groundedTarget(targetActor)
         if not grounded or utility.isDead(targetActor)
-            or (tonumber(snapshot.closeImmediateCount) or tonumber(snapshot.immediateCount) or 0)
+            or not postureChecked and (tonumber(snapshot.closeImmediateCount) or tonumber(snapshot.immediateCount) or 0)
                 > (utility.config("combatStompMaxImmediate") or 1) then
             state.stompAnchor = nil
             return false, "stomp_anchor_invalid"
