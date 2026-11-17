@@ -1547,18 +1547,19 @@ public final class SCBridge {
         lastFailure = "";
         String refused = driveRefusal(actor);
         if (!refused.isEmpty()) return failBoolean(refused);
-        if (lead == null || lead == actor.getVehicle() || lead.getDriver() == null)
+        SCCompanionDriver driver = actor.companionDriver();
+        if (lead == null || lead == actor.getVehicle()
+                || lead.getDriver() == null && !driver.followsVehicle(lead))
             return failBoolean("lead vehicle has no player driver");
-        if (!(lead.getDriver() instanceof IsoPlayer))
+        if (lead.getDriver() != null && !(lead.getDriver() instanceof IsoPlayer))
             return failBoolean("lead vehicle has no player driver");
         if (!Double.isFinite(cruiseKmh) || cruiseKmh <= 0.0 || cruiseKmh > 50.0)
             return failBoolean("convoy speed must be 1 to 50 km/h");
-        SCCompanionDriver driver = actor.companionDriver();
         if (!driver.isActive()) return failBoolean("companion is not driving");
         SCDrivePath path = SCDrivePath.parse(route);
         if (path == null) return failBoolean("invalid convoy trail");
-        driver.followVehicle(lead, path, cruiseKmh);
-        return true;
+        String failure = driver.followVehicle(lead, path, cruiseKmh);
+        return failure.isEmpty() || failBoolean(failure);
     }
 
     /** Bounded slow final parking leg, never a general route substitute. */
@@ -1675,6 +1676,10 @@ public final class SCBridge {
         put(out, "startAttempts", driver.startAttempts());
         put(out, "engineStartCalls", driver.startCalls());
         put(out, "zombiesKilled", driver.zombiesKilled());
+        put(out, "convoyParking", driver.convoyParking());
+        put(out, "convoyParked", driver.convoyParked());
+        if (Float.isFinite(driver.convoyGap())) put(out, "convoyGap", driver.convoyGap());
+        if (Float.isFinite(driver.convoyLateral())) put(out, "convoyLateral", driver.convoyLateral());
         SCDriveControl.Input input = driver.lastInput();
         put(out, "forward", input.forward());
         put(out, "brake", input.brake());

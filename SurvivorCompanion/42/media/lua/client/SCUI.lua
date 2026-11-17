@@ -510,6 +510,7 @@ function UI.baseFailureReason(reason, knownOnly)
         trail_out_of_range = true,
         route_rejected = true,
         follow_car_out_of_reach = true,
+        follow_car_parking_unreachable = true,
         no_safe_exit = true,
         barricade_target_unloaded = true,
         barricade_target_gone = true,

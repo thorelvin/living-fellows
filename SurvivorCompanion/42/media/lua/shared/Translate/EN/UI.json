@@ -623,6 +623,7 @@
     "UI_SC_Base_Reason_trail_out_of_range": "Your car was too far away to follow.",
     "UI_SC_Base_Reason_route_rejected": "There was no road to follow behind your car.",
     "UI_SC_Base_Reason_follow_car_out_of_reach": "The follow car was left too far away.",
+    "UI_SC_Base_Reason_follow_car_parking_unreachable": "Could not reach your car to park behind it.",
     "UI_SC_Base_Reason_no_safe_exit": "There is no safe door to get out of the car.",
     "UI_SC_Base_Reason_work_pickup_interrupted": "Item pickup was interrupted",
     "UI_SC_Base_Reason_work_storage_changed": "Storage changed while checking; another check is scheduled",

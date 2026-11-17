@@ -78,6 +78,8 @@ final class SCRoadFollower {
     private final float cornerSpeedScale;
     private final boolean keepRight;
     private final boolean preciseArrival;
+    private boolean rollingGoal;
+    private boolean convoyParking;
     private final SCDrivePath.Projection projection = new SCDrivePath.Projection();
     private final float[] point = new float[5];
     private final HashMap<Long, Integer> scanCache = new HashMap<>();
@@ -145,6 +147,12 @@ final class SCRoadFollower {
 
     Mode mode() {
         return mode;
+    }
+
+    /** A moving trail ends at a live leader, rather than a destination to brake for. */
+    void convoy(boolean parking) {
+        rollingGoal = !parking;
+        convoyParking = parking;
     }
 
     SCDrivePath path() {
@@ -495,15 +503,15 @@ final class SCRoadFollower {
         boolean stopped = Math.abs(speedKmh) <= SCDriveControl.STOPPED_KMH;
         if (!stopped) stoppedSince = -1L;
         else if (stoppedSince < 0L) stoppedSince = nowMs;
-        boolean arrived = preciseArrival
-                ? physicalEndDistance <= 1.0f && stopped
+        boolean arrived = !rollingGoal && (preciseArrival
+                ? physicalEndDistance <= (convoyParking ? 0.35f : 1.0f) && stopped
                 : toEnd <= ARRIVE_TILES || toEnd <= NEAR_END_TILES && stopped
-                    && nowMs - stoppedSince >= NEAR_END_STOPPED_MS;
+                    && nowMs - stoppedSince >= NEAR_END_STOPPED_MS);
         if (arrived) {
             mode = Mode.ARRIVED;
             return command;
         }
-        if (preciseArrival && physicalEndDistance <= 0.9f) {
+        if (preciseArrival && physicalEndDistance <= (convoyParking ? 0.25f : 0.9f)) {
             command.targetKmh = 0.0f;
             return command;
         }
@@ -564,10 +572,13 @@ final class SCRoadFollower {
             vertex = path.nextVertexAlong(vertex + 0.01f);
         }
         // Ease in to the end of the route.
-        target = Math.min(target, preciseArrival
-                ? Math.max(2.0f, (path.length() - along) * 0.9f)
-                : Math.max(3.0f, (path.length() - along) * 1.5f));
+        if (!rollingGoal) {
+            target = Math.min(target, preciseArrival
+                    ? Math.max(2.0f, (path.length() - along) * 0.9f)
+                    : Math.max(3.0f, (path.length() - along) * 1.5f));
+        }
         command.targetKmh = target;
+        if (convoyParking) command.maneuver = true;
         noteWedge(x, y, speedKmh, frontClear, rearClear, frontKind, nowMs, command);
         return command;
     }

@@ -10,6 +10,7 @@ import zombie.core.physics.CarController;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
+import zombie.pathfind.VehiclePoly;
 import zombie.scripting.objects.VehicleScript;
 import zombie.vehicles.BaseVehicle;
 
@@ -38,6 +39,12 @@ final class SCCompanionDriver {
     private boolean active;
     private BaseVehicle vehicle;
     private BaseVehicle convoyLead;
+    private boolean convoyParking;
+    private boolean convoyParked;
+    private float convoyGap = Float.NaN;
+    private float convoyLateral = Float.NaN;
+    private final Vector3f leadForward = new Vector3f();
+    static final float CONVOY_PARK_GAP = 2.0f;
     private IsoPlayer authorizedPassenger;
     private boolean haveKey;
     private float steering;
@@ -57,6 +64,7 @@ final class SCCompanionDriver {
     private SCDriveControl.Input lastInput = new SCDriveControl.Input(0.0f, false, false, false);
     private final SCLaneScan.Result lastScan = new SCLaneScan.Result();
     private final SCLaneScan.Result lastRearScan = new SCLaneScan.Result();
+    private BaseVehicle lastScanVehicle;
     private final Vector3f forward = new Vector3f();
     private SCRoadFollower follower;
     private final SCRoadFollower.Command command = new SCRoadFollower.Command();
@@ -84,6 +92,12 @@ final class SCCompanionDriver {
     boolean isActive() {
         return active;
     }
+
+    boolean followsVehicle(BaseVehicle lead) { return active && convoyLead == lead; }
+    boolean convoyParking() { return convoyLead != null && convoyParking; }
+    boolean convoyParked() { return convoyLead != null && convoyParked; }
+    float convoyGap() { return convoyGap; }
+    float convoyLateral() { return convoyLateral; }
 
     BaseVehicle vehicle() {
         return vehicle;
@@ -176,7 +190,11 @@ final class SCCompanionDriver {
         nextScanAt = 0L;
         hordeAvoidUntil = 0L;
         lastScan.copyFrom(new SCLaneScan.Result());
+        lastScanVehicle = null;
         follower = null;
+        convoyLead = null;
+        convoyParking = convoyParked = false;
+        convoyGap = convoyLateral = Float.NaN;
         turnRequested = false;
         return "";
     }
@@ -220,17 +238,63 @@ final class SCCompanionDriver {
         turnRequested = false;
     }
 
-    void followVehicle(BaseVehicle lead, SCDrivePath path, double cruise) {
+    String followVehicle(BaseVehicle lead, SCDrivePath path, double cruise) {
+        if (convoyLead != lead) nextScanAt = 0L;
+        boolean parking = lead.getDriver() == null;
+        if (parking) {
+            lead.getForwardVector(leadForward);
+            float span = (float) Math.hypot(leadForward.x, leadForward.z);
+            if (!(span > 0.9f) || lead.getSquare() == null)
+                return "parked lead vehicle is not reachable";
+            float hx = leadForward.x / span, hy = leadForward.z / span;
+            vehicle.getForwardVector(forward);
+            float ownSpan = (float) Math.hypot(forward.x, forward.z);
+            if (!(ownSpan > 0.9f)) return "follow car heading is unavailable";
+            float standOff = extent(lead, -hx, -hy)
+                    + extent(vehicle, forward.x / ownSpan, forward.z / ownSpan) + CONVOY_PARK_GAP;
+            path = path.stopBeforeEnd(standOff,
+                    lead.getX() - hx * standOff, lead.getY() - hy * standOff);
+            cruise = Math.min(cruise, 5.0);
+        }
         if (follower == null || convoyLead != lead
+                || convoyParking != parking
                 || follower.mode() == SCRoadFollower.Mode.TURN_FAILED) {
-            follower = new SCRoadFollower(path, (float) cruise, false);
+            follower = new SCRoadFollower(path, (float) cruise, false, parking);
+            follower.convoy(parking);
         } else {
             follower.retarget(path);
         }
         convoyLead = lead;
+        convoyParking = parking;
+        convoyParked = false;
         cruiseKmh = follower.cruiseKmh();
         autoBrake = true;
         turnRequested = false;
+        return "";
+    }
+
+    /** Actual polygon reach from the body origin in a chosen world direction. */
+    private static float extent(BaseVehicle car, float hx, float hy) {
+        VehiclePoly poly = car.getPoly();
+        if (poly == null) return bodySize(car)[1];
+        float x = car.getX(), y = car.getY();
+        float reach = Math.max(Math.max((poly.x1 - x) * hx + (poly.y1 - y) * hy,
+                (poly.x2 - x) * hx + (poly.y2 - y) * hy),
+                Math.max((poly.x3 - x) * hx + (poly.y3 - y) * hy,
+                        (poly.x4 - x) * hx + (poly.y4 - y) * hy));
+        return Float.isFinite(reach) && reach > 0.1f ? reach : bodySize(car)[1];
+    }
+
+    /** Close the gap smoothly; a rolling trail must not apply destination braking. */
+    static float convoySpeed(float routeKmh, float speed, float leadKmh, float gap) {
+        if (!Float.isFinite(gap) || !Float.isFinite(speed) || !Float.isFinite(leadKmh)) return 0;
+        float leader = Math.max(0, leadKmh);
+        float desiredGap = 4.0f + leader / 3.6f * 0.2f;
+        float target = Math.min(routeKmh, Math.max(0, leader + (gap - desiredGap) * 2.0f));
+        float closing = Math.max(0, speed - leader);
+        if (gap <= 2.5f) return 0;
+        if (gap <= 2.0f + SCDriveControl.stoppingDistance(closing)) target = Math.min(target, leader);
+        return target;
     }
 
     /** Short, centreline-only final approach. Precise stop is still verified
@@ -411,20 +475,24 @@ final class SCCompanionDriver {
         float y = current.getY();
         int z = follower.parkingAlignment() && !Float.isFinite(current.getZ())
                 ? -1 : (int) Math.floor(current.getZ());
-        WorldView world = new WorldView(current, follower.parkingAlignment());
+        WorldView world = new WorldView(current, follower.parkingAlignment() || convoyParking);
         if (now - nextScanAt >= 0L) {
             nextScanAt = now + SCAN_INTERVAL_NANOS;
             if (SCHordeAvoidance.ahead(world, x, y, z, headingX, headingY,
                     body[0], body[1])) {
                 hordeAvoidUntil = now + HORDE_AVOID_HOLD_NANOS;
             }
-            world.avoidZombies = follower.parkingAlignment() || now - hordeAvoidUntil < 0L;
+            world.avoidZombies = convoyParking || follower.parkingAlignment() || now - hordeAvoidUntil < 0L;
             lastScan.copyFrom(SCLaneScan.scan(world, x, y, z, headingX, headingY, body[0],
                     body[1] + 0.1f, lookAheadFor(follower.cruiseKmh())));
+            IsoGridSquare hit = world.cell == null ? null
+                    : world.cell.getGridSquare(lastScan.hitX, lastScan.hitY, z);
+            lastScanVehicle = lastScan.blocked && lastScan.kind == SCLaneScan.VEHICLE && hit != null
+                    ? hit.getVehicleContainer() : null;
             lastRearScan.copyFrom(SCLaneScan.scan(world, x, y, z, -headingX, -headingY, body[0],
                     body[1] + 0.1f, REAR_LOOK));
         }
-        world.avoidZombies = follower.parkingAlignment() || now - hordeAvoidUntil < 0L;
+        world.avoidZombies = convoyParking || follower.parkingAlignment() || now - hordeAvoidUntil < 0L;
         if (turnRequested) {
             turnRequested = false;
             follower.beginTurn((float) Math.atan2(headingY, headingX),
@@ -432,23 +500,59 @@ final class SCCompanionDriver {
         }
         float front = lastScan.blocked ? lastScan.distance : -1.0f;
         float rear = lastRearScan.blocked ? lastRearScan.distance : -1.0f;
+        // Exempt the live lead from overtaking decisions, retaining it in the
+        // physical bumper scan above. Every other obstacle keeps both checks.
+        if (convoyLead != null && !convoyParking) world.ignoredVehicle = convoyLead;
         follower.update(world, x, y, z, headingX, headingY, speedKmh, body[0], body[1],
                 front, rear, lastScan.kind, now / 1_000_000L, command);
         if (convoyLead != null) {
-            if (convoyLead == current || (convoyLead.getDriver() != null
+            convoyParked = false;
+            if (convoyLead == current || convoyLead.getSquare() == null
+                    || (convoyLead.getDriver() != null
                     && !(convoyLead.getDriver() instanceof IsoPlayer))
                     || convoyLead.getZ() != current.getZ()) {
                 command.targetKmh = 0.0f;
             } else {
-                float[] leadBody = bodySize(convoyLead);
-                float clearGap = (float) Math.hypot(convoyLead.getX() - x,
-                        convoyLead.getY() - y) - body[1] - leadBody[1];
-                float leadSpeed = Math.max(0.0f, convoyLead.getCurrentSpeedKmHour());
-                float closing = Math.max(0.0f, speedKmh - leadSpeed);
-                float brakingGap = 12.0f + SCDriveControl.stoppingDistance(closing);
-                if (clearGap <= 12.0f) command.targetKmh = 0.0f;
-                else if (clearGap <= brakingGap)
-                    command.targetKmh = Math.min(command.targetKmh, leadSpeed);
+                convoyLead.getForwardVector(leadForward);
+                float span = (float) Math.hypot(leadForward.x, leadForward.z);
+                float hx = span > 0.9f ? leadForward.x / span : Float.NaN;
+                float hy = span > 0.9f ? leadForward.z / span : Float.NaN;
+                float dx = convoyLead.getX() - x, dy = convoyLead.getY() - y;
+                convoyGap = dx * hx + dy * hy - extent(convoyLead, -hx, -hy)
+                        - extent(current, hx, hy);
+                convoyLateral = -dx * hy + dy * hx;
+                if (convoyParking) {
+                    command.maneuver = true;
+                    convoyParked = Float.isFinite(convoyGap) && convoyGap >= 1.5f
+                            && convoyGap <= 2.8f && Math.abs(convoyLateral) <= 0.7f
+                            && headingX * hx + headingY * hy >= 0.96f
+                            && Math.abs(speedKmh) <= SCDriveControl.STOPPED_KMH;
+                    if (convoyParked || !Float.isFinite(convoyGap) || convoyGap < 1.5f
+                            || Math.abs(convoyLead.getCurrentSpeedKmHour()) > SCDriveControl.STOPPED_KMH)
+                        command.targetKmh = 0;
+                } else {
+                    float separation = (float) Math.hypot(dx, dy);
+                    float nx = separation > 0.001f ? dx / separation : Float.NaN;
+                    float ny = separation > 0.001f ? dy / separation : Float.NaN;
+                    float clearGap = separation - extent(current, nx, ny) - extent(convoyLead, -nx, -ny);
+                    command.targetKmh = convoySpeed(command.targetKmh, speedKmh,
+                            convoyLead.getCurrentSpeedKmHour(), clearGap);
+                    // Only the exact, aligned moving lead uses closing speed.
+                    // Other vehicles and all stationary hits keep the normal
+                    // absolute-speed bumper brake.
+                    float leadSpeed = convoyLead.getCurrentSpeedKmHour();
+                    if (lastScan.blocked && lastScan.kind == SCLaneScan.VEHICLE
+                            && lastScanVehicle == convoyLead
+                            && leadSpeed > SCDriveControl.STOPPED_KMH
+                            && headingX * hx + headingY * hy >= 0.96f
+                            && Math.abs(convoyLateral) <= 1.5f) {
+                        float closing = Math.max(0, speedKmh - leadSpeed);
+                        if (closing > SCDriveControl.STOPPED_KMH
+                                && front <= 2.0f + SCDriveControl.stoppingDistance(closing))
+                            command.targetKmh = Math.min(command.targetKmh, Math.max(0, speedKmh - 4));
+                        front = -1;
+                    }
+                }
             }
         }
         steering = command.steering;
@@ -459,7 +563,9 @@ final class SCCompanionDriver {
                                 : SCDriveControl.HOLD_GAP_TILES);
         write(controls, input);
         SCRoadFollower.Mode mode = follower.mode();
-        if (mode == SCRoadFollower.Mode.FOLLOW) {
+        if (convoyParked()) {
+            state = "convoy_parked";
+        } else if (mode == SCRoadFollower.Mode.FOLLOW) {
             float gap = command.maneuver ? SCDriveControl.MANEUVER_GAP_TILES
                     : SCDriveControl.HOLD_GAP_TILES;
             if (command.targetKmh > 0.0f && SCDriveControl.mustStop(speedKmh, front, gap)) {
@@ -629,6 +735,7 @@ final class SCCompanionDriver {
     private static final class WorldView implements SCLaneScan.World, SCHordeAvoidance.World {
         private final BaseVehicle self;
         private final IsoCell cell;
+        private BaseVehicle ignoredVehicle;
         private final boolean requireGround;
         private boolean avoidZombies;
 
@@ -660,7 +767,7 @@ final class SCCompanionDriver {
             if (square == null) return SCLaneScan.UNLOADED;
             if (requireGround && !square.TreatAsSolidFloor()) return SCLaneScan.SOLID;
             BaseVehicle other = square.getVehicleContainer();
-            if (other != null && other != self) return SCLaneScan.VEHICLE;
+            if (other != null && other != self && other != ignoredVehicle) return SCLaneScan.VEHICLE;
             if (square.HasTree()) return SCLaneScan.TREE;
             zombie.core.properties.PropertyContainer properties = square.getProperties();
             if (properties != null && (properties.has("StopCar")

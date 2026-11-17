@@ -85,6 +85,25 @@
     (Join-Path $Client 'SCRuntime.lua'),
     (Join-Path $Core 'driving_harness.lua')) }
 
+@{ Name = 'convoy-parking-and-unreachable-exit'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCSpeechColors.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCStableValue.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $Core 'driving_fixture.lua'),
+    (Join-Path $Client 'SCActionSupervisor.lua'),
+    (Join-Path $Client 'SCScheduler.lua'),
+    (Join-Path $Client 'SCExpeditionRoute.lua'),
+    (Join-Path $Client 'SCDriving.lua'),
+    (Join-Path $Client 'SCConvoy.lua'),
+    (Join-Path $Client 'SCGuardPost.lua'),
+    (Join-Path $Client 'SCCommands.lua'),
+    (Join-Path $Client 'SCDecision.lua'),
+    (Join-Path $Client 'SCRuntime.lua'),
+    (Join-Path $Core 'convoy_parking_harness.lua')) }
+
 @{ Name = 'wood-tools-and-collection'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

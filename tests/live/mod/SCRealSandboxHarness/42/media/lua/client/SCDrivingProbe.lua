@@ -945,7 +945,8 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         "SCBridge driving calls are exposed") then
         setPhase("finish", current) return
     end
-    segmentHalf = H.config.team_drive_scavenge_probe == "true" and 18 or
+    segmentHalf = H.config.convoy_probe == "true" and 60
+        or H.config.team_drive_scavenge_probe == "true" and 18 or
         (H.config.driving_route == "true"
         or H.config.driving_blocked == "true"
         or H.config.driving_save_stage == "true"
@@ -3505,6 +3506,23 @@ local function taxiCallResumeStep(H, SC, current, check, result, setPhase)
     end
 end
 
+local function convoyClearance(SC, test)
+    local lead, car = test.lead, test.vehicle
+    local forward = lead:getForwardVector(Vector3f.new())
+    local hx, hy = forward:x(), forward:z()
+    local span = math.sqrt(hx*hx+hy*hy)
+    if span < 0.9 then return nil end
+    hx, hy = hx/span, hy/span
+    local a, b = SC.ExpeditionCar.footprint(lead), SC.ExpeditionCar.footprint(car)
+    if not a or not b then return nil end
+    local rear, front = math.huge, -math.huge
+    for i=1,4 do
+        rear=math.min(rear,a["x"..i]*hx+a["y"..i]*hy)
+        front=math.max(front,b["x"..i]*hx+b["y"..i]*hy)
+    end
+    return rear-front, -(car:getX()-lead:getX())*hy+(car:getY()-lead:getY())*hx
+end
+
 local function convoyStep(H, SC, current, check, result, setPhase, test)
     local follower, actor, player = test.vehicle, test.actor, H.player
     if H.phase == "drive_convoy_lead_setup" then
@@ -3554,12 +3572,14 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
     end
     local lead = test.lead
     if H.phase == "drive_convoy_wait_board" then
+        local status=SC.Driving.status(actor) or {}
         local seated = actor:getVehicle() == follower
             and SC.Driving.isDriver(actor) and SC.Driving.isDriving(actor)
+            and status.engineRunning == true and status.following == true
         if seated then
             result("PASS", "convoy_companion_drives_assigned_car",
                 "seat=0 car_sql=" .. tostring(call(follower, "getSqlId")))
-            setPhase("drive_convoy_move", current)
+            setPhase(test.convoyBlocked and "drive_convoy_stop" or "drive_convoy_move", current)
         elseif current - H.phaseStartedAt > 25000 then
             failTo(H, test, setPhase, result, current, "convoy_companion_boarding",
                 "vehicle=" .. tostring(actor:getVehicle())
@@ -3568,7 +3588,8 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
         return
     end
     if H.phase == "drive_convoy_move" then
-        local moved = SCConvoyHarness and SCConvoyHarness.driveLead(player, true)
+        local moved = SCConvoyHarness and SCConvoyHarness.driveLeadAlong(player, true,
+            test.leadStartX+test.dirX*80,test.leadStartY+test.dirY*80)
         if not moved then
             failTo(H, test, setPhase, result, current,
                 "convoy_player_car_motion", "lead position was not writable")
@@ -3593,6 +3614,8 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
         return
     end
     if H.phase == "drive_convoy_follow_settle" then
+        if SCConvoyHarness then SCConvoyHarness.driveLeadAlong(player, true,
+            test.leadStartX+test.dirX*80,test.leadStartY+test.dirY*80) end
         local leadTravel = flatDistance(lead:getX(), lead:getY(),
             test.leadStartX, test.leadStartY)
         local followTravel = flatDistance(follower:getX(), follower:getY(),
@@ -3601,13 +3624,29 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
             follower:getX(), follower:getY())
         test.topSpeed = math.max(test.topSpeed,
             math.abs(tonumber(follower:getCurrentSpeedKmHour()) or 0))
-        if followTravel >= 5 and gap >= 5 and gap <= 22 then
+        local clearance, lateral = convoyClearance(SC,test)
+        local leadSpeed = math.abs(tonumber(lead:getCurrentSpeedKmHour()) or 0)
+        local close = clearance and clearance >= 2.5 and clearance <= 9
+            and math.abs(lateral) <= 1 and leadSpeed >= 17
+        if close then test.convoyCloseSince=test.convoyCloseSince or current
+        else test.convoyCloseSince=nil end
+        if current >= (test.convoyNextTrace or 0) then
+            test.convoyNextTrace=current+250
+            local status=SC.Driving.status(actor) or {}
+            print("SC_CONVOY_FOLLOW|gap="..fmt(clearance).."|lateral="..fmt(lateral)
+                .."|lead_kmh="..fmt(leadSpeed).."|follow_kmh="..fmt(follower:getCurrentSpeedKmHour())
+                .."|kind="..tostring(status.obstacleKind).."|obstacle="..fmt(status.obstacleDistance)
+                .."|brake="..tostring(status.brake).."|native_gap="..fmt(status.convoyGap))
+        end
+        if followTravel >= 5 and test.convoyCloseSince and current-test.convoyCloseSince>=2000 then
             check("convoy_native_follow_distance", test.topSpeed <= 50.5,
                 "lead=" .. fmt(leadTravel) .. " follower=" .. fmt(followTravel)
-                    .. " gap=" .. fmt(gap) .. " top=" .. fmt(test.topSpeed))
+                    .. " gap=" .. fmt(gap) .. " body_gap=" .. fmt(clearance)
+                    .. " lateral=" .. fmt(lateral) .. " top=" .. fmt(test.topSpeed))
             setPhase("drive_convoy_stop", current)
         elseif current - H.phaseStartedAt > 25000 then
             local status = SC.Driving.status(actor) or {}
+            pcall(function() getCore():TakeFullScreenshot(H.config.run_id.."-convoy-follow-failed") end)
             failTo(H, test, setPhase, result, current,
                 "convoy_native_follow_distance",
                 "lead=" .. fmt(leadTravel) .. " follower=" .. fmt(followTravel)
@@ -3633,16 +3672,43 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
                 "exit=" .. tostring(accepted)) then
             setPhase("finish", current) return
         end
+        test.convoyExitAt=current
+        test.convoyExitX,test.convoyExitY=follower:getX(),follower:getY()
+        pcall(function() getCore():TakeFullScreenshot(H.config.run_id.."-convoy-"
+            ..(test.convoyBlocked and "blocked" or "clear").."-before") end)
         setPhase("drive_convoy_rejoin", current)
         return
     end
     if H.phase == "drive_convoy_rejoin" then
+        local clearance,lateral=convoyClearance(SC,test)
+        local elapsed=current-test.convoyExitAt
+        if current >= (test.convoyNextTrace or 0) then
+            test.convoyNextTrace=current+250
+            local status=SC.Driving.status(actor) or {}
+            print("SC_CONVOY_PARK|blocked="..tostring(test.convoyBlocked==true)
+                .."|ms="..elapsed.."|gap="..fmt(clearance).."|lateral="..fmt(lateral)
+                .."|speed="..fmt(follower:getCurrentSpeedKmHour()).."|seated="..tostring(actor:getVehicle()==follower)
+                .."|state="..tostring(status.state).."|parked="..tostring(status.convoyParked))
+        end
         if actor:getVehicle() == nil and not SC.Driving.isDriving(actor) then
-            check("convoy_companion_parks_and_rejoins",
-                SC.Vehicle.isStationary(follower) == true,
-                "gap=" .. fmt(flatDistance(lead:getX(), lead:getY(),
-                    follower:getX(), follower:getY())))
-            setPhase("finish", current)
+            local valid=SC.Vehicle.isStationary(follower)==true and clearance~=nil
+            if test.convoyBlocked then
+                valid=valid and clearance>4 and elapsed>=7000 and elapsed<=22000
+            else
+                valid=valid and clearance>=1.5 and clearance<=2.8 and math.abs(lateral)<=0.7
+                    and flatDistance(follower:getX(),follower:getY(),test.convoyExitX,test.convoyExitY)>=0.5
+            end
+            local accepted=check(test.convoyBlocked and "convoy_blocked_parking_times_out"
+                    or "convoy_companion_parks_and_rejoins",valid,
+                "body_gap="..fmt(clearance).." lateral="..fmt(lateral).." elapsed_ms="..elapsed)
+            pcall(function() getCore():TakeFullScreenshot(H.config.run_id.."-convoy-"
+                ..(test.convoyBlocked and "blocked" or "clear").."-after") end)
+            if not test.convoyBlocked and accepted then
+                -- The first lead remains parked across the new approach. The
+                -- next lead spawns farther ahead before measurement begins.
+                test.convoyBlocked=true
+                setPhase("drive_convoy_lead_setup",current)
+            else setPhase("finish", current) end
         elseif current - H.phaseStartedAt > 30000 then
             failTo(H, test, setPhase, result, current,
                 "convoy_companion_parks_and_rejoins",

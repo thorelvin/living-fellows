@@ -442,18 +442,27 @@ lane scan every 250 ms. Add `-DrivingScreenshotDirectory` to capture
 `-DrivingProbe -ConvoyProbe` checks a recruited companion assigned to a second
 car. The disposable save seats the real player in a lead car, applies native
 accelerator and brake inputs through a harness-only bridge helper, and verifies
-that the companion boards the assigned driver seat, follows under native
-vehicle physics within the speed and distance limits, parks when the player
-exits, then leaves its own car. The helper is not part of the shipped bridge:
+that the companion starts its engine, follows under native vehicle physics
+within a nine-metre body gap for two seconds, then parks about two metres
+behind the lead car before exiting. The test measures native hulls, rather
+than centre distance. It repeats with the first parked car obstructing a
+second lead and requires a stopped timeout exit after 7--22 seconds.
+The helper is not part of the shipped bridge:
 the runner compiles `auto_start/SCConvoyHarness.java` into the disposable
 launch agent and sets `SC_LIVE_CONVOY_HARNESS=1` for that game process, and
 the bridge exposes it to Lua only when both are present. The convoy probe
 therefore needs the isolated Java launch (no `-SteamLaunch` or
-`-ExternalUiControl`). Install this branch's native bridge before the run and
-restore the previous local bridge afterward.
+`-ExternalUiControl`). Use `-IsolatedSourceBridge` to test the candidate bridge
+without changing the game installation. The real player's car is steered on
+the verified street with normal accelerator, brake and steering inputs; it
+waits for the companion's engine before setting off. Screenshots capture both
+parking cases before and after. `SC_CONVOY_FOLLOW` and `SC_CONVOY_PARK` record
+the hull gap, lateral offset, speed and exit timing.
 
 ```powershell
-.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -ConvoyProbe
+.\scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -ConvoyProbe `
+    -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -EngineSound `
+    -HiddenWindow -TimeoutSeconds 600
 ```
 
 Add `-DrivingRoute` to drive a route instead. The probe asks the expedition road

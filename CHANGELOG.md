@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.33 - Closer convoy following and parking
+
+- Follow cars match the lead car more closely, with a gap that accounts for
+  speed and braking. A moving trail no longer triggers destination braking or
+  an attempt to overtake the lead car. Other obstacles keep their normal brakes.
+- When the player gets out, the follower pulls up behind the remembered car,
+  aims for two metres between the cars' bodywork, stops, then exits. Overflow
+  passengers stay seated through the parking approach.
+- An unreachable parking position gives up after eight seconds without movement,
+  or twenty seconds overall. The driver stops and uses the normal safe exit;
+  moving cars, rejected wheel releases and blocked doors still wait safely.
+- Native bridge protocol remains `42.22-isocompanion-32`; use the matching
+  0.27.33 native bridge for the revised convoy controller and parking status.
+
 ## 0.27.32 - Release stalled storage surveys
 
 - Route planning uses the bridge's fine duration clock, keeping coarse wall

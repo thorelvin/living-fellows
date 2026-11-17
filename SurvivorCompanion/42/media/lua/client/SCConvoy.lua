@@ -6,6 +6,8 @@ local SC = SurvivorCompanion
 SC.Convoy = SC.Convoy or {}
 local Convoy = SC.Convoy
 local sessions = setmetatable({}, { __mode = "k" })
+local PARK_TIMEOUT_MS = 20000
+local PARK_STALL_MS = 8000
 
 local function U() return SC.GameplayUtil end
 local function now() return U().nowMs() end
@@ -127,6 +129,8 @@ function Convoy.activate(actor)
     session.lead, session.lastUpdate, session.lastMove = nil, 0, now()
     session.lastX, session.lastY = nil, nil
     session.leadLastX, session.leadLastY, session.leadLastMove = nil, nil, nil
+    session.parkingSince, session.parkingLastMove = nil, nil
+    session.parkingX, session.parkingY, session.parkingReason = nil, nil, nil
 end
 
 function Convoy.release(actor, reason)
@@ -181,7 +185,14 @@ function Convoy.ownsSeat(actor, car, player)
     local order = state(actor)
     if not order or order.recruited ~= true or order.order ~= "follow"
         or order.rideWithPlayer == false then return false end
-    if playerCar(player) == nil then return false end
+    if playerCar(player) == nil then
+        local driver = value(car, "getDriver")
+        local session = driver and sessions[driver]
+        -- Overflow passengers stay aboard through brief parking stops, without
+        -- scanning the roster for ordinary non-convoy vehicle exits.
+        return session ~= nil and selected(driver) == sql(car)
+            and not (session.failed or session.parked or session.survivalSuspended)
+    end
     for _, other in ipairs(SC.Registry.living()) do
         if selected(other) == sql(car) and value(car, "getDriver") == other then
             return true
@@ -394,8 +405,8 @@ local function routeFor(session, car, lead)
 end
 
 local function disembark(actor, player, session, car)
-    -- Release the native driver as soon as the player leaves. Waiting for a
-    -- distance threshold can strand a follower just beyond the gap limit.
+    -- This is reached after parking, or a bounded failed attempt. Never exit
+    -- a rolling car and never discard a native owner that refused to stop.
     if SC.Driving.isDriving(actor) then
         local released = Convoy.release(actor, "player_left_car")
         if released ~= true then return true end
@@ -407,11 +418,57 @@ local function disembark(actor, player, session, car)
     if exited == true then
         session.parked, session.requested, session.exitPending = true, false, nil
         session.lead = nil
+        session.parkingSince, session.parkingLastMove = nil, nil
     else
         session.exitPending = true
         if now() - (session.lastExitNotice or 0) >= 10000 then
             notify(player, actor, why or "no_safe_exit")
             session.lastExitNotice = now()
+        end
+    end
+    return true
+end
+
+local function parkBehind(actor, player, session, car, current)
+    session.parkingSince = session.parkingSince or current
+    local x, y = U().position(car)
+    if x and (not session.parkingX or (x - session.parkingX)^2
+        + (y - session.parkingY)^2 >= 0.25) then
+        session.parkingX, session.parkingY, session.parkingLastMove = x, y, current
+    end
+    session.parkingLastMove = session.parkingLastMove or current
+    local status = SC.Driving.status(actor) or {}
+    if status.convoyParked == true and SC.Vehicle.isStationary(car) == true then
+        session.parkingReason = "parked_behind_player"
+        return disembark(actor, player, session, car)
+    end
+    local expired = current - session.parkingSince >= PARK_TIMEOUT_MS
+        or current - session.parkingLastMove >= PARK_STALL_MS
+    if expired or session.exitPending then
+        if not session.parkingReason then
+            session.parkingReason = "follow_car_parking_unreachable"
+            notify(player, actor, session.parkingReason)
+        end
+        return disembark(actor, player, session, car)
+    end
+    if not session.lead then
+        -- Restored seated followers may have no remembered lead. Hold safely
+        -- and use the same bounded exit rather than retaining the seat forever.
+        if SC.Driving.isDriving(actor) then SC.Driving.hold(actor) end
+        return true
+    end
+    if SC.Driving.isDriving(actor) and current - (session.lastUpdate or 0) >= 500 then
+        local route, why = routeFor(session, car, session.lead)
+        if route then
+            local accepted, reason = SC.Driving.followVehicle(actor, session.lead, route, 20)
+            session.lastUpdate = current
+            if not accepted then
+                session.parkingRefusal = reason
+                SC.Driving.hold(actor)
+            end
+        else
+            session.parkingRefusal = why or "parking_trail_unavailable"
+            SC.Driving.hold(actor)
         end
     end
     return true
@@ -430,6 +487,11 @@ function Convoy.tick(current)
                 session.lead, session.trail, session.progress = lead, {}, 1
                 session.leadLastX, session.leadLastY = nil, nil
             end
+            if lead then
+                session.parkingSince, session.parkingLastMove = nil, nil
+                session.parkingX, session.parkingY, session.parkingReason = nil, nil, nil
+                session.exitPending = nil
+            end
             local leadMoved = false
             if lead then
                 appendTrail(session, lead)
@@ -443,9 +505,9 @@ function Convoy.tick(current)
                     session.leadLastMove = current
                 end
             end
-            if car and value(actor, "getVehicle") == car then
-                if not lead and session.lead then
-                    disembark(actor, player, session, car)
+            if car and value(actor, "getVehicle") == car and not session.survivalSuspended then
+                if not lead and (session.lead or session.requested ~= true) then
+                    parkBehind(actor, player, session, car, current)
                 elseif lead and SC.Driving.isDriving(actor) then
                     if current - (session.lastUpdate or 0) >= 500 then
                         local route, why = routeFor(session, car, lead)

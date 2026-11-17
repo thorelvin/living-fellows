@@ -329,6 +329,9 @@ try {
             (Join-Path $TestRoot 'driving_harness.lua')
         )
         Add-ScJvmStep 'driving' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $drivingFiles 'Driving ownership, emergency control and bounded replanning harness failed.'
+        $convoyParkingFiles = @($drivingFiles[0..($drivingFiles.Count - 2)]) +
+            @((Join-Path $TestRoot 'convoy_parking_harness.lua'))
+        Add-ScJvmStep 'convoy-parking' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $convoyParkingFiles 'Convoy parking, passenger retention and unreachable-car timeout harness failed.'
         $expeditionCarFiles = @(
             (Join-Path $TestRoot 'expedition_car_fixture.lua'),
             (Join-Path $Client 'SCExpeditionCar.lua'),

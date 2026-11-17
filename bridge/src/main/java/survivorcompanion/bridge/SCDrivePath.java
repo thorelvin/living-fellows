@@ -96,6 +96,33 @@ final class SCDrivePath {
         return length;
     }
 
+    /** Retain the driven trail, replacing its last body-length with a parking goal. */
+    SCDrivePath stopBeforeEnd(float trim, float targetX, float targetY) {
+        float end = Math.max(0.0f, length - trim);
+        float[] x = new float[xs.length + 1];
+        float[] y = new float[xs.length + 1];
+        float[] w = new float[xs.length + 1];
+        int count = 0;
+        for (int index = 0; index < xs.length && cumulative[index] < end; index++) {
+            x[count] = xs[index]; y[count] = ys[index]; w[count] = widths[index];
+            count++;
+        }
+        if (count == 0) {
+            x[0] = xs[0]; y[0] = ys[0]; w[0] = widths[0]; count = 1;
+        }
+        // A car already at the goal still needs a non-degenerate path. This
+        // point is behind its current pose; no actor or vehicle is relocated.
+        if (count == 1 && Math.hypot(x[0] - targetX, y[0] - targetY) < MIN_SPACING) {
+            float dx = xs[xs.length - 1] - xs[xs.length - 2];
+            float dy = ys[ys.length - 1] - ys[ys.length - 2];
+            float span = (float) Math.hypot(dx, dy);
+            x[0] = targetX - dx / span; y[0] = targetY - dy / span;
+        }
+        x[count] = targetX; y[count] = targetY; w[count] = widths[widths.length - 1];
+        return new SCDrivePath(java.util.Arrays.copyOf(x, count + 1),
+                java.util.Arrays.copyOf(y, count + 1), java.util.Arrays.copyOf(w, count + 1));
+    }
+
     int points() {
         return xs.length;
     }

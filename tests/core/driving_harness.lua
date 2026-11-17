@@ -1083,14 +1083,17 @@ do
     SC.Decision.update(actor, localPlayer, T.runtime())
     check(not Convoy.isSurvivalSuspended(actor) and Driving.isDriving(actor),
         "convoy resumes after the emergency clears")
-    -- A lead car can finish just beyond the desired following gap. The driver
-    -- must still park and leave the car when the player gets out.
+    -- Player exit starts a bounded approach, rather than dismounting far away.
     lead.x = 150
     localPlayer.vehicle = nil
     local exits = T.exits
     Convoy.tick(started + 11500)
+    check(Driving.isDriving(actor) and T.exits == exits,
+        "player exit retains the wheel until the follow car parks behind it")
+    T.native[actor].convoyParked = true
+    Convoy.tick(started + 11750)
     check(not Driving.isDriving(actor) and T.exits == exits + 1,
-        "on player exit beyond the gap limit, the follower parks and gets out")
+        "the follower exits after native parking confirms its spacing")
     Convoy.reset()
     getPlayer, SC.Commands.peek, SC.Registry.living = oldPlayer, oldPeek, oldLiving
     SC.Vehicle.loadedBySqlId = oldLoaded

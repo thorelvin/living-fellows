@@ -259,7 +259,7 @@ public final class SCCompanionDrivingTest {
         @Override public engineStateTypes getEngineState() { return engineStateTypes.Running; }
     }
 
-    private static final class FloorSquare extends IsoGridSquare {
+    private static class FloorSquare extends IsoGridSquare {
         boolean floor;
         boolean stopCar;
         String physicsShape;
@@ -334,6 +334,134 @@ public final class SCCompanionDrivingTest {
         @Override public void rawset(Object key, Object value) { values.put(key, value); }
         @Override public void rawset(int key, Object value) { values.put(key, value); }
         @Override public void wipe() { values.clear(); }
+    }
+
+    private static final class ConvoyVehicle extends BaseVehicle {
+        float x=100, y=100, hx=1, hy=0, speed, fore=2.4f, aft=2.4f;
+        boolean loaded=true;
+        IsoGameCharacter driver;
+        IsoCell cell;
+        final CarController controller=new CarController();
+        final IsoGridSquare square=new FloorSquare(true);
+        @Override public float getX() { return x; }
+        @Override public float getY() { return y; }
+        @Override public float getCurrentSpeedKmHour() { return speed; }
+        @Override public IsoGameCharacter getDriver() { return driver; }
+        @Override public IsoCell getCell() { return cell; }
+        @Override public IsoGridSquare getSquare() { return loaded ? square : null; }
+        @Override public CarController getController() { return controller; }
+        @Override public boolean isEngineRunning() { return true; }
+        @Override public engineStateTypes getEngineState() { return engineStateTypes.Running; }
+        @Override public org.joml.Vector3f getForwardVector(org.joml.Vector3f out) {
+            out.x=hx; out.z=hy; return out;
+        }
+        @Override public zombie.pathfind.VehiclePoly getPoly() {
+            var p=new zombie.pathfind.VehiclePoly();
+            p.x1=x+hx*fore-hy; p.y1=y+hy*fore+hx;
+            p.x2=x+hx*fore+hy; p.y2=y+hy*fore-hx;
+            p.x3=x-hx*aft+hy; p.y3=y-hy*aft-hx;
+            p.x4=x-hx*aft-hy; p.y4=y-hy*aft+hx;
+            return p;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void convoyFollowing() throws Exception {
+        require(SCCompanionDriver.convoySpeed(50,20,20,6)>19
+                        && SCCompanionDriver.convoySpeed(50,0,20,8)>20,
+                "a close convoy matches or catches a moving lead instead of stopping twelve metres back");
+        require(SCCompanionDriver.convoySpeed(50,40,10,6)<=10
+                        && SCCompanionDriver.convoySpeed(50,10,10,2)==0
+                        && SCCompanionDriver.convoySpeed(50,10,10,Float.NaN)==0,
+                "closing speed, minimum clearance and unknown geometry still brake the convoy");
+        var ownedField=SCBridge.class.getDeclaredField("OWNED");
+        ownedField.setAccessible(true);
+        Set<SCNativeCompanion> owned=(Set<SCNativeCompanion>)ownedField.get(null);
+        var actor=new SCNativeCompanion(new SurvivorDesc(),null,100,100,0);
+        var player=new IsoPlayer(null,new SurvivorDesc(),110,100,0,false);
+        var car=new ConvoyVehicle();
+        var lead=new ConvoyVehicle(); lead.x=110; lead.speed=20; lead.driver=player;
+        var obstacle=new ConvoyVehicle();
+        boolean[] leadInGrid={true};
+        car.driver=actor; car.speed=20;
+        car.cell=new IsoCell(200,200) {
+            @Override public IsoGridSquare getGridSquare(int x,int y,int z) {
+                return new FloorSquare(true) {
+                    @Override public BaseVehicle getVehicleContainer() {
+                        if (obstacle.loaded && x==106) return obstacle;
+                        return leadInGrid[0] && x>=108 && x<=112 && y>=99 && y<=101 ? lead : null;
+                    }
+                };
+            }
+        };
+        obstacle.loaded=false;
+        actor.setVehicleForTests(car); owned.add(actor);
+        try {
+            require(SCBridge.driveStart(actor,true)
+                            && SCBridge.driveFollowVehicle(actor,lead,"100,100,6;110,100,6",50),
+                    "real bridge accepts an owned driver following the player's separate car");
+            var driver=actor.companionDriver();
+            driver.beforeVehicleUpdate(actor,car);
+            require(driver.lastScan().blocked && !driver.lastInput().brake()
+                            && Math.abs(driver.follower().offset())<0.01,
+                    "the exact moving lead stays in the bumper scan without destination braking or overtaking");
+            var nextScan=SCCompanionDriver.class.getDeclaredField("nextScanAt");
+            nextScan.setAccessible(true);
+            nextScan.setLong(driver,System.nanoTime()+1_000_000_000L);
+            leadInGrid[0]=false;
+            driver.beforeVehicleUpdate(actor,car);
+            require(!driver.lastInput().brake(),
+                    "lead identity is retained with the bumper sample after it moves out of the sampled square");
+            leadInGrid[0]=true; nextScan.setLong(driver,0);
+            car.fore=4; lead.aft=4; lead.x=112.5f; car.speed=25;
+            driver.beforeVehicleUpdate(actor,car);
+            require(driver.lastInput().brake(),
+                    "moving-gap braking uses actual hulls even when script extents describe a different scale");
+            car.fore=lead.aft=2.4f; lead.x=110;
+            car.speed=30; lead.speed=0;
+            driver.beforeVehicleUpdate(actor,car);
+            require(driver.lastInput().brake(),"a sudden lead stop immediately restores absolute bumper braking");
+            lead.speed=20; obstacle.loaded=true;
+            // Force a fresh real scan through a new owner, rather than waiting wall-clock time.
+            SCBridge.driveStop(actor); SCBridge.driveStart(actor,true);
+            SCBridge.driveFollowVehicle(actor,lead,"100,100,6;110,100,6",50);
+            driver.beforeVehicleUpdate(actor,car);
+            require(driver.lastInput().brake(),"another vehicle between follower and lead retains the physical brake");
+            obstacle.loaded=false; car.speed=0; lead.speed=0; lead.driver=null;
+            require(SCBridge.driveFollowVehicle(actor,lead,"100,100,6;110,100,6",20),
+                    "only the remembered player car can become the driverless parking target");
+            var stranger=new ConvoyVehicle(); stranger.x=120;
+            require(!SCBridge.driveFollowVehicle(actor,stranger,"100,100,6;120,100,6",20),
+                    "unrelated driverless cars cannot acquire convoy control");
+            for (int direction=0; direction<4; direction++) {
+                float hx=direction==0 ? 1 : direction==2 ? -1 : 0;
+                float hy=direction==1 ? 1 : direction==3 ? -1 : 0;
+                car.hx=lead.hx=hx; car.hy=lead.hy=hy;
+                car.fore=3.2f; lead.aft=2.8f;
+                lead.x=150; lead.y=150;
+                car.x=lead.x-hx*10; car.y=lead.y-hy*10;
+                String route=car.x+","+car.y+",6;150,150,6";
+                require(SCBridge.driveFollowVehicle(actor,lead,route,20),"parking target accepts a cardinal street");
+                float[] end=new float[5];
+                driver.follower().path().pointAt(driver.follower().path().length(),0,end);
+                require(Math.abs(end[0]-(lead.x-hx*8))<0.01
+                                && Math.abs(end[1]-(lead.y-hy*8))<0.01,
+                        "two-metre parking gap uses both native body extents in every direction");
+                car.x=end[0]; car.y=end[1];
+                driver.beforeVehicleUpdate(actor,car);
+                require(driver.convoyParked() && Math.abs(driver.convoyGap()-2)<0.01
+                                && !driver.lastInput().forward() && driver.isActive(),
+                        "verified native parking holds the exact two-metre gap until Lua releases the seat");
+            }
+            lead.loaded=false;
+            require(!SCBridge.driveFollowVehicle(actor,lead,"100,100,6;150,150,6",20),
+                    "unloaded lead geometry refuses a parking retarget");
+            driver.beforeVehicleUpdate(actor,car);
+            require(!driver.convoyParked() && !driver.lastInput().forward(),
+                    "unloaded geometry holds still without claiming parking success");
+        } finally {
+            actor.companionDriver().stop(actor,"test_cleanup"); owned.remove(actor);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -438,6 +566,7 @@ public final class SCCompanionDrivingTest {
         ramContact();
         hordeAvoidance();
         parkingGround();
+        convoyFollowing();
         playerBoardingAndStatus();
         System.out.println("COMPANION_DRIVING_PASS checks=" + checks);
     }
