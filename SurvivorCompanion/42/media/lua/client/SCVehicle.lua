@@ -16,6 +16,7 @@ local vehicleService = SC.Vehicle
 local storedById = {}
 local reservations = {}
 local manifests = {}
+local serviceClaims = {}
 local lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 local transactions = setmetatable({}, { __mode = "k" })
 local boardingAttempts = setmetatable({}, { __mode = "k" })
@@ -770,6 +771,12 @@ end
 function vehicleService.assignmentFor(actor, vehicle, player)
     if not SC.Actor.isCompanion(actor) then return nil, "actor is not an active companion" end
     if not eligibleFollower(actor, vehicle) then return nil, "ride_with_player_disabled" end
+    local claim = vehicleService.serviceClaim(vehicle)
+    if claim then
+        local seat = claim.seats[SC.Registry.idOf(actor)]
+        if seat == nil or seat == 0 then return nil, "vehicle_capacity_wait" end
+        return { seat = seat, assigned = claim.count, capacity = claim.count, waiting = {} }
+    end
     local manifest, reason = manifestFor(vehicle, player)
     if manifest == nil then return nil, reason end
     local id = SC.Registry.idOf(actor)
@@ -795,6 +802,62 @@ function vehicleService.assignmentFor(actor, vehicle, player)
         capacity = manifest.capacity,
         waiting = manifest.waiting,
     }
+end
+
+-- Service ownership lasts across parked waits and released driving leases.
+-- Seat reservations use ordinary companion ids, so native boarding keeps its
+-- existing identity and collision checks. The human's seat cannot be reassigned.
+function vehicleService.serviceClaim(vehicle)
+    for _, claim in pairs(serviceClaims) do
+        if claim.vehicle == vehicle then return claim end
+    end
+end
+
+function vehicleService.reserveService(requestId, vehicle, seats, playerSeat)
+    if type(requestId) ~= "string" or type(seats) ~= "table" then return false,"vehicle_claim_invalid" end
+    local old = vehicleService.serviceClaim(vehicle)
+    if old and old.requestId ~= requestId then return false,"car_reserved" end
+    local identity = vehicleIdentity(vehicle)
+    if not identity then return false,"car_identity_unavailable" end
+    local wanted, count = {}, 0
+    for id, seat in pairs(seats) do
+        if type(id) ~= "string" or type(seat) ~= "number" or seat < 0
+            or seat ~= math.floor(seat) or wanted[seat] then return false,"vehicle_claim_invalid" end
+        wanted[seat], count = id, count + 1
+    end
+    if playerSeat ~= nil then
+        if playerSeat < 1 or playerSeat ~= math.floor(playerSeat) or wanted[playerSeat]
+            then return false,"vehicle_claim_invalid" end
+        wanted[playerSeat] = "pickup-player:" .. requestId
+    end
+    for seat,id in pairs(wanted) do
+        local installed, exists = invoke(vehicle,"isSeatInstalled",seat)
+        local occupied, actor = invoke(vehicle,"getCharacter",seat)
+        local owner = reservations[seatKey(identity,seat)]
+        local human=type(getSpecificPlayer)=="function" and getSpecificPlayer(0) or nil
+        if not installed or exists ~= true or not occupied
+            or actor ~= nil and SC.Registry.idOf(actor) ~= id and (seat ~= playerSeat or actor ~= human)
+            or owner ~= nil and owner ~= id and not old then return false,"seat_unavailable" end
+    end
+    vehicleService.invalidateManifests(vehicle)
+    if old then vehicleService.releaseService(requestId) end
+    local claim = {requestId=requestId, vehicle=vehicle, identity=identity,
+        seats={}, playerSeat=playerSeat, count=count, bySeat=wanted}
+    for id,seat in pairs(seats) do claim.seats[id]=seat end
+    for seat,id in pairs(wanted) do reservations[seatKey(identity,seat)]=id end
+    serviceClaims[requestId]=claim
+    return true
+end
+
+function vehicleService.releaseService(requestId)
+    local claim=serviceClaims[requestId]
+    if not claim then return true end
+    for seat,id in pairs(claim.bySeat) do
+        local key=seatKey(claim.identity,seat)
+        if reservations[key]==id then reservations[key]=nil end
+    end
+    serviceClaims[requestId]=nil
+    return true
 end
 
 function vehicleService.statusFor(actor, player)
@@ -1260,6 +1323,8 @@ function vehicleService.preflightBoard(actor, vehicle, requestedSeat, allowDrive
         return nil, "actor is not an active companion"
     end
     if vehicle == nil then return nil, "vehicle is required" end
+    local claim=vehicleService.serviceClaim(vehicle)
+    if claim and claim.seats[SC.Registry.idOf(actor)] ~= requestedSeat then return nil,"car_reserved" end
     local currentOk, current = invoke(actor, "getVehicle")
     if not currentOk or current ~= nil then
         return nil, "actor is already in a vehicle or native state is unavailable"
@@ -1277,7 +1342,10 @@ function vehicleService.preflightBoard(actor, vehicle, requestedSeat, allowDrive
     if seat == nil then return nil, seatReason end
     if seat == 0 then
         if multiplayerActive() then return nil, "companion driving is single-player only" end
-        local taxiPassenger = permittedPassenger ~= nil
+        local pickupPassenger = permittedPassenger ~= nil and SC.PickupService
+            and SC.PickupService.isBookedPassenger(permittedPassenger,vehicle)
+            and SC.PickupService.isDriver(actor)
+        local taxiPassenger = pickupPassenger or permittedPassenger ~= nil
             and SC.TaxiService ~= nil
             and type(SC.TaxiService.isDriver) == "function"
             and SC.TaxiService.isDriver(actor) == true
@@ -1326,6 +1394,23 @@ end
 
 function vehicleService.isStationary(vehicle)
     return stationary(vehicle)
+end
+
+function vehicleService.unlockPassengerDoors(actor,vehicle)
+    local read,driver=invoke(vehicle,"getDriver")
+    if not read or driver~=actor or not stationary(vehicle) then return false,"pickup_waiting_for_stop" end
+    local read,count=invoke(vehicle,"getMaxPassengers")
+    if not read or not finite(count) or count<2 or count>32 then return false,"seat_unavailable" end
+    for seat=1,count-1 do
+        local _,part=invoke(vehicle,"getPassengerDoor",seat)
+        local _,door=invoke(part,"getDoor")
+        if door then
+            invoke(vehicle,"toggleLockedDoor",part,actor,false)
+            local read,locked=invoke(door,"isLocked")
+            if not read or locked~=false then return false,"pickup_door_locked" end
+        end
+    end
+    return true
 end
 
 function vehicleService.boardingSquares(actor, vehicle, requestedSeat, allowDriver)
@@ -1669,6 +1754,8 @@ end
 function vehicleService.beginBoarding(actor, vehicle, requestedSeat, intent)
     intent = type(intent) == "table" and intent or {}
     if vehicle == nil then return nil, "vehicle is required" end
+    local claim=vehicleService.serviceClaim(vehicle)
+    if claim and claim.seats[SC.Registry.idOf(actor)] ~= requestedSeat then return nil,"car_reserved" end
     local identity = vehicleIdentity(vehicle)
     if identity == nil then return nil, "vehicle identity is unavailable" end
     local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity,
@@ -1722,7 +1809,7 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
         requestedSeat = supplied.seat
     end
     local prepared, prepareReason = vehicleService.preflightBoard(actor, vehicle, requestedSeat,
-        intent.driverSeat == true, intent.taxiPassenger)
+        intent.driverSeat == true, intent.permittedPassenger or intent.taxiPassenger)
     if prepared == nil then
         vehicleService.failTransaction(actor, "vehicle_board_preflight_failed", {
             reason = prepareReason,
@@ -1835,8 +1922,8 @@ end
 
 -- The driver's seat, for a companion about to drive (SC.Driving). Same
 -- transaction, verification and rollback as a passenger seat; ride-along
--- boarding still refuses seat zero. Only Markus may board with the exact
--- booked player already in a passenger seat; strangers still block boarding.
+-- boarding still refuses seat zero. A booked service driver may reboard with
+-- its exact passenger already aboard; strangers still block boarding.
 function vehicleService.boardDriver(actor, vehicle, intent)
     intent = type(intent) == "table" and intent or {}
     intent.driverSeat = true
@@ -2174,6 +2261,7 @@ function vehicleService.reset()
     storedById = {}
     reservations = {}
     manifests = {}
+    serviceClaims = {}
     transactions = setmetatable({}, { __mode = "k" })
     boardingAttempts = setmetatable({}, { __mode = "k" })
     recentExits = setmetatable({}, { __mode = "k" })

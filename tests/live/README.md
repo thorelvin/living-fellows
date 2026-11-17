@@ -396,6 +396,31 @@ as the harness writes its first live assertion.
 
 ## Companion driving probe
 
+`-DrivingProbe -PickupLifecycleProbe` exercises pickup view ownership, exact
+handset request/reply, two native passenger cycles, and cold camp query/cancel.
+It isolates wheel mechanics from ordinary decisions. `-DrivingProbe
+-PickupServiceProbe` keeps normal companion AI scheduled and runs the production
+pickup controller from camp dispatch through native passenger boarding, a ride,
+normal exits, empty return, parking and durable camp completion. It includes
+nearby eligible followers and uses acknowledged Retry for a bounded turn refusal.
+The probe captures the review sheet, remote drive and primary-view handoff.
+Add `-PickupWatchProbe` to borrow a real indoor Base Watch resident and restore
+that same resident and saved native slot after the return. Add
+`-PickupColdServiceProbe` for a complete ordinary journey followed by a separate
+cold-loading fixture: stage only the caller at a distant road, restore and cancel
+the actual primary-only dormant driver and unloaded car, then restore them again,
+make an acknowledged second call and verify native departure with the same key.
+The lifecycle probe also exercises all four handset/computer endpoint pairs with
+real mounted radios and a camp relay after the driver's handset is unequipped.
+
+`-PickupSavePhase acquire|board_driver|outbound|waiting_board|ride|returning|finish`
+saves and closes the cloned game at that controller phase. Moving phases wait
+for actual native motion. Use the emitted retained save as `-SeedSave` with
+`-PickupResume` to restart the real game and finish the same job, with the same
+survivor, car, key and reserved party seats. Save and resume are separate runs.
+Both modes require an isolated cloned save and the matching source bridge; all
+driver/car movement after fixture setup is normal navigation or native physics.
+
 The Markus passenger proof uses the same isolated driving fixture with the
 real player in native seat 1. It verifies that ordinary driving still refuses
 the passenger, the service-only bridge entry drives a short straight leg with

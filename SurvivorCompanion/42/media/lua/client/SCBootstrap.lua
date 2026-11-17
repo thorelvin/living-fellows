@@ -165,6 +165,12 @@ require "SCVehicleRefuel"
 require "SCGeneratorRefuel"
 require "SCVehicleUpkeep"
 require "SCBaseWatch"
+require "SCPickupJourney"
+require "SCPickupRadio"
+require "SCPickupDispatch"
+require "SCPickupService"
+require "SCPickupJournal"
+require "SCPickupUI"
 require "SCProduction"
 require "SCLoggingWork"
 require "SCFieldWork"
@@ -298,6 +304,7 @@ local requiredModules = {
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Names", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
     "TaxiCab", "TaxiFares", "TaxiService",
+    "PickupJourney", "PickupRadio", "PickupDispatch", "PickupService", "PickupUI",
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
     "FactionBehavior", "OddballRoomGuard", "OddballDistressRadio", "GridRadio", "TaxiBooking", "Oddballs", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis", "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby", "OddballSins", "OddballKris", "OddballEbb", "OddballPrentice", "OddballLusk", "OddballVelma", "OddballCorey", "OddballDwight", "OddballRoyce", "OddballMose", "OddballAmos", "OddballLester", "OddballVisitors", "OddballTupelo", "OddballAuxiliary", "OddballRivals", "OddballBledsoe", "OddballWerewolf", "OddballSkeeter", "OddballMerle", "OddballCrabtree", "OddballJedediah", "OddballGideon", "OddballGoatman", "OddballTolliver", "OddballSleeper", "OddballElmer", "OddballBigChris", "OddballTommy", "OddballExchange", "OddballGordon", "OddballMorton", "OddballMien", "OddballGrinder", "OddballSurvivalist", "OddballVoiceActor", "OddballPyromaniac", "OddballGarageRescue", "OddballDehydrated", "OddballCampStoryteller", "OddballBedridden", "OddballSmoker", "OddballFurryPack", "OddballMilli",
     "OddballDeputy", "OddballSilas", "OddballRusty", "OddballLonnie",

@@ -500,6 +500,27 @@ local function preparePickupSearch(search, deadline)
     return false
 end
 
+-- The camp pickup uses the same bounded, loaded street search. It supplies
+-- its own real-car route check and never enters the taxi materialization path.
+function Service.findRoadsideStop(origin, search, accepts)
+    if not origin or origin.z ~= 0 then return nil, "pickup_ground_floor_required" end
+    search = search or beginPickupSearch(origin, nil)
+    local deadline = now() + 3
+    if not search.stops and not preparePickupSearch(search, deadline) then return nil,nil,search end
+    while search.index <= #search.stops do
+        local stop = search.stops[search.index]
+        search.index = search.index + 1
+        if openPatch(stop.x, stop.y, 2, true) then
+            local accepted, reason = true, nil
+            if accepts then accepted,reason=accepts(copyPoint(stop)) end
+            if accepted then return copyPoint(stop),nil,nil end
+            search.reason=reason
+        end
+        if now() >= deadline then return nil,nil,search end
+    end
+    return nil,search.reason or "pickup_no_safe_road",nil
+end
+
 local function clearPickupRoute(pending, deadline)
     local points = pending.points
     if type(points) ~= "table" or #points < 2 or #points > 130 then

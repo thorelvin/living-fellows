@@ -72,7 +72,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.22-isocompanion-32";
+    public static final String PROTOCOL = "42.22-isocompanion-33";
 
     public static boolean configurePZOptimizerAdapter(boolean enabled) { return SCPZOptimizerCompatibility.configure(enabled); }
     public static String getPZOptimizerAdapterState() { return SCPZOptimizerCompatibility.state(); }
@@ -91,6 +91,10 @@ public final class SCBridge {
     public static String packTerminalItem(Object item) { return SCTerminalDevices.pack(item); }
     public static Object unpackTerminalItem(String payload) { return SCTerminalDevices.unpack(payload); }
     public static Object createTerminalReceiver(Object item, IsoObject computer) { return SCTerminalDevices.receiver(item, computer); }
+    public static boolean transmitPickupRadio(SCNativeCompanion recipient, Object handset,
+            int x, int y, int channel, String text, String guid, String codes, int range) {
+        return SCPickupRadio.transmit(recipient, handset, x, y, channel, text, guid, codes, range);
+    }
     public static int silenceControlBuildingAlarm(Object building, Object manager) { return SCTerminalDevices.silence(building, manager); }
 
     /** One scoped terminal-header draw, never a world or camera render pass. */

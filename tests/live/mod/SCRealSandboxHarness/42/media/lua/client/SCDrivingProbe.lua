@@ -1208,6 +1208,7 @@ local function board(H, SC, check, result, setPhase, current, test)
             and H.config.driving_save_stage ~= "true"
             and H.config.driving_remote ~= "true"
             and H.config.convoy_probe ~= "true"
+            and H.config.pickup_service_probe ~= "true"
             and H.config.taxi_passenger_probe ~= "true" then
             SC.Scheduler.unregister("decision")
         end
@@ -1217,6 +1218,7 @@ local function board(H, SC, check, result, setPhase, current, test)
         or H.config.driving_save_stage == "true"
         or H.config.driving_remote == "true"
         or H.config.convoy_probe == "true"
+        or H.config.pickup_service_probe == "true"
         or H.config.taxi_passenger_probe == "true"
     if not normalAiMode and current - test.actorReadyAt < 1200 then return end
     local prepared, prepareReason = SC.Vehicle.preflightDriver(test.actor, test.vehicle)
@@ -1264,6 +1266,14 @@ local function board(H, SC, check, result, setPhase, current, test)
             and SC.Driving.isDriver(test.actor),
         "status=" .. tostring(status) .. " key=" .. tostring(SC.Driving.hasKey(test.actor))) then
         setPhase("finish", current) return
+    end
+    if H.config.pickup_lifecycle_probe == "true" then
+        setPhase("drive_pickup_claim", current)
+        return
+    end
+    if H.config.pickup_service_probe == "true" then
+        setPhase("drive_pickup_service_setup",current)
+        return
     end
     if H.config.taxi_passenger_probe == "true" then
         setPhase("drive_taxi_board_player", current)
@@ -3770,6 +3780,11 @@ end
 function Probe.step(H, current, check, result, setPhase)
     local SC = SurvivorCompanion
     if H.phase == "drive_setup" then
+        if H.config.pickup_service_probe=="true" and H.config.pickup_resume=="true" then
+            H.driveTest=H.driveTest or {}
+            setPhase("drive_pickup_service_resume",current)
+            return
+        end
         if H.config.taxi_call_resume == "true" then
             setPhase("drive_taxi_call_resume_wait", current)
             return
@@ -3843,6 +3858,16 @@ function Probe.step(H, current, check, result, setPhase)
     end
     local test = H.driveTest
     if test == nil then setPhase("finish", current) return end
+    if string.find(H.phase,"drive_pickup_service_",1,true)==1 then
+        require "SCPickupServiceProbe"
+        SCRealSandboxHarnessProbes.SCPickupServiceProbe.step(H,current,check,result,setPhase)
+        return
+    end
+    if string.find(H.phase, "drive_pickup_", 1, true) == 1 then
+        require "SCPickupLifecycleProbe"
+        SCRealSandboxHarnessProbes.SCPickupLifecycleProbe.step(H, current, check, result, setPhase)
+        return
+    end
     if H.config.convoy_probe == "true"
         and string.find(H.phase, "drive_convoy_", 1, true) == 1 then
         convoyStep(H, SC, current, check, result, setPhase, test)

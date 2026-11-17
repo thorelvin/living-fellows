@@ -375,6 +375,42 @@ public final class SCRemoteArrivalTest {
                     "refused remote release changed the secondary view");
             KahluaTable saved = document(lease.members);
             SCRemoteArrival.verifyDocument(saved, lease.members, lease.slotSqlId);
+            ArrayList<SCRemoteArrival.Member> pickupMembers = new ArrayList<>();
+            pickupMembers.add(lease.members.get(0));
+            KahluaTable pickupDocument = document(pickupMembers), pickup = table(), outcome = table();
+            pickupDocument.rawset("expedition", null);
+            pickup.rawset("schema", 1.0); pickup.rawset("state", "idle");
+            outcome.rawset("requestId", "pickup-test-1"); outcome.rawset("result", "returned");
+            outcome.rawset("driverId", pickupMembers.get(0).id);
+            pickup.rawset("outcome", outcome); pickupDocument.rawset("pickup", pickup);
+            SCRemoteArrival.verifyPickupDocument(pickupDocument, pickupMembers, 2, "pickup-test-1");
+            require(true, "a typed pickup completion preserves its exact driver without fabricating an expedition");
+            SCRemoteArrival.Lease pickupLease = new SCRemoteArrival.Lease(8, lease.world,
+                    lease.cell, lease.slots, leader, lease.primaryMap, lease.companionMap, 2, pickupMembers);
+            pickupLease.pickupRequestId = "pickup-test-1";
+            outcome.rawset("carId", 5.0);
+            String pickupReceiptRefusal = "";
+            try { pickupLease.verifySavedDocument(pickupDocument); }
+            catch (IllegalStateException expected) { pickupReceiptRefusal = expected.getMessage(); }
+            require(pickupReceiptRefusal.contains("exact committed vehicle receipt"),
+                    "post-ack pickup verification used the expedition schema instead of its required car receipt");
+            refuses(() -> SCRemoteArrival.verifyDocument(pickupDocument, pickupMembers, 2),
+                    "pickup completion must not bypass the existing expedition contract");
+            refuses(() -> SCRemoteArrival.verifyPickupDocument(pickupDocument, pickupMembers, 2, "old-request"),
+                    "a stale pickup request cannot acknowledge another journey");
+            pickup.rawset("active", table());
+            refuses(() -> SCRemoteArrival.verifyPickupDocument(pickupDocument, pickupMembers, 2, "pickup-test-1"),
+                    "an active pickup cannot retire its driver");
+            pickup.rawset("active", null); outcome.rawset("driverId", "sc-other");
+            refuses(() -> SCRemoteArrival.verifyPickupDocument(pickupDocument, pickupMembers, 2, "pickup-test-1"),
+                    "pickup acknowledgement cannot substitute another driver");
+            outcome.rawset("driverId", pickupMembers.get(0).id);
+            outcome.rawset("result", "held");
+            refuses(() -> SCRemoteArrival.verifyPickupDocument(pickupDocument, pickupMembers, 2, "pickup-test-1"),
+                    "a held car is not a completed return");
+            outcome.rawset("result", "returned");
+            refuses(() -> SCRemoteArrival.verifyPickupDocument(pickupDocument, lease.members, 2, "pickup-test-1"),
+                    "only the pickup driver is a remote journey member");
             KahluaTable finalized = (KahluaTable) saved.rawget("expedition");
             finalized.rawset("state", "inbound");
             refuses(() -> SCRemoteArrival.verifyDocument(saved, lease.members, lease.slotSqlId),

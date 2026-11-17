@@ -568,6 +568,21 @@ check(captured.order.manualWeaponSerial == 7,
     "weapon choice generation is captured explicitly alongside the weapon priority")
 check(captured.lootReturnPending == true and captured.lootReturnRetryAt == 180000,
     "pending loot delivery is explicitly captured for a reconstructed companion")
+do
+    SC.Persistence.finishRestoredActor(original,{id=record.id,restorePrimaryOnly=true,pickupNativeIds=true})
+    check(record.runtime.restorePrimaryOnly==true,"restored dormant camp resident retains its primary-only policy")
+    local dormant=SC.Persistence.captureRecord(record)
+    check(dormant.restorePrimaryOnly==true,"cold preview recapture cannot broaden a dormant resident's restore authority")
+    local seated=SC.Persistence.captureRecord(record,{stored=false})
+    check(seated.restorePrimaryOnly==nil,"native seat capture uses its vehicle restore policy")
+    SC.Persistence.finishRestoredActor(original,{id=record.id})
+    check(record.runtime.restorePrimaryOnly==nil,"ordinary restoration does not invent a primary-only policy")
+    SC.Persistence.finishRestoredActor(original,{id=record.id,pickupNativeIds=true})
+    local exact=SC.Persistence.captureRecord(record)
+    check(exact and exact.inventory.preserveNativeIds==true,"cold preview recapture retains exact native inventory identities")
+    SC.Persistence.finishRestoredActor(original,{id=record.id})
+    check(record.runtime.pickupNativeIds==nil,"ordinary records retain their existing inventory policy")
+end
 
 do
     original.data.LF_ProductionSawReceipt = {

@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.35 - Camp pickup
+
+- Call a camp companion to collect you in an existing parked car. Review the
+  suggested driver, car and roadside pickup point in one sheet, with overrides.
+- Nearby companions following you can come along when the car has enough seats.
+  Once aboard, choose Home or a destination on the map. The driver returns the
+  empty car to its original camp and resumes duty after everyone gets out.
+- Calls use real powered two-way radios or radio-equipped EMMA computers.
+  Undelivered changes leave agreed orders in place; instructions given beside
+  the driver or inside the car need no radio.
+- Pickup reserves the companion view for the full journey, borrows Base Watch
+  for remote driving and restores it when possible. Parked waits and held
+  journeys have a saved journal and explicit Retry.
+- Requires native bridge protocol `42.22-isocompanion-33` and its matching payload.
+
 ## 0.27.34 - Convoy parking recovery
 
 - The first driving decision records and binds the player's lead car immediately.

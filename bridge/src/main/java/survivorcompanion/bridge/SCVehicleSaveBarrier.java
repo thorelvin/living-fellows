@@ -112,6 +112,14 @@ final class SCVehicleSaveBarrier {
 
     /** Near-recall assertion only; never grants remote unload or cancels a ticket. */
     static boolean primaryRetains(BaseVehicle car, int expectedSqlId) {
+        return primaryRetains(car, expectedSqlId, false);
+    }
+
+    static boolean primaryRetainsPickup(BaseVehicle car, int expectedSqlId) {
+        return primaryRetains(car, expectedSqlId, true);
+    }
+
+    private static boolean primaryRetains(BaseVehicle car, int expectedSqlId, boolean seatedPickup) {
         try {
             requireThread();
             if (car == null || expectedSqlId < 1) return false;
@@ -119,7 +127,9 @@ final class SCVehicleSaveBarrier {
                 if (ticket.attachedLease != 0 && (ticket.sqlId == expectedSqlId || ticket.car == car)) return false;
             }
             State state=environment.physicalState(car);
-            return state.id==expectedSqlId && environment.loaded(expectedSqlId)==car && stoppedState(state)
+            State emptyCheck = seatedPickup ? new State(state.id, state.x, state.y, state.z,
+                    state.speed, state.running, state.starting, true, state.tag) : state;
+            return state.id==expectedSqlId && environment.loaded(expectedSqlId)==car && stoppedState(emptyCheck)
                     && environment.primaryOwned(car);
         } catch (RuntimeException | LinkageError failure) { return false; }
     }
@@ -275,8 +285,18 @@ final class SCVehicleSaveBarrier {
         Object expedition = document.rawget("expedition");
         Object debrief = expedition instanceof KahluaTable table ? table.rawget("debrief") : null;
         Object value = debrief instanceof KahluaTable table ? table.rawget("integration") : null;
+        verifySavedCar(ticket, lease, value, true);
+    }
+
+    static void verifyPickupDocument(Ticket ticket, long lease, KahluaTable document) {
+        Object pickup = document.rawget("pickup");
+        Object value = pickup instanceof KahluaTable table ? table.rawget("outcome") : null;
+        verifySavedCar(ticket, lease, value, false);
+    }
+
+    private static void verifySavedCar(Ticket ticket, long lease, Object value, boolean walkingAllowed) {
         Object carId = value instanceof KahluaTable integration ? integration.rawget("carId") : null;
-        if (carId == null && ticket == null) return; // Existing walking lease.
+        if (walkingAllowed && carId == null && ticket == null) return; // Existing walking lease.
         if (!(value instanceof KahluaTable integration) || !(carId instanceof Number number)
                 || ticket == null || number.doubleValue() != ticket.sqlId || ticket.attachedLease != lease
                 || !(integration.rawget("carSaveReceipt") instanceof KahluaTable saved)

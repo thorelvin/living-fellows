@@ -108,7 +108,8 @@ end
 local function player()
     -- Split screen may make getPlayer() return the companion in slot 1.
     if ((SC.ExpeditionPrototype and SC.ExpeditionPrototype.current())
-        or (SC.BaseWatch and SC.BaseWatch.current()))
+        or (SC.BaseWatch and SC.BaseWatch.current())
+        or (SC.PickupService and (SC.PickupService.current() or SC.PickupService.previewCurrent())))
         and type(getSpecificPlayer) == "function" then
         local ok, primary = pcall(getSpecificPlayer, 0)
         if ok and primary ~= nil then return primary end
@@ -427,6 +428,7 @@ local function decisionTaskCore(current, budgetRemaining)
         if SC.BaseWatch then
             anchor = SC.BaseWatch.contextFor(record.actor, anchor)
         end
+        if SC.PickupService then anchor=SC.PickupService.contextFor(record.actor,anchor) end
         serviceRecord(record, current, anchor)
         local elapsed = math.max(0, preciseNowMs() - serviceStartedAt)
         -- A decision beat is not preemptible. Retain a decaying high-water
@@ -654,6 +656,7 @@ end
 runtime._followerRecoverySquareForTests = followerRecoverySquare
 
 local function finishNativeDeath(record)
+    if SC.PickupService then SC.PickupService.noteDeath(record.actor) end
     local retired, retireReason = SC.Actor.retireDead(record.actor)
     if retired and SC.Factions and type(SC.Factions.memberDied) == "function" then
         pcall(SC.Factions.memberDied, retireReason)
@@ -1271,6 +1274,9 @@ local function registerTasks()
                 return SC.TaxiService.tick(current)
             end
             return true
+        end, "normal" },
+        { "camp-pickup", 250, 59, function(current)
+            return not SC.PickupService or SC.PickupService.tick(current)
         end, "normal" },
         { "restore", 1000, 50, restoreTask, "high" },
         { "trade-recovery", SC.Config.get("tradeRecoveryIntervalMs"), 45,
@@ -1996,6 +2002,14 @@ function runtime.reset(detach)
                     .. tostring(rollbackReason))
         end
     end
+    if SC.PickupService and type(SC.PickupService.prepareReset)=="function" then
+        local called,prepared,reason=pcall(SC.PickupService.prepareReset)
+        if not called or prepared~=true then
+            local restored,rollbackReason=restoreInfrastructure()
+            return false,"pickup reset preflight failed: "..tostring(called and reason or prepared)
+                ..(restored and "" or "; infrastructure rollback failed: "..tostring(rollbackReason))
+        end
+    end
     if SC.BaseWatch and type(SC.BaseWatch.prepareReset) == "function" then
         local called, prepared, prepareReason = pcall(SC.BaseWatch.prepareReset)
         if not called or prepared ~= true then
@@ -2136,6 +2150,8 @@ function runtime.reset(detach)
     resetModule("taxi cab", SC.TaxiCab, "reset")
     resetModule("taxi fares", SC.TaxiFares, "reset")
     resetModule("taxi service", SC.TaxiService, "reset")
+    resetModule("camp pickup", SC.PickupService, "reset")
+    resetModule("pickup panel", SC.PickupUI, "reset")
     resetModule("vehicle hotwire", SC.VehicleHotwire, "reset")
     resetModule("base watch", SC.BaseWatch, "reset")
     resetModule("companion view", SC.ViewSession, "reset")
@@ -2277,7 +2293,8 @@ function runtime.onMainMenuEnter()
     local baseWatch = SC.BaseWatch
     local hasBaseWatchState = baseWatch ~= nil
         and (baseWatch.current() ~= nil or baseWatch.export() ~= nil)
-    if hasExpeditionState or hasBaseWatchState then
+    local hasPickupState=SC.PickupService and SC.PickupService.current()~=nil
+    if hasExpeditionState or hasBaseWatchState or hasPickupState then
         local saved, saveReason = runtime.save()
         if not saved then return false, "expedition menu save failed: "
             .. tostring(saveReason) end

@@ -259,6 +259,7 @@ function support.snapshot(force)
         companionActions = companionActionEvidence(),
         persistence = persistenceEvidence(),
         expedition = expeditionEvidence(),
+        pickup = safeCall(function() return SC.PickupService.describe() end,{active=false}),
         view = {
             owner = safeCall(function() return SC.ViewSession.owner() or "none" end, "unavailable"),
             restore = safeCall(function() return SC.ViewSession.primaryRestoreDiagnostic() end, {}),

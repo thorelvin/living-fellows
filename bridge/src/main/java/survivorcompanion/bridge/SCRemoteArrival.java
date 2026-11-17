@@ -64,6 +64,7 @@ final class SCRemoteArrival {
         final IsoChunkMap primaryMap, companionMap;
         final int slotSqlId;
         final ArrayList<Member> members;
+        String pickupRequestId;
         private KahluaTable acknowledgedDocument;
         private String acknowledgedStoreKey;
         private SCVehicleSaveBarrier.Ticket vehicleSave;
@@ -174,8 +175,7 @@ final class SCRemoteArrival {
             if (envelope == null || envelope.rawget("document") != document) {
                 throw new IllegalStateException("remote arrival acknowledgement is not the installed save document");
             }
-            verifyDocument(document, members, slotSqlId);
-            SCVehicleSaveBarrier.verifyDocument(vehicleSave, token, document);
+            verifySavedDocument(document);
             // Set the acknowledgement only after the native write completes.
             // PlayerDB.saveLocalPlayersForce() queues asynchronously and is not
             // a substitute for this full-roster LF save barrier.
@@ -259,8 +259,7 @@ final class SCRemoteArrival {
             if (envelope == null || envelope.rawget("document") != acknowledgedDocument) {
                 throw new IllegalStateException("remote arrival acknowledged save document changed");
             }
-            verifyDocument(acknowledgedDocument, members, slotSqlId);
-            SCVehicleSaveBarrier.verifyDocument(vehicleSave, token, acknowledgedDocument);
+            verifySavedDocument(acknowledgedDocument);
             for (Member member : members) {
                 SCNativeCompanion actor = member.actor;
                 if (SCBridge.isCompanion(actor) || actor.isExistInTheWorld()
@@ -270,6 +269,16 @@ final class SCRemoteArrival {
                         || actor.hasCompanionSpeech()) {
                     throw new IllegalStateException("remote arrival native cleanup is incomplete: " + member.id);
                 }
+            }
+        }
+
+        void verifySavedDocument(KahluaTable document) {
+            if (pickupRequestId == null) {
+                verifyDocument(document, members, slotSqlId);
+                SCVehicleSaveBarrier.verifyDocument(vehicleSave, token, document);
+            } else {
+                verifyPickupDocument(document, members, slotSqlId, pickupRequestId);
+                SCVehicleSaveBarrier.verifyPickupDocument(vehicleSave, token, document);
             }
         }
 
@@ -382,6 +391,28 @@ final class SCRemoteArrival {
                 || expedition.rawget("leaderId") != null || expedition.rawget("scout") != null) {
             throw new IllegalStateException("remote arrival save has not finalized the mission and companion slot");
         }
+        verifyMembers(document, members);
+    }
+
+    static void verifyPickupDocument(KahluaTable document, ArrayList<Member> members,
+                                     int slotSqlId, String requestId) {
+        if (requestId == null || requestId.isBlank() || requestId.length() > 128
+                || !(document.rawget("viewSlot") instanceof KahluaTable viewSlot)
+                || !numberEquals(viewSlot.rawget("schema"), 1)
+                || !numberEquals(viewSlot.rawget("slotSqlId"), slotSqlId)
+                || !(document.rawget("pickup") instanceof KahluaTable pickup)
+                || !numberEquals(pickup.rawget("schema"), 1)
+                || !"idle".equals(pickup.rawget("state")) || pickup.rawget("active") != null
+                || !(pickup.rawget("outcome") instanceof KahluaTable outcome)
+                || !requestId.equals(outcome.rawget("requestId"))
+                || !"returned".equals(outcome.rawget("result"))
+                || members.size() != 1 || !members.get(0).id.equals(outcome.rawget("driverId"))) {
+            throw new IllegalStateException("pickup arrival save has not finalized its exact request and driver");
+        }
+        verifyMembers(document, members);
+    }
+
+    private static void verifyMembers(KahluaTable document, ArrayList<Member> members) {
         Object companions = document.rawget("companions");
         if (!(companions instanceof KahluaTable records)) {
             throw new IllegalStateException("remote arrival save has no companion snapshots");

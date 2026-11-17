@@ -315,4 +315,26 @@ check(watch.pulse() == true and stagingAttempts == 1
             "corpse_retention_failed", 1, true) ~= nil,
     "a refused corpse chunk is reported and not retried every second")
 check(detached >= 2, "joined releases detach slot UI")
+-- A pickup borrows the existing native map only after a matching reservation.
+-- The old leader remains a camp resident and is selected again on return.
+alice.dead,alice.corpseReady=false,false
+SC.Registry.idOf=function(value) return value and value.id end
+local pickupId="pickup-watch-fixture"
+check(not watch.pauseForPickup(pickupId),"unreserved pickup cannot pause Base Watch")
+check(view.reserve("pickup",pickupId),"pickup reserves the full job over Base Watch")
+local paused,prior=watch.pauseForPickup(pickupId)
+check(paused and prior==bob and watch.export().pickupOwner==pickupId,"paused Watch saves its original leader")
+check(watch.pulse() and not watch.isLeader(bob) and watch.contextFor(bob,human)==human,
+    "paused Watch does not run camp camera or anchor decisions")
+check(not view.transfer("base_watch","pickup",alice,pickupId),"Lua cannot transfer ahead of native handoff")
+SCSplitScreenProbe.handoffLiving(alice)
+check(view.transfer("base_watch","pickup",alice,pickupId),"guarded living handoff transfers the actual map")
+check(view.blockedFor("expedition"),"pickup keeps expedition ownership blocked")
+local resume=watch.pickupResumeCandidate(pickupId)
+check(resume and resume.actor==bob,"return prefers the original eligible watched resident")
+SCSplitScreenProbe.handoffLiving(bob)
+check(watch.resumeFromPickup(pickupId,bob) and view.owner()=="base_watch",
+    "return restores Watch to the exact native successor")
+check(view.unreserve("pickup",pickupId) and watch.current()~=nil,
+    "releasing the job preserves restored Base Watch")
 SC_TEST_REPORT = "BASE_WATCH_PASS checks=" .. tostring(checks)

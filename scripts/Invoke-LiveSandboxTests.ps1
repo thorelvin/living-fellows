@@ -175,6 +175,13 @@ param(
     [switch]$DrivingProbe,
     # Real player drives one car while an assigned companion follows in another.
     [switch]$ConvoyProbe,
+    [switch]$PickupLifecycleProbe,
+    [switch]$PickupServiceProbe,
+    [ValidateSet('', 'acquire', 'board_driver', 'outbound', 'waiting_board', 'ride', 'returning', 'finish')]
+    [string]$PickupSavePhase = '',
+    [switch]$PickupResume,
+    [switch]$PickupWatchProbe,
+    [switch]$PickupColdServiceProbe,
     # Stage A of Markus's taxi: real player remains in a native passenger seat.
     [switch]$TaxiPassengerProbe,
     # Markus radio booking through a hidden physical pickup and free road ride.
@@ -949,6 +956,15 @@ if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePasseng
 }
 if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
 if ($ConvoyProbe -and -not $DrivingProbe) { throw '-ConvoyProbe requires -DrivingProbe.' }
+if ($PickupLifecycleProbe -and -not $DrivingProbe) { throw '-PickupLifecycleProbe requires -DrivingProbe.' }
+if ($PickupServiceProbe -and -not $DrivingProbe) { throw '-PickupServiceProbe requires -DrivingProbe.' }
+if (($PickupSavePhase -or $PickupResume) -and -not $PickupServiceProbe) { throw 'Pickup save/resume requires -PickupServiceProbe.' }
+if ($PickupResume -and [string]::IsNullOrWhiteSpace($SeedSave)) { throw '-PickupResume requires the retained stage save.' }
+if ($PickupSavePhase -and $PickupResume) { throw 'Choose pickup save or resume, not both.' }
+if ($PickupWatchProbe -and -not $PickupServiceProbe) { throw '-PickupWatchProbe requires -PickupServiceProbe.' }
+if ($PickupColdServiceProbe -and (-not $PickupServiceProbe -or $PickupWatchProbe -or $PickupSavePhase -or $PickupResume)) {
+    throw '-PickupColdServiceProbe requires an ordinary -PickupServiceProbe run.'
+}
 if ($TaxiPassengerProbe -and -not $DrivingProbe) {
     throw '-TaxiPassengerProbe requires -DrivingProbe.'
 }
@@ -986,7 +1002,7 @@ if ($DrivingGateNegativeControl -and
     throw '-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi.'
 }
 $drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
-    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe,
+    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe, $PickupLifecycleProbe, $PickupServiceProbe,
     $TaxiPassengerProbe, $TaxiCallProbe, $TaxiCallResume,
     $TaxiRecoveryResume) | Where-Object { $_.IsPresent }
 # Taxi booking can reuse the turn probe's real junction and roadside observer.
@@ -2031,6 +2047,12 @@ $config = @(
     ('farm_corridor_probe=' + $FarmCorridorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
     ('convoy_probe=' + $ConvoyProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('pickup_lifecycle_probe=' + $PickupLifecycleProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('pickup_service_probe=' + $PickupServiceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('pickup_save_phase=' + $PickupSavePhase),
+    ('pickup_resume=' + $PickupResume.IsPresent.ToString().ToLowerInvariant()),
+    ('pickup_watch_probe=' + $PickupWatchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('pickup_cold_service_probe=' + $PickupColdServiceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_passenger_probe=' + $TaxiPassengerProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_call_probe=' + $TaxiCallProbe.IsPresent.ToString().ToLowerInvariant()),
     ('taxi_defense_probe=' + $TaxiDefenseProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -2959,7 +2981,7 @@ if ($CleaningMixturesProbe -and $status -eq 'PASS') {
     }
 }
 $postSummaryForcedStop = $false
-$postSummaryExitSeconds = if ($DrivingSaveStage -or $TeamDriveRestartStage -or
+$postSummaryExitSeconds = if ($PickupSavePhase -or $DrivingSaveStage -or $TeamDriveRestartStage -or
     $TaxiPassengerProbe -or $TaxiCallStage) { 90 } else { 15 }
 $exitDeadline = [DateTime]::UtcNow.AddSeconds($postSummaryExitSeconds)
 while ([DateTime]::UtcNow -lt $exitDeadline) {
@@ -3061,6 +3083,14 @@ if ($DrivingBlocked -and
     Write-Output "Live console: $consolePath"
     Write-Output "LIVE_SANDBOX_SKIP run=$runId reason=no_loaded_alternate results=$eventsPath"
     return
+}
+if ($PickupSavePhase -and $status -eq 'PASS') {
+    if ($postSummaryForcedStop) { throw 'Pickup stage did not finish its own world save and exit.' }
+    if (-not (Select-String -LiteralPath $eventsPath -SimpleMatch ('PASS|pickup_service_saved_' + $PickupSavePhase + '|') -Quiet)) {
+        throw 'Pickup stage lacks the verified journal save receipt.'
+    }
+    Copy-Item -LiteralPath $eventsPath -Destination (Join-Path $TargetSave 'SC-pickup-stage-proof.txt')
+    Write-Output "Pickup resume seed: $TargetSave"
 }
 if ($DrivingSaveStage -and $status -eq 'PASS') {
     if ($postSummaryForcedStop) {

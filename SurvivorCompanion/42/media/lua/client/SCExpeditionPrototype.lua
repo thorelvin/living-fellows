@@ -1142,6 +1142,8 @@ end
 
 function Expedition.start(records, plan)
     if mission ~= nil then return false, "expedition_already_active" end
+    if SC.ViewSession and SC.ViewSession.blockedFor
+        and SC.ViewSession.blockedFor("expedition") then return false,"pickup_uses_companion_view" end
     if plan ~= nil and type(plan) ~= "table" then return false, "invalid_scout_plan" end
     pruneCompletedDeliveries()
     if plan and plan.kind == "home" then

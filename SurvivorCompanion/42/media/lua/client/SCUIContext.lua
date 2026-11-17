@@ -2193,6 +2193,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local fieldAvailable = clickSquare and SC.FieldWork
         and SC.FieldWork.available(player, nil, fieldFacts) == true
     local clickedVehicle = Context.vehicleAtClick(clickSquare)
+    if SC.PickupUI then SC.PickupUI.fillLocal(context,player,clickedVehicle) end
     local clickedGenerator = clickSquare and safeMethod(clickSquare,
         "getGenerator") or nil
     if not clickedGenerator then
@@ -2700,6 +2701,7 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
         return option
     end
     if selectedRadio then addTaxiRadioOptions(services, player, selectedRadio) end
+    if selectedRadio and SC.PickupUI then SC.PickupUI.fillInventory(services,player,selectedRadio) end
     if equipped then
         if playerIndex == 0 and mission and mission.scout and mission.scout.kind ~= "home" then
             local expedition = Menus.group(services, "radio.expedition", text("UI_SC_Context_RadioExpedition"))

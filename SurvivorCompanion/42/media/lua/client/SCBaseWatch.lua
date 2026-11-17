@@ -191,14 +191,14 @@ end
 
 function Watch.current() return session end
 function Watch.isLeader(actor)
-    return session ~= nil and session.leaderActor == actor
+    return session ~= nil and session.pickupOwner == nil and session.leaderActor == actor
 end
 function Watch.isLeaderId(id)
-    return session ~= nil and session.leaderId == id
+    return session ~= nil and session.pickupOwner == nil and session.leaderId == id
 end
 
 function Watch.isRemote(player)
-    if session == nil or player == nil or player ~= primary() then return false end
+    if session == nil or session.pickupOwner or player == nil or player ~= primary() then return false end
     local leader = session.leaderActor
     return not atCamp(player) or distance(player, leader) > 16
 end
@@ -213,7 +213,7 @@ function Watch.isRemoteResident(actor, player)
 end
 
 function Watch.contextFor(actor, human)
-    if session == nil or session.restoring or not alive(session.leaderActor)
+    if session == nil or session.pickupOwner or session.restoring or not alive(session.leaderActor)
         or actor == nil then return human end
     local id = SC.GameplayUtil and SC.GameplayUtil.idOf
         and SC.GameplayUtil.idOf(actor)
@@ -405,6 +405,7 @@ end
 
 function Watch.pulse()
     if session == nil then return false, "base_watch_not_active" end
+    if session.pickupOwner then return true, "base_watch_pickup_paused" end
     if SCSplitScreenProbe == nil then return false, "local_view_unavailable" end
     if session.restoring then
         local ok, reason = restoreView()
@@ -493,7 +494,7 @@ local function equippedRadio(actor, transmit)
 end
 
 function Watch.radioAvailable(player)
-    if session == nil or session.restoring or second() ~= session.leaderActor
+    if session == nil or session.pickupOwner or session.restoring or second() ~= session.leaderActor
         or player ~= primary() then return false end
     local sender, senderData = equippedRadio(player, true)
     local receiver, receiverData = equippedRadio(session.leaderActor, false)
@@ -545,7 +546,7 @@ local function radioReply(player, textValue, sequence)
 end
 
 function Watch.sendRadio(player, action, value)
-    if session == nil or session.restoring then return false, "base_watch_not_ready" end
+    if session == nil or session.pickupOwner or session.restoring then return false, "base_watch_not_ready" end
     if player ~= primary() or not Watch.isRemote(player) then
         return false, "base_watch_player_not_away"
     end
@@ -613,6 +614,7 @@ function Watch.describe()
         departed = session.departed == true,
         joining = session.joining == true,
         restoring = session.restoring == true,
+        pickupPaused = session.pickupOwner ~= nil,
         coverageLost = session.coverageLost == true,
         technicalIssue = session.technicalIssue,
         lastReport = session.lastReport,
@@ -631,7 +633,64 @@ function Watch.export()
         slotSqlId = validSlotId(slotId) and slotId or nil,
         radioSession = session.radioSession,
         radioSequence = session.radioSequence,
+        pickupOwner = session.pickupOwner,
+        pickupAnchor = session.pickupAnchor and {x=session.pickupAnchor.x,y=session.pickupAnchor.y,z=session.pickupAnchor.z} or nil,
     }
+end
+
+function Watch.pauseForPickup(requestId)
+    if not session then return true end
+    if session.pickupOwner == requestId then return true, session.leaderActor end
+    if session.pickupOwner or session.restoring or session.joining
+        or not SC.ViewSession.reservedFor("pickup", requestId)
+        or SC.ViewSession.owner() ~= "base_watch"
+        or second() ~= session.leaderActor then return false, "base_watch_not_ready" end
+    session.pickupOwner = requestId
+    if SC.GameplayUtil and SC.GameplayUtil.position then
+        local x,y,z=SC.GameplayUtil.position(session.leaderActor)
+        if x and y and z then session.pickupAnchor={x=x,y=y,z=math.floor(z)} end
+    end
+    unhookRadio()
+    return true, session.leaderActor
+end
+
+function Watch.pickupResumeCandidate(requestId)
+    if not session or session.pickupOwner ~= requestId then return nil, "base_watch_pause_changed" end
+    local original = residentCandidate(session.leaderId, true)
+    if original then return original end
+    return Watch.candidates()[1], "base_watch_no_eligible_resident"
+end
+
+function Watch.resumeFromPickup(requestId, actor)
+    if not session or session.pickupOwner ~= requestId then return false, "base_watch_pause_changed" end
+    local id = SC.Registry.idOf(actor)
+    local record = id and residentCandidate(id, true)
+    if not record or record.actor ~= actor then return false, "base_watch_leader_unavailable" end
+    local okay, reason = SC.ViewSession.transfer("pickup", "base_watch", actor, requestId)
+    if not okay then return false, reason end
+    session.leaderId, session.leaderActor = id, actor
+    session.pickupOwner, session.restoring, session.joining = nil, nil, nil
+    session.pickupAnchor=nil
+    session.outsideSince, session.coverageLost, session.technicalIssue = nil, nil, nil
+    hookRadio()
+    return true
+end
+
+function Watch.finishPickupPause(requestId)
+    if not session then return true end
+    if session.pickupOwner ~= requestId then return false, "base_watch_pause_changed" end
+    unhookRadio()
+    session = nil
+    return true
+end
+
+function Watch.resumeUntransferredPickup(requestId)
+    if not session or session.pickupOwner~=requestId or SC.ViewSession.owner()~="base_watch"
+        or second()~=session.leaderActor then return false end
+    session.pickupOwner=nil
+    session.pickupAnchor=nil
+    hookRadio()
+    return true
 end
 
 function Watch.restore(saved)
@@ -648,6 +707,18 @@ function Watch.restore(saved)
         or saved.radioSequence ~= math.floor(saved.radioSequence) then
         return false, "invalid_saved_base_watch"
     end
+    if saved.pickupOwner ~= nil and (type(saved.pickupOwner) ~= "string"
+        or #saved.pickupOwner < 1 or #saved.pickupOwner > 128) then return false,"invalid_saved_base_watch" end
+    if saved.pickupAnchor then
+        local p=saved.pickupAnchor
+        if not saved.pickupOwner or type(p)~="table" or type(p.x)~="number" or p.x~=p.x or p.x<0 or p.x>30000
+            or type(p.y)~="number" or p.y~=p.y or p.y<0 or p.y>30000 or type(p.z)~="number"
+            or p.z~=math.floor(p.z) or p.z< -32 or p.z>31 then return false,"invalid_saved_base_watch" end
+    end
+    if saved.pickupOwner and SC.PickupService then
+        local pickup=SC.PickupService.current()
+        if not pickup or pickup.requestId~=saved.pickupOwner then return true,"base_watch_pickup_finished" end
+    end
     if SC.ExpeditionPrototype and SC.ExpeditionPrototype.current
         and SC.ExpeditionPrototype.current() ~= nil then
         return false, "expedition_uses_companion_view"
@@ -660,6 +731,8 @@ function Watch.restore(saved)
         departed = saved.departed, slotSqlId = saved.slotSqlId,
         radioSession = saved.radioSession,
         radioSequence = saved.radioSequence,
+        pickupOwner = saved.pickupOwner,
+        pickupAnchor = saved.pickupAnchor and {x=saved.pickupAnchor.x,y=saved.pickupAnchor.y,z=saved.pickupAnchor.z} or nil,
         knownActors = {}, restoring = true,
         technicalIssue = "base_watch_waiting_for_residents",
     }
@@ -668,6 +741,7 @@ end
 
 function Watch.prepareReset()
     if session == nil or session.suspended then return true end
+    if session.pickupOwner then unhookRadio() session.suspended = true return true end
     local slot = second()
     if slot == nil and SCSplitScreenProbe ~= nil
         and (SCSplitScreenProbe.isLeader(session.leaderActor) == true

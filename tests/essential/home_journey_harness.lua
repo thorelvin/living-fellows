@@ -16,9 +16,18 @@ assert(#H.roster({records=F.selection.records,travelMode="straight"}).records==1
     "walking excludes the seated member instead of silently dispatching that member")
 records[1].actor.vehicle=nil
 F.roadAvailable=false
+F.viewReservation="pickup"
+assert(not H.draft(F.selection,true).canStart,"pickup's full-job reservation blocks a Home draft even without a visible secondary view")
+F.viewReservation=nil
 local review=H.draft(F.selection,true)
 assert(review.canStart and review.requestedTravelMode=="road" and review.routeFallback
     and review.travelMode=="straight" and #review.records==2,"review shows the effective fallback and the exact crew")
+local startPlan={kind="home",destination=review.camp.core,travelMode=review.travelMode,
+    home={camp=H.copyCamp(review.camp)}}
+assert(H.validateStart(review.records,startPlan),"unreserved reviewed Home dispatch is a valid positive control")
+F.viewReservation="pickup"
+assert(not H.validateStart(review.records,startPlan),"a pickup reservation acquired after review blocks Home dispatch")
+F.viewReservation=nil
 local started,trip=H.start(F.selection,review)
 assert(started and trip.scout.kind=="home" and trip.scout.phase=="inbound"
     and trip.scout.travelMode=="straight" and not trip.scout.site and not trip.scout.search,

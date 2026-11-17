@@ -772,6 +772,22 @@ public final class SCSplitScreenProbe {
     /** Additive API presence; callers must also own a complete LF snapshot transaction. */
     public static boolean remoteArrivalCapability() { return true; }
 
+    public static boolean pickupJourneyCapability() { return true; }
+
+    /** Close only the unregistered loader; never a recruited companion. */
+    public static boolean cancelColdCompanionProbe() {
+        if (coldProbe == null) return leader == null;
+        if (leader != coldProbe || remoteArrival != null) return false;
+        IsoPlayer primary = IsoPlayer.players == null ? null : IsoPlayer.players[0];
+        IsoWorld world = IsoWorld.instance;
+        IsoCell cell = world == null ? null : world.getCell();
+        if (primary == null || cell == null) return false;
+        SecondaryLightingRelease lighting = new SecondaryLightingRelease(cell.getChunkMap(1));
+        if (!releaseForWorldExit()) return false;
+        armPrimaryViewRestore(primary, cell, lighting);
+        return true;
+    }
+
     public static String remoteArrivalFailure() { return remoteArrivalFailure; }
 
     /** Drive-only capability: walking arrivals do not depend on vehicle SQL APIs. */
@@ -786,6 +802,14 @@ public final class SCSplitScreenProbe {
     /** Safe near recall only: the exact stopped car remains in the real primary map. */
     public static boolean primaryRetainsHomeVehicle(zombie.vehicles.BaseVehicle car, int expectedSqlId) {
         return remoteArrival == null && SCVehicleSaveBarrier.primaryRetains(car,expectedSqlId);
+    }
+
+    public static boolean primaryRetainsPickupVehicle(zombie.vehicles.BaseVehicle car,
+            int expectedSqlId, SCNativeCompanion driver) {
+        return remoteArrival == null && driver != null && SCBridge.isCompanion(driver)
+                && driver.isBridgeHealthy() && !driver.isDead() && car != null
+                && driver.getVehicle() == car && car.getDriver() == driver
+                && SCVehicleSaveBarrier.primaryRetainsPickup(car, expectedSqlId);
     }
 
     public static KahluaTable homeVehicleSaveReceipt(long ticket) { return SCVehicleSaveBarrier.receipt(ticket); }
@@ -807,14 +831,22 @@ public final class SCSplitScreenProbe {
      * secondary-only square after its view has unloaded.
      */
     public static boolean primaryAreaContains(int x, int y, int z) {
+        return ownedAreaContains(0, x, y, z);
+    }
+
+    public static boolean secondaryAreaContains(int x, int y, int z) {
+        return leader != null && ownedAreaContains(1, x, y, z);
+    }
+
+    private static boolean ownedAreaContains(int slot, int x, int y, int z) {
         if (Thread.currentThread() != MainThread.mainThread || z < -32 || z > 31) return false;
         try {
             IsoPlayer[] slots = IsoPlayer.players;
             IsoWorld world = IsoWorld.instance;
             IsoCell cell = world == null ? null : world.getCell();
-            IsoChunkMap map = cell == null ? null : cell.getChunkMap(0);
+            IsoChunkMap map = cell == null ? null : cell.getChunkMap(slot);
             if (slots == null || slots.length != 4 || slots[0] == null
-                    || slots[0].isDead() || map == null || map.ignore || map.playerId != 0
+                    || slots[0].isDead() || map == null || map.ignore || map.playerId != slot
                     || x < map.getWorldXMinTiles() || x > map.getWorldXMaxTiles()
                     || y < map.getWorldYMinTiles() || y > map.getWorldYMaxTiles()) return false;
             IsoChunk chunk = map.getChunkForGridSquare(x, y);
@@ -850,6 +882,20 @@ public final class SCSplitScreenProbe {
             remoteArrivalFailure = "remote arrival preparation failed: " + failure.getMessage();
             throw failure;
         }
+    }
+
+    public static long preparePickupArrival(String requestId, KahluaTable roster,
+            int minX, int minY, int maxX, int maxY, int z) {
+        if (requestId == null || requestId.isBlank() || requestId.length() > 128) {
+            throw remoteArrivalRefusal("pickup request identity is invalid");
+        }
+        if (roster == null || roster.rawget(1.0) == null || roster.rawget(2.0) != null
+                || roster.rawget(3.0) != null || roster.rawget(4.0) != null || roster.rawget(5.0) != null) {
+            throw remoteArrivalRefusal("pickup arrival requires its sole driver");
+        }
+        long token = prepareRemoteArrival(roster, minX, minY, maxX, maxY, z);
+        remoteArrival.pickupRequestId = requestId;
+        return token;
     }
 
     /** The already reserved slot row may be reused by the next owned view. */

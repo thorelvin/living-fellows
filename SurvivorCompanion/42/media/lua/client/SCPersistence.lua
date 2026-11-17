@@ -1311,6 +1311,11 @@ function persistence.captureRecord(record, vehicleState, options)
     local personality = type(state.personality) == "table" and state.personality or {}
     local objectives = type(state.objectives) == "table" and state.objectives or {}
     local context = { preserveNativeIds = type(options) == "table" and options.preserveNativeIds == true }
+    if type(record.runtime)=="table" and record.runtime.pickupNativeIds==true then
+        context.preserveNativeIds,context.pickupNativeIds=true,true
+    end
+    if SC.PickupService and type(SC.PickupService.ownsInventory)=="function"
+        and SC.PickupService.ownsInventory(record.id) then context.preserveNativeIds,context.pickupNativeIds=true,true end
     local expedition = SC.ExpeditionPrototype
     if not context.preserveNativeIds and expedition and type(expedition.pendingHomeInventory) == "function" then
         local called, owned = pcall(expedition.pendingHomeInventory, record.id)
@@ -1455,6 +1460,9 @@ function persistence.captureRecord(record, vehicleState, options)
     if copyReason ~= nil then return nil, copyReason end
 
     return {
+        pickupNativeIds = context.pickupNativeIds == true or nil,
+        restorePrimaryOnly = vehicleCopy == nil and type(record.runtime) == "table"
+            and record.runtime.restorePrimaryOnly == true or nil,
         lootReturnPending = anchorDataOk and type(anchorData) == "table"
             and anchorData.LF_LootReturnPending == true or nil,
         lootReturnRetryAt = anchorDataOk and type(anchorData) == "table"
@@ -1594,6 +1602,7 @@ local function scheduledSubsystemDefinitions()
             depth = 8, entries = 2048 },
         { field = "taxiService", owner = SC.TaxiService,
             depth = 6, entries = 128 },
+        { field = "pickup", owner = SC.PickupService, depth = 14, entries = 8192 },
         { field = "baseWatch", owner = SC.BaseWatch, depth = 3, entries = 32 },
         { field = "fieldWork", owner = SC.FieldWork, depth = 9, entries = 4096 },
     }
@@ -2393,8 +2402,9 @@ function persistence.save(player)
     for _, definition in ipairs(subsystemDefinitions) do
         local source
         local quarantine = quarantined.subsystems[definition.field]
-        if remoteArrival and remoteArrival.durable and definition.field == "expedition" then
-            source = remoteArrival.document.expedition
+        if remoteArrival and remoteArrival.durable
+            and definition.field == (remoteArrival.field or "expedition") then
+            source = remoteArrival.document[definition.field]
         elseif remoteArrival and remoteArrival.durable and definition.field == "viewSlot" then
             source = remoteArrival.document.viewSlot
         elseif quarantine ~= nil then
@@ -2811,6 +2821,9 @@ local function validateRecord(id, source)
     if source.restorePrimaryOnly ~= nil and type(source.restorePrimaryOnly) ~= "boolean" then
         return nil, "invalid primary-area restoration policy"
     end
+    if source.pickupNativeIds ~= nil and (type(source.pickupNativeIds) ~= "boolean"
+        or source.pickupNativeIds == true and (type(source.inventory) ~= "table"
+            or source.inventory.preserveNativeIds ~= true)) then return nil,"invalid pickup inventory identity policy" end
     if source.restorePrimaryOnly == true and source.vehicle ~= nil then
         return nil, "primary-area restoration requires an on-foot snapshot"
     end
@@ -3936,6 +3949,11 @@ local function postCommittedRestore(actor, saved)
     end
     local record = actor and SC.Registry.byId(saved.id)
     if record and record.actor == actor and SC.Registry.isActive(actor, saved.id) then
+        record.runtime = type(record.runtime) == "table" and record.runtime or {}
+        local pickupIds = saved.pickupNativeIds == true or saved.restorePrimaryOnly == true
+            and persistence.pickupDepartureAllowed(saved.id,saved.position)
+        record.runtime.restorePrimaryOnly = pickupIds and saved.restorePrimaryOnly == true or nil
+        record.runtime.pickupNativeIds = pickupIds or nil
         -- The restored actor can unload before Runtime's first health pulse.
         -- Record only its current native-health-verified square now that item,
         -- vitals and registry restoration have committed; never use saved XY.
@@ -4111,7 +4129,8 @@ local function squareFor(record)
         local called, contains = pcall(function()
             return SCSplitScreenProbe.primaryAreaContains(at.x, at.y, at.z)
         end)
-        if not called or contains ~= true then return nil end
+        if (not called or contains ~= true)
+            and not persistence.pickupDepartureAllowed(record.id, at) then return nil end
     end
     if restoresOnFoot(record) and SC.Vehicle ~= nil
         and type(SC.Vehicle.reloadedCarSquare) == "function" then
@@ -4136,7 +4155,8 @@ local function squareFor(record)
         local called, contains = pcall(function()
             return at and SCSplitScreenProbe.primaryAreaContains(at.x, at.y, at.z)
         end)
-        if not called or contains ~= true then return nil end
+        if (not called or contains ~= true)
+            and not persistence.pickupDepartureAllowed(record.id, at) then return nil end
     end
     return candidate
 end
@@ -4466,6 +4486,7 @@ function persistence.restore(player)
         taxiBooking = "taxi-booking",
         taxiCab = "taxi-cab", taxiFares = "taxi-fares",
         taxiService = "taxi-service",
+        pickup = "camp-pickup",
         baseWatch = "base-watch",
     }
     for _, definition in ipairs(subsystemDefinitions) do
@@ -4496,6 +4517,8 @@ function persistence.restore(player)
                 SC.Diagnostics.report(subsystemDiagnostics[definition.field], nil,
                     "subsystem save quarantined", failure)
             end
+        elseif definition.field=="pickup" and SC.PickupService then
+            SC.PickupService.restore(nil)
         elseif definition.field=="firstMeeting" and SC.FirstMeeting then
             SC.FirstMeeting.restore(nil)
         elseif definition.field == "oddballs" and SC.Oddballs
@@ -4586,6 +4609,48 @@ end
 
 function persistence.isPending(id)
     return type(id) == "string" and pending[id] ~= nil
+end
+
+-- A pickup may restore only a declared camp candidate under its exact owned
+-- secondary map. The ordinary primary-only restore rule stays the default.
+function persistence.pickupDepartureAllowed(id, at)
+    local journey = SC.PickupJourney
+    if not journey or type(journey.canRestore) ~= "function" then return false end
+    local okay, allowed = pcall(journey.canRestore, id, at)
+    return okay and allowed == true
+end
+
+function persistence.pendingCampRecords(baseId)
+    local result = {}
+    for id, entry in pairs(pending) do
+        local resident = SC.BaseLife and SC.BaseLife.resident and SC.BaseLife.resident(id)
+        local saved = entry.record
+        if resident and resident.baseId == baseId and saved.recruited == true
+            and entry.remoteToken == nil and entry.status ~= "quarantined" then
+            result[#result + 1] = { id = id, identity = saved.identity,
+                position = saved.position, pending = true }
+        end
+    end
+    table.sort(result, function(a, b) return a.id < b.id end)
+    return result
+end
+
+-- A scheduled capture can precede its controller journal by several frames.
+-- Stream the validated saved actor position, not a later moving-car coordinate.
+-- This reveals no inventory and grants no restore authority by itself.
+function persistence.pendingPickupDriver(id)
+    local ctx=SC.PickupService and SC.PickupService.current()
+    local entry=type(id)=="string" and pending[id] or nil
+    local saved=entry and entry.record
+    if not ctx or ctx.driverId~=id or not ctx.restoring or not saved
+        or saved.recruited~=true or entry.remoteToken~=nil or entry.status=="quarantined"
+        or not SC.ViewSession.reservedFor("pickup",ctx.requestId) then return nil end
+    local position=saved.position
+    if type(position)~="table" or finite(position.x,nil)==nil or finite(position.y,nil)==nil
+        or type(position.z)~="number" or position.z~=math.floor(position.z) or position.z< -32 or position.z>31 then return nil end
+    local car=saved.vehicle and saved.vehicle.vehicle
+    if not ctx.relinquished and car and tonumber(car.sqlId)~=ctx.carSqlId then return nil end
+    return {x=position.x,y=position.y,z=position.z}
 end
 
 -- A remote expedition cannot recover its leader until native streaming owns
@@ -4778,7 +4843,8 @@ do
     local function stageDocument(transaction, camp, integration)
         local members,reason = captureCrew(transaction.actors,camp)
         if not members then return false,reason end
-        local finalized,issue = SC.ExpeditionPrototype.exportRemoteArrival(integration)
+        local controller = transaction.field == "pickup" and SC.PickupService or SC.ExpeditionPrototype
+        local finalized,issue = controller.exportRemoteArrival(integration)
         if not finalized then return false,issue end
         local slotOkay,slotId = pcall(function()
             return SCSplitScreenProbe.remoteArrivalSlotSqlId(transaction.token)
@@ -4793,7 +4859,7 @@ do
         if not called or saved ~= true then return false,document or saved or "remote_arrival_world_capture_failed" end
         local outgoing,copyReason = stableCopy(document,documentDepthLimit(),documentEntryLimit(),"$.remoteArrival")
         if not outgoing then return false,copyReason end
-        outgoing.expedition = finalized
+        outgoing[transaction.field or "expedition"] = finalized
         outgoing.viewSlot = {schema=1,slotSqlId=slotId}
         for _,member in ipairs(members) do outgoing.companions[member.id] = member.raw end
         local store,storeReason = worldData()
@@ -4812,6 +4878,9 @@ do
                 nextAt=0,attempts=0,status="remote_arrival_held",remoteToken=transaction.token}
         end
         return true
+    end
+    function persistence.remoteArrivalDurable(token)
+        return remoteArrival~=nil and remoteArrival.token==token and remoteArrival.durable==true
     end
     function persistence.abortRemoteArrival(token)
         if token == nil then return false,"remote_arrival_ticket_required" end
@@ -4846,16 +4915,20 @@ do
         remoteArrival = nil
         return true,"remote_arrival_aborted"
     end
-    function persistence.commitRemoteArrival(actors,camp,token,integration)
+    function persistence.commitRemoteArrival(actors,camp,token,integration,owner)
+        if owner ~= nil and owner ~= "pickup" then return false,"remote_arrival_owner_invalid" end
+        local field = owner or "expedition"
         if token == nil or type(actors) ~= "table" then return false,"remote_arrival_ticket_required" end
-        if remoteArrival and (remoteArrival.token ~= token or not sameRoster(remoteArrival,actors)) then
+        if remoteArrival and (remoteArrival.token ~= token or (remoteArrival.field or "expedition") ~= field
+            or not sameRoster(remoteArrival,actors)) then
             return false,"remote_arrival_transaction_mismatch"
         end
         if not remoteArrival then
             -- Probe ownership APIs before publishing pending records.
-            if not SCSplitScreenProbe or not SC.ExpeditionPrototype
-                or not SC.ExpeditionPrototype.exportRemoteArrival then return false,"remote_arrival_bridge_unavailable" end
-            remoteArrival = {token=token,actors=actors,members={}}
+            local controller = field == "pickup" and SC.PickupService or SC.ExpeditionPrototype
+            if not SCSplitScreenProbe or not controller
+                or not controller.exportRemoteArrival then return false,"remote_arrival_bridge_unavailable" end
+            remoteArrival = {token=token,actors=actors,members={},field=field}
         end
         local transaction = remoteArrival
         if not transaction.durable then
@@ -4910,11 +4983,14 @@ do
     -- releaseDeadLeader has already durably retained every exact corpse and
     -- closed its native view. Its unacknowledged live snapshots must never
     -- remain queued for reconstruction after that successful death teardown.
-    function persistence.completeDeadRemoteArrival(token, actors, finalized)
+    function persistence.completeDeadRemoteArrival(token, actors, finalized, owner)
         local transaction = remoteArrival
+        if owner~=nil and owner~="pickup" then return false,"remote_arrival_owner_invalid" end
+        local field=owner or "expedition"
         if token == nil or type(actors) ~= "table" or #actors < 1 or #actors > 4 then return false,"remote_arrival_ticket_required" end
-        if transaction and (transaction.token ~= token or not sameRoster(transaction,actors)) then return false,"remote_arrival_transaction_mismatch" end
-        if transaction and transaction.durable then return false,"remote_arrival_already_durable" end
+        if transaction and (transaction.token ~= token or (transaction.field or "expedition")~=field
+            or not sameRoster(transaction,actors)) then return false,"remote_arrival_transaction_mismatch" end
+        if transaction and transaction.durable and field~="pickup" then return false,"remote_arrival_already_durable" end
         if type(getSpecificPlayer) ~= "function" or getSpecificPlayer(1) ~= nil
             or SC.ViewSession and SC.ViewSession.owner and SC.ViewSession.owner() ~= nil then return false,"remote_arrival_view_still_owned" end
         for _,actor in ipairs(actors) do
@@ -4923,11 +4999,16 @@ do
             if not deadOkay or dead ~= true or not readyOkay or ready ~= true then return false,"remote_arrival_corpse_pending" end
         end
         if not transaction then return true,"remote_arrival_no_staging" end
-        if type(finalized) ~= "table" or finalized.state ~= "idle"
-            or (finalized.schema ~= 2 and finalized.schema ~= 7)
-            or type(finalized.slotSqlId) ~= "number" or finalized.slotSqlId < 2
-            or finalized.roster ~= nil or finalized.survivors ~= nil or finalized.leaderId ~= nil
-            or finalized.scout ~= nil then return false,"remote_arrival_dead_descriptor_invalid" end
+        if field=="pickup" then
+            if #actors~=1 or #transaction.members~=1 or type(finalized)~="table" or finalized.schema~=1
+                or finalized.state~="idle" or finalized.active~=nil or type(finalized.outcome)~="table"
+                or finalized.outcome.result~="driver_lost"
+                or finalized.outcome.driverId~=transaction.members[1].id then return false,"remote_arrival_dead_descriptor_invalid" end
+        elseif type(finalized) ~= "table" or finalized.state ~= "idle"
+                or (finalized.schema ~= 2 and finalized.schema ~= 7)
+                or type(finalized.slotSqlId) ~= "number" or finalized.slotSqlId < 2
+                or finalized.roster ~= nil or finalized.survivors ~= nil or finalized.leaderId ~= nil
+                or finalized.scout ~= nil then return false,"remote_arrival_dead_descriptor_invalid" end
         local idle,reason = stableCopy(finalized,documentDepthLimit(),documentEntryLimit(),"$.remoteArrivalDead")
         if not idle then return false,reason end
         local store,storeReason = worldData()
@@ -4942,8 +5023,9 @@ do
             for _,document in ipairs({store.document,transaction.document,lastDocument}) do
                 if type(document) == "table" then
                     if type(document.companions) == "table" then document.companions[member.id] = nil end
-                    document.expedition = idle
-                    document.viewSlot = {schema=1,slotSqlId=idle.slotSqlId}
+                    document[field] = idle
+                    if field=="pickup" then document.baseWatch=nil end
+                    document.viewSlot = {schema=1,slotSqlId=idle.slotSqlId or SC.ViewSession.slotSqlId()}
                 end
             end
         end

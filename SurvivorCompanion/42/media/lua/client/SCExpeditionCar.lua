@@ -384,6 +384,7 @@ local function preflightSpecific(records, zoneId, sqlId, destination)
     local vehicle = SC.Vehicle and SC.Vehicle.loadedBySqlId
         and SC.Vehicle.loadedBySqlId(sqlId) or nil
     if vehicle == nil then return nil, "car_unavailable" end
+    if SC.Vehicle.serviceClaim and SC.Vehicle.serviceClaim(vehicle) then return nil,"car_reserved" end
     local at = point(vehicle)
     if not contains(zone, at) then return nil, "car_moved" end
     local stationary, stationaryReason = SC.Vehicle.isStationary(vehicle)
@@ -604,7 +605,7 @@ function Car.boardMember(actor, order, snapshot)
             playerCommand = order.hotwire == true or order.fieldWork == true })
     if began == nil then return boardingResult(actor, order, false, beginReason) end
     local prepared, reason = SC.Vehicle.preflightBoard(actor, car, seat,
-        seat == 0)
+        seat == 0, order.permittedPassenger)
     if prepared then
         if mission and trip.sqlId == order.sqlId and seat > 0 then
             local partOk, part = call(car, "getPassengerDoor", seat)
@@ -624,13 +625,15 @@ function Car.boardMember(actor, order, snapshot)
         end
         local options = { driverSeat = seat == 0,
             playerCommand = order.hotwire == true or order.fieldWork == true,
-            allowVirtualSeat = false, preflight = prepared }
+            allowVirtualSeat = false, preflight = prepared,
+            permittedPassenger = order.permittedPassenger }
         local boarded, boardReason
         if seat == 0 then boarded, boardReason = SC.Vehicle.boardDriver(actor, car, options)
         else boarded, boardReason = SC.Vehicle.board(actor, car, seat, options) end
         return boardingResult(actor, order, boarded, boardReason)
     end
-    if reason ~= "companion is not at the passenger door" then
+    if reason ~= "companion is not at the passenger door"
+        and reason ~= "companion and vehicle are on different floors" then
         SC.Vehicle.failTransaction(actor, "expedition_board_preflight_failed",
             { reason = reason })
         return boardingResult(actor, order, false, reason)

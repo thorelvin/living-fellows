@@ -82,6 +82,7 @@ function UI.options(w)
             option("Microphone "..(rt and rt.mic and "mute" or "open"),"mic"),option("Visual: "..(rt and rt.memory.mode or "bars"),"visual"),option("Back","back")}
     elseif p=="team" then
         local result={option("Tune team channel","team")}
+        if SC.PickupUI then result[#result+1]=option("Camp pickup...","pickup") end
         if not (SC.TerminalServices and SC.TerminalServices.radioUnavailable and SC.TerminalServices.radioUnavailable()) then
             result[#result+1]=option("Progress report","control",{operation="radio",command="progress_report",payload="status"})
             result[#result+1]=option("Recall expedition","control",{operation="radio",command="return_now",payload="now"})
@@ -109,7 +110,13 @@ local function result(w,okay,message,proposal)
     return true
 end
 local function act(w,action,value)
-    if action=="open" then UI.open(w) return true
+    if action=="pickup" and SC.PickupUI then
+        local endpoint,reason=SC.RadioEndpoints.station(w.player,w.object)
+        if not endpoint then return result(w,false,reason) end
+        local okay,reason=SC.PickupUI.open(w.player,endpoint)
+        if not okay then UI.notice(w,SC.PickupUI.reason(reason)) end
+        return true
+    elseif action=="open" then UI.open(w) return true
     elseif action=="page" then
         if value=="operators" and SC.RadioWork then w.radioWorkCrew=SC.RadioWork.crew() end
         w.radioPage,w.radioOffset,w.menuSelection=value,0,1 return true
@@ -166,7 +173,8 @@ function UI.input(w,raw,chosen)
     local text=trimmed(raw):gsub("^emma[,:%s]+",""):gsub("^please%s+","")
     local request,argument
     if chosen and chosen.radioAction then return act(w,chosen.radioAction,chosen.radioValue) end
-    if text=="open radio" or text=="open the radio" or text=="radio desk" or text=="radio software" or text=="larch/wave" then request="open"
+    if text=="come pick me up" or text=="camp pickup" or text=="call for a pickup" then request="pickup"
+    elseif text=="open radio" or text=="open the radio" or text=="radio desk" or text=="radio software" or text=="larch/wave" then request="open"
     elseif text=="scan for broadcasts" or text=="scan channels" or text=="scan presets" then request,argument="scan","presets"
     elseif text=="scan the band" or text=="scan band" then request,argument="scan","band"
     elseif text=="return to the expedition channel" or text=="team channel" then request="team"

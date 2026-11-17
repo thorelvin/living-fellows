@@ -1,0 +1,153 @@
+Camp pickup - 0.27.35
+2026-11-17
+
+Behavior
+An equipped two-way radio or EMMA's Radio desk opens one pickup sheet. It
+suggests an available camp resident, an actual parked car and a roadside stop;
+the player can override the driver and car. Calls require a real request/reply.
+Both endpoints can be a handset or radio-equipped computer. A camp computer
+can relay locally to a resident who has no handset. Lost contact leaves the
+accepted order intact. Local instructions beside the driver need no radio.
+Pickup updates continue their bounded road search after one click, check fuel
+and a route back to camp, then apply only after the driver's reply. Newer orders
+invalidate stale callbacks.
+
+Nearby eligible Follow/Regroup companions within 35 metres horizontally receive
+ordinary reserved passenger seats. Ride opt-outs and separate-car assignments
+are respected. After boarding, choose Home or a map destination. The driver
+waits for ordinary exits, then returns the empty car to the original camp and
+resumes duty. Deliberate parked waits survive reload. Technical loading,
+stalled movement and parking waits are bounded, with explicit Retry.
+
+The service reserves its driver, car, seats and remote-view capacity for the
+whole job, including the full-primary-view passenger ride. Remote legs borrow
+the existing companion view. Base Watch pauses and resumes its original or an
+eligible resident through guarded native living handoffs. Manual orders release
+pickup authority; urgent survival or medical work stops the journey first.
+
+Persistence uses a separate schema-1 pickup journal and a typed native arrival
+adapter. It retains the exact request, driver, native player slot and vehicle
+save receipt without weakening legacy Home verification. A frozen arrival can
+finish after its actor leaves Registry and its car unloads. Scoped cold restore
+requires the pickup's owned secondary map. Returned pickup records retain exact
+native item IDs through repeated lookup/cancellation/restoration. Ordinary Home
+post-delivery inventory behavior remains covered by the original regression.
+
+Bridge protocol: 42.22-isocompanion-33, matching payload required.
+Reproducible bridge SHA256:
+fc6342519ec0b95d13af2b19dfdb0548357f6208fb107ba0b9cdcd5cb51eb22d
+
+Focused verification
+Production Lua groups: boarding contract 11, service 86, radio 48, restart 85,
+journey 18 and Base Watch 58: 306 checks. Full character-depth persistence and
+Home-journey scenarios also pass, including existing ordinary Home controls and
+pickup reservations acquired before review or dispatch. Restart cases
+cover every controller phase, exact seats and anchors, held jobs, death journals,
+manual takeover, missing native state, technical Retry and no-progress bounds.
+Native arrival tests: 67 checks. Native car-save tests: 79 checks.
+
+34 isolated Lua reverted controls and three compiled native reverted controls
+each fail a semantic assertion with process exit 1. They cover undelivered
+orders, missing companions, occupied return seats, detached arrival continuation,
+duplicate seats, radio correlation, Watch ownership, cold loading/cancellation,
+exact item identity, booked-player reboarding, bounded waits and medical priority.
+Additional controls cover Home reservation admission, automatic update search,
+return-route checks and stale reply callbacks.
+Mutated copies stay outside the source tree; compilation failures are excluded.
+
+Native verification
+Project Zomboid 42.22.2, Living Fellows only, disposable cloned saves and the
+matching isolated source bridge. Normal companion decisions remain enabled for
+service tests. Product movement uses ordinary navigation and native physics.
+Each completed run below has runner exit 0 and LIVE_SANDBOX_PASS.
+
+SC-Harness-20261117-200704-67be2dff:
+  Full dispatch, ordinary eligible follower boarding, primary-view passenger
+  ride, normal exits, empty return, parking and typed durable camp completion.
+
+SC-Harness-20261117-204220-fa5fb3cb:
+  All four real handset/computer endpoint pairs, actual mounted radios and UPS
+  power, then a camp relay after unequipping the driver's handset. Also two
+  native passenger/view cycles and two distant cold-query cancellations.
+
+SC-Harness-20261117-201716-7d5ac3d2 -> 201854-eb3b8f08:
+  Outbound preparation save and actual game restart, completing the same job.
+SC-Harness-20261117-205831-7d5de568 -> 210337-37f6be1b:
+  Moving passenger save/restart, normal driver reboarding beside the already
+  seated primary player, ride completion and empty return with the original key.
+SC-Harness-20261117-213709-7194e8b5 -> 213816-65aa1204:
+  Parked pickup-wait save/restart, public Home command, ordinary boarding/exits,
+  camp completion and identical actual car key and trunk-item IDs.
+SC-Harness-20261117-213927-d2dc2d83 -> 214100-a35422d0:
+  Moving empty-return save/restart, parked camp completion, same key/trunk item.
+
+SC-Harness-20261117-213420-3ece2735:
+  Complete ordinary service trip, followed by a separate cold-loading fixture.
+  Only the caller is staged at a distant road between measurements; the real
+  returned driver and car remain at camp. The primary-only resident/car unload,
+  restore with the same key and cargo, survive query cancellation and reopening,
+  receive an actual second radio call and drive natively above 3 km/h. This proof
+  ends and saves at departure; it does not claim a complete second cold-caller ride.
+  The normal retained posted-actor recovery path is allowed after cancellation.
+  Read-only SQLite confirms seed localPlayers [1] and clone [1,2]; no extra slots.
+
+SC-Harness-20261117-205555-3fc1d041:
+  Actual indoor Base Watch, living borrow, complete pickup/ride/return and
+  restoration of the original resident with the same native SQL slot.
+SC-Harness-20261117-214204-ceda8a30:
+  Repeat of the same complete Base Watch journey. The original
+  resident, native SQL slot, car key and actual trunk-item IDs all match.
+SC-Harness-20261117-214811-c244d7f6:
+  Final screen review and parked-wait save after a text-wrapping adjustment.
+  Review and settled waiting screens were visually inspected. This private
+  payload matches 517 of 520 production files; only the two private mod IDs
+  and test spawning/recording settings differ.
+
+SC-Harness-20261117-222749-407de29c -> 222901-6fad0e81:
+  Final-code repeat including an actual one-click radio update while moving,
+  its automatically continued roadside search, stop/replan and pickup arrival.
+  The parked wait saves and reloads; the public Home command finishes normally.
+  The final native key ID is 840483178 before and after, and the same trunk
+  item survives. This final private payload matches 517 of 520 production files,
+  with only the expected test configuration and private mod IDs differing.
+
+Coverage limits and retained failures
+Save/reload for preparation, parked waiting, passenger motion and empty return
+is native coverage; the complete phase matrix and emergency negatives also use
+production-module harnesses. Long driveway parking segments, changed party
+orders, malformed journals and interrupted cleanup are harness cases rather
+than separate complete native journeys. Vehicle coverage is the native sedan;
+this does not claim every car model, crowded street or blocked route can finish.
+
+Failed/invalid attempts are retained separately and never counted as passes.
+They caught occupied-square handoffs, lost booked-passenger permission, stale
+arrival verification and vanilla UI left after cold cancellation. One long scene
+lost the unattended caller to real zombies; another safely held on an obstructed
+turn/return route. No damage immunity or zombie removal was used. No zombie
+navigation, movement flags, paths or states were changed.
+
+Evidence and reproduction
+Private outputs/pickup-02735 contains focused logs, reverted variants, manifests,
+SQL checks and screenshots. Native runs remain under build/live-sandbox-runs.
+No player save, installed game, release tag or Workshop upload is modified.
+
+scripts\Test-Project.ps1 -Release
+scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -PickupServiceProbe `
+  -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -EngineSound -HiddenWindow
+Add -PickupWatchProbe or -PickupColdServiceProbe for the respective fixtures.
+Use -PickupSavePhase and a later -PickupResume with its emitted cloned save.
+tests/live/README.md describes the native stages and setup boundaries.
+
+The first full release gate passed Build, Lifecycle, Behaviour and Interface,
+including all 18 installer cases. Cargo found an older Home fixture missing the
+new reservation method. The fixture now implements that shared interface, with
+positive and reverted controls; all 16 Cargo groups pass independently. That
+failed whole-gate attempt is retained as failed evidence.
+
+The clean Windows PowerShell 5.1 release gate passed all five checks in 969.2
+seconds: Build, Lifecycle, Behaviour, Cargo and Interface. All 18 installer cases
+passed again. Normal and debug Lua compilation passed; the reproducible bridge
+matched the payload. Workshop and standalone staging both passed. No product
+source changed during the gate. Results: build/test-results/20261117-223124-61c3ff.
+Standalone Windows ZIP SHA256:
+d66673a5b138b5ee0f49774d555814c1db31367fbef70d8fae3e1b9b5a1be44d

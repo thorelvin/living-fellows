@@ -21,6 +21,9 @@ $lifecycleOwnerFiles += @('SCNativeTraversalActions.lua', 'SCNativeVisualActions
     'SCLocomotion.lua', 'SCVehicle.lua') | ForEach-Object { Join-Path $Client $_ }
 @{ Name = 'actor-action-isolation'; Files = @($lifecycleOwnerFiles) + @(
     (Join-Path $Essential 'lifecycle_harness.lua')) }
+@{ Name = 'camp-pickup-booked-reboarding'; Files = @($lifecycleOwnerFiles) + @(
+    (Join-Path $Client 'SCExpeditionCar.lua'),
+    (Join-Path $Core 'pickup_boarding_contract_harness.lua')) }
 
 $lifecycleArrivalFiles = @((Join-Path $Core 'core_fixture.lua'))
 $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua',
@@ -31,3 +34,33 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Gameplay 'home_arrival_persistence_harness.lua')) }
 @{ Name = 'resident-wake-restoration'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'faction_restore_harness.lua')) }
+@{ Name = 'camp-pickup-lifecycle'; Files = @(
+    (Join-Path $Core 'pickup_service_fixture.lua'),
+    (Join-Path $Client 'SCPickupDispatch.lua'),
+    (Join-Path $Client 'SCPickupService.lua'),
+    (Join-Path $Client 'SCPickupJournal.lua'),
+    (Join-Path $Core 'pickup_service_harness.lua')) }
+@{ Name = 'camp-pickup-radio'; Files = @(
+    (Join-Path $Core 'pickup_radio_fixture.lua'),
+    (Join-Path $Client 'SCControlUtil.lua'),
+    (Join-Path $Client 'SCTaxiBooking.lua'),
+    (Join-Path $Client 'SCRadioEndpoints.lua'),
+    (Join-Path $Client 'SCPickupRadio.lua'),
+    (Join-Path $Core 'pickup_radio_harness.lua')) }
+@{ Name = 'camp-pickup-restart'; Files = @(
+    (Join-Path $Core 'pickup_service_fixture.lua'),
+    (Join-Path $Client 'SCPickupDispatch.lua'),
+    (Join-Path $Client 'SCPickupService.lua'),
+    (Join-Path $Client 'SCPickupJournal.lua'),
+    (Join-Path $Core 'pickup_restart_harness.lua')) }
+@{ Name = 'camp-pickup-approach-handoff'; Files = @(
+    (Join-Path $Core 'pickup_service_fixture.lua'),
+    (Join-Path $Client 'SCPickupJourney.lua'),
+    (Join-Path $Core 'pickup_journey_harness.lua')) }
+@{ Name = 'camp-pickup-watch-handoff'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCSpeechColors.lua'),
+    (Join-Path $Client 'SCViewSession.lua'),
+    (Join-Path $Client 'SCBaseWatch.lua'),
+    (Join-Path $Core 'base_watch_harness.lua')) }

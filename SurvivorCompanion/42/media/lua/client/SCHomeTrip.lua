@@ -233,6 +233,7 @@ function Home.recordEligibility(record, viewer, selection, popupFacts)
     return true
 end
 function Home.validateStart(records,plan)
+    if SC.ViewSession and SC.ViewSession.blockedFor("expedition") then return false,"home_view_expedition" end
     if not Home.remoteAvailable() then return false,"home_safe_handover_unavailable" end
     if not Home.validState(plan.home) or plan.home.recalling or not Home.campUnchanged(plan.home.camp)
         or not validPoint(plan.destination) then return false,"home_invalid_plan" end
@@ -317,6 +318,7 @@ function Home.eligibility(selection, popupFacts)
         and (result.exclusions[1].reason=="home_not_recruited" or result.exclusions[1].reason=="home_already_home"))
     local active=E() and E().current()
     local blocker=active and (active.scout and active.scout.kind=="home" and "home_view_trip" or "home_view_expedition")
+        or SC.ViewSession and SC.ViewSession.blockedFor("expedition") and "home_view_expedition"
         or SC.BaseWatch and SC.BaseWatch.current and SC.BaseWatch.current() and "home_view_base_watch"
         or SC.ViewSession and SC.ViewSession.owner and SC.ViewSession.owner()~=nil and "home_view_expedition"
         or not Home.remoteAvailable() and "home_safe_handover_unavailable"

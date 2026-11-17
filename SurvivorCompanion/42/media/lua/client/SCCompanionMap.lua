@@ -72,6 +72,12 @@ function CompanionMap.rows()
     return rows
 end
 
+function CompanionMap.pickupRow()
+    local ctx=SC.PickupService and (SC.PickupService.current() or SC.PickupService.previewCurrent())
+    if not ctx or not ctx.pickup then return nil end
+    return {id="camp-pickup",name="Agreed pickup",x=ctx.pickup.x,y=ctx.pickup.y,z=0}
+end
+
 local function factionPosition(group)
     local location = type(group) == "table" and group.location or nil
     local coordinates = type(location) == "table" and location.coordinates or nil
@@ -198,6 +204,8 @@ function CompanionMap.render(map)
     for _, row in ipairs(CompanionMap.rows()) do
         if drawMarker(map, row, occupied) then drawn = drawn + 1 end
     end
+    local pickup=CompanionMap.pickupRow()
+    if pickup and drawMarker(map,pickup,occupied) then drawn=drawn+1 end
     return true, drawn
 end
 
@@ -207,6 +215,8 @@ function CompanionMap.renderFactions(map)
     for _, row in ipairs(CompanionMap.factionRows()) do
         if drawFactionMarker(map, row, occupied) then drawn = drawn + 1 end
     end
+    local pickup=CompanionMap.pickupRow()
+    if pickup and drawMarker(map,pickup,occupied) then drawn=drawn+1 end
     -- Exposed as a cheap live-harness/read-only diagnostic. This proves that the
     -- actual ISWorldMap render hook completed, rather than only that rows exist.
     CompanionMap.lastFactionDrawCount = drawn
@@ -277,6 +287,7 @@ function CompanionMap.install()
         if not existing then context=ISContextMenu.get(0,absoluteX,absoluteY) end
         if not context then return consumed end
         local added=SC.ExpeditionMap and SC.ExpeditionMap.fillContext(self,context,target) or false
+        if SC.PickupUI then added=SC.PickupUI.fillMap(context,player,target) or added end
         local service=SC.TaxiService
         if SC.TaxiBooking and SC.TaxiBooking.dispatchReady==true and service
             and type(service.previewPoint)=="function" then

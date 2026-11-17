@@ -1060,6 +1060,9 @@ local function enforceVehicleExitPolicy(actor, player, commands, snapshot)
     if SC.ExpeditionCar and SC.ExpeditionCar.ownsSeat(actor, actorVehicle) then
         return true, "expedition_car_seat"
     end
+    if SC.PickupService and SC.PickupService.ownsSeat(actor,actorVehicle) then
+        return true,"pickup_driver_seat"
+    end
     if SC.Convoy and SC.Convoy.ownsSeat(actor, actorVehicle, player) then
         return true, "follow_car_seat"
     end
@@ -3641,6 +3644,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             convoyEmergency or medicalStillActive or needsStillActive)
     end
 
+    if SC.PickupService then SC.PickupService.suspendForSurvival(actor,convoyEmergency) end
+
     -- A drive owns its parked/waiting seat as well as its moving wheel. Keep
     -- autonomous combat and the stopped-vehicle exit policy behind that lease.
     if SC.Driving and type(SC.Driving.isDriving) == "function"
@@ -3660,6 +3665,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             warnAboutHeardThreat(actor, snapshot, state, current)
             Decision.remarkOnNoise(actor, snapshot, state, current)
             return true, "driving"
+        end
+    end
+
+    if SC.PickupService and not convoyEmergency then
+        local handled,reason=SC.PickupService.step(actor,player,snapshot)
+        if handled~=nil then
+            state.current,state.currentKey="vehicle","camp_pickup"
+            state.intent,state.lastHandledAt=reason or "camp_pickup",current
+            return handled==true,state.intent
         end
     end
 

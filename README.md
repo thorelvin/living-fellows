@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.34-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.35-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -19,6 +19,20 @@ Companions, working bases and survivor stories for Project Zomboid. Find your pe
 ![An expedition shown beside the player's own view: send one to four companions to scout, loot, fish or collect logs.](assets/features/expeditions.jpg)
 
 Send one to four companions to scout, loot, fish or collect wood, on foot or by car. Fuel runs top up the car and bring filled gas cans home from a known station. Pick a map target and return time, then watch their trip in a second view while you play. They bring back actual cargo and unload it into camp storage.
+
+## Call a companion for a pickup
+
+Right-click an equipped, powered two-way radio and choose **Camp pickup**, or
+open it from EMMA's Radio desk. A single sheet suggests an available camp driver,
+a real parked car and a nearby roadside meeting point. You can change the driver
+or car before calling. The driver needs the key and enough fuel for the return.
+
+Companions following or regrouping with you within 35 metres come along when
+there are enough seats. Get in, then choose **Take us Home** or right-click a
+destination on the map. Everyone gets out normally; the driver brings the empty
+car back to camp and resumes duty. A held journey has **Retry**. Radio updates
+and cancellations apply only after a reply; local instructions need no radio.
+Radio-equipped EMMA computers can answer at camp even if the driver has no walkie.
 
 ## Base Watch and Markus's taxi
 
@@ -35,7 +49,9 @@ Send one to four companions to scout, loot, fish or collect wood, on foot or by 
   </tr>
 </table>
 
-Base Watch, expeditions and Send Home share one companion view. Use one at a time.
+Base Watch, expeditions, Send Home and pickups share one companion view. Pickup
+borrows Base Watch while travelling and restores it when possible. Its reservation
+lasts until the car is returned, including the passenger ride in your own view.
 
 **Farmers care for chickens, too.** Put a vanilla animal zone inside camp or
 within 30 tiles of its boundary, keeping the whole pen in reach. Add a hutch

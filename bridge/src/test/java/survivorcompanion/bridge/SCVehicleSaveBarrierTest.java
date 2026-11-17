@@ -158,6 +158,18 @@ public final class SCVehicleSaveBarrierTest {
             require(!SCSplitScreenProbe.primaryRetainsHomeVehicle(fake.car,17),"secondary-only vehicle granted the near-recall exception");
             fake.primary=true;
             require(SCSplitScreenProbe.primaryRetainsHomeVehicle(fake.car,17),"actual primary-retained stopped empty car was refused");
+            fake.empty=false;
+            require(!SCSplitScreenProbe.primaryRetainsHomeVehicle(fake.car,17),
+                    "pickup must not relax Home's empty-car requirement");
+            require(SCVehicleSaveBarrier.primaryRetainsPickup(fake.car,17),
+                    "pickup retains an occupied engine-off stopped primary car through its guarded driver entry point");
+            fake.running=true;
+            require(!SCVehicleSaveBarrier.primaryRetainsPickup(fake.car,17),
+                    "pickup primary handoff requires the engine stopped");
+            fake.running=false; fake.speed=.2f;
+            require(!SCVehicleSaveBarrier.primaryRetainsPickup(fake.car,17),
+                    "pickup primary handoff refuses a rolling car");
+            fake.speed=0; fake.empty=true;
             fake.contextFails=true;
             require(SCSplitScreenProbe.primaryRetainsHomeVehicle(fake.car,17),"read-only primary retention depended on failed database saving");
             fake.contextFails=false;
@@ -215,6 +227,22 @@ public final class SCVehicleSaveBarrierTest {
 
                 SCVehicleSaveBarrier.Ticket attached = SCVehicleSaveBarrier.attach(ticket, 700);
                 SCVehicleSaveBarrier.verifyDocument(attached, 700, document(receipt, 17));
+                KahluaTable pickupDocument = table(), pickup = table(), pickupOutcome = table();
+                pickupOutcome.rawset("carId",17.0); pickupOutcome.rawset("carSaveReceipt",receipt);
+                pickup.rawset("outcome",pickupOutcome); pickupDocument.rawset("pickup",pickup);
+                SCVehicleSaveBarrier.verifyPickupDocument(attached,700,pickupDocument);
+                require(true,"pickup return accepts its exact attached committed native car receipt");
+                refuses(() -> SCVehicleSaveBarrier.verifyPickupDocument(null,700,pickupDocument),
+                        "pickup return cannot omit its physical vehicle proof");
+                KahluaTable missingPickup = table();
+                refuses(() -> SCVehicleSaveBarrier.verifyPickupDocument(null,700,missingPickup),
+                        "pickup return cannot use the walking-arrival exception");
+                pickupOutcome.rawset("carId",18.0);
+                refuses(() -> SCVehicleSaveBarrier.verifyPickupDocument(attached,700,pickupDocument),
+                        "pickup return cannot replace the car identity");
+                pickupOutcome.rawset("carId",17.0);
+                refuses(() -> SCVehicleSaveBarrier.verifyPickupDocument(attached,701,pickupDocument),
+                        "pickup return requires the same lease that owns the car save");
                 fake.primary=true;
                 require(!SCSplitScreenProbe.primaryRetainsHomeVehicle(fake.car,17),"attached vehicle receipt granted a near-recall bypass");
                 fake.primary=false;

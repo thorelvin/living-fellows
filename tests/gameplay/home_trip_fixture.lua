@@ -58,6 +58,7 @@ end,storageRows=function() return {} end}
 SC.BaseWatch={current=function() return nil end}
 SC.Vehicle={isNativeSeated=function(a) return a.vehicle~=nil,a.vehicle end}
 SC.ViewSession={claim=function(_,a) F.slot,F.owned=a,true return true,a end,owner=function() return F.owned and "expedition" or nil end,
+    blockedFor=function(mode) return F.viewReservation~=nil and F.viewReservation~=mode end,
     slotSqlId=function() return 2 end,released=function() F.slot,F.owned=nil,false return true end,
     rememberSlotSqlId=function() end}
 SC.Persistence={restoreStatus=function() return true end,completeRemoteArrival=function(token) assert(token==42+F.prepares) return true end,

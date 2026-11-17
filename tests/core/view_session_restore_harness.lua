@@ -249,4 +249,22 @@ for _ = 1, 5 do
         "repeated view cycles each own one finite render follow-up")
 end
 check(View.reset(), "final cleanup")
+check(View.reserve("pickup", "request-1"), "pickup reserves the remote journey across visible views")
+check(not View.reserve("pickup", "request-2"), "another request cannot steal an existing reservation")
+check(not View.claim("expedition", companion) and not View.claim("base_watch", companion),
+    "nearby passenger leg still blocks competing remote views")
+check(View.claim("pickup", companion), "the reserved pickup may acquire its own view")
+check(not View.unreserve("pickup", "request-1"), "a live pickup view cannot lose its reservation")
+release("pickup")
+check(View.reservedFor("pickup", "request-1") and not View.claim("expedition", companion),
+    "releasing the visible view retains the whole-journey reservation")
+check(View.claim("pickup", companion), "empty return reacquires the same reserved view")
+check(not View.transfer("pickup", "base_watch", companion, "request-2"),
+    "stale resume callback cannot transfer the pickup view")
+check(View.transfer("pickup", "base_watch", companion, "request-1"),
+    "verified Base Watch handoff transfers the owner without another promotion")
+check(View.unreserve("pickup", "request-1") and View.owner() == "base_watch",
+    "completed pickup releases only its reservation while Base Watch stays active")
+release("base_watch")
+check(View.reset(), "pickup reservation cleanup")
 print("view session render restore harness passed")
