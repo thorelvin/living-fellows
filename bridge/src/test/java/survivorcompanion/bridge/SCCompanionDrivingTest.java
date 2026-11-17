@@ -338,7 +338,7 @@ public final class SCCompanionDrivingTest {
 
     private static final class ConvoyVehicle extends BaseVehicle {
         float x=100, y=100, hx=1, hy=0, speed, fore=2.4f, aft=2.4f;
-        boolean loaded=true;
+        boolean loaded=true, running=true;
         IsoGameCharacter driver;
         IsoCell cell;
         final CarController controller=new CarController();
@@ -350,7 +350,7 @@ public final class SCCompanionDrivingTest {
         @Override public IsoCell getCell() { return cell; }
         @Override public IsoGridSquare getSquare() { return loaded ? square : null; }
         @Override public CarController getController() { return controller; }
-        @Override public boolean isEngineRunning() { return true; }
+        @Override public boolean isEngineRunning() { return running; }
         @Override public engineStateTypes getEngineState() { return engineStateTypes.Running; }
         @Override public org.joml.Vector3f getForwardVector(org.joml.Vector3f out) {
             out.x=hx; out.z=hy; return out;
@@ -459,6 +459,56 @@ public final class SCCompanionDrivingTest {
             driver.beforeVehicleUpdate(actor,car);
             require(!driver.convoyParked() && !driver.lastInput().forward(),
                     "unloaded geometry holds still without claiming parking success");
+
+            // A temporary refusal followed by a braking hold must retain
+            // authority for this exact lead, and no unrelated driverless car.
+            require(SCBridge.driveSet(actor,0,0,true) && driver.followsVehicle(lead)
+                            && !driver.convoyParked() && !Float.isFinite(driver.convoyGap()),
+                    "braking Hold preserves the known lead but invalidates stale parking facts");
+            lead.loaded=true;
+            String parkingRoute=car.x+","+car.y+",6;"+lead.x+","+lead.y+",6";
+            require(SCBridge.driveFollowVehicle(actor,lead,parkingRoute,20),
+                    "the remembered driverless target recovers after a transient refusal and Hold");
+            SCBridge.driveSet(actor,0,0,true);
+            require(!SCBridge.driveFollowVehicle(actor,stranger,"100,100,6;120,100,6",20),
+                    "Hold never authorizes a different driverless target");
+            require(SCBridge.driveFollowVehicle(actor,lead,parkingRoute,20),
+                    "rejecting an unrelated target does not discard the held lead");
+            require(SCBridge.driveSet(actor,0.2,0,true) && !driver.followsVehicle(lead),
+                    "manual steering relinquishes the convoy association");
+            require(!SCBridge.driveFollowVehicle(actor,lead,parkingRoute,20),
+                    "driverless retry cannot reuse association after manual steering");
+            lead.driver=player;
+            SCBridge.driveFollowVehicle(actor,lead,parkingRoute,50);
+            SCBridge.driveSet(actor,0,10,true);
+            require(!driver.followsVehicle(lead),"manual cruise also ends the convoy association");
+            SCBridge.driveFollowVehicle(actor,lead,parkingRoute,50);
+            SCBridge.driveSet(actor,0,0,false);
+            require(!driver.followsVehicle(lead),"an unbraked manual stop is not a convoy hold");
+            SCBridge.driveFollowVehicle(actor,lead,parkingRoute,50);
+            SCBridge.driveStop(actor); SCBridge.driveStart(actor,true);
+            lead.driver=null;
+            SCBridge.driveSet(actor,0,0,true);
+            require(!SCBridge.driveFollowVehicle(actor,lead,parkingRoute,20),
+                    "a full release followed by Hold cannot revive an old driverless target");
+
+            lead.driver=player;
+            SCBridge.driveFollowVehicle(actor,lead,parkingRoute,50);
+            lead.driver=null;
+            SCBridge.driveFollowVehicle(actor,lead,parkingRoute,20);
+            for (float movingSpeed : new float[] {2,-2,Float.NaN,Float.POSITIVE_INFINITY}) {
+                lead.speed=movingSpeed;
+                driver.beforeVehicleUpdate(actor,car);
+                require(!driver.convoyParked() && !driver.lastInput().forward(),
+                        "rolling or unreadable lead speed cannot confirm parking: " + movingSpeed);
+            }
+            lead.speed=0;
+            driver.beforeVehicleUpdate(actor,car);
+            require(driver.convoyParked(),"the same lead settling permits a normal native arrival");
+            car.running=false; lead.speed=2;
+            driver.beforeVehicleUpdate(actor,car);
+            require(!driver.convoyParked(),"engine loss cannot retain a stale successful arrival flag");
+            car.running=true;
         } finally {
             actor.companionDriver().stop(actor,"test_cleanup"); owned.remove(actor);
         }

@@ -8,6 +8,7 @@ local Convoy = SC.Convoy
 local sessions = setmetatable({}, { __mode = "k" })
 local PARK_TIMEOUT_MS = 20000
 local PARK_STALL_MS = 8000
+local observeLead, routeFor
 
 local function U() return SC.GameplayUtil end
 local function now() return U().nowMs() end
@@ -243,6 +244,9 @@ function Convoy.step(actor, player, snapshot)
     local session = runtime(actor)
     if session.survivalSuspended then return nil, "survival_priority" end
     local lead = playerCar(player)
+    -- Decision can see the player driving before the first convoy pulse.
+    -- Capture that transition here so a quick exit cannot skip parking.
+    observeLead(session, lead, now())
     if session.failed then
         return value(actor, "getVehicle") ~= nil and true or nil, "follow_car_lost"
     end
@@ -295,11 +299,24 @@ function Convoy.step(actor, player, snapshot)
     end
     session.parked = nil
     if not lead then return true, "waiting_for_player_car" end
-    if not SC.Driving.isDriving(actor) then
-        local started, why = SC.Driving.start(actor)
-        return started == true, why or "starting_follow_car"
+    local newWheel = not SC.Driving.isDriving(actor)
+    local why
+    if newWheel then
+        local started
+        started, why = SC.Driving.start(actor)
+        if started ~= true then return false, why or "starting_follow_car" end
+        session.lastX, session.lastY, session.lastMove = nil, nil, now()
     end
-    return true, "following_player_car"
+    if newWheel or session.lastUpdate == 0 then
+        -- Bind a newly observed lead while its player driver is still present,
+        -- including a car switch during an existing drive lease.
+        local route = routeFor(session, car, lead)
+        if route then
+            local followed = SC.Driving.followVehicle(actor, lead, route, 50)
+            if followed then session.lastUpdate = now() end
+        end
+    end
+    return true, why or (newWheel and "starting_follow_car" or "following_player_car")
 end
 
 function Convoy.boardOverflow(actor, player, snapshot)
@@ -381,7 +398,7 @@ local function appendTrail(session, lead)
     end
 end
 
-local function routeFor(session, car, lead)
+routeFor = function(session, car, lead)
     local x, y, z = U().position(car)
     if not x or math.floor(z or -1) ~= 0 then return nil end
     local trail = session.trail
@@ -402,6 +419,25 @@ local function routeFor(session, car, lead)
     end
     if #route < 2 then return nil end
     return route
+end
+
+observeLead = function(session, lead, current)
+    if not lead then return end
+    if lead ~= session.lead then
+        session.lead, session.trail, session.progress = lead, {}, 1
+        session.leadLastX, session.leadLastY = nil, nil
+        session.lastUpdate, session.lastMove = 0, current
+        session.lastX, session.lastY = nil, nil
+    end
+    session.parkingSince, session.parkingLastMove = nil, nil
+    session.parkingX, session.parkingY, session.parkingReason = nil, nil, nil
+    session.exitPending = nil
+    appendTrail(session, lead)
+    local x, y = U().position(lead)
+    if x and (not session.leadLastX or (x - session.leadLastX)^2
+        + (y - session.leadLastY)^2 >= 1) then
+        session.leadLastX, session.leadLastY, session.leadLastMove = x, y, current
+    end
 end
 
 local function disembark(actor, player, session, car)
@@ -438,7 +474,8 @@ local function parkBehind(actor, player, session, car, current)
     end
     session.parkingLastMove = session.parkingLastMove or current
     local status = SC.Driving.status(actor) or {}
-    if status.convoyParked == true and SC.Vehicle.isStationary(car) == true then
+    if status.convoyParked == true and SC.Vehicle.isStationary(car) == true
+        and session.lead and SC.Vehicle.isStationary(session.lead) == true then
         session.parkingReason = "parked_behind_player"
         return disembark(actor, player, session, car)
     end
@@ -483,28 +520,7 @@ function Convoy.tick(current)
         else
             local car = SC.Vehicle.loadedBySqlId(id)
             local lead = playerCar(player)
-            if lead and lead ~= session.lead then
-                session.lead, session.trail, session.progress = lead, {}, 1
-                session.leadLastX, session.leadLastY = nil, nil
-            end
-            if lead then
-                session.parkingSince, session.parkingLastMove = nil, nil
-                session.parkingX, session.parkingY, session.parkingReason = nil, nil, nil
-                session.exitPending = nil
-            end
-            local leadMoved = false
-            if lead then
-                appendTrail(session, lead)
-                local lx, ly = U().position(lead)
-                if lx and session.leadLastX then
-                    leadMoved = (lx - session.leadLastX)^2
-                        + (ly - session.leadLastY)^2 >= 1
-                end
-                if lx and (not session.leadLastX or leadMoved) then
-                    session.leadLastX, session.leadLastY = lx, ly
-                    session.leadLastMove = current
-                end
-            end
+            observeLead(session, lead, current)
             if car and value(actor, "getVehicle") == car and not session.survivalSuspended then
                 if not lead and (session.lead or session.requested ~= true) then
                     parkBehind(actor, player, session, car, current)

@@ -445,7 +445,14 @@ accelerator and brake inputs through a harness-only bridge helper, and verifies
 that the companion starts its engine, follows under native vehicle physics
 within a nine-metre body gap for two seconds, then parks about two metres
 behind the lead car before exiting. The test measures native hulls, rather
-than centre distance. It repeats with the first parked car obstructing a
+than centre distance. Before the clear parking attempt it releases and restarts
+the companion's wheel owner on the real seated actors, then exits the player
+in the same Lua call, before another convoy pulse can record the lead. The first
+parking request receives one test-only refusal; the next request must recover
+through the real native bridge after production Hold. The cars then park and
+exit under normal physics. Rolling-target arrival is covered by the native and
+Lua regression harnesses rather than this live scene.
+The probe repeats with the first parked car obstructing a
 second lead and requires a stopped timeout exit after 7--22 seconds.
 The helper is not part of the shipped bridge:
 the runner compiles `auto_start/SCConvoyHarness.java` into the disposable

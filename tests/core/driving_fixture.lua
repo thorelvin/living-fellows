@@ -92,9 +92,11 @@ SCBridge = {
         T.native[actor] = { active = true, state = "stopped", mode = "stopped" }
         return true
     end,
-    driveSet = function(actor, _, speed)
+    driveSet = function(actor, steering, speed, brakeForObstacles)
         T.motionCalls = T.motionCalls + 1
         local state = T.native[actor]
+        if not (steering == 0 and speed == 0 and brakeForObstacles == true) then state.lead = nil end
+        state.convoyParked = false
         state.active, state.state, state.mode = true, speed == 0 and "stopped" or "cruising", "manual"
         return true
     end,
@@ -113,6 +115,7 @@ SCBridge = {
         end
         local state = T.native[actor] or {}
         state.active, state.state, state.mode, state.reason = false, "idle", nil, "released"
+        state.lead, state.convoyParked = nil, false
         T.native[actor] = state
         T.parks = T.parks + 1
         return true
@@ -128,6 +131,7 @@ SCBridge = {
         T.lastFollowRoute = route
         local state = T.native[actor]
         state.active, state.state, state.mode = true, "following", "follow"
+        state.lead, state.convoyParked = nil, false
         return true
     end,
     driveFollowTuned = function(actor, route, speed, scale)
@@ -135,8 +139,20 @@ SCBridge = {
         return SCBridge.driveFollow(actor, route, speed)
     end,
     driveFollowVehicle = function(actor, leader, route, speed)
+        local state = T.native[actor]
+        local driver = type(leader.getDriver) == "function" and leader:getDriver() or nil
+        if (driver == nil and state.lead ~= leader) or (T.convoyRejects or 0) > 0 then
+            T.convoyRejects = math.max(0, (T.convoyRejects or 0) - 1)
+            T.convoyRejected = (T.convoyRejected or 0) + 1
+            return false
+        end
         T.convoyFollow = { actor = actor, leader = leader, route = route, speed = speed }
-        return SCBridge.driveFollow(actor, route, speed)
+        local accepted = SCBridge.driveFollow(actor, route, speed)
+        if accepted then
+            state.lead = leader
+            T.convoyAccepted = (T.convoyAccepted or 0) + 1
+        end
+        return accepted
     end,
     driveApproach = function(actor, route)
         T.lastApproachRoute = route

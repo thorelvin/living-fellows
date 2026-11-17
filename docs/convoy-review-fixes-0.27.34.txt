@@ -1,0 +1,105 @@
+Convoy review fixes - 0.27.34
+2026-11-17
+
+Changes
+1. Startup exit: Decision records the observed lead and immediately binds it
+   through the native bridge when it starts the follower. A player exit before
+   the first periodic convoy pulse now enters the normal bounded parking attempt.
+   A new assignment still waits if the player has never started driving.
+   Switching lead cars binds the new identity immediately and starts a fresh
+   follower progress clock; a restarted wheel lease does the same.
+2. Retry after refusal: an exact zero-steering, zero-speed, braking Hold retains
+   the current verified lead identity. Retrying the same driverless target can
+   recover. Hold clears arrival and scan facts, and a resumed route scans again.
+   Manual steering, moving cruise, an unbraked stop and full release discard the
+   identity; Hold cannot authorize a different unattended car or revive a release.
+3. Rolling target: native parking success requires finite, stopped lead speed
+   as well as the follower's existing speed and geometry checks. Lua independently
+   checks both cars at the dismount boundary. Engine loss clears stale arrival.
+   The existing eight-second stall and twenty-second overall parking deadlines
+   still apply; a continuously rolling target cannot renew the absolute deadline.
+
+Native bridge SHA256:
+16463719ec55e184c02fdabb34bda144d75538cf73356717be05a34b26b26236
+Protocol remains 42.22-isocompanion-32. These fixes require the matching
+0.27.34 bridge bytes, which are included in the payload. No new public API.
+
+Regression checks
+SCCompanionDrivingTest: 106 checks. Covers admission, exact-lead Hold/retry,
+manual/release invalidation, rolling speeds in both directions, NaN and infinite
+lead speeds, stopped arrival and stale arrival after engine loss, alongside the
+existing hull geometry, obstacle braking and convoy following cases.
+Production convoy parking harness: 56 checks. The shared fixture now models
+native driverless-target identity admission and Hold semantics. Cases include
+exit before the first pulse, bounded failure in that ordering, transient refusal
+and recovery, stale parked status with a rolling lead, absolute timeout, lead
+switches under both periodic and Decision updates, and restarted progress clocks.
+Production driving harness: 283 checks.
+
+Ten reverted controls all fail their relevant assertion with process exit 1:
+  Hold forgets the lead; Hold improperly preserves manual steering/cruise;
+  native rolling-target arrival guard removed; stale-engine invalidation removed;
+  synchronous startup observation removed; initial native lead binding removed;
+  Lua rolling-target dismount guard removed; immediate switch retarget removed;
+  new-lead progress reset removed; fresh-wheel progress reset removed.
+Every mutated Java variant compiles successfully before its failing test.
+These controls are isolated copies, never changes to the production payload.
+
+Live verification
+Real Project Zomboid 42.22.2, Living Fellows only, disposable cloned save and
+isolated source bridge. The real player drives the lead using native steering,
+accelerator and brake inputs. The follower uses normal Decision, real seats,
+the production bridge and native vehicle physics.
+
+SC-Harness-20261117-143050-27edfc5c: runner exit 0, LIVE_SANDBOX_PASS.
+  Moving body gap 6.16 m; lateral 0.39 m; top follower speed 27.21 km/h.
+  Real seated wheel release/restart binds the lead before another convoy pulse.
+  Player exits in that same Lua call. Exactly one parking request is refused by
+  a test-only wrapper; production Hold runs and a later real native retry succeeds.
+  Follower parks at 2.15 m body gap, lateral 0.04 m, and exits after 10.170 s.
+  Obstructed approach exits after 8.930 s, with the target still 17.16 m away.
+The clear before/after and blocked after screenshots have been visually reviewed.
+The blocked screenshot shows the unreachable-parking message. This first run
+precedes the final Lua lead-switch/restarted-clock refinements.
+
+Final-source repeat: SC-Harness-20261117-145907-90d847b6, runner exit 0 and
+LIVE_SANDBOX_PASS. Moving body gap 6.16 m, lateral -0.38 m, top follower speed
+27.01 km/h. Startup lead binding and recovery after exactly one injected refusal
+both pass. Clear parking ends at 2.16 m body gap, lateral -0.04 m, with exit after
+10.102 s. The obstructed approach exits after 8.716 s, still 17.13 m from the
+target in body clearance. All four final before/after screenshots were reviewed.
+The final private payload matches 511 of 514 production files exactly, including
+SCConvoy.lua and the native bridge. Only the two private mod IDs and SCConfig's
+test spawning/recording flags differ. The manifest records release 0.27.34 and
+the exact bridge hash above.
+
+Full Windows PowerShell 5.1 release gate: runner exit 0, PROJECT_TEST_PASS,
+all five groups passed in 968.7 seconds, including all 18 installer cases.
+Normal and debug game compilers both accepted the final Lua payload. The
+reproducible bridge build matches the payload hash above, and both release and
+standalone packages passed staging checks. Cargo reran the final 106 native,
+56 parking and 283 driving checks successfully.
+
+Coverage and evidence
+Live coverage is a sedan pair on an outdoor street, startup exit and a controlled
+single parking refusal, then an obstructed approach. The refusal itself is test
+injection; recovery, vehicle movement, spacing, stop and exit use the real bridge.
+Rolling/unreadable lead speeds, lead switches and restarted progress clocks are
+regression-harness coverage rather than separate native street scenes.
+No claim is made for every vehicle model, high-speed traffic or crowded convoys.
+
+Private evidence: outputs/convoy-02734/ contains focused results, isolated reverted
+sources, logs, source hashes, run manifests, console/event traces and screenshots.
+The initial release-gate attempt was invalidated by Lua edits during its run;
+it is retained as failed evidence, not counted as verification.
+Native run directories remain in build/live-sandbox-runs/<run-id>/.
+The original seed save and installed game are untouched. No zombie navigation
+was changed. No release tag or Workshop upload was made.
+
+Reproduction (Windows PowerShell 5.1)
+scripts\Test-Project.ps1 -Release
+scripts\Invoke-LiveSandboxTests.ps1 -DrivingProbe -ConvoyProbe `
+  -LivingFellowsOnly -NoSteam -IsolatedSourceBridge -EngineSound `
+  -HiddenWindow -TimeoutSeconds 600
+Supply -SeedSave to choose a private saved world. The runner's process exit is
+authoritative; isolated PASS lines are not a completed run.

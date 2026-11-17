@@ -213,7 +213,13 @@ final class SCCompanionDriver {
     /** Hand driving: a set wheel and speed. Ends any route being followed. */
     void set(double steeringValue, double cruise, boolean brakeForObstacles) {
         follower = null;
-        convoyLead = null;
+        // A braking hold pauses the current owner; it does not authorize a
+        // different lead or forget the one needed for a driverless retry.
+        boolean holding = steeringValue == 0.0 && cruise == 0.0 && brakeForObstacles;
+        if (!holding) convoyLead = null;
+        convoyParking = convoyParked = false;
+        convoyGap = convoyLateral = Float.NaN;
+        lastScanVehicle = null;
         turnRequested = false;
         steering = SCDriveControl.clampSteering(steeringValue);
         cruiseKmh = SCDriveControl.clampCruise(cruise);
@@ -239,8 +245,8 @@ final class SCCompanionDriver {
     }
 
     String followVehicle(BaseVehicle lead, SCDrivePath path, double cruise) {
-        if (convoyLead != lead) nextScanAt = 0L;
         boolean parking = lead.getDriver() == null;
+        if (follower == null || convoyLead != lead || convoyParking != parking) nextScanAt = 0L;
         if (parking) {
             lead.getForwardVector(leadForward);
             float span = (float) Math.hypot(leadForward.x, leadForward.z);
@@ -387,6 +393,7 @@ final class SCCompanionDriver {
     /** Called by the seated companion just before the vanilla in-vehicle update. */
     void beforeVehicleUpdate(IsoGameCharacter actor, BaseVehicle current) {
         if (!active) return;
+        convoyParked = false;
         if (actor == null || actor.isDead()) {
             stop(actor, "driver_dead");
             return;
@@ -523,12 +530,15 @@ final class SCCompanionDriver {
                 convoyLateral = -dx * hy + dy * hx;
                 if (convoyParking) {
                     command.maneuver = true;
+                    float leadSpeed = convoyLead.getCurrentSpeedKmHour();
+                    boolean leadStopped = Float.isFinite(leadSpeed)
+                            && Math.abs(leadSpeed) <= SCDriveControl.STOPPED_KMH;
                     convoyParked = Float.isFinite(convoyGap) && convoyGap >= 1.5f
                             && convoyGap <= 2.8f && Math.abs(convoyLateral) <= 0.7f
                             && headingX * hx + headingY * hy >= 0.96f
-                            && Math.abs(speedKmh) <= SCDriveControl.STOPPED_KMH;
+                            && Math.abs(speedKmh) <= SCDriveControl.STOPPED_KMH && leadStopped;
                     if (convoyParked || !Float.isFinite(convoyGap) || convoyGap < 1.5f
-                            || Math.abs(convoyLead.getCurrentSpeedKmHour()) > SCDriveControl.STOPPED_KMH)
+                            || !leadStopped)
                         command.targetKmh = 0;
                 } else {
                     float separation = (float) Math.hypot(dx, dy);

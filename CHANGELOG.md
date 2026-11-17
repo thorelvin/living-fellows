@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.27.34 - Convoy parking recovery
+
+- The first driving decision records and binds the player's lead car immediately.
+  Getting out before the first convoy pulse now starts the normal parking attempt
+  and its deadlines, rather than leaving the companion waiting indefinitely.
+- A braking Hold pauses the current convoy without forgetting its verified lead.
+  A temporary parking refusal can recover on the next attempt. Manual steering,
+  moving cruise requests and full release still end that association.
+- Parking arrival requires both cars to be stopped. A rolling or unreadable lead
+  cannot produce a successful parking exit, and engine loss clears stale arrival.
+- Native bridge protocol remains `42.22-isocompanion-32`; use the matching
+  0.27.34 native bridge for these controller fixes.
+
 ## 0.27.33 - Closer convoy following and parking
 
 - Follow cars match the lead car more closely, with a gap that accounts for

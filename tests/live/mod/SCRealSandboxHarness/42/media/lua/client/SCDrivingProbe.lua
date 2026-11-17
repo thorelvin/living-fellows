@@ -3658,13 +3658,50 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
     end
     if H.phase == "drive_convoy_stop" then
         if SCConvoyHarness then SCConvoyHarness.driveLead(player, false) end
-        if SC.Vehicle.isStationary(lead) ~= true then
+        if SC.Vehicle.isStationary(lead) ~= true
+            or not test.convoyBlocked and SC.Vehicle.isStationary(follower) ~= true then
             if current - H.phaseStartedAt > 15000 then
                 failTo(H, test, setPhase, result, current,
                     "convoy_player_car_stopped",
                     fmt(lead:getCurrentSpeedKmHour()))
             end
             return
+        end
+        if not test.convoyBlocked then
+            -- Reproduce the startup ordering on real, already seated actors:
+            -- no periodic convoy pulse can intervene before the player exits.
+            local released=SC.Driving.release(actor,"convoy_probe_restart")
+            if not check("convoy_startup_restart_released",released==true,"native owner released") then
+                setPhase("finish",current) return
+            end
+            SC.Convoy.activate(actor)
+            local started,why=SC.Convoy.step(actor,player,{})
+            local status=SC.Driving.status(actor) or {}
+            if not check("convoy_startup_lead_bound",started==true and status.following==true,
+                tostring(why).." following="..tostring(status.following)) then
+                setPhase("finish",current) return
+            end
+            -- One refused parking retarget exercises production Hold and the
+            -- subsequent real native retry. No actor or vehicle pose is changed.
+            local original=SC.Driving.followVehicle
+            test.convoyOriginalFollow=original
+            test.convoyParkingRefusals=0
+            SC.Driving.followVehicle=function(candidate,target,route,speed)
+                if candidate==actor and target==lead and player:getVehicle()==nil then
+                    if test.convoyParkingRefusals==0 then
+                        test.convoyParkingRefusals=1
+                        return false,"probe_transient_parking_refusal"
+                    end
+                    local accepted,reason=original(candidate,target,route,speed)
+                    if accepted==true then
+                        test.convoyParkingRecovered=true
+                        SC.Driving.followVehicle=original
+                        test.convoyOriginalFollow=nil
+                    end
+                    return accepted,reason
+                end
+                return original(candidate,target,route,speed)
+            end
         end
         local exited, accepted = pcall(lead.exit, lead, player)
         if not check("convoy_player_exits_lead_car",
@@ -3691,12 +3728,20 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
                 .."|state="..tostring(status.state).."|parked="..tostring(status.convoyParked))
         end
         if actor:getVehicle() == nil and not SC.Driving.isDriving(actor) then
+            if test.convoyOriginalFollow then
+                SC.Driving.followVehicle=test.convoyOriginalFollow
+                test.convoyOriginalFollow=nil
+            end
             local valid=SC.Vehicle.isStationary(follower)==true and clearance~=nil
             if test.convoyBlocked then
                 valid=valid and clearance>4 and elapsed>=7000 and elapsed<=22000
             else
                 valid=valid and clearance>=1.5 and clearance<=2.8 and math.abs(lateral)<=0.7
                     and flatDistance(follower:getX(),follower:getY(),test.convoyExitX,test.convoyExitY)>=0.5
+                    and test.convoyParkingRefusals==1 and test.convoyParkingRecovered==true
+                check("convoy_transient_parking_retry",test.convoyParkingRefusals==1
+                    and test.convoyParkingRecovered==true,"injected="..tostring(test.convoyParkingRefusals)
+                    .." recovered="..tostring(test.convoyParkingRecovered))
             end
             local accepted=check(test.convoyBlocked and "convoy_blocked_parking_times_out"
                     or "convoy_companion_parks_and_rejoins",valid,
@@ -3710,6 +3755,10 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
                 setPhase("drive_convoy_lead_setup",current)
             else setPhase("finish", current) end
         elseif current - H.phaseStartedAt > 30000 then
+            if test.convoyOriginalFollow then
+                SC.Driving.followVehicle=test.convoyOriginalFollow
+                test.convoyOriginalFollow=nil
+            end
             failTo(H, test, setPhase, result, current,
                 "convoy_companion_parks_and_rejoins",
                 "seat=" .. tostring(actor:getVehicle())
