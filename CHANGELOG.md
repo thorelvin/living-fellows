@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.32 - Release stalled storage surveys
+
+- Route planning uses the bridge's fine duration clock, keeping coarse wall
+  clock ticks from consuming a short search slice before it starts.
+- Storage surveys track search and route-evaluation progress. Fifteen seconds
+  without progress ends the attempt as unknown; expiry no longer silently
+  restarts an unfinished search. Progressing work keeps its normal budget.
+- A changing set of storage candidates cannot keep one ordinary deposit
+  pending for more than ninety seconds. Unresolved items stay carried, enter
+  the existing retry cooldown, and release the worker for another duty.
+- Support reports show the logistics item, survey age, progress age, candidate
+  count and search yield, separately from the companion's movement route.
+- Native bridge protocol remains `42.22-isocompanion-32`.
+
 ## 0.27.31 - Stay With Me protection
 
 - Stay With Me companions and seated visuals count as protected people. LF

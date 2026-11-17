@@ -1849,8 +1849,8 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
             "logistics_deposit:" .. tostring(select(1, U().call(item, "getID")) or item),
             choices, { nodeBudget = 1600, retainRoute = true })
         if selected then ownerState.depositSurveyAt = nil return selected.destination, nil, receipt end
-        if reason == "pending" and ownerState.lootReturnCleanup
-            and U().nowMs() - ownerState.depositSurveyAt >= 15000 then
+        if reason == "pending" and U().nowMs() - ownerState.depositSurveyAt
+            >= (ownerState.lootReturnCleanup and 15000 or 90000) then
             return nil, "storage_route_unknown"
         end
         return nil, reason == "pending" and "storage_route_pending"
@@ -3501,6 +3501,30 @@ function Logistics.yieldToWork(actor)
     if state.transaction ~= nil then return false, "logistics_release_pending" end
     states[actor] = nil
     return true
+end
+
+-- Read-only evidence for Support: a route survey is separate from the actor's
+-- movement route and has no transfer token yet. Do not trigger an audit here.
+function Logistics.progress(actor)
+    local state = states[actor]
+    if not state then return { phase = "idle" } end
+    local survey, now = state.navigationChoice, U().nowMs()
+    local job = survey and survey.job
+    local transaction = state.transaction
+    local count = 0
+    for _ in pairs(survey and survey.order or {}) do count = count + 1 end
+    return {
+        phase = transaction and transaction.phase
+            or survey and (survey.failedReason or survey.winnerId and "route_selected" or "route_search")
+            or "review",
+        itemType = state.item and U().itemType(state.item) or nil,
+        category = state.category,
+        ageMs = state.depositSurveyAt and math.max(0, now - state.depositSurveyAt) or 0,
+        progressAgeMs = survey and survey.progressAt and math.max(0, now - survey.progressAt) or 0,
+        candidates = count, expandedNodes = survey and survey.lastExpanded or 0,
+        yieldReason = job and job.lastYieldReason or nil,
+        failure = survey and survey.failureDetail or nil,
+    }
 end
 
 -- True while a pack, wear, deposit or drop holds this actor's action owner.

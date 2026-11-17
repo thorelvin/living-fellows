@@ -3033,7 +3033,11 @@ local function resumeRouteSearchSlice(job, expansionQuota)
     end
     local sliceBudget, sliceReason = Navigation._routeSearchSliceBudget(job)
     job.lastSliceBudgetMs, job.lastSliceBudgetReason = sliceBudget, sliceReason
-    local slice = P().newSlice({ clock = job.pathOptions.clock,
+    -- Millisecond wall-clock ticks can jump over a 3 ms slice before its first
+    -- node. Use the bridge's monotonic duration clock; saved ages keep wall time.
+    local sliceClock = job.pathOptions.clock
+        or (SC.Performance and SC.Performance.preciseNowMs)
+    local slice = P().newSlice({ clock = sliceClock,
         sliceBudgetMs = sliceBudget }, sliceBudget)
     job.lastYieldReason = nil
     -- Refresh the stealth danger overlay before this slice so later-expanded nodes
@@ -8650,6 +8654,13 @@ end
 -- its live IsoObject references. One ownerState holds exactly one survey and
 -- a different choiceKey restarts it, so a caller that runs two surveys in the
 -- same beat must give each its own owner table.
+function Navigation._expireInteractionSurvey(survey, now, detail)
+    survey.job, survey.bestReceipt = nil, nil
+    survey.failedReason, survey.failureDetail = "unknown", detail
+    survey.expiresAt = now + 2000
+    return nil, "unknown"
+end
+
 function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, options)
     local utility = U()
     if not utility.isValidActor(actor) or type(ownerState) ~= "table" then
@@ -8698,6 +8709,13 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
         .. ":" .. table.concat(signature, "|")
     local now = utility.nowMs()
     local survey = ownerState.navigationChoice
+    if survey and survey.identity == identity and survey.choiceKey == choiceKey
+        and now >= (survey.expiresAt or 0) and not survey.winnerId
+        and not survey.failedReason then
+        -- Expiry ends an unfinished attempt. Restarting it here can hold a
+        -- storage job forever without a physical action or a failure receipt.
+        return Navigation._expireInteractionSurvey(survey, now, "survey_deadline")
+    end
     if survey and (survey.identity ~= identity or survey.choiceKey ~= choiceKey
         or now >= (survey.expiresAt or 0)
         or survey.winnerId and ((ox - survey.originX) ^ 2
@@ -8715,6 +8733,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
         survey = {
             identity = identity, choiceKey = choiceKey, origin = origin,
             originX = ox, originY = oy, batch = 1,
+            startedAt = now, progressAt = now,
             expiresAt = now + 90000, order = {},
         }
         for index, entry in ipairs(rows) do survey.order[entry.id] = index end
@@ -8792,6 +8811,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
             survey.batch = last + 1
             if #goals > 0 then
                 survey.owners = owners
+                survey.progressAt, survey.lastProgressSerial, survey.lastExpanded = now, 0, 0
                 survey.job = Navigation.beginPathSearch(survey.origin, goals[1],
                     options.snapshot, {
                         actor = actor, goalSquares = goals,
@@ -8810,10 +8830,25 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
             end
         end
         if survey.job then
-            local status, path, reason = Navigation.resumePathSearch(survey.job,
+            local status, path, reason, expanded, _, used = Navigation.resumePathSearch(survey.job,
                 math.max(8, math.min(96,
                     math.floor(tonumber(options.nodeQuota) or 48))))
-            if status == "pending" then return nil, "pending" end
+            local serial = tonumber(survey.job.progressSerial) or 0
+            if serial > (survey.lastProgressSerial or 0)
+                or (tonumber(expanded) or 0) > (survey.lastExpanded or 0)
+                or (tonumber(used) or 0) > 0 then
+                survey.progressAt = now
+            end
+            survey.lastProgressSerial = serial
+            survey.lastExpanded = tonumber(expanded) or 0
+            if status == "pending" then
+                -- Node expansion alone misses resumable geometry/evaluation
+                -- work. The route job's progress serial covers those phases.
+                if now - (survey.progressAt or now) >= 15000 then
+                    return Navigation._expireInteractionSurvey(survey, now, "survey_no_progress")
+                end
+                return nil, "pending"
+            end
             local completedJob = survey.job
             survey.job = nil
             local endpoint = type(path) == "table" and path[#path] or nil

@@ -150,6 +150,10 @@ local function companionActionEvidence()
                 return SC.Navigation and SC.Navigation.status
                     and SC.Navigation.status(actor) or nil
             end, {}),
+            logistics = safeCall(function()
+                return SC.Logistics and SC.Logistics.progress
+                    and SC.Logistics.progress(actor) or nil
+            end, {}),
             baseJob = safeCall(function()
                 return SC.BaseLife and SC.BaseLife.jobFor
                     and SC.BaseLife.jobFor(id) or nil
@@ -445,6 +449,18 @@ function support.summary(force)
             .. ", last plan " .. tostring(navigation.lastPlanDurationMs or "none")
             .. " ms, move " .. tostring(navigation.lastMovementReason or "none")
             .. ", terminal " .. tostring(navigation.terminalReason or "none")
+        local logistics = actor.logistics or {}
+        if logistics.phase and logistics.phase ~= "idle" then
+            lines[#lines + 1] = "Companion logistics " .. tostring(actor.id)
+                .. ": " .. tostring(logistics.phase) .. ", item " .. tostring(logistics.itemType or "none")
+                .. ", category " .. tostring(logistics.category or "none")
+                .. ", age " .. tostring(logistics.ageMs or 0) .. " ms"
+                .. ", no progress " .. tostring(logistics.progressAgeMs or 0) .. " ms"
+                .. ", choices " .. tostring(logistics.candidates or 0)
+                .. ", expanded " .. tostring(logistics.expandedNodes or 0)
+                .. ", yield " .. tostring(logistics.yieldReason or "none")
+                .. ", failure " .. tostring(logistics.failure or "none")
+        end
         if type(actor.baseJob) == "table" then
             lines[#lines + 1] = "Companion base job " .. tostring(actor.id)
                 .. ": " .. tostring(actor.baseJob.id or "unknown")

@@ -14,6 +14,11 @@
     )
 }
 @{ Name = 'behaviour.follow-and-access'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'gameplay_harness.lua') }
+@{ Name = 'behaviour.logistics-stalled-survey'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCSupport.lua'), (Join-Path $Gameplay 'logistics_pending_harness.lua')) }
+@{ Name = 'behaviour.logistics-duration-clock'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCSupport.lua'), (Join-Path $Essential 'logistics_clock_case.lua'),
+    (Join-Path $Gameplay 'logistics_pending_harness.lua')) }
 @{ Name = 'behaviour.stay-with-me-identity'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'stay_with_me_identity_harness.lua') }
 @{ Name = 'behaviour.stay-with-me-protection'; Files = @(Get-ScGameplayFiles) + @(
     'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',

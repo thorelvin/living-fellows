@@ -1,0 +1,89 @@
+Living Fellows 0.27.32: idle logistics survey
+
+Reported behaviour
+------------------
+The 0.27.30 Support report shows a base-duty quartermaster standing in
+logistics/storage_route_pending, with no active transfer or action reservation.
+The separate movement diagnostic still names an earlier follow route. This
+puts the current wait before storage selection and physical transfer ownership.
+The relevant logistics/navigation source is unchanged in the 0.27.31 baseline.
+
+Reproduction and changes
+------------------------
+A harness with the real planner and a deliberately expensive clock boundary
+reproduces an ordinary deposit returning storage_route_pending indefinitely.
+Its search slice expires before any node expansion. This is distinct from a
+Loot timed action getting stuck: no transaction has started.
+
+The route planner now prefers Performance.preciseNowMs (the native bridge's
+monotonic duration clock), while retaining explicit caller-supplied test clocks.
+Coarse wall-clock jumps can no longer consume a short slice when the precise
+clock is available. Expiry timestamps and Support ages still use wall time.
+
+Interaction surveys track both node expansion and the route job's progress
+serial. The latter includes edge continuations and completed-path evaluation,
+which can advance without expanding another node. Fifteen seconds with no
+progress ends an attempt as unknown. An unfinished 90-second survey also ends
+as unknown instead of silently restarting. A changing candidate set cannot
+keep one ordinary deposit pending beyond 90 seconds.
+
+Existing logistics failure handling keeps the exact item carried, cools down
+the failed move, releases the worker, and permits a later retry. The existing
+15-second optional loot-delivery limit remains. No transfer is invented, no
+unproved route is granted, and items are not dropped to escape a planning wait.
+
+Support reports now show the logistics item, phase, survey/progress age,
+candidate count, expanded nodes and yield reason separately from movement.
+Reading this evidence neither audits inventory nor starts an action.
+All changes are on LF's side; zombie pathing is untouched.
+
+Focused checks
+--------------
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+  scripts/Test-LogisticsPending.ps1
+Exit 0; 42 checks in eight fresh Kahlua environments:
+  stalled ordinary quartermaster and exact-item retry/deposit: 8
+  unfinished-survey expiry: 3
+  slow node-progress continuation: 5
+  completed-path evaluation without new expansions: 13
+  read-only Support evidence: 4
+  coarse wall clock versus native duration clock: 2
+  changing storage candidates: 3
+  existing manual loot-delivery retry handoff: 4
+Normal and debug Lua compilation pass.
+
+Eight isolated source-copy controls each exit 1 for their expected assertion:
+  precise clock, no-progress limit, terminal expiry, evaluation progress serial,
+  per-item absolute limit, existing cooldown handoff, Support export and manual
+  retry receipt release. Production files are never edited by these controls.
+
+Existing regressions also pass:
+  storage-route/yield: 48 checks
+  navigation liveness: 134 checks
+  navigation stability: 1098 checks
+  loadout harness: exit 0
+  loot hauling: 77 checks
+
+Evidence and limits
+-------------------
+Focused run: build/test-results/logistics-pending-20261117-072319.
+Pre-fix ordinary-survey failure: build/test-results/logistics-pending-20261117-065857.
+Private evidence archive: outputs/logistics-pending-02732, outside Git.
+The harness uses actual production Lua and the game's Kahlua VM with native
+boundaries modelled. It reproduces the reported idle state, not the player's
+complete saved camp. The report does not establish the player's clock cadence;
+no live replay of that exact saved scene is claimed.
+
+Release metadata
+----------------
+Native protocol remains 42.22-isocompanion-32; native code is unchanged.
+Rebuilt payload SHA-256:
+3724fec7d44246bf1b9f52e0fc06653d827be914f0a18a5f09c50a722794e611
+
+Full release gate
+-----------------
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Project.ps1 -Release
+Exit 0: all five groups pass (Build, Lifecycle, Behaviour, Cargo, Interface),
+including 18 installer cases. Both release packages build successfully.
+Elapsed 956.9 seconds; 23 direct JVM launches; live=false.
+Evidence: build/test-results/20261117-071959-de12e8.
