@@ -57,6 +57,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> movingObject = Class.forName("zombie.iso.IsoMovingObject");
         Class<?> combatManager = Class.forName("zombie.CombatManager");
         Class<?> isoObject = Class.forName("zombie.iso.IsoObject");
+        require(method(isoObject, "hasModData").getReturnType() == boolean.class,
+                "SWM non-allocating mod-data ownership access changed");
         Class<?> stats = Class.forName("zombie.characters.Stats");
         Class<?> characterStat = Class.forName("zombie.characters.CharacterStat");
         Class<?> systemDisabler = Class.forName("zombie.SystemDisabler");

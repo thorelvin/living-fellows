@@ -7,6 +7,7 @@ require "SCDiagnostics"
 require "SCRegistry"
 require "SCBanditsAdapter"
 require "SCALifeAdapter"
+require "SCStayWithMeAdapter"
 require "SCPZOptimizerAdapter"
 require "SCScheduler"
 require "SCPerformance"
@@ -1889,6 +1890,7 @@ function runtime.start()
     running = true
     if SC.BanditsAdapter then SC.BanditsAdapter.initialize() end
     if SC.ALifeAdapter then SC.ALifeAdapter.initialize() end
+    if SC.StayWithMeAdapter then SC.StayWithMeAdapter.initialize() end
     if SC.PZOptimizerAdapter and ready then SC.PZOptimizerAdapter.initialize() end
     lastStartReady = ready == true
     lastStartReason = reason
@@ -2152,6 +2154,7 @@ function runtime.reset(detach)
         if #resetFailures == 0 then
             resetModule("Bandits adapter", SC.BanditsAdapter, "reset")
             resetModule("A-Life adapter", SC.ALifeAdapter, "reset")
+            resetModule("Stay With Me adapter", SC.StayWithMeAdapter, "reset")
             resetModule("PZOptimizer adapter", SC.PZOptimizerAdapter, "reset")
             resetModule("registry", SC.Registry, "reset")
         end

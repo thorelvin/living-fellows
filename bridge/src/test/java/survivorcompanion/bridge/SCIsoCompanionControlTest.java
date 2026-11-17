@@ -1999,6 +1999,55 @@ public final class SCIsoCompanionControlTest {
         }
     }
 
+    private static void testStayWithMeHits(SCNativeCompanion actor, IsoPlayer player, IsoCell cell) throws Exception {
+        // Headless controls do not load the normal survivor-name Lua files.
+        // Real IsoZombie construction still uses those native factory lists.
+        ArrayList<List<String>> seededNames = new ArrayList<>();
+        for (String key : new String[] { "FemaleForenames", "MaleForenames", "Surnames" }) {
+            List<String> names = (List<String>)Class.forName("zombie.characters.SurvivorFactory").getField(key).get(null);
+            if (names.isEmpty()) { names.add("Fixture");seededNames.add(names); }
+        }
+        Class<?> zombieType = Class.forName("zombie.characters.IsoZombie");
+        var body = (zombie.characters.IsoGameCharacter)zombieType.getConstructor(IsoCell.class).newInstance(cell);
+        var enemy = (zombie.characters.IsoGameCharacter)zombieType.getConstructor(IsoCell.class).newInstance(cell);
+        var raw = actor.getHitInfoList();
+        var env = (se.krka.kahlua.vm.KahluaTable)Class.forName("zombie.Lua.LuaManager").getField("env").get(null);
+        Object oldSc = env.rawget("SurvivorCompanion");
+        try {
+            body.setVariable("NotAloneBody", true);
+            raw.add(new zombie.network.fields.hit.HitInfo().init(body, 1, 1, 0, 0, 0));
+            raw.add(new zombie.network.fields.hit.HitInfo().init(enemy, 1, 2, 0, 0, 0));
+            require(actor.getHitInfoList() == raw && raw.size() == 1 && raw.get(0).getObject() == enemy,
+                    "SWM actual native getter did not exclude a companion beside a real zombie");
+            body.setVariable("NotAloneBody", false);
+            body.getModData().rawset("notAloneBody", Boolean.TRUE);
+            raw.add(new zombie.network.fields.hit.HitInfo().init(body, 1, 1, 0, 0, 0));
+            require(actor.getHitInfoList().size() == 1, "SWM saved body marker was lost at the real native boundary");
+            body.getModData().rawset("notAloneBody", null);
+            env.rawset("SC_SWM_TEST_BODY", body);
+            String code = "SurvivorCompanion={StayWithMeAdapter={owns=function(a) return a==SC_SWM_TEST_BODY end}}";
+            Class<?> manager = Class.forName("zombie.Lua.LuaManager");
+            Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
+                    .getMethod("loadstring", String.class, String.class, se.krka.kahlua.vm.KahluaTable.class)
+                    .invoke(null, code, "swm-native-contract.lua", env);
+            Object thread = manager.getField("thread").get(null);
+            thread.getClass().getMethod("call", Object.class, Object[].class)
+                    .invoke(thread, closure, (Object)new Object[0]);
+            raw.add(new zombie.network.fields.hit.HitInfo().init(body, 1, 1, 0, 0, 0));
+            require(actor.getHitInfoList().size() == 1 && raw.get(0).getObject() == enemy,
+                    "SWM real Kahlua callback did not protect an API-owned unmarked mirror");
+            body.setVariable("NotAloneBody", true);
+            player.getHitInfoList().add(new zombie.network.fields.hit.HitInfo().init(body, 1, 1, 0, 0, 0));
+            require(player.getHitInfoList().size() == 1,
+                    "SWM LF protection modified the actual local player's native hit list");
+        } finally {
+            raw.clear();player.getHitInfoList().clear();
+            env.rawset("SurvivorCompanion", oldSc);env.rawset("SC_SWM_TEST_BODY", null);
+            for (List<String> names : seededNames) names.clear();
+        }
+        System.out.println("STAY_WITH_ME_REAL_NATIVE_PASS checks=4");
+    }
+
     public static void main(String[] args) throws Exception {
         Class<?> randomClass = Class.forName("zombie.core.random.RandStandard");
         Object random = randomClass.getField("INSTANCE").get(null);
@@ -2103,6 +2152,7 @@ public final class SCIsoCompanionControlTest {
             createLiving.callbacks.remove(callbacksBefore);
         }
         actor.getClass().getMethod("setCurrentSquare", squareClass).invoke(actor, square);
+        testStayWithMeHits((SCNativeCompanion)actor, (IsoPlayer)localPlayer, (IsoCell)cell);
         Object secondDescriptor = companionDescriptor(true, "Second");
         Object secondActor = SCBridge.constructCompanion((SurvivorDesc) secondDescriptor,
                 (IsoCell) cell, 0, 0, 0);

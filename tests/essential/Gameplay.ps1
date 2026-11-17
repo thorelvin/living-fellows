@@ -15,6 +15,7 @@ function Get-ScGameplayFiles {
     (Join-Path $Essential 'gameplay_fixture.lua')
     @(
         'SCBanditsAdapter.lua',
+        'SCStayWithMeAdapter.lua',
         'SCNames.lua',
         'SCInventoryIndex.lua',
         'SCVitalsTrace.lua',

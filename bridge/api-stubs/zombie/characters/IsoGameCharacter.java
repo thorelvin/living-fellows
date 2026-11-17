@@ -121,8 +121,10 @@ public class IsoGameCharacter extends IsoMovingObject implements zombie.chat.Cha
     public float getHealth() { return 0; }
     public float Hit(zombie.inventory.types.HandWeapon weapon, IsoGameCharacter wielder,
             float damageSplit, boolean ignoreDamage, float modDelta, boolean remote) { return 0; }
+    private java.util.ArrayList<zombie.network.fields.hit.HitInfo> stubHitInfoList;
     public java.util.ArrayList<zombie.network.fields.hit.HitInfo> getHitInfoList() {
-        return null;
+        if (stubHitInfoList == null) stubHitInfoList = new java.util.ArrayList<>();
+        return stubHitInfoList;
     }
     public boolean helmetFall(boolean hitHead) { return false; }
     public void addBlood(zombie.characterTextures.BloodBodyPartType part, boolean scratched,

@@ -14,6 +14,11 @@
     )
 }
 @{ Name = 'behaviour.follow-and-access'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'gameplay_harness.lua') }
+@{ Name = 'behaviour.stay-with-me-identity'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'stay_with_me_identity_harness.lua') }
+@{ Name = 'behaviour.stay-with-me-protection'; Files = @(Get-ScGameplayFiles) + @(
+    'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
+    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua' |
+    ForEach-Object { Join-Path $Client $_ }) + (Join-Path $Gameplay 'stay_with_me_combat_harness.lua') }
 @{ Name = 'behaviour.shared-history'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $ProjectRoot 'tests\fixtures\voice-soak\community-02718.lua'),
     (Join-Path $Gameplay 'shared_history_harness.lua')) }

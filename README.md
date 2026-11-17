@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.30-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.31-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -102,7 +102,7 @@ Subscribe to [Living Fellows](https://steamcommunity.com/sharedfiles/filedetails
 
 </details>
 
-Use one edition at a time. Check the version-specific [Bandits2](docs/compatibility-bandits2.md) and [Project A-Life](docs/compatibility-project-alife.md) compatibility notes before combining NPC mods.
+Use one edition at a time. Check the version-specific [Bandits2](docs/compatibility-bandits2.md), [Project A-Life](docs/compatibility-project-alife.md) and [Stay With Me](docs/compatibility-stay-with-me.md) compatibility notes before combining NPC mods.
 
 ## Your first evening
 

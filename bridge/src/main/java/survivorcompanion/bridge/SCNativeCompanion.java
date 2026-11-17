@@ -2586,6 +2586,17 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
+     * CombatManager obtains this list again after constructing native melee,
+     * shove, floor and ballistic candidates and before applying any wounds.
+     * Recheck live SWM identity here: a bystander can enter after Lua dispatch.
+     * Only this LF actor's candidates change; other attackers keep their lists.
+     */
+    @Override
+    public ArrayList<HitInfo> getHitInfoList() {
+        return SCStayWithMeProtection.filter(super.getHitInfoList());
+    }
+
+    /**
      * Test a short manual movement against the same continuous polygon map used
      * by Build 42 for players and vehicles. IsoGameCharacter.canStandAt() uses
      * the ignore-doors flag, so it is not sufficient for a companion step.

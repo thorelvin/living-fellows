@@ -4814,6 +4814,9 @@ local function attack(actor, action, intent, provider)
     if target == nil then
         return false, "attack intent has no target"
     end
+    if SC.StayWithMeAdapter and SC.StayWithMeAdapter.owns(target) then
+        return false, "stay_with_me_target_protected"
+    end
     if attackTargetDead(target) then
         return false, "attack target is dead"
     end

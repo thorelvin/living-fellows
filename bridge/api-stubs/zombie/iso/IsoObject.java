@@ -7,6 +7,7 @@ import zombie.iso.sprite.IsoSpriteGrid;
 
 public class IsoObject {
     public IsoGridSquare square;
+    public boolean hasModData() { return false; }
     public se.krka.kahlua.vm.KahluaTable getModData() { return null; }
     public IsoGridSquare getSquare() { return null; }
     public int getObjectIndex() { return -1; }

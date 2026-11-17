@@ -2601,6 +2601,12 @@ function Factions.playerConflictHostile(companion, player)
 end
 
 local function allegianceFacts(source, target, player)
+    -- SWM owns these people even when another compatibility mod temporarily
+    -- annotates their zombie bodies. Never infer hostility from those fields.
+    if U().isStayWithMeNpc(source) or U().isStayWithMeNpc(target) then
+        return { sourceExists = source ~= nil, targetExists = target ~= nil,
+            same = source ~= nil and source == target }
+    end
     local sourceParty = isPlayerPartyMember(source, player)
     local targetParty = isPlayerPartyMember(target, player)
     local playerConflictHostile = (source == player and targetParty

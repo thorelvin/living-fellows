@@ -245,6 +245,8 @@ function support.snapshot(force)
             { state = "absent", reason = "Adapter unavailable" }),
         alife = safeCall(function() return SC.ALifeAdapter.status() end,
             { state = "absent", reason = "Adapter unavailable" }),
+        stayWithMe = safeCall(function() return SC.StayWithMeAdapter.status() end,
+            { state = "absent", reason = "Adapter unavailable" }),
         pzoptimizer = safeCall(function() return SC.PZOptimizerAdapter.status() end,
             { state = "absent", reason = "Adapter unavailable" }),
         actionSupervisor = actionHealth,

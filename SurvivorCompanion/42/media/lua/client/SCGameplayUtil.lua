@@ -566,8 +566,12 @@ function U.isBanditsNpc(value)
     return SC.BanditsAdapter ~= nil and SC.BanditsAdapter.owns(value) == true
 end
 
+function U.isStayWithMeNpc(value)
+    return SC.StayWithMeAdapter ~= nil and SC.StayWithMeAdapter.owns(value) == true
+end
+
 function U.isExternalHuman(value)
-    return U.isALifeNpc(value) or U.isBanditsNpc(value)
+    return U.isStayWithMeNpc(value) or U.isALifeNpc(value) or U.isBanditsNpc(value)
 end
 
 function U.isZombie(value)

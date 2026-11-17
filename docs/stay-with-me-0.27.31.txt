@@ -1,0 +1,86 @@
+Living Fellows 0.27.31: Stay With Me adapter verification
+
+Dependency
+----------
+Downloaded the author's complete published Workshop payload from
+https://github.com/rdflwr13/stay-with-me
+Commit: 8f93627cfa93d4a50c14d8ff2e9eb5b0326c4d25 (2026-11-11)
+Stay With Me 0.6.5, Workshop 3800989007, mod ID Bridge.
+The downloaded tree was clean and contains 796 tracked files. The payload and
+its licence remain outside this repository; only LF code and original test
+fixtures are shipped. The focused run records hashes of all six original Lua
+files it executes.
+
+Implementation
+--------------
+SCStayWithMeAdapter reads the live NotAloneBody and notAloneBody markers,
+SWMSeatPuppet, the current Bridge.body reference, and the original client,
+server and seated-visual identity APIs. LF keeps no ownership-result cache.
+Recognised people never become ordinary zombie threats and remain neutral
+even under conflicting hostile Bandits/A-Life metadata. The native dispatch
+handler rejects melee, firearm, shove and stomp requests before a provider.
+
+SCNativeCompanion also filters its own final native HitInfo list. This covers
+incidental bystanders and repeated pellet contacts, independently of LF's
+general friendly-fire setting and the age of a perception snapshot. Excluded
+entries return to CombatManager's pool. Unmarked API-owned mirrors use the
+current Lua adapter through a protected Kahlua call. A failing live callback
+cannot authorise damage. No foreign AI functions or zombie navigation flags,
+states, paths or waypoints are replaced. Other attackers keep their own lists.
+
+Native bridge protocol: 42.22-isocompanion-32.
+Shipped bridge SHA-256:
+fc39124236650f8e2f9de1a934bf32b4db725be8fddcd9989250ace1971d84ee
+
+Focused verification (Windows PowerShell 5.1, exit 0)
+---------------------------------------------------
+scripts/Test-StayWithMe.ps1 -StayWithMeRoot <download>/Contents/mods/Bridge/common
+  -RequireSource
+
+22 identity checks: exact markers, client/server APIs, initialisation and
+  absence, zero native reads over 100 absent-mod scans, partial startup,
+  same-frame identity promotion and body release/reuse.
+12 combat checks: production perception, protected lanes, competing foreign
+  hostility, and all four direct attack handlers. Ordinary zombie control
+  remains a threat. Foreign navigation mutation traps remain untouched.
+11 native-boundary checks: the shipped LF actor's virtual getter removes
+  mixed protected bystanders and duplicate-owner contacts; the boundary's
+  simulated damage affects the ordinary zombie alone. Pool recycling, live
+  Lua ownership removal/failure, and local-player isolation are checked.
+12 original-source checks execute unmodified BridgeData, BridgeCompanion,
+  BridgeRemnant, BridgeMain, BridgeSeatPuppet and BridgeServer Lua files.
+  This includes another owner's unmarked client mirror and marked server
+  roster identity, with an unowned outfit-id negative.
+
+All eight source-copy reverted controls exit 1 for the expected assertion:
+  ownership, external-human classification, same-frame facts, relationship
+  precedence, direct dispatch, native filtering, native API lookup, and the
+  original-source ownership contract. Positive source stays untouched.
+
+Actual game-JAR verification (Build 42.22.2, exit 0)
+-------------------------------------------------
+SCIsoCompanionControlTest additionally constructs real IsoZombie objects and
+checks the native candidate list with animation and saved markers, a real
+Kahlua identity callback for an unmarked body, and local-player isolation.
+STAY_WITH_ME_REAL_NATIVE_PASS checks=4.
+The same real-JAR control with only the native getter filter reverted exits 1
+at "SWM actual native getter did not exclude a companion beside a real zombie".
+These are candidate-list/VM checks, not a claim of a combined-mod live fight.
+
+Evidence
+--------
+Focused run: build/test-results/stay-with-me-20261117-033127.
+Real-JAR run: build/stay-with-me-real.
+External archive: outputs/stay-with-me-02731 (shared workspace, outside Git).
+The archive includes logs, negative-control source copies and dependency hashes.
+
+Release gate (Windows PowerShell 5.1, exit 0)
+-------------------------------------------
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Test-Project.ps1
+  -Release
+All five groups pass: Build, Lifecycle, Behaviour, Cargo and Interface.
+All 18 essential installer cases pass. Workshop and standalone packages build.
+Elapsed 960.0 seconds; 23 direct JVM launches; live=false.
+Evidence: build/test-results/20261117-033254-be1660, archived as release-gate.
+Initial metadata checks caught missing protocol text in the changelog and
+architecture documentation; those were corrected before this complete run.

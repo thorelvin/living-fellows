@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.31 - Stay With Me protection
+
+- Stay With Me companions and seated visuals count as protected people. LF
+  companions never select them as zombies, retaliate against them through stale
+  foreign metadata, or accept direct melee, firearm, shove or stomp requests.
+- LF's own native hit lists recheck live ownership before damage, protecting
+  nearby Stay With Me bystanders from incidental swings and shotgun contacts.
+  Ordinary zombies and the player's own attacks keep their native behaviour.
+- Compatibility status appears in Support diagnostics. The optional adapter
+  reads Stay With Me's public body markers and identity APIs without replacing
+  its AI or changing zombie navigation. Built against Stay With Me 0.6.5.
+- Native bridge protocol `42.22-isocompanion-32` requires the matching native
+  payload so a stale bridge cannot silently omit incidental-hit protection.
+
 ## 0.27.30 - Close the gap and use the right skill
 
 - Solo fighters step cautiously back into reach when a nearby group stops
