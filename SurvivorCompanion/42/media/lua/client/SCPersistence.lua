@@ -4183,6 +4183,9 @@ local permanentRestoreTokens = {
 
 local transientRestoreTokens = {
     "provider is unavailable", "provider unavailable", "provider is still starting",
+    -- A Java loader can leave the whole provider absent for this launch. This
+    -- is an environment failure, not a failed attempt to restore this recruit.
+    "scbridge is not exposed",
     "bridge bootstrap has not run", "bridge is still starting",
     "world is unavailable", "cell is unavailable", "square is not currently loaded",
     "vehicle is not loaded", "spawn_pending",

@@ -357,6 +357,12 @@ end
 local function nativeBridgeProvider()
     local bridge = globalValue("SCBridge")
     if bridge == nil then
+        if globalValue("PZOEngine") ~= nil then
+            return nil, "SCBridge is not exposed; PZO is running, but the Living Fellows Java bridge is unavailable. "
+                .. "In PZO's F10 > JAVA settings, check that third-party Java mods are enabled. "
+                .. "On the next full game launch, allow the Living Fellows bridge if PZO asks. "
+                .. "A new Living Fellows version needs approval again."
+        end
         return nil, "SCBridge is not exposed; install or repair the native companion bootstrap"
     end
     local protocolOk, protocol = staticInvoke(bridge, "getProtocol")

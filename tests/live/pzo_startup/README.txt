@@ -1,0 +1,60 @@
+Native PZO companion restore regression
+======================================
+
+Run scripts/Test-PzoCompanionRestore.ps1 under Windows PowerShell 5.1.
+Prerequisites: the pinned Project Zomboid 42.22.2 runtime, Java 25 JDK, Python,
+the unmodified official PZO V2.2 PZOptimEngine.jar, a complete single-player
+seed save, and an owned copy of the game's media directory.
+
+The PZO JAR must have SHA-256:
+026de0512c6058e00f2df1f30d68c1acddeb6efee27877a6015a49f1da2d4d5b
+
+Create the media snapshot once in a test directory, not inside the installed
+game. Copy the complete media tree; a directory junction alone is insufficient
+for the game's asset scan. Write snapshot-complete.txt beside that media folder
+containing 42.22.2 after the copy completes. The runner makes ordinary directory
+trees with hardlinks into this owned snapshot, never into installed media.
+Keep the snapshot and the checkout's build directory on the same volume.
+
+Example (replace the three input paths with existing local inputs):
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Test-PzoCompanionRestore.ps1 -PzoJar "<PZOptimEngine.jar>" -SeedSave "<complete save folder>" -MediaSnapshotRoot "<owned snapshot>/media"
+
+The current checkout supplies the payload unless -PayloadProjectRoot is given.
+Build-NativeBridge.ps1 -InstallIntoPayload must have produced its matching JAR.
+
+The test keeps com/pzoptimizer/PZOEntrypoint as the native executable's main:
+
+1. PZO discovers an approved LF bridge, exposes it to the real game and restores
+   a native companion. The probe captures its complete record with marked cargo.
+2. In the disposable PZO config, block that bridge. Import the captured record,
+   wait 170 real seconds, then require waiting_environment, zero consumed attempts
+   and the exact original record through synchronous and scheduled production saves.
+   Invoke the stock game save to persist the real GlobalModData binary.
+3. Approve the bridge in the fixture and restart the same save without reseeding
+   GlobalModData. Require the complete saved record from disk, one healthy native
+   companion with the same ID, and exactly one matching cargo receipt.
+4. Disable PZO's Java loading in the fixture. Reach the real main menu with PZO
+   active and SCBridge absent. This control must not be bypassed.
+
+Fixture approval choices are explicit test inputs. The runner never edits the
+user's PZO config or approves a JAR in the user's profile. It does not drive the
+approval dialog. The optional PZO Lua settings mod is omitted; require_lua_mod is
+false only in the clone. PZO's agent, discovery, approval decisions and entrypoint
+dispatcher remain active and are checked in the captured PZO log.
+
+The only test Java entry advances the game's click-to-start screen. It never
+starts the LF bootstrap, exposes SCBridge, changes zombie navigation or supplies
+a replacement Instrumentation object.
+
+Fixtures and phase evidence remain under build/pzo-restore-*. The runner checks
+the source save's full content fingerprint and installed launcher, bridge and
+game-JAR hashes after the run. Native processes are stopped only when they belong
+to that fixture's executable. Source assets, installed mods and player saves are
+not installed into or opened for writing.
+
+The retained game copy contains JRE and license junctions. Do not recursively
+delete it with a cleanup tool that follows directory junctions.
+
+Exit status is the result. The whole test must exit 0; an assertion failure or
+timeout exits nonzero, including when some earlier phases passed.

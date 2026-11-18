@@ -112,6 +112,16 @@ Write-Output ''
 Write-Output 'INSTALL COMPLETE'
 Write-Output 'Start Project Zomboid and enable Living Fellows: Companion for the save.'
 Write-Output 'Do not enable a second Workshop copy at the same time.'
+$nativeManifestPath = Join-Path $InstallDataRoot 'bridge\install-manifest.json'
+if (Test-Path -LiteralPath $nativeManifestPath -PathType Leaf) {
+    $nativeManifest = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($nativeManifest.launchMode -eq 'pzo-loader') {
+        Write-Output ''
+        Write-Output 'PZO starts the Living Fellows Java bridge on the next full game launch.'
+        Write-Output 'Keep third-party Java mods enabled in PZO (F10 > JAVA), and allow Living Fellows if PZO asks.'
+        Write-Output 'PZO asks again when an update changes the bridge file. Skipping approval leaves companions unavailable for that launch.'
+    }
+}
 if ($DebugMenu) {
     Write-Output ''
     Write-Output 'DEBUG BUILD: the in-game Debug tab and manual companion spawn are enabled.'

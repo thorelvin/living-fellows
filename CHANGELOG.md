@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.27.37 - Keep saved companions waiting for their bridge
+
+- A missing Java bridge no longer exhausts a saved companion's restore attempts.
+  The companion keeps waiting, with the original saved record retained, and can
+  restore when the bridge becomes available.
+- When PZO is running without the Living Fellows bridge, the error explains its
+  Java-mod setting and approval step. Updated bridge files need approval again.
+- Standalone installation and setup instructions explain PZO's approval step;
+  installation leaves PZO's settings and approval choices intact.
+- Bridge protocol remains `42.22-isocompanion-33`.
+
 ## 0.27.36 - Lane-to-lane junction turns
 
 - Companion drivers turn from lane to lane at junctions instead of driving into

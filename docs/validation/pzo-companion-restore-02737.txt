@@ -1,0 +1,94 @@
+Living Fellows 0.27.37: PZO companion startup and restore
+=======================================================
+
+Source base: 121a76c8 (0.27.36). Candidate branch: living_fellows/0.27.37.
+Game: 42.22.2, bundled Java 25.0.5. Bridge protocol remains 42.22-isocompanion-33.
+PZO: unmodified official V2.2 engine, SHA-256
+026de0512c6058e00f2df1f30d68c1acddeb6efee27877a6015a49f1da2d4d5b.
+
+Problem and patch
+-----------------
+The reported 0.27.35 log loads the Lua mod with SCBridge absent and actors disabled.
+The recruited companion's restore then enters quarantine for that same reason.
+This establishes the immediate restore failure; it does not establish the
+reporter's PZO approval choice, Java-loader setting or exact PZO version.
+
+The missing-bootstrap error was omitted from transient restore failures. It
+therefore spent the companion's six-attempt budget and stopped probing.
+The patch classifies only this explicit missing-global error as environmental.
+Incompatible bridge, readiness and inventory failures keep their bounded policy.
+Pending raw records remain unchanged in synchronous and scheduled saves.
+
+When PZOEngine is present and SCBridge is absent, LF now explains the PZO Java
+setting and per-update approval step. Installer output and setup instructions
+explain the same requirement. PZO settings and approval choices are not changed.
+
+Local native reproduction
+-------------------------
+The 0.27.35 standalone bridge (fc6342519ec0b95d13af2b19dfdb0548357f6208fb107ba0b9cdcd5cb51eb22d)
+was installed only into an owned fixture. The real native executable retained
+PZOEntrypoint. PZO's real loader discovered and invoked SCBootstrapAgent, and
+a real game world restored a native companion with a marked bandage.
+
+With that bridge blocked in the fixture, 0.27.35 reproduced the report's failure:
+status=quarantined, attempts=6, complete raw record retained. The regression
+assertion exited 1. The patched equivalent reached waiting_environment with
+attempts=0 and the exact raw record, and its assertion exited 0.
+
+The new runner covers normal PZO discovery/decision/dispatch and the actual game,
+unlike the older metadata/direct-entrypoint smoke probe. Its loading helper only
+advances the native start screen. It never starts LF or supplies fake instrumentation.
+
+Final native matrix: all four phases pass; aggregate script exit 0.
+  - approved seed: healthy native companion and marked inventory captured;
+  - blocked provider: waiting_environment, attempts=0, exact record retained
+    through both production save paths and the stock native disk save;
+  - approved disk reload: exact GlobalModData record read without reseeding,
+    same healthy companion ID and exactly one matching cargo receipt;
+  - global Java-off control: PZO active, SCBridge absent, loader-off decision
+    preserved rather than bypassed.
+  Receipt: build/pzo-restore-20261118-181455-447094/results.json.
+  sourceUntouched=true covers the complete original save plus installed launcher,
+  bridge and game-JAR content hashes. All 359 production Lua files match the
+  tested native payload, as does bridge SHA-256
+  bf196e10fc13537076562a6a6fa6fecab2ffca517104c4561e105524a7c3b85b.
+  Each phase retains PZOEntrypoint and has no LF launch-time Java-agent argument.
+
+Exact-fix native reverted comparison: assertion exit 1. On the same 0.27.37
+payload and PZO engine, remove only the new missing-bridge token in the disposable
+Lua copy. The result returns to quarantined, attempts=6, exact_record=true.
+The PZO-specific diagnostic remains present, isolating the retry classification.
+The staged Lua file was restored after recording the negative.
+Full Windows PowerShell 5.1 release gate: exit 0, all five checks pass, all 18
+installer transaction cases pass. Elapsed 954.1 seconds, 24 direct JVM starts.
+  Build 280.4 s; Lifecycle 42.8 s; Behaviour 120.7 s; Cargo 11.5 s; Interface 498.8 s.
+  Evidence: build/test-results/20261118-182351-630d7a.
+  Normal and debug game-Lua compilation pass; source validation passes all scopes.
+  The gate launches no game; the native PZO matrix above ran separately.
+
+The produced standalone ZIP matches all 359 tested production Lua files, the
+tested bridge and the current standalone installer. Its SHA-256 is
+ef6f17eb294e295441c82cc4d0463721ad8645719d244f263a948965751a2999.
+
+Focused regression and controls
+--------------------------------
+Production Kahlua import, retry and save transactions pass. Missing bridge waits
+past the former budget; both save paths retain all raw fields; later availability
+reaches the same identity's provider once. Protocol mismatch, native readiness
+and damaged inventory controls still quarantine and retain their saved records.
+Removing only the new missing-bridge token makes the regression exit 1 again.
+Source validation (all scopes) and focused Lifecycle checks pass.
+
+Limits and retained evidence
+----------------------------
+No reporter save or real PZO config was modified. Fixture settings and bridge
+approvals are explicit local test inputs; the PZO approval dialog is not automated.
+The optional PZO Lua settings mod is omitted with require_lua_mod=false in the
+clone; the actual PZO agent and Java loader remain active and are checked.
+These results do not identify the reporter's missing pre-game PZO decision.
+The separate old faction encounter validation errors are outside this patch.
+
+Native evidence is retained under build/pzo-restore-*; the local 0.27.35 comparison
+and exact-token negative are under the workspace outputs/pzo-02737 directory.
+See tests/live/pzo_startup/README.txt for inputs and repeat instructions.
+No installed-game update, tag, push or Workshop upload is part of this patch.

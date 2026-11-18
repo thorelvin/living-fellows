@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.36-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.37-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -102,6 +102,8 @@ Mount a walkie-talkie on a powered camp computer and assign a **Survivor radio w
 
 With **PZO (prop11)**, the installer keeps PZO's launcher and uses its Java mod
 loader to start Living Fellows. Allow the Living Fellows bridge if PZO asks.
+An updated bridge needs approval again; keep third-party Java mods enabled in
+**F10 → JAVA**, then fully restart the game after changing that setting.
 Re-run `Install.bat` from the current download to repair the older LF Java-agent
 startup option, which can prevent the Windows game executable from starting.
 

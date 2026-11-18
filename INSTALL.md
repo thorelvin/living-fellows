@@ -24,7 +24,7 @@ ZombieBuddy loads Living Fellows' Java bridge. Check its installation preview be
 
 No ZombieBuddy installation or Workshop subscription is needed for this edition. If Windows denies access to the game folder, run the installer as Administrator.
 
-If PZO is already installed, Living Fellows keeps PZO's launcher and adds its own Java startup agent. PZO and LF retain their own settings, and uninstall removes only LF's entries. Use the complete current download so the installer and bridge match.
+If PZO is already installed, Living Fellows keeps PZO's launcher and uses PZO's Java mod loader to start its bridge. Keep third-party Java mods enabled in **F10 → JAVA**. On the next full game launch, allow the Living Fellows bridge if PZO asks. PZO approves each bridge file separately, so an update can require approval again. Skipping the prompt leaves companions unavailable for that launch. PZO and LF retain their own settings, and uninstall removes only LF's entries. Use the complete current download so the installer and bridge match.
 
 For a different Steam library, open a terminal in the extracted folder and run:
 
@@ -46,6 +46,7 @@ To remove it, close the game and run **Uninstall.bat** from the extracted releas
 
 - **No companion panel:** press **Home**, look for the **LF** launcher, and check that Living Fellows is enabled for the current save.
 - **Runtime inactive or companions appear as shadows:** Workshop users should check ZombieBuddy's loader setup and enable both mods for the save. Standalone users should close the game and rerun the latest installer.
+- **Companions missing after a standalone update with PZO:** check **F10 → JAVA**, then fully restart the game and allow the updated Living Fellows bridge if PZO asks. Installing the files does not approve them in PZO. Saved companions wait for their bridge; their records are retained. If the problem continues, include `Zomboid\Lua\pzo_engine.log`, `pzo_engine.prev.log` and `pzo_config.json` in the report.
 - **After repairing or reinstalling the game:** rerun the latest `Install.bat`. It can restore the managed bridge entry when the retained installation records still verify. If it refuses, keep those records and report the exact error; do not edit the launcher by hand.
 - **Two Living Fellows entries:** remove the duplicate installation. A Workshop upload staged under `%USERPROFILE%\Zomboid\Workshop` can also be discovered by the game; keep upload staging outside that directory when using the standalone edition.
 - **Uninstall refuses:** use `Uninstall.bat` from the latest complete download and include the exact error in a report. The installer checks file ownership before changing an unfamiliar installation.
