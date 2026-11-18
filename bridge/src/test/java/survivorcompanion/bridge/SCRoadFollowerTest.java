@@ -227,6 +227,10 @@ public final class SCRoadFollowerTest {
     }
 
     private static final String ROUTE = "2,101,8;90,101,8";
+    private static SCDrivePath normalRoute(String text) {
+        return SCDrivePath.parse(text).withCorners(new SCDrivePath.CornerProfile(
+                true, Car.HALF_WIDTH, Car.HALF_LENGTH, 2.65993f, 90, .3f, 6));
+    }
 
     private static void pathBasics() {
         SCDrivePath path = SCDrivePath.parse("10,20,6;10.2,20,6;30,20,8;30,40,8");
@@ -254,7 +258,7 @@ public final class SCRoadFollowerTest {
     }
 
     private static Drive outbound(Road road) {
-        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        SCRoadFollower follower = new SCRoadFollower(normalRoute(ROUTE), 10.0f, true);
         Drive drive = new Drive(road, new Car(6.0f, 103.0f, 0.0f), follower);
         drive.run(90.0f, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
         return drive;
@@ -782,7 +786,7 @@ public final class SCRoadFollowerTest {
 
     private static void hairpinCommandStream() {
         SCRoadFollower follower = new SCRoadFollower(
-                SCDrivePath.parse("100,100,8;170,100,8;100,100,8"), 10, true);
+                normalRoute("100,100,8;170,100,8;100,100,8"), 10, true);
         Drive drive = new Drive(null, new Car(104, 102, 0), follower);
         drive.world = PARKING_ROOM;
         drive.run(100, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);

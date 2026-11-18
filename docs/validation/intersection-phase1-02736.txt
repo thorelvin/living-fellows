@@ -1,0 +1,145 @@
+Lane-to-lane intersection turns: Phase 1 build
+2026-11-18, living_fellows/0.27.36
+
+Status
+------
+Implementation and functional verification complete locally. Full acceptance is
+NOT complete: 200/2,520 native-model scenarios exceed the planned +15% travel-time
+budget. Worst ratio is 1.30750. The 6/12 km/h requested corner caps remain intact.
+The dedicated acceptance command exits 1 for this issue. Release Cargo runs also
+enforce that budget. Ordinary Cargo runs execute the same full functional matrix
+with timing reported separately. No budget was raised or silently accepted.
+
+Live acceptance in plan section 8 remains next: three turns per side against exact
+0.27.34, booked taxi, multi-junction expedition, home trip and companion-led convoy.
+No game was launched, no local game installation was changed, and nothing was
+pushed for Phase 1. Version 0.27.36 remains reserved; release metadata stays at
+0.27.35 until release preparation. The rebuilt JAR is staged in this checkout's
+payload so the reproducible-build check can verify the implementation.
+
+Implementation
+--------------
+SCDrivePath.withCorners creates bounded, checked lane arcs or retains original
+sharp corners, with stable IDs, reasons, original-route distance mapping and
+unchanged source points outside corner spans. Per-leg widths work in both
+directions, including street/driveway transitions. The builder keeps the source
+route, respects endpoint reserves and the 1,024-point budget, and never reparses
+the denser generated geometry.
+
+Only SCCompanionDriver.follow opts in. Convoy following, approach and parking
+retain their original paths and command streams. No router, route serialization,
+saved data, walking, Lua gameplay or zombie navigation code changed.
+
+The follower uses each complete corner's angle, holds its speed cap until the
+physical heading aligns, blends curvature steering only around arcs, and rebuilds
+the original route on a return trip. Native wheel offsets are used as-is, without
+modelScale. Body-origin velocity direction is observed from motion, avoiding
+production dependence on the empirical Phase 0 tyre coefficients. Look-ahead and
+scan distances account for the difference between the encoded centreline and the
+physical lane arc. Approach braking uses the existing conservative deceleration
+and margins, avoiding a crawl over the entire stopping distance.
+
+An established sideways offset stays fixed on an arc. Limited passing lines are
+tried before entry; a late change without a pursuit span plus body length of
+straight room falls back to the original corner. A blocked corner switches back
+at most once. Scans merge adjacent small arc pieces, include sagitta and body
+sweep, and skip sub-millimetre clipped fragments rather than classifying their
+zero-length heading as an unloaded obstacle. nextVertexAlong is binary.
+
+driveStatus adds corners, cornersSharp, cornerFallbacks, laneError and maxLaneError.
+Lane error is omitted while passing, reversing or not following normally.
+
+Plan clarifications
+-------------------
+1. V2's literal extended incoming half-plane test rejects legal large left turns
+   after they enter the exit road. A point in the outgoing corridor beyond the
+   junction is accepted; its exit lane must still be on the right. Roads narrower
+   than six metres have no divided traffic lanes, matching the existing offset
+   rule. Dedicated off-side right/left fixtures still fail V2.
+2. Widths come from the leg anchors before/after the junction. The junction node
+   may carry either street's width. Taking max(endpoint widths) would keep an
+   eight-metre lane into a five-metre driveway and would not reverse correctly.
+3. F7's cached square-query budget alone cannot detect removal of merging. A
+   second work budget checks actual strip traversals. With merging it is 4 at
+   the chosen arc-entry pose; without merging it is 7, exceeding the budget of 6.
+   The original 2x square-query budget is retained in the wreck scenario.
+
+Verification
+------------
+First Phase 1 commit 3d95fffb pins six rounded-1e-4 command-stream SHA256s before
+production changes. All six passed on unmodified exact 0.27.34 and 0.27.35 before
+the implementation; all still match after it. The straight/wreck/hairpin checks
+now also invoke withCorners, covering the no-corner opt-in path.
+
+Windows PowerShell 5.1:
+  Test-Project.ps1 -Check Build,Cargo: PASS, 2/5 focused checks, no live game.
+    Native API linkage/signatures and reproducible payload build pass.
+    Existing road-follower suite: 137 checks pass.
+    Existing companion-driving suite: 106 checks pass.
+    Intersection functional suite: 16,206 checks pass.
+  Test-Source.ps1 -Scope All: PASS (metadata, references, assets, output hygiene).
+  Test-IntersectionTurns.ps1 -NegativeControls: EXIT 1, expected open timing gate.
+    All eleven negative controls return exit 1 at their named assertion.
+
+Full matrix:
+  3 measured vehicle profiles x 2 corner scales x 7 width pairs x 6 angles x
+  2 sides x 5 rotations = 2,520 scenarios, each with native-like and legacy car:
+  5,040 closed-loop runs, plus 2,520 sharp-route native-like timing comparisons.
+  Rotations: 0, 90, 180, 270, 30 degrees. Width pairs: 6/6, 8/8, 12/12,
+  12/8, 8/12, 8/5, 5/8. Angles: +/-30,45,60,90,120,135 degrees.
+  All arrive, no false open-world fallback, no wrong-side, speed, turn-start or
+  projection-window failures. All ordinary matrix corners fit as arcs.
+  Independent analytic lane error, native-like model: right 0.774 m, left 0.899 m.
+  Legacy model is an arrival/regression check, not a native lane-accuracy oracle.
+  Native model and its extrapolation limits are those established in Phase 0.
+
+Additional checks cover V1-V5 geometry, exact straight points, short start/end
+legs, bounded density, hairpins, same-side grouping, opposing doglegs, a block,
+width changes after a physical turn-round, and all four measured Phase 0 map
+fixtures driven forward and backward. The angled fixture retains a sharp fallback
+where its short connector prevents a valid arc.
+
+Sedan, van and pickup each clear the wreck, lamp and walled crossing without
+sampled body contact; a completely blocked road stops. Wreck fallback occurs
+exactly once. Body samples cover a 5-by-3 footprint each frame; this is synthetic
+coverage, not a native collision receipt. Wreck square queries versus sharp:
+  sedan  50,768 / 48,574 = 1.0452x
+  van    50,915 / 49,061 = 1.0378x
+  pickup 43,878 / 42,143 = 1.0412x
+
+Negative controls (all compiled in separate build directories):
+  builder returns original -> right lane error
+  ignore total arc angle -> whole-corner speed
+  remove heading hold -> switched-back mid-turn speed
+  reverse rounded route -> original-route rebuild/widths
+  disable curvature -> left lane error
+  bypass V2 -> off-side fixture
+  disable sharp fallback -> wreck fails to arrive
+  move original straight point 0.01 m -> straight identity
+  disable merging -> strip-scan work budget
+  remove short-chord guard -> right lane error
+  permit late offset changes -> lamp body contact
+
+Timing remains open
+-------------------
+Worst case: pickup, normal corner scale, 12/12-metre streets, left 135 degrees,
+ratio 1.30750. 200 scenarios exceed 1.15. These failures remain in failures.txt;
+the strict acceptance command and release gate continue to reject them. Baseline
+0.27.34 releases its speed limit early (confirmed natively in Phase 0), so keeping
+the cap throughout a wide turn can cost time. This observation does not prove
+that further timing improvements are impossible. The requested trade-off between
+fixed caps and travel-time budget has not received a user decision.
+
+Evidence
+--------
+Curated local evidence: C:\ZOMBOID\outputs\intersection-phase1-02736
+  acceptance/positive.log, matrix.csv, failures.txt, fingerprints.log,
+  eleven *-negative.log files, and core gate logs.
+Original gate runs:
+  build/test-results/20261118-111505-178d79 (Build/Cargo)
+  build/test-results/20261118-112028-986f04 (final Cargo after test refinements)
+  build/test-results/intersection-20261118-111939 (final strict acceptance/negatives)
+Built/payload bridge SHA256:
+  0E442F5772C9D67DB82BBE888183A582B2E424553F4557113E2B450309666B27
+
+No full release gate, live A/B, install, push, tag or Workshop upload is claimed.

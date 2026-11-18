@@ -236,7 +236,8 @@ final class SCCompanionDriver {
 
     void follow(SCDrivePath path, double cruise, double cornerSpeedScale) {
         convoyLead = null;
-        follower = new SCRoadFollower(path, (float) cruise, true,
+        SCDrivePath.CornerProfile profile = cornerProfile(vehicle, (float) cornerSpeedScale);
+        follower = new SCRoadFollower(path.withCorners(profile), (float) cruise, true,
                 false, (float) cornerSpeedScale);
         cruiseKmh = follower.cruiseKmh();
         steering = 0.0f;
@@ -624,6 +625,28 @@ final class SCCompanionDriver {
             halfLength = extents.z * 0.5f;
         }
         return new float[] {halfWidth, halfLength};
+    }
+
+    /** Only normal route following opts in; convoy, approach and parking stay raw. */
+    private static SCDrivePath.CornerProfile cornerProfile(BaseVehicle current, float scale) {
+        float[] body = current == null ? new float[] {DEFAULT_HALF_WIDTH, DEFAULT_HALF_LENGTH} : bodySize(current);
+        VehicleScript script = current == null ? null : current.getScript();
+        float front = 0, rear = 0;
+        int fronts = 0, rears = 0;
+        if (script != null) {
+            for (int i = 0; i < script.getWheelCount(); i++) {
+                VehicleScript.Wheel wheel = script.getWheel(i);
+                Vector3f offset = wheel == null ? null : wheel.getOffset();
+                if (offset == null || !Float.isFinite(offset.z)) continue;
+                if (wheel.front) { front += offset.z; fronts++; }
+                else { rear += offset.z; rears++; }
+            }
+        }
+        float wheelbase = fronts > 0 && rears > 0 ? Math.abs(front / fronts - rear / rears) : Float.NaN;
+        float maxSpeed = script == null ? Float.NaN : script.maxSpeed;
+        float clamp = script == null ? Float.NaN : script.getSteeringClamp(maxSpeed);
+        float speedScale = Float.isFinite(scale) ? Math.max(1, Math.min(2, scale)) : 1;
+        return new SCDrivePath.CornerProfile(true, body[0], body[1], wheelbase, maxSpeed, clamp, 6 * speedScale);
     }
 
     /**

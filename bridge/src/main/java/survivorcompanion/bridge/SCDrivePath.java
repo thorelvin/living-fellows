@@ -10,6 +10,28 @@ package survivorcompanion.bridge;
 final class SCDrivePath {
     static final int MAX_POINTS = 512;
     static final int MAX_TEXT = 65536;
+    static final int MAX_CORNER_POINTS = 1024;
+
+    /** Native script dimensions are already scaled; no modelScale is applied. */
+    record CornerProfile(boolean keepRight, float halfWidth, float halfLength,
+                         float wheelbase, float maxSpeed, float steeringClamp, float cornerKmh) {
+        float minimumRadius() {
+            if (!(Float.isFinite(wheelbase) && wheelbase >= halfLength * 0.8f
+                    && wheelbase <= halfLength * 1.5f && maxSpeed >= 20 && maxSpeed <= 300
+                    && steeringClamp >= 0.05f && steeringClamp <= 0.9f
+                    && Float.isFinite(cornerKmh) && cornerKmh > 0)) return 4;
+            float clamp = steeringClamp + (0.9f - steeringClamp)
+                    * (1 - Math.min(1, cornerKmh / maxSpeed));
+            return 1.25f * wheelbase / (float) Math.tan(clamp);
+        }
+
+        float steeringWheelbase() {
+            return Float.isFinite(wheelbase) && wheelbase > 0.5f && wheelbase < 8 ? wheelbase : 2.6f;
+        }
+    }
+
+    record Corner(int id, float start, float end, float angle, float radius,
+                  boolean arc, String sharpReason) { }
     /** Points closer than this to the previous one are dropped. */
     private static final float MIN_SPACING = 0.5f;
     private static final float MAX_COORDINATE = 30000.0f;
@@ -20,8 +42,25 @@ final class SCDrivePath {
     private final float[] widths;
     private final float[] cumulative;
     private final float length;
+    private final SCDrivePath original;
+    private final CornerProfile profile;
+    private final Corner[] corners;
+    private final float[] laneOffsets;
+    private final float[] tangentX;
+    private final float[] tangentY;
+    private final int[] cornerIds;
+    private final float[] originalAlong;
+    private final boolean[] forcedSharp;
+    private final float[] laneSegmentLengths;
 
     private SCDrivePath(float[] xs, float[] ys, float[] widths) {
+        this(xs, ys, widths, null, null, new Corner[0], null, null, null, null, null, null);
+    }
+
+    SCDrivePath(float[] xs, float[] ys, float[] widths, SCDrivePath original,
+                CornerProfile profile, Corner[] corners, float[] laneOffsets,
+                float[] tangentX, float[] tangentY, int[] cornerIds,
+                float[] originalAlong, boolean[] forcedSharp) {
         this.xs = xs;
         this.ys = ys;
         this.widths = widths;
@@ -32,6 +71,126 @@ final class SCDrivePath {
             cumulative[index] = total;
         }
         this.length = total;
+        this.original = original;
+        this.profile = profile;
+        this.corners = corners;
+        this.laneOffsets = laneOffsets;
+        this.tangentX = tangentX;
+        this.tangentY = tangentY;
+        this.cornerIds = cornerIds;
+        this.originalAlong = originalAlong;
+        this.forcedSharp = forcedSharp;
+        laneSegmentLengths = profile == null ? null : new float[xs.length - 1];
+        if (laneSegmentLengths != null) {
+            for (int i = 0; i < laneSegmentLengths.length; i++) {
+                if (arcSegment(i)) {
+                    float ax = xs[i] - tangentY[i] * laneOffsets[i];
+                    float ay = ys[i] + tangentX[i] * laneOffsets[i];
+                    float bx = xs[i + 1] - tangentY[i + 1] * laneOffsets[i + 1];
+                    float by = ys[i + 1] + tangentX[i + 1] * laneOffsets[i + 1];
+                    laneSegmentLengths[i] = (float) Math.hypot(bx - ax, by - ay);
+                } else laneSegmentLengths[i] = cumulative[i + 1] - cumulative[i];
+            }
+        }
+    }
+
+    SCDrivePath withCorners(CornerProfile nextProfile) {
+        return SCCornerPathBuilder.build(original(), nextProfile, null);
+    }
+
+    SCDrivePath sharpCorner(int id) {
+        if (profile == null || id < 0 || id >= corners.length || forcedSharp[id]) return this;
+        boolean[] sharp = forcedSharp.clone();
+        sharp[id] = true;
+        return SCCornerPathBuilder.build(original(), profile, sharp);
+    }
+
+    SCDrivePath original() { return original == null ? this : original; }
+    CornerProfile cornerProfile() { return profile; }
+    int corners() { return corners.length; }
+    Corner corner(int id) { return corners[id]; }
+    int cornersSharp() {
+        int count = 0;
+        for (Corner corner : corners) if (!corner.arc) count++;
+        return count;
+    }
+    float x(int index) { return xs[index]; }
+    float y(int index) { return ys[index]; }
+    float width(int index) { return widths[index]; }
+    float distance(int index) { return cumulative[index]; }
+
+    float originalAlong(float along) {
+        if (originalAlong == null) return along;
+        return interpolate(originalAlong, along);
+    }
+
+    int segmentAtOriginalAlong(float value) {
+        if (originalAlong == null) return segmentAt(value);
+        return segmentAt(originalAlong, value);
+    }
+
+    float laneOffsetAt(float along) {
+        int segment = segmentAt(along);
+        if (arcSegment(segment)) return interpolate(laneOffsets, along);
+        float width = Math.max(widths[segment], widths[segment + 1]);
+        if (width <= 0) width = 6;
+        return profile != null && profile.keepRight && width >= 6 ? width / 4 : 0;
+    }
+
+    /** Distances used for steering/braking are physical lane distances, not
+     * the shorter/longer encoded centreline on left/right arcs. */
+    float advanceInLane(float along, float distance, float deviation) {
+        if (laneSegmentLengths == null) return Math.max(0, Math.min(length, along + distance));
+        boolean forward = distance >= 0;
+        float remaining = Math.abs(distance), at = Math.max(0, Math.min(length, along));
+        int segment = segmentAt(at);
+        while (remaining > 0.0001f && segment >= 0 && segment < xs.length - 1) {
+            float span = cumulative[segment + 1] - cumulative[segment];
+            float ratio = laneSegmentLengths[segment] / span;
+            if (arcSegment(segment)) {
+                Corner arc = corners[cornerIds[segment]];
+                ratio *= Math.max(0.05f, 1 - Math.signum(arc.angle) * deviation / arc.radius);
+            }
+            float edge = forward ? cumulative[segment + 1] : cumulative[segment];
+            float room = Math.abs(edge - at) * ratio;
+            if (room >= remaining) return at + (forward ? 1 : -1) * remaining / ratio;
+            remaining -= room; at = edge; segment += forward ? 1 : -1;
+        }
+        return at;
+    }
+
+    Corner arcAt(float along) {
+        int first = 0, last = corners.length;
+        while (first < last) {
+            int mid = (first + last) >>> 1;
+            if (corners[mid].start <= along) first = mid + 1; else last = mid;
+        }
+        if (first == 0) return null;
+        Corner corner = corners[first - 1];
+        return corner.arc && along <= corner.end ? corner : null;
+    }
+
+    private boolean arcSegment(int segment) {
+        return cornerIds != null && cornerIds[segment] >= 0
+                && cornerIds[segment] == cornerIds[segment + 1];
+    }
+
+    private static int segmentAt(float[] distances, float along) {
+        int first = 1, last = distances.length - 1;
+        while (first < last) {
+            int mid = (first + last) >>> 1;
+            if (distances[mid] <= along) first = mid + 1; else last = mid;
+        }
+        return first - 1;
+    }
+
+    private int segmentAt(float along) { return segmentAt(cumulative, along); }
+
+    private float interpolate(float[] values, float along) {
+        int segment = segmentAt(along);
+        float span = cumulative[segment + 1] - cumulative[segment];
+        float t = Math.max(0, Math.min(1, (along - cumulative[segment]) / span));
+        return values[segment] + (values[segment + 1] - values[segment]) * t;
     }
 
     /**
@@ -129,10 +288,12 @@ final class SCDrivePath {
 
     /** The distance of the next corner after along, or MAX_VALUE past the last one. */
     float nextVertexAlong(float along) {
-        for (int index = 1; index < cumulative.length - 1; index++) {
-            if (cumulative[index] > along + 0.001f) return cumulative[index];
+        int first = 1, last = cumulative.length - 1;
+        while (first < last) {
+            int mid = (first + last) >>> 1;
+            if (cumulative[mid] <= along + 0.001f) first = mid + 1; else last = mid;
         }
-        return Float.MAX_VALUE;
+        return first < cumulative.length - 1 ? cumulative[first] : Float.MAX_VALUE;
     }
 
     /** Where a point sits relative to the line: along it, and to the right of it. */
@@ -189,10 +350,9 @@ final class SCDrivePath {
      */
     void pointAt(float along, float offset, float[] out) {
         float distance = Math.max(0.0f, Math.min(length, along));
-        int segment = 0;
+        int segment = segmentAt(distance);
         // At a corner itself the outgoing segment applies, so a scan starting there
         // runs down the new street rather than on past the junction.
-        while (segment < xs.length - 2 && cumulative[segment + 1] <= distance) segment++;
         float ax = xs[segment];
         float ay = ys[segment];
         float dx = xs[segment + 1] - ax;
@@ -201,10 +361,17 @@ final class SCDrivePath {
         float t = segmentLength > 0.0f ? (distance - cumulative[segment]) / segmentLength : 0.0f;
         float tx = segmentLength > 0.0f ? dx / segmentLength : 1.0f;
         float ty = segmentLength > 0.0f ? dy / segmentLength : 0.0f;
+        if (arcSegment(segment)) {
+            tx = tangentX[segment] + (tangentX[segment + 1] - tangentX[segment]) * t;
+            ty = tangentY[segment] + (tangentY[segment + 1] - tangentY[segment]) * t;
+            float norm = (float) Math.hypot(tx, ty);
+            tx /= norm; ty /= norm;
+        }
         out[0] = ax + dx * t - ty * offset;
         out[1] = ay + dy * t + tx * offset;
         out[2] = tx;
         out[3] = ty;
-        out[4] = Math.max(widths[segment], widths[segment + 1]);
+        out[4] = arcSegment(segment) ? widths[segment] + (widths[segment + 1] - widths[segment]) * t
+                : Math.max(widths[segment], widths[segment + 1]);
     }
 }

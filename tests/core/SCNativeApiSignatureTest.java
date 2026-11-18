@@ -98,6 +98,16 @@ public final class SCNativeApiSignatureTest {
         Class<?> luaEventManager = Class.forName("zombie.Lua.LuaEventManager");
         Class<?> luaEvent = Class.forName("zombie.Lua.Event");
         Class<?> gameTime = Class.forName("zombie.GameTime");
+        Class<?> vehicleScript = Class.forName("zombie.scripting.objects.VehicleScript");
+        Class<?> wheel = Class.forName("zombie.scripting.objects.VehicleScript$Wheel");
+        Class<?> vector3f = Class.forName("org.joml.Vector3f");
+        require(vehicleScript.getField("maxSpeed").getType() == float.class
+                        && method(vehicleScript, "getWheelCount").getReturnType() == int.class
+                        && method(vehicleScript, "getWheel", int.class).getReturnType() == wheel
+                        && method(vehicleScript, "getSteeringClamp", float.class).getReturnType() == float.class
+                        && wheel.getField("front").getType() == boolean.class
+                        && method(wheel, "getOffset").getReturnType() == vector3f,
+                "native corner profile wheel geometry or steering access changed");
         require(method(player, "updateLOS").getReturnType() == void.class,
                 "local-player sight pass needed by the companion split view changed");
         Class<?> roomDef = Class.forName("zombie.iso.RoomDef");

@@ -41,11 +41,11 @@ $native = @{
         'SCBootstrapLifecycleTest', 'SCLightingSlotRetirementTest', 'SCLightingSlotLifecycleTest',
         'SCNativeCleanupTransactionTest', 'SCRemoteArrivalTest', 'SCVehicleSaveBarrierTest')
     Behaviour = @('SCCompanionFatigueTest', 'SCCompanionComfortTest')
-    Cargo = @('SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest')
+    Cargo = @('SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest')
     Interface = @('SCTerminalLogoRendererTest')
 }
 $stubTests = @('SCBootstrapLifecycleTest', 'SCCompanionFatigueTest', 'SCCompanionComfortTest',
-    'SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCTerminalLogoRendererTest')
+    'SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest', 'SCTerminalLogoRendererTest')
 $plainTests = @('SCNativeApiSignatureTest', 'SCBridgeLuaNumberContractTest')
 
 function Invoke-EssentialScript([string]$Label, [string]$Path, [string[]]$ScriptArgs = @()) {
@@ -77,6 +77,14 @@ function Invoke-EssentialNative([string]$Domain) {
         $class = if ($plainTests -contains $name) { $name } else { "survivorcompanion.bridge.$name" }
         $classpath = if ($stubTests -contains $name) { "$tools;$nativeClasses" } else { "$tools;$nativeJar;$jar" }
         $arguments = @('-cp', $classpath, $class)
+        if ($name -eq 'SCIntersectionTurnsTest') {
+            # Includes the full native/legacy matrix. Release runs and the
+            # dedicated acceptance script also enforce the trip-time budget.
+            $fixture = Join-Path $ProjectRoot 'tests\live\fixtures\intersection-phase0-42.22.2\junctions.tsv'
+            $turnCheck = if ($Release) { 'all' } else { 'functional' }
+            $arguments = @('-Xmx256m', '-XX:ActiveProcessorCount=2', '-XX:+UseSerialGC',
+                "-DturnCheck=$turnCheck", "-DturnFixturePath=$fixture") + $arguments
+        }
         if ($name -eq 'SCBootstrapLifecycleTest') { $arguments += @('--agent-jar', $nativeJar) }
         Invoke-ScTestCommand -FilePath $java -Arguments $arguments `
             -LogPath (Join-Path $logs "$Domain-$name.log") -WorkingDirectory $GameRoot

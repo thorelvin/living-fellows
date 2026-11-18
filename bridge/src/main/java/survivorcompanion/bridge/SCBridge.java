@@ -1700,6 +1700,11 @@ public final class SCBridge {
             put(out, "lateral", follower.lateral());
             put(out, "offset", follower.offset());
             put(out, "laneOffset", follower.laneOffset());
+            put(out, "corners", follower.corners());
+            put(out, "cornersSharp", follower.cornersSharp());
+            put(out, "cornerFallbacks", follower.cornerFallbacks());
+            if (Float.isFinite(follower.laneError())) put(out, "laneError", follower.laneError());
+            put(out, "maxLaneError", follower.maxLaneError());
             put(out, "swerves", follower.swerves());
             put(out, "backoffs", follower.backoffs());
             put(out, "blockedAt", follower.blockedAt());
