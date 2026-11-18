@@ -1,0 +1,5 @@
+kind	start	goal	fingerprint	inferred	geometry
+four_way	7071,8318	7107,8354	3e1506d5137197e3	1	7071.0,8318.0,6.0,0,Casey Road;7107.0,8318.0,6.0,1,Casey Road;7107.0,8354.0,6.0,0,Victoria St
+t_junction	6423,5400	6387,5364	357bed221d5e7db3	0	6423.0,5400.0,8.0,0,Pitts St;6391.0,5400.0,8.0,0,Pitts St;6387.0,5400.0,8.0,1,Pitts St;6387.0,5367.0,8.0,1,Rogers Av;6387.0,5364.0,8.0,0,Rogers Av
+angled	6874.455844,9977.544156	6813,10003	9704f5dc47fa0dc3	0	6874.455844,9977.544156,8.0,0,Darling Lane;6847.75,10004.25,8.0,1,Darling Lane;6846.5,10003.0,8.0,0,Barn Row Road;6813.0,10003.0,8.0,0,Barn Row Road
+curve_crossing	5960,5292	5895,5363	4d9c70a21d5e7db3	0	5960.0,5292.0,8.0,0,Granite St;5960.0,5328.0,8.0,1,Granite St;5956.0,5328.0,8.0,0,Walnut St;5920.0,5328.0,6.0,0,Walnut St;5919.0,5328.5,6.0,0,Walnut St;5918.0,5329.5,6.0,0,Walnut St;5917.0,5331.0,6.0,0,Walnut St;5917.0,5341.5,6.0,0,Walnut St;5917.0,5358.0,6.0,0,Walnut St;5915.5,5360.5,6.0,0,Walnut St;5912.5,5363.0,6.0,0,Walnut St;5910.5,5363.0,6.0,0,Walnut St;5895.0,5363.0,6.0,0,Walnut St

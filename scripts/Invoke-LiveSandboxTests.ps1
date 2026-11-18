@@ -203,6 +203,12 @@ param(
     [switch]$DrivingRoute,
     # With -DrivingProbe: drive a planner route round a junction into a side street.
     [switch]$DrivingTurn,
+    # Phase 0 measurements only: three stock cars, native steering and raw routes.
+    [switch]$DrivingCalibrationProbe,
+    # Optional subset for repeating a measurement (1..36), or 'baseline'.
+    [ValidatePattern('^(baseline|[0-9]+(,[0-9]+)*)?$')][string]$DrivingCalibrationCases = '',
+    [ValidateSet('', 'four_way', 't_junction', 'angled', 'curve_crossing')]
+    [string]$DrivingCalibrationBaseline = '',
     # Leave normal companion Decision scheduled during the route test.
     [switch]$DrivingWithAi,
     # Disposable-cache negative control: remove Decision's driving gate.
@@ -993,6 +999,19 @@ if ($TaxiRecoveryResume -and -not $DrivingProbe) {
     throw '-TaxiRecoveryResume requires -DrivingProbe.'
 }
 if ($DrivingTurn -and -not $DrivingProbe) { throw '-DrivingTurn requires -DrivingProbe.' }
+if ($DrivingCalibrationProbe -and -not $DrivingProbe) { throw '-DrivingCalibrationProbe requires -DrivingProbe.' }
+if ($DrivingCalibrationCases -and -not $DrivingCalibrationProbe) { throw '-DrivingCalibrationCases requires -DrivingCalibrationProbe.' }
+if ($DrivingCalibrationBaseline -and -not $DrivingCalibrationProbe) { throw '-DrivingCalibrationBaseline requires -DrivingCalibrationProbe.' }
+if ($DrivingCalibrationCases -and $DrivingCalibrationCases -ne 'baseline') {
+    $calibrationCasesSeen = [System.Collections.Generic.HashSet[int]]::new()
+    foreach ($calibrationCaseText in $DrivingCalibrationCases.Split(',')) {
+        $calibrationCase = [int]$calibrationCaseText
+        if ($calibrationCase -lt 1 -or $calibrationCase -gt 36 -or
+            -not $calibrationCasesSeen.Add($calibrationCase)) {
+            throw '-DrivingCalibrationCases must contain unique case IDs from 1 to 36.'
+        }
+    }
+}
 if ($DrivingTurn -and $DrivingRoute) { throw 'Choose -DrivingRoute or -DrivingTurn, not both.' }
 if ($DrivingWithAi -and (-not $DrivingProbe -or -not $DrivingRoute)) {
     throw '-DrivingWithAi requires -DrivingProbe -DrivingRoute.'
@@ -1001,7 +1020,7 @@ if ($DrivingGateNegativeControl -and
     (-not $DrivingProbe -or -not $DrivingRoute -or -not $DrivingWithAi)) {
     throw '-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi.'
 }
-$drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
+$drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingCalibrationProbe, $DrivingBlocked,
     $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe, $PickupLifecycleProbe, $PickupServiceProbe,
     $TaxiPassengerProbe, $TaxiCallProbe, $TaxiCallResume,
     $TaxiRecoveryResume) | Where-Object { $_.IsPresent }
@@ -1009,7 +1028,7 @@ $drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingBlocked,
 # Its service controller still owns the pickup and ride, not the turn scenario.
 $taxiJunctionCombination = $TaxiCallProbe -and $DrivingTurn -and $drivingExclusiveModes.Count -eq 2
 if ($drivingExclusiveModes.Count -gt 1 -and -not $taxiJunctionCombination) {
-    throw 'Choose one driving route, turn, blocked, save-stage, or save-resume mode.'
+    throw 'Choose one driving route, turn, calibration, blocked, save-stage, or save-resume mode.'
 }
 if (($DrivingBlocked -or $DrivingSaveStage -or $DrivingSaveResume -or $DrivingRemote -or $TeamDriveProbe) -and -not $DrivingProbe) {
     throw 'Driving blocked and save modes require -DrivingProbe.'
@@ -2070,6 +2089,9 @@ $config = @(
     ('taxi_expected_receipt_id=' + [string]$taxiExpected.receipt_id),
     ('driving_route=' + $DrivingRoute.IsPresent.ToString().ToLowerInvariant()),
     ('driving_turn=' + $DrivingTurn.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_calibration_probe=' + $DrivingCalibrationProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_calibration_cases=' + $DrivingCalibrationCases),
+    ('driving_calibration_baseline=' + $DrivingCalibrationBaseline),
     ('driving_with_ai=' + $DrivingWithAi.IsPresent.ToString().ToLowerInvariant()),
     ('driving_blocked=' + $DrivingBlocked.IsPresent.ToString().ToLowerInvariant()),
     ('driving_save_stage=' + $DrivingSaveStage.IsPresent.ToString().ToLowerInvariant()),
@@ -2490,7 +2512,7 @@ if ($PrepareOnly) {
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($EngineSound) { $argumentLine = $argumentLine.Replace(' -nosound','') }
-if ($HomeTripProbe -or $ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
+if ($DrivingCalibrationProbe -or $HomeTripProbe -or $ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
     ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl

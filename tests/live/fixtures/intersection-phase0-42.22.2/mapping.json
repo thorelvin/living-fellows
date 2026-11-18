@@ -1,0 +1,380 @@
+{
+  "Base.CarNormal": {
+    "gain_coeff": [
+      0.9409478620280032,
+      0.24948473452712494,
+      0.0033918277804257935
+    ],
+    "icr_offset_coeff": [
+      1.1185847695524802,
+      0.019201189738941655,
+      -0.0038060270523615648
+    ],
+    "wheelbase": 2.6599299907684326,
+    "max_speed": 90.0,
+    "tau_median": 0.2749099764784636,
+    "train": [
+      {
+        "trial": 1,
+        "predicted": 2.9206785749832966,
+        "measured": 2.833144198432325,
+        "relative_error": 0.030896548294085058
+      },
+      {
+        "trial": 3,
+        "predicted": 4.975832238307345,
+        "measured": 5.094878184302797,
+        "relative_error": -0.02336580810945188
+      },
+      {
+        "trial": 5,
+        "predicted": 3.1012115001125315,
+        "measured": 3.1726755402395135,
+        "relative_error": -0.022524849837492922
+      },
+      {
+        "trial": 7,
+        "predicted": 5.097171434506579,
+        "measured": 5.0502132961525215,
+        "relative_error": 0.009298248529390207
+      },
+      {
+        "trial": 9,
+        "predicted": 3.4611210339815055,
+        "measured": 3.5292189113176318,
+        "relative_error": -0.019295452916719746
+      },
+      {
+        "trial": 11,
+        "predicted": 5.403300751134949,
+        "measured": 5.255915511575206,
+        "relative_error": 0.02804178248968303
+      }
+    ],
+    "holdout": [
+      {
+        "trial": 2,
+        "predicted": 2.921049190947744,
+        "measured": 2.833919380565682,
+        "relative_error": 0.03074533840996918
+      },
+      {
+        "trial": 4,
+        "predicted": 4.975789698580945,
+        "measured": 5.096263448045062,
+        "relative_error": -0.023639623557987544
+      },
+      {
+        "trial": 6,
+        "predicted": 3.101764221848806,
+        "measured": 3.1729818929655202,
+        "relative_error": -0.022445029161560326
+      },
+      {
+        "trial": 8,
+        "predicted": 5.098052668894448,
+        "measured": 5.051215701213123,
+        "relative_error": 0.009272414890157288
+      },
+      {
+        "trial": 10,
+        "predicted": 3.462702043527333,
+        "measured": 3.5285936207335302,
+        "relative_error": -0.018673608890246607
+      },
+      {
+        "trial": 12,
+        "predicted": 5.403392629491081,
+        "measured": 5.255501517407799,
+        "relative_error": 0.028140247242517624
+      }
+    ],
+    "max_train_error": 0.030896548294085058,
+    "speed_cross_validation": [
+      {
+        "trial": 1,
+        "omitted_speed": 6.0,
+        "relative_error": 0.07076723259978102
+      },
+      {
+        "trial": 3,
+        "omitted_speed": 6.0,
+        "relative_error": -0.03618288708979944
+      },
+      {
+        "trial": 5,
+        "omitted_speed": 12.0,
+        "relative_error": -0.03318542235179378
+      },
+      {
+        "trial": 7,
+        "omitted_speed": 12.0,
+        "relative_error": 0.013144056793873427
+      },
+      {
+        "trial": 9,
+        "omitted_speed": 20.0,
+        "relative_error": 0.014245336192046487
+      },
+      {
+        "trial": 11,
+        "omitted_speed": 20.0,
+        "relative_error": 0.07978603876322898
+      }
+    ],
+    "max_omitted_speed_error": 0.07978603876322898,
+    "max_holdout_error": 0.03074533840996918
+  },
+  "Base.Van": {
+    "gain_coeff": [
+      0.9327456243058422,
+      0.2656954934769468,
+      0.004024477381253999
+    ],
+    "icr_offset_coeff": [
+      0.9838313939681252,
+      0.016130457436643517,
+      -0.003954096391641435
+    ],
+    "wheelbase": 2.5600120425224304,
+    "max_speed": 65.0,
+    "tau_median": 0.27732352687141837,
+    "train": [
+      {
+        "trial": 13,
+        "predicted": 2.8778711728266404,
+        "measured": 2.796840325718226,
+        "relative_error": 0.028972282172599728
+      },
+      {
+        "trial": 15,
+        "predicted": 4.778408405350748,
+        "measured": 4.889537723676573,
+        "relative_error": -0.022727980558919447
+      },
+      {
+        "trial": 17,
+        "predicted": 3.1165663238003902,
+        "measured": 3.202899535155197,
+        "relative_error": -0.026954704762734094
+      },
+      {
+        "trial": 19,
+        "predicted": 4.917835536982477,
+        "measured": 4.8384343210081235,
+        "relative_error": 0.01641051850793951
+      },
+      {
+        "trial": 21,
+        "predicted": 3.615385293240331,
+        "measured": 3.6794839799890853,
+        "relative_error": -0.017420564159908225
+      },
+      {
+        "trial": 23,
+        "predicted": 5.262326086531768,
+        "measured": 5.134494250778889,
+        "relative_error": 0.02489667521460115
+      }
+    ],
+    "holdout": [
+      {
+        "trial": 14,
+        "predicted": 2.8773543672527047,
+        "measured": 2.7933662459091697,
+        "relative_error": 0.030066992277340665
+      },
+      {
+        "trial": 16,
+        "predicted": 4.778590291664913,
+        "measured": 4.889561416389635,
+        "relative_error": -0.022695517097453988
+      },
+      {
+        "trial": 18,
+        "predicted": 3.1159380678325643,
+        "measured": 3.2031734440183572,
+        "relative_error": -0.027234047019432328
+      },
+      {
+        "trial": 20,
+        "predicted": 4.917482335122753,
+        "measured": 4.838276184999724,
+        "relative_error": 0.016370737654165968
+      },
+      {
+        "trial": 22,
+        "predicted": 3.6142680707379675,
+        "measured": 3.67964099115744,
+        "relative_error": -0.0177661137531
+      },
+      {
+        "trial": 24,
+        "predicted": 5.262554405504986,
+        "measured": 5.13431632380194,
+        "relative_error": 0.0249766616654592
+      }
+    ],
+    "max_train_error": 0.028972282172599728,
+    "speed_cross_validation": [
+      {
+        "trial": 13,
+        "omitted_speed": 6.0,
+        "relative_error": 0.07617628046366054
+      },
+      {
+        "trial": 15,
+        "omitted_speed": 6.0,
+        "relative_error": -0.04213974430942047
+      },
+      {
+        "trial": 17,
+        "omitted_speed": 12.0,
+        "relative_error": -0.03831272741172709
+      },
+      {
+        "trial": 19,
+        "omitted_speed": 12.0,
+        "relative_error": 0.02352594885439241
+      },
+      {
+        "trial": 21,
+        "omitted_speed": 20.0,
+        "relative_error": 0.014086137533821042
+      },
+      {
+        "trial": 23,
+        "omitted_speed": 20.0,
+        "relative_error": 0.06771464991231002
+      }
+    ],
+    "max_omitted_speed_error": 0.07617628046366054,
+    "max_holdout_error": 0.030066992277340665
+  },
+  "Base.PickUpTruck": {
+    "gain_coeff": [
+      0.9383213312280213,
+      0.2466102237804946,
+      0.0032547566954156115
+    ],
+    "icr_offset_coeff": [
+      1.07031012255374,
+      0.039106406263545626,
+      -0.004049858289270118
+    ],
+    "wheelbase": 2.449902057647705,
+    "max_speed": 70.0,
+    "tau_median": 0.27604206049815116,
+    "train": [
+      {
+        "trial": 25,
+        "predicted": 2.70095587764277,
+        "measured": 2.604921298773011,
+        "relative_error": 0.03686659513091395
+      },
+      {
+        "trial": 27,
+        "predicted": 4.56639347180841,
+        "measured": 4.664731765941167,
+        "relative_error": -0.0210812323338202
+      },
+      {
+        "trial": 29,
+        "predicted": 2.9055863442427867,
+        "measured": 2.9915504102554564,
+        "relative_error": -0.028735623413856826
+      },
+      {
+        "trial": 31,
+        "predicted": 4.674690704826843,
+        "measured": 4.655169497447546,
+        "relative_error": 0.004193447175231846
+      },
+      {
+        "trial": 33,
+        "predicted": 3.3187001047262004,
+        "measured": 3.410889768376683,
+        "relative_error": -0.02702803957641753
+      },
+      {
+        "trial": 35,
+        "predicted": 4.943214008522245,
+        "measured": 4.749971003712634,
+        "relative_error": 0.04068298620319366
+      }
+    ],
+    "holdout": [
+      {
+        "trial": 26,
+        "predicted": 2.70096372508748,
+        "measured": 2.604218410597662,
+        "relative_error": 0.037149462616545836
+      },
+      {
+        "trial": 28,
+        "predicted": 4.5663903644196955,
+        "measured": 4.664469434902731,
+        "relative_error": -0.021026843856911448
+      },
+      {
+        "trial": 30,
+        "predicted": 2.905712915404991,
+        "measured": 2.9913591288611596,
+        "relative_error": -0.02863120400016117
+      },
+      {
+        "trial": 32,
+        "predicted": 4.674580840002772,
+        "measured": 4.655298865832788,
+        "relative_error": 0.004141941199844901
+      },
+      {
+        "trial": 34,
+        "predicted": 3.3188294356990617,
+        "measured": 3.411238984393082,
+        "relative_error": -0.027089731653750282
+      },
+      {
+        "trial": 36,
+        "predicted": 4.943271790122529,
+        "measured": 4.749891508245038,
+        "relative_error": 0.040712568180097275
+      }
+    ],
+    "max_train_error": 0.04068298620319366,
+    "speed_cross_validation": [
+      {
+        "trial": 25,
+        "omitted_speed": 6.0,
+        "relative_error": 0.09570481026272137
+      },
+      {
+        "trial": 27,
+        "omitted_speed": 6.0,
+        "relative_error": -0.032329480288624035
+      },
+      {
+        "trial": 29,
+        "omitted_speed": 12.0,
+        "relative_error": -0.041987999142613974
+      },
+      {
+        "trial": 31,
+        "omitted_speed": 12.0,
+        "relative_error": 0.004187994661371874
+      },
+      {
+        "trial": 33,
+        "omitted_speed": 20.0,
+        "relative_error": 0.03148265950425455
+      },
+      {
+        "trial": 35,
+        "omitted_speed": 20.0,
+        "relative_error": 0.12218713795948921
+      }
+    ],
+    "max_omitted_speed_error": 0.12218713795948921,
+    "max_holdout_error": 0.040712568180097275
+  }
+}

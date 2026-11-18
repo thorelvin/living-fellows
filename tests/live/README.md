@@ -464,6 +464,44 @@ lane scan every 250 ms. Add `-DrivingScreenshotDirectory` to capture
     -DrivingScreenshotDirectory .\build\driving-shots
 ```
 
+`-DrivingProbe -DrivingCalibrationProbe` records intersection Phase 0 on the
+unchanged driving implementation. Use `-LivingFellowsOnly -NoSteam
+-IsolatedSourceBridge -EngineSound -HiddenWindow -TimeoutSeconds 3600` and an
+explicit `-SeedSave`. It constructs a native asphalt pad in the checked open
+field near 6444,5461, then measures `CarNormal`, `Van` and `PickUpTruck`. Each
+car has twelve cases: cruise targets 6/12/20 km/h, each with inputs
+`+1,-1,+0.5,-0.5`. Every case provisions a fresh, full-condition car and key
+before measuring, boards a real companion through the ordinary vehicle API,
+then records the native wheel angle, controller angle, speed, position, tyre
+skid and surface about every 50 ms. No repairs or pose/velocity writes occur
+during measurement. Zombie contact, body damage or leaving the pad rejects a
+circle. Ordinary native tyre/suspension wear is recorded separately, together
+with tyre condition, pressure and friction; it is never repaired mid-trial.
+Once a circle is complete, two additional two-second steering steps record
+wheel easing at cruising speed, under the separate `response` mode.
+Debug mode is used for read-only access to unexposed native telemetry.
+
+After the circles it records the existing driver on four real planner routes:
+four-way, T, angled and a crossing followed by a curve. Baseline contact,
+damage and blockage remain in the evidence; recorder PASS is not clean-turn
+acceptance. `-DrivingCalibrationCases '1,13,25'` repeats a subset and the roads;
+`-DrivingCalibrationCases baseline` records just the roads.
+Use `-DrivingCalibrationBaseline curve_crossing` to repeat one road fixture.
+The roadside observer is centred over the route's complete bounds, keeping
+the native physics window loaded through the curve and final approach.
+Files are `phase0-tracks-csv.txt` and `phase0-{geometry,routes,trials,parts}-tsv.txt` under the
+clone's `Lua/SurvivorCompanionHarness`. These suffixes respect the game's file
+extension allowlist. Keep measured cruise targets distinct from actual speeds
+and fit steady tracks separately from wheel easing. The probe changes no
+production driving code and never controls zombie navigation.
+
+Analyze the retained files with `python tests/live/analyze_intersection_phase0.py
+<clone-Lua/SurvivorCompanionHarness> --out <analysis-directory>` (NumPy and
+SciPy required). The output separates measured body-origin and rear-axle radii,
+the initial wheel response, fitted coefficients and opposite-direction checks.
+The empirical model is limited to the measured asphalt, roadworthy-car domain;
+it does not establish acceptance for new corner behavior.
+
 `-DrivingProbe -ConvoyProbe` checks a recruited companion assigned to a second
 car. The disposable save seats the real player in a lead car, applies native
 accelerator and brake inputs through a harness-only bridge helper, and verifies

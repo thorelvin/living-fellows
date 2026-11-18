@@ -1,0 +1,180 @@
+Intersection turning: Phase 0 measurements
+2026-11-18 / reserved release 0.27.36 / base 0.27.35
+
+Phase 0 complete. The wheelbase rule is settled, the steering mapping was
+re-derived and checked, four raw junction fixtures are saved, and the exact
+0.27.34 release completed all four native baselines with zero recorded zombie-
+contact kills and no body damage.
+Phase 1 is not implemented. Production source, bridge, version metadata and
+the local installed release are unchanged by this work.
+
+Runtime and evidence
+
+Project Zomboid 42.22.2, Java 25; pinned game JAR SHA-256:
+3c4a7c5f149d784758c6fb5f8fa85f3a21d572e38bc081400e89035f8120d287
+Release base: 291f5741c58dc16db4ea775a66efe0e1daea9535 (0.27.35).
+Exact native road baseline: 25b8105c312eb551a06dbc033f3ab250fae12199 (0.27.34).
+All 31 compiled classes/nested classes for DrivePath, RoadFollower,
+CompanionDriver, RoadRouter, DriveControl, LaneScan and TurnAround are identical
+between those two release JARs. Hashes are in recordings.json.
+
+Compact evidence: tests/live/fixtures/intersection-phase0-42.22.2/.
+Raw recordings, analysis, bytecode extracts, plots and calibrated scratch model:
+C:/ZOMBOID/outputs/intersection-phase0-02736/.
+Accepted case-to-run mapping and file hashes are in recordings.json; the full
+local mapping is combined/provenance.json. Every run used a fresh disposable
+clone of the same read-only seed. Bring-up/invalid attempts are not counted.
+
+Method and quality
+
+36 circles: three stock scripts, cruise targets 6/12/20 km/h, each with inputs
++1,-1,+0.5,-0.5. Actual steady speeds are roughly 5/11/19 km/h because the
+ordinary cruise controller coasts below its target. Analysis uses actual speed.
+A radius-25 open area at 6428.5,5445.5 received ordinary native asphalt floors
+before measurement. Each trial provisioned a fresh car at full part/item
+condition, full tyre pressure, fuel, battery and a real key. Factory part types
+were retained. The companion boarded through the normal vehicle API and drove
+through SC.Driving / native CarController / physics. No pose, velocity, repair
+or stat writes occurred during measurement. No zombie navigation, targeting,
+population, movement or state overrides were used. Background LF decisions and
+arrivals were isolated in the disposable fixture.
+
+The recorder rejects body damage, driver injury, zombie contact or leaving
+the pad. Ordinary native tyre/suspension/brake/muffler wear is recorded rather
+than repaired. Part-condition/pressure/friction traces distinguish it from a
+collision. One false recorder wear rejection and one natural zombie-contact
+attempt were discarded and repeated. Initial exploratory grass data is retained
+outside the accepted asphalt matrix.
+
+Circle fits use samples after ten seconds of the measured steering input.
+36/36 pass; minimum steady rotation 6.551 rad; max circle-fit RMS 0.00855 tiles; max sample gap 74 ms.
+All accepted circles have driver health 100, zero zombie contacts, unchanged
+body condition and asphalt-only centre samples. Max steady controller-to-wheel
+angle difference is 0.003398 rad.
+Pose-derived speed/native speed ratios are
+0.99622..1.00228.
+
+Car geometry (scaled native collision extents, tiles)
+
+Script                   W      H      L   Wheelbase  WB/body  Max kmh  Left err  Omit-speed
+Base.CarNormal       1.620  1.180  4.740  2.65993   56.12%      90    3.07%    7.98%
+Base.Van             1.700  1.320  4.240  2.56001   60.38%      65    3.01%    7.62%
+Base.PickUpTruck     1.580  1.200  3.980  2.44990   61.56%      70    4.07%   12.22%
+
+All three scripts have modelScale=1.82 and steeringClamp=0.3. Full wheel offsets
+and front flags are in car-geometry.tsv. Wheelbase = abs(mean(front.offset.z)
+- mean(rear.offset.z)), with offsets AS-IS. VehicleScript.Loaded() already
+multiplies them by modelScale. Applying it again gives a wheelbase longer than
+the collision body (102..112%); that is wrong. Extents are already scaled too.
+VehicleScript.maxSpeed is a public field; it has no getMaxSpeed() method.
+
+Steering mapping
+
+The requested input reaches the wheels as an angle in radians, with reversed
+native sign: positive input produces negative CarController.vehicleSteering
+and a clockwise world turn. At these speeds the clamp is:
+  clamp(v) = 0.3 + 0.6 * (1 - min(1, abs(v) / script.maxSpeed)).
+
+For abs(input)>0.1 the engine eases toward the UNCLAMPED negative input, then
+clamps. Per update the factor is 0.06 * (GameTime.multiplier/0.8) *
+max(0.1,1-speed/maxSpeed). For abs(input)<=0.1 it centres at 0.04 rad times
+that time factor, with a 0.04-rad snap. A simulator that eases toward the
+already-clamped angle or treats all small inputs proportionally is inaccurate.
+
+Initial measured exponential time constants are
+0.2702..0.2807s.
+Nine additional unclipped moving response fits after completed circles give
+0.2823..0.3743s,
+matching the speed/maxSpeed factor. Detailed fits are in steering-response.csv.
+Clipped full-input tails are excluded rather than treated as exponential data.
+
+The simple R=L/tan(delta) formula misses the vehicle-origin circle by up to
+29.77% and still misses the reconstructed rear-axle circle by
+24.18%. It fails the plan's 15% condition. The body origin is
+ahead of the rear axle; native tyre slip adds a further difference.
+
+Re-derived body-origin radius model, with v=actual_kmh/3.6 and delta the actual
+steady controller/wheel angle:
+  R_body = L/tan(abs(delta)) * (a0 + a1*tan(delta)^2 + a2*v^2).
+Base.CarNormal: a0=0.940947862, a1=0.249484735, a2=0.003391828
+Base.Van: a0=0.932745624, a1=0.265695493, a2=0.004024477
+Base.PickUpTruck: a0=0.938321331, a1=0.246610224, a2=0.003254757
+
+Coefficients are fitted using the six positive-input cases per car and checked
+against the six negative-input cases: worst error 4.07%. Fitting on two cruise
+targets and checking the omitted target gives worst error 12.22%. Both meet the
+15% Phase 0 tolerance. This is an empirical model of this measured asphalt /
+roadworthy-car domain, not a universal tyre model. Inputs below 0.5, higher
+speeds, damaged/missing tyres, rain/snow and off-road remain uncalibrated.
+The model also fits the body-origin velocity direction from the measured
+instantaneous centre of rotation; see mapping.json and the scratch model.
+
+Junction fixtures and exact 0.27.34 baseline
+
+four_way           77.299s  arrived  contacts=0  body condition change=0
+t_junction         22.467s  arrived  contacts=0  body condition change=0
+angled             22.266s  arrived  contacts=0  body condition change=0
+curve_crossing     54.318s  arrived  contacts=0  body condition change=0
+
+Raw planRoadRoute geometry/fingerprints are stored byte-for-byte in junctions.tsv.
+Four-way: Casey Road / Victoria St, width 6, one inferred crossing.
+T: Pitts St / Rogers Av, width 8, explicit short entry/link points.
+Angled: Darling Lane / Barn Row Road, width 8. Its 1.77-tile connector yields
+a 90-degree bend followed by -45 degrees, rather than one clean 45-degree bend.
+Keep this fixture when testing the planned sharp fallback and corner grouping.
+Curve: Granite St / Walnut St, widths 8 then 6, thirteen geometry points.
+Its bends include 26.57,18.43,11.31,33.69 degrees in one curve. A scan of the
+installed non-rail street polylines found 54 bends between 0.01 and 12 degrees
+among 2,252 internal vertices, with a maximum same-sign small-bend run of two.
+The existing map therefore does not support assuming every long curve is a
+sequence of tiny (<12-degree) vertices. Other maps are not covered by this scan.
+
+The four-way native trace releases the 6 km/h corner request to 30 km/h at
+66.466s, position 7104.852,8320.195, with about 66.19 degrees still between the
+car's heading and the exit leg. This confirms that the old speed limit can end
+while the physical turn is still in progress. Traces include startup/physics
+loading delays, so their total durations are not a turn-performance benchmark.
+
+The first curve baseline hit the observer-centred native physics boundary at
+x=5911.883 with the observer at x=5972. Repeating the same release and route
+with the observer centred over the whole route arrived cleanly in 54.318s.
+The earlier blocked recording is retained and excluded from the clean baseline.
+
+Scratch comparison repeated with the calibrated car
+
+The old simulation remains untouched. A separate copy under calibrated-sim/
+adds the measured extents/wheelbase/maxSpeed, body-origin radius and velocity
+direction, unclamped-input easing, speed dependence and small-input centring.
+The original prototype route/corner/follower switches remain experimental.
+All three profiles were rerun with cruise capped at 20 km/h; 30/50 km/h runs
+are retained separately as extrapolation, not native-calibrated evidence.
+
+Example sedan, north approach, 90 degrees, capped at 20; max distance from the
+prototype ideal lane line, including the final straight:
+                     Existing   Arcs only   Arcs + prototype global curvature
+Right / width 8        2.03        1.22        1.56 tiles
+Right / width 12       4.11        1.06        1.56 tiles
+Left / width 8         2.07        2.53        1.56 tiles
+
+Rounded right turns still improve in this model. The old ~0.5-tile numerical
+promise is not supported. The prototype applies curvature steering globally
+and its largest deviation is often on the final straight; the actual plan
+limits that steering to corner zones. It must meet its own native acceptance
+tests after implementation. No simulation result here is a Phase 1 pass.
+
+Checks and next work
+
+Native circle matrix: 36/36 independently quality-checked completed cases.
+Native road baselines: 4/4 exact 0.27.34, arrived, zero recorded zombie-contact
+kills and no body damage.
+Kahlua compiler from the pinned game: measurement module and dispatch compile.
+Windows PowerShell 5.1 parser and git diff --check pass. The Python analyzer
+re-derives the saved summary/model from the retained CSV/TSV recordings.
+Full release gates were not run: this changes test tooling, fixtures and docs.
+
+Phase 0 exit condition is met. Before/with Phase 1, use this calibrated model
+instead of the old 32-degree/2.6 approximation; retain the short opposing-bend
+and mixed-width curve fixtures; validate the body-origin radius and low-input
+behavior in corner zones. Preserve existing convoy, approach and parking
+commands. The reported player's exact wide corner is still unlocated.
+0.27.36 remains reserved for the eventual intersection-turn release.

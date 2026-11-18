@@ -3778,6 +3778,10 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
 end
 
 function Probe.step(H, current, check, result, setPhase)
+    if H.config.driving_calibration_probe == "true" then
+        require("SCIntersectionPhase0Probe").step(H, current, check, result, setPhase)
+        return
+    end
     local SC = SurvivorCompanion
     if H.phase == "drive_setup" then
         if H.config.pickup_service_probe=="true" and H.config.pickup_resume=="true" then
