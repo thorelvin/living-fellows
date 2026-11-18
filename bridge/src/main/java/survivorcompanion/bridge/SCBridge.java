@@ -1705,6 +1705,13 @@ public final class SCBridge {
             put(out, "cornerFallbacks", follower.cornerFallbacks());
             if (Float.isFinite(follower.laneError())) put(out, "laneError", follower.laneError());
             put(out, "maxLaneError", follower.maxLaneError());
+            SCDrivePath.Corner activeCorner = follower.activeCorner();
+            if (activeCorner != null) {
+                put(out, "activeCornerStart", activeCorner.start());
+                put(out, "activeCornerEnd", activeCorner.end());
+                put(out, "activeCornerAngle", activeCorner.angle());
+                put(out, "activeCornerArc", activeCorner.arc());
+            }
             put(out, "swerves", follower.swerves());
             put(out, "backoffs", follower.backoffs());
             put(out, "blockedAt", follower.blockedAt());

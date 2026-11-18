@@ -152,7 +152,7 @@ local function findPavedRoad(U, px, py)
     return nil
 end
 
-local function findRoad(U, px, py, allowPavement)
+local function findRoad(U, px, py, allowPavement, requiredAxisX)
     local seen, reasons = {}, {}
     for radius = 0, 66, 3 do
         for dx = -radius, radius, 3 do
@@ -164,7 +164,7 @@ local function findRoad(U, px, py, allowPavement)
                         seen[zone] = true
                         if tostring(call(zone, "getType")) == "Nav" then
                             local road, why = roadFromZone(U, zone, px, py)
-                            if road then return road end
+                            if road and (requiredAxisX==nil or road.ax==requiredAxisX) then return road end
                             if #reasons < 4 then reasons[#reasons + 1] = why end
                         end
                     end
@@ -887,7 +887,7 @@ end
 
 -- A side street: a Nav zone across this road that meets it, long enough to
 -- drive 26 tiles up, with 33 open tiles of this road before the junction.
-local function findJunction(U, road, px, py)
+local function findJunction(U, road, px, py, side)
     local horizontal = road.ax == 1
     local bandLo = horizontal and road.by or road.bx
     local bandHi = bandLo + (horizontal and road.bh or road.bw)
@@ -912,17 +912,25 @@ local function findJunction(U, road, px, py)
                         local reachHi = reachLo + (horizontal and h or w)
                         local centre = (sideLo + sideHi) / 2
                         local touches = reachHi >= bandLo - 2 and reachLo <= bandHi + 2
-                        local roomBefore = centre - 33 >= runLo
                         local outward = reachLo < bandLo - 20 and -1 or reachHi > bandHi + 20 and 1 or 0
+                        local sign=1
+                        if side and side~="" then
+                            sign=(side=="Right" and 1 or -1)*outward*(horizontal and 1 or -1)
+                        end
+                        local roomBefore = sign>0 and centre-33>=runLo or sign<0 and centre+33<=runHi
                         if across and touches and roomBefore and outward ~= 0
                             and (sideHi - sideLo) >= 5 and (sideHi - sideLo) <= 24 then
-                            local open = horizontal
-                                and corridorOpen(U, centre - 33, line, centre - 4, line, 1, 0)
-                                or corridorOpen(U, line, centre - 33, line, centre - 4, 0, 1)
+                            local open
+                            if horizontal then
+                                open=corridorOpen(U, centre - 33*sign, line, centre - 4*sign, line, sign, 0)
+                            else
+                                open=corridorOpen(U, line, centre - 33*sign, line, centre - 4*sign, 0, sign)
+                            end
                             if open then
                                 local distance = math.abs(centre - (horizontal and px or py))
                                 if best == nil or distance < bestDistance then
                                     best = { centre = centre, outward = outward,
+                                        approachSign=sign,
                                         width = sideHi - sideLo,
                                         zone = x .. "," .. y .. "," .. w .. "x" .. h }
                                     bestDistance = distance
@@ -941,9 +949,12 @@ end
 
 local function setupRoad(H, SC, check, result, setPhase, current)
     local U = SC.GameplayUtil
-    if not check("drive_bridge_api", SC.Driving and SC.Driving.available(),
-        "SCBridge driving calls are exposed") then
-        setPhase("finish", current) return
+    if not H.driveBridgeChecked then
+        if not check("drive_bridge_api", SC.Driving and SC.Driving.available(),
+            "SCBridge driving calls are exposed") then
+            setPhase("finish", current) return
+        end
+        H.driveBridgeChecked=true
     end
     segmentHalf = H.config.convoy_probe == "true" and 60
         or H.config.team_drive_scavenge_probe == "true" and 18 or
@@ -957,8 +968,21 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         or H.config.taxi_call_probe == "true")
         and ROUTE_SEGMENT_HALF or SEGMENT_HALF
     local px, py = U.position(H.player)
+    local measuredJunction=(H.config.driving_turn_side or "")~="" or H.config.team_drive_junction_probe=="true"
+    if measuredJunction then
+        -- The measured Casey/Victoria fixture is identical for both directions
+        -- and old/new bridges. Finish streaming before finding its native zones.
+        if not H.turnFixtureLoadAt then
+            H.player:teleportTo(7078.5,8318.5,0)
+            H.turnFixtureLoadAt=current
+            return
+        end
+        if current-H.turnFixtureLoadAt<10000 then return end
+        px,py=7078,8318
+    end
     local road, why = findRoad(U, math.floor(px), math.floor(py),
-        H.config.team_drive_scavenge_probe == "true")
+        H.config.team_drive_scavenge_probe == "true",
+        measuredJunction and 1 or nil)
     if road and H.config.team_drive_scavenge_probe == "true" then
         local _, routeWhy, native = SC.ExpeditionRoute.planFromPoint(
             { x = road.cx, y = road.cy, z = 0 },
@@ -989,7 +1013,9 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         setPhase("finish", current) return
     end
     if H.config.driving_turn == "true" then
-        local junction, junctionWhy = findJunction(U, road, math.floor(px), math.floor(py))
+        local sideTest=(H.config.driving_turn_side or "")~=""
+        local junction, junctionWhy = findJunction(U, road, sideTest and 7107 or math.floor(px),
+            sideTest and 8318 or math.floor(py), H.config.driving_turn_side)
         if not check("drive_street_junction", junction ~= nil, junction and ("side street "
                 .. junction.zone .. " meets this road at " .. fmt(junction.centre) .. ", running "
                 .. (junction.outward < 0 and "north/west" or "south/east") .. ", "
@@ -1002,19 +1028,21 @@ local function setupRoad(H, SC, check, result, setPhase, current)
         local bandHi = bandLo + (horizontal and road.bh or road.bw)
         local edge = junction.outward < 0 and bandLo or bandHi
         local goalAcross = edge + junction.outward * 26
+        local sign=junction.approachSign or 1
         -- Start 28 tiles before the junction, heading towards it.
         if horizontal then
-            road.sx, road.sy = junction.centre - 33, line
-            road.ex, road.ey = junction.centre + 10, line
+            road.sx, road.sy = junction.centre - 33*sign, line
+            road.ex, road.ey = junction.centre + 10*sign, line
             road.cx, road.cy = junction.centre, line
             road.goal = { x = junction.centre, y = goalAcross }
         else
-            road.sx, road.sy = line, junction.centre - 33
-            road.ex, road.ey = line, junction.centre + 10
+            road.sx, road.sy = line, junction.centre - 33*sign
+            road.ex, road.ey = line, junction.centre + 10*sign
             road.cx, road.cy = line, junction.centre
             road.goal = { x = goalAcross, y = junction.centre }
         end
         road.junction = junction
+        road.approachSign=sign
     end
     -- Watch from the roadside, off the lane.
     local normalX, normalY = -road.ay, road.ax
@@ -1051,8 +1079,15 @@ local function setupRoad(H, SC, check, result, setPhase, current)
                 or "no clear roadside square near saved car") then
         setPhase("finish", current) return
     end
+    if (H.config.driving_turn_side or "")~="" then
+        watch=require("SCIntersectionTurnRecorder").observer(U,road)
+        if not check("turn_sheltered_observer",watch~=nil,
+                watch and (watch.x..","..watch.y..","..watch.z) or "no clear upstairs room") then
+            setPhase("finish",current) return
+        end
+    end
     if watch then
-        pcall(function() H.player:teleportTo(watch.x + 0.5, watch.y + 0.5, 0) end)
+        pcall(function() H.player:teleportTo(watch.x + 0.5, watch.y + 0.5, watch.z or 0) end)
     end
     pcall(function() getGameTime():setTimeOfDay(12.0) end)
     result("PASS", "drive_observer_placed", watch and (watch.x .. "," .. watch.y)
@@ -1072,15 +1107,28 @@ local function spawnCar(H, SC, check, result, setPhase, current, test)
     local westScavenge = H.config.team_drive_scavenge_probe == "true"
         and H.config.team_drive_obstacle_probe ~= "true"
     local dirX, dirY = road.ax, road.ay
-    if flip or westScavenge then dirX, dirY = -dirX, -dirY end
+    local sideTest=(H.config.driving_turn_side or "")~=""
+    if sideTest then dirX,dirY=dirX*road.approachSign,dirY*road.approachSign
+    elseif flip or westScavenge then dirX, dirY = -dirX, -dirY end
     local startX = westScavenge and road.sx + road.ax * 5
         or (flip and road.ex or road.sx) + dirX * 5
     local startY = westScavenge and road.sy + road.ay * 5
         or (flip and road.ey or road.sy) + dirY * 5
+    if sideTest then
+        local offset=road.width>=6 and road.width/4 or 0
+        startX=road.sx+dirX*5-dirY*offset
+        startY=road.sy+dirY*5+dirX*offset
+    end
     local square = U.gridSquare(math.floor(startX), math.floor(startY), 0)
     local facingBack = flip or westScavenge
     local direction = road.ax == 1 and (facingBack and IsoDirections.W or IsoDirections.E)
         or (facingBack and IsoDirections.N or IsoDirections.S)
+    if sideTest then
+        local positive=(dirX+dirY)>0
+        if flip then positive=not positive end
+        direction=road.ax==1 and (positive and IsoDirections.E or IsoDirections.W)
+            or (positive and IsoDirections.S or IsoDirections.N)
+    end
     local script = H.config.taxi_passenger_probe == "true"
         and "Base.CarTaxi" or SCRIPT
     local ok, vehicle = pcall(addVehicleDebug, script, direction, nil, square)
@@ -1124,6 +1172,19 @@ local function spawnCar(H, SC, check, result, setPhase, current, test)
     result("PASS", "drive_car_spawned", script .. " at " .. fmt(vehicle:getX()) .. ","
         .. fmt(vehicle:getY()) .. " facing " .. fmt(fx) .. "," .. fmt(fy)
         .. " (" .. tostring(direction) .. ", heading " .. fmt(math.deg(theta)) .. " deg)")
+    if sideTest or H.config.team_drive_junction_probe=="true" then
+        -- Roadworthy fixture, completed before driving. Never repair in a trial.
+        for i=0,vehicle:getPartCount()-1 do
+            local part=vehicle:getPartByIndex(i)
+            part:setCondition(100)
+            local item=part:getInventoryItem()
+            if item then item:setCondition(item:getConditionMax()) end
+            if string.find(part:getId(),"Tire",1,true) then
+                part:setContainerContentAmount(part:getContainerCapacity())
+            end
+        end
+        vehicle:updatePartStats()
+    end
     -- Fuel and battery, so the engine test measures driving, not a dead car.
     local tank = call(vehicle, "getPartById", "GasTank")
     if tank then call(tank, "setContainerContentAmount", call(tank, "getContainerCapacity") or 0) end
@@ -1753,6 +1814,12 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
     local car = test.vehicle
     if H.phase == "drive_team_setup" then
         if current - H.phaseStartedAt < 1200 then return end
+        local freshRecords,rosterWhy
+        if H.config.team_drive_junction_probe=="true" then
+            freshRecords,rosterWhy=require("SCIntersectionExpeditionFixture").roster(SC,test,current)
+            if freshRecords==false then result("FAIL","team_drive_fixture_roster",tostring(rosterWhy));setPhase("finish",current) return end
+            if not freshRecords then return end
+        end
         local x, y = math.floor(car:getX()), math.floor(car:getY())
         local base = SC.BaseLife.active()
         if not base then
@@ -1777,15 +1844,15 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
         if not check("team_drive_parking_marked", parkingOk == true,
             tostring(parkingWhy)) then setPhase("finish", current) return end
         test.parking = parkingWhy
-        local records = {}
-        for _, record in ipairs(SC.Registry.records()) do
+        local records = freshRecords or {}
+        if not freshRecords then for _, record in ipairs(SC.Registry.records()) do
             if record.actor and SC.Registry.isActive(record.actor, record.id)
                 and SC.Actor.validateNative(record.actor)
                 and not record.actor:isDead() then
                 records[#records + 1] = record
                 if #records == 3 then break end
             end
-        end
+        end end
         if not check("team_drive_roster", #records >= 2,
             "active=" .. tostring(#records)) then
             setPhase("finish", current) return
@@ -1834,7 +1901,11 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 .. ";" .. fmt(poly.x4) .. "," .. fmt(poly.y4))
         local scavenge = H.config.team_drive_scavenge_probe == "true"
         local destination, site, inspected, why
-        if scavenge then
+        if H.config.team_drive_junction_probe=="true" then
+            destination,inspected,why=require("SCIntersectionExpeditionFixture").choose(SC,records,car,test.parking.id,
+                H.config.team_drive_stop_screenshot=="true")
+            if not check("team_drive_two_junctions",destination~=nil,tostring(why)) then setPhase("finish",current) return end
+        elseif scavenge then
             destination, site, inspected, why = scavengeDestination(
                 H, SC, test, records, car)
         else
@@ -1880,6 +1951,9 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 vehicleSqlId = car:getSqlId() })
         if not check("team_drive_dispatched", started == true,
             tostring(startWhy)) then setPhase("finish", current) return end
+        if H.config.team_drive_junction_probe=="true" then
+            test.junctionReceipt=require("SCIntersectionExpeditionFixture").begin(car,records[1].actor,inspected.route)
+        end
         test.startedAt, test.lastState, test.scavenge = current, nil, scavenge
         test.scavengeSite, test.scavengeDestination = site, destination
         setPhase("drive_team_running", current)
@@ -1889,7 +1963,7 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
     local mission = SC.ExpeditionPrototype.current()
     local trip = mission and mission.scout and mission.scout.vehicle
     local state = trip and trip.state or "mission_finished"
-    if H.clearZombiesNear
+    if H.config.team_drive_junction_probe~="true" and H.clearZombiesNear
         and current - (test.lastSiteClearAt or 0) >= 1000 then
         -- This probe measures entry, looting, and driving. Keep combat from
         -- ending the expedition before those phases can be observed.
@@ -1902,6 +1976,10 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
         end
         if car then H.clearZombiesNear(car, 18) end
         test.lastSiteClearAt = current
+    end
+    if test.junctionReceipt then
+        local done=require("SCIntersectionExpeditionFixture").observe(SC,test,current,state,check,result)
+        if done then setPhase("finish",current) return end
     end
     if H.config.team_drive_obstacle_probe == "true"
         and state == "parked_at_site" and not test.returnRequested then
@@ -2112,6 +2190,8 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
                 end
             end
         end
+        if H.config.team_drive_stop_screenshot=="true"
+            and not require("SCIntersectionExpeditionFixture").stopScreenshot(H,SC,test,current,result) then return end
         result("FAIL", "team_drive_full_trip", "state=" .. state
             .. " blocker=" .. tostring(trip.blocker))
         setPhase("finish", current) return
@@ -2473,16 +2553,19 @@ local function streetStep(H, SC, current, check, result, setPhase, test)
         test.routeEnd = { x = last.x, y = last.y }
         test.startHeading = heading(vehicle)
         test.legParts = partCondition(vehicle)
-        local following, followWhy = SC.Driving.followRoute(actor, route, ROUTE_KMH)
+        local sideTest=(H.config.driving_turn_side or "")~=""
+        local following, followWhy = SC.Driving.followRoute(actor, route, sideTest and 30 or ROUTE_KMH)
         if not check("drive_street_follow_started", following == true, tostring(followWhy)) then
             setPhase("finish", current) return
         end
+        if sideTest then require("SCIntersectionTurnRecorder").start(H,SC,test,current,route) end
         setPhase("drive_street_go", current)
         return
     end
 
     if H.phase == "drive_street_go" then
         local status = SC.Driving.status(actor) or {}
+        if test.turnReceipt then require("SCIntersectionTurnRecorder").sample(H,test,current,status) end
         local turned = math.deg(wrap(heading(vehicle) - test.startHeading))
         test.maxTurned = math.max(test.maxTurned or 0, math.abs(turned))
         if math.abs(turned) >= 35 and math.abs(turned) <= 70 then
@@ -2501,6 +2584,12 @@ local function streetStep(H, SC, current, check, result, setPhase, test)
             test.blockedSince = nil
         end
         if status.mode == "arrived" then
+            if test.turnReceipt then require("SCIntersectionTurnRecorder").finish(H,test,current,status,check,result) end
+            if test.turnReceipt then
+                check("turn_requested_side",H.config.driving_turn_side=="Right" and turned>=60
+                    or H.config.driving_turn_side=="Left" and turned<=-60,
+                    "side="..H.config.driving_turn_side.." turned="..turned)
+            end
             local miss = math.sqrt((vehicle:getX() - test.routeEnd.x) ^ 2
                 + (vehicle:getY() - test.routeEnd.y) ^ 2)
             check("drive_street_to_street", miss <= 4 and math.abs(turned) >= 60,
@@ -3778,6 +3867,14 @@ local function convoyStep(H, SC, current, check, result, setPhase, test)
 end
 
 function Probe.step(H, current, check, result, setPhase)
+    if H.config.team_drive_stop_screenshot=="true" then
+        require("SCIntersectionExpeditionFixture").savedStopScreenshot(H,SurvivorCompanion,current,check,result,setPhase)
+        return
+    end
+    if H.config.companion_convoy_probe=="true" then
+        require("SCCompanionConvoyProbe").step(H,current,check,result,setPhase)
+        return
+    end
     if H.config.driving_calibration_probe == "true" then
         require("SCIntersectionPhase0Probe").step(H, current, check, result, setPhase)
         return
@@ -4179,6 +4276,9 @@ function Probe.step(H, current, check, result, setPhase)
 
     if H.phase == "drive_release" then
         if not stationary(vehicle) then return end
+        -- The legacy probe's 0.6 threshold is above Vehicle.exit's 0.5 limit.
+        -- Let the accepted turn settle fully before testing its seat exit.
+        if test.turnReceipt and math.abs(vehicle:getCurrentSpeedKmHour())>0.3 then return end
         local released = SC.Driving.release(actor)
         local status = SC.Driving.status(actor) or {}
         check("drive_release_wheel", released == true and status.active == false,

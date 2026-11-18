@@ -75,6 +75,18 @@ final class SCDriveControl {
 
     static Input cruise(float speedKmh, float targetKmh, float steering, float obstacleTiles,
                         float holdGap) {
+        return cruiseBand(speedKmh, targetKmh, steering, obstacleTiles, holdGap,
+                SPEED_UP_BELOW_KMH, BRAKE_ABOVE_KMH);
+    }
+
+    /** Hold a checked corner's moving target without the road-cruise dead band. */
+    static Input corner(float speedKmh, float targetKmh, float steering, float obstacleTiles,
+                        float holdGap) {
+        return cruiseBand(speedKmh, targetKmh, steering, obstacleTiles, holdGap, 0.15f, 0.25f);
+    }
+
+    private static Input cruiseBand(float speedKmh, float targetKmh, float steering, float obstacleTiles,
+                                   float holdGap, float accelerateBelow, float brakeAbove) {
         float steer = clampSteering(steering);
         if (!(speedKmh == speedKmh)) return new Input(steer, false, false, true);
         if (targetKmh <= 0.0f || mustStop(speedKmh, obstacleTiles, holdGap)) {
@@ -85,8 +97,8 @@ final class SCDriveControl {
             return new Input(steer, false, false, rolling);
         }
         if (speedKmh < -STOPPED_KMH) return new Input(steer, false, false, true);
-        if (speedKmh < targetKmh - SPEED_UP_BELOW_KMH) return new Input(steer, true, false, false);
-        if (speedKmh > targetKmh + BRAKE_ABOVE_KMH) return new Input(steer, false, false, true);
+        if (speedKmh < targetKmh - accelerateBelow) return new Input(steer, true, false, false);
+        if (speedKmh > targetKmh + brakeAbove) return new Input(steer, false, false, true);
         return new Input(steer, false, false, false);
     }
 

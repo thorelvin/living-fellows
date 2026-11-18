@@ -98,6 +98,15 @@ public final class SCCompanionDrivingTest {
         SCDriveControl.Input unknownSpeed = SCDriveControl.cruise(Float.NaN, 10.0f, 0.0f, -1.0f);
         require(unknownSpeed.brake() && !unknownSpeed.forward(),
                 "an unreadable speed brakes");
+        SCDriveControl.Input cornerLow=SCDriveControl.corner(5.4f,6,0,-1,SCDriveControl.HOLD_GAP_TILES);
+        require(cornerLow.forward() && !cornerLow.brake(),"a checked corner recovers its requested six km/h");
+        SCDriveControl.Input cornerHigh=SCDriveControl.corner(6.4f,6,0,-1,SCDriveControl.HOLD_GAP_TILES);
+        require(cornerHigh.brake() && !cornerHigh.forward(),"a checked corner brakes small speed overruns");
+        require(SCDriveControl.corner(6,6,0,2,SCDriveControl.HOLD_GAP_TILES).brake(),
+                "corner speed control retains the physical bumper hold gap");
+        require(SCDriveControl.corner(Float.NaN,6,0,-1,SCDriveControl.HOLD_GAP_TILES).brake()
+                        && SCDriveControl.corner(-2,6,0,-1,SCDriveControl.HOLD_GAP_TILES).brake(),
+                "corner speed control retains unreadable-speed and rolling-backward brakes");
 
         require(SCDriveControl.stoppingDistance(0.0f) == 1.5f
                         && SCDriveControl.stoppingDistance(10.0f) > SCDriveControl.stoppingDistance(0.0f)

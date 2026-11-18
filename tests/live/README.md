@@ -722,3 +722,89 @@ this into a close-follow test. The trace includes movement ownership, input age,
 decision age and the blocking companion's movement and separation. The reported
 gaps and pauses are diagnostic measurements; completing the route alone does
 not prove that following is smooth.
+
+## Lane-to-lane junction acceptance
+
+`-DrivingProbe -DrivingTurn -DrivingTurnSide Right` (or `Left`) uses the same
+Casey Road / Victoria St junction and pins the horizontal approach. A native
+upstairs room keeps the observer physically away from the road. Fixture car
+preparation ends before driving; the recorder then only reads actual movement,
+body condition, health, corner status and speed. It writes `turn-track-csv.txt`
+every 250 ms and the original geometry to `turn-route-tsv.txt`.
+
+`scripts/Test-IntersectionTurnsLive.ps1` runs three disposable clones per side
+and version, sequentially. Supply `-SeedSave`, `-CandidateBridge`, the exact
+0.27.34 checkout with `-BaselineProjectRoot`, and an `-OutputRoot`. It uses the
+isolated bridge mode and preserves the original save and installed game bridge.
+The baseline is explicitly observational (`-DrivingTurnBaseline`); its lane,
+speed or contact defects are recorded without applying candidate pass criteria.
+
+`-Resume` reuses only zero-exit results with matching bridge hashes. Independent
+review can reject a raw-PASS run using `-RerunLabel <label> -RerunReason <reason>`;
+the original index entry and console log remain in the rejected-run evidence.
+
+Analyze `runs.json` with:
+
+```powershell
+python tests/live/analyze_intersection_turns.py <runs.json> --output <analysis>
+```
+
+The analyzer independently checks physical lanes, timestamps, displacement,
+contact receipts, bridge/save identity and the same approach and exit in all
+repetitions. `--plot` additionally needs matplotlib. `--partial` is diagnostic;
+full acceptance requires twelve completed runs. Keep failed and excluded attempts
+alongside the accepted set rather than silently pooling or replacing them.
+
+`-DrivingProbe -TeamDriveProbe -TeamDriveJunctionProbe` dispatches a public
+expedition car mission with two fresh recruited companions through at least two
+separated mapped junction turns. Normal Decision and zombies stay active. The
+probe records real journey contacts separately from the strict no-contact turn
+checks, and retains raw planned routes and physical-track TSV files. It counts
+mapped junctions only after observing the actual incoming and outgoing headings
+near that junction, including routes selected after a public replan.
+
+`-DrivingProbe -CompanionConvoyProbe` uses two native companion drivers: the lead
+drives the checked road route and the follower copies its actual breadcrumbs
+through the public `Driving.followVehicle` API. Decision is disabled in this
+low-level native controller fixture. This checks the resulting physical convoy
+line and body separation; it does not exercise the automatic Lua convoy order.
+With `-CompanionConvoyPhotoOnly`, the probe instead reloads the retained passing
+convoy save, verifies the existing SQL 5/6 cars against their recorded stopped
+poses and photographs them. No cars are spawned or repositioned; this is a
+photograph of the saved result, not a new movement acceptance run.
+
+Controlled Home driving fixtures finish the public automatic camp-floor scan
+before capturing their departure camp geometry. This prevents background stair
+discovery from changing the camp fingerprint during the trip. The public Home
+guard remains active. `-HomeTripArmed` additionally gives each fresh controlled
+recruit one native crowbar before departure and inventory capture, so ordinary
+self-defence can run at an occupied camp. It requires `-HomeTripProbe` and
+`-HomeTripControlled`; it changes no skills, health or zombies.
+`-HomeTripCampMargin 10` can mark an additional approach area through the public
+camp-zone API before departure. The original core, areas and storage remain;
+the captured arrival area includes that real forecourt. This is a separate camp
+layout trial, not a pass for a blocked original boundary. No setup option counts
+a car arrival as a completed Home handover or changes the public arrival guards.
+`analyze_intersection_home_trip.py` audits completed public travel and native
+save/restore separately from later cargo/base duty. It retains full-probe
+failures in its JSON. `--require-fallback` additionally requires the historical
+bumper-fallback exercise; a direct clear trip may legitimately record zero.
+
+Driving probes save a final native PNG before publishing their summary. The
+junction expedition also captures each mapped turn, the retained roadwork
+checkpoint and actual arrival. Controlled Home trips capture dormancy and
+restoration. Inspect these images alongside the movement receipts.
+For turn and convoy photographs, the observer moves beside the held cars only
+after the timed pose, health and collision measurements finish. The native cars
+are never repositioned for a photograph.
+
+`-TeamDriveStopScreenshot` (with the three expedition switches above) reloads
+the retained construction-stop save and photographs its existing SQL 9 car;
+it never spawns or repositions a car. `-TeamDriveBarricadeProbe` additionally
+replays the original public expedition route from that stopped pose. The native
+follower selects its passing offset; the probe moves no route points or car
+poses. This diagnostic disables Decision after native restoration, uses a real
+upstairs observer floor, and records body/driver health and native screenshots.
+It is separate from a completed public expedition mission. Preserve rejected
+diagnostic trials too, including a completed bypass rejected for two body points
+lost while the car was still stationary before departure.

@@ -136,7 +136,9 @@ local function readDriveStatus(active)
     if not okay or type(status)~="table" then return nil end
     local rows={}
     for _,key in ipairs({"mode","state","turnState","turnLegs","backward","forward","speedKmh","steering",
-            "centerDistance","obstacleDistance","obstacleKind","backoffs"}) do
+            "centerDistance","obstacleDistance","obstacleKind","backoffs","along","routeLength",
+            "corners","cornersSharp","cornerFallbacks","laneError","maxLaneError","offset","laneOffset",
+            "activeCornerStart","activeCornerEnd"}) do
         local value=status[key] local kind=type(value)
         if kind=="number" or kind=="boolean" or kind=="string" then rows[#rows+1]=key.."="..string.sub(tostring(value),1,64) end
     end
@@ -184,6 +186,12 @@ local function observeDriveStatus(f,active)
         line="frame="..tostring(f.frames)..";at="..tostring(at and at.x)..","..tostring(at and at.y)
             ..";carState="..tostring(car.state)..";refusal="..tostring(car.blocker)..";"..line..";"..f.lastDriveOwnershipLine
         print("SC_REAL_SANDBOX|HOME_NATIVE_DRIVE|"..line)
+        if active.scout.home and active.scout.home.blocker=="home_camp_changed" then
+            local expected=active.scout.home.camp
+            local actual=S().HomeTrip.captureCamp(S().BaseLife.active())
+            print("SC_REAL_SANDBOX|HOME_CAMP_DELTA|expected="..tostring(expected and expected.fingerprint)
+                ..";actual="..tostring(actual and actual.fingerprint))
+        end
         local writer=getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
         if writer then writer:writeln("native_drive|"..line);writer:close() end
     end)
@@ -1626,6 +1634,11 @@ local function advance(H,t,check,result,phase)
         end
         local mode=H.config.home_trip_mode or "walk"
         if not RESUME_CHECKPOINT_STATES[mode] then
+            if H.config.home_trip_controlled=="true" and driving(H) and S().BaseLife.active() then
+                local ready,why=require("SCHomeIntersectionSetup").warm(H,t,result)
+                if ready==false then result("FAIL","home_trip_camp_geometry_ready",why);phase("finish",t) return end
+                if not ready then return end
+            end
             local ready=0
             for _,record in ipairs(S().Registry.snapshot()) do
                 if record.recruited and healthy(record.actor) and S().Registry.isActive(record.actor,record.id) then ready=ready+1 end
@@ -1694,6 +1707,10 @@ local function advance(H,t,check,result,phase)
                 .." load="..tostring(weight).."/"..tostring(maximum).."; original vanilla factory items only") then finish(H,f,t,result,phase) return end
         f.crew[#f.crew+1]={id=id,actor=actor,name=name(actor)}
         f.controlledIds[id]=true
+        if H.config.home_trip_armed=="true" then
+            local okay,why=require("SCHomeIntersectionSetup").arm(actor)
+            if not check("home_trip_controlled_crowbar_"..f.spawnIndex,okay==true,why) then finish(H,f,t,result,phase) return end
+        end
         local stayed,why=S().Commands.issue(id,"stay",nil,f.primary)
         if not check("home_trip_controlled_stay_"..f.spawnIndex,stayed==true,tostring(why)) then finish(H,f,t,result,phase) return end
         f.spawnIndex=f.spawnIndex+1

@@ -134,6 +134,14 @@ public final class SCIntersectionTurnsTest {
     record Result(double error, double seconds, double cornerSpeed, double startDelay,
                   int sideViolations, int projectionSkip, long scans, int fallbacks, SCRoadFollower.Mode mode) { }
 
+    private static SCDriveControl.Input controls(Car car, SCRoadFollower.Command command, float front, float rear) {
+        float speed=(float)(car.speed*3.6);
+        float gap=command.maneuver?SCDriveControl.MANEUVER_GAP_TILES:SCDriveControl.HOLD_GAP_TILES;
+        return command.targetKmh<0?SCDriveControl.reverse(speed,-command.targetKmh,command.steering,rear)
+                :command.cornerSpeed?SCDriveControl.corner(speed,command.targetKmh,command.steering,front,gap)
+                :SCDriveControl.cruise(speed,command.targetKmh,command.steering,front,gap);
+    }
+
     private static Result drive(Reference reference, SCDrivePath path, Vehicle vehicle,
                                 boolean nativeModel, float scale, boolean plain) {
         SCRoadFollower follower = new SCRoadFollower(path, scale > 1 ? 50 : 30, true, false, scale);
@@ -168,9 +176,7 @@ public final class SCIntersectionTurnsTest {
             path.project((float) car.x, (float) car.y, previousSegment, projection);
             if (previousSegment >= 0) maxSkip = Math.max(maxSkip, projection.segment - previousSegment);
             previousSegment = projection.segment;
-            SCDriveControl.Input input = command.targetKmh < 0 ? SCDriveControl.reverse((float) (car.speed * 3.6),
-                    -command.targetKmh, command.steering, -1) : SCDriveControl.cruise((float) (car.speed * 3.6),
-                    command.targetKmh, command.steering, -1);
+            SCDriveControl.Input input = controls(car,command,-1,-1);
             if(Boolean.getBoolean("turnTrace")&&frame%10==0) System.out.printf(Locale.ROOT,
                     "TURN_DYNAMIC f=%d pos=%.3f,%.3f heading=%.2f speed=%.2f target=%.2f steer=%.3f along=%.3f seg=%d%n",
                     frame,car.x,car.y,Math.toDegrees(car.heading),car.speed*3.6,command.targetKmh,command.steering,
@@ -186,7 +192,7 @@ public final class SCIntersectionTurnsTest {
         java.util.ArrayList<String> failures = new java.util.ArrayList<>();
         java.util.ArrayList<String> metrics = new java.util.ArrayList<>();
         metrics.add("vehicle,scale,inWidth,outWidth,angle,rotation,sharp,reason,radius,error,speed,delay,timeRatio,wrongSide");
-        int runs = 0, sharp = 0, slow = 0;
+        int runs = 0, sharp = 0, slow = 0, wideLeft = 0;
         double maxRight = 0, maxLeft = 0, maxTimeRatio = 0;
         for (Vehicle base : VEHICLES) for (int scale : new int[] {1, 2}) {
             SCDrivePath.CornerProfile p = base.profile;
@@ -226,7 +232,13 @@ public final class SCIntersectionTurnsTest {
                                     vehicle.name, scale, widths[0], widths[1], side*degrees, rotation, path.cornersSharp(),
                                     c.sharpReason(), c.radius(), result.error, result.cornerSpeed, result.startDelay, ratio, result.sideViolations));
                             maxTimeRatio = Math.max(maxTimeRatio, ratio);
-                            if (ratio > 1.151) {
+                            // User approved 20% only for the remaining thirty
+                            // normal-speed 135-degree left cases into 12 m roads.
+                            boolean wideLeftAllowance=scale==1&&side<0&&degrees==135
+                                    &&widths[1]==12&&(widths[0]==8||widths[0]==12);
+                            if(wideLeftAllowance) wideLeft++;
+                            double timeBudget=wideLeftAllowance?1.20:1.15;
+                            if (ratio > timeBudget+0.001) {
                                 slow++;
                                 if(enforceTiming) failures.add(name + " tripTime=" + ratio);
                             }
@@ -235,8 +247,9 @@ public final class SCIntersectionTurnsTest {
         }
         System.out.printf(Locale.ROOT, "TURN_MATRIX runs=%d sharp=%d right=%.3f left=%.3f timeRatio=%.3f failures=%d%n",
                 runs, sharp, maxRight, maxLeft, maxTimeRatio, failures.size());
-        System.out.printf(Locale.ROOT,"TURN_TIMING aboveBudget=%d limit=1.15 worst=%.5f enforced=%s%n",
-                slow,maxTimeRatio,enforceTiming);
+        require(System.getProperty("turnScenario")!=null||wideLeft==30,"twenty-percent allowance covers exactly thirty cases");
+        System.out.printf(Locale.ROOT,"TURN_TIMING aboveBudget=%d limit=1.15 wideLeftLimit=1.20 wideLeftCases=%d worst=%.5f enforced=%s%n",
+                slow,wideLeft,maxTimeRatio,enforceTiming);
         for (int i = 0; i < Math.min(80, failures.size()); i++) System.out.println("TURN_FAILURE " + failures.get(i));
         if (System.getProperty("turnReportDir") != null) {
             try {
@@ -264,9 +277,7 @@ public final class SCIntersectionTurnsTest {
                     follower.update(world, (float) car.x, (float) car.y, 0, (float) Math.cos(car.heading),
                             (float) Math.sin(car.heading), (float) (car.speed * 3.6),
                             vehicle.profile.halfWidth(), vehicle.profile.halfLength(), -1, -1, now, command);
-                    SCDriveControl.Input input = command.targetKmh < 0 ? SCDriveControl.reverse((float) (car.speed * 3.6),
-                            -command.targetKmh, command.steering, -1) : SCDriveControl.cruise((float) (car.speed * 3.6),
-                            command.targetKmh, command.steering, -1);
+                    SCDriveControl.Input input = controls(car,command,-1,-1);
                     car.step(input, 1.0 / 30); now += 33;
                     error = Math.max(error, reference.distance(new V(car.x, car.y)));
                 }
@@ -383,8 +394,7 @@ public final class SCIntersectionTurnsTest {
             for(int i=0;i<1500&&follower.mode()==SCRoadFollower.Mode.TURNING;i++) {
                 follower.update(world,(float)car.x,(float)car.y,0,(float)Math.cos(car.heading),(float)Math.sin(car.heading),
                         (float)(car.speed*3.6),vehicle.profile.halfWidth(),vehicle.profile.halfLength(),-1,-1,now,command);
-                SCDriveControl.Input input=command.targetKmh<0?SCDriveControl.reverse((float)(car.speed*3.6),-command.targetKmh,command.steering,-1)
-                        :SCDriveControl.cruise((float)(car.speed*3.6),command.targetKmh,command.steering,-1);
+                SCDriveControl.Input input=controls(car,command,-1,-1);
                 car.step(input,1.0/30);now+=33;
             }
             require(follower.mode()==SCRoadFollower.Mode.FOLLOW,"physical turn-round completes: "+vehicle.name+" "+follower.mode());
@@ -419,6 +429,47 @@ public final class SCIntersectionTurnsTest {
         require(result.cornerSpeed<=7,"whole-corner speed limit "+result.cornerSpeed);
     }
 
+    private static void speedGovernor() {
+        Vehicle vehicle=VEHICLES[0];
+        Car car=new Car(new V(130,200),0,vehicle,true);
+        SCRoadFollower.Command command=new SCRoadFollower.Command();
+        command.cornerSpeed=true;command.targetKmh=6;
+        double total=0,peak=0;int count=0;
+        for(int frame=0;frame<180;frame++) {
+            car.step(controls(car,command,-1,-1),1.0/30);
+            if(frame>=90) { total+=car.speed*3.6;peak=Math.max(peak,car.speed*3.6);count++; }
+        }
+        require(total/count>=5.8&&peak<=6.5,"corner governor holds requested speed mean="+total/count+" peak="+peak);
+    }
+
+    private static void approachTiming() {
+        Vehicle vehicle=VEHICLES[2];
+        Reference reference=new Reference(-Math.PI*.75,0,12,12,vehicle);
+        SCDrivePath root=source(reference,12,12);
+        Result rounded=drive(reference,root.withCorners(vehicle.profile),vehicle,true,1,false);
+        Result baseline=drive(reference,root,vehicle,true,1,true);
+        require(rounded.seconds/baseline.seconds<=1.20,"moving arc approach timing "+rounded.seconds/baseline.seconds);
+    }
+
+    private static void shortScan() throws ReflectiveOperationException {
+        Vehicle vehicle=VEHICLES[0];
+        Reference reference=new Reference(Math.PI/2,0,8,8,vehicle);
+        SCDrivePath path=source(reference,8,8).withCorners(vehicle.profile);
+        SCRoadFollower follower=new SCRoadFollower(path,30,true);
+        World world=new World();
+        follower.update(world,134,202,0,1,0,0,vehicle.profile.halfWidth(),vehicle.profile.halfLength(),-1,-1,0,null);
+        // A real clipped end fragment is slightly over .001 along the encoded
+        // line, but under .001 on its tighter physical lane. It must not turn
+        // an everywhere-clear world into an unreadable-heading obstacle.
+        float start=path.corner(0).end()-.0012f;
+        java.lang.reflect.Method scan=SCRoadFollower.class.getDeclaredMethod("stripObstacle",SCLaneScan.World.class,
+                int.class,float.class,float.class,float.class,float.class,float.class);
+        scan.setAccessible(true);
+        float hit=(float)scan.invoke(follower,world,0,start,path.laneOffsetAt(start),.5f,
+                vehicle.profile.halfWidth(),vehicle.profile.halfLength());
+        require(hit<0,"clipped arc scan stays clear: "+hit);
+    }
+
     private static void merging() {
         Vehicle vehicle=VEHICLES[0];
         Reference reference=new Reference(Math.PI/2,0,8,8,vehicle);
@@ -436,33 +487,84 @@ public final class SCIntersectionTurnsTest {
         require(follower.stripScans()<=6,"merged arc scan cost "+follower.stripScans());
     }
 
-    record ObstacleResult(SCRoadFollower.Mode mode, int fallbacks, int collisions,
+    private static void filledStrip() throws ReflectiveOperationException {
+        Vehicle vehicle=VEHICLES[0];
+        World world=new World() {
+            @Override int kind(int x,int y) {
+                return x==7133&&y==8212?SCLaneScan.SOLID:SCLaneScan.CLEAR;
+            }
+        };
+        // Actual barricade cell and sedan width from the retained native stop.
+        // The original rays floor to columns 7132, 7134 and 7135, skipping 7133.
+        require(!SCLaneScan.scan(world,7134,8220,0,0,-1,vehicle.profile.halfWidth(),0,10).blocked,
+                "native strip alias fixture misses between legacy rays");
+        SCDrivePath path=SCDrivePath.parse("7132.5,8220,6;7132.5,8200,6;7155,8200,6")
+                .withCorners(vehicle.profile);
+        SCRoadFollower follower=new SCRoadFollower(path,6,true);
+        follower.update(world,7134,8220,0,0,-1,0,vehicle.profile.halfWidth(),
+                vehicle.profile.halfLength(),-1,-1,0,null);
+        java.lang.reflect.Method scan=SCRoadFollower.class.getDeclaredMethod("stripObstacle",SCLaneScan.World.class,
+                int.class,float.class,float.class,float.class,float.class,float.class);
+        scan.setAccessible(true);
+        float hit=(float)scan.invoke(follower,world,0,0f,1.5f,10f,
+                vehicle.profile.halfWidth(),vehicle.profile.halfLength());
+        require(hit>=0&&hit<=8,"interior obstacle in corner route strip "+hit);
+        SCLaneScan.Result swept=SCLaneScan.scanFilled(world,7134,8220,0,0,-1,
+                2.31f,0,10,new java.util.HashMap<>());
+        require(swept.blocked&&swept.hitX==7133&&swept.hitY==8212,
+                "interior obstacle in widened corner body sweep");
+    }
+
+    private static void lateOffsetBodySweep() {
+        Vehicle vehicle=VEHICLES[0];
+        SCDrivePath path=SCDrivePath.parse("130,200,8;200,200,8;200,270,8").withCorners(vehicle.profile);
+        World world=new World() {
+            @Override int kind(int x,int y) {
+                return x==194&&y==203?SCLaneScan.SOLID:SCLaneScan.CLEAR;
+            }
+        };
+        // A sedan enters the turn at 6 km/h just three metres before a lamp.
+        // The parallel passing strip is clear, but moving onto it this late
+        // sweeps the rear of the real body across the lamp.
+        Car car=new Car(new V(191,202),0,vehicle,true);
+        car.speed=6.0/3.6;
+        ObstacleResult result=obstacleDrive(path,vehicle,world,car);
+        System.out.println("TURN_LATE_OFFSET "+result);
+        require(result.collisions==0,"late offset avoids rear body collision "+result.collisions);
+        require(result.mode==SCRoadFollower.Mode.ARRIVED,"late offset safely arrives "+result.mode);
+    }
+
+    record ObstacleResult(SCRoadFollower.Mode mode, int fallbacks, int reverseFrames, int collisions,
                           long queries, long strips, double seconds, double stoppedSpeed) { }
 
     private static ObstacleResult obstacleDrive(SCDrivePath path, Vehicle vehicle, World world) {
+        return obstacleDrive(path,vehicle,world,null);
+    }
+
+    private static ObstacleResult obstacleDrive(SCDrivePath path, Vehicle vehicle, World world, Car initial) {
         SCRoadFollower follower = new SCRoadFollower(path, 30, true);
         float[] pose = new float[5];
         path.pointAt(4, path.cornerProfile() == null ? lane(path.width(0)) > 0 ? path.width(0)/4 : 0
                 : path.laneOffsetAt(4), pose);
-        Car car = new Car(new V(pose[0],pose[1]), Math.atan2(pose[3],pose[2]), vehicle, true);
+        Car car = initial==null?new Car(new V(pose[0],pose[1]), Math.atan2(pose[3],pose[2]), vehicle, true):initial;
         SCRoadFollower.Command command = new SCRoadFollower.Command();
-        int collisions = 0;
+        int collisions = 0, reverseFrames = 0;
         long now = 0, nextScan = 0;
         float front = -1, rear = -1;
+        int frontKind=SCLaneScan.CLEAR;
         for (int frame=0;frame<6000;frame++) {
             float hx=(float)Math.cos(car.heading),hy=(float)Math.sin(car.heading);
             float hw=vehicle.profile.halfWidth(),hl=vehicle.profile.halfLength();
             if(now>=nextScan) {
                 nextScan=now+100;
-                front=SCLaneScan.scan(world,(float)car.x,(float)car.y,0,hx,hy,hw,hl+.1f,45).distance;
+                SCLaneScan.Result ahead=SCLaneScan.scan(world,(float)car.x,(float)car.y,0,hx,hy,hw,hl+.1f,45);
+                front=ahead.distance;frontKind=ahead.kind;
                 rear=SCLaneScan.scan(world,(float)car.x,(float)car.y,0,-hx,-hy,hw,hl+.1f,8).distance;
             }
             follower.update(world,(float)car.x,(float)car.y,0,hx,hy,(float)(car.speed*3.6),
-                    hw,hl,front,rear,now,command);
-            SCDriveControl.Input input=command.targetKmh<0?
-                    SCDriveControl.reverse((float)(car.speed*3.6),-command.targetKmh,command.steering,rear):
-                    SCDriveControl.cruise((float)(car.speed*3.6),command.targetKmh,command.steering,front,
-                            command.maneuver?SCDriveControl.MANEUVER_GAP_TILES:SCDriveControl.HOLD_GAP_TILES);
+                    hw,hl,front,rear,frontKind,now,command);
+            SCDriveControl.Input input=controls(car,command,front,rear);
+            if(command.targetKmh<0) reverseFrames++;
             car.step(input,1.0/30);now+=33;
             for(int length=-2;length<=2;length++) for(int side=-1;side<=1;side++) {
                 double px=car.x+Math.cos(car.heading)*hl*length/2-Math.sin(car.heading)*hw*side;
@@ -481,7 +583,7 @@ public final class SCIntersectionTurnsTest {
             if(follower.mode()==SCRoadFollower.Mode.ARRIVED
                     ||follower.mode()==SCRoadFollower.Mode.BLOCKED&&Math.abs(car.speed)<.02&&now>8000) break;
         }
-        return new ObstacleResult(follower.mode(),follower.cornerFallbacks(),collisions,world.queries,
+        return new ObstacleResult(follower.mode(),follower.cornerFallbacks(),reverseFrames,collisions,world.queries,
                 follower.stripScans(),now/1000.0,car.speed*3.6);
     }
 
@@ -521,6 +623,65 @@ public final class SCIntersectionTurnsTest {
                 }
             }
         }
+    }
+
+    private static void bumperCorner() {
+        Vehicle vehicle=VEHICLES[0];
+        Reference reference=new Reference(-Math.PI/2,0,6,6,vehicle);
+        World world=new World() {
+            @Override int kind(int x,int y) {
+                // Real Home detour: the straight bumper ray sees the far
+                // pavement while the legal left-turn body corridor is clear.
+                return x>=204&&y<=193?SCLaneScan.SOLID:SCLaneScan.CLEAR;
+            }
+        };
+        ObstacleResult result=obstacleDrive(source(reference,6,6).withCorners(vehicle.profile),vehicle,world);
+        System.out.println("TURN_BUMPER "+result);
+        require(result.mode==SCRoadFollower.Mode.ARRIVED,"bumper corner fallback arrives "+result.mode);
+        require(result.collisions==0,"bumper corner fallback no body collision");
+        require(result.fallbacks==1,"bumper corner fallback is one-way "+result.fallbacks);
+    }
+
+    private static void clearBumperLookAhead() {
+        Vehicle vehicle=VEHICLES[0];
+        for(boolean left:new boolean[]{false,true}) {
+            SCDrivePath path=SCDrivePath.parse(left?"172,200,6;200,200,6;200,171,6"
+                    :"228,200,6;200,200,6;200,171,6").withCorners(vehicle.profile);
+            World world=new World() {
+                @Override int kind(int x,int y) {
+                    // Native Casey roadside fixtures at 7103,8311 and 7112,8313.
+                    // Straight side rays see them 5.2 / 3.2 m beyond the bumper
+                    // mid-turn; the actual curved car bodies never reach them.
+                    return (left?x==205&&y==195:x==196&&y==193)?SCLaneScan.SOLID:SCLaneScan.CLEAR;
+                }
+            };
+            ObstacleResult result=obstacleDrive(path,vehicle,world);
+            System.out.println("TURN_CLEAR_BUMPER "+result);
+            require(result.mode==SCRoadFollower.Mode.ARRIVED&&result.collisions==0,
+                    "clear arc safely arrives beside distant lamp "+result);
+            require(result.fallbacks==0,"clear arc does not sharpen for distant lamp "+result.fallbacks);
+        }
+    }
+
+    private static void cornerBumperRecovery() {
+        Vehicle vehicle=VEHICLES[0];
+        Reference reference=new Reference(-Math.PI/2,0,6,6,vehicle);
+        SCDrivePath root=source(reference,6,6);
+        World world=new World() {
+            @Override int kind(int x,int y) {
+                return x>=191&&x<=194&&y==203?SCLaneScan.SOLID:SCLaneScan.CLEAR;
+            }
+        };
+        // Recorded live pose, translated/rotated: 0.52 m off lane, six
+        // degrees crooked and stopped before the checked arc starts.
+        Car car=new Car(new V(186.33,202.02),Math.atan2(.1055,.9944),vehicle,true);
+        ObstacleResult result=obstacleDrive(root.withCorners(vehicle.profile),vehicle,world,car);
+        System.out.println("TURN_CORNER_RECOVERY "+result);
+        require(result.mode==SCRoadFollower.Mode.ARRIVED,"corner bumper recovery arrives "+result.mode);
+        require(result.collisions==0&&result.reverseFrames>0,"corner bumper recovery uses clear rear without contact");
+        Car rawCar=new Car(new V(186.33,202.02),Math.atan2(.1055,.9944),vehicle,true);
+        ObstacleResult raw=obstacleDrive(root,vehicle,world,rawCar);
+        require(raw.mode!=SCRoadFollower.Mode.ARRIVED&&raw.reverseFrames==0,"raw-route bumper policy stays unchanged");
     }
 
     private static void fixtures() throws java.io.IOException {
@@ -584,14 +745,22 @@ public final class SCIntersectionTurnsTest {
         }
     }
 
-    public static void main(String[] args) throws java.io.IOException {
+    public static void main(String[] args) throws java.io.IOException, ReflectiveOperationException {
         String check=System.getProperty("turnCheck","all");
-        // The core Cargo check is functional coverage. Full acceptance (the
-        // default and the dedicated script) also enforces the trip-time budget.
+        // Cargo, Release and the dedicated script enforce the full budget.
+        // Functional-only mode remains an explicit diagnostic.
         boolean suite=check.equals("all")||check.equals("functional");
         if(suite||check.equals("geometry")) geometry();
         if(suite||check.equals("sides")) sideFixture();
         if(suite||check.equals("hold")) sharpHold();
+        if(suite||check.equals("governor")) speedGovernor();
+        if(suite||check.equals("approach")) approachTiming();
+        if(suite||check.equals("bumper")) bumperCorner();
+        if(suite||check.equals("clearBumper")) clearBumperLookAhead();
+        if(suite||check.equals("cornerRecovery")) cornerBumperRecovery();
+        if(suite||check.equals("shortScan")) shortScan();
+        if(suite||check.equals("filledStrip")) filledStrip();
+        if(suite||check.equals("lateOffset")) lateOffsetBodySweep();
         if(suite||check.equals("reverse")) reverse();
         if(check.equals("right")) laneContract(true);
         if(check.equals("left")) laneContract(false);

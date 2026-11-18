@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.36 - Lane-to-lane junction turns
+
+- Companion drivers turn from lane to lane at junctions instead of driving into
+  the middle of the crossing. They keep their turn speed until they face the
+  outgoing road.
+- Checked turns use the car's wheelbase and each road's width. A blocked turn,
+  including a bumper stop toward the far pavement, can return to the original
+  corner once while keeping the normal obstacle stopping distance.
+- Turning-route checks cover the full car width, so a narrow barricade cannot
+  fall between scan lines and hide a clear passing route beside it.
+- Drivers check behind before backing up briefly to make room for a blocked turn.
+- Convoy followers, final approaches and parking keep their existing controls.
+- Native bridge protocol remains `42.22-isocompanion-33`; use the matching
+  0.27.36 bridge for these native driving improvements.
+
 ## 0.27.35 - Camp pickup
 
 - Call a camp companion to collect you in an existing parked car. Review the

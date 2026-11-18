@@ -4,12 +4,12 @@ package survivorcompanion.bridge;
 import java.util.HashMap;
 
 /**
- * A fast, bounded check of the lane in front of a car. Three rays run forward
- * from the front bumper: one down the middle and one just outside each side of
- * the body. Each ray samples the squares it crosses and the edges between them,
- * so walls and fences between two clear squares count too. The nearest hit on
- * any ray is the obstacle the car must stop for; the per-ray results tell a
- * later steering layer which side is open.
+ * A fast, bounded lane check. The legacy scan uses three forward rays: centre
+ * and just outside each body side. Rays check squares and the edges between
+ * them, so walls and fences between clear squares count too. The nearest hit
+ * is the obstacle to stop for; the per-ray results describe each side.
+ * Corner-route strips also fill the interior between these rays so their
+ * wider swept bodies cannot skip an obstacle.
  *
  * <p>The world is reached only through {@link World}, so the core gate runs
  * this against a synthetic grid without the game.
@@ -99,6 +99,21 @@ final class SCLaneScan {
     static Result scan(World world, float x, float y, int z, float forwardX, float forwardY,
                        float halfWidth, float frontOffset, float lookAhead,
                        HashMap<Long, Integer> kinds) {
+        return scan(world, x, y, z, forwardX, forwardY, halfWidth, frontOffset,
+                lookAhead, kinds, false);
+    }
+
+    /** Filled route strip, including obstacles between the centre and side rays. */
+    static Result scanFilled(World world, float x, float y, int z, float forwardX, float forwardY,
+                             float halfWidth, float frontOffset, float lookAhead,
+                             HashMap<Long, Integer> kinds) {
+        return scan(world, x, y, z, forwardX, forwardY, halfWidth, frontOffset,
+                lookAhead, kinds, true);
+    }
+
+    private static Result scan(World world, float x, float y, int z, float forwardX, float forwardY,
+                               float halfWidth, float frontOffset, float lookAhead,
+                               HashMap<Long, Integer> kinds, boolean filled) {
         Result result = new Result();
         float length = (float) Math.sqrt(forwardX * forwardX + forwardY * forwardY);
         if (world == null || !(length > 0.001f) || !(x == x) || !(y == y)
@@ -122,6 +137,25 @@ final class SCLaneScan {
                 0.0f, 0.0f, frontOffset, reach);
         result.rightDistance = ray(world, kinds, result, x, y, z, fx, fy,
                 rightX * side, rightY * side, frontOffset, reach);
+        if (filled) {
+            // Three rays can leave an entire occupied square unchecked even
+            // for a sedan (side=.809991+.2 > 1). Swept corner strips are wider
+            // still. Fill that interior, sharing the same bounded tile cache.
+            int divisions = Math.max(1, (int) Math.ceil(side / 0.5f));
+            if (divisions > MAX_SQUARES) {
+                result.blocked = true;
+                result.distance = 0;
+                result.kind = UNLOADED;
+                return result;
+            }
+            for (int i = 1; i < divisions; i++) {
+                float offset = side * i / divisions;
+                ray(world, kinds, result, x, y, z, fx, fy,
+                        -rightX * offset, -rightY * offset, frontOffset, reach);
+                ray(world, kinds, result, x, y, z, fx, fy,
+                        rightX * offset, rightY * offset, frontOffset, reach);
+            }
+        }
         return result;
     }
 

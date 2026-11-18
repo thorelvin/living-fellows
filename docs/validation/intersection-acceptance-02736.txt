@@ -1,0 +1,246 @@
+Lane-to-lane intersection turns: 0.27.36 acceptance
+2026-11-18 / living_fellows/0.27.36 / base 291f5741
+
+Candidate and scope
+-------------------
+Frozen bridge SHA256:
+007449C79FE0BE816BA7EB3C68E24827F6BEDFBA7B272344CAE5C0D8F8B386F8
+Release metadata 0.27.36; native protocol 42.22-isocompanion-33; game 42.22.2.
+Phase 0 4bf38954, pre-change fingerprint guard 3d95fffb, Phase 1 673a36ca.
+The packaged bridge is reproducible. Final turn A/B and all four native travel
+checks are complete. The full Home probe fails later handover, as detailed
+below. Final local release gate passes all five domains.
+
+Only SCCompanionDriver.follow routes opt into checked lane-to-lane geometry.
+The raw Lua route, road router, expedition fingerprints and saved data are
+unchanged. Convoy followers, final approach and parking keep their controls.
+No production walking, Home, expedition, taxi or convoy Lua is modified.
+Zombie paths, waypoints, navigation states and movement flags are untouched.
+
+Checked corners retain their full-angle 6/12 km/h target until physically out
+of the turn and facing its exit. Corner-only steering uses measured native
+wheelbase and velocity direction. Moving arc entry uses a planned deceleration
+envelope; its tighter speed regulator does not change ordinary cruise or the
+physical obstacle stopping margins. Obstructed arcs can switch once to their
+original sharp corner. Bounded backing near a corner retains rear checks,
+1.5 m / 3 s limits and three attempts, reset only after 8 m of actual progress.
+
+Route strips fill their swept width at lateral spacing no greater than 0.5 m,
+sharing the existing bounded square cache. Legacy raw-route scans stay intact.
+The proactive bumper fallback requires near-standstill, so a moving car keeps
+a checked clear arc when a distant straight side ray sees a roadside fixture.
+It never ignores an obstacle or releases the native safety brake.
+
+Harness evidence
+----------------
+Final strict run: build/test-results/intersection-20261118-165306.
+External log: outputs/intersection-native-02736/bumper-motion-matrix.log.
+
+5,040 arrivals: three car profiles, two corner scales, seven width pairs,
+six angles, both turn sides and five rotations, on native-model and legacy
+cars. There are 2,520 corresponding raw-route native-model timing controls.
+INTERSECTION_TURNS_PASS checks=16225. Worst native-model lane error is 0.730 m
+right / 0.931 m left. No open-world sharp fallback. Actual mapped fixtures,
+synthetic obstacles, swept-body clearance and bounded scan work also pass.
+These models do not replace live tyre/surface/damage testing.
+
+Worst time ratio 1.17712. The user approved 20% only for thirty normal-speed
+135-degree left cases on 8->12 and 12->12 m roads. All other cases keep 15%.
+The 6/12 km/h targets remain; ordinary Cargo and Release enforce the allowance.
+No case exceeds its approved budget.
+
+All seventeen single-change negative controls fail their named assertion:
+builder, total-angle, hold, reverse, steering, sides, fallback, identity,
+merge, short-scan, late-offset, governor, moving-entry, bumper,
+corner-recovery, filled-strip and bumper-motion. The original raw follower
+suite passes 137 checks. Six exact 0.27.34/0.27.35 command fingerprints for
+unchanged driving modes remain identical. The scan-cost assertion measures
+squareKind calls (at most twice the 0.27.34 wreck scenario); a separate strip
+traversal budget guards merged work. No broader CPU-time claim is made.
+
+Final native turn A/B
+--------------------
+Accepted index: outputs/intersection-native-02736/turns-verified/runs.json.
+Independent analysis and visually reviewed track plot:
+outputs/intersection-native-02736/turn-analysis-007449c7/analysis.json
+outputs/intersection-native-02736/turn-analysis-007449c7/native-turns-ab.png
+
+Twelve completed runs, three per side/version, from the same saved world and
+matched approaches/exits at Casey Road / Victoria St. Stock sedan, 6 m roads.
+Exact 0.27.34 baseline bridge:
+16463719EC55E184C02FDABB34BDA144D75538CF73356717BE05A34B26B26236.
+All six candidate runs use the frozen 007449C7 hash above. The original seed
+and installed bridge are preserved by isolated-source launches. One real game
+runs at a time. No heavy gate runs during the timed A/B.
+
+                    Median seconds    Max independent lane error   Peak in arc
+Right 0.27.34            20.319                  0.546 m             10.936 km/h
+Right 0.27.36            18.793                  0.533 m              6.148 km/h
+Left  0.27.34            21.448                  2.004 m             12.919 km/h
+Left  0.27.36            20.689                  0.579 m              6.203 km/h
+
+The baseline's existing speed/lane defects are observational. All twelve have
+zero recorded contact; all candidates arrive with driver health 100 and zero
+body-condition loss, kills, sharp corners or corner fallbacks. Status-reported
+peaks are 6.179-6.211 km/h (independent peaks use the geometric physical arc).
+All six candidate final native PNGs were inspected and show the stopped cars
+and standing drivers after normal exits. Observer movement for these photos
+happens only after final timed pose and health checks. No car pose is written.
+The timed observer stays in an actual upstairs room and is not made immune.
+
+Final candidate runs (SC-Harness-20261118- prefix):
+Right: 165630-e5ce893f, 165908-78faf833, 170145-cf6f3898.
+Left:  165748-93886bea, 170026-1bca6362, 170304-f11a7501.
+Individual times: right 18.793 / 18.834 / 18.774 s;
+left 20.689 / 20.678 / 23.745 s. The slower third left is retained.
+Baseline right: 120837-465bd124, 122059-17ce8f07, 130953-d80baf3a.
+Baseline left: 121552-e7474af3, 122331-5b63425a, 122837-9a20f0c1.
+Earlier raw-PASS 122606 approached from a rotated road and was excluded with
+an explicit reason. Candidate hashes and historical failures are not pooled.
+
+Final native functional journeys
+--------------------------------
+Final007 expedition, taxi and convoy pass. Home travel/save/restore passes;
+its full post-trip probe fails. It is not a fourth full integration pass.
+Index: outputs/intersection-native-02736/integrations-verified/runs.json,
+three accepted / zero rejected, all with the frozen bridge hash.
+
+- Expedition 170455-dfd8a773: 217.205604 m, two mapped junctions, public dispatch,
+  normal Decision and zombies, two actual companion seats/exits, driver health
+  100, body loss 0 and two zombie contacts. Native photos show a checked left
+  verge bypass of the actual construction barricades and a return to its lane.
+- Taxi 170707-7841ef82: public radio booking/idempotence, native pickup, 28 m
+  passenger ride, actual exit, one fare commit (free-fare fixture), 39.96 m
+  departure and despawn. No cash-payment claim is made.
+- Companion convoy 170904-55f3213f: 47.982086 m follower travel, 9.338320 m
+  stopped centre gap, 54 breadcrumb points, lead arc=1 / follower raw=0, clean
+  bodies/health/contact checks. Decision is disabled in this native controller
+  fixture; it tests public Driving.followVehicle, not the automatic convoy order.
+- Final Home 171220-c976810b: 271.765254 m continuous native drive, both real
+  crew seats, zero corner fallbacks, arrival/exit, dormancy, native view release,
+  solo revisit and exact crew/car/cargo restoration. The full runner exits 1:
+  120 passes / 1 fail / 1 skip. Later home_trip_drive_delivery_deadline reports
+  cleanup=false, duty=false and base_duty_not_observed. Final crew positions
+  are about x8116.5,11725-11726. Native PNGs show pending camp handover.
+  The independent audit exits 0 for the journey/save/restore and explicitly
+  records full_home_probe_pass=false (home-travel-007449c7-analysis.json).
+
+Predecessor 3A6A Home 164149-3d271a62 did pass its full probe: exit 0,
+137 passes / 0 fails / 5 skips, 271.581456 m, both crew restored and resuming
+base duty. This is historical evidence; it does not replace the final failure
+or prove that the camp handover is reliable.
+
+The final native PNGs for all four journeys were inspected. Expedition
+checkpoint/arrival PNGs were also inspected, including actual passage beyond
+the retained barricades. Unchanged exports: expedition-barricade-bypass-007449c7.png
+and expedition-after-exit-007449c7.png in the external evidence root.
+Home's first startup was rejected before run creation because the release
+gate's native unit-test JVM matched the one-game guard. The log is retained
+as home-final-007449c7-startup-guard.log; retry waited for that JVM to finish.
+
+Home scope matters: the controlled fixture uses the retained station camp,
+two fresh crowbar-equipped companions and a publicly marked 10 m forecourt.
+It warms the public automatic floor scan before departure to stabilize the camp
+fingerprint. The primary observer uses the controlled fixture's existing
+protection. It does not prove the original camp's blocked walking boundary.
+The roadside variant intentionally leaves exact cargo roots in the trunk:
+final007 has six (stored=0, trunkPending=6); the preceding full-pass 3A6A run has
+five. UI says to move the car into camp parking for unloading. The preceding
+3A6A screenshot additionally reports food/water shortages after both resumed
+duty. A base-duty pass is not a cargo-deposit or fully stocked-supplies pass.
+The final failure remains open in the shared roadmap. No Home/walking/logistics
+source was changed to make this driving acceptance pass.
+
+The expedition's immediate arrival PNG can catch seated-looking exit poses.
+The same run's final native PNG, taken after a 1.5 s settle, shows both on foot
+standing/walking. This observed transition is not a persistent seated-state
+failure. No production pose or animation patch was made.
+
+Failed trials retained and causal fixes
+--------------------------------------
+The repeated stop is actual construction_01_8 barricades at 7133,8212 and
+7136,8212, with a mixer at 7137,8214 and further roadwork nearby. Native
+screenshots correct an earlier mistaken pavement diagnosis. The original
+three rays from the sedan could skip column 7133 completely: side spacing
+0.809991+0.2 > 1 m. Filled route strips close that specific gap. Braking,
+obstacle flags and route points were not weakened or edited to drive through.
+
+Original 3F029626 public expedition 144503-a863b793 stopped after three checked
+reverse attempts. Frozen994 original-route diagnostic 153924-a9ae8322 selected
+-4 m offset, passed the barriers, rejoined its lane and arrived. Its full probe
+still exits 1: two condition points were lost while stationary at 301/1601 ms,
+before first movement at 2622 ms. It loses none thereafter; driver/observer
+remain at 100. The read-only barricade-replay-audit.json explicitly preserves
+full_probe_pass=false and checks 116 sampled body poses against five roadwork
+cells. Do not present this diagnostic as a fully passing public expedition.
+
+994 timed right 161557-d66c5c94 arrived clean but failed the no-fallback check.
+Its straight side ray saw a lamppost at 7103,8311, 5.2 m from the bumper, outside
+the actual curved path. Reducing the early allowance alone fixed right, but
+3A6A timed left 164914-bad4e079 then arrived clean with a false fallback for the
+roadside fixture street_decoration_01_1 at 7112,8313, 3.2 m away. Both are valid
+failed timed trials, not discarded startup failures. Read-only fallback state
+and native PNGs remain. Final007 adds speed <=1 km/h to the proactive fallback.
+Both translated native scenes arrive without fallback in the closed-loop test;
+removing that guard makes bumper-motion fail. Genuine bumper/reverse positives
+still pass, and all six final native repetitions keep their checked arcs.
+
+Other retained limitations / rejected evidence
+----------------------------------------------
+- Frozen994 northern expedition 154543-c4ce97be stops safely at no_route near
+  7133.72,8219.47, with driver/body unharmed. Its route has a 0.5 m reversing
+  join 7135.5,8206 -> 7135,8206. Cause remains open and it is not retested on
+  final007. The proven eastbound bypass is not universal rerouting coverage.
+- Original Home camp walking stalls at x8116, west of its x8121 boundary.
+  Warming floor discovery and adding the public forecourt are fixture choices,
+  not production walking fixes. D119 and994 public Home travel/save/restore
+  pass but their full probes later fail home_trip_drive_delivery_deadline.
+  994 run 155614-1b796c3d audit correctly reports full_home_probe_pass=false.
+- Frozen994 convoy repeat 160410-bf95ef36 fails strict contact checks; repeat
+  160709-a54f2de6 fails the lead arrival deadline. Causes are unclassified.
+  Passing 155414-ea686301 has a retained-scene photo-only reload
+  161136-9e3dba43, matching actual SQL5/6 car poses within 0.008 m. That photo
+  is evidence of the saved result, not a new successful movement trial.
+- Random parked-car preflight rejection 161329-be31c50c occurs before the timed
+  trial. It remains distinct from the valid failed fallback trials above.
+- Initial expedition 131304-57f93221 was blocked by a character before the
+  first junction and failed its recovery; it is not a completed integration.
+
+Reproduction and release verification
+--------------------------------------
+Raw native runs: build/live-sandbox-runs/SC-Harness-<id>/.
+Shared evidence: outputs/intersection-native-02736/ (outside the repository).
+Earlier turns-final, turns-release, turns-acceptance and turn-analysis folders
+are historical; final accepted results use turns-verified / turn-analysis-007449c7.
+
+  powershell.exe -File scripts/Test-IntersectionTurns.ps1 -NegativeControls
+  scripts/Test-IntersectionTurnsLive.ps1 -SeedSave <save> -CandidateBridge <jar>
+    -BaselineProjectRoot <exact-0.27.34-checkout> -OutputRoot <evidence>
+  python tests/live/analyze_intersection_turns.py <runs.json> --output <analysis>
+    --plot
+  python tests/live/analyze_intersection_home_trip.py <run> --bridge <jar>
+    --output <analysis.json>
+
+The Home audit requires a normally completed full probe, all native travel and
+save/restore receipts and actual continuous driving/seats. It separates only
+the known later duty deadline and reports full-probe failure explicitly.
+--require-fallback adds the historical exercise; a clear trip may record zero.
+Removing physical-drive proof in a synthetic copy fails the audit; raw data
+is untouched (home-audit-missing-drive-negative.log).
+
+Source All passes (source-all-final.log). All eight changed/new live Lua helpers
+compile normally and with debug checks against pinned 42.22.2. Logs:
+live-helpers-final-normal.log and live-helpers-final-debug.log.
+
+Final007 full WinPS5.1 Test-Project.ps1 -Release passes all five domains and all
+18 installer transaction cases. Evidence: build/test-results/20261118-170455-185eb5,
+external release-gate-007449c7.log. Elapsed 1040.2 s: Build 348.7, Lifecycle 46.4,
+Behaviour 125.5, Cargo 12.2, Interface 507.4. It launched no game. Functional
+journeys ran separately during this gate; the timed A/B finished before it began.
+Gate rebuild and final payload retain the exact frozen bridge hash above.
+Earlier full gates on D119,3F,994,3A6A are historical only.
+
+Source CI is a post-commit check on the pushed release-branch tip. Its exact
+commit/run receipt is retained with the external evidence and shared roadmap;
+the local gate is not a substitute for that workflow.
+No local game install, release tag or Workshop upload has been performed.

@@ -39,18 +39,24 @@ $mutations = @(
     @{Label='reverse';File='SCRoadFollower.java';Check='reverse';Needle='path.original().reversed().withCorners(profile)';Replacement='path.reversed()';Expected='reverse rebuild uses original route'},
     @{Label='steering';File='SCRoadFollower.java';Check='left';Needle='float blend = cornerSteeringBlend(lookAhead);';Replacement='float blend = 0;';Expected='left lane error'},
     @{Label='sides';File='SCCornerPathBuilder.java';Check='sides';Needle='V q = new V(x - originX, y - originY);';Replacement='if (Float.isFinite(x)) return true; V q = new V(x - originX, y - originY);';Expected='V2 rejects'},
-    @{Label='fallback';File='SCRoadFollower.java';Check='wreck';Needle='if (limitedArc != null && !rebuildingCorner)';Replacement='if (false)';Expected='wreck arrives|wreck switches one corner'},
+    @{Label='fallback';File='SCRoadFollower.java';Check='wreck';Needle='if (limitedArc != null && !rebuildingCorner && sharpenCorner(limitedArc))';Replacement='if (false)';Expected='wreck arrives|wreck switches one corner'},
     @{Label='identity';File='SCCornerPathBuilder.java';Check='geometry';Needle='return new Node(point(root, index), root.width(index)';Replacement='return new Node(index == 1 ? point(root, index).add(new V(.01, 0)) : point(root, index), root.width(index)';Expected='straight-stretch identity'},
     @{Label='merge';File='SCRoadFollower.java';Check='merge';Needle='while (pieceEnd < arc.end() - 0.01f';Replacement='while (pieceEnd < at - 1 && pieceEnd < arc.end() - 0.01f';Expected='merged arc scan cost'},
-    @{Label='short-scan';File='SCRoadFollower.java';Check='right';Needle='if (chord <= 0.001f)';Replacement='if (false && chord <= 0.001f)';Expected='right lane error'},
-    @{Label='late-offset';File='SCRoadFollower.java';Check='lamp';Needle='if (limitedArc != null && limitedArc.start() - along < halfLength + 4';Replacement='if (false && limitedArc != null && limitedArc.start() - along < halfLength + 4';Expected='lamp no body collision'}
+    @{Label='short-scan';File='SCRoadFollower.java';Check='shortScan';Needle='if (chord <= 0.001f)';Replacement='if (false && chord <= 0.001f)';Expected='clipped arc scan stays clear'},
+    @{Label='late-offset';File='SCRoadFollower.java';Check='lateOffset';Needle='if (limitedArc != null && limitedArc.start() - along < halfLength + 4';Replacement='if (false && limitedArc != null && limitedArc.start() - along < halfLength + 4';Expected='late offset avoids rear body collision'},
+    @{Label='governor';File='SCDriveControl.java';Check='governor';Needle='holdGap, 0.15f, 0.25f';Replacement='holdGap, SPEED_UP_BELOW_KMH, BRAKE_ABOVE_KMH';Expected='corner governor holds requested speed'},
+    @{Label='moving-entry';File='SCRoadFollower.java';Check='approach';Needle='float margin = speed * 0.1f;';Replacement='float margin = 1.5f + speed * 0.4f;';Expected='moving arc approach timing'},
+    @{Label='bumper';File='SCRoadFollower.java';Check='bumper';Needle='if (bumperArc != null && frontClear >= 0';Replacement='if (false && bumperArc != null && frontClear >= 0';Expected='bumper corner fallback'},
+    @{Label='corner-recovery';File='SCRoadFollower.java';Check='cornerRecovery';Needle='boolean cornerBlocked = !scanClear';Replacement='boolean cornerBlocked = false && !scanClear';Expected='corner bumper recovery'}
+    @{Label='filled-strip';File='SCLaneScan.java';Check='filledStrip';Needle='lookAhead, kinds, true);';Replacement='lookAhead, kinds, false);';Expected='interior obstacle in corner route strip'},
+    @{Label='bumper-motion';File='SCRoadFollower.java';Check='clearBumper';Needle='&& Math.abs(speedKmh) <= 1.0f';Replacement='&& true';Expected='clear arc does not sharpen for distant lamp'}
 )
 if ($NegativeControls) {
     foreach ($mutation in $mutations) {
         $variant = Join-Path $logs $mutation.Label
         $src = Join-Path $variant 'src'
         New-Item -ItemType Directory -Path $src -Force | Out-Null
-        $files = foreach ($name in @('SCDrivePath.java', 'SCCornerPathBuilder.java', 'SCRoadFollower.java')) {
+        $files = foreach ($name in @('SCDrivePath.java', 'SCCornerPathBuilder.java', 'SCRoadFollower.java', 'SCDriveControl.java', 'SCLaneScan.java')) {
             $source = [IO.File]::ReadAllText((Join-Path $sourceRoot $name))
             if ($name -eq $mutation.File) {
                 if ($source.IndexOf($mutation.Needle) -ne $source.LastIndexOf($mutation.Needle)) {

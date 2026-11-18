@@ -1,6 +1,9 @@
 Lane-to-lane intersection turns: Phase 1 build
 2026-11-18, living_fellows/0.27.36
 
+Historical snapshot at 673a36ca. The timing issue below is superseded by the
+acceptance follow-up in intersection-acceptance-02736.txt.
+
 Status
 ------
 Implementation and functional verification complete locally. Full acceptance is

@@ -175,6 +175,8 @@ param(
     [switch]$DrivingProbe,
     # Real player drives one car while an assigned companion follows in another.
     [switch]$ConvoyProbe,
+    [switch]$CompanionConvoyProbe,
+    [switch]$CompanionConvoyPhotoOnly,
     [switch]$PickupLifecycleProbe,
     [switch]$PickupServiceProbe,
     [ValidateSet('', 'acquire', 'board_driver', 'outbound', 'waiting_board', 'ride', 'returning', 'finish')]
@@ -203,6 +205,9 @@ param(
     [switch]$DrivingRoute,
     # With -DrivingProbe: drive a planner route round a junction into a side street.
     [switch]$DrivingTurn,
+    [ValidateSet('', 'Left', 'Right')][string]$DrivingTurnSide = '',
+    # Record exact old-bridge behavior without accepting missing corner metadata.
+    [switch]$DrivingTurnBaseline,
     # Phase 0 measurements only: three stock cars, native steering and raw routes.
     [switch]$DrivingCalibrationProbe,
     # Optional subset for repeating a measurement (1..36), or 'baseline'.
@@ -222,6 +227,9 @@ param(
     [switch]$DrivingRemote,
     # Step 2: mark parking and run a three-companion car expedition end to end.
     [switch]$TeamDriveProbe,
+    [switch]$TeamDriveJunctionProbe,
+    [switch]$TeamDriveStopScreenshot,
+    [switch]$TeamDriveBarricadeProbe,
     # Send the same squad to a real building roughly 150 tiles away to search.
     [switch]$TeamDriveScavengeProbe,
     # Optional exact site ID for a repeatable real-building search probe.
@@ -310,6 +318,8 @@ param(
     [switch]$PersonaDiscoveryProbe,
     [switch]$HomeTripProbe,
     [switch]$HomeTripControlled,
+    [switch]$HomeTripArmed,
+    [ValidateRange(0,12)][int]$HomeTripCampMargin = 0,
     [ValidateSet(1,2,3)][int]$HomeTripMembers = 1,
     [ValidateSet('walk','drive')][string]$HomeTripTransport = 'walk',
     [ValidateSet('parking','roadside')][string]$HomeTripStop = 'parking',
@@ -960,8 +970,15 @@ if ($CompanionInventoryOnly) {
 if ($VehiclePassengerOnly -ne (-not [string]::IsNullOrWhiteSpace($VehiclePassengerScreenshot))) {
     throw '-VehiclePassengerOnly requires -VehiclePassengerScreenshot.'
 }
+if ($HomeTripArmed -and (-not $HomeTripProbe -or -not $HomeTripControlled)) { throw '-HomeTripArmed requires -HomeTripProbe -HomeTripControlled.' }
+if ($HomeTripCampMargin -gt 0 -and (-not $HomeTripProbe -or -not $HomeTripControlled)) { throw '-HomeTripCampMargin requires -HomeTripProbe -HomeTripControlled.' }
 if ($DrivingRoute -and -not $DrivingProbe) { throw '-DrivingRoute requires -DrivingProbe.' }
 if ($ConvoyProbe -and -not $DrivingProbe) { throw '-ConvoyProbe requires -DrivingProbe.' }
+if ($CompanionConvoyProbe -and -not $DrivingProbe) { throw '-CompanionConvoyProbe requires -DrivingProbe.' }
+if ($CompanionConvoyPhotoOnly -and -not $CompanionConvoyProbe) { throw '-CompanionConvoyPhotoOnly requires -CompanionConvoyProbe.' }
+if ($TeamDriveJunctionProbe -and (-not $DrivingProbe -or -not $TeamDriveProbe)) { throw '-TeamDriveJunctionProbe requires -DrivingProbe -TeamDriveProbe.' }
+if ($TeamDriveStopScreenshot -and -not $TeamDriveJunctionProbe) { throw '-TeamDriveStopScreenshot requires -TeamDriveJunctionProbe.' }
+if ($TeamDriveBarricadeProbe -and -not $TeamDriveStopScreenshot) { throw '-TeamDriveBarricadeProbe requires -TeamDriveStopScreenshot.' }
 if ($PickupLifecycleProbe -and -not $DrivingProbe) { throw '-PickupLifecycleProbe requires -DrivingProbe.' }
 if ($PickupServiceProbe -and -not $DrivingProbe) { throw '-PickupServiceProbe requires -DrivingProbe.' }
 if (($PickupSavePhase -or $PickupResume) -and -not $PickupServiceProbe) { throw 'Pickup save/resume requires -PickupServiceProbe.' }
@@ -999,6 +1016,8 @@ if ($TaxiRecoveryResume -and -not $DrivingProbe) {
     throw '-TaxiRecoveryResume requires -DrivingProbe.'
 }
 if ($DrivingTurn -and -not $DrivingProbe) { throw '-DrivingTurn requires -DrivingProbe.' }
+if ($DrivingTurnSide -and -not $DrivingTurn) { throw '-DrivingTurnSide requires -DrivingTurn.' }
+if ($DrivingTurnBaseline -and -not $DrivingTurnSide) { throw '-DrivingTurnBaseline requires -DrivingTurnSide.' }
 if ($DrivingCalibrationProbe -and -not $DrivingProbe) { throw '-DrivingCalibrationProbe requires -DrivingProbe.' }
 if ($DrivingCalibrationCases -and -not $DrivingCalibrationProbe) { throw '-DrivingCalibrationCases requires -DrivingCalibrationProbe.' }
 if ($DrivingCalibrationBaseline -and -not $DrivingCalibrationProbe) { throw '-DrivingCalibrationBaseline requires -DrivingCalibrationProbe.' }
@@ -1021,7 +1040,7 @@ if ($DrivingGateNegativeControl -and
     throw '-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi.'
 }
 $drivingExclusiveModes = @($DrivingRoute, $DrivingTurn, $DrivingCalibrationProbe, $DrivingBlocked,
-    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe, $PickupLifecycleProbe, $PickupServiceProbe,
+    $DrivingSaveStage, $DrivingSaveResume, $DrivingRemote, $TeamDriveProbe, $ConvoyProbe, $CompanionConvoyProbe, $PickupLifecycleProbe, $PickupServiceProbe,
     $TaxiPassengerProbe, $TaxiCallProbe, $TaxiCallResume,
     $TaxiRecoveryResume) | Where-Object { $_.IsPresent }
 # Taxi booking can reuse the turn probe's real junction and roadside observer.
@@ -1130,9 +1149,11 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Test-ProjectZomboidRunning {
     try {
+        # This pure Lua regression JVM loads the game JAR but no world.
         $matches = @(Get-CimInstance Win32_Process | Where-Object {
             $_.Name -like 'ProjectZomboid*' -or
-            ($_.Name -match '^java(w)?\.exe$' -and $_.CommandLine -match 'ProjectZomboid')
+            ($_.Name -match '^java(w)?\.exe$' -and $_.CommandLine -match 'ProjectZomboid' -and
+                $_.CommandLine -notmatch '(?:^|\s)KahluaTestRunner(?:\s|$)')
         })
     } catch {
         # Restricted desktop sessions may deny WMI process command lines.
@@ -1768,7 +1789,7 @@ if ($ViewCutawayProbe -or $NormalExpeditionKitchenProbe -or $FirstHourProbe -or 
     }
     foreach ($fixtureFile in Get-ChildItem -LiteralPath $wallHarnessClient -File -Filter '*.lua') {
         if ($fixtureFile.Name -notin @('SCRealSandboxHarness.lua', 'SCViewCutawayProbe.lua',
-                'SCNormalExpeditionKitchenProbe.lua', 'SCFirstHourProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCReliabilityProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
+                'SCNormalExpeditionKitchenProbe.lua', 'SCFirstHourProbe.lua', 'SCWoodExpeditionProbe.lua', 'SCReliabilityProbe.lua', 'SCALifeAdapterProbe.lua', 'SCPersonaPlayProbe.lua', 'SCPersonaDiscoveryProbe.lua', 'SCCampReleaseProbe.lua', 'SCHomeDriveFixture.lua', 'SCHomeIntersectionSetup.lua', 'SCHomeRadioProbe.lua', 'SCHomeTripProbe.lua')) {
             Remove-Item -LiteralPath $fixtureFile.FullName -Force
         }
     }
@@ -2065,6 +2086,11 @@ $config = @(
     ('water_source_probe=' + $WaterSourceProbe.IsPresent.ToString().ToLowerInvariant()),
     ('farm_corridor_probe=' + $FarmCorridorProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_probe=' + $DrivingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('companion_convoy_probe=' + $CompanionConvoyProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('companion_convoy_photo_only=' + $CompanionConvoyPhotoOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_junction_probe=' + $TeamDriveJunctionProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_stop_screenshot=' + $TeamDriveStopScreenshot.IsPresent.ToString().ToLowerInvariant()),
+    ('team_drive_barricade_probe=' + $TeamDriveBarricadeProbe.IsPresent.ToString().ToLowerInvariant()),
     ('convoy_probe=' + $ConvoyProbe.IsPresent.ToString().ToLowerInvariant()),
     ('pickup_lifecycle_probe=' + $PickupLifecycleProbe.IsPresent.ToString().ToLowerInvariant()),
     ('pickup_service_probe=' + $PickupServiceProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -2089,6 +2115,8 @@ $config = @(
     ('taxi_expected_receipt_id=' + [string]$taxiExpected.receipt_id),
     ('driving_route=' + $DrivingRoute.IsPresent.ToString().ToLowerInvariant()),
     ('driving_turn=' + $DrivingTurn.IsPresent.ToString().ToLowerInvariant()),
+    ('driving_turn_side=' + $DrivingTurnSide),
+    ('driving_turn_baseline=' + $DrivingTurnBaseline.IsPresent.ToString().ToLowerInvariant()),
     ('driving_calibration_probe=' + $DrivingCalibrationProbe.IsPresent.ToString().ToLowerInvariant()),
     ('driving_calibration_cases=' + $DrivingCalibrationCases),
     ('driving_calibration_baseline=' + $DrivingCalibrationBaseline),
@@ -2274,6 +2302,8 @@ $config = @(
     ('camp_release_controlled=' + $CampReleaseControlled.IsPresent.ToString().ToLowerInvariant()),
     ('home_trip_probe=' + $HomeTripProbe.IsPresent.ToString().ToLowerInvariant()),
     ('home_trip_controlled=' + $HomeTripControlled.IsPresent.ToString().ToLowerInvariant()),
+    ('home_trip_armed=' + $HomeTripArmed.IsPresent.ToString().ToLowerInvariant()),
+    ('home_trip_camp_margin=' + $HomeTripCampMargin),
     ('home_trip_members=' + $HomeTripMembers),
     ('home_trip_transport=' + $HomeTripTransport),
     ('home_trip_stop=' + $HomeTripStop),
@@ -2351,6 +2381,8 @@ $manifest = [ordered]@{
     campReleaseControlled = $CampReleaseControlled.IsPresent
     homeTripProbe = $HomeTripProbe.IsPresent
     homeTripControlled = $HomeTripControlled.IsPresent
+    homeTripArmed = $HomeTripArmed.IsPresent
+    homeTripCampMargin = $HomeTripCampMargin
     homeTripMembers = $HomeTripMembers
     homeTripTransport = $HomeTripTransport
     homeTripStop = $HomeTripStop
@@ -2512,7 +2544,7 @@ if ($PrepareOnly) {
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
 if ($EngineSound) { $argumentLine = $argumentLine.Replace(' -nosound','') }
-if ($DrivingCalibrationProbe -or $HomeTripProbe -or $ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
+if ($DrivingTurnSide -or $DrivingCalibrationProbe -or $HomeTripProbe -or $ViewCutawayProbe -or $ExpeditionCompatibilityProbe -or $SplitScreenOnly -or $PersonaPlayProbe -or $PersonaDiscoveryProbe -or
     ($WoodExpeditionProbe -and $WoodExpeditionCrewSize -eq 3)) { $argumentLine += ' -debug' }
 if ($NoSteam) { $argumentLine += ' -nosteam' }
 $autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl

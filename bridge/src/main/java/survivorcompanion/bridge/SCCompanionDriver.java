@@ -569,6 +569,10 @@ final class SCCompanionDriver {
         steering = command.steering;
         SCDriveControl.Input input = command.targetKmh < 0.0f
                 ? SCDriveControl.reverse(speedKmh, -command.targetKmh, command.steering, rear)
+                : command.cornerSpeed
+                ? SCDriveControl.corner(speedKmh, command.targetKmh, command.steering, front,
+                        command.maneuver ? SCDriveControl.MANEUVER_GAP_TILES
+                                : SCDriveControl.HOLD_GAP_TILES)
                 : SCDriveControl.cruise(speedKmh, command.targetKmh, command.steering, front,
                         command.maneuver ? SCDriveControl.MANEUVER_GAP_TILES
                                 : SCDriveControl.HOLD_GAP_TILES);

@@ -1,6 +1,9 @@
 Intersection turning: Phase 0 measurements
 2026-11-18 / reserved release 0.27.36 / base 0.27.35
 
+Historical pre-implementation snapshot at 4bf38954. Final implementation and
+acceptance results are in intersection-acceptance-02736.txt.
+
 Phase 0 complete. The wheelbase rule is settled, the steering mapping was
 re-derived and checked, four raw junction fixtures are saved, and the exact
 0.27.34 release completed all four native baselines with zero recorded zombie-

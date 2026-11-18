@@ -67,6 +67,7 @@ final class SCRoadFollower {
 
     /** One frame of driving: wheel, signed target speed, and which bumper to watch. */
     static final class Command {
+        boolean cornerSpeed;
         float steering;
         float targetKmh;
         /** Slow manoeuvre: keep the small gap, and watch the rear when reversing. */
@@ -224,6 +225,13 @@ final class SCRoadFollower {
     float laneError() { return laneError; }
     float maxLaneError() { return maxLaneError; }
     long stripScans() { return stripScans; }
+
+    SCDrivePath.Corner activeCorner() {
+        for (int i = 0; i < path.corners(); i++) {
+            if (cornerArmed[i] && !cornerReleased[i]) return path.corner(i);
+        }
+        return null;
+    }
 
     int swerves() {
         return swerves;
@@ -404,6 +412,7 @@ final class SCRoadFollower {
         command.steering = 0.0f;
         command.targetKmh = 0.0f;
         command.maneuver = false;
+        command.cornerSpeed = false;
         laneError = Float.NaN;
         float heading = (float) Math.atan2(headingY, headingX);
         if (path.cornerProfile() != null) observeVelocity(x, y, heading, speedKmh, nowMs);
@@ -549,6 +558,23 @@ final class SCRoadFollower {
             command.targetKmh = 0.0f;
             return command;
         }
+        // The real bumper can see beyond a curved lane into the far pavement,
+        // even when the route strip is clear. Keep that safety brake intact and
+        // give this one corner back to the original pursuit line only when
+        // the car has nearly stopped. A moving car can still turn away from
+        // a distant side-ray hit outside its clear arc. Keep its safety brake.
+        SCDrivePath.Corner bumperArc = path.arcAt(along);
+        if (bumperArc != null && frontClear >= 0
+                && frontClear <= 0.5f + Math.max(SCDriveControl.HOLD_GAP_TILES,
+                        SCDriveControl.stoppingDistance(speedKmh))
+                && Math.abs(speedKmh) <= 1.0f
+                && !rebuildingCorner && sharpenCorner(bumperArc)) {
+            rebuildingCorner = true;
+            try {
+                return update(world, x, y, z, headingX, headingY, speedKmh, halfWidth,
+                        halfLength, frontClear, rearClear, frontKind, nowMs, command);
+            } finally { rebuildingCorner = false; }
+        }
         path.pointAt(along, 0.0f, point);
         float width = point[4] > 0.0f ? point[4] : DEFAULT_WIDTH;
         float maxOffset = Math.max(0.0f, width * 0.5f + SHOULDER - halfWidth - 0.2f);
@@ -638,7 +664,7 @@ final class SCRoadFollower {
             headingAhead = nextHeading;
             vertex = path.nextVertexAlong(vertex + 0.01f);
         }
-        target = cornerSpeed(target, curveLookAhead, heading, speedKmh);
+        target = cornerSpeed(target, curveLookAhead, heading, speedKmh, command);
         // Ease in to the end of the route.
         if (!rollingGoal) {
             target = Math.min(target, preciseArrival
@@ -687,7 +713,7 @@ final class SCRoadFollower {
         motionX = x; motionY = y; motionHeading = heading; motionAt = nowMs;
     }
 
-    private float cornerSpeed(float target, float reach, float heading, float speedKmh) {
+    private float cornerSpeed(float target, float reach, float heading, float speedKmh, Command command) {
         if (path.corners() == 0) return target;
         path.pointAt(along, 0, point);
         float error = Math.abs(SCTurnAround.wrap((float) Math.atan2(point[3], point[2]) - heading));
@@ -708,15 +734,17 @@ final class SCRoadFollower {
             float limit = angle > CURVE_ANGLE ? CURVE_KMH * cornerSpeedScale
                     : angle > GENTLE_CURVE_ANGLE ? GENTLE_CURVE_KMH * cornerSpeedScale : cruiseKmh;
             if (corner.arc() && along < corner.start()) {
-                // Brake to the arc entry instead of crawling the entire braking
-                // distance at the eventual corner speed. Use the same conservative
-                // 3 m/s² as DriveControl, retaining its reaction/stopping margin.
+                // Enter a checked arc moving at its limit. Keep the conservative
+                // 3 m/s², allowing a control update for a corner already known
+                // ahead. The physical bumper scan still keeps its full reaction
+                // and standstill margins for newly discovered obstacles.
                 float speed = Math.abs(speedKmh) / 3.6f;
-                float margin = SCDriveControl.stoppingDistance(speedKmh) - speed * speed / 6;
+                float margin = speed * 0.1f;
                 float room = Math.max(0, corner.start() - along - margin);
-                float permitted = (float) Math.sqrt(limit * limit + 3.6f * 3.6f * 6 * room) - 3;
+                float permitted = (float) Math.sqrt(limit * limit + 3.6f * 3.6f * 6 * room) - 0.25f;
                 limit = Math.max(limit, permitted);
             }
+            if (corner.arc()) command.cornerSpeed = true;
             target = Math.min(target, limit);
         }
         return target;
@@ -738,7 +766,13 @@ final class SCRoadFollower {
                 || frontClear > SCDriveControl.HOLD_GAP_TILES + 0.5f;
         boolean passingBlocked = !scanClear && frontKind == SCLaneScan.VEHICLE
                 && Math.abs(offset - laneOffset) > 0.5f;
-        if (preciseArrival || command.targetKmh <= 0.0f || !(scanClear || passingBlocked)
+        // A clear route beside pavement can still leave a crooked bumper
+        // stopped before its wheels establish the turn. Use the same bounded
+        // reverse near checked corners; raw routes keep their existing policy.
+        boolean cornerBlocked = !scanClear && nearCornerBumper()
+                && (frontKind == SCLaneScan.SOLID || frontKind == SCLaneScan.WALL
+                    || frontKind == SCLaneScan.TREE || frontKind == SCLaneScan.VEHICLE);
+        if (preciseArrival || command.targetKmh <= 0.0f || !(scanClear || passingBlocked || cornerBlocked)
                 || Math.abs(speedKmh) > SCDriveControl.STOPPED_KMH) {
             wedgedSince = -1L;
             return;
@@ -766,6 +800,16 @@ final class SCRoadFollower {
         command.steering = backoffSteering;
         command.targetKmh = -SCTurnAround.REVERSE_KMH;
         command.maneuver = true;
+    }
+
+    private boolean nearCornerBumper() {
+        if (path.cornerProfile() == null) return false;
+        float reach = 9 + path.cornerProfile().halfLength();
+        for (int i = 0; i < path.corners(); i++) {
+            SCDrivePath.Corner corner = path.corner(i);
+            if (along >= corner.start() - reach && along <= corner.end() + 3) return true;
+        }
+        return false;
     }
 
     /**
@@ -826,7 +870,7 @@ final class SCRoadFollower {
                 // Include its outer corner, beyond the chord's own sagitta.
                 float bodyWidth = (float) Math.hypot(arc.radius() + halfWidth, halfLength) - arc.radius();
                 stripScans++;
-                SCLaneScan.Result hit = SCLaneScan.scan(world, startX, startY, z, dx, dy,
+                SCLaneScan.Result hit = SCLaneScan.scanFilled(world, startX, startY, z, dx, dy,
                         bodyWidth + bow, 0, Math.max(chord, 0.001f), scanCache);
                 if (hit.blocked) {
                     stripHit.copyFrom(hit);
@@ -839,8 +883,11 @@ final class SCRoadFollower {
             float offset = path.cornerProfile() == null ? lineOffset : path.laneOffsetAt(at) + lineOffset - laneOffset;
             path.pointAt(at, offset, point);
             stripScans++;
-            SCLaneScan.Result hit = SCLaneScan.scan(world, point[0], point[1], z, point[2],
-                    point[3], halfWidth, 0.0f, piece, scanCache);
+            SCLaneScan.Result hit = path.cornerProfile() == null
+                    ? SCLaneScan.scan(world, point[0], point[1], z, point[2],
+                            point[3], halfWidth, 0.0f, piece, scanCache)
+                    : SCLaneScan.scanFilled(world, point[0], point[1], z, point[2],
+                            point[3], halfWidth, 0.0f, piece, scanCache);
             if (hit.blocked) {
                 stripHit.copyFrom(hit);
                 return covered + hit.distance;
@@ -925,18 +972,9 @@ final class SCRoadFollower {
             mode = Mode.FOLLOW;
             blockedAt = -1.0f;
         } else {
-            if (limitedArc != null && !rebuildingCorner) {
-                float originalFix = path.originalAlong(along);
-                SCDrivePath next = path.sharpCorner(limitedArc.id());
-                if (next != path) {
-                    boolean pendingAlignment = initialAlignmentPending;
-                    retarget(next);
-                    initialAlignmentPending = pendingAlignment;
-                    segment = next.segmentAtOriginalAlong(originalFix);
-                    cornerFallbacks++;
-                    cornerPathChanged = true;
-                    return;
-                }
+            if (limitedArc != null && !rebuildingCorner && sharpenCorner(limitedArc)) {
+                cornerPathChanged = true;
+                return;
             }
             mode = Mode.BLOCKED;
             blockedAt = ahead;
@@ -944,6 +982,18 @@ final class SCRoadFollower {
             blockedY = hitY + 0.5f;
             blockedKind = hitKind;
         }
+    }
+
+    private boolean sharpenCorner(SCDrivePath.Corner corner) {
+        float originalFix = path.originalAlong(along);
+        SCDrivePath next = path.sharpCorner(corner.id());
+        if (next == path) return false;
+        boolean pendingAlignment = initialAlignmentPending;
+        retarget(next);
+        initialAlignmentPending = pendingAlignment;
+        segment = next.segmentAtOriginalAlong(originalFix);
+        cornerFallbacks++;
+        return true;
     }
 
     /** Turn towards the more open side; ties go left, across the road. */

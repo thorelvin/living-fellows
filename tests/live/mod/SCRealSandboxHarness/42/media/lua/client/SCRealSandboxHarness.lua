@@ -140,6 +140,12 @@ local function skip(name, detail)
 end
 
 local function setPhase(name, current)
+    if Harness.config and Harness.config.home_trip_transport=="drive"
+        and (name=="home_trip_dormant" or name=="home_trip_restored") then
+        local filename=tostring(Harness.config.run_id).."-"..name..".png"
+        local okay,why=pcall(function() getCore():TakeFullScreenshot(filename) end)
+        result(okay and "PASS" or "FAIL","native_phase_screenshot",filename.." "..tostring(why))
+    end
     Harness.phase = name
     Harness.phaseStartedAt = current or nowMs()
 end
@@ -4242,6 +4248,18 @@ end
 
 local function finish()
     if Harness.finished then return end
+    if Harness.config and (Harness.config.driving_probe=="true" or Harness.config.home_trip_transport=="drive") then
+        Harness.finishPhotoSettlingAt=Harness.finishPhotoSettlingAt or nowMs()
+        if nowMs()-Harness.finishPhotoSettlingAt<1500 then return end
+        if not Harness.finishPhotoAt then
+            Harness.finishPhotoAt=nowMs()
+            local filename=tostring(Harness.config.run_id).."-final-native.png"
+            local okay,why=pcall(function() getCore():TakeFullScreenshot(filename) end)
+            result(okay and "PASS" or "FAIL","native_final_screenshot",filename.." "..tostring(why))
+            return
+        end
+        if nowMs()-Harness.finishPhotoAt<750 then return end
+    end
     if Harness.config and Harness.config.team_pursuer_probe == "true"
         and not Harness.pursuerReported then
         local candidates, targeted, moved, maxShift = 0, 0, 0, 0
