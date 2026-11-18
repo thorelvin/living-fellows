@@ -2,6 +2,21 @@
 
 # Changelog
 
+## 0.27.38 - Smooth turns on routes with several corners
+
+- Companion drivers keep their lane between two junctions close together. A
+  rounded corner now reads the width of the street it actually turns from,
+  not the street before it, so the lane no longer jumps sideways where one
+  turn ends and the next begins.
+- A car leaving a driveway no longer swings towards the road centre before
+  its first right turn.
+- The last street before a parking driveway keeps its own lane width, even
+  when the route turned onto it from a wider street.
+- A companion whose saved spot is blocked when the game loads is placed on
+  the nearest free tile in the same kind of place: outdoors stays outdoors,
+  and indoors stays in the same building instead of the house next door.
+- Bridge protocol remains `42.22-isocompanion-33`.
+
 ## 0.27.37 - Keep saved companions waiting for their bridge
 
 - A missing Java bridge no longer exhausts a saved companion's restore attempts.

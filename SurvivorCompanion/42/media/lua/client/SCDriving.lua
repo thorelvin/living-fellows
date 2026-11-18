@@ -641,8 +641,11 @@ local function appendRoadExit(route, exit)
     local anchor
     local before = points[#points - 1]
     local width = finite(last.width) or 0
-    if not addEntry and before and width > 5
-        and (finite(before.width) or 0) < width then
+    -- Always mark the last stretch with its own street width, not only when
+    -- the point before is narrower. That point is often the junction the
+    -- route turned at, which carries the previous street's width, and the
+    -- native corner builder reads a turning junction as the street before it.
+    if not addEntry and before and width > 5 then
         local rx, ry = last.x - before.x, last.y - before.y
         local run = math.sqrt(rx * rx + ry * ry)
         if run > 0.5 then

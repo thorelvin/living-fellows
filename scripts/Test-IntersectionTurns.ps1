@@ -49,7 +49,11 @@ $mutations = @(
     @{Label='bumper';File='SCRoadFollower.java';Check='bumper';Needle='if (bumperArc != null && frontClear >= 0';Replacement='if (false && bumperArc != null && frontClear >= 0';Expected='bumper corner fallback'},
     @{Label='corner-recovery';File='SCRoadFollower.java';Check='cornerRecovery';Needle='boolean cornerBlocked = !scanClear';Replacement='boolean cornerBlocked = false && !scanClear';Expected='corner bumper recovery'}
     @{Label='filled-strip';File='SCLaneScan.java';Check='filledStrip';Needle='lookAhead, kinds, true);';Replacement='lookAhead, kinds, false);';Expected='interior obstacle in corner route strip'},
-    @{Label='bumper-motion';File='SCRoadFollower.java';Check='clearBumper';Needle='&& Math.abs(speedKmh) <= 1.0f';Replacement='&& true';Expected='clear arc does not sharpen for distant lamp'}
+    @{Label='bumper-motion';File='SCRoadFollower.java';Check='clearBumper';Needle='&& Math.abs(speedKmh) <= 1.0f';Replacement='&& true';Expected='clear arc does not sharpen for distant lamp'},
+    @{Label='leg-width';File='SCCornerPathBuilder.java';Check='multiCorner';Needle='bend.inWidth = legWidth(root, first - 1, turning);';Replacement='bend.inWidth = root.width(first - 1) > 0 ? root.width(first - 1) : 6;';Expected='multi-corner lane continuity'},
+    @{Label='turning-point';File='SCCornerPathBuilder.java';Check='multiCorner';Needle='if (turning[other]) return';Replacement='if (false) return';Expected='keeps its own lane'},
+    @{Label='reverse-widths';File='SCDrivePath.java';Check='multiCorner';Needle='return new SCDrivePath(x, y, w, !widthsLeaveNode);';Replacement='return new SCDrivePath(x, y, w);';Expected='reversed lane='},
+    @{Label='straight-lanes';File='SCDrivePath.java';Check='multiCorner';Needle='if (straightLanes != null) return straightLanes[segment];';Replacement='';Expected='after a sharp turn'}
 )
 if ($NegativeControls) {
     foreach ($mutation in $mutations) {

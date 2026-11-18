@@ -52,15 +52,41 @@ final class SCDrivePath {
     private final float[] originalAlong;
     private final boolean[] forcedSharp;
     private final float[] laneSegmentLengths;
+    /**
+     * Route points carry the width of the street they were reached on (the
+     * road router and the Lua planner both write them that way). A reversed
+     * route keeps its point widths, so each width then describes the leg that
+     * leaves the point instead.
+     */
+    private final boolean widthsLeaveNode;
+    /** Corner routes only: the lane of each straight segment, from the leg it lies on. */
+    private final float[] straightLanes;
 
     private SCDrivePath(float[] xs, float[] ys, float[] widths) {
-        this(xs, ys, widths, null, null, new Corner[0], null, null, null, null, null, null);
+        this(xs, ys, widths, false);
+    }
+
+    private SCDrivePath(float[] xs, float[] ys, float[] widths, boolean widthsLeaveNode) {
+        this(xs, ys, widths, null, null, new Corner[0], null, null, null, null, null, null,
+                null, widthsLeaveNode);
     }
 
     SCDrivePath(float[] xs, float[] ys, float[] widths, SCDrivePath original,
                 CornerProfile profile, Corner[] corners, float[] laneOffsets,
                 float[] tangentX, float[] tangentY, int[] cornerIds,
-                float[] originalAlong, boolean[] forcedSharp) {
+                float[] originalAlong, boolean[] forcedSharp, float[] straightLanes) {
+        this(xs, ys, widths, original, profile, corners, laneOffsets, tangentX, tangentY,
+                cornerIds, originalAlong, forcedSharp, straightLanes,
+                original != null && original.widthsLeaveNode);
+    }
+
+    private SCDrivePath(float[] xs, float[] ys, float[] widths, SCDrivePath original,
+                        CornerProfile profile, Corner[] corners, float[] laneOffsets,
+                        float[] tangentX, float[] tangentY, int[] cornerIds,
+                        float[] originalAlong, boolean[] forcedSharp, float[] straightLanes,
+                        boolean widthsLeaveNode) {
+        this.widthsLeaveNode = widthsLeaveNode;
+        this.straightLanes = straightLanes;
         this.xs = xs;
         this.ys = ys;
         this.widths = widths;
@@ -106,6 +132,7 @@ final class SCDrivePath {
     }
 
     SCDrivePath original() { return original == null ? this : original; }
+    boolean widthsLeaveNode() { return widthsLeaveNode; }
     CornerProfile cornerProfile() { return profile; }
     int corners() { return corners.length; }
     Corner corner(int id) { return corners[id]; }
@@ -132,6 +159,7 @@ final class SCDrivePath {
     float laneOffsetAt(float along) {
         int segment = segmentAt(along);
         if (arcSegment(segment)) return interpolate(laneOffsets, along);
+        if (straightLanes != null) return straightLanes[segment];
         float width = Math.max(widths[segment], widths[segment + 1]);
         if (width <= 0) width = 6;
         return profile != null && profile.keepRight && width >= 6 ? width / 4 : 0;
@@ -248,7 +276,7 @@ final class SCDrivePath {
             y[index] = ys[count - 1 - index];
             w[index] = widths[count - 1 - index];
         }
-        return new SCDrivePath(x, y, w);
+        return new SCDrivePath(x, y, w, !widthsLeaveNode);
     }
 
     float length() {

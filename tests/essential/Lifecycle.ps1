@@ -36,6 +36,10 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Core 'persistence_bootstrap_harness.lua')) }
+@{ Name = 'restore-square-context'; Files = @($lifecycleArrivalFiles) + @(
+    (Join-Path $Shared 'SCRegistry.lua'),
+    (Join-Path $Client 'SCPersistence.lua'),
+    (Join-Path $Core 'persistence_restore_square_harness.lua')) }
 @{ Name = 'resident-wake-restoration'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'faction_restore_harness.lua')) }
 @{ Name = 'camp-pickup-lifecycle'; Files = @(

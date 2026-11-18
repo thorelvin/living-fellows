@@ -4033,16 +4033,18 @@ local function restoreSquareUsable(square)
         and floor == true and free == true and safe == true
 end
 
+-- invoke returns (called, value): outdoors pairs with outdoors, indoors with
+-- the same room or building.
 local function restoreSquareContext(origin, candidate)
-    local originRoom, originRoomOk = invoke(origin, "getRoom")
-    local candidateRoom, candidateRoomOk = invoke(candidate, "getRoom")
+    local originRoomOk, originRoom = invoke(origin, "getRoom")
+    local candidateRoomOk, candidateRoom = invoke(candidate, "getRoom")
     if not originRoomOk or not candidateRoomOk then return nil end
     if originRoom == nil or candidateRoom == nil then
         return originRoom == nil and candidateRoom == nil
     end
     if originRoom == candidateRoom then return true end
-    local originBuilding, originBuildingOk = invoke(originRoom, "getBuilding")
-    local candidateBuilding, candidateBuildingOk = invoke(candidateRoom, "getBuilding")
+    local originBuildingOk, originBuilding = invoke(originRoom, "getBuilding")
+    local candidateBuildingOk, candidateBuilding = invoke(candidateRoom, "getBuilding")
     return originBuildingOk and candidateBuildingOk and originBuilding ~= nil
         and originBuilding == candidateBuilding
 end

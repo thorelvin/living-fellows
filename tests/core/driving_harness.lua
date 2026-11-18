@@ -276,6 +276,24 @@ do
     local into = homeRoute("expedition-home-driveway", { x = 200, y = 80, z = 0 })
     check(into and into:find(";200%.00,100%.00,5%.0;200%.00,92%.00,5%.0$") ~= nil,
         "the home route turns eight tiles into a long driveway: " .. tostring(into))
+    -- The final street is reached by turning at a junction that carries the
+    -- wider previous street. Its own width still marks the last stretch.
+    SCBridge.planRoadRouteAvoidingAll = function(_, _, _, tx, ty, _, out)
+        out.status, out.fingerprint = "READY", "home-driveway-after-turn"
+        out.geometry = "160,130,12,0,Wide;160,100,12,1,Wide;" .. tostring(tx) .. ","
+            .. tostring(ty) .. ",8,0,Road"
+        return true
+    end
+    local turned = homeRoute("expedition-home-after-wide-junction", { x = 200, y = 80, z = 0 })
+    check(turned and turned:find(";160%.00,100%.00,12%.0;196%.00,100%.00,8%.0;200%.00,100%.00,5%.0;200%.00,92%.00,5%.0$") ~= nil,
+        "a final street reached from a wider junction keeps its own width before the driveway: "
+            .. tostring(turned))
+    SCBridge.planRoadRouteAvoidingAll = function(_, _, _, tx, ty, _, out)
+        out.status, out.fingerprint = "READY", "home-driveway"
+        out.geometry = "100,100,8,0,Road;" .. tostring(tx) .. ","
+            .. tostring(ty) .. ",8,0,Road"
+        return true
+    end
     local offset = homeRoute("expedition-home-offset-entry", { x = 203, y = 80, z = 0 },
         { x = 203, y = 100, z = 0 })
     check(offset and offset:find(";200%.00,100%.00,8%.0;203%.00,100%.00,5%.0;203%.00,92%.00,5%.0$") ~= nil,

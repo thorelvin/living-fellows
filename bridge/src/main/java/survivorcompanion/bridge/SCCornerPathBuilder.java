@@ -43,6 +43,23 @@ final class SCCornerPathBuilder {
         double w = Math.max(path.width(segment), path.width(segment + 1));
         return w > 0 ? w : 6;
     }
+
+    /**
+     * The width of the leg from point {@code segment} to the next one. Route
+     * points carry the width of the street they were reached on, so a point
+     * where the route turns describes the street before it, never the one
+     * after it (a reversed route flips that). Every other leg keeps the
+     * follower's wider-end rule, which the narrow Lua driveway and road-exit
+     * points rely on. Arc ends then meet the straight beside them.
+     */
+    static double legWidth(SCDrivePath root, int segment, boolean[] turning) {
+        boolean leaves = root.widthsLeaveNode();
+        int carrier = leaves ? segment : segment + 1;
+        int other = leaves ? segment + 1 : segment;
+        if (turning[other]) return root.width(carrier) > 0 ? root.width(carrier) : 6;
+        return width(root, segment);
+    }
+
     private static double offset(double width, SCDrivePath.CornerProfile p) {
         return p.keepRight() && width >= 6 ? width / 4 : 0;
     }
@@ -64,10 +81,19 @@ final class SCCornerPathBuilder {
         return best;
     }
 
-    private static List<Bend> bends(SCDrivePath root, SCDrivePath.CornerProfile profile) {
+    /** Points where the route changes direction by at least {@link #LEG_BEND}. */
+    private static boolean[] turningPoints(SCDrivePath root) {
+        boolean[] turning = new boolean[root.points()];
+        for (int i = 1; i < root.points() - 1; i++) {
+            turning[i] = Math.abs(angle(direction(root, i - 1), direction(root, i))) >= LEG_BEND;
+        }
+        return turning;
+    }
+
+    private static List<Bend> bends(SCDrivePath root, SCDrivePath.CornerProfile profile, boolean[] turning) {
         List<Integer> vertices = new ArrayList<>();
         for (int i = 1; i < root.points() - 1; i++) {
-            if (Math.abs(angle(direction(root, i - 1), direction(root, i))) >= LEG_BEND) vertices.add(i);
+            if (turning[i]) vertices.add(i);
         }
         List<Bend> result = new ArrayList<>();
         for (int cursor = 0; cursor < vertices.size(); cursor++) {
@@ -92,10 +118,11 @@ final class SCCornerPathBuilder {
                 bend.inLimit = cursor == 0 ? 0 : vertices.get(cursor - 1);
                 bend.outLimit = lastCursor + 1 == vertices.size() ? root.points() - 1 : vertices.get(lastCursor + 1);
                 bend.a = a; bend.b = b; bend.angle = total;
-                // The junction node may carry either street's width. Read the
-                // actual leg anchors on either side, which also reverses exactly.
-                bend.inWidth = root.width(first - 1) > 0 ? root.width(first - 1) : 6;
-                bend.outWidth = root.width(last + 1) > 0 ? root.width(last + 1) : 6;
+                // Read each leg from the point that describes it. The point
+                // before a junction is often the previous junction (another
+                // street) or a narrow driveway point, never this street.
+                bend.inWidth = legWidth(root, first - 1, turning);
+                bend.outWidth = legWidth(root, last, turning);
                 bend.inOffset = offset(bend.inWidth, profile); bend.outOffset = offset(bend.outWidth, profile);
                 bend.centerPoint = intersection(point(root, first), a, point(root, last), b);
                 result.add(bend);
@@ -206,7 +233,8 @@ final class SCCornerPathBuilder {
 
     static SCDrivePath build(SCDrivePath root, SCDrivePath.CornerProfile profile, boolean[] marked) {
         if (profile == null) return root;
-        List<Bend> bends = bends(root, profile);
+        boolean[] turning = turningPoints(root);
+        List<Bend> bends = bends(root, profile, turning);
         if (bends.isEmpty()) return root;
         boolean[] forced = marked == null ? new boolean[bends.size()] : marked.clone();
         List<Node> nodes = new ArrayList<>();
@@ -259,7 +287,17 @@ final class SCCornerPathBuilder {
             corners[bend.id] = new SCDrivePath.Corner(bend.id, start, end,
                     (float) bend.angle, (float) bend.radius, arc, bend.reason);
         }
-        return new SCDrivePath(x, y, width, root, profile, corners, lane, tx, ty, ids, originalAlong, forced);
+        // Each straight segment takes the lane of the leg it lies on, by the
+        // same rule as the arcs, so every arc meets the straight beside it,
+        // including one that starts at a corner left sharp.
+        float[] straight = new float[count - 1];
+        for (int i = 0; i + 1 < count; i++) {
+            if (ids[i] >= 0 && ids[i] == ids[i + 1]) { straight[i] = Float.NaN; continue; }
+            int leg = root.segmentAtOriginalAlong((originalAlong[i] + originalAlong[i + 1]) / 2);
+            straight[i] = (float) offset(legWidth(root, leg, turning), profile);
+        }
+        return new SCDrivePath(x, y, width, root, profile, corners, lane, tx, ty, ids, originalAlong, forced,
+                straight);
     }
 
     private static Node originalNode(SCDrivePath root, int index) {

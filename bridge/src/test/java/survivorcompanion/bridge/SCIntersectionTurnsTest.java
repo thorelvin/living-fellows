@@ -745,6 +745,114 @@ public final class SCIntersectionTurnsTest {
         }
     }
 
+    /** Largest sideways step of the lane line, ignoring deliberate sharp corners. */
+    private static double laneJump(SCDrivePath path) {
+        float[] a = new float[5], b = new float[5];
+        double worst = 0;
+        for (int step = 0; (step + 1) * .02f <= path.length(); step++) {
+            float s = step * .02f;
+            boolean sharp = false;
+            for (int i = 0; i < path.corners(); i++) {
+                SCDrivePath.Corner corner = path.corner(i);
+                if (!corner.arc() && s > corner.start() - .05f && s < corner.end() + .05f) sharp = true;
+            }
+            if (sharp) continue;
+            path.pointAt(s, path.laneOffsetAt(s), a);
+            path.pointAt(s + .02f, path.laneOffsetAt(s + .02f), b);
+            worst = Math.max(worst, Math.hypot(b[0] - a[0], b[1] - a[1]) - .02);
+        }
+        return worst;
+    }
+
+    private static float laneNear(SCDrivePath path, float x, float y) {
+        SCDrivePath.Projection projection = new SCDrivePath.Projection();
+        path.project(x, y, -1, projection);
+        return path.laneOffsetAt(projection.along);
+    }
+
+    /** Native-model drive along any route: x, y, heading and steering per frame. */
+    private static java.util.List<double[]> trace(SCDrivePath path, Vehicle vehicle, V start, double heading, String name) {
+        SCRoadFollower follower = new SCRoadFollower(path, 30, true, false, 1);
+        Car car = new Car(start, heading, vehicle, true);
+        World world = new World();
+        SCRoadFollower.Command command = new SCRoadFollower.Command();
+        java.util.List<double[]> frames = new java.util.ArrayList<>();
+        long now = 0;
+        for (int frame = 0; frame < 6000 && follower.mode() != SCRoadFollower.Mode.ARRIVED; frame++) {
+            follower.update(world, (float) car.x, (float) car.y, 0, (float) Math.cos(car.heading),
+                    (float) Math.sin(car.heading), (float) (car.speed * 3.6), vehicle.profile.halfWidth(),
+                    vehicle.profile.halfLength(), -1, -1, now, command);
+            frames.add(new double[] {car.x, car.y, car.heading, command.steering});
+            car.step(controls(car, command, -1, -1), 1.0 / 30);
+            now += 33;
+        }
+        require(follower.mode() == SCRoadFollower.Mode.ARRIVED, "multi-corner route arrives: " + name + " " + follower.mode());
+        return frames;
+    }
+
+    /**
+     * Router-shaped routes with more than one corner. Every route point carries
+     * the width of the street it was reached on, so the point before a junction
+     * is often the previous junction or a narrow Lua driveway point.
+     */
+    private static void multiCorner() {
+        Vehicle sedan = VEHICLES[0];
+        for (float[] w : new float[][] {{12, 6, 8}, {8, 6, 8}, {6, 8, 8}, {8, 5, 8}}) {
+            // East on A, right onto B at (200,200), left onto C at (200,230).
+            String text = String.format(Locale.ROOT, "100,200,%.1f;200,200,%.1f;200,230,%.1f;300,230,%.1f",
+                    w[0], w[0], w[1], w[2]);
+            String name = "w=" + w[0] + ">" + w[1] + ">" + w[2];
+            for (boolean reversed : new boolean[] {false, true}) {
+                SCDrivePath raw = SCDrivePath.parse(text);
+                SCDrivePath path = (reversed ? raw.reversed() : raw).withCorners(sedan.profile);
+                String label = name + (reversed ? " reversed" : "");
+                require(path.corners() == 2 && path.cornersSharp() == 0, "two checked arcs: " + label);
+                require(laneJump(path) < .05, "multi-corner lane continuity " + label + " jump=" + laneJump(path));
+                require(Math.abs(laneNear(path, 200, 215) - lane(w[1])) < .01,
+                        "the street between two turns keeps its own lane: " + label + " lane=" + laneNear(path, 200, 215));
+                // An obstacle can leave the first turn sharp. Its junction point
+                // then stays in the route, still carrying the previous street.
+                SCDrivePath sharpFirst = path.sharpCorner(0);
+                require(!sharpFirst.corner(0).arc() && sharpFirst.corner(1).arc(), "first turn sharp, second an arc: " + label);
+                require(laneJump(sharpFirst) < .05, "an arc after a sharp turn meets its straight " + label
+                        + " jump=" + laneJump(sharpFirst));
+                require(Math.abs(laneNear(sharpFirst, 200, 215) - lane(w[1])) < .01,
+                        "the street after a sharp turn keeps its own lane: " + label + " lane=" + laneNear(sharpFirst, 200, 215));
+            }
+            if (w[0] == 12 && w[1] == 6) {
+                SCDrivePath path = SCDrivePath.parse(text).withCorners(sedan.profile);
+                double worst = 0;
+                for (double[] f : trace(path, sedan, new V(104, 200 + lane(w[0])), 0, name)) {
+                    if (f[1] > 208 && f[1] < 222 && Math.abs(SCTurnAround.wrap((float) (f[2] - Math.PI / 2))) < .2)
+                        worst = Math.max(worst, Math.abs(f[0] - (200 - lane(w[1]))));
+                }
+                require(worst <= .6, "the car holds the narrow street's lane between two turns: " + worst);
+            }
+        }
+        // Lua narrows both driveway ends to width 5; the street reached at the
+        // entry point is 8 wide. The first junction must start from that lane.
+        SCDrivePath driveway = SCDrivePath.parse("200,185,5;200,200,5;230,200,8;230,260,8").withCorners(sedan.profile);
+        require(driveway.corners() == 2 && driveway.cornersSharp() == 0, "driveway exit and first junction are arcs");
+        require(laneJump(driveway) < .05, "driveway route lane continuity jump=" + laneJump(driveway));
+        require(Math.abs(driveway.laneOffsetAt(driveway.corner(1).start()) - 2) < .01,
+                "the first junction after a driveway starts from the street's lane: "
+                        + driveway.laneOffsetAt(driveway.corner(1).start()));
+        double closest = Double.POSITIVE_INFINITY, steer = 0;
+        for (double[] f : trace(driveway, sedan, new V(200, 187), Math.PI / 2, "driveway")) {
+            if (f[0] > 212 && f[0] < 229 && f[1] < 204) closest = Math.min(closest, f[1] - 200);
+            if (f[0] > 218 && f[0] < 232 && f[1] < 206) steer = Math.max(steer, Math.abs(f[3]));
+        }
+        require(closest >= 1.5 && steer <= .7, "no swing to the centre before the first right turn: right of centre="
+                + closest + " steering=" + steer);
+        // Lua's road exit: the street's own width 4 m before the narrowed exit point.
+        SCDrivePath exit = SCDrivePath.parse("170,200,12;200,200,12;200,226,8;200,230,5;208,230,5")
+                .withCorners(sedan.profile);
+        require(exit.corner(0).arc() && Math.abs(exit.laneOffsetAt(exit.corner(0).end()) - 2) < .01,
+                "the last street before a road exit keeps its lane: " + exit.laneOffsetAt(exit.corner(0).end()));
+        require(laneJump(exit) < .05, "road-exit route lane continuity jump=" + laneJump(exit));
+        System.out.println("TURN_MULTI_CORNER_PASS");
+    }
+
     public static void main(String[] args) throws java.io.IOException, ReflectiveOperationException {
         String check=System.getProperty("turnCheck","all");
         // Cargo, Release and the dedicated script enforce the full budget.
@@ -762,6 +870,7 @@ public final class SCIntersectionTurnsTest {
         if(suite||check.equals("filledStrip")) filledStrip();
         if(suite||check.equals("lateOffset")) lateOffsetBodySweep();
         if(suite||check.equals("reverse")) reverse();
+        if(suite||check.equals("multiCorner")) multiCorner();
         if(check.equals("right")) laneContract(true);
         if(check.equals("left")) laneContract(false);
         if(check.equals("speed")) speedContract();
