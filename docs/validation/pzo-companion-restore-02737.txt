@@ -10,8 +10,13 @@ Problem and patch
 -----------------
 The reported 0.27.35 log loads the Lua mod with SCBridge absent and actors disabled.
 The recruited companion's restore then enters quarantine for that same reason.
-This establishes the immediate restore failure; it does not establish the
-reporter's PZO approval choice, Java-loader setting or exact PZO version.
+The subsequently supplied PZO logs confirm the startup cause. On 2026-11-17,
+PZO approved and initialized the 0.27.34 bridge (hash 16463719ec55e184c02fdabb34bda144d75538cf73356717be05a34b26b26236).
+On 2026-11-18 at 12:45:12, it skipped the 0.27.35 bridge (hash
+fc6342519ec0b95d13af2b19dfdb0548357f6208fb107ba0b9cdcd5cb51eb22d)
+for that launch, reporting zero loaded and zero errors. The supplied PZO config
+has Java loading enabled, the old hash approved and no blocked hashes; the new
+hash is not approved. The logs do not identify how the approval prompt ended.
 
 The missing-bootstrap error was omitted from transient restore failures. It
 therefore spent the companion's six-attempt budget and stopped probing.
@@ -59,6 +64,16 @@ payload and PZO engine, remove only the new missing-bridge token in the disposab
 Lua copy. The result returns to quarantined, attempts=6, exact_record=true.
 The PZO-specific diagnostic remains present, isolating the retry classification.
 The staged Lua file was restored after recording the negative.
+After the reporter's PZO logs arrived, an additional native restart used that
+negative control's actual persisted world (status=quarantined, attempts=6).
+All 359 staged Lua files and the bridge matched the patched production payload.
+Approving the bridge in the disposable PZO config and restarting that same world
+restored the exact disk record, the same healthy native ID and exactly one marked
+cargo item, with no reseeding. PZO itself invoked the production bridge. The
+native assertion exited 0; protected installed-game hashes stayed unchanged.
+  Evidence: outputs/pzo-02737/quarantine-restart-20261118-191728 (workspace).
+  Fresh Windows PowerShell 5.1 Lifecycle rerun also exited 0 (45.1 seconds):
+  build/test-results/20261118-191728-19fec7.
 Full Windows PowerShell 5.1 release gate: exit 0, all five checks pass, all 18
 installer transaction cases pass. Elapsed 954.1 seconds, 24 direct JVM starts.
   Build 280.4 s; Lifecycle 42.8 s; Behaviour 120.7 s; Cargo 11.5 s; Interface 498.8 s.
@@ -85,10 +100,11 @@ No reporter save or real PZO config was modified. Fixture settings and bridge
 approvals are explicit local test inputs; the PZO approval dialog is not automated.
 The optional PZO Lua settings mod is omitted with require_lua_mod=false in the
 clone; the actual PZO agent and Java loader remain active and are checked.
-These results do not identify the reporter's missing pre-game PZO decision.
+The supplied engine logs identify the skipped bridge for the reported session;
+the reporter's actual save has not been replayed or its recovery confirmed.
 The separate old faction encounter validation errors are outside this patch.
 
 Native evidence is retained under build/pzo-restore-*; the local 0.27.35 comparison
 and exact-token negative are under the workspace outputs/pzo-02737 directory.
 See tests/live/pzo_startup/README.txt for inputs and repeat instructions.
-No installed-game update, tag, push or Workshop upload is part of this patch.
+No installed-game update, tag or Workshop upload is part of this patch.
