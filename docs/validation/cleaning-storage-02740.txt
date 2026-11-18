@@ -1,0 +1,139 @@
+Living Fellows 0.27.40 - cleaning tools and camp storage
+Baseline: 3018febe (0.27.39). Windows PowerShell 5.1, pinned PZ 42.22.2.
+
+Reported behavior
+-----------------
+Mops were stored among weapons/ammunition; a cleaner reported missing tools;
+companions did not deposit sorted stock into General source.
+
+Confirmed defect
+----------------
+The installed game's weapon.txt defines Base.Mop and Base.Broom as HandWeapon
+items, category Weapon, display category HouseholdWeapon, with the native
+base:cleanstains tag. LF's two classifiers did not recognize that cleaning role,
+so both fell through to their generic weapon category. The screenshot's red
+marker reads Weapons; either Weapons or Ammunition can be corrected by sorting.
+
+CleaningSupplies.isTool now recognizes the native tag independently of condition.
+The existing tool() predicate still rejects broken items. Camp classification
+checks the cleaning role before the weapon fallback; logistics checks it after
+trash detection and before weapon loadout/cargo rules. HouseholdWeapon alone is
+not sufficient: unrelated household weapons retain their existing category.
+No item definitions or native zombie navigation are changed.
+
+Native verification also exposed a completion-boundary defect. finishWork
+starts the normal post-action pause inside the BaseWork update, after Decision
+has already admitted the work. Returning a loan in that same call could issue
+movement which NativeActions rejected as action_pacing:clean_base. The path
+controller recorded that as a navigation failure. returnCleaningLoans now waits
+before each ordinary carried-loan return; it keeps the live job, exact items and
+markers, then resumes after the original pause. Direct cancellation rollback
+does not wait. The guard neither shortens pacing nor alters navigation.
+
+The cleaning planner already searches every withdrawable marked storage, not
+only Tools. Discovery permissions, reserves, item ownership, loans and the
+three-minute missing-supply retry are unchanged. The supplied screenshot does
+not reveal item condition or reservations, so it does not establish a separate
+missing-tool search defect.
+The new repayment defect can interfere with tool availability, but the supplied
+evidence does not prove that it caused the tester's particular warning.
+
+General source is a staging/input shelf. Ordinary sorting deliberately empties
+it into the dedicated categories; it is not a fallback sorting destination.
+Camp storage help now explains that behavior and identifies Tools as the home
+for cleaning tools and cleaner. Car unloading's existing staging fallback is
+unchanged.
+
+Focused verification
+--------------------
+The new production Cargo group passes 92 checks: both classifiers, tagged mod
+brush/towel controls, an unrelated HouseholdWeapon, ruined mop/trash handling,
+late mops behind 150 ordinary items, discovery on Weapons/Ammunition/Tools/
+General, corrective sorting, floor destinations, withdrawal restrictions,
+reserves and memorial protection. Original classification fails on check 1.
+Independent sorting-only and logistics-only reverts each exit 1 at the intended
+classification assertion; the fixed Cargo check exits 0.
+
+A separate production Cargo group passes 19 repayment checks. Native-completion
+simulation starts the real timing boundary in the same call; no path is issued
+during the pause, both loans remain owned, normal walking/repayment resumes, and
+direct cancellation through the real WorkTransport still returns the exact item.
+Without the guard it exits 1 at check 5, reporting movement_rejected. An exact
+guard-only revert confirms that independent causal failure too.
+
+Existing work-transport and cleaning-mixtures production group exits 0, including
+392 mixture checks for supply staging, preparation, use, repayment and recovery.
+
+Local focused evidence:
+  build/test-results/20261118-232711-4fc071 (original classifier failure)
+  build/test-results/20261118-233019-ebf372 (fixed Cargo pass)
+  build/cleaning-negative-controls/{sorting,logistics,work-transport}.log
+  build/test-results/20261118-234745-98c647 (same-call pacing failure)
+  build/cleaning-negative-controls/{pacing,pacing-positive}.log
+
+Release verification and native evidence
+----------------------------------------
+Real PZO V2.2, official engine SHA256
+026de0512c6058e00f2df1f30d68c1acddeb6efee27877a6015a49f1da2d4d5b.
+The unmodified PZO entrypoint/loader approves and loads the production bridge
+in a disposable game, profile and complete cloned save. Source saves and
+protected installed files retain their before/after fingerprints.
+
+Final native acceptance exits 0:
+  build/pzo-cleaning-20261118-235217-a7211b
+  child 20261118-235220-83860f-approved
+Native Mop/Broom script roles and both LF categories pass. The planner finds
+the exact mop under Weapons. The companion borrows it and bleach, removes real
+stains, spends one native dose and returns the exact items to their recorded
+sources with all cleaning markers cleared. Two ordinary homogeneous sort jobs
+move the mop from Weapons and broom from Ammunition into Tools. General remains
+empty. A fifteen-second soak retains both IDs in Tools; worker health stays
+above 99.9 and the largest measured tick gap is 56 ms. No movement request is
+rejected for action_pacing. All 359 staged production Lua files and the bridge
+match the checkout byte for byte (source-match.json).
+
+Independent native causal negatives both exit 1 at the intended assertion:
+  Classification reverted: build/pzo-cleaning-20261118-234023-d2ca85,
+    child 20261118-234026-facf23-approved, Base.Mop camp classifier uses Tools.
+  Repayment wait reverted: build/pzo-cleaning-20261118-234919-313f8d,
+    child 20261118-234921-a92cee-approved, repayment must not record a path
+    rejection during normal pacing. The classifiers remain fixed in this run.
+Both results.json receipts confirm the source save/installed files unchanged.
+
+The controlled native job driver honors Decision's ordinary pacing gate and
+the action supervisor; the production in-transaction repayment guard is still
+necessary because completion can start pacing after that outer gate. Ordinary
+sorting handles one homogeneous stack per job. Early fixture runs that skipped
+the gate or expected two item types from one job are not accepted passes.
+The classification-only native pass recorded a pacing path failure; the final
+probe asserts its absence and the independent guard-only revert proves it.
+
+Bridge SHA256: ebd4ff9a11c30f9916c32cec3a5dc408bae9a1f92b61bd6f0ffd6cc0406c3e0a.
+All bridge class entries are unchanged from 0.27.39; only MANIFEST.MF's release
+version differs. Protocol remains 42.22-isocompanion-33. PZO approval is per hash,
+so a user must approve this updated bridge at the next PZO launch.
+
+Both final archives contain all 359 production Lua files and the same bridge,
+verified against the frozen checkout after the repayment guard was added:
+  LivingFellowsCompanion-0.27.40-RELEASE.zip
+    57163694 bytes
+    SHA256 5f86611db9ae74bc74c2b527fbdbc005a37937af6071036a579b10b35c818d79
+  LivingFellowsCompanion-0.27.40-STANDALONE-WINDOWS.zip
+    57396274 bytes
+    SHA256 a91b91f9c431e4b84f7bd1a238b9d611211b79a244999e2f83ecd4b710102ce9
+  build/cleaning-package-verification.json
+
+Final Windows PowerShell 5.1 scripts/Test-Project.ps1 -Release exits 0:
+  build/test-results/20261118-235256-e0e5ea
+  Build 293.9 s; Lifecycle 45.2 s; Behaviour 121.4 s; Cargo 12.6 s;
+  Interface 500.1 s. Total 973.3 s, 24 direct JVM starts, five checks passed.
+  All 18 installer cases pass, including PZO loader reinstall/upgrade,
+  ownership, rollback and exact restoration. Source checks also exit 0.
+The earlier gate was stopped when the repayment fix was added; only this
+complete run is accepted for the final frozen payload. Live game acceptance
+is the separate native PZO run above, not the gate's harness-only live=false.
+
+No installed-game update, release tag or Workshop upload is performed. The
+source branch and validation report are prepared for the authorized commit/push;
+GitHub Source CI status is recorded in the shared roadmap after the push.
+The earlier whole-game hang remains undiagnosed pending a frozen thread capture.

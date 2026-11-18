@@ -4,6 +4,16 @@
     (Join-Path $Client 'SCWorkTransport.lua'),
     (Join-Path $Essential 'tool_storage_overflow_harness.lua')) }
 
+@{ Name = 'cleaning-tools-and-registered-storage'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCCleaningSupplies.lua'),
+    (Join-Path $Client 'SCWorkTransport.lua'),
+    (Join-Path $Essential 'cleaning_storage_harness.lua')) }
+
+@{ Name = 'cleaning-completion-repayment-pacing'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCCleaningSupplies.lua'),
+    (Join-Path $Client 'SCWorkTransport.lua'),
+    (Join-Path $Essential 'cleaning_return_pacing_harness.lua')) }
+
 @{ Name = 'fuel-inlet-and-camp-refuel-recovery'; Files = @(
     (Join-Path $Core 'vehicle_refuel_fixture.lua'),
     (Join-Path $Client 'SCBaseFuel.lua'),

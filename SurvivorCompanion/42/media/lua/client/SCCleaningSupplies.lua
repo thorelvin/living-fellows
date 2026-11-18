@@ -65,9 +65,14 @@ function C.inspect(item)
     result.ratio = amount > 0 and result.cleanerAmount / amount or 0
     return result
 end
-function C.tool(item)
+-- Identity is independent of condition: sorting must not mistake a worn mop
+-- for a combat weapon merely because it is no longer fit to clean with.
+function C.isTool(item)
     return ItemTag and ItemTag.CLEAN_STAINS and call(item, "hasTag", ItemTag.CLEAN_STAINS) == true
-        and call(item, "isBroken") ~= true or false
+        or false
+end
+function C.tool(item)
+    return C.isTool(item) and call(item, "isBroken") ~= true
 end
 function C.bucket(item)
     local kind = string.lower(tostring(U().itemType(item)))

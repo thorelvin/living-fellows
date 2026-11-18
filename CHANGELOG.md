@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.27.40 - Cleaning tools and camp storage
+
+- Mops, brooms and other items with the game's cleaning-tool tag go to Tools
+  rather than Weapons, in camp sorting, floor intake and cargo/loadout choices.
+  Sorting can correct cleaning tools already filed on other marked shelves.
+- Cleaning waits through its normal post-action pause before returning borrowed
+  tools, preventing that pause from being mistaken for a failed storage path.
+- Camp storage help explains that General source holds unsorted supplies
+  and sorting moves them into the dedicated shelves.
+- Bridge protocol remains `42.22-isocompanion-33`.
+
 ## 0.27.39 - Reading on trips and camp decision controls
 
 - Passenger reading follows the vehicle instead of being interrupted whenever

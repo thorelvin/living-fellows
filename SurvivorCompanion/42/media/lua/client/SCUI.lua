@@ -4425,6 +4425,8 @@ function SCUIDetail:buildBase(panel, row)
     end
     if base.configured then
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Storages")
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Base_StorageHelp"))
         if type(base.storageRows) ~= "table" or #base.storageRows == 0 then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_Base_NoStorages"))

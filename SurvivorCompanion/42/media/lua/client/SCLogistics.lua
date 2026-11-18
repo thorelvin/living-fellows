@@ -207,6 +207,9 @@ function Logistics.itemCategory(item)
     -- Before any category can claim it: a ruined axe is still an axe by type,
     -- and would otherwise be shelved with the weapons.
     if Logistics.isTrash(item) then return "trash" end
+    -- Build 42 mops and brooms are HandWeapon/HouseholdWeapon items. Their
+    -- native cleaning role wins before the weapon loadout and cargo rules.
+    if SC.CleaningSupplies and SC.CleaningSupplies.isTool(item) then return "tools" end
     if SC.BaseLife and SC.BaseLife.isValuableItem
         and SC.BaseLife.isValuableItem(item) then return "valuables" end
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"

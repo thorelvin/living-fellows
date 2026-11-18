@@ -883,6 +883,14 @@ local function returnCleaningLoans(actor, state, job, direct, onlyKinds)
                 elseif not container then
                     return false, "base_storage_unloaded"
                 else
+                    -- Finishing native cleaning can begin its normal pause in
+                    -- this very update, after Decision's pacing gate. Wait
+                    -- before walking or looting; cancellation's direct rollback
+                    -- must still be able to settle the exact borrowed item.
+                    if not direct and SC.NativeActions and SC.NativeActions.pacingStatus
+                        and SC.NativeActions.pacingStatus(actor) == true then
+                        return nil, "cleaning_return_pending"
+                    end
                     local returned, reason
                     if direct then
                         returned, reason = BaseWork.restoreToStorage(actor,
@@ -1615,7 +1623,8 @@ end
 -- fallback is a guess.
 local function classifyItem(item)
     if SC.FarmStorage and SC.FarmStorage.isManure(item) then return "manure",true end
-    if SC.CleaningSupplies and SC.CleaningSupplies.containsCleaner(item) then return "tools", true end
+    if SC.CleaningSupplies and (SC.CleaningSupplies.isTool(item)
+        or SC.CleaningSupplies.containsCleaner(item)) then return "tools", true end
     local itemType = string.lower(U().itemType(item))
     local category = select(1, invoke(item, "getCategory"))
     category = string.lower(tostring(category or ""))

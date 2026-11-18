@@ -79,3 +79,29 @@ never changes the checkout or installed mod. Ordinary runs must exit zero.
 The full seed-save and installed launcher/bridge/game-JAR fingerprints are
 checked after either run. Receipts, console, PZO logs and the exact staged
 payload remain under build/pzo-passenger-*.
+
+Cleaning tools and storage regression
+------------------------------------
+Run scripts/Test-PzoCleaningStorage.ps1 with the same PzoJar, SeedSave and
+MediaSnapshotRoot inputs. It creates four real crates on the field used by
+the native tool-storage regression. Native Mop and Broom must retain their
+Weapon/HouseholdWeapon game categories while both LF classifiers choose Tools.
+The real supply planner must find a mop deliberately filed under Weapons; a
+native companion must borrow it and bleach, remove real stains, spend one
+cleaning dose and return both exact loans. Ordinary sorting jobs, one per item
+type, must move that mop and a broom filed under Ammunition into Tools. General source
+stays empty and a fifteen-second soak checks that the tools remain put.
+
+Add -RevertClassification for the causal negative. It removes only the two
+classification changes from the staged disposable Lua. The native classifier
+assertion must fail and the script must exit nonzero. Both runs preserve the
+checkout, installed game and complete seed-save fingerprint; evidence stays
+under build/pzo-cleaning-*. The controlled probe holds unrelated AI choices but
+honors Decision's normal action-pacing gate and the action supervisor before
+admitting BaseWork; it does not shorten pauses or clear native ownership.
+
+The native probe also rejects any navigation failure with action_pacing as its
+cause. Add -RevertRepaymentPacing (independent of -RevertClassification) to remove
+only the in-transaction repayment wait from the staged BaseWork. Native cleaning
+must then fail that assertion at completion; normal runs must exit zero with no
+such false path rejection. Both negative switches preserve the checkout.
