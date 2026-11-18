@@ -11,6 +11,29 @@ import java.util.HashMap;
  */
 public final class SCRoadFollowerTest {
     private static int checks;
+    private static java.security.MessageDigest commandDigest;
+
+    private static void recordCommand(SCRoadFollower.Command command) {
+        if (commandDigest == null) return;
+        commandDigest.update(java.nio.ByteBuffer.allocate(12)
+                .putInt(Math.round(command.steering * 10000.0f))
+                .putInt(Math.round(command.targetKmh * 10000.0f))
+                .putInt(command.maneuver ? 1 : 0).array());
+    }
+
+    /** Pinned on 0.27.34's unchanged code before the corner implementation. */
+    private static void fingerprint(String name, String expected, Runnable scenario) {
+        try { commandDigest = java.security.MessageDigest.getInstance("SHA-256"); }
+        catch (java.security.NoSuchAlgorithmException impossible) { throw new AssertionError(impossible); }
+        scenario.run();
+        String actual = java.util.HexFormat.of().formatHex(commandDigest.digest());
+        commandDigest = null;
+        if (Boolean.getBoolean("recordFingerprints")) {
+            System.out.println("DRIVING_FINGERPRINT " + name + "=" + actual);
+        } else {
+            require(expected.equals(actual), name + " command stream changed: " + actual);
+        }
+    }
 
     private static void require(boolean condition, String message) {
         checks++;
@@ -179,6 +202,7 @@ public final class SCRoadFollowerTest {
                 float rearDistance = rear.blocked ? rear.distance : -1.0f;
                 follower.update(world, car.x, car.y, 0, fx, fy, car.kmh(), Car.HALF_WIDTH,
                         Car.HALF_LENGTH, frontDistance, rearDistance, front.kind, nowMs, command);
+                recordCommand(command);
                 SCDriveControl.Input input = command.targetKmh < 0.0f
                         ? SCDriveControl.reverse(car.kmh(), -command.targetKmh, command.steering,
                                 rearDistance)
@@ -739,6 +763,41 @@ public final class SCRoadFollowerTest {
                 "a rolling player trail extends the route without stopping the car");
     }
 
+    private static void convoyCommandStream() {
+        Road road = new Road();
+        road.endX = 700;
+        Car car = new Car(20, 101, 0);
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse("10,101,6;100,101,6"),
+                30, false);
+        follower.convoy(false);
+        Drive drive = new Drive(road, car, follower);
+        for (int second = 0; second < 40; second++) {
+            int from = Math.max(0, (int) car.x - 5);
+            follower.retarget(SCDrivePath.parse(from + ",101,6;" + (from + 80) + ",101,6"));
+            drive.run(1, () -> false);
+        }
+        require(!drive.collided && follower.mode() == SCRoadFollower.Mode.FOLLOW,
+                "rolling convoy fingerprint covers a moving, repeatedly extended trail");
+    }
+
+    private static void hairpinCommandStream() {
+        SCRoadFollower follower = new SCRoadFollower(
+                SCDrivePath.parse("100,100,8;170,100,8;100,100,8"), 10, true);
+        Drive drive = new Drive(null, new Car(104, 102, 0), follower);
+        drive.world = PARKING_ROOM;
+        drive.run(100, () -> follower.mode() == SCRoadFollower.Mode.ARRIVED);
+        require(!drive.collided, "hairpin reference stream remains finite in open room");
+    }
+
+    private static void unchangedCommandStreams() {
+        fingerprint("straight", "d91c8424f04c725f0260ada608f89791b82b351f708fb390f0a794518c423497", SCRoadFollowerTest::clearRoad);
+        fingerprint("wreck-passing", "51df0cca0ae4a78403f9db8a83ea6f260c5975b3c0da262ea34ab1a83208e584", SCRoadFollowerTest::oneWreck);
+        fingerprint("hairpin", "4e373d321c60afeff3fddd4bb041e946bf1f6461be1434a2f9f70a446f242839", SCRoadFollowerTest::hairpinCommandStream);
+        fingerprint("convoy", "e206f4c8165ed8683fb7e11d11c6b209340369f96c642ef4d50afca3dbac63e6", SCRoadFollowerTest::convoyCommandStream);
+        fingerprint("final-approach", "813af02f33fa50af9d19262c0f01a72ef6955054e47de340b4bb320862095220", SCRoadFollowerTest::preciseParking);
+        fingerprint("parking-alignment", "0a10115f7ce71084387bd2b7e9a17a473d38e2197e31516e02572769b3426ee4", SCRoadFollowerTest::boundedParkingAlignment);
+    }
+
     private static final SCLaneScan.World PARKING_ROOM = new SCLaneScan.World() {
         @Override public int squareKind(int x, int y, int z) { return SCLaneScan.CLEAR; }
         @Override public boolean edgeBlocked(int fx, int fy, int tx, int ty, int z) { return false; }
@@ -858,6 +917,7 @@ public final class SCRoadFollowerTest {
     }
 
     public static void main(String[] args) {
+        unchangedCommandStreams();
         pathBasics();
         reverseRules();
         clearRoad();
