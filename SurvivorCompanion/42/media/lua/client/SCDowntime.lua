@@ -4421,6 +4421,7 @@ local function beginSupervisedActivity(actor, state, activity)
             or activity.kind,
         priority = service.Priority.DOWNTIME,
         interruptible = true, requiresVisual = false,
+        passengerPose = activity.kind == "read",
         -- Vanilla furniture rest can shift the actor about 0.3 tile after it
         -- reports a seated pose. Keep the generic 0.25-tile invariant for
         -- other work, but allow that final cushion alignment here.

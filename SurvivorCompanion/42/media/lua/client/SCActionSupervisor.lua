@@ -168,6 +168,22 @@ local function distanceFrom(actor, origin)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+-- A seated passenger is carried by the vehicle, so world displacement cannot
+-- validate a reading pose. Bind that exception to the exact vehicle and seat;
+-- losing either, or taking the wheel, must still interrupt the transaction.
+local function passengerPose(actor)
+    local vehicle, vehicleOk = invoke(actor, "getVehicle")
+    if not vehicleOk or vehicle == nil then return nil end
+    local seat, seatOk = invoke(vehicle, "getSeat", actor)
+    local driving, drivingOk = invoke(vehicle, "isDriver", actor)
+    local driver, driverOk = invoke(vehicle, "getDriver")
+    if not seatOk or type(seat) ~= "number" or seat < 0 or seat ~= math.floor(seat)
+        or driving == true or driver == actor then return nil end
+    if not (drivingOk and driving == false)
+        and not (driverOk and driver ~= nil and driver ~= actor) then return nil end
+    return vehicle, seat
+end
+
 local function historyFor(actor)
     local history = historyByActor[actor]
     if not history then
@@ -903,6 +919,10 @@ function Supervisor.begin(actor, spec)
     end
     sequence = sequence + 1
     local currentTime = nowMs()
+    local poseVehicle, poseSeat
+    if spec.passengerPose == true and action == "read" then
+        poseVehicle, poseSeat = passengerPose(actor)
+    end
     local token = {
         actor = actor, actorId = actorId(actor), serial = sequence,
         owner = owner, action = action,
@@ -917,6 +937,7 @@ function Supervisor.begin(actor, spec)
         visualVerified = spec.visualVerified == true,
         protectedPose = spec.protectedPose == true,
         poseMaximumDisplacement = tonumber(spec.poseMaximumDisplacement),
+        posePassengerVehicle = poseVehicle, posePassengerSeat = poseSeat,
         onCancel = spec.onCancel,
         cancelVerified = spec.cancelVerified,
         deadlines = type(spec.deadlines) == "table" and spec.deadlines or nil,
@@ -1161,7 +1182,12 @@ function Supervisor.update(actor)
     if queued and nowMs() >= (tonumber(queued.expiresAt) or nowMs()) then
         dispatchQueuedUrgent(actor, "queue_deadline")
     end
-    if token.protectedPose and token.poseOrigin then
+    if token.protectedPose and token.posePassengerVehicle ~= nil then
+        local vehicle, seat = passengerPose(actor)
+        if vehicle ~= token.posePassengerVehicle or seat ~= token.posePassengerSeat then
+            return runCancel(token, "passenger_read_interrupted", true, true)
+        end
+    elseif token.protectedPose and token.poseOrigin then
         local displacement = distanceFrom(actor, token.poseOrigin)
         local maximum = token.poseMaximumDisplacement
             or tonumber(config("actionPoseMaximumDisplacement", 0.25)) or 0.25

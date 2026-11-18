@@ -38,6 +38,7 @@ $interfacePanelFiles = @(
     (Join-Path $Essential 'interface_commands.lua'),
     (Join-Path $UI 'SCUIAttentionTests.lua'),
     (Join-Path $UI 'SCUIBaseRefreshTests.lua'),
+    (Join-Path $UI 'SCUICrisisControlsTests.lua'),
     (Join-Path $UI 'SCUISocialTests.lua'),
     (Join-Path $UI 'SCHomeTripObservationTests.lua'),
     (Join-Path $Client 'SCExpeditionTargets.lua'),

@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.27.39 - Reading on trips and camp decision controls
+
+- Passenger reading follows the vehicle instead of being interrupted whenever
+  the car moves. Leaving or changing seats, taking the wheel, danger and new
+  orders still interrupt the chapter without awarding unfinished pages.
+- Camp decision buttons refresh their revision even when the same outcome is
+  chosen again, so later choices and returning to normal duty remain usable.
+- An active watch decision is clearly marked as current, with its normal-duty
+  release available alongside it.
+- Bridge protocol remains `42.22-isocompanion-33`.
+
 ## 0.27.38 - Smooth turns on routes with several corners
 
 - Companion drivers keep their lane between two junctions close together. A

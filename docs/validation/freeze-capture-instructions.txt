@@ -1,0 +1,24 @@
+Capture an unresponsive Project Zomboid process
+=============================================
+
+Run Capture-Freeze.cmd while the game is still stuck, before force-closing it.
+Run it as the same Windows account as the game. It captures three Java thread
+snapshots five seconds apart and prints their folder, normally on the Desktop.
+Send that folder with the console and PZO report. The capture does not close the
+game, save it, change its settings or request a heap dump.
+
+A Java 25 JDK is required; the game's bundled JRE lacks jcmd.exe. The script
+looks in JAVA_HOME and common JDK installation directories. To select a JDK:
+
+  Capture-Freeze.cmd -JavaHome "C:\path\to\jdk-25"
+
+If more than one game process is running, use the PID shown in Task Manager:
+
+  Capture-Freeze.cmd -GameProcessId 12345 -JavaHome "C:\path\to\jdk-25"
+
+If attachment times out, the script stops only its diagnostic collector and
+leaves the game running. Keep the evidence folder and error message. The helper
+is diagnostic; a thread dump is needed to identify the reported hang's cause.
+
+Official command documentation:
+https://docs.oracle.com/en/java/javase/25/docs/specs/man/jcmd.html

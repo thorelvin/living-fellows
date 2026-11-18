@@ -813,6 +813,8 @@
     "UI_SC_Base_CrisisRow": "%1 | %2 | infection %3%% | %4",
     "UI_SC_Base_RestrictedCrisisRow": "%1 | %2 | private crisis; you can recall them to duty",
     "UI_SC_Base_Outcome_watch": "Argue for watch and wait",
+    "UI_SC_Base_Outcome_watch_current": "Watch and wait (current decision)",
+    "UI_SC_Base_Outcome_watch_current_hint": "Already under watch: indoor duties only. End the crisis to return to normal duty.",
     "UI_SC_Base_Outcome_quarantine": "Argue for quarantine",
     "UI_SC_Base_Outcome_exile": "Order exile",
     "UI_SC_Base_Outcome_mercy": "Propose mercy killing",

@@ -55,6 +55,13 @@
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
+@{ Name = 'behaviour.passenger-reading'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $Gameplay 'reading_session_fixture.lua'),
+    (Join-Path $Client 'SCActionSupervisor.lua'), (Join-Path $Client 'SCDowntime.lua'),
+    (Join-Path $Gameplay 'reading_session_harness.lua'),
+    (Join-Path $Gameplay 'passenger_reading_harness.lua')) }
 @{ Name = 'behaviour.crowbar-entry'; Files = @(Get-ScGameplayFiles) + @(
     'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
     'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua' |

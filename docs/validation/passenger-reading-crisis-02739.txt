@@ -1,0 +1,109 @@
+Living Fellows 0.27.39: passenger reading and crisis controls
+==========================================================
+
+Base: 0ec2b50a (0.27.38). Branch: living_fellows/0.27.39.
+Pinned runtime: Project Zomboid 42.22.2, Java 25.0.5, official PZO V2.2.
+Bridge protocol remains 42.22-isocompanion-33. No native Java behavior changed.
+
+Passenger reading
+-----------------
+The reported passenger could select Read, but vehicle-carried world movement
+tripped the supervisor's 0.25-metre protected-pose invariant. A production
+controller reproducer failed with protected_pose_moved; its stationary control
+passed. The later support report records the same invariant for the companion.
+
+Reading now opts into an exact vehicle-and-seat reference. Vehicle motion is
+allowed only while that passenger attachment remains verifiable. Exiting,
+changing seats or vehicles, taking the wheel or losing seat verification
+interrupts the chapter. Other work and on-foot reading keep their world-position
+guard. Danger, new orders, native action verification and watchdogs still apply.
+
+Production Kahlua regressions: 42 passenger checks pass, alongside the existing
+reading-session cases. They cover moving completion, one page reward, exact book
+ownership, exit/seat/vehicle/driver changes, an unreadable native seat, ordinary
+on-foot movement, unrelated work, danger, new orders and a stalled-action bound.
+
+Real native PZO comparison: with only the reading opt-in removed from the
+disposable payload, the actual car travels 0.267 metres before reading is
+cancelled with protected_pose_moved. The native assertion exits 1.
+  Evidence: build/pzo-passenger-20261118-224048-4875d3.
+
+The final positive uses native seats and physics, a companion driver and reader,
+and the primary player in another passenger seat. A 220-page Carpentry volume
+must grant one 11-page chapter, preserve the marked book, and grant no extra
+pages when the next chapter is interrupted by a native vehicle exit. The probe
+honors stock native timing, the existing supervisor watchdog and the ordinary
+60-second repeat cooldown; it then checks a 60-second post-interruption soak.
+  Final native outcome: exit 0. Travel 8.028 metres; selected duration 117420 ms,
+  native maxTime 7045 ticks, actual chapter 146801 ms; 11 pages committed. Native
+  exit interrupts the next chapter, no additional pages appear during the final
+  60-second soak, and maximum observed tick gap is 95 ms.
+  Evidence: build/pzo-passenger-20261118-230134-d6100a.
+
+Crisis controls
+---------------
+Choosing the same verdict increments the crisis decision revision. The cached
+Base page omitted that revision, leaving later buttons bound to an obsolete
+snapshot. The production UI refresh regression reproduces the missed rebuild.
+
+The structural signature now includes the revision, stage, pending explanation
+and action gates, with sufficient bounded space for them. An already-active
+Watch policy is explicitly labeled current and disabled; alternative decisions
+and End crisis and return to normal duty remain available. An active Watch
+policy still permits indoor duties; releasing it is the separate normal-duty
+action. Existing final-outcome confirmation and revision checks remain intact.
+
+Production callback tests cover selected Watch, an alternative, exact crisis and
+revision dispatch, normal-duty release and concurrent-change rejection feedback.
+Refresh tests cover revision-only changes and each newly tracked structural gate.
+
+Verification and artifacts
+--------------------------
+Five independent reverted comparisons all fail at their intended assertions:
+supervisor pose handling, the reading opt-in, UI revision, pending/retry gates
+and the current-Watch control. Restoring the patch passes both focused groups.
+  Workspace evidence: outputs/fixes-02739/causal-results.json and negative logs.
+
+Windows PowerShell 5.1 full release gate: exit 0, all five checks pass, including
+18/18 installer transaction cases. Elapsed 1005.8 seconds, 24 direct JVM starts.
+  Build 312.4 s; Lifecycle 47.9 s; Behaviour 122.7 s; Cargo 11.5 s; Interface 511.2 s.
+  Evidence: build/test-results/20261118-223751-0821c2.
+An earlier run was invalidated by an input change while running; the complete
+gate above was rerun against the frozen production payload.
+
+The standalone ZIP and staged positive native payload match all 359 production
+Lua files. Its bridge matches SHA-256
+fde9a605ef57d12959a784d0fcdb72ef228a59f8d5609349677d722fd5608b90.
+Standalone ZIP SHA-256:
+3f173d15c6ed1129c3f8532200b1e72ff8f37dd060515b92160635bfcb7748b0.
+Source validation also checks unique English translation keys.
+
+Limits and the freeze report
+---------------------------
+The earlier missing-bridge fix is included from 0.27.37. Subsequent tester logs
+show that bridge loaded and the original companion active again.
+
+The reported 0.27.37 freeze still has no identified cause. The tester later
+confirmed complete unresponsiveness with 0% reported CPU usage. That is consistent
+with waiting/blocked threads; it does not identify a particular lock or component.
+The console stops at
+17:42:01 without a clean exit; PZO diagnoses an unclean session, not a specific
+crash. No JVM fatal-error log or frozen-process thread dump was supplied. The
+Period Accurate Posters stack trace is from startup, followed by continued play.
+These fixes must not be described as a proven fix for that unexplained freeze.
+
+Capture-GameThreads.ps1 and Capture-Freeze.cmd collect three read-only Thread.print
+snapshots from a still-running process, using a separate Java 25 JDK. They never
+stop the game; a timed-out collector is bounded and stopped by its own identity.
+A controlled Java monitor deadlock verifies all three snapshots identify the
+known deadlock, the script exits 0, and the target remains alive throughout.
+  Workspace evidence: outputs/fixes-02739/thread-capture-test/evidence.
+  Usage: docs/validation/freeze-capture-instructions.txt.
+
+The native fixture is isolated and does not replay the tester's sixty-mod save.
+Its PZO Lua settings mod is omitted with require_lua_mod=false; the real PZO
+agent, discovery, approval decision and production bridge dispatch are active.
+The test never changes the player's PZO approval. PZO still requires approval
+of the updated bridge file on the next full launch.
+The source save and installed launcher, bridge and game-JAR hashes are checked.
+No installed-game update, tag or Workshop upload is part of this change.

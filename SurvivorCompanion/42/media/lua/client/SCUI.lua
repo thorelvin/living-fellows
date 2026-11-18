@@ -789,7 +789,10 @@ local function baseDetailSignature()
             infectionLevel = math.floor(tonumber(crisis.infectionLevel) or 0),
             finalAuthorized = crisis.finalAuthorized, knownToViewer = crisis.knownToViewer,
             restriction = crisis.restriction,
-        }, 2, { count = 16 }, {})
+            decisionRevision = crisis.decisionRevision, stage = crisis.stage,
+            pendingReason = crisis.pendingReason, canRetry = crisis.canRetry,
+            canAuthorize = crisis.canAuthorize, canOfferBleach = crisis.canOfferBleach,
+        }, 2, { count = 24 }, {})
     end
     return "base:" .. stableSignatureValue({
         configured = summary.configured, name = summary.name, zones = summary.zones,
@@ -3185,9 +3188,9 @@ function SCUIDetail:addSignal(panel, y, labelKey, signal)
     return y + metrics.buttonHeight + 4
 end
 
-function SCUIDetail:addCrisisAction(panel, y, labelKey, crisisId, outcome, action, revision, subjectName)
+function SCUIDetail:addCrisisAction(panel, y, labelKey, crisisId, outcome, action, revision, subjectName, watchSelected)
     local metrics = self.metrics or UI.layoutMetrics()
-    local label = UI.text(labelKey)
+    local label = UI.text(watchSelected and "UI_SC_Base_Outcome_watch_current" or labelKey)
     local width = math.max(100, panel:getWidth() - 28)
     local visibleLabel = fitText(UIFont.Small, label, math.max(40, width - 16))
     local button = ISButton:new(8, y, width, metrics.buttonHeight, visibleLabel, self, onCrisisButton)
@@ -3197,7 +3200,8 @@ function SCUIDetail:addCrisisAction(panel, y, labelKey, crisisId, outcome, actio
     button.scCrisisAction = action or "choose"
     button.scDecisionRevision, button.scSubjectName = revision, subjectName
     button.scLabel = label
-    button.tooltip = label
+    button:setEnable(watchSelected ~= true)
+    button.tooltip = watchSelected and UI.text("UI_SC_Base_Outcome_watch_current_hint") or label
     panel:addChild(button)
     panel.scContentWidth = panel:getWidth()
     return y + metrics.buttonHeight + 4
@@ -4398,7 +4402,9 @@ function SCUIDetail:buildBase(panel, row)
                             or not crisis.subjectIsPlayer)
                             and (outcome ~= "bleach" or crisis.canOfferBleach) then
                             y = self:addCrisisAction(panel, y, "UI_SC_Base_Outcome_" .. outcome,
-                                crisis.id, outcome, "choose", crisis.decisionRevision, crisis.subjectName)
+                                crisis.id, outcome, "choose", crisis.decisionRevision, crisis.subjectName,
+                                outcome == "watch" and crisis.outcome == "watch"
+                                    and crisis.phase == "resolved" and crisis.stage == "watching")
                         end
                     end
                 end

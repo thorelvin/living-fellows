@@ -97,6 +97,20 @@ crisis.restriction = "quarantine"
 changed("crisis restrictions refresh even without a resident-row change")
 crisis.subjectName = "Alice"
 changed("crisis subject names refresh independently of the selected resident")
+crisis.decisionRevision = 7
+changed("the button's decision revision refreshes even with the same visible verdict")
+crisis.decisionRevision = 8
+changed("repeating the same verdict cannot leave subsequent clicks with a stale revision")
+crisis.stage = "watching"
+changed("the current watch decision updates its selected control")
+crisis.pendingReason = "quarantine_zone_unavailable"
+changed("a new pending reason updates the crisis explanation")
+crisis.canRetry = true
+changed("route retry availability updates independently of the verdict")
+crisis.canAuthorize = true
+changed("authorization availability updates independently of the verdict")
+crisis.canOfferBleach = true
+changed("confirmed knowledge refreshes newly available choices")
 crises.rows = {}
 changed("a closed crisis disappears without an unrelated roster change")
 unchanged("a stable crisis list retains Base controls")

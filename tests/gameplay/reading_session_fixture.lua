@@ -51,7 +51,7 @@ function SC_READING_ACTOR(id, books)
     function result:getX() return self.x end
     function result:getY() return self.y end
     function result:getZ() return self.z end
-    function result:getVehicle() return nil end
+    function result:getVehicle() return self.vehicle end
     function result:isDead() return false end
     function result:isAsleep() return false end
     function result:hasTrait(trait) return self.traits and self.traits[trait] == true end

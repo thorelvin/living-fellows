@@ -58,3 +58,24 @@ delete it with a cleanup tool that follows directory junctions.
 
 Exit status is the result. The whole test must exit 0; an assertion failure or
 timeout exits nonzero, including when some earlier phases passed.
+
+Passenger reading regression
+----------------------------
+Run scripts/Test-PzoPassengerReading.ps1 with the same PzoJar, SeedSave and
+MediaSnapshotRoot inputs. It uses the same isolated native PZO launcher and
+loader, then creates a native car, companion driver, companion reader and a
+primary player in another passenger seat. The car drives eight metres while
+the production downtime controller keeps its native reading action active.
+The pinned 220-page Carpentry volume must grant one 11-page chapter, retain
+the exact marked book, and grant no extra pages when a second chapter is
+interrupted by a native vehicle exit. Driver exclusion and a 60-second
+post-interruption soak are included. The probe honors the production watchdog
+window for vanilla moodle-adjusted action timing and records native maxTime.
+
+Add -RevertReadingPose for the causal negative: only the pose opt-in is removed
+from the staged disposable SCDowntime.lua. That run must exit nonzero and its
+receipt must identify protected_pose_moved during vehicle motion. This switch
+never changes the checkout or installed mod. Ordinary runs must exit zero.
+The full seed-save and installed launcher/bridge/game-JAR fingerprints are
+checked after either run. Receipts, console, PZO logs and the exact staged
+payload remain under build/pzo-passenger-*.
