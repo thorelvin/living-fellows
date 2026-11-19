@@ -1838,14 +1838,16 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
                     if distance <= (U().config("logisticsStorageRange") or 32)
                         and (bestDistance == nil or distance < bestDistance) then
                         best = { storage = storage, container = container,
-                            owner = owner or container, distance = distance }
+                            owner = owner or container, distance = distance,
+                            storageCategory = storage.category }
                         bestDistance = distance
                     end
                     if distance <= (U().config("logisticsStorageRange") or 32) then
                         choices[#choices + 1] = {
                             id = storage.id, object = owner or container,
                             destination = { storage = storage, container = container,
-                                owner = owner or container, distance = distance },
+                                owner = owner or container, distance = distance,
+                                storageCategory = storage.category },
                         }
                     end
                 end
@@ -1994,6 +1996,9 @@ end
 
 local function beginTransaction(actor, state, transaction)
     transaction.phase = transaction.phase or "selected"
+    if transaction.kind == "deposit" and transaction.storageCategory == nil then
+        transaction.storageCategory = transaction.storage and transaction.storage.category
+    end
     state.transaction = transaction
     local service = supervisor()
     if not service or type(service.begin) ~= "function" then return true, "started" end
@@ -2045,6 +2050,23 @@ local function beginTransaction(actor, state, transaction)
         service.transition(token, "approaching", { kind = transaction.kind })
     end
     return true, "started"
+end
+
+-- A route or native pose can outlive the player's storage mark. Keep the
+-- selected row/container/category together, including General/Output fallbacks,
+-- rather than committing into whatever purpose that physical shelf has now.
+local function depositStorageValid(transaction)
+    if transaction.kind ~= "deposit" then return true end
+    local base, storage = SC.BaseLife, transaction.storage
+    if not base or type(base.storageAcceptsDeposit) ~= "function" then
+        return false, "base_storage_changed"
+    end
+    local accepted, reason = base.storageAcceptsDeposit(storage, transaction.destination)
+    if accepted ~= true then return false, reason or "base_storage_changed" end
+    if transaction.storageCategory == nil or storage.category ~= transaction.storageCategory then
+        return false, "base_storage_changed"
+    end
+    return true
 end
 
 local function stopForInventoryAction(actor)
@@ -2251,6 +2273,10 @@ local function executeTransaction(actor, state)
             return terminalTransaction(actor, state, false, validationReason or "loadout_transfer_changed")
         end
     end
+    local validStorage, storageReason = depositStorageValid(transaction)
+    if not validStorage then
+        return terminalTransaction(actor, state, false, storageReason)
+    end
     local room, capacityReason = U().containerHasRoom(
         transaction.destination, actor, transaction.item)
     if room ~= true then
@@ -2307,6 +2333,10 @@ local function approachTransaction(actor, state, snapshot)
             preparation.destinationState = nil
             return Preparation.pending(preparation, "assessing", reason)
         end
+    end
+    local validStorage, storageReason = depositStorageValid(transaction)
+    if not validStorage then
+        return terminalTransaction(actor, state, false, storageReason)
     end
     local atStorage, targets, accessReason = U().directInteractionAccess(
         actor, transaction.owner, { snapshot = snapshot })
@@ -3129,7 +3159,8 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
                     preparation.destinationState = nil
                     return Preparation.begin(actor, preparation, { kind = "deposit", item = record.item,
                         source = record.source, destination = destination.container, owner = destination.owner,
-                        storage = destination.storage, phase = "approach" }, snapshot)
+                        storage = destination.storage, storageCategory = destination.storageCategory,
+                        phase = "approach" }, snapshot)
                 end
                 preparation.skipped[record.item], preparation.destinationState = true, nil
                 Preparation.warn(preparation, why == "storage_route_unreachable"
@@ -3379,6 +3410,7 @@ function Logistics.update(actor, player, runtime)
         local started, reason = beginTransaction(actor, state, {
             kind = "deposit", item = state.item, source = state.source,
             destination = destination.container, owner = destination.owner,
+            storage = destination.storage, storageCategory = destination.storageCategory,
             phase = phase, keptHarvest = state.keptHarvest,
             baseReturnStock = state.baseReturnStock,
         })

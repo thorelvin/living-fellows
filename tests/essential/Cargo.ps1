@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Ordered production sources and compact outcomes; each group gets a fresh Lua environment.
+@{ Name = 'logistics-storage-commit-policy'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Essential 'logistics_storage_commit_harness.lua')) }
+
 @{ Name = 'native-storage-category-contracts'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCCleaningSupplies.lua'),
     (Join-Path $Client 'SCWorkTransport.lua'),

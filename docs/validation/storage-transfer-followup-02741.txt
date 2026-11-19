@@ -1,0 +1,113 @@
+Living Fellows 0.27.41 follow-up - pending storage deposits and fresh packages
+Baseline: 03fefc29. Kept at 0.27.41 on the user's explicit request.
+
+Confirmed defect and correction
+------------------------------
+An ordinary logistics deposit selected a marked container but did not retain
+its storage row. During walking or the native Loot pose, unmarking/relabeling
+that shelf could leave the cached container selected. Only loadout-preparation
+deposits ran storage permission validation at commit; ordinary deposits checked
+capacity and still transferred into the unmarked or newly Medical container.
+
+Both ordinary and preparation deposits now retain the exact selected storage
+row, container and category. Route candidates also keep the category snapshot.
+The shared check validates registration identity, current container, deposit
+permission and unchanged category before approach and immediately before commit.
+Native transfer completion and preparation inventory reconciliation still precede
+the final check. Failure uses the existing transaction cleanup: the exact carried
+item and return markers remain with the companion, native ownership is released,
+and ordinary later selection/retry may choose a valid shelf. Existing optional
+preparation deadlines keep their precedence. General/Output staging fallbacks
+remain valid because validation compares the selected category, rather than
+requiring every fallback to equal the preferred item category.
+
+The correction does not alter packing, dropping, withdrawing or zombie navigation.
+The companion's real native inventory transfer remains the only commit operation.
+No version or bridge-protocol bump is introduced for this requested 41 follow-up.
+
+Regression evidence
+-------------------
+The permanent Cargo group logistics-storage-commit-policy passes 90 checks:
+unchanged success, public unmark/relabel APIs, same-ID row replacement, disabled
+deposits, container replacement, unloaded object, late capacity rejection and
+normal later retry to a different valid shelf. Item identity and unique inventory
+ownership are checked. Only native pose timing is controlled in this harness;
+selection, public camp APIs, action supervision and actual LF transfers run.
+
+Exact 03fefc29 SCLogistics fails at intended check 18: unmarked storage receives
+the pending deposit. Fixed source exits 0. Evidence:
+  build/fix41-tests/logistics-storage-commit-before.log
+  build/fix41-tests/logistics-storage-commit-after.log
+The full focused Cargo check also exits 0 (18.7 s):
+  build/test-results/20261119-160813-86c917
+Source metadata/content/PowerShell syntax checks exit0.
+
+Native PZO acceptance
+---------------------
+The official, unmodified PZO V2.2 entrypoint/loader approves and loads the
+unchanged production 41 bridge in a disposable game/profile and complete cloned
+save. PZO SHA256:
+026de0512c6058e00f2df1f30d68c1acddeb6efee27877a6015a49f1da2d4d5b.
+
+Positive run exits 0:
+  build/pzo-logistics-storage-20261119-160908-56dff0
+  child 20261119-160920-9508d4-approved
+The companion starts real native Loot poses for a real seed and marked crate.
+Public unmark and Farming-to-Medical changes are made while those poses are
+active. Both rejected transfers retain the exact native item/ID in the carrier,
+release the native pose/action owner, and complete a later ordinary retry after
+the existing cooldown. An unchanged-shelf control completes normally. The crate
+ends with exactly the three original case items, health is at least 99.9 at
+completion, and all owners remain stable during a 15-second soak. Receipt:
+3 completed cases, 5,744 checks, largest measured tick gap 46 ms.
+The complete seed save and protected installed-file fingerprints are unchanged.
+
+The bridge JAR, protocol and version remain unchanged from 03fefc29; this fix
+changes Lua storage validation only. Native paths/waypoints for zombies are not
+issued or overridden. No installed-game update, tag or Workshop upload is made.
+
+Rebuilt packages
+----------------
+Both archives now include the manure Weapons-shelf follow-up (03fefc29) and the
+storage commit correction. All 359 production Lua files and the bridge match
+both archives, the frozen checkout and the positive native staged payload byte
+for byte. Their exact Lua path sets also match; no obsolete Lua file is retained.
+Evidence: build/fix41-package-verification.json and native source-match.json.
+
+  LivingFellowsCompanion-0.27.41-RELEASE.zip
+    57166540 bytes
+    SHA256 e384885c7f3a0cf1a8969676482f18d336c42fb071d435fd4d43a283de7a625e
+  LivingFellowsCompanion-0.27.41-STANDALONE-WINDOWS.zip
+    57399118 bytes
+    SHA256 5b3112a0beb3963a828656bf080e2c7c9272e86dedd38065332eb222f8b24e81
+
+These replace the older same-named local builds. The original report
+storage-categories-02741.txt retains its historical hashes and points here.
+Bridge SHA256 remains:
+6961ae08b8ffa93e23610278d9a38aa765e4219e6872e6356cdba5493a7ea83f.
+
+The independent native baseline-only negative exits 1:
+  build/pzo-logistics-storage-20261119-161318-10e693
+  child 20261119-161320-cdbf7c-approved
+Only staged SCLogistics is replaced with exact 03fefc29 source. It fails the
+intended assertion at check 174, case unmarked: changed storage must retain the
+exact seed with its carrier. Its last work is true/surplus_stored, demonstrating
+the original unauthorized commit. The source fingerprints also remain unchanged.
+
+Final release gate
+------------------
+Windows PowerShell 5.1 scripts/Test-Project.ps1 -Release exits 0:
+  build/test-results/20261119-160844-a39f7d
+  Build 337.1 s; Lifecycle 44.6 s; Behaviour 119.1 s; Cargo 14.5 s;
+  Interface 509.0 s. Total 1,024.3 s; 24 direct JVM launches; all five pass.
+All 18 installer cases pass (226.1 s), including PZO approval/loader boundaries,
+ownership, rollback and exact restoration. The staged source checks also pass.
+The final Cargo run includes the new 90-check storage-commit group and the
+838-category contracts; the current farm-storage group includes manure check 5.
+
+The release gate itself is harness-only (live=false). The separate actual PZO
+runs above are the native acceptance and causal negative. Payload hashes remain
+unchanged after the freeze; both rebuilt archives are the tested payload.
+The source commit/push and exact GitHub Source CI receipt are recorded in the
+shared roadmap after shipping. This follow-up is folded into version 0.27.41 at
+the user's request; next free release remains 0.27.42.

@@ -4,6 +4,9 @@
 
 ## 0.27.41 - Storage category hardening
 
+- Pending logistics deposits recheck the selected storage mark, category,
+  container and deposit permission before transferring. Changed destinations
+  leave the exact item with the companion for a later storage check.
 - Farmers collecting manure also find a shovel or rake kept in Weapons
   storage, as plowing and building do. Sorting leaves those dual-use tools on
   Weapons, so manure work could report a missing tool while one was there.

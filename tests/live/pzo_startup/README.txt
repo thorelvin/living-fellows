@@ -132,3 +132,24 @@ Evidence remains under build/pzo-storage-hardening-* with raw catalogue output,
 progress, final receipt, PZO/console logs and the staged payload. The complete
 seed save and protected installed-file fingerprints must remain unchanged.
 The standard JRE/license junction cleanup warning above also applies here.
+
+Late logistics destination regression
+------------------------------------
+Run scripts/Test-PzoLogisticsStorage.ps1 with the same PzoJar, SeedSave and
+MediaSnapshotRoot inputs. A native companion begins ordinary proactive seed
+shelving into a real Farming crate. While its real Loot pose is active, the
+probe uses the public camp API to unmark the crate or relabel it as Medical.
+Both transactions must retain the exact seed with the carrier and release the
+native pose and action owner. Restoring the correct shelf permits an ordinary
+retry after the original failure cooldown; the probe does not reset that clock.
+An unchanged-shelf control must commit normally. A fifteen-second owner soak
+checks all three exact items. The driver honors normal supervision and pacing.
+
+Use -BaselineLogistics for the independent causal negative. It stages only
+SCLogistics.lua from locally available commit 03fefc29 into the disposable game.
+That run must exit nonzero at "changed storage must retain the exact seed with
+its carrier". Other failures or timeouts do not establish the regression.
+Ordinary runs must exit zero. Evidence remains under build/pzo-logistics-storage-*
+with the final receipt, progress, PZO/console logs and exact staged payload.
+The complete source-save and protected installed-file fingerprints must remain
+unchanged. The JRE/license junction cleanup warning above also applies here.
