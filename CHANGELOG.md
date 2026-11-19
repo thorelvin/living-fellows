@@ -4,6 +4,9 @@
 
 ## 0.27.41 - Storage category hardening
 
+- Farmers collecting manure also find a shovel or rake kept in Weapons
+  storage, as plowing and building do. Sorting leaves those dual-use tools on
+  Weapons, so manure work could report a missing tool while one was there.
 - Storage routing uses native item purpose before filename fragments. Medical
   kits and instruments, work equipment, water containers, maps, bags and weapon
   parts go to their dedicated shelves. Raw components go to Crafting; usable

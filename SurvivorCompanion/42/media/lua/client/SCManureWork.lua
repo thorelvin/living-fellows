@@ -79,6 +79,10 @@ end
 local function tool(item)
     return U().itemHasTag(item,"TAKE_DUNG") and v(item,"isBroken")~=true
 end
+-- Shovels, rakes and snow shovels are dual-use: sorting may keep one on
+-- Weapons as its valid secondary home, so look there as plowing does.
+M.TOOL_CATEGORIES={"farming","tools","weapons"}
+M.isTool=tool
 local function attachOutputs(actor,job,state)
     local root=U().inventory(actor)
     local owned={}
@@ -231,7 +235,7 @@ function M.update(actor,baseState,job,runtime,state)
             if tool(item) and not S().protected(item,actor,"farm_borrow") then state.dungTool=item toolItem=item break end
         end
     end
-    if not toolItem then return S().borrow(actor,baseState,job,state,tool,{"farming","tools"},"manure_tool") end
+    if not toolItem then return S().borrow(actor,baseState,job,state,tool,M.TOOL_CATEGORIES,"manure_tool") end
     local phase,why=S().approach(actor,object,nil,true)
     if phase~="arrived" then return phase~="failed",why,phase=="failed" end
     local receipts={}

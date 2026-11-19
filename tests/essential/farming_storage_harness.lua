@@ -32,5 +32,21 @@ for _=1,4 do SC.FarmWork.update(actor, {}, job, state) end
 check(shovel.container == source and F.nativeStarts[#F.nativeStarts].intent.operation == 'sow'
     and F.nativeStarts[#F.nativeStarts].intent.item == seed,
     'the exact shovel returns to Weapons before the seed is used')
+
+-- Manure collection uses the same dual-use rule. A rake kept on Weapons is a
+-- valid home that sorting leaves alone, so the farmer must find it there.
+local rake = F.item('Base.Rake', 30, { tags={TAKE_DUNG=true} })
+local _, rack = F.addStorage('storage:dual-rake', 'weapons', { rake })
+local digger = F.actor('farm-manure-worker', 0, 2)
+local manureJob = F.job('manure', 0, 2, { id='job:storage-manure', actorId=digger.id })
+local manureState, why = {}, nil
+for _=1,6 do
+    if manureState.borrowed then break end
+    _, why = SC.FarmWork.animalSupport.borrow(digger, {}, manureJob, manureState,
+        SC.ManureWork.isTool, SC.ManureWork.TOOL_CATEGORIES, 'manure_tool')
+end
+check(rake.container == digger.inventory and manureState.borrowed
+    and manureState.borrowed.item == rake and manureState.borrowed.container == rack,
+    'manure collection borrows the exact rake kept on Weapons (' .. tostring(why) .. ')')
 SC_TEST_REPORT = 'FARM_STORAGE_PASS checks=' .. checks
 print(SC_TEST_REPORT)
