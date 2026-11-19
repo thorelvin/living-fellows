@@ -1,0 +1,175 @@
+Living Fellows 0.27.41 - storage category hardening
+Baseline: 0951a9fe (0.27.40). Windows PowerShell 5.1, pinned PZ 42.22.2.
+
+Confirmed destination problems and policy
+-----------------------------------------
+The native catalogue was instantiated in a disposable game using getAllItems
+and instanceItem. Item class and display category differ: some medical supplies
+such as antibiotics are Food, scalpels and tire irons are Weapons, and many raw
+components are Material.
+Filename fragments also caused unrelated round furniture and BackgammonBoard
+to be classified as ammunition. General milk-container capability incorrectly
+made ordinary canteens and some keepsakes farm supplies.
+
+Camp classification now uses specific native purpose before general class/name
+fallbacks. Medical kits, instruments and pills go to Medical; cooking, fishing,
+vehicle work, communication and lighting equipment go to Tools; maps go to
+Literature; water vessels go to Water; reusable bags go to Clothes; weapon
+parts go to Weapons. Native ammunition cases and fast-reload bags remain with
+Ammunition. A real plunger spear remains a weapon. Dedicated farming equipment
+and manure retain their existing shelves.
+
+Usable building supplies go to Construction; other raw components go to
+Crafting. The explicit building set and native tags include timber, nails,
+wire, sheet metal, fired brick/tile/shingle, stone blocks, concrete, plaster
+and wallpaper supplies. Unfired clay pieces, ingots, leather, thread, screws
+and other crafting components remain Crafting. Filled pure cow/sheep milk is
+Fresh food; an empty drinking vessel keeps its ordinary Water purpose.
+
+Logistics deposits now use the same certain storage classification as camp
+sorting, floor intake and car unloading. Combat/loadout roles remain separate:
+a hammer still satisfies a weapon role while its preferred shelf is Tools.
+The one intended loadout-role correction is Base.Garbagebag: a usable native
+inventory container is carry gear, not loose trash selected by its filename.
+
+Existing valid secondary placement is retained for dual-use hand tools on
+Tools or Weapons. Builders and farmers can find eligible tools on Weapons
+using the ordinary withdrawal, reserve and loan guards. Milking can borrow
+eligible vessels from Farming, Water, Tools or Crafting; both urgent staging
+and later release validate the exact original source and receipt. Valuables,
+memorial and General are not new automatic milk supply sources. Animal-care
+cleaner lookup also includes Tools, where bleach already sorts.
+
+Unknown mod items retain uncertain classification and manual dedicated-shelf
+placement. General source remains unsorted intake. Ordinary sorting empties it
+into dedicated shelves; car unloading retains its existing explicit staging
+fallback. Capacity, deposit permissions, reserves, personal ownership and work
+receipts continue to gate actual transfers. No item definitions or zombie
+navigation are changed.
+
+Focused regression evidence
+---------------------------
+tests/fixtures/storage-42.22.2 contains 838 reviewed shelf-purpose expectations
+with observed native metadata and a separate 5,100-item 0.27.40 loadout baseline.
+Expectations use native purpose and the policy above; unchanged Food/Fresh food
+representatives retain the existing spoilage rule. This is not an assertion
+that every mod item or every native item has been manually reviewed.
+
+The production Cargo contract group passes 4,248 checks across those 838 cases:
+classification and certainty, floor/car/logistics destination agreement,
+ordinary sort selection, stable correct shelves, unknown/misleading mod names,
+native carry bags, dual-use hammer availability, capacity and deposit controls.
+The focused farmer case passes four checks: borrow the exact shovel from its
+valid Weapons shelf, start native plowing, preserve ownership while repayment
+is pending, then return that shovel before borrowing a seed for sowing.
+The extended cattle group passes 601 checks, including actual borrowing from
+Water and exact urgent milk staging/release from Water, Tools and Crafting.
+Existing sheep and chicken care groups also pass in the focused runner.
+
+Eight independent temporary-source controls each exit 1 at the intended
+semantic assertion, while fixed focused runs exit 0:
+  classifier - Base.TireIron expected tools, got weapons
+  logistics destination - Base.TireIron logistics storage agrees
+  usable bag - a native reusable garbage bag is not a trash item
+  builder source - finds an eligible tool in its valid Weapons shelf
+  farmer source - borrows its exact shovel from Weapons
+  milk source - owned approach borrows from Water storage
+  milk staging - urgent milk stages its exact loan safely on water
+  milk release - staged milk releases the exact water source marker
+Evidence: build/storage-focus and build/storage-controls/results.json.
+These controls alter ignored staged copies, never installed game files.
+
+An exploratory attempt to run the entire old farming_lifecycle_harness with
+the broader Gameplay fixture failed at its check 29 (just-completed harvest
+cancellation). Repeating that context with the exact 0.27.40 SCFarmWork source
+fails at the identical assertion. This is not counted as a passing suite or
+attributed to this patch. The original legacy harness is unchanged; the new
+storage compatibility group uses a focused, independent borrow/use/return case.
+Baseline-context evidence: build/storage-controls/legacy-farm-baseline.log.
+
+Native baseline negative
+------------------------
+The actual unmodified PZO V2.2 entrypoint/loader stages and loads the production
+bridge in a disposable native game/profile and complete cloned save.
+Official PZO SHA256:
+026de0512c6058e00f2df1f30d68c1acddeb6efee27877a6015a49f1da2d4d5b.
+
+The independent baseline negative exits 1 at the intended native assertion:
+  build/pzo-storage-hardening-20261119-041158-695b57
+  child 20261119-041200-71740f-approved
+  storage hardening 2: Base.TireIron expected tools, got weapons
+Only SCBaseWork and SCLogistics are taken from 0951a9fe in the staged clone.
+The complete source save and protected installed files retain their fingerprints.
+
+Preliminary runs exposed test setup assumptions: three engine debug/placeholders
+refuse native crate storage, and the first physical spawn overlapped the primary
+player's square. Classification is still checked for those three instances;
+refusal is accepted only when the actual matching crate rejects hasRoomFor,
+floor selection reports the same full category, and car unloading also refuses.
+The physical spawn now uses the separate square already proven by the cleaning
+fixture. These failed attempts are retained, not counted as final acceptance.
+The 819-case physical pass before the final building-supply additions is also
+superseded for final payload acceptance.
+
+Final native acceptance and package identity
+-------------------------------------------
+The final native PZO run exits 0:
+  build/pzo-storage-hardening-20261119-043646-a00101
+  child 20261119-043648-29aedd-approved
+It instantiates all 5,100 native items, with zero skipped instances or caught
+catalogue errors. All 838 reviewed categories and 5,100 baseline loadout roles
+pass. Real floor/car destinations route 5,097 items consistently; Base.DebugFluid,
+Base.Animal and Base.TestDebugWater retain native capacity refusals. Logistics
+agrees whenever storage classification is certain. Crates use native capacity
+100; no capacity refusal is bypassed.
+
+The native quartermaster physically sorts thirteen representative types from
+General source into thirteen typed shelves: tire iron, medical kit, magazine,
+gun light, map, garbage bag, wire, steel ingot, canteen, seed bag, canned beans,
+tomato and gold trophy. All exact item IDs/objects retain the expected containers,
+General and Output are empty, and worker health at completion is at least 99.9. A fifteen-
+second soak retains every owner. The receipt records 97,997 checks and a largest
+measured tick gap of 49 ms. This is controlled native work under the production
+action supervisor/pacing gate, not an unrestricted multi-day camp simulation.
+Milking and farming source compatibility are harness coverage, not live cow/plot
+acceptance. Existing chicken/sheep care regressions also run in the release gate.
+
+The complete source save and installed launcher/bridge/game-JAR hashes retain
+their before/after fingerprints. All 359 staged production Lua files and bridge
+match the frozen checkout byte for byte (native source-match.json).
+The full native before/after comparison records 804 changed preferred storage
+categories; Base.Garbagebag is the only changed loadout role. The 838 reviewed
+contracts cover explicit purposes, while the larger catalogue checks routing
+agreement and loadout stability. Evidence: build/storage-native-delta.json.
+
+Bridge SHA256: 6961ae08b8ffa93e23610278d9a38aa765e4219e6872e6356cdba5493a7ea83f.
+Every JAR entry except META-INF/MANIFEST.MF is unchanged from 0.27.40; the only
+bridge change is its release version. Protocol remains 42.22-isocompanion-33.
+PZO approval is per hash, so installation requires approval of this new bridge.
+
+Both final archives contain the same 359 Lua files and bridge, verified against
+the frozen checkout and native staged payload:
+  LivingFellowsCompanion-0.27.41-RELEASE.zip
+    57166073 bytes
+    SHA256 db019192f26bebdea5d292e425b982544d9bbbdcde6647074f0a3bbc77223a88
+  LivingFellowsCompanion-0.27.41-STANDALONE-WINDOWS.zip
+    57398651 bytes
+    SHA256 f6449ec0edba5d7ade8728e65bacb14e3ae70642e112c25eb4b0dcb0ce7862f9
+  build/storage-package-verification.json
+
+Final release gate
+------------------
+Windows PowerShell 5.1 scripts/Test-Project.ps1 -Release exits 0:
+  build/test-results/20261119-043459-f3fd66
+  Build 317.7 s; Lifecycle 44.9 s; Behaviour 114.3 s; Cargo 14.5 s;
+  Interface 500.5 s. Total 991.9 s, 24 direct JVM starts, five checks passed.
+  All 18 installer cases pass, including PZO loader reinstall/upgrade, ownership,
+  rollback and exact restoration. The final staged source checks also exit 0.
+The earlier gate was stopped for the final building-supply additions; only this
+complete run accepts the frozen payload. Live game acceptance is the separate
+native PZO run above; the release gate itself is harness-only, live=false.
+
+No installed-game update, release tag or Workshop upload is performed. Commit,
+branch push and exact GitHub Source CI receipt are recorded in the shared roadmap
+after shipping. The earlier whole-game hang remains undiagnosed pending a frozen
+thread capture; this storage patch is not presented as a fix for that hang.

@@ -311,7 +311,7 @@ local function recipeRequirements(info)
 end
 
 local function sourceCategories(requirement)
-    if requirement.tool then return { "tools", "construction", "general" } end
+    if requirement.tool then return { "tools", "weapons", "construction", "general" } end
     return { "construction", "crafting", "general" }
 end
 
@@ -1598,12 +1598,39 @@ end
 -- in their type names either.
 local DISPLAY_CATEGORIES = {
     ammo = "ammunition",
-    firstaid = "medical", bandage = "medical",
+    firstaid = "medical", firstaidweapon = "medical", bandage = "medical",
     tool = "tools", toolweapon = "tools", gardeningweapon = "tools",
-    materialweapon = "construction",
+    cooking = "tools", cookingweapon = "tools", vehiclemaintenance = "tools",
+    vehiclemaintenanceweapon = "tools", fishing = "tools", fishingweapon = "tools",
+    lightsource = "tools", communications = "tools", trapping = "tools", security = "tools",
     weapon = "weapons", weaponcrafted = "weapons", sportsweapon = "weapons",
-    literature = "literature", skillbook = "literature",
+    weaponpart = "weapons", explosives = "weapons",
+    literature = "literature", skillbook = "literature", cartography = "literature",
+    bag = "clothing", container = "clothing", protectivegear = "clothing",
+    electronics = "crafting", furniture = "crafting", household = "crafting", junk = "crafting",
+    paint = "construction", memento = "valuables",
     food = "food",
+}
+
+-- Raw crafting stock is not all building material. Keep this narrow and use
+-- native tags for filled concrete vessels and wire, rather than substrings
+-- which also match unrelated equipment such as wireless headphones.
+local CONSTRUCTION_ITEMS = {
+    log=true, logstacks2=true, logstacks3=true, logstacks4=true, plank=true, largeplank=true,
+    nails=true, nailsbox=true, nailscarton=true, doorknob=true, hinge=true,
+    sheetmetal=true, smallsheetmetal=true, metalbar=true, metalpipe=true, leadpipe=true,
+    ironbar=true, ironbarhalf=true, steelbar=true, steelbarhalf=true, steelrodhalf=true,
+    wire=true, wirestack=true, barbedwire=true, barbedwirestack=true,
+    sandbag=true, gravelbag=true, concretepowder=true, claybrick=true, lumber=true,
+    stoneblock=true, claytile=true, clayshingle=true, plasterpowder=true, wallpaperpastepowder=true,
+}
+local NOT_FARM_STORAGE = {
+    watercontainer=true, cooking=true, cookingweapon=true, memento=true,
+    material=true, materialweapon=true, literature=true, skillbook=true, cartography=true,
+    firstaid=true, firstaidweapon=true, bandage=true, ammo=true, weaponpart=true,
+    clothing=true, protectivegear=true, bag=true, electronics=true, furniture=true,
+    household=true, junk=true, vehiclemaintenance=true, vehiclemaintenanceweapon=true,
+    lightsource=true, communications=true,
 }
 
 -- Hand tools are weapons too, so either shelf is a proper home for them.
@@ -1625,33 +1652,91 @@ local function classifyItem(item)
     if SC.FarmStorage and SC.FarmStorage.isManure(item) then return "manure",true end
     if SC.CleaningSupplies and (SC.CleaningSupplies.isTool(item)
         or SC.CleaningSupplies.containsCleaner(item)) then return "tools", true end
-    local itemType = string.lower(U().itemType(item))
+    if SC.MedicKit and SC.MedicKit.isKit(item) then return "medical", true end
+    if SC.ExpeditionFuel and SC.ExpeditionFuel.canInfo(item) then return "tools", true end
+    local itemType = string.lower(tostring(U().itemType(item) or ""))
+    local shortType = itemType:match("%.([^%.]+)$") or itemType
+    local display = displayCategory(item)
     local category = select(1, invoke(item, "getCategory"))
     category = string.lower(tostring(category or ""))
+    -- Filled milk is food; an empty canteen is water equipment, even though
+    -- milking can also borrow it. That work capability must not steal its shelf.
+    local fluid = select(1, invoke(item, "getFluidContainer"))
+    for _, name in ipairs({ "CowMilk", "SheepMilk" }) do
+        if Fluid and Fluid[name] and fluid
+            and (tonumber((select(1, invoke(fluid, "getAmount")))) or 0) > 0
+            and select(1, invoke(fluid, "isPureFluid", Fluid[name])) == true then
+            return "fresh_food", true
+        end
+    end
+    local farmDisplay = not NOT_FARM_STORAGE[display]
+        and (display ~= "reciperesource" or shortType:find("bagseed", 1, true) ~= nil)
+    if display == "gardening" or display == "watercontainer" and (shortType == "wateredcan"
+        or shortType == "feedingbottle" or shortType:find("wateringcan", 1, true) == 1) then
+        return "farming", true
+    end
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
+        and farmDisplay
         and SC.FarmWork.isFarmingSupply(item) == true then return "farming", true end
     if SC.BaseLife.isValuableItem(item) then
         return "valuables", true
     end
-    local display = displayCategory(item)
     local isClothing, clothingKnown = invoke(item, "IsClothing")
     if category == "clothing" or display == "clothing"
         or (clothingKnown and isClothing == true) then
         return "clothing", true
     end
+    if category == "literature" or category == "map" then return "literature", true end
+    if display == "gardening" then return "farming", true end
+    if SC.Medical and SC.Medical.dressingRank and SC.Medical.dressingRank(item, false) then
+        return "medical", true
+    end
+    if display == "firstaid" or display == "firstaidweapon" or display == "bandage" then
+        return "medical", true
+    end
+    if category == "food" then return SC.BaseLife.foodStorageCategory(item), true end
+    if display == "watercontainer" or display == "water" then return "water", true end
     if SC.Needs and type(SC.Needs.isDrinkingContainer)=="function"
         and SC.Needs.isDrinkingContainer(item) then return "water",true end
+    -- Typed ammunition cases remain by ammunition; a bag's name alone is not
+    -- ammunition. First-aid kits and owned/marked items keep their own guards.
+    if U().itemHasTag(item, "AmmoCase") or U().itemHasTag(item, "ReloadFastShells")
+        or U().itemHasTag(item, "ReloadFastBullets") then
+        return "ammunition", true
+    end
+    if display == "material" or display == "materialweapon" then
+        if CONSTRUCTION_ITEMS[shortType] or U().itemHasTag(item, "Concrete")
+            or U().itemHasTag(item, "Wire") or U().itemHasTag(item, "Log")
+            or U().itemHasTag(item, "PlasterBucket") or U().itemHasTag(item, "Wallpaper")
+            or U().itemHasTag(item, "WallpaperPaste") then
+            return "construction", true
+        end
+        return "crafting", true
+    end
+    if display == "householdweapon" and (U().itemHasTag(item, "Write")
+        or U().itemHasTag(item, "Scissors") or U().itemHasTag(item, "NoMaintenanceXp")
+        or shortType:find("closedumbrella", 1, true) == 1) then return "tools", true end
     local shelf = DISPLAY_CATEGORIES[display]
     if shelf == "food" or category == "food" then
         return SC.BaseLife.foodStorageCategory(item), true
     end
     if shelf then return shelf, true end
-    if category == "literature" then return "literature", true end
-    if string.find(itemType, "water", 1, true) or string.find(itemType, "bottle", 1, true) then return "water", true end
+    if category == "container" then return "clothing", true end
+    if CONSTRUCTION_ITEMS[shortType] then return "construction", true end
+    -- Compatibility hints are used only when the game/mod supplies no telling
+    -- shelf metadata. In particular, BackgammonBoard and round furniture are
+    -- never ammunition, and a propane bottle is not inferred to be water.
+    local generic = display == "" or display == "item" or display == "normal"
+        or display == "weapon"
+    if not generic then
+        if category == "weapon" then return "weapons", true end
+        return "crafting", false
+    end
+    if U().itemHasTag(item, "WaterContainer") then return "water", true end
     if string.find(itemType, "bandage", 1, true) or string.find(itemType, "rippedsheet", 1, true)
         or string.find(itemType, "disinfect", 1, true) then return "medical", true end
-    if string.find(itemType, "ammo", 1, true) or string.find(itemType, "bullets", 1, true)
-        or string.find(itemType, "round", 1, true) then return "ammunition", true end
+    if shortType:find("ammo", 1, true) == 1 or shortType:find("bullets", 1, true)
+        or shortType:find("shotgunshell", 1, true) == 1 then return "ammunition", true end
     -- Tools and building material before the weapon test: the engine counts
     -- both as hand weapons.
     if U().itemHasTag(item, "Hammer") or string.find(itemType, "saw", 1, true)

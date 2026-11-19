@@ -359,7 +359,7 @@ local approachActor=F.actor("milk-approach",6,6)
 local empty=F.item("Base.Bucket",302)
 function empty:getFluidContainer() return fc end
 fc.amount,fc.capacity,fc.locked=0,10,false
-F.addStorage("storage:approach-bucket","farming",{empty})
+F.addStorage("storage:approach-bucket","water",{empty})
 local target
 for _=1,12 do target=A.candidate(F.base) if target then break end end
 check(target and target.operation=="animal_milk","bounded audit admits the approach fixture")
@@ -367,7 +367,7 @@ local approachJob=F.job("animal_milk",4,4,target)
 local approachState={}
 A.updateMilk(approachActor,{},approachJob,{},approachState)
 A.updateMilk(approachActor,{},approachJob,{},approachState)
-check(behavior.paused,"owned approach uses vanilla's movement hold")
+check(behavior.paused,"owned approach borrows from Water storage and uses vanilla's movement hold")
 A.cancel(approachActor,approachJob,approachState,"cancelled")
 check(not behavior.paused and fc.amount==0,"cancellation releases the cow without changing milk or cargo")
 A.updateMilk(approachActor,{},approachJob,{},approachState)
@@ -427,4 +427,37 @@ check(not careCandidate(),"an existing calming visit prevents duplicate jobs")
 calming.state="completed" pausedMilk.state="active" pausedMilk.reservedBy="milker"
 check(not careCandidate(),"active milking still excludes simultaneous animal handling")
 U.config=oldConfig
-print("CATTLE_WORK_PASS checks="..checks)
+-- Sorted water and work vessels remain eligible milk supplies. Urgent full-
+-- storage recovery keeps the exact source receipt through stage and release.
+for _, category in ipairs({"water","tools","crafting"}) do
+    SC.FarmWork.reset();F.reset()
+    SC.BaseLife.storage=function(id)
+        for _, row in ipairs(F.storages) do if row.id==id then return row end end
+    end
+    local worker=F.actor("milk-source-"..category,4,4)
+    local source,items=F.addStorage("source:"..category,category,{})
+    check(A.milkSupplyStorage(source),"typed "..category.." shelf is an eligible milk source")
+    local vessel=F.item("Base.Bucket",900+#category)
+    local fc={amount=1.9}
+    function fc:getAmount() return self.amount end
+    function fc:isPureFluid(kind) return kind==Fluid.CowMilk end
+    function vessel:getFluidContainer() return fc end
+    worker.inventory:AddItem(vessel)
+    local milkJob=F.job("animal_milk",4,4,{cowId=42,nativeZoneId="42",deviceKey="animal:42"})
+    local receipt=SC.FarmWork.animalSupport.receipt(worker,milkJob,"borrowed",vessel,source)
+    receipt.milk={version=1,cowId=42,zoneId="42",day=4,fluid="CowMilk",before=0,after=1.9,litres=1.9,lost=0,urgent=true}
+    milkJob.target.milkReceiptId=receipt.id
+    local state={outputs={{item=vessel,receiptId=receipt.id,milk=true,category="fresh_food"}}}
+    local moved,why=A.deliverMilk(worker,{},milkJob,state)
+    check(not moved and why=="animal_milk_food_storage_missing" and vessel:getContainer()==items
+        and receipt.milk.staged and SC.FarmWork.isItemProtected(vessel),
+        "urgent milk stages its exact loan safely on "..category)
+    check(A.releaseStagedMilk(receipt) and receipt.phase=="returned"
+        and vessel:getContainer()==items and not SC.FarmWork.isItemProtected(vessel),
+        "staged milk releases the exact "..category.." source marker for later food delivery")
+end
+for _, category in ipairs({"valuables","memorial","general"}) do
+    check(not A.milkSupplyStorage({category=category}),category.." is not an automatic milk supply source")
+end
+SC_TEST_REPORT="CATTLE_WORK_PASS checks="..checks
+print(SC_TEST_REPORT)

@@ -151,6 +151,10 @@ function Logistics.isTrash(item)
     end
     local itemType = lower(utility.itemType(item) or "")
     if itemType == "" then return false end
+    -- A native garbage bag is usable carry gear, not loose rubbish. Never
+    -- choose the trash pile for a real inventory container by its filename.
+    local nested, nestedOk = nestedInventory(item)
+    if nestedOk and nested then return false end
     if typeContains(itemType, TRASH_TYPES) then return true end
     -- Ruined and beyond repair: a weapon or tool at zero condition is weight.
     local condition, conditionOk = utility.call(item, "getCondition")
@@ -1784,14 +1788,22 @@ end
 
 local function depositCategory(item, category)
     local wanted = storageCategory[category] or "general"
+    -- Combat/loadout roles deliberately differ from storage: a hammer can
+    -- satisfy a weapon need while its ordinary destination is Tools. Share
+    -- the camp sorter's certain item policy across every deposit path.
+    if SC.BaseWork and type(SC.BaseWork.classifyItem) == "function" then
+        local classified, certain = SC.BaseWork.classifyItem(item)
+        if certain == true then wanted = classified end
+    end
     if wanted == "valuables" and #SC.BaseLife.depositStorageRows("valuables") == 0 then
         wanted = isClothingItem(item) and "clothing" or "general"
     end
-    if wanted == "food" and type(SC.BaseLife.foodDepositCategory) == "function" then
+    if (wanted == "food" or wanted == "fresh_food") and type(SC.BaseLife.foodDepositCategory) == "function" then
         wanted = SC.BaseLife.foodDepositCategory(item)
     end
     return wanted
 end
+Logistics.depositCategory = depositCategory
 
 storageFor = function(actor, item, category, dedicatedOnly, ownerState)
     if not SC.BaseLife or type(SC.BaseLife.storageRows) ~= "function"

@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Group boundaries are fresh Lua environments in the shared serial runner.
+@{ Name = 'behaviour.farming-storage-compatibility'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Core 'farming_lifecycle_fixture.lua'),
+    (Join-Path $Essential 'farming_storage_harness.lua')) }
+
 @{
     Name = 'behaviour.runtime-contracts'
     Files = @(

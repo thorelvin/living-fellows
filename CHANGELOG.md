@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.27.41 - Storage category hardening
+
+- Storage routing uses native item purpose before filename fragments. Medical
+  kits and instruments, work equipment, water containers, maps, bags and weapon
+  parts go to their dedicated shelves. Raw components go to Crafting; usable
+  building supplies go to Construction.
+- Logistics deposits share the camp sorter's certain storage policy while
+  preserving combat and loadout roles. Correctly shelved dual-use hand tools
+  remain valid in either Tools or Weapons.
+- Reusable garbage bags are kept as carry gear rather than loose trash.
+- Milking finds eligible vessels in Farming, Water, Tools and Crafting, with
+  exact staging/recovery receipts. Animal cleaning also finds cleaner in Tools.
+- Builders and farmers can find eligible dual-use tools retained in Weapons
+  storage, using the same withdrawal, reserve and ownership protections.
+- General source remains intake storage. Full, unavailable or restricted shelves
+  retain the existing ownership and capacity protections.
+- Bridge protocol remains `42.22-isocompanion-33`.
+
 ## 0.27.40 - Cleaning tools and camp storage
 
 - Mops, brooms and other items with the game's cleaning-tool tag go to Tools

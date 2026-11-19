@@ -737,7 +737,7 @@ local function inspectPlot(base, zone, square, x, y, z, carriedWater)
         if cropType and hasSupply(function(item)
             local broken, ok = invoke(item, "isBroken")
             return U().itemHasTag(item, "DIG_PLOW") and (not ok or broken ~= true)
-        end, { "farming", "tools" }, "dig_tool") then
+        end, { "farming", "tools", "weapons" }, "dig_tool") then
             return { operation = "replant", priority = 3, cropType = cropType }
         end
     elseif plant.state == "plow" then
@@ -1131,7 +1131,7 @@ local function compost(item)
 end
 
 local function operationSupply(target, operation)
-    if operation == "plow" then return digTool, { "farming", "tools" }, "dig_tool" end
+    if operation == "plow" then return digTool, { "farming", "tools", "weapons" }, "dig_tool" end
     if operation == "sow" then return seedPredicate(target.cropType), { "farming" },
         "seed:" .. tostring(target.cropType) end
     if operation == "water" then return waterContainerPredicate,

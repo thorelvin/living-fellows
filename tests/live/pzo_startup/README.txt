@@ -105,3 +105,30 @@ cause. Add -RevertRepaymentPacing (independent of -RevertClassification) to remo
 only the in-transaction repayment wait from the staged BaseWork. Native cleaning
 must then fail that assertion at completion; normal runs must exit zero with no
 such false path rejection. Both negative switches preserve the checkout.
+
+Storage category hardening regression
+------------------------------------
+Run scripts/Test-PzoStorageCategories.ps1 with the same PzoJar, SeedSave and
+MediaSnapshotRoot inputs. It checks every native instance against the 0.27.40
+loadout-role baseline, 838 explicit shelf-purpose cases, and the production
+floor-intake, car-unloading and logistics destination selectors. Native capacity
+refusals remain refusals, including debug placeholders which reject all crates.
+They are counted separately; classification is still required for those items.
+
+Sixteen real registered crates provide the ordinary categories and intake/output
+shelves. A native quartermaster sorts thirteen representative item types from
+General source into their dedicated shelves, with one ordinary homogeneous job
+per type. Exact item identities, native ownership, empty intake/output, worker
+health and a fifteen-second stable-placement soak are required. The controlled
+work driver honors action supervision and ordinary action pacing.
+
+Use -AuditOnly to omit physical sorting. Use -BaselineClassifiers -AuditOnly
+for the causal negative: the wrapper stages only SCBaseWork and SCLogistics
+from commit 0951a9fe into the disposable payload. That commit must be available
+locally. This run must exit nonzero on "Base.TireIron expected tools, got weapons";
+an unrelated failure is not an accepted negative. Ordinary runs must exit zero.
+
+Evidence remains under build/pzo-storage-hardening-* with raw catalogue output,
+progress, final receipt, PZO/console logs and the staged payload. The complete
+seed save and protected installed-file fingerprints must remain unchanged.
+The standard JRE/license junction cleanup warning above also applies here.

@@ -1,5 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Ordered production sources and compact outcomes; each group gets a fresh Lua environment.
+@{ Name = 'native-storage-category-contracts'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCCleaningSupplies.lua'),
+    (Join-Path $Client 'SCWorkTransport.lua'),
+    (Join-Path $ProjectRoot 'tests\fixtures\storage-42.22.2\SCStorageCategoryCases.lua'),
+    (Join-Path $Essential 'storage_categories_harness.lua')) }
+
 @{ Name = 'tool-storage-overflow'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCWorkTransport.lua'),
     (Join-Path $Essential 'tool_storage_overflow_harness.lua')) }

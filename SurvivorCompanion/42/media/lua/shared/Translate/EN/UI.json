@@ -517,7 +517,7 @@
     "UI_SC_Base_Storage_clothing": "Clothes",
     "UI_SC_Base_Storage_valuables": "Valuables",
     "UI_SC_Base_Storage_general": "General source",
-    "UI_SC_Base_StorageHelp": "Put unsorted supplies in General source. Companions sort them into marked shelves by type; use Tools for cleaning tools and cleaner. Sorting does not fill General source.",
+    "UI_SC_Base_StorageHelp": "General source holds unsorted supplies. Tools holds work equipment; Clothes holds bags. Use Crafting for components and Construction for building supplies. Sorting moves items into their marked categories.",
     "UI_SC_Base_Storage_output": "Work output",
     "UI_SC_Base_Storage_memorial": "Memorial",
     "UI_SC_Base_Storage_farming": "Farming supplies",

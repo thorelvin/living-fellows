@@ -9,6 +9,16 @@ local zoneVisited, zoneCycleSize = 0, 0
 local snapshots, claims = {}, {}
 local refreshes = {}
 
+-- Storage follows an item's main purpose. Milking may borrow a suitable
+-- vessel from any of these shelves without relabelling every cup or canteen
+-- as farm stock. Valuables and memorial keepsakes are not supply sources.
+A.MILK_SUPPLY_CATEGORIES = { "farming", "water", "tools", "crafting" }
+local milkSupplyCategories = {}
+for _, category in ipairs(A.MILK_SUPPLY_CATEGORIES) do milkSupplyCategories[category] = true end
+function A.milkSupplyStorage(storage)
+    return type(storage) == "table" and milkSupplyCategories[storage.category] == true
+end
+
 A.species = {
     chicken = { kinds = { hen = true, cockerel = true, chick = true },
         feeds = { AnimalFeed = true, Grass = true, Hay = true, Vegetables = true,
@@ -1599,7 +1609,7 @@ function A.releaseStagedMilk(receipt)
     if not receipt.milk or not receipt.milk.staged or receipt.milkInvalid then return false end
     local source=SC.BaseLife.storage(receipt.sourceStorageId)
     local container=source and SC.BaseLife.resolveContainer(source)
-    if not source or source.category~="farming" or not container then return false end
+    if not A.milkSupplyStorage(source) or not container then return false end
     for _,item in ipairs(U().inventoryItems(container,256)) do
         local marks=U().modData(item)
         if marks and marks[SC.FarmWork.ITEM_MARKER]==receipt.id
@@ -1848,7 +1858,7 @@ function A.deliverMilk(actor,baseState,job,state)
     end
     local source=SC.BaseLife.storage(receipt.sourceStorageId)
     local container=source and SC.BaseLife.resolveContainer(source)
-    if not source or source.category~="farming" or not container
+    if not A.milkSupplyStorage(source) or not container
         or SC.BaseLife.storageAcceptsDeposit(source,container)~=true
         or SC.WorkTransport.hasRoom(container,actor,output.item)~=true then
         return false,"animal_milk_food_storage_missing",true
@@ -1947,7 +1957,7 @@ function A.updateMilk(actor,baseState,job,runtime,state)
             if A.milkRoom(actor,item,false)<0.1 then return false end
             state.milkContainerSeen=true
             return facts.urgent or A.milkDestination(actor,item,.1)~=nil
-        end,{"farming"},"animal_milk_container",function(item) return A.milkRoom(actor,item,false) end)
+        end,A.MILK_SUPPLY_CATEGORIES,"animal_milk_container",function(item) return A.milkRoom(actor,item,false) end)
         if not handled and why=="farm_supply_missing" then
             why=state.milkContainerSeen and "animal_milk_food_storage_missing"
                 or state.milkContainerAvailable and "animal_carry_capacity_low" or "animal_milk_container_unavailable"
@@ -2246,7 +2256,7 @@ function A.update(actor, baseState, job, runtime, state)
             { predicate = function(item)
                 local facts = C.inspect(item)
                 return facts and facts.known and facts.cleaner and facts.amount >= 0.002
-            end, categories = { "farming", "crafting" }, key = "animal_cleaner" },
+            end, categories = { "farming", "tools", "crafting" }, key = "animal_cleaner" },
         }
         state.animalLoans = state.animalLoans or {}
         for index, spec in ipairs(specs) do

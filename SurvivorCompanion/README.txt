@@ -1,4 +1,4 @@
-Living Fellows 0.27.40 - release
+Living Fellows 0.27.41 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -58,11 +58,19 @@ and stored counts are separate. Full storage preserves the cargo and retries
 every three minutes. Manual Retry is available.
 
 For chicken care, draw a vanilla animal zone wholly inside camp, with a hutch
-and separate feed and water troughs. Mark farming storage for feed, water
-containers and cleaning tools, and allow deposits into food storage. Assign a
+and separate feed and water troughs. Mark Farming storage for feed and farm
+equipment, Water for water containers and Tools for cleaning supplies. Farmers
+can also use suitable supplies kept in Farming. Allow food deposits. Assign a
 Farmer. The Farmer closes the hutch at night once every known bird is
 sheltered, and opens it after dawn. Late birds keep the door open. Fertilised
 eggs stay in the nest; breeding management and culling remain disabled.
+
+Storage sorting uses Tools for work equipment, Clothes for bags, Medical for
+first-aid kits, Books & magazines for maps, Weapons for gun parts and Ammunition
+for clips and ammo cases. Construction holds usable building supplies; Crafting
+holds other components. General source is intake which sorting empties. Dual-use
+hand tools already in Tools or Weapons may stay there. Full shelves keep the
+existing cargo safe rather than authorizing a move to an unrelated category.
 
 Documentation, updates and bug reports:
 https://github.com/thorelvin/living-fellows
