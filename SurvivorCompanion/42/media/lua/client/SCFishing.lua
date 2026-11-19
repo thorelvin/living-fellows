@@ -875,12 +875,16 @@ local function deliverCampCatches(actor, state, items)
         local storage, container, reason = foodDestination(actor, item)
         if not storage then return false, reason end
         state.deliveryStorage, state.deliveryContainer = storage, container
+        -- Walking to the shelf takes several updates; a relabelled shelf is
+        -- refused below and a fresh food destination is chosen.
+        state.deliveryCategory = storage.category
     end
     if not SC.BaseWork or type(SC.BaseWork.depositToStorage) ~= "function" then
         return false, "fishing_storage_transfer_unavailable"
     end
     local handled, reason = SC.BaseWork.depositToStorage(actor, state,
-        state.deliveryStorage, state.deliveryContainer, item)
+        state.deliveryStorage, state.deliveryContainer, item,
+        { storageCategory = state.deliveryCategory })
     if handled == true and reason == "base_supply_returned" then
         item:getModData()[CAMP_CATCH_TAG] = nil
         state.deliveryItem, state.deliveryStorage = nil, nil

@@ -903,6 +903,16 @@ local doingLabels = {
     unjam = "clearing my weapon",
     virgil_route = "walking the mail route",
     window_approach = "reaching a window",
+    approach_force_open = "getting into position to pry it open",
+    force_open = "prying it open",
+    return_force_tool = "returning a borrowed crowbar",
+    pack = "stocking the first aid kit",
+    shower = "taking a shower",
+    pickup_view_handoff = "getting ready for the ride",
+    pickup_camp_arrival = "walking in from the car",
+    pickup_watch_resume = "heading back to the watch post",
+    dwayne_return_to_van = "heading back to my van",
+    loretta_return_to_car = "heading back to my car",
 }
 
 local doingPrefixes = {

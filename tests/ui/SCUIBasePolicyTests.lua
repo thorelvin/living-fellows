@@ -25,8 +25,10 @@ assert(UI.baseFailureReason("path_blocked:blocked_static", true) == "UI_SC_Base_
     "path details do not leak through a compound blocker code")
 assert(UI.baseFailureReason("floor_pickup_unverified", true) == "UI_SC_Base_Reason_work_item_unconfirmed",
     "unconfirmed item ownership stays distinct from an interrupted pickup")
+-- Since 0.27.4 an unknown code never reaches the player as humanized
+-- diagnostics; the general menu says the cause is unknown instead.
 assert(UI.baseFailureReason("future_native_callback_failed", true) == nil
-    and UI.baseFailureReason("future_native_callback_failed") == "Future native callback failed",
+    and UI.baseFailureReason("future_native_callback_failed") == "UI_SC_Feedback_unknown_cause",
     "terminal callers can refuse unknown diagnostics without changing general menu fallback")
 local detail = fixture.classes.SCUIDetail:new(0, 0, 200, 300, {})
 local panel = ISPanel:new(0, 0, 200, 300)
@@ -148,7 +150,7 @@ local visible = table.concat(information, "\n")
 assert(string.find(visible,
     "UI_SC_Base_FloorStorageFull:food — UI_SC_Base_JobRetryMinutes:3", 1, true),
     "specialized floor-storage reasons retain their automatic retry countdown")
-assert(string.find(visible, "fire_spread — UI_SC_Base_JobPaused", 1, true),
+assert(string.find(visible, "UI_SC_Base_Reason_fire_spread — UI_SC_Base_JobPaused", 1, true),
     "fire-spread work shows the manual-check state")
 assert(not string.find(visible,
     "UI_SC_Base_ChefRestartRecovery — UI_SC_Base_JobPaused", 1, true),

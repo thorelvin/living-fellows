@@ -39,12 +39,19 @@ SC.GameplayUtil = {
     roomName = function() return "" end, idOf = function(actor) return actor.id end,
     nativeHealth = function() return 100 end, characterStatValue = function() return 0 end,
     listSize = function(list) return #list end,
+    stableHash = function(text)
+        local hash = 0
+        for index = 1, #text do hash = (hash * 31 + string.byte(text, index)) % 2147483647 end
+        return hash
+    end,
     each = function(list, budget, callback, start)
         for index = start or 0, math.min(#list - 1, (start or 0) + budget - 1) do callback(list[index + 1]) end
     end,
     modData = function(value) value.data = value.data or {} return value.data end,
     inventory = function(actor) return actor.inventory end,
     inventoryContains = function(list, item)
+        -- Shelf containers expose their items like native ItemContainers.
+        if type(list) == "table" and type(list.getItems) == "function" then list = list:getItems() end
         for _, value in ipairs(list) do if value == item then return true end end return false
     end,
     itemType = function(item) return item.type end, itemName = function(item) return item.type end,

@@ -147,10 +147,11 @@ function utility.move(value, mode, intent)
     return true, "started"
 end
 SC.GameplayUtil = utility
+utility.instanceOf = utility.instanceOf or function() return false end
 SC.Commands = { peek = function(value)
     return { recruited = true, order = value.follow == false and "stay" or "follow" }
 end }
-SC.BaseLife = { isInside = function() return false end }
+SC.BaseLife = { isInside = function() return false end, active = function() return nil end }
 SC.Vehicle = { loadedBySqlId = function(id) return id == 42 and car or nil end,
     cargoPart = function(vehicle)
         local part = vehicle and (vehicle.cargoOverride or vehicle.part)

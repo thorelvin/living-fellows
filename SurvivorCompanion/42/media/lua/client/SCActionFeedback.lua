@@ -78,6 +78,7 @@ local wording = {
     radio_work_no_power = { "Radio watch is paused: the computer has no power.", "Restore its power. Shift progress is saved and the job retries automatically.", true },
     radio_work_radio_missing = { "The computer's two-way radio is missing or broken.", "Mount a working walkie-talkie; the operator's progress is saved." },
     radio_work_locked = { "The assigned computer is locked.", "Unlock it to resume the saved radio shift." },
+    fire_spread = { "The fire spread beyond the pyre.", "Check the area and put out any fire. Burning stays paused until you press Retry." },
     unknown = { "The task stopped before completion.", "Review its details and available retry controls." },
     quarantine_area_missing = { "Quarantine is pending: no area is marked.", "Mark a reachable quarantine area. Indoor duties continue under watch." },
     quarantine_area_unloaded = { "Quarantine is pending: the area is not loaded.", "Return nearby. Indoor duties continue under watch." },
@@ -118,6 +119,7 @@ local exact = {
     animal_sheep_unsafe = "animal_cattle_unsafe", animal_shear_capacity_unknown = "capacity",
     animal_wool_carrier_unavailable = "animal_wool_missing",
     animal_egg_recovery_pending = "uncertain", farm_food_storage_missing = "storage_missing",
+    production_fire_spread = "fire_spread",
 }
 
 function F.text(key, fallback, ...)

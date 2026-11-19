@@ -4,6 +4,18 @@
 
 ## 0.27.41 - Storage category hardening
 
+- Fishing companions recheck the food shelf they chose before putting a catch
+  away. If it is relabelled while they walk there, the catch goes to a shelf
+  still marked for food instead.
+- Burning that stops because the fire spread beyond the pyre now says so in
+  the camp panel, and that it waits for Retry, instead of reporting an
+  unknown stop.
+- Companions asked what they are doing name forcing entry, returning a
+  borrowed crowbar, stocking the first aid kit, showering and camp pickup
+  trips instead of saying they are busy with a job.
+- The on-demand core, gameplay and UI test suites load current modules and
+  fixtures again; expectations predating native washing, showers and camp
+  feedback were updated.
 - Pending logistics deposits recheck the selected storage mark, category,
   container and deposit permission before transferring. Changed destinations
   leave the exact item with the companion for a later storage check.

@@ -514,6 +514,7 @@ function UI.baseFailureReason(reason, knownOnly)
         no_safe_exit = true,
         barricade_target_unloaded = true,
         barricade_target_gone = true,
+        fire_spread = true,
     }
     if known[reason] then return UI.text("UI_SC_Base_Reason_" .. reason) end
     return not knownOnly and (SC.ActionFeedback and SC.ActionFeedback.describe(SC.ActionFeedback.reason(reason))

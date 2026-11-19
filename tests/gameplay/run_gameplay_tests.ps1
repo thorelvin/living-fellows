@@ -60,6 +60,8 @@ try {
             (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $ClientRoot 'SCExpeditionIntegration.lua'),
             (Join-Path $ClientRoot 'SCHomeTrip.lua'),
+            (Join-Path $SharedRoot 'SCForceEntryState.lua'),
+            (Join-Path $ClientRoot 'SCForceEntry.lua'),
             (Join-Path $ClientRoot 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'home_trip_fixture.lua'),
             (Join-Path $TestRoot 'home_trip_harness.lua')
@@ -93,6 +95,10 @@ try {
             $scenarioLines = foreach ($scenario in @($LuaFiles | Select-Object -Skip $BaseLuaFiles.Count)) {
                 "--group $([IO.Path]::GetFileNameWithoutExtension($scenario))"
                 foreach ($source in $BaseLuaFiles) { $source }
+                # The release gate loads the optimizer adapter with this harness too.
+                if ([IO.Path]::GetFileName($scenario) -eq 'combat_harness.lua') {
+                    Join-Path $ClientRoot 'SCPZOptimizerAdapter.lua'
+                }
                 $scenario
             }
             $scenarioList = Join-Path $BuildRoot 'gameplay.groups'
@@ -172,6 +178,7 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @followHandoffFiles
             if ($LASTEXITCODE -ne 0) { throw 'Follow order handoff harness failed.' }
             $encounterHandoffFiles = @(
+                (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
@@ -181,6 +188,7 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @encounterHandoffFiles
             if ($LASTEXITCODE -ne 0) { throw 'Encounter work handoff regression harness failed.' }
             $expeditionContainerFiles = @(
+                (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
@@ -223,6 +231,7 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @needsTripFiles
             if ($LASTEXITCODE -ne 0) { throw 'Expedition carried-supply needs regression failed.' }
             $needsPriorityFiles = @(
+                (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
                 (Join-Path $ClientRoot 'SCScavengeLoot.lua'),
@@ -240,8 +249,10 @@ try {
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @campSupplyBudgetFiles
             if ($LASTEXITCODE -ne 0) { throw 'Shared camp supply budget, cursor and cache regression failed.' }
             $supplyPolicyFiles = @(
+                (Join-Path $ProjectRoot 'tests/core/core_fixture.lua'),
                 (Join-Path $SharedRoot 'SCNamespace.lua'),
                 (Join-Path $SharedRoot 'SCSpeechColors.lua'),
+                (Join-Path $ClientRoot 'SCMedicKit.lua'),
                 (Join-Path $ClientRoot 'SCLogistics.lua'),
                 (Join-Path $TestRoot 'supply_policy_harness.lua')
             )
@@ -364,6 +375,7 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @workVoiceFiles
         if ($LASTEXITCODE -ne 0) { throw 'Expedition and work voice harness failed.' }
         $terminalFiles = @(
+            (Join-Path $ProjectRoot 'tests\ui\SCTerminalFixture.lua'),
             (Join-Path $SharedRoot 'SCNamespace.lua'),
             (Join-Path $SharedRoot 'SCSpeechColors.lua'),
             (Join-Path $ClientRoot 'SCTerminalLines.lua'),
@@ -387,8 +399,13 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @terminalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Camp computer terminal harness failed.' }
-        $personaFiles = @('SCTerminalPersona.lua', 'SCTerminalPersonaSpiffy.lua', 'SCTerminalPersonaEllis.lua', 'SCTerminalPersonaDuty.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
-        $personaFiles += Join-Path $TestRoot 'persona_harness.lua'
+        # Personas run on top of EMMA's full terminal load order. Take it from
+        # the release gate's own group so this list cannot drift again.
+        $UI = Join-Path $ProjectRoot 'tests\ui'
+        $personaGroup = @(. (Join-Path $Essential 'Interface.ps1') |
+            Where-Object { $_.Name -eq 'interface-persona-conversations' })
+        if ($personaGroup.Count -ne 1) { throw 'Interface persona group not found.' }
+        $personaFiles = @($personaGroup[0].Files)
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @personaFiles
         if ($LASTEXITCODE -ne 0) { throw 'Supplied persona conversation harness failed.' }
     }

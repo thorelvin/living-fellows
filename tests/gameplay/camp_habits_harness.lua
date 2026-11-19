@@ -27,13 +27,29 @@ function sink:isTaintedWater() return false end
 function sink:useFluid(amount) self.fluid = self.fluid - amount end
 function sink:transmitModData() self.transmitted = true end
 washSquare.objects[#washSquare.objects + 1] = sink
+-- Since 0.27.10 washing runs the stock timed actions through
+-- SC.NativeActions.startDowntimeAction; their completion, water use and
+-- cleaning are covered by tests/essential/native_care_harness.lua in the
+-- release gate. Here only Downtime's own choice is checked: which wash,
+-- at which source, for which item.
+local createdNativeActions = SurvivorCompanion.NativeActions == nil
+local nativeActions = SurvivorCompanion.NativeActions or {}
+SurvivorCompanion.NativeActions = nativeActions
+local savedStartDowntime = nativeActions.startDowntimeAction
+local startedCare = {}
+nativeActions.startDowntimeAction = function(careActor, activity)
+    startedCare[careActor] = activity
+    return true, "native_care_started"
+end
 local washActor = actor("sc-wash-self", -2, 5, { humanVisual = dirtyVisual })
 washActor.modData.SC_Order = "stay"
-local washStarted = SurvivorCompanion.Downtime.update(washActor, player, safeRuntime)
-local washFinished = SurvivorCompanion.Downtime.update(washActor, player, safeRuntime)
-check(washStarted and washFinished and dirtyVisual:getBlood(0) == 0
-    and dirtyVisual:getDirt(0) == 0 and sink.fluid == 39,
-    "safe idle companions wash their body at a nearby clean water source and consume water")
+function washActor.inventory:getSoapList() return {} end
+local washStarted, washKind = SurvivorCompanion.Downtime.update(washActor, player, safeRuntime)
+local washCare = startedCare[washActor]
+check(washStarted == true and washKind == "wash_self" and washCare
+    and washCare.kind == "wash_self" and washCare.object == sink,
+    "safe idle companions start washing their body at a nearby clean water source")
+SurvivorCompanion.Downtime.cancel(washActor, "test_complete")
 
 local dirtyJacket = item("Base.Jacket_LeatherWildRacoons", "Clothing", {
     bodyLocation = "Jacket", bloodLevel = 50, dirtiness = 25,
@@ -46,15 +62,18 @@ local washBag = item("Base.Bag_DuffelBag", "Container", {
 local gearWashActor = actor("sc-wash-gear", -2, 5,
     { inventory = inventory({ washBag }) })
 gearWashActor.modData.SC_Order = "stay"
-local gearWashStarted = SurvivorCompanion.Downtime.update(gearWashActor, player, safeRuntime)
-local gearWashFinished = SurvivorCompanion.Downtime.update(gearWashActor, player, safeRuntime)
-check(gearWashStarted and gearWashFinished and dirtyJacket:getBloodLevel() == 0
-    and dirtyJacket:getDirtiness() == 0 and sink.fluid < 39,
-    "downtime inventory inspection reaches inside bags and washes dirty equipment")
+function gearWashActor.inventory:getSoapList() return {} end
+local gearWashStarted, gearWashKind = SurvivorCompanion.Downtime.update(gearWashActor, player, safeRuntime)
+local gearCare = startedCare[gearWashActor]
+check(gearWashStarted == true and gearWashKind == "wash_equipment" and gearCare
+    and gearCare.item == dirtyJacket and gearCare.object == sink,
+    "downtime inventory inspection reaches inside bags and starts washing dirty equipment")
+SurvivorCompanion.Downtime.cancel(gearWashActor, "test_complete")
+nativeActions.startDowntimeAction = savedStartDowntime
+if createdNativeActions then SurvivorCompanion.NativeActions = nil end
 
 do
-    local showerActivity, undressForShower, restoreShowerClothes,
-        completeShower = SurvivorCompanion.Downtime._showerForTests()
+    local showerActivity = SurvivorCompanion.Downtime._showerForTests()
     local savedInside = SurvivorCompanion.BaseLife.isInside
     SurvivorCompanion.BaseLife.isInside = function() return true end
     local showerVisual = {
@@ -95,23 +114,11 @@ do
     local activity = showerActivity(showerActor, {}, f.clock)
     check(activity and activity.kind == "shower" and activity.object == fixture,
         "a dirty camp companion selects an available shower")
-    check(undressForShower(showerActor, activity)
-        and not showerActor:isEquippedClothing(shirt)
-        and not showerActor:isEquippedClothing(trousers),
-        "shower preparation removes worn clothes while retaining them in inventory")
-    check(restoreShowerClothes(showerActor, activity)
-        and showerActor:getWornItem("Shirt") == shirt
-        and showerActor:getWornItem("Pants") == trousers,
-        "an interrupted shower restores the exact worn slots")
-    check(undressForShower(showerActor, activity)
-        and completeShower(showerActor, activity)
-        and fixture.fluid == 10
-        and showerVisual:getBlood(0) == 0
-        and showerVisual:getDirt(0) == 0
-        and showerActor:getWornItem("Shirt") == shirt
-        and showerActor:getWornItem("Pants") == trousers
-        and registry[showerActor.id].state.downtime.lastShowerHour ~= nil,
-        "a completed shower spends water, cleans the body and restores the outfit")
+    -- Since 0.27.11 undressing, dressing and the shower itself are native
+    -- timed actions over several updates. Exact-slot removal, restoration,
+    -- cancellation and save handling are checked in the release gate by
+    -- tests/essential/native_clothing_harness.lua (completion by
+    -- native_care_harness.lua).
     showerSquare.objects[#showerSquare.objects] = nil
     registry[showerActor.id] = nil
     SurvivorCompanion.BaseLife.isInside = savedInside

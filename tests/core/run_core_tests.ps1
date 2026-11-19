@@ -411,6 +411,8 @@ try {
             (Join-Path $Client 'SCStairTransition.lua'),
             (Join-Path $Client 'SCExpeditionCar.lua'),
             (Join-Path $Client 'SCExpeditionTargets.lua'),
+            (Join-Path $Shared 'SCForceEntryState.lua'),
+            (Join-Path $Client 'SCForceEntry.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_restart_harness.lua')
         )
@@ -624,6 +626,7 @@ try {
             (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Client 'SCLoggingWork.lua'),
             (Join-Path $Client 'SCFieldWork.lua'),
+            (Join-Path $Client 'SCMedicKit.lua'),
             (Join-Path $Client 'SCLogistics.lua'),
             (Join-Path $TestRoot 'field_work_harness.lua')
         )
@@ -664,6 +667,10 @@ try {
             (Join-Path $Client 'SCExpeditionForests.lua'),
             (Join-Path $Client 'SCExpeditionWood.lua'),
             (Join-Path $Client 'SCExpeditionTargets.lua'),
+            (Join-Path $Shared 'SCForceEntryState.lua'),
+            (Join-Path $Client 'SCForceEntry.lua'),
+            (Join-Path $Client 'SCExpeditionIntegration.lua'),
+            (Join-Path $Client 'SCExpeditionFuel.lua'),
             (Join-Path $Client 'SCExpeditionPrototype.lua'),
             (Join-Path $TestRoot 'expedition_wood_mission_harness.lua')
         )
@@ -756,6 +763,7 @@ try {
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCTransaction.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCForceEntryState.lua'),
             (Join-Path $Shared 'SCRegistry.lua'),
             (Join-Path $TestRoot 'registry_transaction_harness.lua')
         )

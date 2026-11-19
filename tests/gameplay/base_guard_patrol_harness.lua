@@ -52,6 +52,9 @@ SC.BaseLife = {
     touchJob = function() return true end,
     job = function() return job end,
     releaseJob = function() job = nil return true end,
+    -- Work restrictions (since 0.27.4) gate every public BaseWork update.
+    restriction = function() return nil end,
+    workPermitted = function() return true end,
 }
 local routine = SC.BaseWork._guardRoutineForTests
 check(type(routine) == "function", "guard controller test seam is available")

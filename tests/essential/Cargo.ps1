@@ -3,6 +3,9 @@
 @{ Name = 'logistics-storage-commit-policy'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Essential 'logistics_storage_commit_harness.lua')) }
 
+@{ Name = 'fishing-storage-commit-policy'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Essential 'fishing_storage_commit_harness.lua')) }
+
 @{ Name = 'native-storage-category-contracts'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCCleaningSupplies.lua'),
     (Join-Path $Client 'SCWorkTransport.lua'),

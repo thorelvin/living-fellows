@@ -494,6 +494,20 @@ local function transferFromStorage(actor, state, storage, container, item)
         or reason or "base_supply_transfer_failed"
 end
 
+-- A caller that keeps its chosen shelf across updates passes the category it
+-- chose that shelf for. The player may relabel the shelf while the worker
+-- walks or plays the loot pose; that is a changed destination, exactly like
+-- an unmarked or deposit-disabled shelf, so the caller selects again.
+local function depositStillAllowed(storage, container, options)
+    local accepts, reason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+    if accepts ~= true then return false, reason end
+    local expected = type(options) == "table" and options.storageCategory or nil
+    if expected ~= nil and storage.category ~= expected then
+        return false, "base_storage_changed"
+    end
+    return true
+end
+
 -- Move an exact supply to its selected marked container.
 -- This mirrors withdrawal: the worker approaches the storage, visibly uses it,
 -- revalidates the registration at commit time, and verifies the identity move.
@@ -525,7 +539,7 @@ local function transferToStorage(actor, state, storage, container, item, require
     if U().inventoryContains(container, item) then return true, "base_supply_returned" end
     if type(storage) ~= "table" then return false, "base_storage_invalid" end
     if requireDeposits == true then
-        local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        local accepts, depositReason = depositStillAllowed(storage, container, options)
         if accepts ~= true then return false, depositReason end
     end
     local object = SC.BaseLife.resolveObject(storage)
@@ -537,7 +551,7 @@ local function transferToStorage(actor, state, storage, container, item, require
         return false, "borrowed_supply_missing"
     end
     if requireDeposits == true then
-        local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        local accepts, depositReason = depositStillAllowed(storage, container, options)
         if accepts ~= true then return false, depositReason end
     end
     local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
@@ -609,7 +623,7 @@ local function transferToStorage(actor, state, storage, container, item, require
     -- Policy can change while the worker is walking or playing the loot pose.
     -- Revalidate immediately before the identity transfer, not just selection.
     if requireDeposits == true then
-        local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        local accepts, depositReason = depositStillAllowed(storage, container, options)
         if accepts ~= true then return false, depositReason end
     end
     local moved, reason

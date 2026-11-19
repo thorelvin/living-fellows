@@ -191,7 +191,7 @@ for _, name in ipairs({
     "Background", "Dialogue", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "Trade", "FactionLife", "FactionWorld",
-    "FactionBehavior", "Oddballs", "OddballDistressRadio", "TaxiBooking", "TaxiCab", "TaxiFares", "TaxiService", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
+    "FactionBehavior", "Oddballs", "OddballDistressRadio", "TaxiBooking", "TaxiCab", "TaxiFares", "TaxiService", "PickupJourney", "PickupRadio", "PickupDispatch", "PickupService", "PickupUI", "OddballRed", "OddballSpiffo", "OddballWendell", "OddballDeputy",
     "OddballSilas", "OddballRusty", "OddballLonnie", "OddballVirgil", "OddballClem", "OddballPurdy",
     "OddballGale", "OddballButch", "OddballCecil", "OddballAnimals", "OddballHollis",
     "OddballRoom12", "OddballJune", "OddballDefenseLeague", "OddballAshby",
@@ -323,3 +323,7 @@ ISInventoryPage = {
     selectContainer = function() return true end,
     setNewContainer = function() return true end,
 }
+
+SC.PickupService = SC.PickupService or {}
+SC.PickupService.current = SC.PickupService.current or function() return nil end
+SC.PickupService.previewCurrent = SC.PickupService.previewCurrent or function() return nil end

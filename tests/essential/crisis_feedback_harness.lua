@@ -180,4 +180,10 @@ local feedback = SC.ActionFeedback.failure({ feedbackVersion = 1,
     retry = { action = "clean", targetKey = "b", remainingMs = 9000 } })
 check(feedback.kind == "unknown" and feedback.remainingMs == nil,
     "unknown failures have a safe explanation and never inherit another task's timer")
+local fire = SC.ActionFeedback.reason("fire_spread")
+check(fire.known and fire.kind == "fire_spread" and fire.cause == "The fire spread beyond the pyre."
+        and fire.waiting == false,
+    "a spreading pyre fire names its cause and waits for the player instead of an unknown stop")
+check(SC.ActionFeedback.reason("production_fire_spread").kind == "fire_spread",
+    "the burner's cancelled action reports the same fire cause")
 SC_TEST_REPORT = "Crisis/feedback PASS: arrival, indoor watch, retries, revision checks, privacy, safety, reload and exact ownership"

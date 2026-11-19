@@ -71,6 +71,10 @@ try {
         }
         $medicalContextFiles = @(
             (Join-Path $TestRoot 'SCMedicalContextFixture.lua'),
+            # Same base classes as the release gate's context groups; area
+            # drafting installs a native ISBuildingObject cursor.
+            (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
+            (Join-Path $GameRoot 'media\lua\server\BuildingObjects\ISBuildingObject.lua'),
             (Join-Path $GameRoot 'media\lua\client\ISUI\ISContextMenu.lua'),
             (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCMedicalUI.lua'),
@@ -231,7 +235,7 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @inventoryFiles
         if ($LASTEXITCODE -ne 0) { throw 'Computer installation inventory regressions failed.' }
         $radioFiles=@($terminalFiles | Where-Object { $_ -notmatch 'Tests\.lua$' })
-        foreach ($module in @('SCControlUtil','SCTerminalHardware','SCTerminalRadio','SCTerminalRadioUI','SCTerminalServices')) {
+        foreach ($module in @('SCControlUtil','SCTerminalHardware','SCTerminalRadio','SCTerminalRadioWorkUI','SCTerminalRadioUI','SCTerminalServices','SCRadioWork')) {
             $radioFiles+=Join-Path $Client ($module+'.lua')
         }
         $radioFiles+=Join-Path $TestRoot 'SCTerminalRadioTests.lua'

@@ -122,7 +122,9 @@ actor, activity = start("cancel_rejected")
 actor.access, actor.rejectRouteCancel = true, true
 before = cancelled
 local okay, rejected = D.update(actor,nil,quiet,"sit")
-check(okay == false and rejected == "test_route_cancel_rejected" and actor.entryCalls == nil
+-- Since 0.27.10 a failure whose resources cannot be released yet keeps
+-- Downtime as owner (true) and retries the release, so nothing else starts.
+check(okay == true and rejected == "test_route_cancel_rejected" and actor.entryCalls == nil
         and routes[actor] ~= nil and cancelled == before,
     "a refused route stop cannot start a competing furniture animation")
 actor.rejectRouteCancel = false
