@@ -435,6 +435,7 @@ end
 
 function Terminal.reset()
     Terminal.nativeLogoUnavailable=nil
+    Terminal.cardWindow=nil
     if SC.TerminalActions then SC.TerminalActions.reset() end
     local window = Terminal.window
     if window then
@@ -768,6 +769,9 @@ function SCTerminalWindow:menuOptions()
     end
     local drawer=self.system.lock and self.system.lock.drawer
     if drawer and not drawer.open and not drawer.forced then table.insert(options,1,{label="Unlock drawer",systemCommand="drawer"}) end
+    if SC.TerminalLockCard and SC.TerminalLockCard.canEncode(self) then
+        table.insert(options,1,{label="Encode service card",systemCommand="encode_card"})
+    end
     if SC.TerminalServices then
         options[#options+1] = {label="Local services",serviceAction="page",serviceValue="home_services"}
     end
@@ -1261,6 +1265,13 @@ function SCTerminalWindow:finishBoot()
     if self.startupReady then return end
     self.startupReady = true
     self.state = "idle"
+    if self.system.locked and self.system.lock and self.system.lock.kind=="card" then
+        Terminal.cardWindow=self
+        if SC.UIBridge and type(SC.UIBridge.installInventoryMenu)=="function" then
+            local installed,reason=SC.UIBridge.installInventoryMenu()
+            if not installed then diagnostic("terminal card inventory menu unavailable",reason) end
+        end
+    end
     if self.system.locked and SC.EmmaTerminal and SC.EmmaTerminal.boot(self) then return end
     if self.system.locked and not (SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self)) and SC.TerminalLockCrew then SC.TerminalLockCrew.react(self,"first",25) end
     if not self.system.locked then
@@ -1524,6 +1535,10 @@ function SCTerminalWindow:systemInput(raw)
     if not jumped and not self.system.locked and SC.TerminalScanUI and SC.TerminalScanUI.input(self,trimmed,option) then return true end
     if not jumped and not self.system.locked and SC.TerminalGridUI and SC.TerminalGridUI.input(self,trimmed,option) then return true end
     if not jumped and not self.system.locked and SC.TerminalRadioUI and SC.TerminalRadioUI.input(self,trimmed,option) then return true end
+    if not self.system.locked and SC.TerminalLockCard
+        and (lower=="encode service card" or option and option.systemCommand=="encode_card") then
+        SC.TerminalLockCard.encode(self) return true
+    end
     -- This computer's physical drawer precedes the building-device parser,
     -- whose generic "unlock <name>" command would otherwise swallow it.
     if not self.system.locked and (lower=="unlock drawer" or option and option.systemCommand=="drawer") and SC.TerminalDrawers then
@@ -1708,7 +1723,26 @@ function SCTerminalWindow:hasCurrentAccess()
         and (type(getSpecificPlayer) ~= "function" or getSpecificPlayer(0) == self.player)
 end
 
+-- The inventory action is scoped to this exact open page and exact carried
+-- item. A stale context menu cannot swipe at a replacement computer/window.
+function Terminal.cardWindowFor(player)
+    local w=Terminal.cardWindow
+    if not w or w~=Terminal.window or w.closed or w.state~="idle" or w.player~=player
+        or not w.system or not w.system.locked or not w.system.lock or w.system.lock.kind~="card"
+        or w.lockPage or w.lockConfirm or w.securityPanel or w.payoff or not w:hasCurrentAccess()
+        or not Terminal.present(w.object) or not Terminal.near(player,w.object) or not Terminal.powered(w.object)
+        or call(player,"isDead")==true then return nil end
+    return w
+end
+function Terminal.swipeCard(item,player,expected)
+    local w=Terminal.cardWindowFor(player)
+    if not w or w~=expected or not SC.TerminalLockCard or not SC.ControlUtil.owns(player,item)
+        or SC.ControlUtil.call(item,"getFullType")~=SC.TerminalLockCard.ITEM then return false end
+    return SC.TerminalLockCard.swipe(w,item)
+end
+
 function SCTerminalWindow:close()
+    if Terminal.cardWindow==self then Terminal.cardWindow=nil end
     if self.closed then return end
     if SC.Guidance and self.system and self.system.locked then
         SC.Guidance.report("locked_closed",{object=self.object,system=self.system})
@@ -1772,6 +1806,7 @@ end
 function SCTerminalWindow:advance(now)
     local elapsed = math.max(0, math.min(250, now - (self.lastFrame or now)))
     self.lastFrame = now
+    if self.system and self.system.lock and self.system.lock.kind=="card" and SC.TerminalLockCard then SC.TerminalLockCard.update(self,now) end
     if self.system and self.system.locked and SC.TerminalLockRival then SC.TerminalLockRival.update(self,now) end
     if self.system and self.system.locked and SC.TerminalLockStory then SC.TerminalLockStory.update(self,now) end
     if self.payoff then SC.TerminalPayoff.update(self,now) return end
@@ -2114,6 +2149,7 @@ function SCTerminalWindow:drawHints(range)
         hint=self.lockPage and "Choose a number.  PgUp/PgDn: read  Esc: log off" or kind=="emma" and "1-4: choose argument  PgUp/PgDn: read  Esc: log off"
             or kind=="search" and "Click a word or type a search.  Enter: search  Esc: log off"
             or kind=="wheel" and "1: manual  Enter: submit letter  Esc: log off"
+            or kind=="card" and "Digits: fill | Click: choose | swipe | Esc: log off"
             or kind=="story" and "1-3: choose   PgUp/PgDn: read   Esc: log off"
             or kind=="phone" and "1 + Enter: place call  Enter: send code  Esc: log off"
             or kind=="radio" and "Enter: send heard key  Esc: log off" or "Choose a word or bracket group.  Esc: log off"
@@ -2127,7 +2163,7 @@ function SCTerminalWindow:drawHints(range)
         elseif self.system.locked then
             local kind=SC.TerminalLocks and SC.TerminalLocks.kind(self.system)
             hint=(kind=="story" and "1-3: adventure | " or kind=="emma" and "1-4: argue | " or kind=="search" and "Click words | " or kind=="wheel" and "1: manual | "
-                or kind=="phone" and "1 + Enter: dial | Type code | " or kind=="radio" and "Type heard code | " or "Match positions | ").."PgUp/PgDn "..position
+                or kind=="phone" and "1 + Enter: dial | Type code | " or kind=="radio" and "Type heard code | " or kind=="card" and "Digits: fill | " or "Match positions | ").."PgUp/PgDn "..position
         else hint = "Enter: send  Tab: menu  PgUp/PgDn " .. position end
     end
     if self.scanHint and not (SC.TerminalScanUI and SC.TerminalScanUI.active(self)) then hint=self.scanHint.." | "..hint end
@@ -2159,6 +2195,9 @@ function SCTerminalWindow:prerender()
     local caption = (captionRight - self.layout.left) / self.charWidth >= 25 and (System().TITLE .. " // EMMA") or "LARCH/OS"
     if self.system and self.system.locked then
         caption = (captionRight - self.layout.left) / self.charWidth >= 25 and "LARCH/OS // ACCESS LOCKED" or "LOCKED"
+        if self.system.lock and self.system.lock.kind=="card" and not self.lockPage then
+            caption=(captionRight-self.layout.left)/self.charWidth>=25 and "LARCH/KEY / CARD RECOVERY" or "LARCH/KEY"
+        end
     end
     if self.state == "booting" then caption = "LARCHFIELD / SYSTEM BIOS" end
     if self.state~="booting" and SC.TerminalRadioUI and SC.TerminalRadioUI.active(self) then caption="LARCH/WAVE // EMMA" end

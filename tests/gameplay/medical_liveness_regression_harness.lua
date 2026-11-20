@@ -40,7 +40,9 @@ local helper = patient(100, { part(false), part(false), part(false) })
 local assessed = M.assess(helper)
 check(assessed.dirtyBandages == 0 and not assessed.needsBandageChange and assessed.woundCount == 0,
     "native zero bandage life does not invent dirty bandages on healthy parts")
-local dirty = patient(80, { part(true, false, 0) })
+local dirtyPart = part(true, false, 0)
+function dirtyPart:getScratchTime() return 9 end
+local dirty = patient(80, { dirtyPart })
 check(M.assess(dirty).dirtyBandages == 1 and M.assess(dirty).needsBandageChange,
     "a genuinely worn dirty bandage still requests replacement")
 local clean = patient(80, { part(true, false, 10) })
@@ -346,7 +348,9 @@ do
         "a recent no-target verdict lets Follow outrank distant-threat combat until it expires")
     SC.Combat = nil
 
-    local criticalDirty, cleanRuntime = patient(19, { part(true, false, 0) }), quietRuntime()
+    local criticalPart = part(true, false, 0)
+    function criticalPart:getScratchTime() return 9 end
+    local criticalDirty, cleanRuntime = patient(19, { criticalPart }), quietRuntime()
     criticalDirty.inventory.items = { { getFullType = function() return "Base.Bandage" end } }
     local oldTreat, treatedPatient = M.treat, nil
     M.treat = function(_, target) treatedPatient = target return true, "replace_actual_bandage" end

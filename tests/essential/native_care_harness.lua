@@ -73,9 +73,7 @@ local sink={water=100,hasWater=function(self) return self.water>0 end,
     getFluidAmount=function(self) return self.water end,
     useFluid=function(self,n) self.water=self.water-n; return n end,transmitModData=function() end}
 local recipes={}
-local dressingRecipe={getResult=function() return {getType=function() return "Base.Bandage" end} end,
-    getName=function() return "Clean Bandage" end,getTimeToMake=function() return 40 end}
-function getScriptManager() return {getRecipe=function(_,name) return name=="Base.Clean Bandage" and dressingRecipe end,
+function getScriptManager() return {getRecipe=function() return nil end,
     getCraftRecipe=function(_,name) return recipes[name] end,
     FindItem=function() return {getStaticModel=function() return "Soap" end} end} end
 local function begin(activity)
@@ -120,19 +118,22 @@ check(N.cancelWork(actor,"test_cancelled"),"native cancellation releases its own
 action:complete(); check(calls==2 and root:contains(tape),"a late callback after cancellation cannot spend supplies")
 -- Dirty dressing in a bag is staged, natively replaced and returned to that bag.
 local bag=f.inventory({}); local dirty=item("Base.BandageDirty",{customName="My dressing"})
+dirty.cleanType="Base.Bandage"
 root:AddItem(item("Base.Bag_Schoolbag",{nestedInventory=bag})); bag:AddItem(dirty); dirty.outer=root
 a={kind="wash_bandage",item=dirty,itemContainer=bag,object=sink,cleanType="Base.Bandage"}
-local water=sink.water; action=begin(a); complete(a,action)
-check(not bag:contains(dirty) and bag:contains(a.nativeOutput) and sink.water==water-1,"one native dressing consumes exactly native water and stays in its original bag")
+local water=sink.water; local washWater=ISWashClothing.GetRequiredWater(dirty); action=begin(a); complete(a,action)
+check(not bag:contains(dirty) and bag:contains(a.nativeOutput) and sink.water==water-washWater,"one native dressing consumes exactly native water and stays in its original bag")
 check(a.nativeOutput:getName()=="My dressing","custom name follows the actual native replacement")
-action:complete(); check(sink.water==water-1,"bandage completion cannot spend water twice")
+action:complete(); check(sink.water==water-washWater,"bandage completion cannot spend water twice")
 local retryDirty=item("Base.BandageDirty"); retryDirty.outer=root; bag:AddItem(retryDirty)
+retryDirty.cleanType="Base.Bandage"
 a={kind="wash_bandage",item=retryDirty,itemContainer=bag,object=sink,cleanType="Base.Bandage"}
 action=begin(a); action:complete(); action:perform(); bag.rejectAdd=true
 check(not N.finishWork(actor) and N.ownsDowntimeAction(actor,a) and root:contains(a.nativeOutput),
     "a refused bag return retains ownership and the actual native replacement")
 bag.rejectAdd=false; check(N.finishWork(actor) and bag:contains(a.nativeOutput),"bag return retries without washing again")
 local dryDirty=item("Base.BandageDirty"); root:AddItem(dryDirty)
+dryDirty.cleanType="Base.Bandage"
 a={kind="wash_bandage",item=dryDirty,itemContainer=root,object=sink,cleanType="Base.Bandage"}
 action=begin(a); water=sink.water; sink.water=0; action:complete(); action:perform(); N.finishWork(actor)
 check(not a.nativeAttempted and root:contains(dryDirty),"water disappearing before native completion preserves the dressing")

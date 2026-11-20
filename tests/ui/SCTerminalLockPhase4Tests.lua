@@ -145,17 +145,17 @@ check(s.lock.bypass and not ledger.beaten.word,"three deaths offer alternatives 
 -- Exhausted groups are distinct from discovered recruitable people.
 local group={oddball={id="actual"},lifecycle="active",discovered=true}
 SC.Factions={list=function() return {group} end} SC.Oddballs={definition=function() return {recruitment=true} end}
-check(#L.requiredKinds()==9,"discovered but unrecruited people still require USER2")
+check(#L.requiredKinds()==10,"discovered but unrecruited people still require USER2")
 group.recruitment={joinedActorId="now-a-companion"}
-check(#L.requiredKinds()==8,"exhausted recruitable people do not make the title impossible")
+check(#L.requiredKinds()==9,"exhausted recruitable people do not make the title impossible")
 SC.Oddballs.hasUnseededRecruitable=function() return true end
-check(#L.requiredKinds()==9,"not-yet-spawned recruitable encounters still count")
+check(#L.requiredKinds()==10,"not-yet-spawned recruitable encounters still count")
 SC.Oddballs.hasUnseededRecruitable=function() return false end
 ledger.beaten={} for _,kind in ipairs(L.requiredKinds()) do ledger.beaten[kind]=true end ledger.beaten.story=nil
 check(not L.awardLicense(player),"bypassing a rare puzzle cannot earn the licence")
 ledger.beaten.story=true
 check(L.awardLicense(player) and ledger.licensee and not L.awardLicense(player),"all built direct wins award a persistent title once")
-check(L.recovery():find("8/8",1,true),"Recovery Log uses its reachable target")
+check(L.recovery():find("9/9",1,true),"Recovery Log uses its reachable target")
 -- Every normal and compact layout retains bounded, reachable numbered choices.
 for _,size in ipairs({{480,540},{800,600},{1280,720},{2560,1369}}) do
     getCore=function() return {getScreenWidth=function() return size[1] end,getScreenHeight=function() return size[2] end} end

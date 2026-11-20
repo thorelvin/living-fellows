@@ -81,6 +81,10 @@ SurvivorCompanion.TerminalLockArt={
         {file="media/textures/Terminal/Locks/StoryEndings-03.png",x=626,y=0,width=628,height=628,clip={627,0,627,627}},
         {file="media/textures/Terminal/Locks/StoryEndings-04.png",x=626,y=626,width=628,height=628,clip={627,627,627,627}},
     }},
+    ["LarchKeyTitle"]={width=1536,height=1024,view={119,323,1302,388},tiles={
+        {file="media/textures/Terminal/Locks/LarchKeyTitle-01.png",x=0,y=0,width=769,height=1024,clip={0,0,768,1024}},
+        {file="media/textures/Terminal/Locks/LarchKeyTitle-02.png",x=767,y=0,width=769,height=1024,clip={768,0,768,1024}},
+    }},
 }
 SurvivorCompanion.TerminalLockArt["class_fighter"]={width=1254,height=1254,view={4,144,303,418},tiles=SurvivorCompanion.TerminalLockArt["StoryClasses"].tiles}
 SurvivorCompanion.TerminalLockArt["class_rogue"]={width=1254,height=1254,view={321,198,295,358},tiles=SurvivorCompanion.TerminalLockArt["StoryClasses"].tiles}

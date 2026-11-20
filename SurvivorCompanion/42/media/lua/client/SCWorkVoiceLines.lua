@@ -16,6 +16,12 @@ local Lines = SC.WorkVoiceLines
 -- ---------------------------------------------------------------------------
 
 Lines.POOLS = {
+    ["voice.job.done.dressings"] = {
+        common = {
+            "That's the bandages clean. Don't bleed on them.",
+            "Clean dressings are back on the shelf.",
+        },
+    },
     ["voice.expedition.drive_out"] = {
         common = {
             "Engine's warm. That's the only warm thing out here.",

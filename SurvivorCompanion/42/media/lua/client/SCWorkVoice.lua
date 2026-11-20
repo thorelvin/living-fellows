@@ -119,6 +119,7 @@ local JOB_GROUPS = {
     repair = "repair", maintain = "repair", craft_supply = "repair",
     build = "build", barricade = "barricade", clean = "clean", cook = "cook",
     gather_materials = "gather",
+    wash_dressings = "dressings",
 }
 -- Why a crew turned home decides how it sounds.
 local RETURN_CLASSES = {

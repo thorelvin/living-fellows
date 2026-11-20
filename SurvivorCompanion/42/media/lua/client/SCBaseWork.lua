@@ -4,6 +4,8 @@ if type(require) == "function" then
     pcall(require, "SCBaseLife")
     pcall(require, "SCWorkTransport")
     pcall(require, "SCFloorSort")
+    pcall(require, "SCBandageWashing")
+    pcall(require, "SCMedicalVisits")
     pcall(require, "SCGatherWork")
     pcall(require, "SCFarmWork")
     pcall(require, "SCCleaningSupplies")
@@ -406,7 +408,7 @@ local function withdrawalAllowed(storage, expectedContainer, item)
     return true
 end
 
-local function transferFromStorage(actor, state, storage, container, item)
+local function transferFromStorage(actor, state, storage, container, item, options)
     if type(storage) ~= "table" or SC.BaseLife.storage(storage.id) ~= storage then
         return false, "base_storage_changed"
     end
@@ -483,6 +485,10 @@ local function transferFromStorage(actor, state, storage, container, item)
     -- setting and its live reserve immediately before the authoritative move.
     local allowed, withdrawalReason = withdrawalAllowed(storage, container, item)
     if not allowed then return false, withdrawalReason end
+    if type(options) == "table" and type(options.validate) == "function" then
+        local called, valid = pcall(options.validate)
+        if not called or valid ~= true then return false, "base_supply_reserved" end
+    end
     local transferred, reason
     if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
         transferred, reason = SC.WorkTransport.transferVerified(
@@ -2278,11 +2284,19 @@ end
 
 local function updateChore(actor, state, job, player, runtime)
     if job.type == "replace_bandage" then
+        if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+            local handled, why, terminal, complete = SC.MedicalVisits.update(actor, state, job, runtime)
+            if complete then
+                SC.BaseLife.completeJob(job.id, actorId(actor), why)
+                state.jobId = nil
+            end
+            return handled, why, terminal
+        end
         local ok, reason = false, "medical_unavailable"
         if SC.Medical and type(SC.Medical.replaceDirtyBandage) == "function" then
             ok, reason = SC.Medical.replaceDirtyBandage(actor)
         end
-        if ok and reason == "bandaged" then
+        if ok and (reason == "bandaged" or reason == "stitches_removed" or reason == "splint_removed") then
             SC.BaseLife.completeJob(job.id, actorId(actor), reason)
         elseif not ok and reason == "no_treatable_wound" then
             -- Another care path may have changed the dressing since this job
@@ -3101,6 +3115,18 @@ function BaseWork.update(actor, player, runtime)
                 return true, reason
             end
         end
+    elseif job.type == "wash_dressings" then
+        if not SC.BandageWashing or type(SC.BandageWashing.update) ~= "function" then
+            handled, reason, terminal = false, "dressing_wash_unavailable", true
+        else
+            local complete
+            handled, reason, terminal, complete = SC.BandageWashing.update(actor, state, job, runtime)
+            if complete then
+                SC.BaseLife.completeJob(job.id, id, reason)
+                state.jobId = nil
+                return true, reason
+            end
+        end
     elseif job.type == "sort_floor" then
         if not SC.FloorSort or type(SC.FloorSort.update) ~= "function" then
             handled, reason, terminal = false, "floor_sort_unavailable", true
@@ -3194,6 +3220,7 @@ local function maintenanceResidents()
 end
 
 local function auditMedical(base, remainingBudget, scan)
+    if SC.MedicalVisits then return SC.MedicalVisits.audit(base, remainingBudget, scan) end
     scan.rows = scan.rows or maintenanceResidents()
     scan.index = scan.index or 1
     while scan.index <= #scan.rows do
@@ -3209,7 +3236,7 @@ local function auditMedical(base, remainingBudget, scan)
                 local ok, value = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
                 if ok then medical = value end
             end
-            if medical and (medical.dirtyBandages or 0) > 0 then
+            if medical and ((medical.dirtyBandages or 0) > 0 or medical.needsMaintenance == true) then
                 return SC.BaseLife.enqueueJob({
                     type = "replace_bandage", priority = 5, assignedId = id,
                 })
@@ -3363,6 +3390,13 @@ local function auditMaintenanceStep(player, remainingBudget, scan)
     end
     if auditPhase == 2 then return auditMedical(base, remainingBudget, scan) end
     local settings = base.settings or {}
+    if auditPhase == 12 then
+        if settings.autoMaintenance == false then return false, "automatic_maintenance_disabled" end
+        if SC.BandageWashing and SC.BandageWashing.audit then
+            return SC.BandageWashing.audit(base, remainingBudget, scan)
+        end
+        return false, "dressing_wash_unavailable"
+    end
     if auditPhase == 3 then
         if settings.autoMaintenance == false or settings.workload == "essential" then
             return false, "automatic_sorting_disabled"
@@ -3464,7 +3498,7 @@ function BaseWork.auditMaintenance(player, remainingBudget)
     if not scan or scan.base ~= base then
         scan = { base = base, stage = "family" }
         maintenanceAudit = scan
-        auditPhase = (auditPhase % 11) + 1
+        auditPhase = (auditPhase % 12) + 1
         if SC.WorkTransport and type(SC.WorkTransport.recoverPending) == "function" then
             pcall(SC.WorkTransport.recoverPending, U().config("workRecoveryPerPulse") or 2)
         end
@@ -3482,6 +3516,7 @@ function BaseWork.auditMaintenance(player, remainingBudget)
         if SC.Performance and SC.Performance.count then SC.Performance.count("base_maintenance_yield") end
         return false, "base_maintenance_pending", true
     end
+    if SC.MedicalVisits then SC.MedicalVisits.auditOpenJobs(base, remainingBudget) end
     if scan.stage == "family" then
         local queued, reason, pending = auditMaintenanceStep(player, remainingBudget, scan)
         if pending then
@@ -3507,6 +3542,14 @@ end
 
 function BaseWork.cancel(actor, reason)
     local retainedCargo = false
+    if SC.MedicalVisits then
+        local stopped, why = SC.MedicalVisits.cancelActor(actor, reason)
+        if stopped ~= true then return false, why end
+    end
+    if SC.BandageWashing and SC.BandageWashing.cancelActor then
+        local stopped, why = SC.BandageWashing.cancelActor(actor)
+        if stopped ~= true then return false, why end
+    end
     if SC.LogYard and SC.LogYard.cancelActorUnstack then
         local stopped, why = SC.LogYard.cancelActorUnstack(actor)
         if stopped ~= true then return false, why end
@@ -3640,6 +3683,36 @@ end
 -- BaseLife calls this before deleting a build row, so cancellation cannot
 -- report success while the exact accepted native action is still executable.
 function BaseWork.cancelJob(jobId, ownerId, reason)
+    local visitJob = SC.BaseLife.job(jobId)
+    if SC.MedicalVisits and SC.MedicalVisits.isJob(visitJob) then
+        local entry = visitJob.target.medicalVisit or {}
+        local helper = U().resolveActor(entry.owner or ownerId or visitJob.assignedId)
+        local okay, why = SC.MedicalVisits.cancel(helper, visitJob, reason)
+        if okay ~= true then return false, why end
+        local state = helper and states[helper]
+        if state and state.jobId == jobId then state.jobId, state.visualAt, state.phase = nil, nil, "idle" end
+        return true, why
+    end
+    local washJob = SC.BaseLife.job(jobId)
+    if washJob and washJob.type == "wash_dressings" then
+        local batch = washJob.target and washJob.target.dressingBatch
+        local worker = batch and batch.owner or ownerId or washJob.assignedId
+        local actor = worker and U().resolveActor(worker)
+        if not SC.BandageWashing or type(SC.BandageWashing.cancel) ~= "function" then
+            return false, "dressing_wash_unavailable"
+        end
+        local stopped, why = SC.BandageWashing.cancel(actor, washJob)
+        if stopped ~= true then return false, why or "dressing_wash_uncertain" end
+        local state = actor and states[actor]
+        if state and state.jobId == jobId then
+            if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, reason or "base_job_cancelled") end
+            if state.visualAt and SC.NativeActions and SC.NativeActions.cancelVisual then
+                SC.NativeActions.cancelVisual(actor, reason or "base_job_cancelled")
+            end
+            state.jobId, state.visualAt, state.phase = nil, nil, "idle"
+        end
+        return true, why
+    end
     local radioJob = SC.BaseLife.job(jobId)
     if radioJob and radioJob.type == "radio_work" and SC.RadioWork then
         local actor = U().resolveActor(ownerId or radioJob.assignedId)
@@ -3780,7 +3853,8 @@ end
 -- The caller leaves unsafe rows with their old owner for explicit recovery.
 -- Refuel and car-upkeep chores reserve one exact item by job id. A marker
 -- whose job no longer names that item is stale and reserves nothing.
-function BaseWork.choreReserved(item)
+function BaseWork.choreReserved(item, exceptWashJobId)
+    if SC.BandageWashing and SC.BandageWashing.reserved(item, exceptWashJobId) then return true end
     if SC.SortBatch and SC.SortBatch.protected(item) then return true end
     local data = U().modData(item) or {}
     for kind, marker in pairs(CLEAN_MARKERS) do
@@ -3803,6 +3877,15 @@ end
 function BaseWork.reconcileExpiredJob(job, ownerId)
     if type(job) ~= "table" or type(ownerId) ~= "string" then
         return false, "expired_job_owner_missing"
+    end
+    if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+        return SC.MedicalVisits.reconcileExpiredJob(job, ownerId)
+    end
+    if job.type == "wash_dressings" and job.target and job.target.dressingBatch then
+        if SC.BandageWashing and SC.BandageWashing.reconcileExpiredJob then
+            return SC.BandageWashing.reconcileExpiredJob(job, ownerId)
+        end
+        return false, "dressing_wash_uncertain"
     end
     if job.target and job.target.yardUnstack and SC.LogYard then
         local actor = U().resolveActor(job.target.yardUnstack.ownerId)
@@ -3888,6 +3971,8 @@ function BaseWork.reset(actor)
         end
         states = setmetatable({}, { __mode = "k" })
     end
+    if not actor and SC.BandageWashing and SC.BandageWashing.reset then SC.BandageWashing.reset() end
+    if not actor and SC.MedicalVisits then SC.MedicalVisits.reset() end
     if SC.GatherWork and type(SC.GatherWork.reset) == "function" then
         SC.GatherWork.reset(actor)
     end
@@ -3918,8 +4003,8 @@ end
 
 -- Production supply trips reuse the exact storage withdrawal transaction
 -- (approach, loot pose, reserve re-check at commit, verified transfer).
-function BaseWork.withdrawFromStorage(actor, state, storage, container, item)
-    return transferFromStorage(actor, state, storage, container, item)
+function BaseWork.withdrawFromStorage(actor, state, storage, container, item, options)
+    return transferFromStorage(actor, state, storage, container, item, options)
 end
 
 -- Prefer a loan's source. A full Tools shelf may be repaid to another marked

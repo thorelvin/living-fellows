@@ -72,7 +72,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.22-isocompanion-33";
+    public static final String PROTOCOL = "42.22-isocompanion-34";
 
     public static boolean configurePZOptimizerAdapter(boolean enabled) { return SCPZOptimizerCompatibility.configure(enabled); }
     public static String getPZOptimizerAdapterState() { return SCPZOptimizerCompatibility.state(); }
@@ -122,6 +122,8 @@ public final class SCBridge {
     public static final int BODY_FRACTURED = 1 << 9;
     public static final int BODY_BULLET = 1 << 10;
     public static final int BODY_GLASS = 1 << 11;
+    public static final int BODY_STITCHED = 1 << 12;
+    public static final int BODY_SPLINT = 1 << 13;
     /**
      * Core.getVersionNumber() can report the public release family (42.22) in a
      * live game, even though this bridge is compiled and signature-tested
@@ -1066,18 +1068,20 @@ public final class SCBridge {
                 if (part == null) continue;
                 int flags = 0;
                 if (part.bleeding() || part.getBleedingTime() > 0) flags |= BODY_BLEEDING;
-                if (part.bitten()) flags |= BODY_BITTEN;
+                if (part.bitten() || part.getBiteTime() > 0) flags |= BODY_BITTEN;
                 if (part.isInfectedWound()) flags |= BODY_INFECTED_WOUND;
                 boolean bandaged = part.bandaged();
                 if (bandaged) flags |= BODY_BANDAGED;
                 if (bandaged && part.isBandageDirty()) flags |= BODY_BANDAGE_DIRTY;
-                if (part.scratched()) flags |= BODY_SCRATCHED;
-                if (part.isCut()) flags |= BODY_CUT;
-                if (part.deepWounded()) flags |= BODY_DEEP;
+                if (part.scratched() || part.getScratchTime() > 0) flags |= BODY_SCRATCHED;
+                if (part.isCut() || part.getCutTime() > 0) flags |= BODY_CUT;
+                if (part.deepWounded() || part.getDeepWoundTime() > 0) flags |= BODY_DEEP;
                 if (part.getBurnTime() > 0) flags |= BODY_BURNED;
                 if (part.getFractureTime() > 0) flags |= BODY_FRACTURED;
                 if (part.haveBullet()) flags |= BODY_BULLET;
                 if (part.haveGlass()) flags |= BODY_GLASS;
+                if (part.stitched() || part.getStitchTime() > 0) flags |= BODY_STITCHED;
+                if (part.isSplint() || part.getSplintFactor() > 0) flags |= BODY_SPLINT;
                 if (flags == 0) continue;
                 put(out, output++, part);
                 put(out, output++, index);

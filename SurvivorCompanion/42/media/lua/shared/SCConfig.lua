@@ -748,6 +748,10 @@ local valueData = {
     medicalCriticalHealth = 35,
     medicalAssessCacheMs = 500,
     medicalApproachTimeoutMs = 8000,
+    -- A resident may self-treat if the assigned camp medic cannot start.
+    medicalCampVisitWaitMs = 20000,
+    -- Native alcohol remains active over time; do not repeatedly dose a wound.
+    medicalDisinfectMinimumHours = 2,
     -- Bounded recursive bandage search: how deep into carried bags/first-aid
     -- containers to look, and the total item budget across all containers.
     medicalBandageSearchDepth = 3,

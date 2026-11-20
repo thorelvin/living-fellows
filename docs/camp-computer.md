@@ -552,6 +552,30 @@ The screen names its recovery tool:
 - **Talk to EMMA:** press 1-4 or click an argument. She checks factual claims,
   and remembers a caught lie when you return. Arguments do not repeat within
   an attempt; a failed discussion can be retried after one game hour.
+- **LARCH/KEY:** find the owner's access card in another nearby drawer or beside
+  the computer. Select **Swipe card**, or right-click a carried access card and
+  choose **Swipe at the computer** while that reader page is open. The inventory
+  option reads the exact card selected; the page command prefers a service card,
+  then this owner's card. Compare the reader log with your swipe and fill the
+  open stripe cells by clicking a candidate or typing digits. Spaces and dashes
+  between typed digits are ignored. The five badge digits add up to the final
+  two check digits. Correct digits stay verified; a digit outside the displayed
+  candidates costs no attempt. Higher Electrical reduces gaps and decoys and
+  increases the mismatch allowance. The reader supplies one older clean read
+  after two mismatches, and a skilled nearby companion can read one gap.
+
+One in five card readers has no owner card left nearby; its stored read still
+provides a recovery path. An owner swipe normally leaves two gaps, while a
+service swipe leaves one. Electrical 6 or higher removes one more gap, with at
+least one remaining. Running out of mismatches locks the reader for one game
+hour. Verified digits, hints and swipes survive; swiping during the lockout can
+prepare the next attempt. Compact screens keep the stripe, check rule and digit
+choices while dropping optional illustration and history.
+
+After recovering a LARCH/KEY account, select **Encode service card** while
+carrying that owner's card. It becomes reusable on later LARCH/KEY machines;
+it does not bypass other recovery tools. A slipped hardware reset cannot encode
+a service card because it erased the owner profile.
 
 A few computers ask you to step away from the screen. Read their instructions;
 the county's recovery systems have kept working longer than their operators.
@@ -560,6 +584,8 @@ Ask `what locks have I beaten?` for your Recovery Log. Solving each recovery
 tool earns a named computer licence, displayed when a camp computer boots.
 Cracking and hardware resets restore access but do not count as puzzle wins.
 The licence is a title, with no stat bonus.
+The card reader is the tenth recovery tool; an existing LICENSED operator keeps
+the title when the new tool is added.
 
 Higher Electrical training supplies a visible edge. An available companion
 with higher Electrical can give one spoken hint without taking over the job.

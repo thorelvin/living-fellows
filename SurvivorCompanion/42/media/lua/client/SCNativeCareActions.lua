@@ -4,6 +4,7 @@
 -- bonuses, water deductions or cleanliness changes are applied by this module.
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
+if not SC.BandageWash and type(require) == "function" then pcall(require, "SCBandageWash") end
 SC.NativeCareActions = SC.NativeCareActions or {}
 local Care = SC.NativeCareActions
 local function U() return SC.GameplayUtil end
@@ -209,6 +210,16 @@ function Care.prepare(actor, activity)
         for _, item in ipairs(activity.materials or {}) do inputs[#inputs + 1] = item end
     elseif activity.kind == "craft_supply" then
         for _, item in ipairs(activity.scraps or {}) do inputs[#inputs + 1] = item end
+    elseif activity.kind == "wash_bandage" then
+        local wash = SC.BandageWash
+        activity.washInputEntry = activity.washInputEntry or wash and wash.carriedEntry(actor, activity.item)
+        if not wash or not wash.isInputAllowed(actor, activity.item, activity.washJobClaim, nil, activity.washInputEntry)
+            or wash.cleanType(activity.item) ~= activity.cleanType then return false, "wash_dressing_unavailable" end
+        activity.itemContainer = activity.itemContainer or select(1, call(activity.item, "getContainer"))
+        if activity.waterItem then
+            if not wash.waterPlanValid(actor, activity.washWaterPlan) then return false, "no_water_for_bandages" end
+            inputs[#inputs + 1] = activity.waterItem
+        elseif not wash.worldSourceValid(activity.object) then return false, "no_water_for_bandages" end
     elseif activity.kind == "weather_recovery" then
         if not contains(actor, activity.item) or protected(actor, activity.item, "dry_self") then
             return false, "native_drying_towel_unavailable"
@@ -264,17 +275,58 @@ function Care.valid(actor, activity)
     elseif activity.kind == "craft_supply" then
         for _, item in ipairs(activity.scraps or {}) do if protected(actor, item) then return false end end
     elseif activity.kind == "wash_bandage" then
-        if protected(actor, activity.item, "wash_bandage") then return false end
+        local wash = SC.BandageWash
+        if not wash or not wash.isInputAllowed(actor, activity.item, activity.washJobClaim, nil, activity.washInputEntry) then return false end
+        if activity.waterItem then return wash.waterPlanValid(actor, activity.washWaterPlan) end
+        return wash.worldSourceValid(activity.object)
     elseif activity.kind == "weather_recovery" then
         if activity.nativeFailure or protected(actor, activity.item, "dry_self") then return false end
     end
     return true
 end
 
-local bandageRecipes = { ["Base.BandageDirty"] = "Base.Clean Bandage",
-    ["Base.RippedSheetsDirty"] = "Base.Clean Rag", ["Base.DenimStripsDirty"] = "Base.Clean Denim Strips",
-    ["Base.LeatherStripsDirty"] = "Base.Clean Leather Strips" }
 local function load(name) if type(require) == "function" then pcall(require, name) end end
+
+-- The fluid is a child of the wildcard vessel input, not an ordinary counted
+-- ingredient. Keep this recipe out of the generic craft-supply shortcut.
+local function carriedBandageAction(actor, activity, context)
+    load("Entity/TimedActions/ISHandcraftAction")
+    local recipe = context.recipe("Base.CleanBandage")
+    local inputs = recipe and rows(select(1, call(recipe, "getInputs")), 3)
+    if not ISHandcraftAction or not HandcraftLogic or not HandcraftLogic.new
+        or not inputs or #inputs ~= 2 then return nil, "native_bandage_recipe_unavailable" end
+    local manual, dirtyFound, waterFound = {}, false, false
+    for _, input in ipairs(inputs) do
+        local io = select(1, call(recipe, "getIndexForIO", input))
+        local child = select(1, call(input, "getConsumeFromItemScript"))
+        local chosen
+        if child then
+            local amount = tonumber((select(1, call(child, "getAmount"))))
+            if waterFound or not amount or math.abs(amount - SC.BandageWash.LITRES) > 0.0001
+                or select(1, call(child, "isFluidMixture")) ~= true then return nil, "native_bandage_recipe_changed" end
+            chosen, waterFound = activity.waterItem, true
+        else
+            if dirtyFound or select(1, call(input, "getIntAmount")) ~= 1 then return nil, "native_bandage_recipe_changed" end
+            chosen, dirtyFound = activity.item, true
+        end
+        if tonumber(io) == nil or select(1, call(input, "canUseItem", chosen, actor)) ~= true then
+            return nil, "native_bandage_recipe_changed"
+        end
+        manual[io] = context.list({ chosen })
+    end
+    if not dirtyFound or not waterFound then return nil, "native_bandage_recipe_changed" end
+    local containers = context.list({ U().inventory(actor) })
+    local logic = HandcraftLogic.new(actor, nil, nil)
+    logic:setContainers(containers)
+    logic:setRecipe(recipe)
+    logic:setManualSelectInputs(true)
+    logic:clearManualInputs()
+    for io, items in pairs(manual) do
+        if logic:setManualInputsFor(recipe:getIOForIndex(io), items) ~= true then return nil, "native_bandage_inputs_rejected" end
+    end
+    if logic:canPerformCurrentRecipe() ~= true then return nil, "native_bandage_requirements_changed" end
+    return ISHandcraftAction:new(actor, recipe, containers, nil, nil, manual, nil, nil, 1, 0), "performRecipe"
+end
 
 -- Returns an ordinary stock timed action and the method that owns its effects.
 -- The facade stages inputs and guards that one method on this instance only.
@@ -285,6 +337,8 @@ function Care.create(actor, activity, context)
         load("TimedActions/ISFixAction")
         if not ISFixAction then return nil, "native_repair_unavailable" end
         action = ISFixAction:new(actor, activity.item, activity.fixingNum, activity.fixerNum)
+    elseif activity.kind == "wash_bandage" and activity.waterItem then
+        return carriedBandageAction(actor, activity, context)
     elseif activity.kind == "craft_supply" or activity.kind == "repair" then
         load("Entity/TimedActions/ISHandcraftAction")
         local recipe = context.recipe(activity.recipeName)
@@ -333,13 +387,8 @@ function Care.create(actor, activity, context)
             end
         end
     else
-        load("TimedActions/ISCleanBandage"); load("TimedActions/ISWashClothing")
+        load("TimedActions/ISWashClothing")
         if activity.kind == "wash_bandage" then
-            local manager = type(getScriptManager) == "function" and getScriptManager()
-            local recipe = manager and select(1, call(manager, "getRecipe", bandageRecipes[U().itemType(activity.item)]))
-            if recipe and ISCleanBandage then
-                action = ISCleanBandage:new(actor, activity.item, activity.object, recipe)
-            end
             activity.rootBefore = {}
             for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do activity.rootBefore[item] = true end
         end
@@ -367,6 +416,19 @@ function Care.create(actor, activity, context)
     return action, effect
 end
 
+function Care.before(actor, activity)
+    if activity.kind ~= "wash_bandage" then return true end
+    if activity.waterItem then
+        if not SC.BandageWash.waterPlanValid(actor, activity.washWaterPlan) then return false end
+        local info = SC.BandageWash.inspectWater(activity.waterItem)
+        if not info then return false end
+        activity.washWaterBefore = info.amount
+    end
+    local claim = activity.washJobClaim
+    if claim and type(claim.onAttempt) == "function" then return claim.onAttempt(activity) == true end
+    return true
+end
+
 function Care.after(actor, activity, action, context)
     if activity.kind == "repair" then
         activity.fact.repairImproved = (tonumber((select(1, call(activity.item, "getCondition")))) or 0)
@@ -383,20 +445,39 @@ function Care.after(actor, activity, action, context)
     elseif activity.kind == "wash_bandage" then
         local output
         if contains(actor, activity.item) then return false end
-        for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
-            if not activity.rootBefore[item] and U().itemType(item) == activity.cleanType then
-                if output then return false end
-                output = item
+        if activity.waterItem then
+            local created = context.list({})
+            local _, okay = call(action.logic, "getCreatedOutputItems", created)
+            local outputs = okay and rows(created, 2) or nil
+            if not outputs or #outputs ~= 1 or U().itemType(outputs[1]) ~= activity.cleanType then return false end
+            output = outputs[1]
+            activity.nativeOutput = output
+            local fluid = select(1, call(activity.waterItem, "getFluidContainer"))
+            local amount = tonumber((select(1, call(fluid, "getAmount"))))
+            if not amount or not activity.washWaterBefore
+                or math.abs(activity.washWaterBefore - amount - SC.BandageWash.LITRES) > 0.0001 then return false end
+        else
+            for _, item in ipairs(U().inventoryItems(U().inventory(actor), 4096)) do
+                if not activity.rootBefore[item] and U().itemType(item) == activity.cleanType then
+                    if output then return false end
+                    output = item
+                end
             end
         end
-        if not output then return false end
+        if not output or not contains(actor, output) then return false end
         activity.nativeOutput = output
         local favorite = select(1, call(activity.item, "isFavorite"))
         if favorite then call(output, "setFavorite", true) end
         if select(1, call(activity.item, "isCustomName")) then
             local name = select(1, call(activity.item, "getName"))
             call(output, "setName", name)
+            call(output, "setCustomName", true)
         end
+        activity.resultVerification = { verified = true, input = activity.item,
+            output = output, sourceContainer = activity.itemContainer, cleanType = activity.cleanType }
+        local claim = activity.washJobClaim
+        if claim and type(claim.onResult) == "function"
+            and claim.onResult(activity.resultVerification, activity) ~= true then return false end
     end
     return true
 end

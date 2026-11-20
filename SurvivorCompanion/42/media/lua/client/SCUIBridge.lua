@@ -195,12 +195,17 @@ local function releaseTransferredEquipment(actor, item)
     end
 end
 
-local function installInventoryMenu()
-    if inventoryMenuInstalled then return end
-    if Events and Events.OnFillInventoryObjectContextMenu then
-        Events.OnFillInventoryObjectContextMenu.Add(Bridge.fillInventoryContextMenu)
-        inventoryMenuInstalled = true
-    end
+function Bridge.installInventoryMenu()
+    if inventoryMenuInstalled then return true end
+    local event=Events and Events.OnFillInventoryObjectContextMenu
+    if not event then return false,"inventory context event unavailable" end
+    local okay,reason=pcall(function() event.Add(Bridge.fillInventoryContextMenu) end)
+    if not okay then return false,"inventory context event registration failed: "..tostring(reason) end
+    inventoryMenuInstalled=true
+    return true
+end
+function Bridge.inventoryMenuInstalled()
+    return inventoryMenuInstalled
 end
 
 local function holds(container, item)
@@ -226,7 +231,7 @@ function Bridge.installTransferHook()
     if originalTransferItem ~= nil then
         transferHookActive = true
         installQueuedTransferGuard()
-        installInventoryMenu()
+        Bridge.installInventoryMenu()
         return true
     end
     if type(ISTransferAction) ~= "table" and type(require) == "function" then
@@ -291,7 +296,7 @@ function Bridge.installTransferHook()
     ISTransferAction.transferItem = transferItemWrapper
     transferHookActive = true
     installQueuedTransferGuard()
-    installInventoryMenu()
+    Bridge.installInventoryMenu()
     return true
 end
 
@@ -527,10 +532,16 @@ function Bridge.fillInventoryContextMenu(playerIndex, context, entries)
         end
         return
     end
-    local actor = Bridge.ownerOfContainer(safeMethod(item, "getContainer"))
-    if not actor then return end
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(playerIndex) or nil
+    local terminal,card=SC.Terminal,SC.TerminalLockCard
+    local window=terminal and type(terminal.cardWindowFor)=="function" and terminal.cardWindowFor(player)
+    if window and card and safeMethod(item,"getFullType")==card.ITEM
+        and SC.ControlUtil and SC.ControlUtil.owns(player,item) then
+        context:addOption("Swipe at the computer",item,terminal.swipeCard,player,window)
+    end
+    local actor = Bridge.ownerOfContainer(safeMethod(item, "getContainer"))
+    if not actor then return end
     local valid = Bridge.validateNearbyActor(actor, player, Bridge.NEARBY_DISTANCE)
     if not valid then return end
     local actorSquare = safeMethod(actor, "getSquare")

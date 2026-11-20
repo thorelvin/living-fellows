@@ -36,15 +36,15 @@ end
 -- Director tours and the normalized active-phase weight table.
 local seen={} local counts={}
 for _,kind in ipairs(L.KINDS) do counts[kind]=0 end
-for n=1,15 do
+for n=1,17 do
     local kind=L.choose(333+n,{opened=n-1,seen=seen})
     if n==1 then check(kind=="remember","tour begins with Remembers") end
     if n==2 then check(kind=="word","second tour lock is the original puzzle") end
-    if n==3 then check(kind=="wheel" or kind=="emma" or kind=="search","third tour lock is medium") end
+    if n==3 then check(kind=="wheel" or kind=="emma" or kind=="search" or kind=="card","third tour lock is medium") end
     if n%2==1 and n<=7 then check(not seen[kind],"medium tour never repeats while something is unseen") end
     seen[kind]=true
 end
-for _,kind in ipairs(L.KINDS) do check(seen[kind],"all five built locks appear during the first tour") end
+for _,kind in ipairs(L.KINDS) do check(seen[kind],"all ten built locks appear during the first tour") end
 for seed=1,100000 do counts[L.choose(seed,{opened=100,seen=seen,beaten=seen})]=counts[L.choose(seed,{opened=100,seen=seen,beaten=seen})]+1 end
 local total=0 for _,weight in pairs(L.WEIGHTS) do total=total+weight end
 for kind,count in pairs(counts) do check(math.abs(count/1000-L.WEIGHTS[kind]/total*100)<1,"normal-phase rates follow active weights: "..kind) end

@@ -2,6 +2,82 @@
 
 # Changelog
 
+## 0.27.45 - LARCH/KEY card recovery
+
+- Recover damaged magnetic stripes from an owner's access card and the reader's
+  last swipe. Compare the reads, fill the missing digits, and use the badge sum
+  to check your answer. Correct digits and reader hints survive reloads.
+- Find the card in another nearby drawer or beside the computer. Its own
+  interlocked drawer is excluded. Some owners took their card away; the reader
+  log still provides a complete recovery path.
+- The stripe workbench has larger digit cells, mouse choices, keyboard entry
+  and a compact fallback, with a small original card-reader illustration and
+  original swipe/read sounds. Inventory swipes use the exact selected card.
+- Higher Electrical reduces gaps and decoys and gives more attempts. After a
+  one-hour lockout, verified digits remain; nearby skilled companions can help.
+- After unlocking, encode the owner's card as a reusable service card. Later
+  LARCH/KEY readers retain one gap; other recovery tools keep their own rules.
+- The Director and Recovery Log now retain ten lock kinds. Existing LICENSED
+  operators keep their title; new licences include the card reader.
+- Bridge protocol remains `42.22-isocompanion-34`; save schema remains 3.
+
+## 0.27.44 - Stitching and medicine
+
+- Companions close deep wounds with a suture needle or a reusable needle and
+  thread, then apply a fresh dressing. Glass, danger and missing supplies keep
+  stitching from starting. Nearby companions with better First Aid can help.
+- Painkillers wait for stronger pain and for the previous dose to finish, with
+  a limit of four doses per game day. Camp medics can administer carried medicine
+  to another resident through the same claimed treatment pipeline.
+- Antibiotics treat persistent local wound infections after disinfection, or
+  when disinfectant is unavailable. Scarce camp doses go to the worst eligible
+  wound infection. They do not treat Knox and stay out of ordinary food choices.
+- Medics retain clean dressings, painkillers, a stitching kit and available
+  removal tools. Needles and thread can come from permitted Crafting or Tools
+  storage without changing their storage categories.
+- Dose history and unfinished treatment receipts survive reloads. Uncertain
+  effects retain their exact supply evidence and prevent repeated dosing.
+- Surgical First Aid XP now reaches companions through the native award API,
+  retaining normal multipliers. Earned progress below the first skill level is
+  captured and restored without applying those multipliers twice.
+- Bridge protocol remains `42.22-isocompanion-34`; save schema remains 3.
+
+## 0.27.43 - Camp medical care
+
+- Companions remove bullets and glass with suitable tools, clean burns and
+  disinfect wound infections through the existing claimed treatment pipeline.
+  Covered procedures wait for a fresh dressing; burn care reserves separate
+  cleaning and replacement dressings.
+- Treatment rechecks safety, contact, supplies and the exact patient before
+  committing. Interrupted care keeps its verified effects and finishes any
+  outstanding dressing or supply return without repeating surgery.
+- On-duty camp medics visit other residents who need care. Patient holds yield
+  to danger and player treatment. Busy or absent medics fall back to self-care
+  after a bounded wait, with one job retained for each patient.
+- Disinfection respects native alcohol strength and dose limits, preserves
+  protected supplies and drinking water, and waits for the current alcohol to
+  expire and at least two game hours before another dose.
+- Bridge protocol remains `42.22-isocompanion-34`; save schema remains 3.
+
+## 0.27.42 - Companion medical maintenance
+
+- The wound panel shows stitches, splints, lodged objects and healed dressings.
+  Healed dressings and splints on healed bones remain visible without counting
+  as active injuries. Internal treatment scores are no longer displayed.
+- Companions remove ready stitches and splints after bones heal, through the
+  existing claimed treatment pipeline. Covered stitch removal waits for a fresh
+  dressing, and interrupted redressing retains its patient-specific obligation.
+  Minor scratches and cuts use plain dressings before scarce sterile supplies.
+- Personal bandage washing takes priority when clean dressings run out and
+  washes up to eight carried pieces per visit. Camp workers can wash permitted
+  stored dressings and return verified outputs to Medical storage.
+- Away from a reachable water source, companions can wash with carried water
+  through the native recipe. They use tainted water first, protect loaned items,
+  and leave at least one litre when consuming usable drinking water.
+- Bridge protocol `42.22-isocompanion-34` adds stitch and splint facts, including
+  injuries hidden under dressings. An older bridge keeps saved companions
+  waiting for the correct environment without exhausting restore attempts.
+
 ## 0.27.41 - Storage category hardening
 
 - Fishing companions recheck the food shelf they chose before putting a catch

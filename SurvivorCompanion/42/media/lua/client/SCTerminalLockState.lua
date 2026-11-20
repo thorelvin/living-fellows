@@ -2,7 +2,7 @@
 -- Additive schema-one lock data. A damaged extension cannot erase a computer.
 SurvivorCompanion=SurvivorCompanion or {}
 local S={} SurvivorCompanion.TerminalLockState=S
-local kinds={persona=true,pending=true,word=true,remember=true,wheel=true,emma=true,search=true,radio=true,phone=true,rival=true,story=true}
+local kinds={persona=true,pending=true,word=true,remember=true,wheel=true,emma=true,search=true,card=true,radio=true,phone=true,rival=true,story=true}
 local argumentKinds={truth=true,authority=true,pity=true,threat=true,humour=true}
 local claimKinds={days=true,people=true,screwdriver=true,zombie=true,electrical=true}
 local function argumentId(id)
@@ -92,12 +92,45 @@ function S.normalize(value,locked)
             clean.rival.guesses[#clean.rival.guesses+1]={word=g.word,likeness=g.likeness}
         end
     end
-    for _,moment in ipairs({"first","failure","unlock","clutch","phone","radio","persona_spiffy","persona_ellis","persona_duty"}) do
+    for _,moment in ipairs({"first","failure","unlock","clutch","phone","radio","cardSearch","cardSwipe","persona_spiffy","persona_ellis","persona_duty"}) do
         if type(value.reactions)=="table" and value.reactions[moment]==true then clean.reactions[moment]=true end
     end
-    if type(value.crewClue)=="table" and (value.crewClue.kind=="story" or value.crewClue.kind=="wheel" or value.crewClue.kind=="search" or value.crewClue.kind=="emma" or value.crewClue.kind=="phone" or value.crewClue.kind=="radio")
+    if type(value.crewClue)=="table" and (value.crewClue.kind=="story" or value.crewClue.kind=="wheel" or value.crewClue.kind=="search" or value.crewClue.kind=="emma" or value.crewClue.kind=="phone" or value.crewClue.kind=="radio" or value.crewClue.kind=="card")
         and S.text(value.crewClue.value,40) then
-        clean.crewClue={kind=value.crewClue.kind,value=value.crewClue.value,stage=math.floor(S.number(value.crewClue.stage,0,5) or 0)}
+        local clue=value.crewClue
+        if clue.kind~="card" or clue.value:match("^%d$") and S.number(clue.stage,1,7) and clue.stage==math.floor(clue.stage) then
+            clean.crewClue={kind=clue.kind,value=clue.value,stage=math.floor(S.number(clue.stage,0,clue.kind=="card" and 7 or 5) or 0)}
+        end
+    end
+    if value.card~=nil then
+        local c=value.card
+        if type(c)~="table" or (c.read~="none" and c.read~="owner" and c.read~="service")
+            or type(c.solved)~="string" or #c.solved~=7 or c.solved:find("[^01]") or type(c.tried)~="table" then return broken(value) end
+        local mistakes,gaps=S.number(c.mismatches,0,20),S.number(c.gapsShown,1,4)
+        if not mistakes or mistakes~=math.floor(mistakes) or not gaps or gaps~=math.floor(gaps) then return broken(value) end
+        local card={read=c.read,solved=c.solved,tried={},mismatches=mistakes,gapsShown=gaps}
+        for _,key in ipairs({"spawned","absent","hinted","encoded"}) do
+            if c[key]~=nil and type(c[key])~="boolean" then return broken(value) end
+            card[key]=c[key]==true
+        end
+        for pos=1,7 do
+            local tried=S.text(c.tried[pos],9)
+            if not tried or tried:find("[^0-9]") then return broken(value) end
+            local seen={}
+            for digit in tried:gmatch("%d") do if seen[digit] then return broken(value) end;seen[digit]=true end
+            card.tried[pos]=tried
+        end
+        if c.itemId~=nil then card.itemId=S.text(c.itemId,40);if not card.itemId then return broken(value) end end
+        if c.lockedUntil~=nil then
+            card.lockedUntil=S.number(c.lockedUntil,0,100000000)
+            if not card.lockedUntil then return broken(value) end
+        end
+        if c.hintPos~=nil then
+            card.hintPos=S.number(c.hintPos,1,7)
+            if not card.hintPos or card.hintPos~=math.floor(card.hintPos) then return broken(value) end
+        end
+        if card.hinted and not card.hintPos then return broken(value) end
+        clean.card=card
     end
     for i=1,math.min(type(value.attempts)=="table" and #value.attempts or 0,6) do
         local a=value.attempts[i]

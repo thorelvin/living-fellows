@@ -362,13 +362,13 @@ function PersonalItems.reset(actor)
     else observations = setmetatable({}, { __mode = "k" }) end
 end
 
-function PersonalItems.isProtected(item, actorOrId, operation)
+function PersonalItems.isProtected(item, actorOrId, operation, exceptWashJobId)
     if SC.ExpeditionWood and type(SC.ExpeditionWood.reserved) == "function"
         and SC.ExpeditionWood.reserved(item, actorOrId, operation) then
         return true
     end
     if SC.WorkTransport and type(SC.WorkTransport.isCargoProtected) == "function"
-        and SC.WorkTransport.isCargoProtected(item, actorOrId, operation) then
+        and SC.WorkTransport.isCargoProtected(item, actorOrId, operation, exceptWashJobId) then
         return true
     end
     local personal = PersonalItems.personalRecord(item)

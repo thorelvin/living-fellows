@@ -40,6 +40,11 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Core 'persistence_restore_square_harness.lua')) }
+@{ Name = 'medical-xp-persistence'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_medicines_fixture.lua'),
+    (Join-Path $Client 'SCPersistence.lua'),
+    (Join-Path $Core 'persistence_medical_xp_harness.lua')) }
 @{ Name = 'resident-wake-restoration'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'faction_restore_harness.lua')) }
 @{ Name = 'camp-pickup-lifecycle'; Files = @(

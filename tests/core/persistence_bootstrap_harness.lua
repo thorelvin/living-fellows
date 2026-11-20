@@ -68,10 +68,27 @@ check(P.pendingCount() == 0 and successes == 1, 'late bridge availability restor
 P.restorePulse({})
 check(successes == 1, 'a completed restore cannot create a duplicate')
 
--- Environment absence must not hide a genuine incompatible bridge or invalid
--- native inventory transaction. Those retain the existing bounded policy.
+-- An installed old bridge is an environment wait too. Updating it must not
+-- cost this recruit restore attempts or quarantine its original save record.
+check(P.reset() == true, 'reset before protocol mismatch')
+failure = 'native bridge protocol mismatch: expected 42.22-isocompanion-34, received 42.22-isocompanion-33; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled'
+original = savedRecord()
+store = SC_TEST_SET_WORLD_STORE({document={schema=SC.Identity.saveSchema,
+    companions={[original.id]=original},factionActors={}}})
+check(P.restore({}) == true, 'protocol mismatch imports a valid raw recruit')
+for index=1,12 do SC_TEST_CLOCK=SC_TEST_CLOCK+300000; P.restorePulse({}) end
+entry = P.pendingSnapshot()[original.id]
+check(entry and entry.status == 'waiting_environment' and entry.attempts == 0
+    and entry.failureClass == 'transient', 'old bridge never consumes the recruit retry budget')
+check(P.save({}) == true and same(store.document.companions[original.id], original),
+    'old bridge preserves the complete saved recruit')
+failure = nil
+SC_TEST_CLOCK=SC_TEST_CLOCK+5001; P.restorePulse({})
+check(P.pendingCount() == 0 and successes == 2, 'matching bridge resumes the same recruit once')
+
+-- A damaged native API or invalid native inventory transaction retains its
+-- existing bounded policy.
 for _,reason in ipairs({
-    'native bridge protocol mismatch: expected 42.22-isocompanion-33, received 42.22-isocompanion-32; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled',
     'native bridge readiness check failed: broken_native_api; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled',
     'native actor inventory could not be restored',
 }) do

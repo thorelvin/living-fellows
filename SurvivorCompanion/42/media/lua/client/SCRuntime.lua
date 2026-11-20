@@ -1966,6 +1966,9 @@ function runtime.reset(detach)
     local hadTransfer = SC.UIBridge
         and type(SC.UIBridge.transferHookState) == "function"
         and select(1, SC.UIBridge.transferHookState()) == true
+    local hadInventoryMenu = SC.UIBridge
+        and type(SC.UIBridge.inventoryMenuInstalled) == "function"
+        and SC.UIBridge.inventoryMenuInstalled() == true
     local infrastructureOk, infrastructureReason = removeInfrastructure(shouldDetach)
     if not infrastructureOk then
         -- No destructive state mutation occurs unless both runtime-local hook
@@ -1980,6 +1983,17 @@ function runtime.reset(detach)
             and type(SC.UIBridge.installTransferHook) == "function" then
             local ok, reason = SC.UIBridge.installTransferHook()
             if not ok then failures[#failures + 1] = tostring(reason) end
+        elseif hadInventoryMenu then
+            -- The terminal can own just the context menu with no companion
+            -- transfer wrappers. Restore exactly that ownership on refusal.
+            local called, ok, reason
+            if SC.UIBridge and type(SC.UIBridge.installInventoryMenu) == "function" then
+                called, ok, reason = pcall(SC.UIBridge.installInventoryMenu)
+            end
+            if not called or ok ~= true then
+                failures[#failures + 1] = tostring(not called and (ok or "inventory context menu restoration unavailable")
+                    or reason or "inventory context menu restoration failed")
+            end
         end
         if hadContainer then
             local ok, reason = installContainerHook()

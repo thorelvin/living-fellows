@@ -1,0 +1,122 @@
+Living Fellows 0.27.44 - companion medical care Phase 3
+Validated 20 November 2026; local build ready for combined medical-care playtesting.
+
+Source and delivery scope
+  Worktree: C:\ZOMBOID\work\mc44; branch: living_fellows/0.27.44.
+  Includes the preserved Phase 1/2 implementation; work\mc43 and work\mc42
+  remain separate snapshots. This release remains local and uncommitted.
+  Pinned game: Project Zomboid 42.22.2; official PZO V2.2 native fixtures.
+  Bridge protocol remains 42.22-isocompanion-34; world save schema remains 3.
+  No commit, push, tag, real installation or Workshop upload was performed.
+
+Implemented Phase 3 behavior
+  Deep wounds without glass can be stitched when both actors are semi-safe.
+  Undressed bleeding comes first; glass removal and disinfection precede
+  stitching. One claimed helper/patient treatment reserves an exact fresh
+  dressing, uncovers the part, verifies native stitching, settles the exact
+  suture/thread debit once, and redresses. Reusable needles and holders remain.
+  Native skill, duration, pain, stitch time, infection roll and XP rules apply.
+  Ready stitches continue through the existing safe removal/aftercare path.
+
+  Camp medics use existing visiting-patient jobs and holds. Away from camp,
+  actual Decision updates can discover a nearby free allied helper whose
+  First Aid is at least two levels higher, including when the patient has no
+  own kit. Claims/holds release on danger, orders, group changes and urgent
+  bleeding; no independent medicine owner or fabricated body-part index exists.
+
+  Painkillers require Pain 2 or higher and no pending/working native dose.
+  painEffect, painDelta and food analgesia must all be clear. A proven expired
+  negative pain timer is accepted only after the other effects clear. A patient
+  gets at most four doses per game day; durable allowances never refill on
+  reload or an uncertain native outcome. Painful procedures can lead to this
+  same medicine check once the companion is safe and otherwise qualifies.
+
+  Antibiotics require an actual local infected wound: still infected twelve
+  game hours after the first verified disinfect of that episode, or proven
+  absence of permitted disinfectant. Knox alone never qualifies; an active
+  antibiotic course blocks another. Fewer than two usable camp doses reserves
+  treatment for the worst eligible local infection. Native eat applies and
+  consumes the helper-carried dose; LF never performs a second medicine debit.
+  Normal food selection excludes medicine, and the player receives no medicine.
+
+  Camp supply observations honor exact identities, withdrawals, reserves,
+  work permissions and protected stock. Bounded partial/unreadable scans remain
+  unknown. Commit rescans exact contents, including same-count replacements,
+  before relying on no-disinfectant or scarce-stock eligibility.
+  Favorite, personal, manual, held, active-needs and foreign-loan resources are
+  refused at selection and commit. Only a validated own medic-kit ancestor
+  loan is permitted; a loan-marked dose or another loan marker remains refused.
+
+  Medics keep a physical kit, two usable clean dressings, painkillers, a suture
+  needle or reusable needle plus thread, and seek available tweezers. Sewing
+  supplies can come from Crafting/Tools without changing storage categories.
+  Optional shortages cannot starve later optional supplies; a newly depleted
+  required resource reopens stocking during the optional-search cooldown.
+  Exact durable receipts quarantine ambiguous effects/debits instead of
+  replaying, refunding or creating items. Basic wound care and movement remain
+  available. Optional care metadata stays bounded at 512 values/depth four.
+  No sleeping/mood medicines or zombie navigation/pathing changes were added.
+
+Native surgery XP and persistence
+  The shared surgical XP path now uses the public native six-argument AddXP
+  overload. It preserves each vanilla base request and ordinary learning
+  multipliers without making a companion a local player or adding an XP ledger.
+  Stitching conditionally requests base 15 First Aid XP once; actual earned XP
+  depends on native profession, trait, book and sandbox multipliers.
+  Saved skills resolve canonical IDs via Perks.FromString, not display names;
+  unknown/sentinel/mismatched IDs are refused. Positive XP before the first
+  PerkInfo/level is captured from the public registry, deduplicated within 128
+  records. Restore verifies the native learned level, retains passive floors,
+  then restores the exact XP remainder with all multipliers disabled.
+  Native milestone: Doctor 0 with no PerkInfo captured/restored 3.75 XP twice;
+  earned Doctor 1 restored level 1 with exactly 75 and 75.375 XP, each twice.
+  This was in-session capture/reset/apply testing, not a full game restart.
+  Milestone evidence: build\pzo-medical-phase3-20261120-081746-84f6da.
+  Earlier public-overload proof: build\pzo-medical-phase3-20261120-075847-a7306b,
+  341 native checks; short-call gain 0 versus six-argument base-15 gain 3.75,
+  with companion nonlocal/slot 3 and primary identity/slot 0 unchanged.
+
+Focused and causal validation
+  Sixteen fresh-environment groups pass: medical summary, maintenance,
+  procedures, stitching, medicine, real supply context, real kit stocking,
+  exact procedure resources, recovery persistence, visits, liveness,
+  farm/medic kits, camp washing, personal washing, UI formatting and XP save.
+  Focused counts: stitching 131; exact resources 37; medicines 104; supplies 79;
+  kit 246 (11 native-transfer boundary fixtures); XP persistence 39.
+  These are harness counts, not native engine counts. UI/source/action-label
+  checks have separate evidence; final release results appear below.
+  Forty-four causal controls fail at named checks with the corresponding fixes
+  removed: 19 core, 9 persistence, 8 medicine, 4 supplies and 4 kit controls.
+  Medicine/supplies/persistence summaries: build\medicine-tests\*causal*summary*.
+  Existing core, persistence-transaction and character-depth suites also pass.
+
+Final frozen acceptance - PASS
+  Release gate directory: build\test-results\20261120-081948-123094.
+  Release gate result/time/installers: PASS, 5/5 checks and 18/18 installers, 1032.1 seconds, 24 direct JVM launches.
+  Native Phase 3 directory: build\pzo-medical-phase3-20261120-081746-84f6da.
+  Native Phase 3 final result/check count: PASS, 19273 checks.
+  Native inherited Phase 2 directory/result/count: build\pzo-medical-procedures-20261120-082748-8f5d96; PASS, 11728 checks.
+  Native inherited Phase 1 directory/result/count: build\pzo-medical-capabilities-20261120-083149-136d4e; PASS, 30141 checks.
+  Frozen/source/staged/save/install/player identity checks: PASS; 751 production files unchanged across all runs; 2129 repository files unchanged during each run; 528 exact staged/ZIP payload files, 7 exact installer scripts; original save/installation and player queue/identity preserved.
+  Final ZIP path: C:\ZOMBOID\outputs\medical-care-02744\LivingFellowsCompanion-0.27.44-STANDALONE-WINDOWS.zip.
+  Final ZIP SHA256: f86c1239eea9b81a7283c342a0b98d60713b080a3eac3122874d3cfce881efa7.
+
+Playtest stop and limits
+  Stop locally for combined medical-care playtesting before commit, push,
+  tag, real installation or upload. Exercise deep/glass wounds, better-skilled
+  following helpers, camp visits, dose-repeat refusal, medic refill and earned
+  skill persistence.
+  Ambiguous recovery evidence remains quarantined; no forensic-resolution UI
+  was added. No full game restart is claimed. The older whole-game freeze
+  remains unproven, and this medical build is not claimed to fix that freeze.
+
+Verification evidence
+  Focused: build\phase3-complete.log; standalone UI: build\mc44-ui-complete.log.
+  Source All: build\mc44-source-delivery.log; voice labels: build\mc44-voice-final.log.
+  XP/care causal controls: build\mc44-stitch-negatives-20261120-082723\summary.json.
+  Package proof: build\package-source-match-02744.json.
+  All 2116 recorded Phase2 source files remain byte-for-byte unchanged in mc43.
+  The original mc42 snapshot and shared main checkout were not edited.
+  Between native Phase3 and inherited Phase2, only the unused Phase2 test
+  helper's note callback argument was corrected. Final inherited snapshots
+  match the delivered source; production and all staged payloads stayed exact.

@@ -179,17 +179,32 @@ function Format.formatWounds(wounds, textFunction)
     local entries = {}
     for _, wound in ipairs(woundRecords(wounds)) do
         local details = {}
+        local healedBandage = wound.healed == true and wound.bandaged == true
         for _, flag in ipairs(WOUND_FLAGS) do
-            if wound[flag.field] == true then
+            if wound[flag.field] == true and not (healedBandage
+                and (flag.field == "bandaged" or flag.field == "dirtyBandage")) then
                 details[#details + 1] = translated(textFunction, flag.key)
             end
         end
-        if wound.severity ~= nil and wound.severity ~= "" then
-            details[#details + 1] = translated(
-                textFunction,
-                "UI_SC_Wound_Severity",
-                Format.summaryText(wound.severity, textFunction)
-            )
+        if healedBandage then
+            details[#details + 1] = translated(textFunction, wound.dirtyBandage == true
+                and "UI_SC_Wound_HealedDirtyBandage" or "UI_SC_Wound_HealedBandage")
+        end
+        if wound.stitched == true then
+            local key = "UI_SC_Wound_Stitched"
+            if wound.stitchReady == true then key = "UI_SC_Wound_StitchedReady"
+            elseif wound.stitchReady == false then key = "UI_SC_Wound_StitchedNeedsTime" end
+            details[#details + 1] = translated(textFunction, key)
+        end
+        if wound.splinted == true then
+            details[#details + 1] = translated(textFunction, wound.boneHealed == true
+                and "UI_SC_Wound_SplintBoneHealed" or "UI_SC_Wound_Splinted")
+        end
+        if wound.bullet == true then
+            details[#details + 1] = translated(textFunction, "UI_SC_Wound_Bullet")
+        end
+        if wound.glass == true then
+            details[#details + 1] = translated(textFunction, "UI_SC_Wound_Glass")
         end
         if #details == 0 then
             details[1] = translated(textFunction, "UI_SC_Wound_Injured")

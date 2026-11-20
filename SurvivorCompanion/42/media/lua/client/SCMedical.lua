@@ -4,6 +4,8 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Dialogue and type(require) == "function" then pcall(require, "SCDialogue") end
+if not SC.MedicalProcedures and type(require) == "function" then pcall(require, "SCMedicalProcedures") end
+if not SC.MedicalMaintenance and type(require) == "function" then pcall(require, "SCMedicalMaintenance") end
 
 SC.Medical = SC.Medical or {}
 local Medical = SC.Medical
@@ -149,6 +151,11 @@ local function captureNativeBodyFacts(character)
         countBodyFacts("unavailable")
         return nil
     end
+    local protocolOkay, protocol = SC.Call.static(bridge, "getProtocol")
+    if protocolOkay ~= true or protocol ~= "42.22-isocompanion-34" then
+        countBodyFacts("protocol-mismatch")
+        return nil
+    end
     local called, count = SC.Call.static(bridge, "fillBodyFacts",
         character, bodyFactsScratch)
     count = called and tonumber(count) or nil
@@ -173,7 +180,7 @@ local function captureNativeBodyFacts(character)
         if bodyFactsScratch[base] == nil
             or type(partIndex) ~= "number" or partIndex < 0 or partIndex > 31
             or partIndex ~= math.floor(partIndex)
-            or type(flags) ~= "number" or flags < 1 or flags > 4095
+            or type(flags) ~= "number" or flags < 1 or flags > 16383
             or flags ~= math.floor(flags)
             or type(bodyFactsScratch[base + 3]) ~= "string" then
             countBodyFacts("invalid-part")
@@ -181,6 +188,13 @@ local function captureNativeBodyFacts(character)
         end
     end
     return bodyFactsScratch, count
+end
+
+local function verifiedTimer(part, method)
+    local value, okay = U().call(part, method)
+    if okay and type(value) == "number" and value == value
+        and value > -math.huge and value < math.huge then return value end
+    return nil
 end
 
 local function inspectPart(part, index, factFlags, factName)
@@ -222,13 +236,45 @@ local function inspectPart(part, index, factFlags, factName)
         bullet = booleanMethod(part, { "haveBullet" })
         glass = booleanMethod(part, { "haveGlass" })
     end
+    -- Native dressings hide injury booleans while preserving their timers.
+    local biteTime = verifiedTimer(part, "getBiteTime")
+    local scratchTime = verifiedTimer(part, "getScratchTime")
+    local cutTime = verifiedTimer(part, "getCutTime")
+    local deepTime = verifiedTimer(part, "getDeepWoundTime")
+    local stitchTime = verifiedTimer(part, "getStitchTime")
+    local fractureTime = verifiedTimer(part, "getFractureTime")
+    bitten = bitten or (biteTime or 0) > 0
+    scratched = scratched or (scratchTime or 0) > 0
+    cut = cut or (cutTime or 0) > 0
+    deep = deep or (deepTime or 0) > 0
+    local stitched = factFlags ~= nil and hasBodyFlag(factFlags, 4096)
+        or booleanMethod(part, { "stitched", "isStitched" }) or (stitchTime or 0) > 0
     local lodged = bullet or glass
-    local splintFactor = fracture
-        and numberMethod(part, { "getSplintFactor" }, 0) or 0
+    local splintFactor = numberMethod(part, { "getSplintFactor" }, 0)
+    local splinted = factFlags ~= nil and hasBodyFlag(factFlags, 8192)
+        or booleanMethod(part, { "isSplint" }) or splintFactor > 0
+    local active = bleeding or bitten or infected or scratched or cut or deep
+        or burned or fracture or lodged or stitched
+    local healed = false
+    if bandaged and not active and not splinted then
+        local bleedingTime = verifiedTimer(part, "getBleedingTime")
+        local burnTime = verifiedTimer(part, "getBurnTime")
+        healed = biteTime ~= nil and biteTime <= 0
+            and scratchTime ~= nil and scratchTime <= 0
+            and cutTime ~= nil and cutTime <= 0 and deepTime ~= nil and deepTime <= 0
+            and stitchTime ~= nil and stitchTime <= 0
+            and fractureTime ~= nil and fractureTime <= 0
+            and bleedingTime ~= nil and bleedingTime <= 0
+            and burnTime ~= nil and burnTime <= 0
+    end
+    local boneHealed = splinted and fractureTime ~= nil and fractureTime == 0
+    local needBurnWash = burned and booleanMethod(part, { "isNeedBurnWash" })
+    local alcoholLevel = verifiedTimer(part, "getAlcoholLevel")
+    local woundInfectionLevel = verifiedTimer(part, "getWoundInfectionLevel")
     local bodyPartName = string.lower(tostring(factName or partName(part, index)))
     local splintable = bodyPartName ~= "head"
         and bodyPartName ~= "torso_upper" and bodyPartName ~= "torso_lower"
-    local needsSplint = fracture and splintable and splintFactor <= 0
+    local needsSplint = fracture and splintable and not splinted
     local severity = 0
     if bleeding then severity = severity + 28 end
     if bitten then severity = severity + 35 end
@@ -238,6 +284,7 @@ local function inspectPart(part, index, factFlags, factName)
     if burned then severity = severity + 12 end
     if scratched or cut then severity = severity + 8 end
     if lodged then severity = severity + 10 end
+    if stitched then severity = severity + 8 end
     if bandaged and not dirtyBandage then severity = severity - 18 end
     -- A wound that stopped bleeding before anyone dressed it: it heals slowly
     -- and can get infected until it is covered. A bite is Knox's business.
@@ -257,8 +304,18 @@ local function inspectPart(part, index, factFlags, factName)
         cut = cut,
         deepWound = deep,
         burned = burned,
+        needBurnWash = needBurnWash,
+        alcoholLevel = alcoholLevel,
+        woundInfectionLevel = woundInfectionLevel,
         fractured = fracture,
-        splinted = splintFactor > 0,
+        stitched = stitched,
+        stitchTime = stitchTime,
+        stitchReady = stitched and stitchTime ~= nil and stitchTime >= 40,
+        splinted = splinted,
+        boneHealed = boneHealed,
+        healed = healed,
+        active = active,
+        needsMaintenance = stitched and stitchTime ~= nil and stitchTime >= 40 or boneHealed,
         needsSplint = needsSplint,
         lodged = lodged,
         bullet = bullet,
@@ -274,6 +331,7 @@ function Medical.assess(character, runtime)
     local utility = U()
     local health, body = currentHealth(character)
     local wounds, bleedingCount, dirtyBandages, bites, openWounds, fractures = {}, 0, 0, 0, 0, 0
+    local woundCount, maintenanceCount, procedureCount = 0, 0, 0
     local nativeFacts, nativeCount
     if body then
         nativeFacts, nativeCount = captureNativeBodyFacts(character)
@@ -282,9 +340,16 @@ function Medical.assess(character, runtime)
     end
     if nativeFacts then health = nativeFacts.health end
     local function appendWound(wound)
-        if wound.severity > 0 or wound.bandaged then wounds[#wounds + 1] = wound end
+        if wound.active or wound.bandaged or wound.splinted then wounds[#wounds + 1] = wound end
+        if wound.active then woundCount = woundCount + 1 end
+        if wound.needsMaintenance then maintenanceCount = maintenanceCount + 1 end
+        if wound.bullet or wound.glass or wound.needBurnWash or wound.deepWound and not wound.glass
+            or wound.infected and SC.MedicalProcedures
+                and SC.MedicalProcedures.disinfectReady(character,wound.index,wound.alcoholLevel) then
+            procedureCount = procedureCount + 1
+        end
         if wound.bleeding and not wound.bandaged then bleedingCount = bleedingCount + 1 end
-        if wound.dirtyBandage then dirtyBandages = dirtyBandages + 1 end
+        if wound.dirtyBandage and wound.active then dirtyBandages = dirtyBandages + 1 end
         if wound.bitten then bites = bites + 1 end
         if wound.openWound then openWounds = openWounds + 1 end
         if wound.needsSplint then fractures = fractures + 1 end
@@ -329,7 +394,11 @@ function Medical.assess(character, runtime)
         health = health,
         alive = health > 0 and not utility.isDead(character),
         wounds = wounds,
-        woundCount = #wounds,
+        woundCount = woundCount,
+        maintenanceCount = maintenanceCount,
+        needsMaintenance = maintenanceCount > 0,
+        procedureCount = procedureCount,
+        needsProcedure = procedureCount > 0,
         bleedingCount = bleedingCount,
         dirtyBandages = dirtyBandages,
         bites = bites,
@@ -460,7 +529,7 @@ local function dirtyDressing(item)
         or string.find(itemType, "dirty", 1, true) ~= nil
 end
 
-local function bandageRank(item, allowDirty)
+local function bandageRank(item, allowDirty, wound)
     local utility = U()
     local itemType = string.lower(utility.itemType(item))
     -- Eligibility BEFORE quality (LF-05): the item must actually be a dressing. An
@@ -482,6 +551,16 @@ local function bandageRank(item, allowDirty)
     if dirty and allowDirty ~= true then return nil end
     -- A dirty dressing is the last resort, after every clean one.
     if dirty then return 6 end
+    local minor = type(wound) == "table" and (wound.scratched or wound.cut)
+        and not (wound.bitten or wound.deepWound or wound.burned or wound.infected
+            or wound.lodged or wound.stitched or wound.seriousAfterProcedure)
+    if minor then
+        if string.find(itemType, "steril", 1, true)
+            or booleanMethod(item, { "isAlcoholic" }) then return 5 end
+        if isBandageType then return 1 end
+        if isRippedSheet then return 2 end
+        return 3
+    end
     -- Quality among eligible dressings (lower rank = preferred): sterile, then
     -- alcohol-treated, then a plain bandage, then a tagged dressing, then a ripped
     -- sheet.
@@ -499,7 +578,7 @@ end
 -- carrying supplies. This descends into nested containers up to a depth/item
 -- budget, detects container cycles, and returns the item together with its ACTUAL
 -- source container so consumption and rollback operate where the bandage lives.
-local function findBandage(character, allowDirty)
+local function findBandage(character, allowDirty, wound)
     local utility = U()
     local rootInventory = utility.inventory(character)
     local maxDepth = tonumber(utility.config("medicalBandageSearchDepth")) or 3
@@ -516,7 +595,7 @@ local function findBandage(character, allowDirty)
             local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
                 item, character, "medical_consume")
             if not protected then
-                local rank = bandageRank(item, allowDirty)
+                local rank = bandageRank(item, allowDirty, wound)
                 if rank and (not bestRank or rank < bestRank) then
                     best, bestRank, bestContainer = item, rank, inventory
                 end
@@ -579,20 +658,27 @@ end
 -- as it is queued, even before its animation begins. Yield instead of racing
 -- that action to the same body part or consuming a second supply.
 function Medical.playerSelfCareActive(patient)
-    if patient == nil or type(getSpecificPlayer) ~= "function"
-        or getSpecificPlayer(0) ~= patient then return false end
-    local queues = type(ISTimedActionQueue) == "table"
-        and ISTimedActionQueue.queues or nil
-    local queue = type(queues) == "table" and queues[patient] or nil
-    local actions = queue and queue.queue or nil
-    if type(actions) ~= "table" then return false end
-    for index = 1, math.min(#actions, 8) do
-        local action = actions[index]
-        local kind = action and tostring(action.Type or "") or ""
-        if (kind == "ISApplyBandage" or kind == "ISSplint")
-            and action.character == patient
-            and (action.otherPlayer == nil or action.otherPlayer == patient) then
-            return true
+    if patient==nil then return false end
+    local held=receivingCare[patient]
+    if held and U().nowMs()<=(tonumber(held.untilAt) or 0) then return true end
+    if type(getSpecificPlayer)~="function" then return false end
+    local doctor=getSpecificPlayer(0)
+    local queues=type(ISTimedActionQueue)=="table" and ISTimedActionQueue.queues
+    local queue=doctor and type(queues)=="table" and queues[doctor]
+    local actions=queue and queue.queue
+    if type(actions)~="table" then return false end
+    local medical={ISApplyBandage=true,ISSplint=true,ISStitch=true,ISRemoveBullet=true,ISRemoveGlass=true,
+        ISCleanBurn=true,ISDisinfect=true,ISCleanWound=true,SCApplyCompanionBandage=true}
+    for index=1,math.min(#actions,32) do
+        local action=actions[index]
+        local kind=action and tostring(action.Type or "") or ""
+        if action and action.character==doctor then
+            local target=action.otherPlayer or action.companion
+            if kind=="HealthPanelAction" then
+                local handler=action.handler
+                target=handler and handler.panel and handler.panel.character
+            end
+            if (medical[kind] or kind=="HealthPanelAction") and (target==patient or target==nil and doctor==patient) then return true end
         end
     end
     return false
@@ -823,7 +909,7 @@ local function chooseWound(assessment, includeCare)
             if wound.openWound then return wound end
         end
         for _, wound in ipairs(assessment.wounds) do
-            if wound.dirtyBandage then return wound end
+            if wound.dirtyBandage and wound.active then return wound end
         end
     end
     return nil
@@ -1048,13 +1134,20 @@ local function supervisedVisualVerified(state, detail)
 end
 
 local function treatmentWound(assessment, state)
+    if state.maintenanceKind then
+        for _, wound in ipairs(assessment.wounds or {}) do
+            if wound.index == state.woundIndex then return wound end
+        end
+        local pending = SC.MedicalMaintenance and SC.MedicalMaintenance.pending(state.patient)
+        return pending and pending.wound or nil
+    end
     for _, wound in ipairs(assessment.wounds or {}) do
         if wound.index == state.woundIndex then
             if state.splintOnly then
                 if wound.needsSplint then return wound end
             elseif state.dirtyOnly then
-                if wound.dirtyBandage or wound.openWound then return wound end
-            elseif (wound.bleeding and not wound.bandaged) or wound.dirtyBandage
+                if wound.dirtyBandage and wound.active or wound.openWound then return wound end
+            elseif (wound.bleeding and not wound.bandaged) or wound.dirtyBandage and wound.active
                 or wound.openWound then
                 return wound
             end
@@ -1068,7 +1161,7 @@ local function treatmentWound(assessment, state)
     end
     if state.dirtyOnly then
         for _, wound in ipairs(assessment.wounds or {}) do
-            if wound.dirtyBandage then return wound end
+            if wound.dirtyBandage and wound.active then return wound end
         end
         for _, wound in ipairs(assessment.wounds or {}) do
             if wound.openWound then return wound end
@@ -1094,6 +1187,8 @@ local function releaseTreatmentResources(helper, state, reason)
         pcall(SC.Navigation.cancel, helper, reason or "medical_cancelled")
     end
     if rolledBack then
+        if SC.MedicalMaintenance then SC.MedicalMaintenance.handoff(state) end
+        if state.medicineKind and SC.MedicalMedicines then SC.MedicalMedicines.handoff(state) end
         state.emergencyTransaction = nil
         Medical.releasePatient(helper)
     treatmentState[helper] = nil
@@ -1163,7 +1258,11 @@ local function treatmentSpeech(helper, state, assessment, wound)
     local now = U().nowMs()
     if now - (treatmentSpeechAt[helper] or -math.huge) < 8000 then return end
     local topic
-    if state.splintOnly then
+    local procedureTopics={remove_bullet="medical.remove_bullet",remove_glass="medical.remove_glass",
+        clean_burn="medical.clean_burn",disinfect_wound="medical.disinfect",stitch_wound="medical.stitch"}
+    if state.returnOnly or state.recovery then return end
+    if procedureTopics[state.maintenanceKind] then topic=procedureTopics[state.maintenanceKind]
+    elseif state.splintOnly then
         topic = "medical.splint"
     elseif state.dirtyOnly or wound.dirtyBandage then
         topic = "medical.bandage.replace"
@@ -1176,6 +1275,15 @@ local function treatmentSpeech(helper, state, assessment, wound)
         { recentLimit = 6 })
     if ok and spoken == true then treatmentSpeechAt[helper] = now end
 end
+local function verifiedThanks(helper,state)
+    local patient=state.patient
+    if helper==patient or not Medical.isLivingPatient(patient) or not SC.Dialogue
+        or type(SC.Dialogue.say)~="function" then return end
+    local now=U().nowMs()
+    if now-(treatmentSpeechAt[patient] or -math.huge)<8000 then return end
+    local okay,spoken=pcall(SC.Dialogue.say,patient,"medical.thanks",nil,nil,{recentLimit=6})
+    if okay and spoken==true then treatmentSpeechAt[patient]=now end
+end
 
 local function startBandageAnimation(helper, state)
     if Medical.playerSelfCareActive(state.patient) then
@@ -1183,40 +1291,46 @@ local function startBandageAnimation(helper, state)
     end
     local assessment = Medical.assess(state.patient)
     local wound = treatmentWound(assessment, state)
-    if not wound then return clearTreatment(helper, state, "wound_no_longer_treatable") end
-    if not inventoryContains(state.inventory, state.bandage) then
+    if not wound and not state.medicineKind then return clearTreatment(helper, state, "wound_no_longer_treatable") end
+    if not state.medicineKind and state.maintenanceKind ~= "remove_splint"
+        and not state.returnOnly
+        and not (state.maintenanceKind and SC.MedicalMaintenance and SC.MedicalMaintenance.pending(state.patient)
+            and not SC.MedicalMaintenance.pending(state.patient).redress)
+        and not (state.maintenanceKind == "remove_stitches" and not wound.bandaged)
+        and not inventoryContains(state.inventory, state.bandage) then
         return clearTreatment(helper, state, "bandage_missing")
     end
     local expected, expectedReason = supervisedVisualExpected(state, {
-        action = state.visualAction or "kneel_treat", woundIndex = wound.index,
+        action = state.visualAction or "kneel_treat", woundIndex = wound and wound.index,
     })
     if expected ~= true then return clearTreatment(helper, state,
         expectedReason or "visual_registration_failed") end
     local accepted, reason = U().move(helper, "walk", {
         action = state.visualAction or "kneel_treat",
         patient = state.patient,
-        bodyPartIndex = wound.index,
-        bodyPart = wound.part,
+        bodyPartIndex = wound and wound.index,
+        bodyPart = wound and wound.part,
         itemType = U().itemType(state.bandage),
         humanAnimationOnly = true,
         emergency = state.emergency == true,
-        durationTicks = 100,
+        durationTicks = state.procedurePlan and state.procedurePlan.durationTicks
+            or state.medicinePlan and state.medicinePlan.durationTicks or 100,
         supervisorToken = state.supervisorToken,
     })
     if not accepted then
         return clearTreatment(helper, state, reason or "treatment_action_rejected")
     end
     state.phase = "bandaging"
-    state.woundIndex = wound.index
+    state.woundIndex = wound and wound.index
     state.startedAt = U().nowMs()
     treatmentState[helper] = state
     local transitioned, transitionReason = supervisedTransition(state, "animating", {
         action = state.visualAction or "kneel_treat",
-        woundIndex = wound.index,
+        woundIndex = wound and wound.index,
     })
     if transitioned ~= true then return clearTreatment(helper, state,
         transitionReason or "animation_phase_rejected") end
-    treatmentSpeech(helper, state, assessment, wound)
+    if wound then treatmentSpeech(helper, state, assessment, wound) end
     return true, "treatment_animation_started"
 end
 
@@ -1368,8 +1482,140 @@ local function commitSplint(helper, state, wound)
     return true, "splinted"
 end
 
-local function finishTreatment(helper, state)
+local function finishMaintenanceTreatment(helper, state)
+    local runtime = state.runtime or U().actorState(helper)
+    local snapshot = runtime.senses and runtime.senses.current or runtime.snapshot
+    if type(snapshot) ~= "table" or not Medical.canTreatNow(helper, snapshot) then
+        return clearTreatment(helper, state, "danger_preempted")
+    end
+    local contextOkay,contextReason=Medical.careContextValid(helper,state.patient,state,state.removalCommitted and "recovery" or "commit")
+    if not contextOkay then return clearTreatment(helper,state,contextReason or "medical_visit_invalid") end
+    if not Medical.electiveSafe(helper,state.patient,runtime,state.campVisit) then return clearTreatment(helper,state,"danger_preempted") end
     local assessment = Medical.assess(state.patient)
+    local wound = treatmentWound(assessment, state)
+    local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(state.patient)
+    if not state.removalCommitted and not state.recovery and state.careKey then
+        local need=Medical.selectCareNeed(state.patient,assessment,state.medicineContext)
+        if not need or need.key~=state.careKey then return clearTreatment(helper,state,"medical_need_changed") end
+    end
+    if not wound or not Medical.isLivingPatient(state.patient, assessment) and not (pending and not pending.redress)
+        or not (pending and not pending.redress) and not Medical.inContact(helper, state.patient)
+        or Medical.playerSelfCareActive(state.patient) then
+        return clearTreatment(helper, state, "medical_maintenance_unverified")
+    end
+    local continuing = state.phase == "redressing"
+    if state.maintenanceKind ~= "remove_splint"
+        and not state.returnOnly
+        and not (state.maintenanceKind and SC.MedicalMaintenance and SC.MedicalMaintenance.pending(state.patient)
+            and not SC.MedicalMaintenance.pending(state.patient).redress)
+        and not (state.maintenanceKind == "remove_stitches" and not wound.bandaged)
+        and not inventoryContains(state.inventory, state.bandage) then
+        if continuing then return true, "medical_redress_pending" end
+        return clearTreatment(helper, state, "no_clean_dressing_for_stitches")
+    end
+    if not continuing then
+        local okay, reason = supervisedTransition(state, "committing", { woundIndex=wound.index })
+        if okay ~= true then return clearTreatment(helper, state, reason) end
+    end
+    local operation = function()
+        return SC.MedicalMaintenance.commit(helper, state, wound, function()
+            local fresh = Medical.assess(state.patient)
+            for _, part in ipairs(fresh.wounds or {}) do
+                if part.index == wound.index then
+                    return commitBandage(state.patient, fresh, part, state.bandage,
+                        state.inventory, nil, helper)
+                end
+            end
+            return false, "medical_redress_pending"
+        end)
+    end
+    local accepted, reason
+    if continuing then
+        -- The committed removal remains final. This is the reserved redress
+        -- obligation's verification/recovery, never another attachment removal.
+        accepted, reason = operation()
+    else
+        accepted, reason = supervisedCommit(state, operation, {
+            stage=state.maintenanceKind, woundIndex=wound.index,
+        })
+    end
+    Medical.invalidate(state.patient)
+    if not accepted then return clearTreatment(helper, state, reason) end
+    if not continuing then
+        local okay, why = supervisedTransition(state, "verifying", { woundIndex=wound.index })
+        if okay ~= true then return clearTreatment(helper, state, why) end
+    end
+    if reason == "medical_redress_pending" then
+        state.phase = "redressing"
+        state.startedAt = U().nowMs()
+        supervisedProgress(state, "medical_redress_pending", {woundIndex=wound.index})
+        return true, reason
+    end
+    local service = supervisor()
+    if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+        local completed, why = service.complete(state.supervisorToken, reason, {
+            woundIndex=wound.index, patientId=U().idOf(state.patient), verified=true,
+            removalCommitted=true,
+        })
+        if completed ~= true then return clearTreatment(helper, state, why) end
+    end
+    Medical.releasePatient(helper)
+    treatmentState[helper] = nil
+    if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
+        SC.NativeActions.noteResult(helper, "medical_treatment", reason, {kind="long"})
+    end
+    if reason=="bullet_removed" or reason=="glass_removed" or reason=="burn_cleaned"
+        or reason=="wound_disinfected" or reason=="wound_stitched" or reason=="stitches_removed" or reason=="splint_removed" then verifiedThanks(helper,state) end
+    return true, reason
+end
+
+local function finishTreatment(helper, state)
+    if state.medicineKind then
+        if not Medical.isLivingPatient(state.patient) or not Medical.inContact(helper,state.patient)
+            or Medical.playerSelfCareActive(state.patient)
+            or not Medical.electiveSafe(helper,state.patient,state.runtime,state.campVisit) then
+            return clearTreatment(helper,state,"danger_preempted")
+        end
+        local valid,why=Medical.careContextValid(helper,state.patient,state,state.recovery and "recovery" or "commit")
+        if not valid then return clearTreatment(helper,state,why or "medical_visit_invalid") end
+        local need=Medical.selectCareNeed(state.patient,Medical.assess(state.patient),state.medicineContext)
+        if not need or need.key~=state.careKey then return clearTreatment(helper,state,"medical_need_changed") end
+        local okay,reason=supervisedTransition(state,"committing",{wholeBody=true,careKind=state.medicineKind})
+        if not okay then return clearTreatment(helper,state,reason) end
+        local accepted,result=supervisedCommit(state,function()
+            if state.recovery then return SC.MedicalMedicines.recover(helper,state) end
+            return SC.MedicalMedicines.commit(helper,state)
+        end,{wholeBody=true,careKind=state.medicineKind})
+        Medical.invalidate(state.patient)
+        if not accepted then return clearTreatment(helper,state,result) end
+        state.removalCommitted=true
+        supervisedTransition(state,"verifying",{wholeBody=true})
+        local service=supervisor()
+        if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+            local completed,failure=service.complete(state.supervisorToken,result,{patientId=U().idOf(state.patient),verified=true,wholeBody=true})
+            if completed~=true then return clearTreatment(helper,state,failure) end
+        end
+        Medical.releasePatient(helper)
+        treatmentState[helper]=nil
+        if SC.NativeActions and type(SC.NativeActions.noteResult)=="function" then
+            SC.NativeActions.noteResult(helper,"medical_treatment",result,{kind="long"})
+        end
+        local topic=result=="painkillers_taken" and "medical.painkillers"
+            or result=="antibiotics_taken" and "medical.antibiotics"
+        local current=U().nowMs()
+        if topic and SC.Dialogue and type(SC.Dialogue.say)=="function"
+            and current-(treatmentSpeechAt[state.patient] or -math.huge)>=8000 then
+            local okay,spoken=pcall(SC.Dialogue.say,state.patient,topic,nil,nil,{recentLimit=6})
+            if okay and spoken==true then treatmentSpeechAt[state.patient]=current end
+        end
+        return true,result
+    end
+    if state.maintenanceKind then return finishMaintenanceTreatment(helper, state) end
+    local assessment = Medical.assess(state.patient)
+    if state.careKey and SC.MedicalProcedures then
+        local need=Medical.selectCareNeed(state.patient,assessment,state.medicineContext)
+        if not need or need.key~=state.careKey then return clearTreatment(helper,state,"medical_need_changed") end
+    end
     local wound = treatmentWound(assessment, state)
     if not wound then return clearTreatment(helper, state, "wound_no_longer_treatable") end
     local committing, commitReason = supervisedTransition(state, "committing", {
@@ -1479,13 +1725,32 @@ local function finishTreatment(helper, state)
             bleeding = wound.bleeding == true, tornClothing = state.emergencyRag == true,
         })
     end
+    verifiedThanks(helper,state)
     return true, state.splintOnly and "splinted" or "bandaged"
 end
 
 local continueTreatmentApproach
 
-local function advanceTreatment(helper, state)
-    if not Medical.isLivingPatient(state.patient) then
+local function advanceTreatment(helper, state, runtime)
+    state.runtime = U().actorState(helper, runtime)
+    if state.patient~=helper and (state.procedurePlan or state.medicineKind)
+        and not state.removalCommitted and not state.recovery and Medical.assess(helper).needsBandage then
+        return clearTreatment(helper,state,"helper_needs_urgent_care")
+    end
+    if state.maintenanceKind or state.medicineKind then
+        local stage=(state.removalCommitted or state.recovery) and "recovery" or "approach"
+        local valid,why=Medical.careContextValid(helper,state.patient,state,stage)
+        if not valid then return clearTreatment(helper,state,why or "medical_visit_invalid") end
+        if not Medical.electiveSafe(helper,state.patient,state.runtime,state.campVisit) then
+            return clearTreatment(helper,state,"danger_preempted")
+        end
+        if not state.removalCommitted and not state.recovery and state.careKey then
+            local need=Medical.selectCareNeed(state.patient,Medical.assess(state.patient),state.medicineContext)
+            if not need or need.key~=state.careKey then return clearTreatment(helper,state,"medical_need_changed") end
+        end
+    end
+    local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(state.patient)
+    if not Medical.isLivingPatient(state.patient) and not (pending and not pending.redress) then
         return clearTreatment(helper, state, "patient_no_longer_alive")
     end
     if Medical.playerSelfCareActive(state.patient) then
@@ -1494,6 +1759,7 @@ local function advanceTreatment(helper, state)
     if state.phase == "approaching" then
         return continueTreatmentApproach(helper, state)
     end
+    if state.phase == "redressing" then return finishTreatment(helper, state) end
     local expected = state.phase == "ripping" and "rip_clothing_for_bandage"
         or state.visualAction or "kneel_treat"
     local visualState = SC.NativeActions.visualStatus(helper, expected)
@@ -1533,9 +1799,9 @@ local function immediateTreatment(helper, patient, assessment, wound, bandage,
         inventory, emergencyTransaction, visualAction, state)
     local accepted = U().move(helper, "walk", {
         action = visualAction or "kneel_treat", patient = patient,
-        bodyPartIndex = wound.index, bodyPart = wound.part,
+        bodyPartIndex = wound and wound.index, bodyPart = wound and wound.part,
         itemType = U().itemType(bandage), humanAnimationOnly = true,
-        emergency = wound.bleeding == true,
+        emergency = wound and wound.bleeding == true,
         supervisorToken = state and state.supervisorToken,
     })
     if not accepted then
@@ -1553,20 +1819,31 @@ local function immediateTreatment(helper, patient, assessment, wound, bandage,
     return finishTreatment(helper, state)
 end
 
-local function treatmentSquare(helper, patient)
+local function treatmentTargets(helper, patient, navigation, snapshot)
     local utility = U()
-    local patientSquare = utility.squareOf(patient)
-    local x, y, z = utility.position(patientSquare)
-    if not x then return nil end
-    local best, bestDistance = nil, math.huge
-    for _, delta in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
-        local square = utility.gridSquare(x + delta[1], y + delta[2], z)
-        if square and utility.isSquareFree(square) and not utility.edgeBlocked(square, patientSquare) then
-            local distance = utility.distanceSq(helper, square)
-            if distance < bestDistance then best, bestDistance = square, distance end
+    local range = tonumber(utility.config("medicalRange")) or 1.35
+    if range ~= range or range <= 0 or range == math.huge then return {}, 0.15 end
+    local slack = math.min(0.15, range / 4)
+    local targets = {}
+    local candidates = navigation.interactionTargets(helper, patient, {
+        snapshot = snapshot, maximum = 4, cardinalOnly = true,
+    })
+    for _, square in ipairs(candidates) do
+        if utility.arrived(patient, square, {targetKind="square",distance=range-slack}) then
+            targets[#targets+1] = square
         end
     end
-    return best or patientSquare
+    -- Every admitted goal, including its arrival radius, must remain inside
+    -- actual patient contact. Adjacent tile centres alone are insufficient
+    -- when the patient stands off centre; diagonal goals cannot promise reach.
+    local patientSquare = utility.squareOf(patient)
+    if #targets == 0 and patientSquare and utility.isSquareFree(patientSquare)
+        and utility.squareOccupyingObject(patientSquare) == nil
+        and not utility.safehouseBlocker(patientSquare, helper)
+        and utility.arrived(patient, patientSquare, {targetKind="square",distance=range-slack}) then
+        targets[1] = patientSquare
+    end
+    return targets, slack
 end
 
 local function rescueViable(helper, snapshot)
@@ -1608,72 +1885,164 @@ function Medical.canTreatNow(actor, snapshot)
     return bandageSemiSafe(actor, snapshot)
 end
 
-local function treatmentCapability(helper, patient, options)
-    options = type(options) == "table" and options or {}
-    local assessment = Medical.assess(patient)
-    if not Medical.isLivingPatient(patient, assessment) then return nil, "invalid_patient" end
-    local wound
-    if options.dirtyOnly then
-        -- Quiet-time wound care: change a soiled dressing first, then dress a
-        -- wound that stopped bleeding before anyone covered it.
-        for _, value in ipairs(assessment.wounds or {}) do
-            if value.dirtyBandage then wound = value break end
-        end
-        if not wound then
-            for _, value in ipairs(assessment.wounds or {}) do
-                if value.openWound then wound = value break end
-            end
-        end
-    else
-        for _, value in ipairs(assessment.wounds or {}) do
-            if value.bleeding and not value.bandaged then
-                wound = value
-                break
-            end
-        end
-        if wound == nil and assessment.needsSplint then
-            local splint, source = findSplint(helper)
-            if splint then
-                for _, value in ipairs(assessment.wounds or {}) do
-                    if value.needsSplint then
-                        return {
-                            assessment = assessment, wound = value,
-                            inventory = source, bandage = splint,
-                            splintOnly = true, visualAction = "apply_splint",
-                            available = true,
-                        }
-                    end
-                end
-            end
-        end
-        wound = wound or chooseWound(assessment, true)
+function Medical.selectCareNeed(patient,assessment,context)
+    local P=SC.MedicalProcedures
+    if not P then return nil end
+    assessment=assessment or Medical.assess(patient)
+    P.refreshInfectionEpisodes(patient,assessment)
+    local wound=P.need(patient,assessment)
+    -- Fresh bleeding retains absolute priority, including ahead of recovery.
+    if wound and wound.rank==1 then return wound end
+    local medicine=SC.MedicalMedicines and SC.MedicalMedicines.need(patient,assessment,context)
+    if medicine and (not wound or medicine.pending and not wound.pending
+        or medicine.kind=="take_antibiotics" and wound.kind=="disinfect_wound") then return medicine end
+    return wound or medicine
+end
+function Medical.careNeed(patient, assessment, context)
+    if not SC.MedicalProcedures then return nil end
+    assessment=assessment or Medical.assess(patient)
+    local need=Medical.selectCareNeed(patient,assessment,context)
+    if need and need.wholeBody then
+        return {kind=need.kind,key=need.key,rank=need.rank,wholeBody=true,
+            visitEligible=need.visitEligible,pending=need.pending,terminalQuarantine=need.terminalQuarantine}
     end
-    if not wound then
-        return nil, assessment.needsSplint and "no_splint"
-            or "no_treatable_wound"
-    end
-    -- A dirty dressing may stop fresh bleeding, but never replaces a dressing
-    -- or covers a wound that has already stopped bleeding.
-    local bandage, inventory = findBandage(helper,
-        options.dirtyOnly ~= true and wound.bleeding == true and wound.bandaged ~= true)
-    local clothing, candidate, failure
-    if not bandage then
-        clothing, inventory, candidate, failure = emergencyClothing(helper)
-        if not clothing then
-            return {
-                assessment = assessment, wound = wound, inventory = inventory,
-                dirtyOnly = options.dirtyOnly == true,
-            }, options.dirtyOnly and "no_clean_bandage"
-                or (failure == "no_expendable_clothing" and "no_bandage" or failure or "no_bandage")
+    return SC.MedicalProcedures.publicNeed(need)
+end
+function Medical.campCareNeed(patient,assessment,context)
+    local need=Medical.careNeed(patient,assessment,context)
+    return need and need.visitEligible and need or nil
+end
+function Medical.pendingCare(patient)
+    local wound=SC.MedicalMaintenance and SC.MedicalMaintenance.pendingView(patient)
+    local medicine=SC.MedicalMedicines and SC.MedicalMedicines.pendingView(patient)
+    if wound and not wound.terminalQuarantine then return wound end
+    return medicine or wound
+end
+function Medical.careContextValid(helper,patient,options,stage)
+    if not options or not options.campVisit then return true end
+    if type(options.validateContext)~="function" then return false,"medical_visit_invalid" end
+    local okay,valid,reason=pcall(options.validateContext,helper,patient,stage)
+    return okay and valid==true,okay and reason or "medical_visit_invalid"
+end
+function Medical.isCareSnapshotSafe(actor,snapshot)
+    if type(snapshot)~="table" or snapshot.valid~=true then return false,"danger_check_unavailable" end
+    local current=U().nowMs()
+    local observed
+    for _,field in ipairs({"time","reflexTime"}) do
+        local value=snapshot[field]
+        if value~=nil then
+            if type(value)~="number" or value~=value or value==math.huge or value<0 or value>current then return false,"danger_check_stale" end
+            observed=math.max(observed or value,value)
         end
     end
-    return {
-        assessment = assessment, wound = wound, inventory = inventory,
-        bandage = bandage, emergencyCandidate = candidate,
-        dirtyOnly = options.dirtyOnly == true,
-        visualAction = options.visualAction,
-        available = true,
-    }
+    local maximum=tonumber(U().config("perceptionSafetyFreshMs")) or 1500
+    if maximum~=maximum or maximum==math.huge or maximum<=0 then maximum=1500 end
+    if observed==nil or current-observed>maximum then return false,"danger_check_stale" end
+    for _,field in ipairs({"threatCount","immediateCount","closeThreatCount"}) do
+        local value=snapshot[field]
+        if type(value)~="number" or value~=value or value<0 or value==math.huge then return false,"danger_check_unavailable" end
+    end
+    if not Medical.canTreatNow(actor,snapshot) then return false,"danger_preempted" end
+    return true
+end
+function Medical.electiveSafe(helper,patient,runtime,campVisit)
+    runtime=U().actorState(helper,runtime)
+    local snapshot=runtime.senses and runtime.senses.current or runtime.snapshot
+    if not Medical.isCareSnapshotSafe(helper,snapshot) then return false end
+    if patient~=helper and not U().isDead(patient) then
+        local target=U().peekActorState(patient)
+        local observed=target and (target.senses and target.senses.current or target.snapshot)
+        if not Medical.isCareSnapshotSafe(patient,observed) then return false end
+    end
+    return true
+end
+
+local function treatmentCapability(helper,patient,options)
+    options=type(options)=="table" and options or {}
+    local assessment=Medical.assess(patient)
+    local P=SC.MedicalProcedures
+    local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(patient)
+    if not Medical.isLivingPatient(patient,assessment) and not (pending and not pending.redress) then return nil,"invalid_patient" end
+    local context={}
+    for key,value in pairs(options.supplyContext or options) do context[key]=value end
+    context.helper=helper
+    local need=Medical.selectCareNeed(patient,assessment,context)
+    if not need then return nil,assessment.needsSplint and "no_splint" or "no_treatable_wound" end
+    if options.careKind and options.careKind~=need.kind or options.woundIndex~=nil and options.woundIndex~=need.woundIndex
+        or options.careKey and options.careKey~=need.key then return nil,"medical_need_changed" end
+    local wound=need.wound
+    local common={assessment=assessment,wound=wound,careKind=need.kind,careKey=need.key,
+        campVisit=options.campVisit==true,validateContext=options.validateContext,available=true}
+    if need.wholeBody and SC.MedicalMedicines then
+        local medicines=SC.MedicalMedicines
+        common.medicineKind,common.wholeBody,common.medicineContext=need.kind,true,context
+        common.inventory=U().inventory(helper)
+        if need.pending then
+            common.recovery=true;common.resources={}
+        else
+            local plan,reason=medicines.prepare(helper,patient,need,context)
+            if not plan then return nil,reason end
+            common.medicinePlan,common.resources=plan,plan.resources
+        end
+        return common
+    end
+    if need.pending then
+        if pending.ownerId and pending.ownerId~=P.actorId(helper) then return nil,"medical_pending_owned" end
+        if pending.terminalQuarantine then return nil,"medical_consumption_uncertain" end
+        common.maintenanceKind=pending.kind;common.returnOnly=not pending.redress;common.recovery=true
+        if pending.redress then
+            local fresh,source=SC.MedicalMaintenance.preferredFresh(helper,pending)
+            if pending.procedure and fresh and not P.itemAllowed(helper,fresh,false) then fresh=nil end
+            if not fresh then
+                local serious={};for key,value in pairs(wound) do serious[key]=value end
+                serious.seriousAfterProcedure=pending.procedure~=nil
+                fresh,source=findBandage(helper,false,serious)
+                if pending.procedure and fresh and not P.itemAllowed(helper,fresh,false) then fresh=nil end
+            end
+            if not fresh then return nil,pending.kind=="remove_stitches" and "no_clean_dressing_for_stitches" or "no_clean_bandage" end
+            common.bandage,common.inventory=fresh,source
+        else common.inventory=U().inventory(helper) end
+        common.resources={}
+        if common.bandage then common.resources[#common.resources+1]=common.bandage end
+        local data=pending.procedure
+        if data and data.consumable and not data.debitDone and not data.quarantined and data.consumable.item then
+            common.resources[#common.resources+1]=data.consumable.item
+        end
+        return common
+    end
+    if P and P.handles(need.kind) then
+        local plan,reason=P.prepare(helper,need,bandageRank)
+        if not plan then return nil,reason end
+        common.maintenanceKind,common.procedurePlan=need.kind,plan
+        common.bandage,common.inventory=plan.fresh.item,plan.fresh.source
+        common.resources=plan.resources
+        return common
+    end
+    if need.kind=="apply_splint" then
+        local item,source=findSplint(helper)
+        if not item then return nil,"no_splint" end
+        common.bandage,common.inventory,common.splintOnly,common.visualAction=item,source,true,"apply_splint"
+        return common
+    end
+    if need.kind=="remove_stitches" or need.kind=="remove_splint" then
+        common.maintenanceKind=need.kind
+        if need.kind=="remove_stitches" then
+            common.bandage,common.inventory=findBandage(helper,false,wound)
+            if not common.bandage and wound.bandaged then return nil,"no_clean_dressing_for_stitches" end
+        end
+        common.inventory=common.inventory or U().inventory(helper)
+        return common
+    end
+    local urgent=need.rank==1
+    common.dirtyOnly=need.kind=="replace_bandage"
+    common.bandage,common.inventory=findBandage(helper,urgent,wound)
+    if not common.bandage then
+        local clothing,source,candidate,reason=emergencyClothing(helper)
+        if not clothing then common.available=false;return common,common.dirtyOnly and "no_clean_bandage" or reason or "no_bandage" end
+        common.inventory,common.emergencyCandidate=source,candidate
+    end
+    common.visualAction=options.visualAction
+    return common
 end
 
 -- Keep a moving Follow squad together while still allowing immediate care for
@@ -1741,7 +2110,7 @@ end
 -- every answer is a fresh body assessment plus bandage, splint and clothing
 -- searches. Treatment re-reads the capability itself, so a decision acting on
 -- an answer up to a second old costs one refused treat() at most.
-function Medical.canTreatPatient(helper, patient)
+function Medical.canTreatPatient(helper, patient, options)
     if not Medical.sameCareGroup(helper, patient) then
         return false, "different_expedition_group"
     end
@@ -1763,8 +2132,14 @@ function Medical.canTreatPatient(helper, patient)
     end
     local byPatient = treatReadiness[helper]
     local cached = byPatient and byPatient[patient]
-    if cached and now >= cached.at and now - cached.at < TREAT_READINESS_MS then
+    if type(options)~="table" and cached and now >= cached.at and now - cached.at < TREAT_READINESS_MS then
         return cached.ready, cached.reason
+    end
+    if type(options)=="table" then
+        local valid,why=Medical.careContextValid(helper,patient,options,SC.MedicalMaintenance.pending(patient) and "recovery" or "selection")
+        if not valid then return false,why or "medical_visit_invalid" end
+        local selected,failure=treatmentCapability(helper,patient,options)
+        return selected~=nil and selected.available==true,failure or "ready"
     end
     local capability, reason = treatmentCapability(helper, patient, {})
     local ready = capability ~= nil and capability.available == true
@@ -1820,6 +2195,10 @@ function Medical.treatmentHolder(patient, now)
         patientClaims[patient] = nil
         return nil
     end
+    if claim.campVisit and SC.MedicalVisits and type(SC.MedicalVisits.isClaimValid)=="function" then
+        local okay,valid=pcall(SC.MedicalVisits.isClaimValid,claim.helper,patient,claim.careKey)
+        if not okay or valid~=true then patientClaims[patient]=nil;return nil end
+    end
     if not U().isValidActor(claim.helper) then
         patientClaims[patient] = nil
         return nil
@@ -1829,12 +2208,18 @@ end
 
 -- True when this helper may work on this patient: either nobody holds them, or
 -- the holder is this helper renewing its own turn.
-function Medical.claimPatient(helper, patient, now)
+function Medical.claimPatient(helper, patient, now, scope)
     if helper == nil or patient == nil then return false end
+    if scope and scope.campVisit then
+        local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(patient)
+        local valid=Medical.careContextValid(helper,patient,scope,pending and "recovery" or scope.phase and "approach" or "selection")
+        if not valid then return false end
+    end
     now = tonumber(now) or U().nowMs()
     local holder = Medical.treatmentHolder(patient, now)
     if holder ~= nil and holder ~= helper then return false end
-    patientClaims[patient] = { helper = helper, untilAt = now + patientClaimLease() }
+    patientClaims[patient] = { helper = helper, untilAt = now + patientClaimLease(),
+        campVisit=scope and scope.campVisit==true,careKey=scope and scope.careKey }
     return true
 end
 
@@ -1888,18 +2273,28 @@ Medical._patientClaimsForTests = function() return patientClaims end
 
 local function beginTreatmentState(helper, patient, capability)
     local wound = capability.wound
-    local action = capability.splintOnly and "apply_splint"
+    local action = capability.medicineKind and (helper~=patient and "give_medicine" or capability.medicineKind)
+        or capability.maintenanceKind and capability.maintenanceKind ~= "redress" and capability.maintenanceKind
+        or capability.splintOnly and "apply_splint"
         or capability.dirtyOnly and "replace_dirty_bandage" or "treat_wound"
     local targetKey = tostring(U().idOf(patient) or "patient") .. ":"
-        .. tostring(wound.index)
+        .. (capability.wholeBody and "whole" or tostring(wound.index))
     local service = supervisor()
-    local priority = service and (wound.bleeding and service.Priority.COMBAT_RESCUE
+    local priority = service and (wound and wound.bleeding and service.Priority.COMBAT_RESCUE
         or service.Priority.NEEDS) or nil
     local state = {
-        phase = "selected", patient = patient, woundIndex = wound.index,
-        woundName = wound.name, dirtyOnly = capability.dirtyOnly == true,
+        phase = "selected", patient = patient, woundIndex = wound and wound.index,
+        woundName = wound and wound.name, dirtyOnly = capability.dirtyOnly == true,
         splintOnly = capability.splintOnly == true,
-        emergency = wound.bleeding == true,
+        maintenanceKind = capability.maintenanceKind,
+        medicineKind = capability.medicineKind, medicinePlan = capability.medicinePlan,
+        medicineContext = capability.medicineContext, wholeBody = capability.wholeBody,
+        returnOnly = capability.returnOnly == true,
+        procedurePlan = capability.procedurePlan,
+        careKind = capability.careKind, careKey = capability.careKey,
+        campVisit = capability.campVisit, validateContext = capability.validateContext,
+        recovery = capability.recovery,
+        emergency = wound and wound.bleeding == true,
         inventory = capability.inventory, bandage = capability.bandage,
         emergencyCandidate = capability.emergencyCandidate,
         visualAction = capability.visualAction,
@@ -1915,7 +2310,7 @@ local function beginTreatmentState(helper, patient, capability)
         end
         local token, reason, retry = service.begin(helper, {
             owner = "medical", action = action, targetKey = targetKey,
-            targetLabel = tostring(U().nameOf(patient)) .. " " .. tostring(wound.name),
+            targetLabel = tostring(U().nameOf(patient)) .. (wound and " " .. tostring(wound.name) or " medicine"),
             priority = priority,
             interruptible = true, requiresVisual = false,
             -- With supplies present a repeatedly-failing treatment (e.g. a rip that
@@ -1932,7 +2327,7 @@ local function beginTreatmentState(helper, patient, capability)
                 return releaseTreatmentResources(helper, state,
                     cancelReason or "medical_cancelled")
             end,
-            metadata = { woundIndex = wound.index, dirtyOnly = capability.dirtyOnly == true },
+            metadata = { woundIndex = wound and wound.index, wholeBody=capability.wholeBody,dirtyOnly = capability.dirtyOnly == true },
         })
         if not token then
             if service.containsDeferredStatus and service.containsDeferredStatus(reason) then
@@ -1947,18 +2342,15 @@ local function beginTreatmentState(helper, patient, capability)
         state.supervisorToken = token
         if capability.available ~= true then
             service.fail(token, capability.dirtyOnly and "no_clean_bandage" or "no_supplies", {
-                woundIndex = wound.index,
+                woundIndex = wound and wound.index,
             })
             return nil, capability.dirtyOnly and "no_clean_bandage" or "no_bandage"
         end
-        local resource = capability.bandage
-            or capability.emergencyCandidate and capability.emergencyCandidate.clothing
-        if resource then
-            local reserved, reserveReason = service.reserve(token, resource, "medical_supply")
-            if reserved ~= true then
-                service.fail(token, reserveReason or "reservation_lost")
-                return nil, reserveReason or "reservation_lost"
-            end
+        local resources=capability.resources or {capability.bandage
+            or capability.emergencyCandidate and capability.emergencyCandidate.clothing}
+        for _,resource in ipairs(resources) do
+            local reserved,reserveReason=service.reserve(token,resource,"medical_supply")
+            if reserved~=true then service.fail(token,reserveReason or "reservation_lost");return nil,reserveReason or "reservation_lost" end
         end
     elseif capability.available ~= true then
         return nil, capability.dirtyOnly and "no_clean_bandage" or "no_bandage"
@@ -1972,20 +2364,27 @@ continueTreatmentApproach = function(helper, state, runtime)
     if not Medical.sameCareGroup(helper, state.patient) then
         return clearTreatment(helper, state, "different_expedition_group")
     end
-    if not utility.isValidActor(state.patient) then
+    local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(state.patient)
+    if not utility.isValidActor(state.patient) and not (pending and not pending.redress) then
         return clearTreatment(helper, state, "invalid_target")
     end
     if Medical.playerSelfCareActive(state.patient) then
         return clearTreatment(helper, state, "player_self_care_started")
     end
     local rootRuntime = utility.actorState(helper, runtime)
+    state.runtime = rootRuntime
+    local contextOkay,contextReason=Medical.careContextValid(helper,state.patient,state,state.removalCommitted and "recovery" or "approach")
+    if not contextOkay then return clearTreatment(helper,state,contextReason or "medical_visit_invalid") end
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
+    if state.returnOnly and pending and not pending.redress then return finishTreatment(helper,state) end
     -- Self-treatment holds to the stricter semi-safe bar so a threat closing back
     -- in preempts a mid-combat self-bandage; rescuing another still uses the
     -- rescue viability bar.
     local selfTreatment = state.patient == helper
-    local stillViable = selfTreatment and bandageSemiSafe(helper, snapshot)
-        or (not selfTreatment and rescueViable(helper, snapshot))
+    local stillViable
+    if state.maintenanceKind or state.medicineKind then stillViable = Medical.electiveSafe(helper,state.patient,rootRuntime,state.campVisit)
+    elseif selfTreatment then stillViable = bandageSemiSafe(helper, snapshot)
+    else stillViable = rescueViable(helper, snapshot) end
     if not stillViable then
         return Medical.cancel(helper, "danger_preempted")
     end
@@ -2043,11 +2442,7 @@ continueTreatmentApproach = function(helper, state, runtime)
     if type(navigation) ~= "table" or type(navigation.requestAny) ~= "function" then
         return clearTreatment(helper, state, "navigation_unavailable")
     end
-    local targets = navigation.interactionTargets(helper, state.patient, {
-        snapshot = snapshot, maximum = 4,
-    })
-    local fallback = treatmentSquare(helper, state.patient)
-    if #targets == 0 and fallback then targets[1] = fallback end
+    local targets, arrival = treatmentTargets(helper, state.patient, navigation, snapshot)
     if #targets == 0 then return clearTreatment(helper, state, "no_interaction_point") end
     local transitioned, transitionReason = supervisedTransition(state, "approaching", {
         patientId = U().idOf(state.patient), candidates = #targets,
@@ -2058,7 +2453,7 @@ continueTreatmentApproach = function(helper, state, runtime)
     state.approachStartedAt = state.approachStartedAt or utility.nowMs()
     local ok, status = navigation.requestAny(helper, targets, "walk", {
         action = "move_to_treat", patient = state.patient, snapshot = snapshot,
-        arrivalDistance = 0.9, supervisorToken = state.supervisorToken,
+        arrivalDistance = arrival, supervisorToken = state.supervisorToken,
     })
     if not ok then return clearTreatment(helper, state, status or "route_failed") end
     supervisedProgress(state, "approach:" .. tostring(status), {
@@ -2069,9 +2464,18 @@ end
 
 function Medical.treat(helper, patient, runtime, options)
     local utility = U()
-    if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
+    local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(patient)
+    if not utility.isValidActor(helper) or not utility.isValidActor(patient) and not (pending and not pending.redress) then return false, "invalid_patient" end
     if not Medical.sameCareGroup(helper, patient) then return false, "different_expedition_group" end
     local active = treatmentState[helper]
+    options=type(options)=="table" and options or {}
+    if active and options.careKey and (active.patient~=patient or active.careKey~=options.careKey) then return false,"medical_helper_busy" end
+    local stage=(active and active.removalCommitted or pending~=nil) and "recovery" or active and "approach" or "selection"
+    local contextOkay,contextReason=Medical.careContextValid(helper,patient,active or options,stage)
+    if not contextOkay then
+        if active and active.patient==patient then Medical.cancel(helper,contextReason or "medical_visit_invalid") end
+        return false,contextReason or "medical_visit_invalid"
+    end
     -- Decision can delegate directly to treat() without running Medical.update.
     -- Recheck the active patient here so an approach started beside a moving
     -- squad is released as soon as that squad outruns the medic.
@@ -2090,7 +2494,7 @@ function Medical.treat(helper, patient, runtime, options)
         -- Renewal can fail: the lease lapsed and another helper took the
         -- casualty. Carrying on regardless meant two helpers advancing one
         -- treatment, so stop this one and leave the new holder's claim alone.
-        if not Medical.claimPatient(helper, active.patient, utility.nowMs()) then
+        if not Medical.claimPatient(helper, active.patient, utility.nowMs(), active) then
             -- Cancel only this helper's own work. releasePatient is deliberately
             -- not called with the patient: the new holder's claim is theirs.
             Medical.cancel(helper, "patient_taken_over")
@@ -2109,10 +2513,13 @@ function Medical.treat(helper, patient, runtime, options)
     if not capability then return false, capabilityReason or "no_treatable_wound" end
     local rootRuntime = utility.actorState(helper, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
+    if (capability.maintenanceKind or capability.medicineKind) and not Medical.electiveSafe(helper,patient,rootRuntime,capability.campVisit) then
+        return false, "danger_preempted"
+    end
     if not rescueViable(helper, snapshot) then return false, "unsafe_rescue" end
     -- Somebody is already seeing to them. One pair of hands is enough, and the
     -- rest of the group has its own work.
-    if not Medical.claimPatient(helper, patient, utility.nowMs()) then
+    if not Medical.claimPatient(helper, patient, utility.nowMs(), capability) then
         return false, "patient_already_treated"
     end
     local state, stateReason = beginTreatmentState(helper, patient, capability)
@@ -2383,6 +2790,59 @@ local function rescueCandidate(actor, player, snapshot)
     return best
 end
 
+-- A companion's own claimed controller is the authority for this short hold.
+-- Player care and camp visit holds keep their existing separate lifecycles.
+function Medical.isCompanionCareHeld(patient,runtime,assessment,current)
+    if not U().isCompanion(patient) or Medical.playerSelfCareActive(patient) then return false end
+    assessment=assessment or Medical.assess(patient)
+    if not Medical.isLivingPatient(patient,assessment) or assessment.needsBandage then return false end
+    local helper=Medical.treatmentHolder(patient,current)
+    local state=helper and treatmentState[helper]
+    if not helper or helper==patient or not state or state.patient~=patient or state.campVisit then return false end
+    if not state.removalCommitted and not state.recovery and Medical.assess(helper).needsBandage then return false end
+    if not Medical.sameCareGroup(helper,patient) or not U().sameFloor(helper,patient)
+        or U().distance(helper,patient)>3 or not Medical.travelRescueEligible(helper,patient,travelLeader(helper)) then return false end
+    local service=supervisor()
+    if service and (not state.supervisorToken or not service.isCurrent(state.supervisorToken)
+        or state.supervisorToken.owner~="medical") then return false end
+    if not Medical.electiveSafe(helper,patient,state.runtime,state.campVisit) then return false end
+    if not state.removalCommitted and not state.recovery then
+        local need=Medical.selectCareNeed(patient,assessment,state.medicineContext)
+        if not need or need.key~=state.careKey then return false end
+    end
+    return true
+end
+
+function Medical.preferredStitchHelper(patient,snapshot,player)
+    if SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
+        and SC.BaseLife.isInside and SC.BaseLife.isInside(patient) then return nil end
+    local need=Medical.careNeed(patient)
+    if not need or need.kind~="stitch_wound" or need.pending then return nil end
+    local patientLevel=U().perkLevel(patient,"Doctor",0)
+    local best,bestLevel,bestDistance
+    for _,ally in ipairs(type(snapshot)=="table" and snapshot.allies or {}) do
+        local helper=ally.actor
+        local level=helper and U().perkLevel(helper,"Doctor",0) or -1
+        local runtime=helper and U().peekActorState(helper)
+        local busy=SC.ActionSupervisor and SC.ActionSupervisor.current and SC.ActionSupervisor.current(helper)
+        local allied=helper and (not SC.Factions or not SC.Factions.areAlliesBetween
+            or SC.Factions.areAlliesBetween(helper,patient,player)==true)
+        if helper and helper~=patient and U().isCompanion(helper) and allied and U().isValidActor(helper)
+            and level>=patientLevel+2 and not busy and not treatmentState[helper]
+            and not Medical.hasActionableNeed(helper,Medical.assess(helper),false)
+            and Medical.sameCareGroup(helper,patient) and U().sameFloor(helper,patient)
+            and U().distance(helper,patient)<=3 and Medical.travelRescueEligible(helper,patient,player)
+            and Medical.electiveSafe(helper,patient,runtime)
+            and Medical.canTreatPatient(helper,patient,{careKind=need.kind,careKey=need.key,woundIndex=need.woundIndex}) then
+            local distance=U().distance(helper,patient)
+            if not best or level>bestLevel or level==bestLevel and distance<bestDistance then
+                best,bestLevel,bestDistance=helper,level,distance
+            end
+        end
+    end
+    return best
+end
+
 function Medical.update(actor, player, runtime)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -2398,6 +2858,11 @@ function Medical.update(actor, player, runtime)
     end
     local rootRuntime = utility.actorState(actor, runtime)
     local assessment = Medical.assess(actor, rootRuntime)
+    if active and active.patient~=actor and (active.procedurePlan or active.medicineKind)
+        and not active.removalCommitted and not active.recovery and assessment.needsBandage then
+        Medical.cancel(actor,"helper_needs_urgent_care")
+        active=treatmentState[actor]
+    end
     rootRuntime.medicalAssessment = assessment
     if (tonumber(assessment.health) or 0) > 35 then
         rootRuntime.nicknameCrisisKey = nil
@@ -2469,6 +2934,13 @@ function Medical.update(actor, player, runtime)
 
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     local treatmentFailure
+    if not assessment.needsBandage and SC.MedicalVisits and type(SC.MedicalVisits.isPatientHeld)=="function"
+        and SC.MedicalVisits.isPatientHeld(actor,rootRuntime,assessment,utility.nowMs()) then
+        utility.stop(actor);return true,"receiving_care"
+    end
+    if Medical.isCompanionCareHeld(actor,rootRuntime,assessment,utility.nowMs()) then
+        utility.stop(actor);return true,"receiving_care"
+    end
     local selfNeedsCare = Medical.hasActionableNeed(actor, assessment, false)
     if selfNeedsCare and bandageSemiSafe(actor, snapshot) then
         local ok, reason = Medical.treat(actor, actor, rootRuntime)
@@ -2511,8 +2983,17 @@ function Medical.update(actor, player, runtime)
     -- dressing, and carry on with one already under way.
     if ((tonumber(assessment.openWounds) or 0) > 0
             or (tonumber(assessment.dirtyBandages) or 0) > 0
-            or treatmentState[actor] ~= nil)
+            or assessment.needsMaintenance == true
+            or assessment.needsProcedure == true
+            or SC.MedicalMaintenance and SC.MedicalMaintenance.pending(actor) ~= nil
+            or treatmentState[actor] ~= nil
+            or SC.MedicalMedicines and SC.MedicalMedicines.need(actor,assessment)~=nil)
         and bandageSemiSafe(actor, snapshot) then
+        local preferred=not treatmentState[actor] and Medical.preferredStitchHelper(actor,snapshot,player)
+        if preferred then
+            local accepted,result=Medical.treat(preferred,actor,utility.peekActorState(preferred))
+            if accepted then return true,result end
+        end
         local ok, reason = Medical.replaceDirtyBandage(actor)
         if ok then return true, reason end
         treatmentFailure = treatmentFailure or reason
@@ -2530,6 +3011,12 @@ function Medical.replaceDirtyBandageAfterVisual(actor)
     -- Kept as a compatibility entry point, but it no longer commits after a
     -- foreign downtime visual. Medical owns selection, animation and commit.
     return Medical.replaceDirtyBandage(actor)
+end
+
+function Medical.cancelCare(helper,patient,key,reason,force)
+    local state=helper and treatmentState[helper]
+    if state and state.patient==patient and state.careKey==key then return Medical.cancel(helper,reason,force) end
+    return SC.MedicalMaintenance.cancelOwned(helper,patient,key)
 end
 
 function Medical.cancel(actor, reason, force)
@@ -2550,6 +3037,8 @@ function Medical.peek(actor)
         woundName = state.woundName, dirtyOnly = state.dirtyOnly,
         emergency = state.emergency, startedAt = state.startedAt,
         supervisorToken = state.supervisorToken,
+        careKind=state.careKind,careKey=state.careKey,committed=state.removalCommitted==true,
+        wholeBody=state.wholeBody,pending=Medical.pendingCare(state.patient)~=nil,
     }
 end
 
@@ -2592,6 +3081,9 @@ function Medical.reset(actor)
         downed = setmetatable({}, { __mode = "k" })
         treatmentState = setmetatable({}, { __mode = "k" })
         treatmentSpeechAt = setmetatable({}, { __mode = "k" })
+        if SC.MedicalMaintenance then SC.MedicalMaintenance.reset() end
+        if SC.MedicalProcedures then SC.MedicalProcedures.reset() end
+        if SC.MedicalMedicines then SC.MedicalMedicines.reset() end
     end
 end
 
@@ -2621,6 +3113,9 @@ function Medical.releaseActor(actor)
     treatmentState[helper] = nil
     end
     downed[actor] = nil
+    if SC.MedicalMaintenance then SC.MedicalMaintenance.releaseActor(actor) end
+    if SC.MedicalProcedures then SC.MedicalProcedures.release(actor,U().isDead(actor)) end
+    if SC.MedicalMedicines then SC.MedicalMedicines.releaseActor(actor) end
     return true
 end
 

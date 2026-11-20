@@ -4,7 +4,12 @@ package survivorcompanion.bridge;
 import java.lang.reflect.Method;
 import java.lang.reflect.Field;
 import java.lang.reflect.Array;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import se.krka.kahlua.vm.KahluaTable;
 
 /** Verifies the production bootstrap against the real Project Zomboid Kahlua runtime. */
 public final class SCNativeBridgeExposureTest {
@@ -12,6 +17,115 @@ public final class SCNativeBridgeExposureTest {
 
     private static void require(boolean value, String message) {
         if (!value) throw new AssertionError(message);
+    }
+
+    /** Exercise actual pinned-runtime body parts, including attachments with no active injury. */
+    private static void testBodyFacts() throws Exception {
+        Class<?> unsafeClass = Class.forName("sun.misc.Unsafe");
+        Field singleton = unsafeClass.getDeclaredField("theUnsafe");
+        singleton.setAccessible(true);
+        Object unsafe = singleton.get(null);
+        Method allocate = unsafeClass.getMethod("allocateInstance", Class.class);
+        zombie.characters.IsoPlayer actor = (zombie.characters.IsoPlayer) allocate.invoke(
+                unsafe, zombie.characters.IsoPlayer.class);
+        Class<?> damageClass = Class.forName("zombie.characters.BodyDamage.BodyDamage");
+        Object damage = allocate.invoke(unsafe, damageClass);
+        Field actorDamage = zombie.characters.IsoGameCharacter.class.getDeclaredField("bodyDamage");
+        actorDamage.setAccessible(true);
+        actorDamage.set(actor, damage);
+        Field stats = damageClass.getDeclaredField("stats");
+        stats.setAccessible(true);
+        stats.set(damage, Class.forName("zombie.characters.Stats").getConstructor().newInstance());
+        Field partsField = damageClass.getDeclaredField("bodyParts");
+        partsField.setAccessible(true);
+        ArrayList<Object> parts = new ArrayList<>();
+        partsField.set(damage, parts);
+        Class<?> partClass = Class.forName("zombie.characters.BodyDamage.BodyPart");
+        Class<?> typeClass = Class.forName("zombie.characters.BodyDamage.BodyPartType");
+        Object foot = typeClass.getField("Foot_R").get(null);
+        Map<Object, Object> values = new LinkedHashMap<>();
+        KahluaTable table = (KahluaTable) Proxy.newProxyInstance(KahluaTable.class.getClassLoader(),
+                new Class<?>[]{KahluaTable.class}, (proxy, method, arguments) -> {
+                    if (method.getName().equals("rawset")) { values.put(arguments[0], arguments[1]); return null; }
+                    if (method.getName().equals("wipe")) { values.clear(); return null; }
+                    if (method.getName().equals("toString")) return "body-facts-table";
+                    if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
+                    if (method.getName().equals("equals")) return proxy == arguments[0];
+                    if (!method.getReturnType().isPrimitive()) return null;
+                    if (method.getReturnType() == boolean.class) return false;
+                    if (method.getReturnType() == char.class) return '\0';
+                    return 0;
+                });
+
+        Object part = partClass.getConstructor(typeClass, zombie.characters.IsoGameCharacter.class)
+                .newInstance(foot, actor);
+        parts.add(part);
+        require(SCBridge.fillBodyFacts(actor, table) == 0 && Double.valueOf(0).equals(values.get("count")),
+                "healthy body part must not publish a wound tuple");
+
+        partClass.getMethod("setStitched", boolean.class).invoke(part, true);
+        partClass.getMethod("setStitchTime", float.class).invoke(part, 45.0f);
+        require(SCBridge.fillBodyFacts(actor, table) == 1 && Double.valueOf(1).equals(values.get("count")),
+                "a stitch-only native part was skipped before tuple publication");
+        require(values.get(1) == part && Double.valueOf(0).equals(values.get(2))
+                        && Double.valueOf(4096).equals(values.get(3)) && "Foot_R".equals(values.get(4))
+                        && !values.containsKey(5),
+                "stitch-only fact must preserve the four-field tuple and Lua number types");
+
+        partClass.getMethod("setBandaged", boolean.class, float.class, boolean.class, String.class)
+                .invoke(part, true, 10.0f, false, "Base.Bandage");
+        require(!(Boolean) partClass.getMethod("stitched").invoke(part),
+                "native dressing setup must cover the stitched flag");
+        require(SCBridge.fillBodyFacts(actor, table) == 1 && Double.valueOf(4104).equals(values.get(3)),
+                "covered native stitch timer was omitted from body flags");
+
+        part = partClass.getConstructor(typeClass, zombie.characters.IsoGameCharacter.class)
+                .newInstance(foot, actor);
+        parts.set(0, part);
+        partClass.getMethod("setSplint", boolean.class, float.class).invoke(part, true, 0.0f);
+        require(SCBridge.fillBodyFacts(actor, table) == 1 && Double.valueOf(1).equals(values.get("count"))
+                        && values.get(1) == part && Double.valueOf(8192).equals(values.get(3)),
+                "zero-factor spent native splint was skipped or marked as an active fracture");
+        partClass.getMethod("setFractureTime", float.class).invoke(part, 10.0f);
+        require(SCBridge.fillBodyFacts(actor, table) == 1 && Double.valueOf(8704).equals(values.get(3)),
+                "an active fracture must coexist with its splint flag");
+        partClass.getMethod("setFractureTime", float.class).invoke(part, 0.0f);
+        partClass.getMethod("setSplint", boolean.class, float.class).invoke(part, false, 0.0f);
+        partClass.getMethod("setSplintFactor", float.class).invoke(part, 1.0f);
+        require(!(Boolean) partClass.getMethod("isSplint").invoke(part)
+                        && SCBridge.fillBodyFacts(actor, table) == 1
+                        && Double.valueOf(8192).equals(values.get(3)),
+                "a positive native splint factor must remain a visible attachment without its flag");
+
+        part = partClass.getConstructor(typeClass, zombie.characters.IsoGameCharacter.class)
+                .newInstance(foot, actor);
+        parts.set(0, part);
+        partClass.getMethod("setBandaged", boolean.class, float.class, boolean.class, String.class)
+                .invoke(part, true, 10.0f, false, "Base.Bandage");
+        partClass.getMethod("setBiteTime", float.class).invoke(part, 5.0f);
+        partClass.getMethod("setScratchTime", float.class).invoke(part, 5.0f);
+        partClass.getMethod("setCutTime", float.class).invoke(part, 5.0f);
+        partClass.getMethod("setDeepWoundTime", float.class).invoke(part, 5.0f);
+        require(!(Boolean) partClass.getMethod("bitten").invoke(part)
+                        && !(Boolean) partClass.getMethod("scratched").invoke(part)
+                        && !(Boolean) partClass.getMethod("isCut").invoke(part)
+                        && !(Boolean) partClass.getMethod("deepWounded").invoke(part),
+                "native covered-injury setup must have hidden booleans");
+        require(SCBridge.fillBodyFacts(actor, table) == 1 && Double.valueOf(234).equals(values.get(3)),
+                "covered bite, scratch, cut and deep-wound timers must remain visible in body facts");
+
+        part = partClass.getConstructor(typeClass, zombie.characters.IsoGameCharacter.class)
+                .newInstance(foot, actor);
+        parts.set(0, part);
+        partClass.getMethod("setBandaged", boolean.class, float.class, boolean.class, String.class)
+                .invoke(part, true, 10.0f, false, "Base.Bandage");
+        require(SCBridge.fillBodyFacts(actor, table) == 1 && Double.valueOf(8).equals(values.get(3)),
+                "a healed clean dressing must remain available for cosmetic display");
+
+        parts.clear();
+        require(SCBridge.fillBodyFacts(actor, table) == 0 && Double.valueOf(0).equals(values.get("count"))
+                        && !values.containsKey(1) && !values.containsKey(3),
+                "empty native body facts retained a previous attachment tuple");
     }
 
     private static void testOptionalOptimizerBoundary() throws Exception {
@@ -194,6 +308,7 @@ public final class SCNativeBridgeExposureTest {
         require((Boolean) bootstrapClass.getMethod("isReady").invoke(null),
                 "production bootstrap did not expose the bridge: "
                         + bootstrapClass.getMethod("getStatus").invoke(null));
+        testBodyFacts();
 
         int requestsBeforeContractFailure = SCBridge.getSpawnRequestCount();
         for (String missing : new String[] {
@@ -288,7 +403,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.22-isocompanion-33".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.22-isocompanion-34".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");

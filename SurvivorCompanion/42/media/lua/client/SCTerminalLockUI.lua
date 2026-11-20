@@ -95,7 +95,7 @@ end
 function UI.primary(w)
     if w.lockPage then return false end
     local kind=SC.TerminalLocks.kind(w.system)
-    return kind=="wheel" or kind=="search" or kind=="emma" or kind=="phone" or kind=="radio" or kind=="story"
+    return kind=="wheel" or kind=="search" or kind=="emma" or kind=="phone" or kind=="radio" or kind=="story" or kind=="card"
 end
 function UI.instantChoice(w,raw)
     if w.lockConfirm or not raw:match("^[1-9]$") then return false end
@@ -121,6 +121,7 @@ function UI.primaryLines(w)
     if kind=="phone" then return SC.TerminalLockPhone.lines(w) end
     if kind=="radio" then return SC.TerminalLockRadio.lines(w) end
     if kind=="story" then return SC.TerminalLockStory.lines(w) end
+    if kind=="card" then return SC.TerminalLockCard.lines(w) end
     return {}
 end
 function UI.drawFooter(w,width)
@@ -185,6 +186,7 @@ function UI.rowCount(w)
     local total=0
     local columns=(w.lockPage=="case" or w.lockPage=="crack") and w:columns()>=65 and w:visibleRows()>=8 and math.floor(w:columns()*.58) or w:columns()
     local kind=SC.TerminalLocks.kind(w.system)
+    if not w.lockPage and kind=="card" then return SC.TerminalLockCardUI.rowCount(w) end
     if not w.lockPage and kind=="story" then
         local body,buttons,_,columns,available=UI.storyParts(w)
         if available<4 then return #UI.wrapped(w,SC.TerminalLockStory.lines(w),columns) end
@@ -239,6 +241,7 @@ function UI.draw(w,now)
         return true
     end
     if UI.primary(w) then
+        if SC.TerminalLocks.kind(w.system)=="card" then return SC.TerminalLockCardUI.draw(w,now) end
         if SC.TerminalLocks.kind(w.system)=="story" then UI.drawStory(w,now) return true end
         w.lockPanelVisible=math.max(1,w:visibleRows()-math.ceil(#UI.footer(w)/2))
         local kind=SC.TerminalLocks.kind(w.system)
@@ -261,8 +264,11 @@ function UI.footer(w)
     local options={{label=w:columns()>=60 and "Fine. Other ways in." or "Other ways in",value="other ways in"}}
     if w.system.lock.bypass then options={{label="Open case",value="open the case"},{label="CRACK.EXE",value="run crack.exe"}} end
     if w.system.lock.kind=="rival" then options={} end
+    if w.system.lock.kind=="card" and not w.lockPage and SC.TerminalLockCard.carried(w.player,w.system) then
+        table.insert(options,1,{label="Swipe card",value="swipe card"})
+    end
     local helper=SC.TerminalLockCrew.helper(w)
-    if helper then options[#options+1]={label="Ask "..SC.TerminalLockCrew.name(helper),value="ask for help"} end
+    if helper then options[#options+1]={label="Ask "..SC.TerminalLockCrew.name(helper),value=w.system.lock.kind=="card" and "companion hint" or "ask for help"} end
     options[#options+1]={label="Failed logins",value="failed logins"}
     return options
 end

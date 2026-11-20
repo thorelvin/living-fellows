@@ -35,7 +35,7 @@ BaseLife.JOB_TYPES = {
     haul = true, sort = true, sort_floor = true, fetch = true, unload_vehicle = true, stack_logs = true,
     refuel_vehicle = true, refuel_generator = true, generator_service = true,
     inflate_tires = true, wash_vehicle = true,
-    repair = true, replace_bandage = true, clean = true,
+    repair = true, replace_bandage = true, wash_dressings = true, clean = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
     gather_materials = true, production = true, farm = true, cook = true, radio_work = true,
 }
@@ -192,6 +192,11 @@ function BaseLife.upkeepSupplyRetryMs(job, reason)
 end
 local function transientJobDelay(job, reason)
     if type(job) ~= "table" then return nil end
+    if job.type == "wash_dressings" and (reason == "no_water_for_bandages"
+        or reason == "dressing_stock_missing" or reason == "dressing_storage_missing"
+        or reason == "base_storage_unloaded" or reason == "base_storage_changed"
+        or reason == "base_storage_withdrawals_disabled" or reason == "base_supply_reserved"
+        or reason == "base_supply_moved" or reason == "unsafe_area") then return 180000 end
     if job.type == "radio_work" and (reason == "radio_work_no_power"
         or reason == "radio_work_computer_missing" or reason == "radio_work_radio_missing"
         or reason == "radio_work_locked" or reason == "radio_work_interrupted"
@@ -219,7 +224,7 @@ end
 local roleAffinity = {
     generalist = { stack_logs = 5, haul = 4, sort = 4, sort_floor = 4, fetch = 4, unload_vehicle = 5, gather_materials = 5,
         clean = 3,
-        repair = 3, replace_bandage = 2,
+        repair = 3, replace_bandage = 2, wash_dressings = 2,
         craft_supply = 3, barricade = 2, maintain = 2, build = 2, production = 5 },
     guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1, gather_materials = 1,
         production = 1 },
@@ -228,7 +233,7 @@ local roleAffinity = {
     quartermaster = { stack_logs = 10, haul = 10, sort = 10, sort_floor = 10, fetch = 9, unload_vehicle = 12,
         gather_materials = 8,
         craft_supply = 4, production = 4 },
-    medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
+    medic = { replace_bandage = 10, wash_dressings = 12, fetch = 5, haul = 1, production = 2 },
     farmer = { farm = 30, haul = 3, sort = 2, sort_floor = 2, fetch = 3, production = 2 },
     chef = { cook = 30, haul = 2, sort = 2, sort_floor = 2, fetch = 2 },
     angler = { haul = 3, sort = 2, sort_floor = 2, fetch = 3, production = 1 },
@@ -4462,6 +4467,10 @@ end
 
 local function releaseExpiredJob(job)
     if job.state == "reserved" then
+        if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+            local settled, why = SC.BaseWork.reconcileExpiredJob(job, job.reservedBy)
+            if settled ~= true then job.blocker=why return false,why end
+        end
         job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
         job.updatedAt = now()
         bumpWorkConsistencyRevision()
@@ -4493,7 +4502,7 @@ function BaseLife.jobFor(actorId)
         if (job.state == "reserved" or job.state == "active") and job.reservedBy == actorId then
             if job.leaseUntil > current then return job end
             local released = releaseExpiredJob(job)
-            if released ~= true and job.state == "active" then return job end
+            if released ~= true and (job.state == "active" or job.state == "reserved") then return job end
         end
     end
     return nil
@@ -4772,6 +4781,10 @@ end
 function BaseLife.releaseJob(id, actorId, reason)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
+    if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+        local stopped, why = SC.BaseWork.cancelJob(id, actorId or job.reservedBy, reason or "job_released")
+        if stopped ~= true then return false, why end
+    end
     local fuelWork = job.type == "stack_logs" and SC.LogYard
                 or job.type == "unload_vehicle" and SC.VehicleUnload
         or job.type == "refuel_vehicle" and SC.VehicleRefuel
@@ -4796,6 +4809,10 @@ end
 function BaseLife.blockJob(id, actorId, reason, retryMs)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
+    if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+        local stopped, why = SC.BaseWork.cancelJob(id, actorId or job.reservedBy, reason or "job_blocked")
+        if stopped ~= true then return false, why end
+    end
     -- Keep the worker for the report: a playtest log said a barricade timed
     -- out twice but not whose approach failed.
     local worker = actorId or job.reservedBy
@@ -4905,6 +4922,10 @@ function BaseLife.completeJob(id, actorId, result)
     if not base or not job or (actorId ~= nil and job.reservedBy ~= actorId) then
         return false, "job_not_owned"
     end
+    if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+        local stopped, why = SC.BaseWork.cancelJob(id, actorId or job.reservedBy, "medical_visit_completed")
+        if stopped ~= true then return false, why end
+    end
     job.state, job.reservedBy, job.leaseUntil = "completed", nil, 0
     job.updatedAt, job.blocker = now(), nil
     base.completed[#base.completed + 1] = {
@@ -4950,6 +4971,8 @@ function BaseLife.cancelJob(id)
     end
     local transferJob = job.type == "stack_logs" or job.type == "haul" or job.type == "sort"
         or job.type == "sort_floor"
+        or job.type == "wash_dressings"
+        or (SC.MedicalVisits and SC.MedicalVisits.isJob(job))
         or job.type == "clean" or job.type == "radio_work"
         or job.type == "fetch" or job.type == "unload_vehicle"
         or job.type == "refuel_vehicle" or job.type == "generator_service" or job.type == "refuel_generator"

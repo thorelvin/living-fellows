@@ -1,0 +1,139 @@
+Living Fellows 0.27.45 - LARCH/KEY card recovery
+Validated 20 November 2026; local standalone build ready for playtesting.
+
+Scope
+  Worktree: C:\ZOMBOID\work\lk45; branch living_fellows/0.27.45.
+  Base: complete uncommitted medical-care 0.27.44 snapshot, based on a97ba197.
+  All 2,130 medical44 baseline files and its source file-set remain unchanged.
+  Medical Phases 1/2/3 are included; mc42, mc43 and mc44 remain separate snapshots.
+  Project Zomboid 42.22.2; native tests used unmodified official PZO V2.2.
+  Bridge protocol remains 42.22-isocompanion-34; world save schema remains 3.
+  Validation ran before source publication. Commit and push were subsequently
+  authorized; tags, real game installation and Workshop upload remain separate.
+
+Implemented
+  Concept 3's stripe workbench with concept 2's small card/reader illustration,
+  inside the existing LARCHFIELD casing. Green, sand, aqua and purple are supported.
+  Compact screens retain text, checksum and candidates through the existing scroll.
+  Independently seeded SITE-BADGE-CHECK stripes, stable nested candidate sets,
+  verified digits, Electrical scaling, a reader-log hint and a companion hint.
+  No-card recovery leaves four gaps; owner cards normally leave two; service one.
+  Electrical 6 removes one further gap, with a minimum of one.
+  Noncandidates and repeated wrong digits cost nothing. Several typed digits fill
+  left to right and stop on a mismatch; spaced/dashed digits are accepted here.
+  Five plus floor(Electrical/3) mismatches trigger a 60-game-minute lockout.
+  Read, solved, tried, hinted and lockout state survive reload; swiping cannot
+  bypass a current cooldown. Malformed card state uses legacy-word recovery.
+  Physical placement follows the drawer claim, excludes interlocked drawers,
+  retains ordinary loot and records spawning before insertion. About one reader
+  in five has no owner card. Shared code-wheel surface/floor geometry is preserved.
+  A right-click reads the exact owned selected card. The page/typed command
+  prefers service, then owner, then other cards. Stale/closed/powerless/far windows
+  cannot use the callback. It also works before recruiting any companion.
+  Unlock guards retain ownership, presence, proximity, power, life and complete
+  stripe checks. Tier-2 XP/payoff apply; slip recovery cannot encode a service card.
+  Encoding records its receipt before modifying this owner's carried card.
+  Service cards leave one gap on later card readers, without changing other locks.
+  Director weight 10, appropriate site boosts, no home/agriculture, ten-kind ledger,
+  expanded tour and old-save catchup. Existing LICENSED operators keep their title.
+  No zombie pathing, movement flags, waypoints or navigation states were changed.
+
+Native validation
+  Phase 0: 26 create + 9 genuine disk reload + 4 inventory visual checks passed.
+  setName alone persisted with customName=false; explicitly true also persisted.
+  Exact native bag/floor/item modData and fresh desk/container loot persisted.
+  Natural loaded drawers were explored, so the unexplored fixture used a newly
+  constructed native desk/container, with normal loot and a real map computer.
+  Native Base.IDcard model binding and Item_IDcard icon match the vanilla ID card.
+  Evidence: build\pzo-larch-key-20261120-151637-d5628f and ...151950-cf6680.
+
+  Final production: 82 acceptance + 72 second-launch reload checks passed.
+  Registered inventory event, foreign/owner selection, real mouse/typed input,
+  encode-menu callback, cross-machine service read, real higher-skilled companion
+  Ask footer/dialogue, reader hint, cooldown and actual game-hour expiry passed.
+  Exact service-card identity, name and bag contents survived real disk reload.
+  All four actual 1920x1080 themes, 1280 default and 800x600 compact rendered.
+  Real UI sound events played the original swipe and delayed good-read cue.
+  The extracted Card/Wheel native physical helper passed on a real map computer.
+  The original Rising save, installed mod, launcher/game files and primary queue
+  remained unchanged; all owned native clients are stopped.
+  Evidence: build\pzo-larch-key-20261120-155633-5954cb; output native-evidence-summary.json.
+
+  Native testing found a real lifecycle bug: the menu initially registered only
+  after companion transfers. The idle valid empty-roster window's real event
+  omitted its row, while the direct handler successfully swiped the owner card.
+  The card page now arms an idempotent checked menu-only hook. Failed reset
+  rollback restores that hook without enabling transfer wrappers.
+  Before-fix evidence: build\pzo-larch-key-20261120-154755-564c1a.
+
+Automated regression validation
+  Windows PowerShell 5.1 Test-Project.ps1 -Release: 5/5 PASS.
+  Installer publication/ownership/rollback cases: 18/18 PASS, isolated fixtures.
+  Normal/debug Lua compilation, native bridge/API checks, local standalone and
+  Workshop packaging, Lifecycle, Behaviour, Cargo and Interface passed.
+  Release evidence: build\test-results\20261120-155836-5676a2\summary.json.
+  Final separate UI suite: build\lk45-ui-standalone-r2.log, exit 0.
+  Final source/release-sync/assets: build\lk45-source-final.log, Scope All PASS.
+  Voice labels: build\lk45-voice.log, 218 actions and 226 labels PASS.
+  Card generation tested 10,000 seeds; Director coverage tested 3,000 histories,
+  including >=99% of available ten-kind tours by machine 17 and old-save catchup.
+  Repeated seeded assertions are not millions of distinct gameplay scenarios.
+  Focused UI: 1,200 assertions; runtime transaction boundary: 70 assertions.
+
+  Nineteen copied-source causal regressions fail their intended assertions;
+  clean positives pass: 8 model, 7 UI, 3 Director and 1 runtime menu rollback.
+  Evidence summaries are copied into output evidence/*-controls.json.
+  Controls cover ledger/tour/catchup, placement/receipts, checksum/gap persistence,
+  input normalization, repeated digit debit, exact item/window/click guards,
+  Ask dispatch, default art, hook arming, duplicate callbacks and reset restoration.
+  Earlier native fixture-only failures (floor lookup, constructed-PC assumption
+  and cumulative art history during resize) were corrected, without changing
+  production to satisfy those assumptions. Final screenshots were inspected.
+
+Source and package integrity
+  All 760 frozen production files match through native tests and release gate.
+  All 537 staged standalone payload files match the source via the public builder:
+  536 canonical mod files plus the standalone marker. Only the builder's declared
+  Workshop dependency metadata transforms apply to the two mod.info files.
+  ZIP has unique normalized paths and matches every staged file. Required seven
+  installer scripts, launchers, version, licence, README and preview match source.
+  Source delivery audit: output source-delivery-match.json. Original and updated
+  production/repository snapshots are retained in build; final snapshots in evidence.
+  Post-snapshot changes outside production are the native acceptance helper and
+  the two validation records. Visual diagnostic programs remain under ignored build.
+  Publication also removed one trailing blank line from the medical capabilities
+  fixture, without changing any executed statement. Production is unchanged.
+  Bridge SHA256: 2b460981e65bd56d3050b78aab650880cd7e0e4fe68b7a7c9e9cfba3012acef1
+  ZIP SHA256: 6369ea1123a2d4e84dd7e75d8a0fb16d60dabcaab85b222f868597521cd2ead1
+  Package: outputs\larch-key-02745\LivingFellowsCompanion-0.27.45-STANDALONE-WINDOWS.zip
+
+Original assets
+  ImageGen source/prompt/reference: output art/sources.json and LarchKeyTitle-source.png.
+  Lossless packaged art: two tiles, 336,339 bytes total, each below 300 KiB.
+  Complete lock art is 9,717,278 bytes. Manifest: docs\terminal-lock-art.json and
+  ASSET-MANIFEST.md. The 1302x388 view trims margins without changing source pixels.
+  tools\generate_terminal_card_sounds.py creates original mono 22,050 Hz PCM:
+  LFCardSwipe 0.4 seconds and LFCardRead about 0.13 seconds, without game recordings.
+  Cues use player UI audio and no world-noise event; good-read delay is 400 ms,
+  including when unlocking transitions to the payoff before that delay expires.
+
+Playtest handoff and limits
+  In an engine-debug game, set SCConfig.debugLockKind = "card" before opening a
+  new locked computer. It is consumed once; already-settled machines retain kind.
+  Public release defaults leave this nil and normal debug/spawn controls disabled.
+  Known-answer scripted owner UI interval was 16.04 seconds, including screenshot
+  dwell. This is not human usability evidence. First-time <=3-minute and learned
+  <90-second targets remain playtest items, with overall feel/readability.
+  The earlier black-world limitation is RESOLVED. The office was unpowered and
+  unlit even at noon; a stock torch reveals the real room, desk and computer.
+  Outdoors at noon, the exact physical card renders with the torch off and is
+  identified by the native Access Card (L. BELL) world-context label.
+  Follow-up: docs\validation-larch-key-viewport-02745.txt and output
+  native-viewport-summary.json. Images: native-lit-office.png,
+  native-world-card.png and native-world-card-context.png.
+  Earlier noon/window captures remain historical evidence of the unlit room.
+  screenshots/ contain actual native UI, not concept images. No human audio
+  listening result is claimed. Production and the original 154-check evidence
+  remain unchanged; human usability timing still needs playtest.
+  Human playtest feedback remains pending. Source publication was authorized after
+  these checks; no tag, real installation, Workshop upload or Field Guide update is included.

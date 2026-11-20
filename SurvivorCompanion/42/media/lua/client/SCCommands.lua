@@ -52,7 +52,8 @@ local copyLimits = {
     profile = { maxDepth = 3, maxEntries = 64 },
     memories = { maxDepth = 5, maxEntries = 8192 },
     background = { maxDepth = 4, maxEntries = 128 },
-    care = { maxDepth = 4, maxEntries = 192 },
+    -- Preserve the existing care budget alongside bounded medical receipts.
+    care = { maxDepth = 4, maxEntries = 512 },
     reveals = { maxDepth = 4, maxEntries = 128 },
     ritual = { maxDepth = 5, maxEntries = 96 },
     tales = { maxDepth = 5, maxEntries = 256 },
@@ -1874,11 +1875,14 @@ local function currentSquadPlan(actor)
     return nil
 end
 
-local function woundSummaries(wounds)
+local function woundSummaries(wounds, player)
     local result = {}
+    local doctorPerk = Perks and Perks.Doctor
+    local doctorLevel = doctorPerk and tonumber((U().call(player, "getPerkLevel", doctorPerk))) or 0
+    local revealStitchReadiness = (doctorLevel or 0) >= 7
     for index = 1, math.min(type(wounds) == "table" and #wounds or 0, 32) do
         local wound = wounds[index]
-        result[#result + 1] = {
+        local summary = {
             name = wound.name,
             index = wound.index,
             bleeding = wound.bleeding == true,
@@ -1891,8 +1895,17 @@ local function woundSummaries(wounds)
             deepWound = wound.deepWound == true,
             burned = wound.burned == true,
             fractured = wound.fractured == true,
-            severity = tonumber(wound.severity) or 0,
+            healed = wound.healed == true,
+            stitched = wound.stitched == true,
+            splinted = wound.splinted == true,
+            boneHealed = wound.boneHealed == true,
+            bullet = wound.bullet == true,
+            glass = wound.glass == true,
         }
+        if revealStitchReadiness and wound.stitched == true and type(wound.stitchReady) == "boolean" then
+            summary.stitchReady = wound.stitchReady
+        end
+        result[#result + 1] = summary
     end
     return result
 end
@@ -2076,7 +2089,7 @@ function Commands.describe(companionId, player)
         moveMode = state.moveMode,
         moveModeVersion = state.moveModeVersion,
         weaponPriority = state.weaponPriority,
-        wounds = woundSummaries(medical.wounds),
+        wounds = woundSummaries(medical.wounds, player),
         woundCount = medical.woundCount,
         supplies = supplies,
         ammunition = supplies.ammunition,

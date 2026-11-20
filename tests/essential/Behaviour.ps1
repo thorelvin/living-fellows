@@ -59,6 +59,37 @@
     (Join-Path $Client 'SCPZOptimizerAdapter.lua'),
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
+@{ Name = 'behaviour.medical-summary'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'medical_summary_harness.lua') }
+@{ Name = 'behaviour.medical-maintenance'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'medical_maintenance_harness.lua') }
+@{ Name = 'behaviour.medical-procedures'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_procedures_harness.lua')) }
+@{ Name = 'behaviour.medical-stitching'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_stitching_fixture.lua'),
+    (Join-Path $Gameplay 'medical_stitching_harness.lua')) }
+@{ Name = 'behaviour.medical-medicines'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_medicines_fixture.lua'),
+    (Join-Path $Gameplay 'medical_medicines_harness.lua')) }
+@{ Name = 'behaviour.medical-supplies'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_medicines_fixture.lua'),
+    (Join-Path $Gameplay 'medical_supplies_harness.lua')) }
+@{ Name = 'behaviour.medical-kit-phase3'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_medicines_fixture.lua'),
+    (Join-Path $Gameplay 'medical_kit_phase3_harness.lua')) }
+@{ Name = 'behaviour.medical-procedure-resources'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_procedure_resources_harness.lua')) }
+@{ Name = 'behaviour.medical-recovery-persistence'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Client 'SCPersistence.lua'),
+    (Join-Path $Essential 'medical_recovery_persistence_harness.lua')) }
+@{ Name = 'behaviour.medical-visits'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'medical_visits_harness.lua') }
+@{ Name = 'behaviour.medical-liveness'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'medical_liveness_regression_harness.lua') }
+@{ Name = 'behaviour.camp-dressing-wash'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'dressing_job_harness.lua') }
 @{ Name = 'behaviour.passenger-reading'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Shared 'SCCall.lua'),
     (Join-Path $Shared 'SCConfig.lua'),
@@ -88,6 +119,13 @@
     (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISWearClothing.lua'),
     (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISUnequipAction.lua'),
     (Join-Path $Essential 'native_clothing_harness.lua')) }
+@{ Name = 'behaviour.bandage-washing'; Files = @(Get-ScGameplayFiles) + @(
+    'SCNativeTraversalActions.lua', 'SCNativeVisualActions.lua', 'SCNativeCombatActions.lua',
+    'SCNativeWorkActions.lua', 'SCNativeMovementActions.lua', 'SCNativeActions.lua' |
+    ForEach-Object { Join-Path $Client $_ }) + @(
+    (Join-Path $GameRoot 'media\lua\shared\TimedActions\ISWashClothing.lua'),
+    (Join-Path $GameRoot 'media\lua\shared\Entity\TimedActions\ISHandcraftAction.lua'),
+    (Join-Path $Essential 'bandage_washing_harness.lua')) }
 @{ Name = 'behaviour.autonomy-ground-and-needs'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

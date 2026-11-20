@@ -12,6 +12,9 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 
 - `SCActor` selects a version-pinned provider, validates native components, owns transactional spawn/removal, and is the only gameplay movement/action entry point.
 - `SCActionSupervisor` is the actor-wide owner graph for Living Fellows work. It admits one exclusive action owner, records phase/deadline/receipt history, queues urgent survival work at checked cancellation boundaries, and permits an externally owned vanilla/third-party action only as a read-only busy state. Medical, locomotion, decision, and native-action adapters publish exactly-once terminal outcomes through this graph.
+- `SCTerminalLocks` dispatches ten everyday/rare recovery kinds through the existing terminal window. The world ledger retains `#KINDS` seen/beaten entries and finishes its bounded tour before machine 19. Card recovery uses an independently seeded badge, checksum, gap order and candidate sets; only bounded progress is saved on the computer. State normalization accepts the additive `card` extension while preserving the existing damaged-record policy and old LICENSED operators.
+- `SCTerminalLockCard` prepares progress separately from physical placement. Placement runs after the drawer claim, marks its receipt before insertion, excludes every interlocked container and matches cards by persisted seed rather than an object reference. A generic swipe ranks service/owner/other cards; an inventory callback validates and reads the exact selected owned item against the current nearby powered reader window. The card page registers that inventory event independently of companion transfer hooks; failed runtime resets restore menu-only registration without enabling transfers. Service encoding records completion before changing the physical card. The shared `SCTerminalLockPhysical` helper retains the code wheel's original surface/floor fallback geometry.
+- `SCTerminalLockCardUI` paints masked stripe cells and measured-width digit choices inside the existing CRT viewport. Optional monochrome artwork fits the standard workbench's unused metadata area and disappears at the 70-column compact target. Smaller views retain text, checksum and choices. Companion help uses a distinct footer command, then peeks, speaks and commits the same gap; generic help remains explanatory. Swipe/read cues share the terminal's player-only UI sound path and existing window update owner.
   Kahlua does not honour Lua's weak-table mode, so the per-actor maps shrink only
   through the explicit `releaseActor` path: every retirement route (death, removal,
   world unload, failed-spawn rollback, removal quarantine, main-menu teardown) calls
@@ -334,11 +337,83 @@ Gameplay modules use `SC.Actor.setMovement(actor, mode, intent)`. The adapter no
 
 ## Native actor-provider hard gate
 
+Medical bulk facts keep four fields per part: native `BodyPart`, index, flags,
+and name. Protocol 34 adds stitch (4096) and splint (8192) bits before filtering
+empty parts; hidden bite, scratch, cut, deep-wound and stitch timers supplement
+their masked booleans. Lua validates protocol and the 16383 flag ceiling before
+using the bulk capture, otherwise it assesses parts directly. Display rows are
+separate from active injury counters. Native attachment removal shares the
+patient claim and contact/safety checks with ordinary care; a committed removal
+retains its redressing and material-return obligations rather than replaying it.
+
+`SCMedicalProcedures` selects bullet and glass removal, burn cleaning and local
+wound disinfection in the shared clinical priority order. It validates exact
+permitted supplies before uncovering a part, verifies native changes before
+debiting supplies, and publishes irreversible proof to `SCMedicalMaintenance`.
+The shared receipt owns unfinished consumption, returned coverings and fresh
+redressing. Recovery cannot repeat surgery; ambiguous consumption is quarantined.
+Bounded recovery metadata and dose times survive the ordinary saved care
+document. Reloaded unknown native handles become quarantined evidence while
+safe redressing and basic care remain available. Medical approach goals account
+for the patient's actual position and the native arrival allowance, so an
+arrival can reach the existing exact contact range without changing navigation
+or relaxing wall checks.
+Disinfection requires exhausted native alcohol and at least two game hours since
+the last verified dose. It does not diagnose or treat Knox infection.
+
+Stitching is another claimed procedure between disinfection and ordinary
+dressing. It reserves a fresh covering and an exact suture needle or thread use
+before uncovering the wound, preserves native pain/time/infection/XP requests,
+and retains irreversible proof through return/debit/redress recovery. A nearby
+free companion with at least two more First Aid levels can provide care outside
+camp. Decision polls that healthy helper's medical owner and gives the patient
+a scoped hold which yields immediately to danger or urgent bleeding.
+
+Surgical XP uses native `XP.AddXP(perk, amount, true, true, false, false)`:
+the shorter player wrapper rejects nonlocal companions. The native overload
+retains vanilla multipliers without changing actor identity. Irreversible proof
+is published before the one XP attempt, so recovery never awards it again.
+Skill capture includes unseen positive native XP below the first level;
+restoration applies the saved remainder with multipliers disabled.
+
+`SCMedicalMedicines` selects whole-body painkiller/antibiotic care without a fake
+body part. It uses the same Medical patient claim, contact and safety controller;
+its bounded optional care ledger records daily limits and exact uncertain native
+outcomes. Native active and lingering effects prevent repeat doses. Only local
+wound infection qualifies for antibiotics; normal food selection excludes them.
+`SCMedicalSupplies` observes permitted camp stock in bounded slices and rechecks
+its complete bounded source set at dose commit. Scarce antibiotics reserve care
+for the worst eligible local infection. Unknown stock or native effects fail
+closed. The shared saved care budget is 512 values at depth 4, schema 3.
+
+`SCMedicKit` stocks two clean dressings, painkillers and a stitching set, retaining
+exact loose essentials as well as kit contents. Compatible removal tools and
+available disinfectant/antibiotics are sought without changing storage categories.
+Optional missing items do not starve later kit needs. Only an owned Medic-kit
+container loan can permit use of its own unloaned contents; item loans, foreign
+containers and favorite/manual protections remain enforced.
+
+`SCMedicalVisits` schedules one camp job per patient, independent of the assigned
+medic. Its scoped patient hold applies only during an owned, safe approach or
+treatment and never replaces the player's care hold. Current danger releases it.
+A bounded lease sweep runs independently of the camp audit's family cursor; an
+unavailable medic yields the same job to the patient after the waiting lease.
+Camp departure ends elective visits while committed medical obligations survive
+for safe recovery. Ordinary squad membership does not replace the existing
+expedition care-group boundary.
+
+Personal and camp dressing washing share exact-input and fluid policy in
+`SCBandageWash`. Stock `ISWashClothing` and `CleanBandage` handcraft effects own
+the transformation. Camp `wash_dressings` receipts track up to eight native
+identities, move ownership only to verified replacements, and revalidate Medical
+storage at deposit. A wash receipt may exempt only its own dirty input from its
+reservation; personal, loan and other subsystem protections still apply.
+
 `SCLauncher` starts `SCBootstrap` before delegating to the unmodified `MainScreenState.main`. `SCExposure` publishes the versioned `SCBridge` API and the otherwise-unexposed, version-pinned `zombie.AttackType` enum into Kahlua; readiness requires `SHOVE`, `STOMP`, `SHOT`, and `MELEE_SWING`, so Lua never guesses an attack type. `SCBridge` only creates the original final `SCNativeCompanion extends IsoPlayer` class in single-player with no split-screen and no occupied extra local-player slots. Lua requests creation asynchronously: a daemon performs only the queue hand-off, then Project Zomboid constructs the actor on its next main-loop pass after the originating `LuaJavaInvoker` frame has unwound. This is required because the stock `IsoPlayer` constructor synchronously fires `OnCreateLivingCharacter`, and re-entering Kahlua from the exposed bridge call can corrupt Build 42.20.4's pooled return-value state. The actor constructor sets NPC mode and reserved internal index 3 but never writes the static player array or singleton.
 
 Protocol 8 also exposes three main-thread-only bulk readers. `captureItemFacts` copies scalar item/Food/drainable/key/weapon/magazine state into one reused Kahlua table while graph-shaped ModData, fluids, visuals, parts and nested inventories remain under Lua validation. `fillEdgeFacts` batches version-pinned square and barrier facts while Lua retains safehouse, key, capability, reservation, hazard and cost policy. `fillZombieSnapshot` publishes the coherent roster described above. Java normalizes every raw numeric table value to `Double`, and Lua validates the complete expected type contract before accepting item or zombie bulk output. All three fail closed into the existing Lua paths; no Kahlua table or game object crosses to a worker thread. Successful Java methods are cached by Java metatable and name only for the active bootstrap generation, while synchronous decision read batches reuse positions/squares only until that callback returns.
 
-Creation requires a loaded square plus native BodyDamage, Moodles, XP, emitter, and HumanVisual. The `IsoPlayer` subtype supplies those native human components, but its local-player update controller is never entered. The sole exception is a synchronous, `volatile` wall-climb outcome context: `isLocalPlayer()` is true only while `ClimbOverWallState.setParams()` rolls vanilla success/struggle/fail, is cleared in `finally`, and never publishes the actor into a player slot, singleton, camera, or local update controller. Every inherited `triggerContextualAction` overload is overridden to refuse the local player's `ContextualAction` hook, whose stock handlers resolve `getSpecificPlayer(getIndex())` and would queue the player's timed actions; companion climbs call `climbOverFence`, `climbThroughWindow` and the wall entry directly, and only while the stock action graph can consume the climb event. During construction, the bridge snapshots and temporarily clears only the `OnCreateLivingCharacter` callback list, then restores the identical references and order before proceeding; this prevents third-party player hooks from entering Kahlua inside the NPC constructor. Version-pinned reflective calls invoke `IsoGameCharacter.updateInternal`, `IsoPlayer.updateWhileInVehicle`, and `IsoPlayer.checkActionGroup`; bridge readiness validates all three exact signatures before any spawn. Java snapshots all four static player slots, `numPlayers`, the singleton, and the camera character across every update and recovery. Recruited companions can be reattached to a verified loaded square after chunk unload, while neutral unloaded encounters retire normally. Any other mutation or native failure freezes the companion and latches a diagnostic. World removal is postcondition-verified, and failed cleanup retains strong bridge/Lua ownership plus retry evidence. A restored companion is constructed undressed -- the survivor factory only makes clothed survivors, and `IsoPlayer`'s constructor dresses them before anything else runs -- so the only clothes it is ever seen in are the saved ones Lua applies immediately afterwards; a newly created companion keeps the factory outfit. The actor is additionally scene-culled until the mod has finished restoring it, which is best-effort: `setInvisible` drives alarms and the stats panel rather than rendering, and the hide is a deadline the actor's own update lifts after four seconds whatever Lua does. Strange Folk encounters that must go unnoticed by zombies cannot use `setZombiesDontAttack`, which Build 42 forces off for any character without the cheat capability; `SCBridge.setStoryZombieIgnored` sets a private flag that only the actor's `isZombiesDontAttack` override reads, clears it when ownership ends, and Lua trusts it only after reading the getter back. When the player turns on recruit protection in Mod Options, the actor's `Hit`, `helmetFall` and `addBlood` overrides veto the primary local player's weapon hits on a current ally that Lua marks `SC_PlayerAttackProtected`; the last two recognise that player's swing by its native hit list, because `CombatManager` bloodies a target and may knock its helmet off before calling `Hit`. A per-actor comfort controller applies the cough/sneeze and ordinary-cold options to the native `BodyDamage` around each update. Lua reads bridge protocol `42.22-isocompanion-33` from `SC.Identity` and rejects stale loaders.
+Creation requires a loaded square plus native BodyDamage, Moodles, XP, emitter, and HumanVisual. The `IsoPlayer` subtype supplies those native human components, but its local-player update controller is never entered. The sole exception is a synchronous, `volatile` wall-climb outcome context: `isLocalPlayer()` is true only while `ClimbOverWallState.setParams()` rolls vanilla success/struggle/fail, is cleared in `finally`, and never publishes the actor into a player slot, singleton, camera, or local update controller. Every inherited `triggerContextualAction` overload is overridden to refuse the local player's `ContextualAction` hook, whose stock handlers resolve `getSpecificPlayer(getIndex())` and would queue the player's timed actions; companion climbs call `climbOverFence`, `climbThroughWindow` and the wall entry directly, and only while the stock action graph can consume the climb event. During construction, the bridge snapshots and temporarily clears only the `OnCreateLivingCharacter` callback list, then restores the identical references and order before proceeding; this prevents third-party player hooks from entering Kahlua inside the NPC constructor. Version-pinned reflective calls invoke `IsoGameCharacter.updateInternal`, `IsoPlayer.updateWhileInVehicle`, and `IsoPlayer.checkActionGroup`; bridge readiness validates all three exact signatures before any spawn. Java snapshots all four static player slots, `numPlayers`, the singleton, and the camera character across every update and recovery. Recruited companions can be reattached to a verified loaded square after chunk unload, while neutral unloaded encounters retire normally. Any other mutation or native failure freezes the companion and latches a diagnostic. World removal is postcondition-verified, and failed cleanup retains strong bridge/Lua ownership plus retry evidence. A restored companion is constructed undressed -- the survivor factory only makes clothed survivors, and `IsoPlayer`'s constructor dresses them before anything else runs -- so the only clothes it is ever seen in are the saved ones Lua applies immediately afterwards; a newly created companion keeps the factory outfit. The actor is additionally scene-culled until the mod has finished restoring it, which is best-effort: `setInvisible` drives alarms and the stats panel rather than rendering, and the hide is a deadline the actor's own update lifts after four seconds whatever Lua does. Strange Folk encounters that must go unnoticed by zombies cannot use `setZombiesDontAttack`, which Build 42 forces off for any character without the cheat capability; `SCBridge.setStoryZombieIgnored` sets a private flag that only the actor's `isZombiesDontAttack` override reads, clears it when ownership ends, and Lua trusts it only after reading the getter back. When the player turns on recruit protection in Mod Options, the actor's `Hit`, `helmetFall` and `addBlood` overrides veto the primary local player's weapon hits on a current ally that Lua marks `SC_PlayerAttackProtected`; the last two recognise that player's swing by its native hit list, because `CombatManager` bloodies a target and may knock its helmet off before calling `Hit`. A per-actor comfort controller applies the cough/sneeze and ordinary-cold options to the native `BodyDamage` around each update. Lua reads bridge protocol `42.22-isocompanion-34` from `SC.Identity` and rejects stale loaders.
 
 `SCViewControl` implements bounded Peek and Watch tiers without changing camera ownership. The rebindable hold action follows the selected roster companion; the context-menu Watch action latches a validated companion until Stop watching, target loss, floor/range failure, or teardown. The central frame tick eases `IsoCamera.cameras[0].deferedX/deferedY` toward that actor through `SCBridge.setViewOffset` and back to zero on release. Both Lua and Java enforce a sixteen-tile radial bound, and Lua requires the same floor. The bridge rejects non-finite coordinates and writes only the deferred offsets, leaving player slots, the singleton, camera character and the independent `rightClickX/Y` aim lean untouched. Build 42.20.4's current `PlayerCamera.center()` assigns `offX/tOffX` together, so its apparent `/15` update does not ease this surface; smoothing is intentionally owned by Lua and uses real elapsed time.
 

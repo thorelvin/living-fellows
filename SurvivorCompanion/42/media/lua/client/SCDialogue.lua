@@ -3110,6 +3110,45 @@ local pools = {
             "Hurt. Getting used to it, which is worse.",
         },
     },
+    ["medical.remove_bullet"] = { common = {
+        "Hold still. Hold STILL.",
+        "Keep breathing. I've got the tool.",
+        "Look away if you need to. Just keep still.",
+    } },
+    ["medical.remove_glass"] = { common = {
+        "There's glass in there. Let me get it out.",
+        "Hold that steady. I can see the edge.",
+        "Don't pull away. Nearly got it.",
+    } },
+    ["medical.clean_burn"] = { common = {
+        "This will sting. Keep still for me.",
+        "Let me clean that burn before I cover it.",
+        "Clean cloth first. Then a fresh wrap.",
+    } },
+    ["medical.disinfect"] = { common = {
+        "A little alcohol, then a clean dressing.",
+        "Keep still. This bit won't be pleasant.",
+        "Let's keep that wound from getting worse.",
+    } },
+    ["medical.thanks"] = { common = {
+        "Thanks, doc.",
+        "That helps. Thank you.",
+    } },
+    ["medical.stitch"] = { common = {
+        "Hold still. I can close this up.",
+        "This will sting. Keep breathing.",
+        "A few stitches, then a fresh dressing.",
+    } },
+    ["medical.painkillers"] = { common = {
+        "That should take the edge off.",
+        "Now give those time to work.",
+        "Let's keep moving while the pain settles.",
+    } },
+    ["medical.antibiotics"] = { common = {
+        "This is for the wound infection.",
+        "That's the dose. Now we give it time.",
+        "I'll keep an eye on that wound.",
+    } },
     ["medical.bandage.minor"] = { common = {
         "Just a scratch. Hold still anyway.",
         "Let me wrap that before the dirt gets in.",

@@ -25,7 +25,8 @@ group.discovered=false group.lifecycle="active" group.recruitment=nil
 local seen={} for _,kind in ipairs(L.KINDS) do seen[kind]=true end
 local counts={} for _,kind in ipairs(L.KINDS) do counts[kind]=0 end
 for seed=1,100000 do local kind=L.choose(seed,{opened=99,seen=seen,beaten=seen},"general",{phone=true,rival=true}) counts[kind]=counts[kind]+1 end
-for kind,count in pairs(counts) do check(math.abs(count/1000-L.WEIGHTS[kind]/100*100)<1,"Phase 3 normalized rates: "..kind) end
+local weightTotal=0 for _,weight in pairs(L.WEIGHTS) do weightTotal=weightTotal+weight end
+for kind,count in pairs(counts) do check(math.abs(count/1000-L.WEIGHTS[kind]/weightTotal*100)<1,"Phase 3 normalized rates: "..kind) end
 local nonword=0
 for seed=1,10000 do
     local kind=L.choose(seed,{opened=99,seen={},beaten={}},"office",{phone=false,rival=false})

@@ -314,10 +314,13 @@ local function quarantine(receipt, reason, owner, preserveDetachedProof)
     return false, receipt.blocker
 end
 
-function Transport.isCargoProtected(item, actorOrId, operation)
+function Transport.isCargoProtected(item, actorOrId, operation, exceptWashJobId)
+    if SC.BandageWashing and SC.BandageWashing.reserved(item, exceptWashJobId) then
+        return true, "dressing_wash_owned"
+    end
     if SC.ForceEntry and SC.ForceEntry.protected(item) then return true, "force_entry_tool" end
     if SC.SortBatch and SC.SortBatch.protected(item) then return true,"sort_batch_owned" end
-    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return true end
+    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item, exceptWashJobId) then return true end
     if SC.FarmWork and SC.FarmWork.isItemProtected
         and SC.FarmWork.isItemProtected(item, actorOrId, operation) then return true end
     local data = itemData(item)
@@ -388,13 +391,16 @@ function Transport.marker(item)
     return markerOf(item), markerState(item)
 end
 
-function Transport.foreignProtected(item, actor)
+function Transport.foreignProtected(item, actor, exceptWashJobId)
+    if SC.BandageWashing and SC.BandageWashing.reserved(item, exceptWashJobId) then
+        return true, "dressing_wash_owned"
+    end
     local fuelData=itemData(item)
     if fuelData and fuelData.LF_ExpeditionFuel and SC.ExpeditionFuel and SC.ExpeditionFuel.reserved(item)
         and tostring(fuelData.LF_ExpeditionFuel.ownerId or "")~=tostring(actor and SC.GameplayUtil.idOf(actor) or "") then
         return true,"expedition_fuel_owned"
     end
-    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then
+    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item, exceptWashJobId) then
         return true, "chore_item_owned"
     end
     if SC.FarmWork and SC.FarmWork.isItemProtected
@@ -463,10 +469,34 @@ function Transport.foreignProtected(item, actor)
     local favorite, favoriteOk = invoke(item, "isFavorite")
     if favoriteOk and favorite == true then return true, "favorite_item" end
     if SC.PersonalItems and type(SC.PersonalItems.isProtected) == "function"
-        and SC.PersonalItems.isProtected(item, actor, "work_gather") then
+        and SC.PersonalItems.isProtected(item, actor, "work_gather", exceptWashJobId) then
         return true, "personal_item_owned"
     end
     return false
+end
+
+-- Only the exact current dirty input may ignore its own washing reservation.
+-- Every other cargo, personal, quest, loan and tool protection still applies.
+function Transport.bandageWashInputAllowed(item, actor, claim)
+    if type(claim) ~= "table" or type(claim.jobId) ~= "string"
+        or type(claim.ownsInput) ~= "function" or type(claim.validate) ~= "function"
+        or not SC.BandageWashing or not SC.PersonalItems then return false end
+    local okay, valid = pcall(claim.validate)
+    if not okay or valid ~= true then return false end
+    okay, valid = pcall(claim.ownsInput, item)
+    if not okay or valid ~= true or not SC.BandageWashing.ownsInput(actor, item, claim.jobId) then return false end
+    if SC.PersonalItems.isProtected(item, actor, "wash_bandage", claim.jobId)
+        or Transport.foreignProtected(item, actor, claim.jobId) then return false end
+    local fields = itemData(item)
+    if not fields then return false end
+    for key, value in pairs(fields) do
+        if value ~= nil and value ~= false and type(key) == "string"
+            and (string.sub(key, 1, 3) == "LF_" or string.sub(key, 1, 3) == "SC_") then
+            local lower = string.lower(key)
+            if string.find(lower, "loan", 1, true) or string.find(lower, "borrow", 1, true) then return false end
+        end
+    end
+    return true
 end
 
 function Transport.hasRoom(container, actor, item)

@@ -179,6 +179,66 @@ do
 end
 
 do
+    -- Card readers install only the inventory context event in an empty
+    -- roster. A refused teardown must restore it without activating the
+    -- unrelated transfer wrappers that have never been installed.
+    ready, reason, operational = SC.Runtime.start()
+    check(operational == true, "runtime restarts for menu-only inventory rollback")
+    local savedBridge = SC.UIBridge
+    local installed, menuAllowed = true, true
+    local removals, menuInstalls, transferInstalls = 0, 0, 0
+    SC.UIBridge = {
+        transferHookState = function() return false, true end,
+        inventoryMenuInstalled = function() return installed end,
+        removeTransferHook = function() removals=removals+1;installed=false;return true end,
+        installTransferHook = function() transferInstalls=transferInstalls+1;return true end,
+        installInventoryMenu = function()
+            menuInstalls=menuInstalls+1
+            if not menuAllowed then return false,"injected inventory menu restore refusal" end
+            installed=true return true
+        end,
+    }
+    local actorDisposals, registryClears, persistenceClears = SC.Actor.disposeCalls,
+        SC.Registry.resetCalls, SC.Persistence.resetCalls
+    local document, saves = fixture.document(), SC.Persistence.saveCalls
+    fixture.prepareResult=false fixture.prepareReason="injected menu-only preflight refusal"
+    reset, resetReason = SC.Runtime.reset(true)
+    check(not reset and string.find(tostring(resetReason),"menu-only preflight refusal",1,true)
+        and installed and menuInstalls==1 and transferInstalls==0 and removals==1,
+        "failed persistence preflight restores menu-only inventory hook without installing transfer wrappers")
+    check(SC.Runtime.isTickAttached() and fixture.tickCount()==1
+        and SC.Actor.disposeCalls==actorDisposals and SC.Registry.resetCalls==registryClears
+        and SC.Persistence.resetCalls==persistenceClears and SC.Persistence.saveCalls==saves
+        and fixture.document()==document,
+        "menu-only rollback preserves the exact live runtime and persistence ownership")
+    fixture.prepareResult=true fixture.prepareReason=nil
+    check(SC.Runtime.reset(true) and not installed and removals==2 and menuInstalls==1 and transferInstalls==0,
+        "successful teardown retry removes the restored menu without installing transfer wrappers")
+
+    ready, reason, operational = SC.Runtime.start()
+    check(operational == true, "runtime restarts for refused menu-only restoration")
+    installed=true menuAllowed=false
+    actorDisposals, registryClears, persistenceClears = SC.Actor.disposeCalls,
+        SC.Registry.resetCalls, SC.Persistence.resetCalls
+    document, saves = fixture.document(), SC.Persistence.saveCalls
+    fixture.prepareResult=false fixture.prepareReason="injected menu-only preflight refusal"
+    SC.State.active=true
+    reset, resetReason = SC.Runtime.reset(true)
+    check(not reset and string.find(tostring(resetReason),"inventory menu restore refusal",1,true)
+        and string.find(tostring(resetReason),"infrastructure rollback failed",1,true)
+        and not installed and transferInstalls==0,
+        "refused menu restoration reports the failed infrastructure rollback without activating transfer wrappers")
+    check(not SC.State.active and SC.State.disabledReason==resetReason
+        and SC.Runtime.save()==false and SC.Persistence.saveCalls==saves and fixture.document()==document
+        and SC.Actor.disposeCalls==actorDisposals and SC.Registry.resetCalls==registryClears
+        and SC.Persistence.resetCalls==persistenceClears,
+        "failed menu-only rollback blocks saves while preserving actor and persistence references")
+    fixture.prepareResult=true fixture.prepareReason=nil menuAllowed=true
+    check(SC.Runtime.reset(true),"failed menu-only restoration remains retryable")
+    SC.UIBridge=savedBridge
+end
+
+do
     -- A transient native-health dip must be tolerated for a bounded window so a
     -- teleport-recovered companion is not despawned before its native state settles
     -- (playtest: "teleported to me, then a health-check despawned her, body never

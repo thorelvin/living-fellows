@@ -1,5 +1,17 @@
 module Base
 {
+    sound LFCardSwipe
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFCardSwipe.wav, is3D = false, volume = 0.6, }
+    }
+    sound LFCardRead
+    {
+        category = UI,
+        maxInstancesPerEmitter = 1,
+        clip { file = media/sound/LFCardRead.wav, is3D = false, volume = 0.5, }
+    }
     sound LFSpiffyJingle
     {
         category = World,

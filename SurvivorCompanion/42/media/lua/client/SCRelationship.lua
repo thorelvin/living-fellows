@@ -5,6 +5,7 @@ local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Dialogue and type(require) == "function" then pcall(require, "SCDialogue") end
 if not SC.Background and type(require) == "function" then pcall(require, "SCBackground") end
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.Relationship = SC.Relationship or {}
 local Relationship = SC.Relationship
@@ -48,6 +49,19 @@ local function copyMap(source)
     return result
 end
 
+local function copyCare(source)
+    if source == nil then return {} end
+    local stable = SC.StableValue
+    if type(source) ~= "table" or not stable or type(stable.copyStrict) ~= "function" then
+        error("relationship_care_copy_unavailable")
+    end
+    local copied, reason = stable.copyStrict(source, {
+        maxDepth = 4, maxEntries = 512, path = "$.relationship.care",
+    })
+    if not copied then error("relationship_care_copy_failed: " .. tostring(reason)) end
+    return copied
+end
+
 local function replaceArguments(value, arguments)
     local result = tostring(value or "")
     for index, argument in ipairs(arguments or {}) do
@@ -88,7 +102,7 @@ function Relationship.initialize(actor, state)
     state.stress = clamp(state.stress == nil and 12 or state.stress, 0, 100)
     state.memories = type(state.memories) == "table" and state.memories or {}
     state.background = backgroundFor(actor, state.background)
-    state.care = copyMap(state.care)
+    state.care = copyCare(state.care)
     state.reveals = copyMap(state.reveals)
     state.timeTogetherMs = math.max(0, tonumber(state.timeTogetherMs) or 0)
     return state
@@ -723,6 +737,19 @@ local doingLabels = {
     morton_approach_chair = "taking a seat on stage",
     smoker_approach_chair = "heading to my window chair",
     replace_bandage = "tending a wound",
+    remove_stitches = "taking out stitches",
+    remove_splint = "taking off a splint",
+    remove_bullet = "removing a bullet",
+    remove_glass = "removing glass",
+    clean_burn = "cleaning a burn",
+    disinfect_wound = "disinfecting a wound",
+    stitch_wound = "stitching a wound",
+    take_painkillers = "taking painkillers",
+    take_antibiotics = "taking antibiotics",
+    give_medicine = "giving medicine",
+    receiving_care = "receiving medical care",
+    wash_bandage = "washing bandages",
+    wash_dressings = "washing bandages",
     survivalist_escape = "getting out of here",
     treat_patient = "treating an injury",
     scavenge = "searching for useful supplies",
@@ -971,6 +998,25 @@ local function doingResponse(actor, state, description)
     local actionKey = tostring(summary.action or "idle")
     local action = readableAction(actionKey)
     if summary.active == true then
+        local medical = summary.owner == "medical" and SC.Medical
+        local care = medical and type(medical.peek) == "function" and medical.peek(actor)
+        if care and care.patient and care.patient ~= actor then
+            local patientName = tostring(U().nameOf(care.patient))
+            if summary.phase == "waiting" or summary.phase == "cooling_down" then
+                return varied(actor, "doing.medical_waiting", "I'm waiting to finish tending %1.",
+                    { patientName }, state), "undecided", false
+            end
+            if care.phase == "approach" or care.phase == "approaching" then
+                return varied(actor, "doing.medical_approach", "I'm going to tend %1.",
+                    { patientName }, state), "yes", false
+            end
+            if care.wholeBody then
+                return varied(actor, "doing.medical_medicine", "I'm giving %1 medicine.",
+                    { patientName }, state), "yes", false
+            end
+            return varied(actor, "doing.medical_patient", "I'm tending %1: %2.",
+                { patientName, action }, state), "yes", false
+        end
         if summary.phase == "recovering" then
             return varied(actor, "doing.recovering",
                 "That route failed. I'm finding another way. Still %1.", { action }, state),

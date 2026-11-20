@@ -1230,30 +1230,40 @@ local function capturePossessions(actor, source, ownerId, context)
 end
 
 local function captureSkills(actor)
-    local result = {}
+    local result, seen = {}, {}
     local listOk, list = invoke(actor, "getPerkList")
     local xpOk, xp = invoke(actor, "getXp")
     if not listOk or list == nil then
         return result
     end
+    local function append(perk, positiveOnly)
+        if perk == nil or #result >= 128 then return end
+        local idOk, id = invoke(perk, "getId")
+        if not idOk or id == nil then return end
+        id = text(id, "", 96)
+        if id == "" or seen[id] then return end
+        local valueOk, value = false, nil
+        if xpOk then valueOk, value = invoke(xp, "getXP", perk) end
+        value = valueOk and finite(value, nil) or nil
+        if positiveOnly and (value == nil or value <= 0) then return end
+        local levelOk, level = invoke(actor, "getPerkLevel", perk)
+        local entry = {id=id,level=levelOk and math.max(0, math.floor(finite(level, 0))) or 0}
+        if value ~= nil then entry.xp = math.max(0, value) end
+        result[#result + 1], seen[id] = entry, true
+    end
     for index = 0, math.min(listSize(list), 128) - 1 do
         local info = listGet(list, index)
-        local perk = info and info.perk or nil
-        if perk ~= nil then
-            local idOk, id = invoke(perk, "getId")
-            if idOk and id ~= nil then
-                local levelOk, level = invoke(actor, "getPerkLevel", perk)
-                local entry = {
-                    id = text(id, "", 96),
-                    level = levelOk and math.max(0, math.floor(finite(level, 0))) or 0,
-                }
-                local valueOk, value = false, nil
-                if xpOk then
-                    valueOk, value = invoke(xp, "getXP", perk)
-                end
-                if valueOk then entry.xp = math.max(0, finite(value, 0)) end
-                result[#result + 1] = entry
-            end
+        append(info and info.perk, false)
+    end
+    -- Native XP can exist before the first level creates a PerkInfo. Read the
+    -- public registry as the stock skills panel does; retain only positive XP
+    -- omitted by the actor's list, within the existing shared 128-skill bound.
+    local factory = type(_G) == "table" and rawget(_G, "PerkFactory") or nil
+    local registryOk, registry = fieldValue(factory, "PerkList")
+    if xpOk and registryOk and registry ~= nil then
+        for index = 0, math.min(listSize(registry), 128) - 1 do
+            if #result >= 128 then break end
+            append(listGet(registry, index), true)
         end
     end
     return result
@@ -1419,7 +1429,7 @@ function persistence.captureRecord(record, vehicleState, options)
         "$.personality.background")
     if copyReason ~= nil then return nil, copyReason end
     local care
-    care, copyReason = stableCopy(personality.care, 4, 192, "$.personality.care")
+    care, copyReason = stableCopy(personality.care, 4, 512, "$.personality.care")
     if copyReason ~= nil then return nil, copyReason end
     local reveals
     reveals, copyReason = stableCopy(personality.reveals, 4, 128,
@@ -3749,29 +3759,46 @@ local passivePerkFloor = { Strength = true, Fitness = true }
 
 local function applySkills(actor, skills)
     skills = type(skills) == "table" and skills or {}
-    local factory = type(_G) == "table" and rawget(_G, "PerkFactory") or nil
+    local perks = type(_G) == "table" and rawget(_G, "Perks") or nil
     local xpOk, xp = invoke(actor, "getXp")
-    if factory == nil or not xpOk or xp == nil then
+    if perks == nil or not xpOk or xp == nil then
         return #skills == 0,
             #skills > 0 and "native skill API is unavailable" or nil
     end
     for _, entry in ipairs(skills) do
         if type(entry) == "table" and type(entry.id) == "string" then
-            local perkOk, perk = pcall(function()
-                return factory.getPerkFromName(entry.id)
-            end)
-            if not perkOk or perk == nil then
+            -- Saved keys are canonical IDs (Doctor), not translated display
+            -- names (First Aid). Unknown IDs resolve to the native MAX sentinel.
+            local perkOk, perk = staticInvoke(perks, "FromString", entry.id)
+            local idOk, resolvedId = invoke(perk, "getId")
+            local _, maximum = fieldValue(perks, "MAX")
+            local _, none = fieldValue(perks, "None")
+            if not perkOk or perk == nil or perk == maximum or perk == none
+                or not idOk or resolvedId ~= entry.id then
                 return false, "unknown perk in save record: " .. entry.id
             end
             local level = math.max(0, math.min(10, math.floor(finite(entry.level, 0))))
+            local currentOk, current = invoke(actor, "getPerkLevel", perk)
+            current = currentOk and finite(current, nil) or nil
+            if current == nil or current < 0 or current > 10 or current ~= math.floor(current) then
+                return false, "native perk level is unavailable: " .. entry.id
+            end
             if passivePerkFloor[entry.id] then
                 -- The background already seeded the vanilla passive baseline on
                 -- this freshly created actor. A save written before that seeding
                 -- carries Strength/Fitness 0, and restoring it verbatim would put
                 -- the companion back below character creation. Restore earned
                 -- progress, never a regression past what spawn established.
-                local currentOk, current = invoke(actor, "getPerkLevel", perk)
-                if currentOk then level = math.max(level, math.floor(finite(current, 0))) end
+                level = math.max(level, current)
+            end
+            if current ~= level then
+                -- Native setXPToLevel changes only the XP map. Restore the
+                -- separate PerkInfo level before adding its earned remainder.
+                local changed = invoke(actor, "setPerkLevelDebug", perk, level)
+                local verified, actual = invoke(actor, "getPerkLevel", perk)
+                if not changed or not verified or actual ~= level then
+                    return false, "native perk level could not be restored: " .. entry.id
+                end
             end
             local setOk = invoke(xp, "setXPToLevel", perk, level)
             if not setOk then
@@ -3779,8 +3806,20 @@ local function applySkills(actor, skills)
             end
             if entry.xp ~= nil then
                 local currentOk, current = invoke(xp, "getXP", perk)
-                local delta = finite(entry.xp, 0) - (currentOk and finite(current, 0) or 0)
-                if delta > 0 then invoke(xp, "AddXPNoMultiplier", perk, delta) end
+                current = currentOk and finite(current, nil) or nil
+                if current == nil then return false, "native skill XP is unavailable: " .. entry.id end
+                local delta = finite(entry.xp, 0) - current
+                if delta > 0 then
+                    -- The short native XP helpers ignore nonlocal companions.
+                    -- This public overload restores the saved remainder with
+                    -- every multiplier disabled, preserving ordinary levels.
+                    local added = invoke(xp, "AddXP", perk, delta, true, false, false, false)
+                    local verified, actual = invoke(xp, "getXP", perk)
+                    actual = verified and finite(actual, nil) or nil
+                    if not added or actual == nil or math.abs(actual - finite(entry.xp, 0)) > 0.001 then
+                        return false, "native skill XP could not be restored: " .. entry.id
+                    end
+                end
             end
         end
     end
@@ -4188,6 +4227,7 @@ local transientRestoreTokens = {
     -- A Java loader can leave the whole provider absent for this launch. This
     -- is an environment failure, not a failed attempt to restore this recruit.
     "scbridge is not exposed",
+    "native bridge protocol mismatch",
     "bridge bootstrap has not run", "bridge is still starting",
     "world is unavailable", "cell is unavailable", "square is not currently loaded",
     "vehicle is not loaded", "spawn_pending",

@@ -125,6 +125,7 @@ try {
             (Join-Path $Client 'SCTerminalBrands.lua'),
             (Join-Path $Client 'SCTerminalSystem.lua'),
             (Join-Path $Client 'SCControlUtil.lua'),
+            (Join-Path $Client 'SCUIBridge.lua'),
             (Join-Path $Client 'SCTerminalPersona.lua'),
             (Join-Path $Client 'SCTerminalPersonaSpiffy.lua'),
             (Join-Path $Client 'SCTerminalPersonaEllis.lua'),
@@ -134,6 +135,10 @@ try {
             (Join-Path $Client 'SCTerminalLockState.lua'),
             (Join-Path $Client 'SCTerminalLockWords.lua'),
             (Join-Path $Client 'SCTerminalLockSearch.lua'),
+            (Join-Path $Client 'SCTerminalLockPhysical.lua'),
+            (Join-Path $Client 'SCTerminalLockCardData.lua'),
+            (Join-Path $Client 'SCTerminalLockCard.lua'),
+            (Join-Path $Client 'SCTerminalLockCardUI.lua'),
             (Join-Path $Client 'SCTerminalLockWheelData.lua'),
             (Join-Path $Client 'SCTerminalLockWheel.lua'),
             (Join-Path $Client 'SCTerminalLockWheelUI.lua'),
@@ -172,6 +177,9 @@ try {
             (Join-Path $TestRoot 'SCTerminalSecurityLayoutTests.lua'),
             (Join-Path $TestRoot 'SCTerminalConversationTests.lua')
             (Join-Path $TestRoot 'SCTerminalLocksTests.lua')
+            (Join-Path $TestRoot 'SCTerminalLockCardTests.lua')
+            (Join-Path $TestRoot 'SCTerminalLockCardUITests.lua')
+            (Join-Path $TestRoot 'SCTerminalLockCardDirectorTests.lua')
             (Join-Path $TestRoot 'SCTerminalDrawerTests.lua')
             (Join-Path $TestRoot 'SCTerminalLockPhase2Tests.lua')
             (Join-Path $TestRoot 'SCTerminalLockPhase3Tests.lua')

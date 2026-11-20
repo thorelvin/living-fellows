@@ -900,12 +900,13 @@ public final class SCNativeApiSignatureTest {
                 "BodyDamage bulk assessment inputs changed");
         for (String name : new String[] { "bleeding", "bitten", "isInfectedWound",
                 "bandaged", "isBandageDirty", "scratched", "isCut", "deepWounded",
-                "haveBullet", "haveGlass" }) {
+                "haveBullet", "haveGlass", "stitched", "isSplint" }) {
             require(method(bodyPart, name).getReturnType() == boolean.class,
                     "BodyPart." + name + "() signature changed");
         }
         for (String name : new String[] { "getBleedingTime", "getBurnTime",
-                "getFractureTime" }) {
+                "getFractureTime", "getBiteTime", "getScratchTime", "getCutTime",
+                "getDeepWoundTime", "getStitchTime", "getSplintFactor" }) {
             require(method(bodyPart, name).getReturnType() == float.class,
                     "BodyPart." + name + "() signature changed");
         }

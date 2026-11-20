@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MIT
 # Ordered production files and observable cases; the shared runner owns execution.
+@{ Name = 'interface.medical-format'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCUIFormat.lua'),
+    (Join-Path $UI 'SCUIFormatTests.lua')) }
 @{ Name = 'interface.first-hour-guidance'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),
@@ -73,10 +78,11 @@ foreach ($module in @(
     'SCEmmaFollowups', 'SCEmmaMindData', 'SCEmmaMind', 'SCEmmaReadingsData', 'SCEmmaBody',
     'SCOddballForecast', 'SCEmmaCalendar', 'SCEmmaReadings', 'SCEmmaConversation', 'SCEmmaHooks', 'SCEmmaReferenceData', 'SCEmmaReference', 'SCEmmaMeaningData', 'SCEmmaMeaning', 'SCEmmaExchange', 'SCEmmaAnswers', 'SCEmmaContext', 'SCEmmaUnderstand', 'SCEmmaMissed', 'SCEmmaTerminal',
     'SCTerminalLore', 'SCTerminalFiles', 'SCTerminalPresentation', 'SCTerminalBusinessData',
-    'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil', 'SCEmmaJump',
+    'SCTerminalBrands', 'SCTerminalArtBounds', 'SCTerminalSystem', 'SCControlUtil', 'SCUIBridge', 'SCEmmaJump',
     'SCTerminalPersona', 'SCTerminalPersonaSpiffy', 'SCTerminalPersonaEllis', 'SCTerminalPersonaDuty',
     'SCTerminalPersonaDiscovery', 'SCTerminalPersonaUI', 'SCTerminalLockState', 'SCTerminalLockWords',
-    'SCTerminalLockSearch', 'SCTerminalLockWheelData', 'SCTerminalLockWheel', 'SCTerminalLockWheelUI',
+    'SCTerminalLockSearch', 'SCTerminalLockPhysical', 'SCTerminalLockCardData', 'SCTerminalLockCard', 'SCTerminalLockCardUI',
+    'SCTerminalLockWheelData', 'SCTerminalLockWheel', 'SCTerminalLockWheelUI',
     'SCTerminalLockEmmaData', 'SCTerminalLockEmma', 'SCTerminalLockPhone', 'SCTerminalLockRadio',
     'SCTerminalLockRival', 'SCTerminalLockStoryData', 'SCTerminalLockStory', 'SCTerminalLockCrack',
     'SCTerminalLockCase', 'SCTerminalLockCrew', 'SCTerminalLockStashes', 'SCTerminalDrawers',
@@ -86,6 +92,9 @@ foreach ($module in @(
     $interfaceTerminalFiles += Join-Path $Client ($module + '.lua')
 }
 @{ Name = 'interface-terminal-access-and-keys'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $UI 'SCTerminalLockCardTests.lua'),
+    (Join-Path $UI 'SCTerminalLockCardUITests.lua'),
+    (Join-Path $UI 'SCTerminalLockCardDirectorTests.lua'),
     (Join-Path $UI 'SCTerminalActionTests.lua'),
     (Join-Path $UI 'SCTerminalLockPhase2Tests.lua'),
     (Join-Path $UI 'SCTerminalLockPhase3Tests.lua'),

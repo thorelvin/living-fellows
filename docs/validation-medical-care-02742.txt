@@ -1,0 +1,99 @@
+Living Fellows 0.27.42 - companion medical care Phase 1
+Validated 19 November 2026
+
+Source
+  Worktree: C:\ZOMBOID\work\mc42
+  Branch: living_fellows/0.27.42
+  Base: a97ba1977b1d81536b84b798c1b2ef85efd8372f
+  Local implementation is uncommitted and awaits the user's playtest.
+  Bridge: 42.22-isocompanion-34; save schema remains 3.
+
+Implemented
+  Display rows retain healed dressings, stitches, splints and lodged objects;
+  active injury counters exclude healed dressings and spent splints. Hidden
+  native timers supplement masked injury flags through both capture paths.
+  Stitch readiness is supplied only to viewers with First Aid 7 or higher.
+  Internal severity scores remain private to treatment selection.
+
+  Existing self/current-helper treatment claims remove stitches at time >=40
+  and splints only at verified fracture time 0. Covered stitches wait for an
+  exact fresh dressing. Safety, contact and player-care checks apply at commit.
+  Committed removal is never replayed. Pending redressing and material returns
+  survive cancellation; external dressing or verified healed skin can resolve
+  redressing without spending another dressing. Minor wounds prefer plain
+  dressings before sterile or alcohol supplies.
+
+  Personal washing handles up to eight carried dressings with native actions
+  and original-bag returns. Camp wash_dressings jobs fetch permitted stock and
+  move exact ownership receipts to verified native replacements, then deposit
+  them into currently permitted Medical storage. Carried-water washing pins
+  the dirty input and bottle, prefers tainted water, protects loans and personal
+  items, and preserves 1 L when consuming usable drinking water.
+
+  An old bridge is an environmental restore wait, preserving the complete saved
+  companion without consuming restore attempts or quarantining the record.
+
+Release verification - PASS
+  Windows PowerShell 5.1: scripts\Test-Project.ps1 -Release
+  Build, Lifecycle, Behaviour, Cargo and Interface: 5/5 passed.
+  All 18 installer boundary cases passed; normal and debug Lua compilation,
+  reproducible bridge build, Workshop staging and standalone packaging passed.
+  Elapsed: 1035.6 seconds; 24 direct JVM launches.
+  Receipt: build\test-results\20261119-222339-fc8f67\summary.json
+
+  Windows PowerShell 5.1: tests\ui\run_ui_tests.ps1 - exit 0.
+  scripts\Test-Source.ps1 - all scopes passed.
+  tests\core\voice_action_labels_test.py - passed.
+  Eight focused production groups passed, including medical maintenance,
+  liveness, viewer snapshots, formatting, personal washing and camp ownership.
+
+  Isolated negative variants failed their intended named assertions for
+  severity display, missing bridge facts, stitch threshold 39, healed injury
+  counting, positive-fracture removal, premium-first minor care, washing score
+  62, one-item batches, drinking-water-first selection, bounded stock scans,
+  settled receipt recovery and cancellation of unrelated native work.
+
+Native PZO verification - PASS
+  Real Project Zomboid 42.22.2, official pinned PZO V2.2, full disposable clone
+  of the Rising seed save. The real shipping bridge and controllers ran.
+  scripts\Test-PzoMedicalCapabilities.ps1 exited 0 after the final acceptance.
+
+  Both medical capture paths agreed on healed dressings, five hidden injury
+  timers, readiness boundaries and zero-factor splint attachments.
+  Native treatment refused early stitches and removed ready covered stitches,
+  verified exact fresh-dressing consumption and returned the old dressing once.
+  Native WalkInjury: stitches 0.48999998 -> 0 after removal/scratch recovery;
+  spent zero-factor splint 1 -> 0. Recorded splint materials returned once.
+
+  A two-piece personal native wash returned replacements to the original bag
+  and preserved metadata. Carried washing consumed exactly 0.5 L from the pinned
+  tainted bottle while clean and protected controls remained unchanged.
+  Camp work fetched eight dirty stock identities, used native washing, and
+  delivered eight distinct clean replacements into Medical storage. The ninth
+  eligible input, quest-protected stock and personal lookalike were untouched.
+  Job dedup, native window traversal and final ownership release were verified.
+
+  The final controlled camp fixture removed nine already-loaded zombie actors
+  once. Actual sensed safety remained enforced; an earlier uncontrolled run
+  correctly refused work when a close zombie arrived. No zombie navigation
+  paths, waypoints, movement flags or states were changed.
+  World washing used a plumbed source reporting 10000 native units; finite world
+  source depletion was not separately measured. Bottle depletion was exact.
+
+  Final native receipt:
+  build\pzo-medical-capabilities-20261119-223142-8542fd\results.json
+  sourceUntouched=true. Full Rising save and installed mod tree fingerprints,
+  plus protected installed launcher/bridge/game JAR hashes, matched before and
+  after. The owned native game process stopped cleanly.
+
+Artifacts
+  Local playtest folder: C:\ZOMBOID\outputs\medical-care-02742
+  LivingFellowsCompanion-0.27.42-STANDALONE-WINDOWS.zip
+  SHA256: 7c979094470652a0bdf48e6328a51bbe6a38be258fe35777a9c4b1b65ae997a1
+  Bridge JAR SHA256:
+    6f05c828adbe74e6073557ecc5ef509cd5dfc420ca02d5cda5545b9a655d71b2
+  Packaged medical/washing modules, namespace and bridge match the frozen source.
+  Portable receipts and logs are retained in the playtest folder's evidence\.
+
+Phase 1 is ready for playtest. Phases 2 and 3 remain on the shared roadmap.
+No commit, push, tag, user installation or Workshop upload was performed.

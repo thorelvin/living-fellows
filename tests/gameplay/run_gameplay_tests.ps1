@@ -297,6 +297,44 @@ try {
             $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
             if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
+            $maintenanceFiles = @($BaseLuaFiles) + (Join-Path $TestRoot 'medical_maintenance_harness.lua')
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @maintenanceFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Medical maintenance regression harness failed.' }
+            $procedureFiles = @($BaseLuaFiles) + @(
+                (Join-Path $TestRoot 'medical_procedures_fixture.lua'),
+                (Join-Path $TestRoot 'medical_procedures_harness.lua'))
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @procedureFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Medical procedures harness failed.' }
+            foreach ($phaseThreeKind in @('stitching','medicines')) {
+                $phaseThreeFiles = @($BaseLuaFiles) + @(
+                    (Join-Path $TestRoot 'medical_procedures_fixture.lua'),
+                    (Join-Path $TestRoot ('medical_' + $phaseThreeKind + '_fixture.lua')),
+                    (Join-Path $TestRoot ('medical_' + $phaseThreeKind + '_harness.lua')))
+                & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phaseThreeFiles
+                if ($LASTEXITCODE -ne 0) { throw "Medical $phaseThreeKind harness failed." }
+            }
+            foreach ($phaseThreeHarness in @('medical_supplies_harness.lua','medical_kit_phase3_harness.lua')) {
+                $phaseThreeSupplyFiles = @($BaseLuaFiles) + @(
+                    (Join-Path $TestRoot 'medical_procedures_fixture.lua'),
+                    (Join-Path $TestRoot 'medical_medicines_fixture.lua'),
+                    (Join-Path $TestRoot $phaseThreeHarness))
+                & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @phaseThreeSupplyFiles
+                if ($LASTEXITCODE -ne 0) { throw "Medical supply harness failed: $phaseThreeHarness" }
+            }
+            $procedureResourceFiles = @($BaseLuaFiles) + @(
+                (Join-Path $TestRoot 'medical_procedures_fixture.lua'),
+                (Join-Path $TestRoot 'medical_procedure_resources_harness.lua'))
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @procedureResourceFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Medical procedure resource harness failed.' }
+            $medicalRecoveryFiles = @($BaseLuaFiles) + @(
+                (Join-Path $TestRoot 'medical_procedures_fixture.lua'),
+                (Join-Path $ClientRoot 'SCPersistence.lua'),
+                (Join-Path $Essential 'medical_recovery_persistence_harness.lua'))
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalRecoveryFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Medical recovery persistence harness failed.' }
+            $visitFiles = @($BaseLuaFiles) + (Join-Path $Essential 'medical_visits_harness.lua')
+            & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @visitFiles
+            if ($LASTEXITCODE -ne 0) { throw 'Visiting camp medic regression harness failed.' }
             $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
             $combatFiles += $BaseLuaFiles
             $combatFiles += Join-Path $TestRoot 'combat_coordination_regression_harness.lua'

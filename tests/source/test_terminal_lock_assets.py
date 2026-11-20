@@ -13,7 +13,7 @@ class TerminalLockAssets(unittest.TestCase):
         entries = json.loads((ROOT / "docs/terminal-lock-art.json").read_text(encoding="utf-8-sig"))
         self.assertEqual({e["id"] for e in entries}, {"AccessGranted", "Case486", "CrackTitle", "Padlock",
             "UndeleteTitle", "ManualCover", "ManualPower", "ManualFiles", "ManualWarranty", "WheelCentre",
-            "DialBackTitle", "CountyKeyEscrow", "User2Sign", "StoryTitle", "StoryClasses", "StoryScenes", "StoryEndings"})
+            "DialBackTitle", "CountyKeyEscrow", "User2Sign", "StoryTitle", "StoryClasses", "StoryScenes", "StoryEndings", "LarchKeyTitle"})
         total = 0
         named = set()
         for entry in entries:

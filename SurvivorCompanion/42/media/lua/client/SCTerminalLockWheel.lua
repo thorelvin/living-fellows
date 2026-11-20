@@ -55,26 +55,11 @@ function Wheel.ensure(state,player,object)
     if state.lock.manualSpawned then return end
     state.lock.manualSpawned=true
     if Wheel.carried(player) then return end
-    local tile=U().square(object) local surface=0
-    for _,candidate in ipairs(U().list(U().call(tile,"getObjects"),64)) do
-        if candidate~=object then surface=math.max(surface,tonumber(U().call(candidate,"getSurfaceOffsetNoTable")) or 0) end
-    end
-    if surface<=0 then
-        local x,y,z=U().position(object) local cell=type(getCell)=="function" and getCell()
-        tile=nil
-        for _,d in ipairs({{0,1},{1,0},{0,-1},{-1,0},{1,1},{-1,1},{1,-1},{-1,-1}}) do
-            local candidate=cell and U().call(cell,"getGridSquare",x+d[1],y+d[2],z)
-            if candidate and U().call(candidate,"TreatAsSolidFloor")==true and SC.GameplayUtil.isSquareFree(candidate) then tile=candidate break end
-        end
-    end
-    if not tile then return end
     local create=type(instanceItem)=="function" and instanceItem or InventoryItemFactory and InventoryItemFactory.CreateItem
     if not create then return end
     local okay,item=pcall(create,Wheel.ITEM)
     if not okay or not item then return end
-    U().call(tile,"AddWorldInventoryItem",item,.5,.5,surface/96)
-    local world=U().call(item,"getWorldItem")
-    if world and U().square(world)==tile then state.lock.manualItemId=tostring(U().call(item,"getID")) end
+    if SC.TerminalLockPhysical.place(item,object) then state.lock.manualItemId=tostring(U().call(item,"getID")) end
 end
 function Wheel.turn(w,delta)
     if w.lockPage~="manual" or w.lockManualPage~=5 or not Wheel.nearby(w.player) then return false end

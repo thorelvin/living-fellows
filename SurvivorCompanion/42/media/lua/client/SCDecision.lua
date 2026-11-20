@@ -563,9 +563,23 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     local selfCareBlocked = selfMedicalNeed and SC.Medical
         and type(SC.Medical.selfCareBlocker) == "function"
         and SC.Medical.selfCareBlocker(actor) or nil
-    if SC.Medical and type(SC.Medical.isReceivingCare) == "function"
-        and SC.Medical.isReceivingCare(actor, current) then
-        -- The player is bandaging this companion: hold still for it.
+    local receivingCare = SC.Medical and type(SC.Medical.isReceivingCare) == "function"
+        and SC.Medical.isReceivingCare(actor, current)
+    local visitingCare = false
+    if not receivingCare and SC.MedicalVisits and type(SC.MedicalVisits.isPatientHeld) == "function" then
+        local okay, held = pcall(SC.MedicalVisits.isPatientHeld, actor,
+            { snapshot = snapshot }, assessment, current)
+        visitingCare = okay and held == true
+    end
+    if not receivingCare and not visitingCare and SC.Medical
+        and type(SC.Medical.isCompanionCareHeld)=="function" then
+        local okay,held=pcall(SC.Medical.isCompanionCareHeld,actor,
+            {snapshot=snapshot},assessment,current)
+        visitingCare=okay and held==true
+    end
+    if receivingCare or visitingCare then
+        -- Visiting holds validate current danger and their exact owner; player
+        -- care keeps its separate existing hold and cancellation semantics.
         add("medical", 150, true, { mode = "receiving_care" })
     end
     if selfMedicalNeed and (assessment.downed == true or selfCareBlocked == nil)
@@ -638,12 +652,19 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     -- dress it with, so a companion without supplies never stands waiting.
     local careDue = (tonumber(assessment.openWounds) or 0) > 0
         or (tonumber(assessment.dirtyBandages) or 0) > 0
+        or assessment.needsMaintenance == true
+        or assessment.needsProcedure == true
+        or SC.Medical and type(SC.Medical.careNeed) == "function"
+            and SC.Medical.careNeed(actor, assessment) ~= nil
     if careDue and not bleeding and threatCount == 0 and immediate == 0
         and snapshot.humanThreat == nil
         and (commands.order ~= "follow" or leaderSettled(actor, player, current))
-        and SC.Medical and type(SC.Medical.canReplaceDirtyBandage) == "function"
-        and SC.Medical.canReplaceDirtyBandage(actor) == true then
-        add("medical", 60, false, { mode = "wound_care" })
+        and SC.Medical and type(SC.Medical.canReplaceDirtyBandage) == "function" then
+        local available=SC.Medical.canReplaceDirtyBandage(actor)==true
+        if not available and type(SC.Medical.preferredStitchHelper)=="function" then
+            available=SC.Medical.preferredStitchHelper(actor,snapshot,player)~=nil
+        end
+        if available then add("medical", 60, false, { mode = "wound_care" }) end
     end
     if SC.InfectionCrisis and type(SC.InfectionCrisis.intentFor) == "function" then
         local crisis = SC.InfectionCrisis.intentFor(actor, player, snapshot)
@@ -3150,6 +3171,18 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     return true, state.intent
                 end
                 supervisedOwner = nil
+            elseif token.owner == "medical" and SC.Medical
+                and type(SC.Medical.peek)=="function" and SC.Medical.peek(actor)
+                and type(SC.Medical.update)=="function" then
+                -- A healthy helper still owns its patient's procedure. Poll
+                -- that controller before the generic native visual hold.
+                local safe,handled,reason=U().safeSubsystem("medical",actor,
+                    SC.Medical.update,actor,player,rootRuntime or {})
+                if safe and handled~=true and not SC.Medical.peek(actor) then return false end
+                state.current,state.currentKey="medical","medical"
+                state.intent=safe and (reason or "owned_medical_polled") or "owned_medical_poll_failed"
+                state.lastHandledAt=current
+                return true,state.intent
             elseif token.owner == "logistics" and SC.ExpeditionPrototype
                 and type(SC.ExpeditionPrototype.departurePreparationFor) == "function"
                 and type(SC.ExpeditionPrototype.updateDeparturePreparation) == "function"

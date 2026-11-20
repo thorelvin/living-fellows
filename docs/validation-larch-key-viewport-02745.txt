@@ -1,0 +1,65 @@
+Living Fellows 0.27.45 - physical card viewport follow-up
+Validated 20 November 2026. World rendering and physical card appearance proved.
+
+Finding and correction
+  The original test computer was in an unpowered office with zero light.
+  Setting the clock to noon did not illuminate that enclosed room: its floor
+  and card square still reported light 0 / RGB 0,0,0. The world-drawing switch,
+  camera/player identity, visibility, floor texture and render callbacks were valid.
+  A normal charged Base.Torch, equipped and activated through native APIs, made
+  the office, desks and computer visibly render. Torch strength was 2 and the
+  actual equipped item was emitting light; the card square then reported light 1.
+  Switching the torch off restored the dark office at noon. Moving the same
+  production card outdoors at noon showed it with the torch off, light 1 and
+  RGB 255,255,255. No PZO feature change was necessary.
+
+Physical card proof
+  Type: LivingFellows.LarchKeyCard
+  Name: Access Card (L. BELL)
+  Exact native item ID: 481974837; computer seed: 409; service: false.
+  Model: Base.IDcard, drawn as the small blue/gray badge on the road.
+  Created by unchanged SC.TerminalLockCard.place after native drawer claim.
+  Moved using unchanged SC.TerminalLockPhysical.place, preserving its item ID.
+  Player: 12682,1957,0; card: 12682,1958,0; both outside and visibly lit.
+  Native clock: 12.250876; ambient: 0.862557; normal game zoom: 0.5.
+  Vanilla world context identifies the exact card as Access Card (L. BELL).
+  Root visually inspected both the physical model and its native item label.
+
+Actual game images
+  outputs\larch-key-02745\native-lit-office.png
+  outputs\larch-key-02745\native-world-card.png
+  outputs\larch-key-02745\native-world-card-context.png
+  These are native game screenshots, without annotation or image editing.
+  The normal debug-console UI was hidden before capture; world pixels were
+  neither replaced nor simulated. Renderer, shaders, model, texture and camera
+  were not overridden. Only normal game lighting, positioning and zoom were used.
+
+Fixture and review boundaries
+  Final evidence: build\pzo-larch-key-viewport-20261120-175748-1459b3.
+  Probe SHA256: 19e1e7246f412ede7041cb602e5ad481fadf7468c69934673f1c55b7cf6a091e.
+  The final clean capture used a fresh original-save clone, native -debug and
+  player-only GodMode, with health 100. A read-only zombie-distance scan chose
+  a clear outdoor square. No zombie paths, waypoints, movement flags or states
+  were changed; no zombies were removed or otherwise manipulated.
+  A non-debug earlier run already showed the outdoor world and physical card
+  before any torch/PZO change; debug mode only made the final scene safe to film.
+  The Windows firewall request was left untouched. Final capture used the game's
+  own API, with no further Windows UI or security interaction.
+
+Integrity and disposition
+  Final native visual receipt: PASS; primary action queue unchanged.
+  Original source save, installed mod and protected game files unchanged during runs.
+  Cross-host save audit also matches all 2,046 paths and per-file SHA256 values.
+  Aggregate digest differences between PowerShell 7 and 5.1 come only from their
+  Sort-Object collation; see output native-save-fingerprint-audit.json.
+  All owned native clients stopped; no clients remained at final audit.
+  All 760 frozen production files and 537 staged standalone files still match.
+  The original 154-check acceptance evidence remains byte-for-byte unchanged.
+  ZIP SHA256 remains:
+  6369ea1123a2d4e84dd7e75d8a0fb16d60dabcaab85b222f868597521cd2ead1
+  This visual follow-up made no production patch, package rebuild or real
+  installation. Source publication was authorized after the recorded checks.
+  Machine-readable facts, image hashes and protection checks:
+  outputs\larch-key-02745\native-viewport-summary.json.
+  This follow-up resolves the earlier visible-3D-appearance limitation. Human
+  first-time/learned solve timing and overall gameplay feedback remain for playtest.

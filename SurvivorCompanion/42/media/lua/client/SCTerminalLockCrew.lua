@@ -3,6 +3,7 @@
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local C={} SC.TerminalLockCrew=C
 local lines={
+    cardSwipe={"Whose card is that?","Somebody clocked in with that every morning.","Hope they don't mind.","You're wearing their badge now?"},
     persona_spiffy={"Customer service outlived the customers.","I think it still wants us to buy something.","That was almost cheerful. Almost."},
     persona_ellis={"We can leave whenever you want.","I might let you do the talking here.","She sounds very sure of us for someone we just met."},
     persona_duty={"Someone has had a very long shift.","I don't think anyone told it to stand down.","Keep your voice down. It sounds official."},
@@ -17,7 +18,7 @@ local lines={
     phone={"Is that a telephone? Here?","That is the internal line. It had better be.","It rings. I had forgotten that sound.","Go on. I will listen for the other noise."},
     radio={"Turn that down when it finishes.","Someone kept the transmitter running.","That voice does not know when to stop working.","Write it down. I would rather not hear that twice."},
 }
-local hintLines={story={"Not choice %1. Kobolds love that one.","I would avoid choice %1. That has Dennis written all over it.","Choice %1 looks unwise. Even for us."},wheel={"That window reads %1. I had one of these.","I make that %1. The old wheel still works.","Read %1 from that window. Carefully.","It is %1. I used to keep the handbook."},
+local hintLines={card={"That's a %1. The %1s always smudge.","%1. I swiped one of these every morning for six years.","Try %1 there. The read head has missed part of it.","I make that %1. These readers used to hate my card."},story={"Not choice %1. Kobolds love that one.","I would avoid choice %1. That has Dennis written all over it.","Choice %1 looks unwise. Even for us."},wheel={"That window reads %1. I had one of these.","I make that %1. The old wheel still works.","Read %1 from that window. Carefully.","It is %1. I used to keep the handbook."},
     phone={"I caught the end: %1.","The last three digits were %1.","It finished with %1. Write that down.","I heard %1 at the end."},
     radio={"I caught the end: %1.","The last group was %1.","The final three were %1.","I heard %1 at the end."},
     search={"Try %1. That looks like an index.","I would search for %1 next.","The next file mentions %1. Try that.","Try %1. People leave themselves clues."},
@@ -104,9 +105,13 @@ end
 function C.hint(w)
     local lock=w.system.lock local actor=not lock.crewHint and C.candidates(w,true,true)[1]
     if not actor then w.securityMessage="No available companion has higher Electrical training." return true end
-    local word,kind,value
+    local word,kind,value,stage
     local primary=SC.TerminalLocks.kind(w.system)
-    if (not w.lockPage or w.lockPage=="manual") and primary=="wheel" then kind="wheel" value=SC.TerminalLockWheel.answer(w.system)
+    if not w.lockPage and primary=="card" then
+        value,stage=SC.TerminalLockCard.hint(w,false)
+        if not value then w.securityMessage="There is no open stripe gap your companion can read just now." return true end
+        kind="card"
+    elseif (not w.lockPage or w.lockPage=="manual") and primary=="wheel" then kind="wheel" value=SC.TerminalLockWheel.answer(w.system)
     elseif not w.lockPage and primary=="search" then kind="search" value=SC.TerminalLockSearch.nextIndex(w.system)
     elseif not w.lockPage and primary=="emma" then kind="emma" value=SC.TerminalLockEmma.temperament(w.system)
     elseif not w.lockPage and primary=="story" then
@@ -124,8 +129,11 @@ function C.hint(w)
         if not word then w.securityMessage="There are no unused wrong candidates to remove." return true end
     end
     if not speak(w,actor,"hint",kind,value) then w.securityMessage="Your companion cannot talk just now." return true end
+    if kind=="card" and not SC.TerminalLockCard.hint(w,true,stage) then
+        w.securityMessage="The reader changed before that gap could be filled." return true
+    end
     lock.crewHint=true
-    if kind then lock.crewClue={kind=kind,value=value,stage=kind=="wheel" and lock.wheel.correct+1 or kind=="story" and lock.story.step or 0} end
+    if kind then lock.crewClue={kind=kind,value=value,stage=kind=="card" and stage or kind=="wheel" and lock.wheel.correct+1 or kind=="story" and lock.story.step or 0} end
     if word then w.system.puzzle.removed[word]=true w.securityBoard=nil
     elseif w.lockPage=="crack" then lock.crack.requiredHours=math.max(1,lock.crack.requiredHours-1) end
     w.securityMessage=C.name(actor).." helped. "..(kind and (kind=="story" and "Avoid choice " or kind=="wheel" and "Window: " or kind=="search" and "Index: " or "Try ")..value

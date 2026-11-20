@@ -1,5 +1,14 @@
 module LivingFellows
 {
+    item LarchKeyCard
+    {
+        DisplayName = Access Card,
+        DisplayCategory = Quest,
+        ItemType = base:normal,
+        Weight = 0.1,
+        Icon = IDcard,
+        WorldStaticModel = IDcard,
+    }
     item LarchfieldManual
     {
         DisplayName = Larchfield Owner's Manual,

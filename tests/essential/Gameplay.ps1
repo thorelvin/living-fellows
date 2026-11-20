@@ -48,7 +48,11 @@ function Get-ScGameplayFiles {
         'SCPositioning.lua',
         'SCCombat.lua',
         'SCMeleeKiting.lua',
+        'SCMedicalProcedures.lua',
+        'SCMedicalMedicines.lua',
+        'SCMedicalMaintenance.lua',
         'SCMedical.lua',
+        'SCMedicalSupplies.lua',
         'SCMedicKit.lua',
         'SCScavengeLoot.lua',
         'SCEncounter.lua',
@@ -61,6 +65,7 @@ function Get-ScGameplayFiles {
         'SCTVWatching.lua',
         'SCComputerUse.lua',
         'SCRadioListening.lua',
+        'SCBandageWash.lua',
         'SCNativeCareActions.lua',
         'SCDowntime.lua',
         'SCPersonality.lua',
@@ -113,6 +118,9 @@ function Get-ScGameplayFiles {
         'SCDecision.lua'
     ) | ForEach-Object { Join-Path $Client $_ }
     (Join-Path $Gameplay 'base_work_fixture.lua')
+    (Join-Path $Client 'SCWorkTransport.lua')
     (Join-Path $Client 'SCFloorSort.lua')
+    (Join-Path $Client 'SCBandageWashing.lua')
+    (Join-Path $Client 'SCMedicalVisits.lua')
     (Join-Path $Client 'SCBaseWork.lua')
 }

@@ -1,0 +1,245 @@
+-- SPDX-License-Identifier: MIT
+-- Camp medical work must name its patient independently from its assigned medic.
+local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local checks = 0
+local function check(value, reason)
+    checks = checks + 1
+    assert(value, 'medical visits '..checks..': '..tostring(reason))
+end
+check(SC.BaseWork.reset(), 'prior base work releases before the visit scenario')
+SC.BaseLife.reset()
+local square = f.makeSquare(4, 4, 0)
+check(SC.BaseLife.create(square, 'Medical visit contracts'), 'real camp state is created')
+local base = SC.BaseLife.active()
+base.settings.autoMaintenance, base.settings.routines = true, false
+local wound = f.bodyPart({ isScratched = true, isBandaged = true, dirty = true })
+local patient = f.actor('visit-patient', 4, 4, { body = f.bodyDamage(100, { wound }) })
+local medic = f.actor('visit-medic', 5, 4, {})
+f.registry[patient.id] = {id=patient.id,actor=patient,recruited=true}
+f.registry[medic.id] = {id=medic.id,actor=medic,recruited=true}
+patient.modData.SC_Order, medic.modData.SC_Order = 'base_duty', 'base_duty'
+patient.modData.SC_Group, medic.modData.SC_Group = 'farm-squad', 'home-squad'
+check(SC.BaseLife.assign(patient.id, 'generalist', true), 'patient is a resident on duty')
+check(SC.BaseLife.assign(medic.id, 'medic', true), 'another resident is the camp medic')
+local job
+for _ = 1, 24 do
+    SC.BaseWork.auditMaintenance(f.player, function() return math.huge end)
+    for _, candidate in ipairs(base.jobs) do
+        if candidate.type == 'replace_bandage' then job = candidate; break end
+    end
+    if job then break end
+end
+check(job ~= nil, 'the real medical maintenance audit queues dirty-wound care')
+check(job.assignedId == medic.id and job.target.patientId == patient.id,
+    'camp medical work assigns the medic while retaining the distinct exact patient')
+local V = assert(SC.MedicalVisits, 'visiting medic controller is loaded')
+check(SC.Commands.peek(patient).group ~= SC.Commands.peek(medic).group,
+    'the two allied camp residents retain their distinct ordinary squad groups')
+local U, M = SC.GameplayUtil, SC.Medical
+local oldNeed, oldTreat, oldPeek, oldCancel, oldPending = M.campCareNeed, M.treat, M.peek, M.cancel, M.pendingCare
+local oldCancelCare=M.cancelCare
+local clinical, pending, active, treatmentCalls, cancelled = {}, {}, {}, {}, 0
+local mode, refuseCancel = 'approach', false
+local doctorRuntime, patientRuntime = U.actorState(medic), U.actorState(patient)
+doctorRuntime.snapshot = { valid=true, time=f.clock, threatCount=0, closeThreatCount=0, immediateCount=0 }
+patientRuntime.snapshot = { valid=true, time=f.clock, threatCount=0, closeThreatCount=0, immediateCount=0 }
+local other = f.actor('visit-other-medic', 6, 4, {})
+f.registry[other.id] = {id=other.id,actor=other,recruited=true}
+SC.BaseLife.assign(other.id, 'medic', true)
+clinical[patient] = { kind='replace_bandage', key='ForeArm_L:bandage', woundIndex=0, rank=8, visitEligible=true }
+M.campCareNeed = function(who) return clinical[who] end
+M.pendingCare = function(who) return pending[who] end
+M.peek = function(who) return active[who] end
+M.cancel = function(who)
+    cancelled = cancelled + 1
+    if refuseCancel then return false, 'medical_settlement_pending' end
+    local value = active[who]
+    if value then M.releasePatient(who, value.patient) end
+    active[who] = nil
+    return true, 'cancelled'
+end
+M.cancelCare = function(helper,subject,key,reason)
+    local current=active[helper]
+    if current and (current.patient~=subject or current.careKey~=key) then return false,'foreign_medical_owner' end
+    return M.cancel(helper,reason)
+end
+M.treat = function(helper, subject, context, options)
+    treatmentCalls[#treatmentCalls+1] = { helper=helper, patient=subject, options=options }
+    local valid, reason = options.validateContext(helper, subject, mode=='recover' and 'recovery' or 'start')
+    if not valid then return false, reason end
+    check(options.campVisit==true and options.careKey==clinical[subject].key,
+        'the controller pins the exact clinical need into the shared treatment API')
+    if mode == 'done' then
+        active[helper], clinical[subject], pending[subject] = nil, nil, nil
+        M.releasePatient(helper, subject)
+        return true, 'bandaged'
+    end
+    if not M.claimPatient(helper, subject, f.clock, options) then return false, 'patient_already_treated' end
+    active[helper] = { patient=subject, phase='approaching', careKey=options.careKey,
+        careKind=options.careKind, committed=false, pending=false }
+    return true, 'approaching_patient'
+end
+local claimed = SC.BaseLife.claimJob(medic.id)
+check(claimed == job, 'the assigned medic claims the existing patient job')
+SC.BaseLife.touchJob(job.id, medic.id, 'active')
+check(not V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'an assigned job does not hold the patient before the medic owns actual care')
+local handled,initialReason = V.update(medic, {}, job, doctorRuntime)
+check(handled and treatmentCalls[#treatmentCalls].patient==patient and treatmentCalls[#treatmentCalls].helper==medic,
+    'the medic treats the selected resident instead of treating itself: '..tostring(initialReason))
+check(V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'a matching owned approach holds its patient while both remain safe')
+check(not M.isReceivingCare(patient), 'visiting hold never overwrites the player-care ledger')
+patientRuntime.snapshot.valid=false
+check(not V.isPatientHeld(patient,patientRuntime,M.assess(patient),f.clock), 'invalid patient observation cannot authorize a visit hold')
+patientRuntime.snapshot.valid=true; V.update(medic,{},job,doctorRuntime)
+patientRuntime.snapshot.time=f.clock-5000
+check(not V.isPatientHeld(patient,patientRuntime,M.assess(patient),f.clock), 'stale patient observation cannot authorize a visit hold')
+patientRuntime.snapshot.time=f.clock; V.update(medic,{},job,doctorRuntime)
+patientRuntime.snapshot.threatCount,patientRuntime.snapshot.escapeSquares=1,{square}
+check(V.isPatientHeld(patient,patientRuntime,M.assess(patient),f.clock),
+    'fresh distant danger with a usable escape preserves the existing semi-safe care policy')
+patientRuntime.snapshot.threatCount,patientRuntime.snapshot.escapeSquares=0,nil
+patientRuntime.snapshot.closeThreatCount = 1
+check(not V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'the patient immediately ignores a visit hold when its own close danger appears')
+check(M.treatmentHolder(patient,f.clock)==nil,
+    'unsafe uncommitted visit claim expires immediately without cross-actor cancellation')
+patientRuntime.snapshot.closeThreatCount = 0
+local urgent = { health=100, alive=true, bleedingCount=1, openWounds=1,
+    wounds={ { bleeding=true, bandaged=false } } }
+check(not V.isPatientHeld(patient, patientRuntime, urgent, f.clock),
+    'new undressed bleeding frees the patient for urgent self-care or rescue')
+patient.body.health=25; M.invalidate(patient)
+check(V.update(medic,{},job,doctorRuntime) and active[medic] and active[medic].patient==patient,
+    'a quiet low-health patient with covered bleeding remains eligible for visiting care')
+check(V.isPatientHeld(patient,patientRuntime,M.assess(patient),f.clock),
+    'quiet covered low health does not let ordinary base duty walk away from the medic')
+patient.body.health=100; M.invalidate(patient)
+medic.body.parts = { f.bodyPart({ isBleeding=true, isScratched=true }) }
+M.invalidate(medic)
+check(not V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'a medic who now needs urgent self-care cannot keep another resident waiting still')
+medic.body.parts = {}; M.invalidate(medic)
+local savedToken = active[medic]
+active[medic] = { patient=other, phase='approaching', careKey='another-patient' }
+check(not V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'a helper changing clinical target invalidates the old visit hold immediately')
+local previousCancels=cancelled
+check(V.cancel(medic,job,'foreign_care_control') and cancelled==previousCancels and active[medic].patient==other,
+    'stale visit cleanup cannot cancel the helper clinical work for another patient')
+active[medic] = nil
+check(V.update(medic,{},job,doctorRuntime), 'a finished foreign clinical owner permits a fresh owned visit attempt')
+M.noteReceivingCare(patient, f.player, f.clock)
+check(V.cancel(medic, job, 'visit_cancelled'), 'owned uncommitted visit can cancel cleanly')
+check(M.isReceivingCare(patient) and not V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'visit cancellation releases only its scoped hold and preserves player care')
+M.clearReceivingCare(patient)
+
+-- A waiting medic must not postpone self-care forever. Exercise the sweep
+-- directly so this does not depend on the twelve-family audit cursor.
+SC.BaseLife.releaseJob(job.id, medic.id, 'test_release')
+job.target.medicalVisit = nil
+job.assignedId = medic.id
+job.createdAt = f.clock
+for _=1,2 do V.audit(base, function() return math.huge end, {}) end
+local startingCount = #base.jobs
+f.clock = f.clock + 21000
+doctorRuntime.snapshot.time,patientRuntime.snapshot.time=f.clock,f.clock
+V.auditOpenJobs(base, function() return math.huge end, {})
+check(job.assignedId == patient.id and #base.jobs==startingCount,
+    'an unclaimed busy medic lease falls back on the same patient job without duplication')
+for _=1,2 do V.audit(base, function() return math.huge end, {}) end
+check(#base.jobs==startingCount, 'self fallback remains a dedup anchor during later audits')
+check(SC.BaseLife.claimJob(patient.id)==job, 'the original patient can claim its own fallback job')
+SC.BaseLife.touchJob(job.id,patient.id,'active')
+local supplied={snapshot={valid=true,time=f.clock,threatCount=0,closeThreatCount=0,immediateCount=0}}
+U.clearActorState(patient)
+check(V.update(patient,{},job,supplied) and treatmentCalls[#treatmentCalls].helper==patient,
+    'self fallback uses its explicitly supplied runtime even without a weak-map runtime')
+check(not V.isPatientHeld(patient,supplied,M.assess(patient),f.clock), 'self fallback never creates a self-hold that stalls its own procedure')
+check(V.cancel(patient,job,'self_fallback_control'), 'the self fallback owner can release its own care')
+SC.BaseLife.releaseJob(job.id,patient.id,'self_fallback_control')
+U.actorState(patient).snapshot=patientRuntime.snapshot
+
+-- Once clinical effects commit, a visit cannot hand its proof to a new owner.
+job.assignedId, job.reservedBy, job.state = medic.id, medic.id, 'active'
+job.leaseUntil = f.clock + 45000
+job.target.medicalVisit = nil
+V.update(medic, {}, job, doctorRuntime)
+pending[patient] = { kind=clinical[patient].kind, key=clinical[patient].key,
+    woundIndex=0, owner=medic.id, committed=true, pending=true }
+active[medic].committed, active[medic].pending = true, true
+refuseCancel = true
+SC.BaseLife.resident(patient.id).duty = false
+check(not V.isPatientHeld(patient, patientRuntime, M.assess(patient), f.clock),
+    'leaving duty immediately releases the visit hold even while committed recovery stays owned')
+local stopped = V.cancel(medic, job, 'patient_off_duty')
+check(not stopped and pending[patient].owner==medic.id,
+    'unverified committed recovery prevents cancellation from dropping its exact owner')
+local patientRecord, priorGone = f.registry[patient.id], SC.BaseWork.workerUnregistered
+f.registry[patient.id]=nil
+SC.BaseWork.workerUnregistered=function() return false end
+SC.BaseLife.resident(patient.id).duty=true
+f.clock=f.clock+1001
+doctorRuntime.snapshot.time,patientRuntime.snapshot.time=f.clock,f.clock
+V.auditOpenJobs(base,function() return math.huge end,{})
+check(SC.BaseLife.job(job.id)==job and job.assignedId==medic.id and pending[patient].owner==medic.id,
+    'a temporarily unloaded patient retains its job and committed clinical owner by stable identity')
+f.registry[patient.id], SC.BaseWork.workerUnregistered=patientRecord,priorGone
+SC.BaseLife.resident(patient.id).duty=false
+f.clock = f.clock + 60000
+doctorRuntime.snapshot.time,patientRuntime.snapshot.time=f.clock,f.clock
+V.auditOpenJobs(base, function() return math.huge end, {})
+check(job.assignedId==medic.id and pending[patient].owner==medic.id,
+    'expired scheduling leases cannot reassign an unsettled clinical obligation')
+refuseCancel = false
+pending[patient].owner = nil
+check(V.cancel(medic, job, 'patient_off_duty'),
+    'core-confirmed handoff lets invalid camp work release without starting more surgery')
+check(pending[patient]~=nil and pending[patient].owner==nil,
+    'visit cleanup preserves the shared patient redress obligation for normal medical recovery')
+
+local washOkay, washJob = SC.BaseLife.enqueueJob({ type='wash_dressings', assignedId=medic.id,
+    target={dressingBatch={owner=medic.id,ids={74001},types={'Base.Bandage'},washed={true},phase='deposit',index=1}} })
+check(washOkay, 'a saved washing obligation is present for the public cancellation contract')
+local oldWashCancel, washCancels = SC.BandageWashing.cancel, 0
+SC.BandageWashing.cancel = function(owner, selected)
+    washCancels=washCancels+1
+    check(owner==medic and selected==washJob, 'public cancellation resolves the exact washing owner and receipt')
+    return false,'dressing_storage_missing'
+end
+local removed, refusal = SC.BaseLife.cancelJob(washJob.id)
+check(not removed and refusal=='dressing_storage_missing' and washCancels==1
+    and SC.BaseLife.job(washJob.id)==washJob,
+    'public BaseLife.cancelJob keeps a washing receipt when exact return cannot settle')
+SC.BandageWashing.cancel = function() return true end
+check(SC.BaseLife.cancelJob(washJob.id) and SC.BaseLife.job(washJob.id)==nil,
+    'public cancellation removes the washing row only after its owner confirms settlement')
+SC.BandageWashing.cancel = oldWashCancel
+
+M.campCareNeed, M.treat, M.peek, M.cancel, M.pendingCare = oldNeed, oldTreat, oldPeek, oldCancel, oldPending
+M.cancelCare=oldCancelCare
+-- The role/target contract also runs through real core treatment. Only the
+-- optional native visual owner is absent in this synchronous Lua fixture.
+check(SC.BaseLife.cancelJob(job.id), 'prior visit row settles before actual core dispatch')
+SC.BaseLife.resident(patient.id).duty=true
+wound.isScratched,wound.isBandaged,wound.dirty=true,true,true
+M.invalidate(patient)
+local exactFresh=f.item('Base.Bandage','Medical',{})
+medic.inventory:AddItem(exactFresh)
+local native,service,move,stop=SC.NativeActions,SC.ActionSupervisor,U.move,U.stop
+SC.NativeActions,SC.ActionSupervisor=nil,nil
+U.move=function() return true end; U.stop=function() return true end
+local queued,actualJob=V.audit(base,function() return math.huge end,{})
+check(queued and actualJob.assignedId==medic.id and actualJob.target.patientId==patient.id,
+    'actual core need selects a medic for an allied resident from another squad')
+check(SC.BaseLife.claimJob(medic.id)==actualJob, 'actual core dispatch claims its exact scheduling row')
+SC.BaseLife.touchJob(actualJob.id,medic.id,'active')
+local progressed,result,terminal,complete=V.update(medic,{},actualJob,doctorRuntime)
+check(progressed and complete and result=='bandaged' and not wound.dirty and wound.isBandaged,
+    'real Medical.treat dresses the distinct camp patient through the visiting controller')
+check(not medic.inventory:contains(exactFresh) and M.peek(medic)==nil and not V.isPatientHeld(patient,patientRuntime,M.assess(patient),f.clock),
+    'actual cross-resident completion consumes only the helper fresh dressing and releases clinical/hold ownership')
+SC.NativeActions,SC.ActionSupervisor,U.move,U.stop=native,service,move,stop
+print('MEDICAL_VISITS_PASS checks='..checks)

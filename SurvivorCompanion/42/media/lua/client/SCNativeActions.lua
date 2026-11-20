@@ -2451,7 +2451,11 @@ local function restoreWorkInventory(actor, record)
             survives = readable and present == true
             if not readable then restoredAll = false end
         end
-        if survives and containerOk and current == inventory and transfer.container ~= nil then
+        local returnAllowed = not record.washActivity or not SC.BandageWash
+            or SC.BandageWash.returnContainerAllowed(actor, record.washActivity, transfer.container)
+        if survives and containerOk and current == inventory and transfer.container ~= nil and not returnAllowed then
+            restoredAll = false
+        elseif survives and containerOk and current == inventory and transfer.container ~= nil then
             local removedOk, removed = invoke(inventory, "Remove", transfer.item)
             if removedOk and removed ~= false then
                 local addedOk, added = invoke(transfer.container, "AddItem", transfer.item)
@@ -3924,6 +3928,7 @@ function actions.startDowntimeAction(actor, activity, validate)
     local record, reason = prepareWorkInventory(actor, activity.nativeInputs, nil, nil)
     if not record then return false, reason end
     record.verifySurvivingItems, record.downtimeActivity = true, activity
+    if activity.kind == "wash_bandage" then record.washActivity = activity end
     local context = { recipe = craftRecipe, list = newJavaList }
     local made, action, effect = pcall(care.create, actor, activity, context)
     if not made or not action then
@@ -3946,6 +3951,10 @@ function actions.startDowntimeAction(actor, activity, validate)
         if activity.nativeAttempted then return activity.nativeCompleted == true end
         if self.character ~= actor or not self:isValid() then activity.nativeFailure = "native_care_inputs_changed"; return false end
         activity.nativeAttempted = true
+        if care.before then
+            local okay, accepted = pcall(care.before, actor, activity, self)
+            if not okay or accepted ~= true then activity.nativeFailure = "native_care_inputs_changed"; return false end
+        end
         local logic = self.logic
         if effect == "performRecipe" then
             if not logic then activity.nativeFailure = "native_care_recipe_unavailable"; return false end

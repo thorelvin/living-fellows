@@ -5,6 +5,7 @@ local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Background and type(require) == "function" then pcall(require, "SCBackground") end
 if not SC.NativeCareActions and type(require) == "function" then pcall(require, "SCNativeCareActions") end
+if not SC.BandageWash and type(require) == "function" then pcall(require, "SCBandageWash") end
 if type(require) == "function" then require "SCHygieneClothing" end
 
 SC.Downtime = SC.Downtime or {}
@@ -40,12 +41,6 @@ local LEADER_CHECK_IN_REPLY = {
     },
     caring = { "It helps knowing someone is looking out for us." },
     practical = { "Supplies are fine. I will speak up if that changes." },
-}
-local CLEAN_DRESSING_TYPES = {
-    ["base.bandagedirty"] = "Base.Bandage",
-    ["base.rippedsheetsdirty"] = "Base.RippedSheets",
-    ["base.denimstripsdirty"] = "Base.DenimStrips",
-    ["base.leatherstripsdirty"] = "Base.LeatherStrips",
 }
 local restPostures = { sit = true, rest_bed = true, rest_floor = true }
 local sleepInterruptible = { sit=true,rest_floor=true,read=true,write_diary=true,
@@ -972,8 +967,9 @@ local function dirtyBandageActivity(actor)
     if not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
     local assessment = (SC.Medical.assessCached or SC.Medical.assess)(actor)
     -- Change a soiled dressing, or dress a wound that stopped bleeding undressed.
-    if assessment and (assessment.dirtyBandages > 0
-        or (tonumber(assessment.openWounds) or 0) > 0) then
+    if assessment and ((tonumber(assessment.dirtyBandages) or 0) > 0
+        or (tonumber(assessment.openWounds) or 0) > 0 or assessment.needsMaintenance == true
+        or assessment.needsProcedure == true) then
         if type(SC.Medical.canReplaceDirtyBandage) == "function" then
             local available = SC.Medical.canReplaceDirtyBandage(actor)
             if available ~= true then return nil end
@@ -992,11 +988,7 @@ local function craftActivity(actor, items)
 end
 
 local function washSourceValid(object)
-    local amount, amountOk = U().call(object, "getFluidAmount")
-    if not amountOk or (tonumber(amount) or 0)
-        < (U().config("downtimeWashMinimumWater") or 4) then return false end
-    local tainted, taintedOk = U().call(object, "isTaintedWater")
-    return not taintedOk or tainted ~= true
+    return SC.BandageWash and SC.BandageWash.worldSourceValid(object) == true
 end
 
 -- A water source a companion could not reach (a sink with no free square in
@@ -1139,11 +1131,12 @@ local function reachableWashSource(actor, state, skip)
         or type(navigation.beginPathSearch) ~= "function"
         or type(navigation.resumePathSearch) ~= "function"
         or type(navigation.interactionTargets) ~= "function" then
-        return nearbyWashSource(actor, skip)
+        local source, square = nearbyWashSource(actor, skip)
+        return source, square, source and "found" or "absent"
     end
     local origin = utility.squareOf(actor)
     local x, y, z = utility.position(origin)
-    if x == nil then return nil, nil end
+    if x == nil then return nil, nil, "unavailable" end
     local originKey, now = utility.squareKey(origin), utility.nowMs()
     local survey = state.washSourceSurvey
     if survey and (survey.originKey ~= originKey
@@ -1152,7 +1145,7 @@ local function reachableWashSource(actor, state, skip)
             or skip and skip(survey.source))) then
         survey, state.washSourceSurvey = nil, nil
     end
-    if survey and survey.complete then return survey.source, survey.square end
+    if survey and survey.complete then return survey.source, survey.square, survey.source and "found" or "absent" end
     if not survey then
         -- A source already within direct reach needs no map survey. This also
         -- keeps routine washing responsive when the companion is at the sink.
@@ -1167,7 +1160,7 @@ local function reachableWashSource(actor, state, skip)
                         return false
                     end
                 end, 48)
-                if found then return found, square end
+                if found then return found, square, "found" end
             end
         end
         local radius = math.max(1, math.min(8,
@@ -1207,17 +1200,19 @@ local function reachableWashSource(actor, state, skip)
                 end
             end, 48)
         end
-        if survey.scanIndex < total then return nil, nil end
+        if survey.scanIndex < total then return nil, nil, "pending" end
         survey.scanIndex = nil
         if survey.sourcesSeen == 0 then
             -- The ordinary picker also knows how to find a sink on a marked
             -- upper floor. Keep that route available when none is on this one.
-            state.washSourceSurvey = nil
-            return nearbyWashSource(actor, skip, nil, nil, true)
+            local source, square = nearbyWashSource(actor, skip, nil, nil, true)
+            survey.complete, survey.source, survey.square = true, source, square
+            survey.expiresAt = now + (source and 15000 or 5000)
+            return source, square, source and "found" or "absent"
         end
         if #survey.goals == 0 then
             survey.complete, survey.expiresAt = true, now + 5000
-            return nil, nil
+            return nil, nil, "absent"
         end
         survey.expiresAt = now + 90000
         survey.job = navigation.beginPathSearch(origin, survey.goals[1], nil, {
@@ -1227,7 +1222,7 @@ local function reachableWashSource(actor, state, skip)
         survey.goals = nil
     end
     local status, path = navigation.resumePathSearch(survey.job, 48)
-    if status == "pending" then return nil, nil end
+    if status == "pending" then return nil, nil, "pending" end
     local endpoint = type(path) == "table" and path[#path] or nil
     local winner = endpoint and survey.owners[utility.squareKey(endpoint)] or nil
     survey.complete, survey.job = true, nil
@@ -1238,7 +1233,7 @@ local function reachableWashSource(actor, state, skip)
         or skip and skip(survey.source)) then
         survey.source, survey.square = nil, nil
     end
-    return survey.source, survey.square
+    return survey.source, survey.square, survey.source and "found" or "absent"
 end
 
 local function bodyDirt(actor)
@@ -1344,69 +1339,60 @@ local function itemDirt(item)
     return math.max(0, tonumber(blood) or 0) + math.max(0, tonumber(dirt) or 0)
 end
 
-local function washBandageProtected(actor, item)
-    local personal = SC.PersonalItems
-    return personal == nil or type(personal.isProtected) ~= "function"
-        or personal.isProtected(item, actor, "wash_bandage") == true
+local function washSemiSafe(actor, snapshot)
+    local runtime = U().actorState(actor) or {}
+    snapshot = snapshot or stateFor(actor).washSnapshot
+        or runtime.senses and runtime.senses.current or runtime.snapshot
+    if SC.Senses and type(SC.Senses.cached) == "function" then snapshot = SC.Senses.cached(actor) or snapshot end
+    return type(snapshot) == "table" and SC.Medical and SC.Medical.canTreatNow
+        and SC.Medical.canTreatNow(actor, snapshot) == true
 end
 
--- Logistics audits include the contents of carried bags. A dirty dressing
--- found there must be replaced in that same container; removing it from the
--- character's root inventory leaves the original in the bag and fails every
--- subsequent wash attempt.
-local function carriedBandageContainer(actor, item)
-    local utility = U()
-    local root = utility.inventory(actor)
-    if not root or not item then return nil end
-    local holder, holderOk = utility.call(item, "getContainer")
-    if not holderOk or holder == nil then holder = root end
-    if holder ~= root then
-        local carried = false
-        for _, pack in ipairs(utility.inventoryItems(root, 240)) do
-            local nested, nestedOk = utility.call(pack, "getItemContainer")
-            if nestedOk and nested == holder then carried = true break end
-        end
-        if not carried then return nil end
+local function hasCleanDressing(actor, entries, ignore)
+    local wash = SC.BandageWash
+    for _, row in ipairs(entries or {}) do
+        if not (ignore and ignore[row.item]) and wash.isClean(row.item)
+            and wash.isInputAllowed(actor, row.item, nil, entries) then return true end
     end
-    return utility.containerContainsIdentity(holder, item) == true and holder or nil
+    return false
 end
 
-local function washActivity(actor, items, state, current)
+local function washActivity(actor, items, state, current, snapshot)
     local bodyScore = bodyDirt(actor)
     local bestItem, bestItemScore
-    local dirtyBandage
+    local wash, batch = SC.BandageWash, {}
+    local entries = wash and wash.inventoryEntries(actor)
+    for _, row in ipairs(entries or {}) do
+        if #batch < wash.BATCH_LIMIT and wash.cleanType(row.item)
+            and wash.isInputAllowed(actor, row.item, nil, entries) then batch[#batch + 1] = row.item end
+    end
     for _, item in ipairs(items) do
-        local cleanType = CLEAN_DRESSING_TYPES[string.lower(U().itemType(item))]
-        local protected = cleanType ~= nil and washBandageProtected(actor, item)
-        if dirtyBandage == nil
-            and cleanType
-            and carriedBandageContainer(actor, item) ~= nil
-            and not protected then
-            dirtyBandage = item
-        end
+        local protected = wash and wash.cleanType(item) ~= nil
+            and not wash.isInputAllowed(actor, item, nil, entries)
         local score = not protected and itemDirt(item) or 0
         if score > 0.01 and (not bestItemScore or score > bestItemScore) then
             bestItem, bestItemScore = item, score
         end
     end
-    if bodyScore <= 0.01 and not bestItem and not dirtyBandage then return nil end
-    local source, square = reachableWashSource(actor, state, function(object)
+    if bodyScore <= 0.01 and not bestItem and #batch == 0 then return nil end
+    local source, square, surveyStatus = reachableWashSource(actor, state, function(object)
         return washSourceCooling(state, object, current)
     end)
+    local clean = entries and hasCleanDressing(actor, entries)
+    local plan
+    if not source and #batch > 0 and surveyStatus == "absent" and not clean and washSemiSafe(actor, snapshot) then
+        plan = wash.carriedWaterPlan(actor, entries)
+    end
+    if #batch > 0 and (source or plan) then
+        local activity = wash.makeActivity(actor, batch[1], {object=source,square=square,waterPlan=plan})
+        if activity then
+            activity.score, activity.washBatch, activity.washBatchIndex = clean and 74 or 85, batch, 1
+            activity.washOutputs, activity.crossFloor = {}, source and not U().sameFloor(actor, square) or false
+            return activity
+        end
+    end
     if not source then return nil end
     local crossFloor = not U().sameFloor(actor, square)
-    if dirtyBandage then
-        return {
-            kind = "wash_bandage", score = 62,
-            object = source, square = square, item = dirtyBandage,
-            itemContainer = carriedBandageContainer(actor, dirtyBandage),
-            crossFloor = crossFloor,
-            cleanType = CLEAN_DRESSING_TYPES[
-                string.lower(U().itemType(dirtyBandage))],
-            fact = { activity = "wash_bandage",
-                itemType = U().itemType(dirtyBandage) },
-        }
-    end
     if bodyScore > 0.01 and bodyScore * 100 >= (bestItemScore or 0) then
         return {
             kind = "wash_self", score = 48 + math.min(25, bodyScore * 5),
@@ -4508,6 +4494,11 @@ local function startNativeCare(actor, state, activity, current)
         for _, item in ipairs(activity.nativeInputs or {}) do
             if not reservations[item] or reservations[item].actor ~= actor then return false end
         end
+        if activity.kind == "wash_bandage" and activity.waterItem then
+            local entries = SC.BandageWash.inventoryEntries(actor)
+            if not entries or not washSemiSafe(actor)
+                or hasCleanDressing(actor, entries, activity.washOutputs) then return false end
+        end
         return true
     end)
     if accepted ~= true then return false, reason end
@@ -5494,6 +5485,85 @@ local function finishActivity(actor, state, now)
     return true, "completed"
 end
 
+-- A visit contains at most eight separate native transformations. Each item
+-- settles back into its actual original bag before the next one is prepared.
+local function settledCareActivity(actor, state, current)
+    local activity = state.active
+    if activity.kind == "wash_bandage" and activity.washBatch then
+        if not activity.washResultRecorded then
+            activity.washResultRecorded = true
+            activity.washOutputs[activity.nativeOutput] = true
+            activity.fact.washedCount = (activity.fact.washedCount or 0) + 1
+        end
+        if activity.washBatchIndex < #activity.washBatch then
+            activity.washBatchWaiting = true
+            return true, "wash_bandage"
+        end
+    end
+    return finishActivity(actor, state, current)
+end
+
+local function continueWashBatch(actor, state, current)
+    local activity, native, wash = state.active, SC.NativeActions, SC.BandageWash
+    if not washSemiSafe(actor) or showerActivity(actor, state, current) then
+        activity.washBatchWaiting = nil
+        return finishActivity(actor, state, current)
+    end
+    if native.pacingStatus and native.pacingStatus(actor, current) then
+        reserveActivity(actor, activity, current)
+        local service = supervisor()
+        if service and activity.supervisorToken then
+            service.progress(activity.supervisorToken, "wash_pause:" .. tostring(current), {operation="wash_bandage"})
+        end
+        return true, "wash_bandage"
+    end
+    local entries = wash.inventoryEntries(actor)
+    local plan
+    if activity.waterItem then
+        local source, _, status = reachableWashSource(actor, state)
+        if not entries or source or status ~= "absent"
+            or hasCleanDressing(actor, entries, activity.washOutputs) then
+            activity.washBatchWaiting = nil
+            return finishActivity(actor, state, current)
+        end
+        plan = wash.carriedWaterPlan(actor, entries)
+    end
+    local nextItem = activity.washBatch[activity.washBatchIndex + 1]
+    local nextPiece = wash.makeActivity(actor, nextItem, {
+        object = activity.object, square = activity.square, waterPlan = plan,
+    })
+    if not nextPiece or activity.waterItem and not plan
+        or activity.object and not washSourceInReach(actor, activity) then
+        activity.washBatchWaiting = nil
+        return finishActivity(actor, state, current)
+    end
+    local prepared = SC.NativeCareActions.prepare(actor, nextPiece)
+    if not prepared then
+        activity.washBatchWaiting = nil
+        return finishActivity(actor, state, current)
+    end
+    for _, item in ipairs(activity.nativeInputs or {}) do release(item, actor) end
+    for _, key in ipairs({"nativeStarted", "nativeStartedAt", "nativeAttempted", "nativeCompleted",
+        "nativeSettled", "nativeFailure", "nativeOutput", "nativeRecipeSucceeded", "rootBefore",
+        "washWaterBefore", "resultVerification", "washResultRecorded", "washBatchWaiting"}) do activity[key] = nil end
+    activity.item, activity.itemContainer, activity.cleanType = nextPiece.item, nextPiece.itemContainer, nextPiece.cleanType
+    activity.washInputEntry = nextPiece.washInputEntry
+    activity.nativeInputs, activity.waterItem, activity.washWaterPlan = nextPiece.nativeInputs, nextPiece.waterItem, nextPiece.washWaterPlan
+    activity.washBatchIndex = activity.washBatchIndex + 1
+    activity.fact.itemType = U().itemType(activity.item)
+    if not reserveActivity(actor, activity, current) then return failActivity(actor, state, "reserved") end
+    local service = supervisor()
+    if service and activity.supervisorToken then
+        for _, item in ipairs(activity.nativeInputs) do
+            local accepted, reason = service.reserve(activity.supervisorToken, item, "downtime_resource")
+            if accepted ~= true then return failActivity(actor, state, reason or "reserved") end
+        end
+    end
+    local started, reason = startNativeCare(actor, state, activity, current)
+    if not started then return failActivity(actor, state, reason) end
+    return true, "wash_bandage"
+end
+
 function Downtime.cancel(actor, reason)
     local state = actor and states[actor]
     if not state then return false end
@@ -5567,6 +5637,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     local commands = commandState(actor)
     local state = stateFor(actor)
+    state.washSnapshot = snapshot
     if desiredKind == nil and Downtime.canReadOnTrip(actor, player) then
         desiredKind = "read"
     end
@@ -5656,6 +5727,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
             Downtime.cancel(actor, "new_order")
             return false, "cancelled_for_order"
         end
+        if state.active.washBatchWaiting then return continueWashBatch(actor, state, current) end
         if state.active.kind == "shower" and (state.active.showerPhase == "undressing"
             or state.active.showerPhase == "dressing") then
             local activity = state.active
@@ -5687,7 +5759,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                         activity.showerPhase, activity.showerClothingIndex = "dressing", 1
                         return true, "getting_dressed"
                     end
-                    return finishActivity(actor, state, current)
+                    return settledCareActivity(actor, state, current)
                 end
                 return failActivity(actor, state, "native_care_ownership_lost")
             end
@@ -5712,7 +5784,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                 activity.showerPhase, activity.showerClothingIndex = "dressing", 1
                 return true, "getting_dressed"
             end
-            return finishActivity(actor, state, current)
+            return settledCareActivity(actor, state, current)
         end
         if state.active.kind == "leader_check_in" then
             local visit = state.active
@@ -6231,7 +6303,8 @@ end
 function Downtime._washForTests()
     return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling,
         washSourceInReach, completeWashSelf, completeWashEquipment,
-        completeWashBandage, washActivity, reachableWashSource
+        completeWashBandage, washActivity, reachableWashSource,
+        beginActivity, settledCareActivity, continueWashBatch
 end
 
 function Downtime._showerForTests()

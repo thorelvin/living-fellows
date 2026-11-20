@@ -38,6 +38,15 @@ local translations = {
     UI_SC_Wound_DeepWound = "Deep wound",
     UI_SC_Wound_Burned = "Burned",
     UI_SC_Wound_Fractured = "Fractured",
+    UI_SC_Wound_Stitched = "Stitched",
+    UI_SC_Wound_StitchedReady = "Stitched (ready to remove)",
+    UI_SC_Wound_StitchedNeedsTime = "Stitched (needs time)",
+    UI_SC_Wound_Splinted = "Splinted",
+    UI_SC_Wound_SplintBoneHealed = "Splint still on, bone healed",
+    UI_SC_Wound_Bullet = "Bullet lodged",
+    UI_SC_Wound_Glass = "Glass lodged",
+    UI_SC_Wound_HealedBandage = "Healed, bandage still on",
+    UI_SC_Wound_HealedDirtyBandage = "Healed, dirty bandage still on",
     UI_SC_Supplies_Summary = "Clean bandages/rags: %1 | Food: %2 | Water: %3",
     UI_SC_Ammunition_Count = "%1 rounds",
     UI_SC_Signal_Recipients = "%1 companions received the signal.",
@@ -125,12 +134,34 @@ local wounds = Format.formatWounds(description.wounds, text)
 assert(string.find(wounds, "Left Forearm", 1, true))
 assert(string.find(wounds, "Bleeding", 1, true))
 assert(string.find(wounds, "Dirty bandage", 1, true))
-assert(string.find(wounds, "Severity: Moderate", 1, true))
+assert(not string.find(wounds, "Severity", 1, true), "the internal treatment sort key is not player severity")
 assert(string.find(wounds, "Right Hand", 1, true))
 assert(string.find(wounds, "Bitten", 1, true))
 assert(string.find(wounds, "Deep wound", 1, true))
 assert(string.find(wounds, "Fractured", 1, true))
-assert(string.find(wounds, "Severity: 7", 1, true))
+assert(not string.find(wounds, "Severity: 7", 1, true))
+
+local healed = Format.formatWounds({{
+    name="Foot_R", bandaged=true, healed=true, severity=-18,
+}}, text)
+assert(healed == "Foot R: Healed, bandage still on",
+    "a harmless retained dressing is described without an injury score")
+local healedDirty = Format.formatWounds({{
+    name="Foot_R", bandaged=true, dirtyBandage=true, healed=true, severity=0,
+}}, text)
+assert(healedDirty == "Foot R: Healed, dirty bandage still on",
+    "a dirty dressing over healed skin has one clear cosmetic description")
+local function stitchedLine(ready)
+    return Format.formatWounds({{name="Foot_R", stitched=true, stitchReady=ready}}, text)
+end
+assert(stitchedLine(nil) == "Foot R: Stitched", "unknown viewer readiness does not reveal the timer")
+assert(stitchedLine(false) == "Foot R: Stitched (needs time)", "known false readiness is preserved")
+assert(stitchedLine(true) == "Foot R: Stitched (ready to remove)", "qualified viewers can see safe readiness")
+assert(Format.formatWounds({{name="Foot_R", splinted=true}}, text) == "Foot R: Splinted")
+assert(Format.formatWounds({{name="Foot_R", splinted=true, boneHealed=true}}, text)
+    == "Foot R: Splint still on, bone healed", "spent attachment remains visible without a fracture claim")
+local objects = Format.formatWounds({{name="Foot_R", bullet=true, glass=true}}, text)
+assert(objects == "Foot R: Bullet lodged, Glass lodged", "lodged objects are named explicitly")
 
 assert(Format.formatWounds({}, text) == "No active wounds")
 assert(Format.formatSupplies(description.supplies, text) == "Clean bandages/rags: 3 | Food: 2 | Water: 4")

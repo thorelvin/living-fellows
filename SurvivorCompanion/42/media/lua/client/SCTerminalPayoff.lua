@@ -10,7 +10,7 @@ local rewards={pool,{{"Base.Antibiotics"},{"Base.Hammer"},{"Base.Torch","Base.Ba
     {{"Base.ElectronicsMag4"},{"Base.WalkieTalkie3"},{"Base.FirstAidKit"},{"Base.Whiskey","Base.Hammer"}}}
 function P.rewardTier(state,forced)
     local kind=state.lock.kind
-    local tier=state.lock.rewardTier or ((kind=="story" or kind=="phone" or kind=="radio" or kind=="rival") and 3 or (kind=="wheel" or kind=="emma" or kind=="search") and 2 or 1)
+    local tier=state.lock.rewardTier or ((kind=="story" or kind=="phone" or kind=="radio" or kind=="rival") and 3 or (kind=="wheel" or kind=="emma" or kind=="search" or kind=="card") and 2 or 1)
     return math.max(1,tier-(forced and 1 or 0))
 end
 function P.items(state,forced)

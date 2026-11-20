@@ -76,16 +76,25 @@ do
     -- character creation and leave it unable to climb anything. Earned progress
     -- above the seeded level must still restore exactly.
     local priorPerkFactory = PerkFactory
-    PerkFactory = { getPerkFromName = function(name) return name end }
+    local priorFromString, priorMaximum = Perks.FromString, Perks.MAX
+    local nativePerks = {}
+    for _, name in ipairs({"Strength", "Fitness", "Axe", "MAX"}) do
+        local id = name
+        nativePerks[name] = {getId=function() return id end}
+    end
+    Perks.MAX = nativePerks.MAX
+    Perks.FromString = function(id) return nativePerks[id] or nativePerks.MAX end
+    PerkFactory = { getPerkFromName = function() return nil end }
     local applied = {}
     local xp = {
-        setXPToLevel = function(_, perk, level) applied[perk] = level return true end,
+        setXPToLevel = function(_, perk, level) applied[perk:getId()] = level return true end,
         getXP = function() return 0 end,
     }
     local seeded = { Strength = 5, Fitness = 5, Axe = 0 }
     local actor = {
         getXp = function() return xp end,
-        getPerkLevel = function(_, perk) return seeded[perk] or 0 end,
+        getPerkLevel = function(_, perk) return seeded[perk:getId()] or 0 end,
+        setPerkLevelDebug = function(_, perk, level) seeded[perk:getId()] = level end,
     }
     local ok = SC.Persistence._applySkillsForTests(actor, {
         { id = "Strength", level = 0 },
@@ -102,6 +111,7 @@ do
         }) == true and applied.Strength == 8,
         "earned progress above the passive baseline restores unchanged")
     PerkFactory = priorPerkFactory
+    Perks.FromString, Perks.MAX = priorFromString, priorMaximum
 end
 
 -- A scheduled capture yields between items, so a companion can drop an item

@@ -1103,5 +1103,55 @@
         569
       ]
     }
+  },
+  {
+    "id": "LarchKeyTitle",
+    "width": 1536,
+    "height": 1024,
+    "source_file": "LarchKeyTitle-source.png",
+    "source_sha256": "87f8f8daa3114d4c21a08a6daea738fc0b079e44fb93a6ff4586323229456d3c",
+    "decoded_rgb_sha256": "edfe929d02a24d1c14105bb936e87a0a0a4126017a8324e39ae1b0c935b2bdde",
+    "tool": "Built-in image_gen",
+    "prompt": "Use case: ui-mockup. Asset type: an ORIGINAL small title illustration for a July 1993 computer terminal game UI, not an interface screenshot or mockup.\nCreate one clean, simple magnetic-stripe access card beside a desktop slot reader. Flat pure WHITE graphic on a completely uniform pure BLACK opaque background. Landscape 3:2 composition, generous but tight black margins. Card on left at a slight tilt, reader on right with one obvious horizontal swipe slot. Broad, sparse shapes and crisp lines that remain recognizable at about 160 pixels wide. The card has one solid black magnetic stripe inside the white card shape. Reader is a plain rectangular 1993 device shown in restrained three-quarter technical line art. No text, digits, logos, names, card number, controls, screen, monitor, bezel, hands, cables, gradients, glow, grain, photographic texture, shadows or fancy circuitry. The only subjects are the access card and slot reader.\nThe attached image is ONLY a style and subject reference for the small card/reader artwork; discard its entire screen, text, interface and monitor casing. Render a NEW standalone white-on-black illustration, no amber or aqua. It must work as a neutral source texture to tint through a game shader. Very low visual complexity and small losslessly compressed PNG preferred, about 300 KB or less. Opaque black background, not transparency.",
+    "reference_source": "C:/ZOMBOID/outputs/larch-key-gui-concepts-20261120/concept-02-reader-panel.png",
+    "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
+    "files": [
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/LarchKeyTitle-01.png",
+        "x": 0,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          0,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 181188,
+        "sha256": "090899ab45090437faf862ff8224925b4ce64d25cf67be01e9091a75515e445b"
+      },
+      {
+        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/LarchKeyTitle-02.png",
+        "x": 767,
+        "y": 0,
+        "width": 769,
+        "height": 1024,
+        "clip": [
+          768,
+          0,
+          768,
+          1024
+        ],
+        "bytes": 155151,
+        "sha256": "0fdefc14398f914349bfed4bfb4e22e9d38e5d13252b8a668ca2444dd0588124"
+      }
+    ],
+    "view": [
+      119,
+      323,
+      1302,
+      388
+    ]
   }
 ]

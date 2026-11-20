@@ -151,3 +151,25 @@ only Python's standard library and no recordings or samples. Mono 16-bit PCM,
 - `StoryClasses`: 1254 x 1254; source SHA-256 `94a34ea4f71f1fc2924991bd02edf40fef7be07581d09d37440442e6a929d215`.
 - `StoryScenes`: 1254 x 1254; source SHA-256 `e7be560ab9f704ab8466a6a1c0159e3ab14b011121059d2299b18bdaf31d4390`.
 - `StoryEndings`: 1254 x 1254; source SHA-256 `aa2004fe576bfacb76318db9d73df4e6cf34bbd31c6bfe276d96634bd130c948`.
+
+LARCH/KEY title art: original built-in image_gen card-and-reader illustration,
+1536 x 1024, white on opaque black. Source SHA-256
+`87f8f8daa3114d4c21a08a6daea738fc0b079e44fb93a6ff4586323229456d3c`.
+The complete prompt, source reference, decoded pixel hash and tile hashes are
+recorded in `docs/terminal-lock-art.json` under `LarchKeyTitle`. The selected
+source is preserved at `outputs/larch-key-02745/art/LarchKeyTitle-source.png`
+in the shared workspace. `tools/package_terminal_lock_art.py` preserves every
+RGB pixel in two PNG pieces totalling 336,339 bytes; neither piece exceeds
+300 KiB. The live display window trims empty margins without modifying pixels.
+All lock art now totals 9,717,278 bytes, below the existing 10 MiB budget.
+
+Original LARCH/KEY UI sound cues use no game audio or imported recordings.
+`tools/generate_terminal_card_sounds.py` deterministically synthesizes mono
+16-bit PCM at 22,050 Hz: a 0.4-second filtered-noise swipe, then a separate
+0.13-second read blip. Both play through the player's UI sound path, never a
+world-noise event.
+
+| Asset under `SurvivorCompanion/42/media/sound/` | SHA-256 |
+| --- | --- |
+| `LFCardSwipe.wav` | 399429cf72eb3e999067a7095dd428ad8671c0403aba4b612f40f1710952368a |
+| `LFCardRead.wav` | c5ec423aded1a2dd656d7a1b5aac5b6dfd3b2816a57f540f41fedcabede19f59 |

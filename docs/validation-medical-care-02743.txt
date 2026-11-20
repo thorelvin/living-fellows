@@ -1,0 +1,176 @@
+Living Fellows 0.27.43 - companion medical care Phase 2
+Validated 20 November 2026; local build ready for Phase 2 playtesting
+
+Source
+  Worktree: C:\ZOMBOID\work\mc43
+  Branch: living_fellows/0.27.43
+  Base: a97ba1977b1d81536b84b798c1b2ef85efd8372f
+  Includes the preserved Phase 1 implementation from work\mc42.
+  Phase 1's payload was byte-for-byte identical before Phase 2 edits.
+  Remains local and uncommitted for playtesting.
+  Bridge protocol: 42.22-isocompanion-34; save schema: 3.
+
+Implemented scope
+  One ordered medical pipeline for self-care and helping another patient:
+  undressed bleeding, lodged bullet, lodged glass, unsplinted fracture, burn
+  cleaning, local wound disinfection, open wounds, active dirty dressings,
+  ready stitches and spent splints.
+
+  Bullet/glass removal requires usable permitted tweezers or a needle holder.
+  No bare-handed glass removal. A fresh exact dressing is reserved before
+  uncovering a part. Burn cleaning uses two separate clean dressings: one
+  consumed by cleaning, another applied afterwards. Native effects are verified
+  before exact supply debits. Committed work retains its unfinished obligations
+  rather than repeating surgery. Ambiguous native inventory outcomes quarantine
+  their evidence instead of generating compensating items.
+
+  Disinfection treats local wound infection only. It prefers wipes, disinfectant,
+  rubbing alcohol and then spare strong spirits. Native strength and amount
+  thresholds apply, with 0.15 L fluid doses. Protected, loaned, manually equipped,
+  held and drinking reserves are excluded. Repetition requires native alcohol
+  exhausted and at least two actual game hours since the verified dose.
+
+  Camp visits retain patientId independently of assigned medic. One open job
+  per patient survives waiting and recovery. Scoped holds require an actual
+  medical owner and current safety; player care remains separate. Busy/no medic
+  yields the same job to self-care after the bounded wait. Leaving duty or camp
+  prevents new elective work. Streaming absence does not erase recovery proof.
+
+Native Phase 0 - PASS
+  Real Project Zomboid 42.22.2, official PZO V2.2, disposable full Rising clone.
+  Evidence: build\pzo-medical-procedures-20261120-003620-81945e
+  Receipt: home\Zomboid\Lua\pzo-medical-procedures-result.txt (779 checks).
+  Five installed medical Lua sources matched the owned media snapshot.
+  Original Rising save, installed mod, game launcher, bridge and game JAR hashes
+  were unchanged; results.json records sourceUntouched=true.
+
+  Native bullet pain: 80 - Doctor; glass: 30 - Doctor; burn: 60 - Doctor.
+  Bullet removal leaves a real deep wound. Burn cleaning creates a dirty
+  replacement from its exact cleaning dressing; separate fresh redress remains.
+  Wipes use one native use. Fluid eligibility requires actual amount >0.15 L
+  and alcoholFraction + 0.001 >=0.4; each dose removes 0.15 L.
+  Rubbing alcohol resolves through Fluid.Get('RubbingAlcohol').
+
+  Two actual game hours of native DamageUpdate:
+    Treated local wound infection: 5 -> 1.01600575; alcohol: 4 -> 0.
+    Untreated control infection: 5 -> 5.21630764; health remained 100.
+  Alcohol therefore treats an existing local wound infection. No prophylactic
+  disinfection, Knox treatment or antibiotic scope was added.
+  Vanilla requested Doctor XP 20/15/10, but actual companion XP delta was zero.
+  Shipping code preserves the stock requests; no skill gain is claimed.
+
+Focused verification - PASS
+  Ten fresh-environment groups passed together:
+    medical summary, maintenance, procedures, procedure resources, recovery
+    persistence, visiting medics, medical liveness, camp washing, personal
+    washing and medical formatting.
+  Evidence: build\phase2-contact-final.log. Existing medical liveness:
+  84 checks. A distinct noncamp patient is checked at selection and again when
+  the visual completes; new patient danger preserves the old cover and supply.
+  Resource faults: 31 checks; durable recovery: 24 checks, including actual
+  captureRecord and 190 pre-existing care keys beside clinical metadata.
+  Visiting medics: 54 assertion invocations, including actual clinical API.
+
+  Eight isolated copied-module negative variants each failed its intended named
+  assertion: bullet/glass priority, missing tools, reuse of one burn dressing,
+  omitted verified debit, assignment to patient instead of medic, and bypassed
+  current-observation safety, and checking patient danger only during camp
+  visits, and stopping at the former loose medical arrival radius. No payload
+  file was mutated by these controls.
+  Evidence: build\mc43-negative-20261120-013512\results.json
+  The archived old approach also fails the shifted-patient contact invariant:
+  build\contact-invariant-negative.log.
+
+  Source validation and release synchronization passed; voice action labels
+  passed (218 actions, 222 labels). Standalone UI suite returned exit 0.
+  Production freeze: build\medical43-source-freeze.json (749 source files).
+
+Release verification - PASS
+  Windows PowerShell 5.1 Test-Project.ps1 -Release on final frozen source:
+  Build, Lifecycle, Behaviour, Cargo and Interface: 5/5 passed.
+  All 18 installer boundary cases passed (ownership/rollback/exact restore).
+  Normal/debug compilation, reproducible bridge and both package builders passed.
+  Elapsed: 1012.0 seconds; 24 direct JVM launches.
+  Final gate: build\test-results\20261120-013805-dbd917\summary.json
+  Standalone UI suite: Windows PowerShell 5.1, exit 0; build\mc43-ui.log.
+  Standalone SHA256:
+    5047fdf8eefbc03750c268161445e30574292f0ec025150d98db4d3d68c3d72e
+  Bridge SHA256:
+    b1f3dd785e76e5b1d1ace3b78ca4bf1ba91e51106d33fe0be05e8ae166e4f07d
+
+Live approach correction
+  On the frozen pre-correction source, the medic started at 11887.5,6691.5,
+  patient at 11884.5,6694.5. Navigation selected diagonal tile 11885:6693 and
+  stopped at 11886.1123,6692.8848, about 2.282 m from the patient. Navigation
+  repeated arrived while exact medical contact remained false, then timed out.
+  Evidence: build\pzo-medical-procedures-20261120-013012-741e6d.
+  Medical now admits cardinal standing goals only when their actual distance
+  to the patient plus a tight arrival allowance fits inside existing contact
+  range. Exact contact, wall and safety checks remain unchanged. No general
+  Navigation, native bridge or zombie navigation code was changed.
+  Corrected-source VisitsOnly preflight: PASS, 4440 checks, same start geometry.
+  Evidence: build\pzo-medical-procedures-20261120-013531-a58b9e.
+  The real medic walked into exact contact, treated covered glass on a quiet
+  HP30 resident and changed a second dirty dressing in the same job. All six
+  visit scenarios passed: positive, public cancellation, leaving duty, player
+  care, actual 20-second fallback/dedup, and actual adjacent-zombie danger.
+  The optional noncamp helper-safe/patient-unsafe case was isolated and refused.
+  Primary queue unchanged; all 526 staged shipping files matched; source,
+  original save and installation unchanged. This preflight is explicitly
+  labelled VisitsOnly and is separate from full Phase 2 acceptance.
+
+Final Phase 2 native acceptance - PASS
+  Evidence: build\pzo-medical-procedures-20261120-013814-2e5b9d
+  results.json: mode=full-phase2-acceptance, result=PASS, checks=10055.
+  Native receipt explicitly records primary_queue_untouched=true.
+  All 13 clinical scenarios passed: covered/uncovered bullet, glass, burn and
+  disinfection; quiet HP30 patient; missing fresh, burn needing two dressings,
+  protected/missing tools, protected reagent and insufficient-fluid refusal.
+  Exact fresh/old-cover returns, native pain, tools retained and active-effect
+  repeat prevention were verified. The legitimate second dose followed actual
+  2.020769 game hours with alcohol exhausted and spent the last nominal 0.15 L.
+  Native wound infection declined from 5 to 1.01567066 over 2.000021 game hours;
+  untreated control rose to 5.21599102. All six visits and the isolated real
+  noncamp helper-safe/patient-unsafe refusal passed on the same payload.
+  All 526 staged standalone files matched source-derived packaging exactly.
+  sourceUntouched=true; original full Rising save, installed mod and all three
+  protected game files matched their before/after fingerprints.
+  Canonical payload fingerprint before/after:
+    6e2e81236b94431608e0616dfd1e4c880a8943dda2e165430fb93c7343b43f70
+
+Final inherited Phase 1 native acceptance - PASS
+  Evidence: build\pzo-medical-capabilities-20261120-014241-164f24
+  result=PASS, checks=31329, primary_queue_untouched=true.
+  Healed/hidden injury facts and attachment maintenance passed; ready stitches
+  and spent splints cleared their native limp effects. Personal batches returned
+  their clean outputs to the original bag. Carried washing used 0.5 L tainted
+  water and preserved clean/protected bottles. Camp washing deposited eight
+  distinct native clean outputs in Medical storage; ninth, quest and personal
+  favorite controls remained untouched, with dedup and release verified.
+  results.json: sourceUntouched=true. source-match.json verifies all 526 staged
+  files, all 749 frozen production files, and the exact same canonical payload
+  fingerprint as final Phase 2. Original save and installation unchanged.
+  All owned native game clients exited after the tests.
+
+Delivery
+  ZIP: C:\ZOMBOID\outputs\medical-care-02743\LivingFellowsCompanion-0.27.43-STANDALONE-WINDOWS.zip
+  Report: C:\ZOMBOID\outputs\medical-care-02743\validation-medical-care-02743.txt
+  The preserved Phase 1 worktree still matches all 523 original payload hashes;
+  the main checkout's existing changes were left untouched. No commit, push,
+  tag, installation or upload was performed. Phase 2 stops for playtest feedback.
+
+Recovery behavior
+  Cooldown and bounded pure recovery metadata share the ordinary saved care
+  document. Commands, Relationship normalization and Persistence preserve the
+  nested data with a coherent 384-value/depth-4 bound, retaining the previous
+  care budget beside the medical extension. Save schema remains 3.
+  Across a full reload, an unresolved debit whose exact native handle cannot
+  be proven is quarantined. It is never re-debited or compensated by creating
+  items. Safe redress, ordinary dressing, fracture splinting and movement remain
+  available; further elective surgery is blocked while that forensic receipt
+  remains unresolved. No player-facing receipt resolution tool was added.
+
+Limits
+  Phase 3 stitching, painkillers, antibiotics and medic loadout changes are
+  excluded. The earlier reported whole-game freeze remains unproven and is not
+  claimed fixed by this medical work. No zombie navigation is modified.
