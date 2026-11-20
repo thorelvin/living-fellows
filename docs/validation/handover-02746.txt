@@ -1,0 +1,116 @@
+Living Fellows 0.27.46 — The Handover
+Validation: 2026-11-20, Project Zomboid 42.22.2, Java 25, official PZO 2.2.
+Branch: living_fellows/0.27.46, based on e75dda9d.
+Bridge protocol: 42.22-isocompanion-35. Companion save schema remains 3.
+
+Implemented behavior
+--------------------
+Primary-player death pauses succession. The stock character creator can make a
+fresh survivor at a valid marked camp; takeover permanently transfers an eligible
+living recruit into a stock primary IsoPlayer at the recruit's location. Native
+serialization preserves their body, identity, skills, equipment and needs.
+Takeover retires the NPC without killing it. The previous player follows native
+corpse, inventory and reanimation rules. No enemies are cleared or protection
+granted by the feature. Camp arrival checks actual loaded floor, obstruction and
+fire; a failed arrival retains an ordinary-spawn alternative.
+
+Camp state, recruitment, duties and relationships remain world-owned. Separated
+followers preserve their standing order while seeking reachable indoor shelter.
+Contact or a changed order ends the hold. Stranded crew gets the remote view;
+remote expeditions/Base Watch are saved and suspended. Settled groups can release
+the slot for another cold group, with the activity resuming once rescue permits.
+Radio reports require real powered equipment, channel/range compatibility and a
+native receipt. Temporary endpoint capabilities are explicitly released.
+
+A committing journal owns interrupted transfers until a read-only player-database
+check confirms the ready marker. Menu preflight recovers before vanilla routes a
+dead primary row to its creator. Retired IDs are excluded from synchronous and
+scheduled saves, normal restoration and deliberately stale snapshots. EMMA keeps
+world discoveries, marks the former operator dead and greets the successor once.
+Vanilla respawn, menu and quit callbacks remain. Extra human split-screen players
+are rejected; the LF-owned remote slot is supported. Zombie navigation is unchanged.
+
+Readiness guards
+----------------
+Dead/unrecruited or quarantined actors are unavailable. A pending pickup inventory
+transfer, expedition vehicle/resource/delivery ownership or selected carrier's
+unsettled cargo gives a visible refusal. Eligible on-foot expedition members can
+detach, handing leadership to a survivor or ending an empty mission. Borrowed
+driver keys settle before capture. Exact native vehicle occupants release only
+after the transfer receipt is durable; unrelated occupants are never evicted.
+
+Automated gates
+---------------
+Two complete Test-Project.ps1 -Release runs pass all five domains:
+  build/test-results/20261120-221649-d15e9a — 1014.5 seconds.
+  build/test-results/20261120-223358-bab55f — 1005.3 seconds.
+Each includes 18 installer ownership/rollback/restore cases. Final normal/debug
+compilation passes all 373 Lua files. Medical and existing gameplay regressions
+remain in the Behaviour gate; decision arbitration now has 202 checks.
+
+Final seat/key and cold-loader changes were followed by Build + Lifecycle:
+  build/test-results/20261120-225318-15d1fe — 64.8 seconds, both pass.
+This includes actual pinned-runtime API/exposure checks for native serialization,
+stock mouse/joypad admission, streaming, pre-world player-store recovery and the
+exact hidden cold-loader ownership boundary. Other domain inputs are unchanged.
+The shelter/radio/suspension harness passes 30 checks, including partial retry,
+second-group handoff, mission detachment and actual mocked reception semantics.
+
+Three independent causal reverts fail at the intended assertions:
+  help/shelter cooldown, indoor doorway selection, native save acknowledgement.
+  build/handover-controls/results.json
+
+Native PZO acceptance — 120 assertions across nine launches
+---------------------------------------------------------
+Camp creator/cancel and distant crew rescue: 20 live + 7 disk reopen.
+  build/pzo-handover-20261120-223629-99330c
+  Actual indoor arrival, actual help and shelter packets, planned dormancy,
+  restored primary camera/lighting, exact saved bonds and retained recruitment.
+
+Vehicle takeover: 27 live + 10 disk reopen.
+  build/pzo-handover-20261120-224340-45ebe3
+  Same real car and passenger seat, exact inventory ID, cut, Doctor level 3 and
+  fractional XP, stock local player, original corpse gear, camp continuity,
+  one EMMA greeting and deliberate stale-NPC injection exclusion.
+
+Cold recruit takeover: 3 setup + 19 live + 9 disk reopen.
+  build/pzo-handover-20261120-225308-dc5c04
+  The original primary is saved 400 tiles away. A genuine disk restart leaves
+  the recruit unloaded; the real chooser streams/restores and transfers them
+  at their saved location. Identity, gear, wound and earned XP survive reopen.
+
+Forced interruption: 9 arming + 16 disk recovery.
+  build/pzo-handover-20261120-225657-a8b56e
+  The owned client is force-stopped after durable source retirement and before
+  native player admission. Restart recovers one successor and excludes stale
+  NPC state. The original corpse's own gear remains exactly once.
+
+The first two native batches used predecessor bridge 94db650c; final cold and
+interruption batches use 59d55d24, whose additional change admits the exact hidden
+LF loader while paused. Final Build/Lifecycle covers the seat/key refinements.
+Every batch verifies the frozen source, original seed, installed mod, launcher,
+game JAR and installed bridge remained untouched. The quiet route fixture removes
+its disposable loaded zombies; an earlier noisy run demonstrated combat preemption.
+This fixture action is absent from production code.
+
+UI and coverage boundaries
+--------------------------
+The real chooser was rendered and inspected at 1280x720. Tests invoke production
+button and creator callbacks. Physical keyboard driving and controller hardware
+input were not manually exercised. Expedition suspension/resume combinations,
+malformed journals and invalid camp alternatives have harness coverage; they are
+not claimed as a complete native mission/terrain matrix. Menu/quit during an
+uncommitted choice is retained through stock callbacks, not a native exit matrix.
+
+Delivery
+--------
+outputs/handover-02746 contains the standalone and Workshop review archives,
+chooser PNG, compact receipts/source manifests and native-acceptance.json.
+All 540 standalone payload files match the final cold native fixture byte-for-byte.
+Final bridge SHA256:
+59d55d246b48177bbebda87d25898ab8dc42bc5883a510891d49e21e00b53e10
+Standalone ZIP SHA256:
+3f470252be52e8e62e95582774cd5e1301fe2367a24562c4eac7bdf11df31b44
+
+Source publication covers the commit and branch push. Release tags, real
+installation and Workshop uploads are separate operations.

@@ -1,5 +1,19 @@
 # SPDX-License-Identifier: MIT
 # These are ordered source lists, consumed by the shared fresh-environment runner.
+@{ Name = 'handover-recovery'; Files = @(
+    (Join-Path $Core 'handover_fixture.lua'),
+    (Join-Path $Client 'SCHandover.lua'),
+    (Join-Path $Core 'handover_harness.lua')
+) }
+@{ Name = 'handover-shelter-radio'; Files = @(
+    (Join-Path $Core 'pickup_radio_fixture.lua'),
+    (Join-Path $Client 'SCControlUtil.lua'),
+    (Join-Path $Client 'SCTaxiBooking.lua'),
+    (Join-Path $Client 'SCRadioEndpoints.lua'),
+    (Join-Path $Client 'SCPickupRadio.lua'),
+    (Join-Path $Client 'SCHandoverRescue.lua'),
+    (Join-Path $Core 'handover_rescue_harness.lua')
+) }
 @{ Name = 'first-meeting-and-safe-arrival'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

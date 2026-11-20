@@ -289,6 +289,9 @@ require "SCRuntime"
 -- Runtime loads the expedition engine before its inbound-only home facade.
 require "SCHomeTrip"
 require "SCUIHomeTrip"
+require "SCHandover"
+require "SCHandoverRescue"
+require "SCHandoverUI"
 
 local SC = SurvivorCompanion
 SC.Bootstrap = SC.Bootstrap or {}
@@ -541,12 +544,26 @@ local function onGameStart()
         return
     end
     if SC.GridControl then SC.GridControl.restore() end
+    if SC.Handover then
+        local called,recovered,recoverReason=pcall(SC.Handover.reconcile)
+        if not called or not recovered then
+            local reason=called and recoverReason or recovered
+            SC.State.active=false;SC.State.disabledReason=tostring(reason)
+            SC.Diagnostics.report("handover",nil,"recovery pending; world records preserved",reason)
+            if SC.Handover.current() then
+                SC.Handover.install();SC.HandoverUI.install();SC.HandoverUI.open()
+            end
+            return
+        end
+    end
     local _, runtimeReason, operational = SC.Runtime.start()
     if operational == false then
         SC.State.active = false
         SC.State.disabledReason = runtimeReason
         SC.Diagnostics.report("bootstrap", nil, "runtime start failed", runtimeReason)
     end
+    if SC.Handover then SC.Handover.install() end
+    if SC.HandoverUI then SC.HandoverUI.install() end
 end
 
 local function onSave()
@@ -575,6 +592,14 @@ local function onInitGlobalModData(isNewGame)
 end
 
 local function onMainMenuEnter()
+    if SC.HandoverUI then SC.HandoverUI.installResume() end
+    if SC.HandoverRescue then
+        local okay,reason=SC.HandoverRescue.prepareReset()
+        if not okay then SC.Diagnostics.report('handover',nil,'view teardown pending',reason) end
+    end
+    if SC.Handover then SC.Handover.reset() end
+    if SC.HandoverRescue then SC.HandoverRescue.reset() end
+    if SC.HandoverUI then SC.HandoverUI.close() end
     if SC.TerminalLockPhone then SC.TerminalLockPhone.reset() end
     if SC.TerminalLockRadio then SC.TerminalLockRadio.reset() end
     if SC.TerminalLocks then SC.TerminalLocks.reset() end

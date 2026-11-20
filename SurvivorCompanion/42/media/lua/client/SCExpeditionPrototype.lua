@@ -6599,6 +6599,7 @@ local function updateSupportCall()
 end
 
 function Expedition.pulse()
+    if SC.HandoverRescue and SC.HandoverRescue.suspends('expedition') then return false,'handover_suspended' end
     if mission == nil then return false, "no_mission" end
     if mission.homeRelease and mission.homeRelease.deadViewReleased then
         local complete,reason = SC.Persistence.completeDeadRemoteArrival(

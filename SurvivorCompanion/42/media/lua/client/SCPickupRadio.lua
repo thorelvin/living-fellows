@@ -105,6 +105,16 @@ function R.exchange(source,target,requestId,action)
     return true,{requestId=requestId,action=action,sequence=sequence}
 end
 
+-- Delivery requires the actual native receiver callback, even for a one-way report.
+function R.send(source,target,text,guid,codes)
+    if pending or not Events or not Events.OnDeviceText then return false,"radio_busy" end
+    local hook=function(...) R.onDeviceText(...) end
+    Events.OnDeviceText.Add(hook)
+    local called,delivered,reason=pcall(transmit,source,target,text,guid,codes)
+    Events.OnDeviceText.Remove(hook);pending=nil
+    return called and delivered==true,called and reason or "radio_unavailable"
+end
+
 function R.path(ctx,actor,source)
     local caller,reason=R.caller(ctx.player or getSpecificPlayer(0),source)
     if not caller then return nil,reason end

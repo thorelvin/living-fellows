@@ -1574,6 +1574,21 @@ local function worldData()
     return store
 end
 
+local function handoverExcluded(id)
+    return SC.Handover and SC.Handover.retired and SC.Handover.retired(id)==true or false
+end
+local function excludeHandoverRecords(document)
+    if type(document)~='table' then return end
+    for _,bucket in ipairs({'companions','factionActors'}) do
+        for id in pairs(document[bucket] or {}) do
+            if handoverExcluded(id) then
+                document[bucket][id]=nil
+                if document.baseLife and document.baseLife.residents then document.baseLife.residents[id]=nil end
+            end
+        end
+    end
+end
+
 -- The infection-crisis subsystem derives its own copy budget from the limits
 -- it enforces. The envelope allowance has to follow it: an allowance below the
 -- subsystem's own budget would reject a document the subsystem considers
@@ -2115,6 +2130,7 @@ local function commitScheduled(job, outgoing)
     -- between this exact revalidation and the assignment below.
     local coherent, coherenceReason, changedRecord = verifyScheduledOwnership(job)
     if not coherent then return false, coherenceReason, changedRecord end
+    excludeHandoverRecords(outgoing)
     local assigned, assignmentReason = pcall(function() job.store.document = outgoing end)
     if not assigned then
         local rolledBack, rollbackReason = pcall(function()
@@ -2554,6 +2570,7 @@ function persistence.save(player)
         lastDocument = transaction.document
         return true,transaction.document
     end
+    excludeHandoverRecords(outgoing)
     local assigned, assignmentReason = pcall(function()
         store.document = outgoing
     end)
@@ -4281,12 +4298,18 @@ local function failRestore(id, entry, reason, current, failureClass)
 end
 
 function persistence.restorePulse(player)
+    for id,entry in pairs(pending) do
+        if handoverExcluded(id) then
+            local cancelled=not entry.spawnTicket or SC.Actor.cancelSpawn(entry.spawnTicket)
+            if cancelled then pending[id]=nil end
+        end
+    end
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
     local processed = 0
     local maximum = SC.Config.get("restorePerPulse")
     for _, id in ipairs(pendingOrder) do
         local entry = pending[id]
-        if entry ~= nil and entry.remoteToken == nil and entry.status ~= "quarantined" and processed < maximum
+        if entry ~= nil and not handoverExcluded(id) and entry.remoteToken == nil and entry.status ~= "quarantined" and processed < maximum
             and current >= (entry.nextAt or 0) then
             local active = SC.Registry.byId(id)
             if active ~= nil then
@@ -4430,6 +4453,7 @@ function persistence.restore(player)
         end
     end
 
+    excludeHandoverRecords(candidateDocument)
     local repairedKnox = repairLegacyKnoxCohort(candidateDocument)
     if repairedKnox > 0 then
         SC.Diagnostics.report("persistence", nil,
@@ -5128,6 +5152,20 @@ function persistence.retainForRecovery(record)
         or "recruit retained for recovery after health-gate retirement",
         quarantined and tostring(retirements) or cleanReason)
     return true, quarantined and "quarantined" or "retained"
+end
+
+-- Planned dormancy is not a native health failure and must not consume the
+-- repeated-retirement quarantine budget.
+function persistence.retainForHandover(record)
+    if not record or handoverExcluded(record.id) then return false,'successor_owned' end
+    local saved,why=persistence.captureRecord(record,nil,{preserveNativeIds=true})
+    if not saved then return false,why end
+    local clean,reason=validateRecord(record.id,saved)
+    if not clean then return false,reason end
+    pendingOrderEnsure(record.id)
+    pending[record.id]={record=clean,raw=saved,bucket=record.recruited and 'companions' or 'factionActors',
+        status='pending',nextAt=0,attempts=0,vehicle=usesVehicleImport(clean),handover=true}
+    return true
 end
 
 -- Sustained healthy activation clears the repeated-retirement history so a single

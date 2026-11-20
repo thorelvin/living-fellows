@@ -528,6 +528,23 @@ public final class SCSplitScreenProbe {
 
     public static int retainedCorpseChunkCount() { return retainedCorpseChunks.size(); }
 
+    /** Primary succession shares the same bounded native corpse save owner. */
+    static void retainPrimaryCorpse(IsoDeadBody body) throws IOException {
+        IsoGridSquare square = body == null ? null : body.getSquare();
+        IsoChunk chunk = square == null ? null : square.getChunk();
+        if (chunk == null || !square.getStaticMovingObjects().contains(body))
+            throw new IllegalStateException("primary corpse is not on its native square");
+        if (retainedCorpseChunks.contains(chunk)) return;
+        releaseRetainedCorpseChunks(true);
+        if (retainedCorpseChunks.size() >= 8) throw new IllegalStateException("corpse chunk retention limit reached");
+        IsoCell cell = IsoWorld.instance == null ? null : IsoWorld.instance.getCell();
+        if (cell == null || IsoChunkMap.SharedChunks.get((chunk.wx << 16) + chunk.wy) != chunk)
+            throw new IllegalStateException("primary corpse chunk is not shared by the live world");
+        if (retainedCorpseOwner == null) retainedCorpseOwner = new IsoChunkMap(cell);
+        chunk.refs.add(retainedCorpseOwner);
+        retainedCorpseChunks.add(chunk);
+    }
+
     /** Write the latest native chunk at the game's save boundary. */
     public static boolean saveRetainedCorpseChunksNow() {
         ArrayList<IsoChunk> chunks = new ArrayList<>();
@@ -753,6 +770,19 @@ public final class SCSplitScreenProbe {
             coldProbe = null;
         }
         return true;
+    }
+
+    /** A durably retained rescue crew may release a distant view during play. */
+    public static boolean releaseHandoverView() {
+        IsoWorld world=IsoWorld.instance;
+        IsoPlayer primary=IsoPlayer.players==null ? null : IsoPlayer.players[0];
+        IsoCell cell=world==null ? null : world.getCell();
+        IsoChunkMap map=cell==null ? null : cell.getChunkMap(1);
+        SecondaryLightingRelease lighting=leader!=null && map!=null ? new SecondaryLightingRelease(map) : null;
+        boolean released=releaseForWorldExit();
+        if (released && primary!=null && !primary.isDead() && lighting!=null)
+            armPrimaryViewRestore(primary,cell,lighting);
+        return released;
     }
 
     /** Flush an active or idle LF descriptor before menu teardown. */

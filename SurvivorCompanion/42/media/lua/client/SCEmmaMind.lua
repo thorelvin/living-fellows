@@ -111,6 +111,12 @@ function M.operatorId(player)
     if id=="" then id=identity("operator");data[M.OPERATOR_KEY]=id end
     return id
 end
+function M.noteDeath(player)
+    local md=call(player,'getModData');local id=type(md)=='table' and md[M.OPERATOR_KEY]
+    local state=ModData and type(ModData.get)=='function' and ModData.get(M.KEY)
+    if not id or type(state)~='table' or state.version~=1 then return end
+    local row=rowFor(state,id);if row then row.dead=true end
+end
 -- inputs are plain facts from this computer, not a county survey.
 function M.enter(player,pc,portable,facts,legacy)
     if not pc or pc.locked or not portable then return nil end
@@ -243,6 +249,10 @@ end
 function M.bootLines(session,entry)
     local lines={}
     if not entry or SC.EmmaCare and SC.EmmaCare.quiet(session) then return lines end
+    if SC.Handover and SC.Handover.greeting then
+        local greeting=SC.Handover.greeting()
+        if greeting then lines[#lines+1]=greeting end
+    end
     local data=SC.EmmaMindData
     if entry.new then
         local pool=data.fragment;local pick=math.max(1,math.min(#pool,tonumber(session.random(#pool)) or 1))

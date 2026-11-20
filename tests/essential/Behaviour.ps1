@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: MIT
 # Group boundaries are fresh Lua environments in the shared serial runner.
+@{ Name = 'behaviour.decision-arbitration-and-shelter-entry'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCSpeechColors.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Client 'SCActionSupervisor.lua'),
+    (Join-Path $Client 'SCDecision.lua'),
+    (Join-Path $Gameplay 'decision_arbitration_harness.lua')) }
 @{ Name = 'behaviour.farming-storage-compatibility'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Core 'farming_lifecycle_fixture.lua'),
     (Join-Path $Essential 'farming_storage_harness.lua')) }

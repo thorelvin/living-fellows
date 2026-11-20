@@ -404,6 +404,7 @@ local function restoreView()
 end
 
 function Watch.pulse()
+    if SC.HandoverRescue and SC.HandoverRescue.suspends('base_watch') then return false,'handover_suspended' end
     if session == nil then return false, "base_watch_not_active" end
     if session.pickupOwner then return true, "base_watch_pickup_paused" end
     if SCSplitScreenProbe == nil then return false, "local_view_unavailable" end

@@ -204,8 +204,19 @@ function View.rememberSlotSqlId(value)
     return true
 end
 
+function View.loadHandoverArea(point)
+    if owner~=nil or reservation~=nil then return nil,"companion_view_in_use" end
+    local ready,reason=restoreCapability();if not ready then return nil,reason end
+    local called,loader=pcall(SCSplitScreenProbe.startColdCompanionProbe,
+        math.floor(point.x),math.floor(point.y),math.floor(point.z),reusableSlotSqlId or -1)
+    if not called or not loader then return nil,tostring(loader) end
+    cancelPrimaryRestore();owner="handover"
+    if SC.ViewUI then SC.ViewUI.remember(loader) end
+    return loader
+end
+
 function View.claim(mode, actor, legacySlotId)
-    if mode ~= "expedition" and mode ~= "base_watch" and mode ~= "pickup" then
+    if mode ~= "expedition" and mode ~= "base_watch" and mode ~= "pickup" and mode ~= "handover" then
         return false, "invalid_companion_view_mode"
     end
     if View.blockedFor(mode) then return false, "pickup_uses_companion_view" end
@@ -231,7 +242,7 @@ end
 
 -- The cold loader or a restored companion already holds native slot 1.
 function View.adopt(mode, actor, slotId)
-    if mode ~= "expedition" and mode ~= "base_watch" and mode ~= "pickup" then
+    if mode ~= "expedition" and mode ~= "base_watch" and mode ~= "pickup" and mode ~= "handover" then
         return false, "invalid_companion_view_mode"
     end
     if View.blockedFor(mode) then return false, "pickup_uses_companion_view" end

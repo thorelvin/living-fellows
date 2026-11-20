@@ -206,7 +206,7 @@ local function step()
     elseif s.phase=='craft' then craft();phase('world-wash')
     elseif s.phase=='world-wash' then
         worldWash()
-        if SC.Identity.bridgeProtocol=='42.22-isocompanion-34' then
+        if SC.Identity.bridgeProtocol=='42.22-isocompanion-35' then
             s.findSource,s.count,s.partReset=findSource,count,partReset
             phase('acceptance-start')
         else finish(true,'native medical and washing capabilities verified') end

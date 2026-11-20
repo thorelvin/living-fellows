@@ -272,7 +272,28 @@ public final class SCNativeBridgeExposureTest {
                 "sleep model correction was not cleared");
     }
 
+    private static void testHandoverLoaderBoundary() throws Exception {
+        Class<?> unsafeClass=Class.forName("sun.misc.Unsafe");
+        Field singleton=unsafeClass.getDeclaredField("theUnsafe");singleton.setAccessible(true);
+        Object unsafe=singleton.get(null);
+        Method allocate=unsafeClass.getMethod("allocateInstance",Class.class);
+        zombie.characters.IsoPlayer human=(zombie.characters.IsoPlayer)allocate.invoke(unsafe,zombie.characters.IsoPlayer.class);
+        SCNativeCompanion cold=(SCNativeCompanion)allocate.invoke(unsafe,SCNativeCompanion.class);
+        Field leader=SCSplitScreenProbe.class.getDeclaredField("leader");leader.setAccessible(true);
+        Field probe=SCSplitScreenProbe.class.getDeclaredField("coldProbe");probe.setAccessible(true);
+        Object oldLeader=leader.get(null),oldProbe=probe.get(null);
+        try {
+            leader.set(null,cold);probe.set(null,null);
+            require(!SCHandoverNative.ownsLoader(cold,1),"unowned ordinary NPC loader was accepted");
+            probe.set(null,cold);
+            require(SCHandoverNative.ownsLoader(cold,1),"exact hidden LF map loader was skipped while paused");
+            require(!SCHandoverNative.ownsLoader(cold,0) && !SCHandoverNative.ownsLoader(human,1)
+                    && SCHandoverNative.ownsLoader(human,0) && !SCHandoverNative.ownsLoader(cold,2),
+                    "succession loader ownership escaped the primary and exact LF secondary slots");
+        } finally {leader.set(null,oldLeader);probe.set(null,oldProbe);}
+    }
     public static void main(String[] args) throws Exception {
+        testHandoverLoaderBoundary();
         testOptionalOptimizerBoundary();
         Class<?> randomClass = Class.forName("zombie.core.random.RandStandard");
         Object random = randomClass.getField("INSTANCE").get(null);
@@ -403,7 +424,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.22-isocompanion-34".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.22-isocompanion-35".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");

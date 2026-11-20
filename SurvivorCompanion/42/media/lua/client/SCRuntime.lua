@@ -109,6 +109,7 @@ local function player()
     -- Split screen may make getPlayer() return the companion in slot 1.
     if ((SC.ExpeditionPrototype and SC.ExpeditionPrototype.current())
         or (SC.BaseWatch and SC.BaseWatch.current())
+        or (SC.ViewSession and SC.ViewSession.owner() == "handover")
         or (SC.PickupService and (SC.PickupService.current() or SC.PickupService.previewCurrent())))
         and type(getSpecificPlayer) == "function" then
         local ok, primary = pcall(getSpecificPlayer, 0)

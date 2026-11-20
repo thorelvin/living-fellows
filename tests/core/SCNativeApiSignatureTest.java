@@ -66,6 +66,27 @@ public final class SCNativeApiSignatureTest {
         Class<?> window = Class.forName("zombie.iso.objects.IsoWindow");
         Class<?> pathBehavior = Class.forName("zombie.pathfind.PathFindBehavior2");
         Class<?> luaGlobals = Class.forName("zombie.Lua.LuaManager$GlobalObject");
+        require(method(player,"save",java.nio.ByteBuffer.class).getReturnType()==void.class
+                && method(player,"load",java.nio.ByteBuffer.class,int.class).getReturnType()==void.class
+                && method(luaGlobals,"setPlayerMouse",player).getReturnType()==void.class
+                && method(luaGlobals,"setPlayerJoypad",int.class,int.class,player,String.class,boolean.class).getReturnType()==void.class,
+                "Handover native serialization or existing-player admission changed");
+        Class<?> handoverMap=Class.forName("zombie.iso.IsoChunkMap");
+        require(method(handoverMap,"update").getReturnType()==void.class
+                && method(handoverMap,"calculateZExtentsForChunkMap").getReturnType()==void.class
+                && method(player,"setCurrentSquareFromPosition").getReturnType()==void.class,
+                "Handover paused streaming entry points changed");
+        Class<?> handoverJoypads=Class.forName("zombie.input.JoypadManager");
+        Class<?> handoverJoypad=method(handoverJoypads,"getFromPlayer",int.class).getReturnType();
+        require(method(handoverJoypad,"getID").getReturnType()==int.class,"Handover controller binding changed");
+        Class<?> handoverData=Class.forName("zombie.savefile.PlayerDB$PlayerData");
+        Class<?> handoverStore=Class.forName("zombie.savefile.PlayerDB$SQLPlayerStore");
+        require(handoverData.getDeclaredMethod("setBytes",byte[].class).getReturnType()==void.class
+                && handoverStore.getDeclaredMethod("save",handoverData).getReturnType()==void.class
+                && handoverStore.getDeclaredMethod("Reset").getReturnType()==void.class,
+                "Handover pre-world native store transaction changed");
+        handoverStore.getDeclaredMethod("init",Class.forName("gnu.trove.set.hash.TIntHashSet"));
+        for(String key:new String[]{"sqlId","x","y","z","worldVersion","isDead","name"}) handoverData.getDeclaredField(key);
         Class<?> companion = Class.forName("survivorcompanion.bridge.SCNativeCompanion");
         Class<?> bridge = Class.forName("survivorcompanion.bridge.SCBridge");
         Class<?> square = Class.forName("zombie.iso.IsoGridSquare");

@@ -15,6 +15,9 @@ function R.station(player,computer)
     return source
 end
 function R.isEndpoint(source) return type(source)=="table" and issued[source]==true end
+-- Kahlua does not collect weak-key entries. Automatic reports release their
+-- short-lived capabilities explicitly after the native receipt finishes.
+function R.release(source) if type(source)=='table' then issued[source]=nil end end
 function R.validate(player,source)
     if not R.isEndpoint(source) or source.owner~=player or SC.ControlUtil.call(player,"isDead")==true then return false,"radio_source_invalid" end
     if source.kind=="handheld" then

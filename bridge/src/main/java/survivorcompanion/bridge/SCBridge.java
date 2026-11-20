@@ -72,7 +72,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.22-isocompanion-34";
+    public static final String PROTOCOL = "42.22-isocompanion-35";
 
     public static boolean configurePZOptimizerAdapter(boolean enabled) { return SCPZOptimizerCompatibility.configure(enabled); }
     public static String getPZOptimizerAdapterState() { return SCPZOptimizerCompatibility.state(); }
@@ -1417,6 +1417,40 @@ public final class SCBridge {
     public static boolean isCompanion(Object candidate) {
         return candidate instanceof SCNativeCompanion actor && isOwned(actor);
     }
+
+    public static String captureHandoverPlayer(IsoPlayer actor) throws Exception {
+        return SCHandoverNative.capture(actor);
+    }
+
+    public static boolean finalizeHandoverDeath(IsoPlayer player) throws Exception {
+        return SCHandoverNative.finalizeDeath(player);
+    }
+
+    public static IsoPlayer prepareHandoverPlayer(String snapshot, String token) throws Exception {
+        return SCHandoverNative.prepare(snapshot, token);
+    }
+
+    public static boolean admitHandoverPlayer(IsoPlayer player) throws Exception {
+        return SCHandoverNative.admit(player);
+    }
+
+    public static IsoPlayer pollHandoverPlayerAdmission() throws Exception {
+        return SCHandoverNative.pollAdmission();
+    }
+
+    public static boolean recoverHandoverPlayer(IsoPlayer player, String token) throws Exception {
+        return SCHandoverNative.recover(player, token);
+    }
+
+    public static boolean resumeHandoverBeforeLoad() throws Exception {
+        return SCHandoverNative.resumeBeforeLoad();
+    }
+
+    public static boolean handoverPlayerSaved(String token) throws Exception {
+        return SCHandoverNative.saved(token);
+    }
+
+    public static boolean requestHandoverPlayerSave() { return SCHandoverNative.requestSave(); }
 
     /** Apply the local player's live option without changing vanilla co-op PvP. */
     public static boolean setProtectRecruitedCompanions(boolean enabled) {

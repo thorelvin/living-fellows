@@ -71,7 +71,7 @@ check(successes == 1, 'a completed restore cannot create a duplicate')
 -- An installed old bridge is an environment wait too. Updating it must not
 -- cost this recruit restore attempts or quarantine its original save record.
 check(P.reset() == true, 'reset before protocol mismatch')
-failure = 'native bridge protocol mismatch: expected 42.22-isocompanion-34, received 42.22-isocompanion-33; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled'
+failure = 'native bridge protocol mismatch: expected 42.22-isocompanion-35, received 42.22-isocompanion-33; fallback: native actor bridge unavailable; experimental IsoPlayer NPC fallback is disabled'
 original = savedRecord()
 store = SC_TEST_SET_WORLD_STORE({document={schema=SC.Identity.saveSchema,
     companions={[original.id]=original},factionActors={}}})

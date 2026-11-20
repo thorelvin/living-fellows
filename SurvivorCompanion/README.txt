@@ -1,4 +1,4 @@
-Living Fellows 0.27.45 - release
+Living Fellows 0.27.46 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -9,6 +9,10 @@ Companions, survivor households and working bases for Project Zomboid 42.22.2.
 Single-player only.
 
 TAKE THE OTHERS WITH YOU
+- The Handover: after your death, create a fresh survivor at base or permanently
+  play a living recruit where they are, keeping their skills, gear and wounds.
+  Camp duties and bonds carry on. Separated followers seek shelter and radio for
+  help when real working equipment connects them to you.
 - Expeditions: send one to four companions to scout, search, fish or collect
   wood. Walk or drive, watch the leader's view and bring supplies home.
 - Base Watch: leave an indoor resident on watch so the camp keeps working

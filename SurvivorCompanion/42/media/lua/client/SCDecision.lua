@@ -899,8 +899,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             local stairReset = combat and combat.stairShoves and combat.stairShoves.count >= 2
                 and current - (combat.stairShoves.at or 0) <= 20000
                 or state.stairReset
-            if post or stairReset or #(snapshot.stairIncoming or {}) > 0 or outside or patrolDue then add("tactical", 56, false) end
-            if not post and not bleeding and not commands.expeditionMoving
+            if commands.handoverShelter or post or stairReset or #(snapshot.stairIncoming or {}) > 0 or outside or patrolDue then add("tactical", 56, false) end
+            if not post and not commands.handoverShelter and not bleeding and not commands.expeditionMoving
                 and #(snapshot.stairIncoming or {}) == 0 then
                 add("downtime", 30, false)
             end
@@ -1982,6 +1982,14 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         return doWork(actor, player, commands, snapshot, state)
     end
     if commands.order == "stay" or commands.order == "guard" then
+        if commands.handoverShelter then
+            local shelter=anchorSquare(commands)
+            if not shelter or not SC.Navigation then return false,"shelter_unavailable" end
+            return SC.Navigation.request(actor,shelter,"walk",{
+                action="handover_shelter",snapshot=snapshot,
+                arrivalDistance=0.35,requireSameSquare=true,
+            })
+        end
         if SC.StairCombat then
             local held, why = SC.StairCombat.hold(actor, rootRuntime, snapshot, utility.nowMs())
             if held ~= nil then return held, why end
@@ -3542,6 +3550,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
 
     local commands = commandsFor(actor)
+    if SC.HandoverRescue and SC.HandoverRescue.commands then
+        commands = SC.HandoverRescue.commands(actor, player, commands)
+    end
     if commands.recruited and SC.FactionBehavior
         and type(SC.FactionBehavior.humanThreatFor) == "function" then
         local ok, humanThreat = pcall(SC.FactionBehavior.humanThreatFor, actor, player)

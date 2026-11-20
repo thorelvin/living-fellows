@@ -798,4 +798,14 @@ check(D._doTacticalForTests(finalActor,player,{},finalCommand,quiet(),{})
     and finalIntent.expeditionHomeApproach==false,
     "ordinary ordered movement retains its existing arrival policy")
 SC.Navigation=priorNavigation
+SC.Navigation={request=function(_,_,_,intent) finalIntent=intent return true,'walking' end}
+local shelterCommand=order('stay');shelterCommand.anchor={x=0,y=0,z=0};shelterCommand.handoverShelter=true
+local edgeActor=person('outside-shelter',-.21)
+local shelterChoices=D._evaluateForTests(edgeActor,player,quiet(),shelterCommand,healthy(),{},{},clock)
+local entering=false;for _,candidate in ipairs(shelterChoices) do entering=entering or candidate.kind=='tactical' end
+check(entering,'shelter entry stays eligible even inside the ordinary Stay distance of the outdoor tile corner')
+check(D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
+    and finalIntent.action=='handover_shelter' and finalIntent.arrivalDistance==.35 and finalIntent.requireSameSquare==true,
+    'a stranded follower must enter the indoor tile instead of stopping outside the Stay anchor')
+SC.Navigation=priorNavigation
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

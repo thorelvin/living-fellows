@@ -2,6 +2,28 @@
 
 # Changelog
 
+## 0.27.46 - The Handover
+
+- After the player's death, pause and choose a successor: create a normal new
+  survivor at the marked camp, or permanently take over a living recruit where
+  they are. Takeover keeps their native identity, skills, equipment and medical
+  state. Fresh survivors use the ordinary creator and starting equipment.
+- Keep the camp, duties, recruitment, relationships and discoveries. The previous
+  player's corpse and possessions follow the game's normal death lifecycle.
+- Separated followers keep their standing order while seeking nearby reachable
+  shelter. Help and arrival reports require working radios, compatible channels,
+  range and actual reception. Contact or a new order ends the shelter hold.
+- Give stranded crew the companion view while remote expeditions and Base Watch
+  are durably suspended. Resume the activity after shelter or reunion. Taking an
+  eligible on-foot expedition member removes them from its roster; unresolved
+  vehicle, resource or delivery ownership gives a visible temporary refusal.
+- Persist an interrupted transfer until the exact native player row is committed.
+  Retired companion identities cannot reload as duplicate NPCs. EMMA remembers
+  the former operator and greets the successor at their next ordinary terminal.
+- Keep ordinary respawn, menu and quit controls. Camp arrival checks floor,
+  obstruction and fire; danger remains when play resumes. Single-player only.
+- Bridge protocol is now `42.22-isocompanion-35`; world save schema remains 3.
+
 ## 0.27.45 - LARCH/KEY card recovery
 
 - Recover damaged magnetic stripes from an owner's access card and the reader's
