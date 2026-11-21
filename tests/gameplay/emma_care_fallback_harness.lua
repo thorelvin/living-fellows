@@ -52,6 +52,14 @@ for _,raw in ipairs({
     "I don't know who else to tell",
     "I can't stand being in my own head anymore",
     "I don't know how to tell anyone how far this has gone",
+    "Inside I feel forgotten whenever it gets dark",
+    "At dusk my thoughts never give me a moment of quiet",
+    "I do not think anyone would notice if I went missing for good",
+    "I keep thinking there won't be anything left of me soon",
+    "Nobody ever asks how I feel anymore",
+    "I have nothing to look forward to",
+    "It feels like nothing I do has ever mattered",
+    "I cannot make sense of any of it anymore",
 }) do
     local session=disclosure(raw,"care_gentle")
     check(not session.careSoft and not session.careQuestion and not session.careMode,"listens without escalating")
@@ -65,6 +73,12 @@ for _,raw in ipairs({
     "I can barely hold the wheel together", "I hardly recognise the truck",
     "I can hardly repaint the spare room", "I feel good about my life",
     "I can't picture myself here on this server", "I could use someone to listen to the radio",
+    "I found a hollow log", "I am breaking an egg", "I am struggling with a stuck drawer",
+    "I keep thinking the cabinet felt hollow", "I have never felt better in my life",
+    "I never feel hollow these days", "I no longer feel invisible",
+    "I think she feels hollow about her life",
+    'My friend wrote "I feel hollow whenever the sun goes down"',
+    "My friend said, I feel hollow whenever the sun goes down",
 }) do
     local session=fresh()
     local result=brain.respond(session,raw,world)

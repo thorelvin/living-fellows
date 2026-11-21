@@ -789,13 +789,75 @@ local disclosures = {
 }
 local disclosureFillers = {emma=true, honestly=true, just=true, really=true, actually=true, even=true,
     sometimes=true, lately=true, anymore=true, tonight=true, ngl=true, tbh=true}
-local personalDifficulty = {"i can not bear", "i can not stand", "i can not bring myself to", "i dread",
-    "i am dreading", "i am struggling", "i am ashamed", "i can barely", "i can hardly",
-    "i am losing", "i am afraid of", "i can not face", "i have lost interest in", "i am giving up on",
-    "i have given up on", "i can not shake", "i can not imagine", "i can not picture"}
-local innerLife = {"in my own head", "with my thoughts", "about myself", "in my own skin", "who i am",
-    "what i have become", "what is left of me", "myself here", "my life", "any pleasure", "a future",
-    "the things i used to love", "the person i used to be", "the way i feel", "the way i am feeling"}
+local function wordSet(words)
+    local result={}
+    for word in words:gmatch("%S+") do result[word]=true end
+    return result
+end
+local inward=wordSet("life mind thoughts head future heart existence feelings skin purpose happiness")
+local reflection=wordSet("feel feeling felt feels think thinking thought wonder wondering wish wishing hope hoping imagine imagining picture picturing pretend pretending admit confess trust recognise recognize belong deserve know understand remember forget forgotten")
+local heavy=wordSet("hollow ashamed isolated unwanted unloved invisible trapped disconnected unbearable worthless hopeless desperate frightened terrified abandoned miserable meaningless pointless forgotten detached defeated broken wretched awful ruined")
+local difficulty=wordSet("not no never nothing nobody nowhere barely hardly impossible losing lost struggling dread dreading forgotten")
+local lasting=wordSet("anymore forever permanently always never nothing nobody nowhere everything unbearable again longer last gone missing disappear disappearing goodbye goodbyes ever")
+local personalObject=wordSet("me myself anyone anybody everyone everybody somebody someone nobody nothing everything anything anywhere")
+local report=wordSet("quote quoted quoting quotation lyrics lyric said says wrote reads character narrator dialogue movie film playthrough respawn")
+local otherSpeaker=wordSet("he she they you we his her their your")
+local relations=wordSet("brother sister mother father mum mom dad wife husband friend boss neighbor neighbour son daughter")
+local feelingLink=wordSet("am was been feel felt feeling become became")
+local modifiers=wordSet("so as quite nearly rather very more pretty too little bit still almost kind of")
+local linkingWords=wordSet("i me am was have had been keep started feel felt feeling become became")
+local function personalFeeling(t,at,first)
+    local linked=false
+    for i=at-1,math.max(first,at-7),-1 do
+        local w=t[i]
+        if w=="not" or w=="never" or w=="less" or w=="longer" and t[i-1]=="no" then return "denied" end
+        if w=="i" or w=="me" then return linked and "felt" or nil end
+        if feelingLink[w] then linked=true
+        elseif not linkingWords[w] and not modifiers[w] and w:sub(-2)~="ly" then break end
+    end
+end
+local function reflectiveSpan(t,first,last)
+    local reflect,hard,scope,personal,inner,feeling,wish=false,false,false,false,false,false,false
+    local phrase=" "..table.concat(t," ",first,last).." "
+    if phrase:find(" never felt better ",1,true) or phrase:find(" never been happier ",1,true)
+        or phrase:find(" do not feel bad ",1,true) then return false end
+    for i=first,last do
+        local w=t[i]
+        if heavy[w] then
+            local how=personalFeeling(t,i,first)
+            if how=="denied" then return false end
+            if how=="felt" then return true end
+        end
+        reflect=reflect or reflection[w] or w=="look" and t[i+1]=="forward"
+        feeling=feeling or w=="feel" or w=="felt" or w=="feels" or w=="feeling"
+        wish=wish or w=="wish" or w=="wishing" or w=="hope" or w=="hoping"
+        hard=hard or difficulty[w]
+        scope=scope or lasting[w]
+        personal=personal or personalObject[w]
+        inner=inner or w=="my" and (inward[t[i+1]] or t[i+1]=="own" and inward[t[i+2]])
+    end
+    local unspecific=phrase:find(" any of it ",1,true) or phrase:find(" any of this ",1,true)
+        or phrase:find(" it all ",1,true) or phrase:find(" all of this ",1,true) or phrase:find(" all be ",1,true)
+    local absence=phrase:find(" left of me ",1,true) or phrase:find(" left in me ",1,true)
+        or phrase:find(" without me ",1,true) or phrase:find(" i am gone ",1,true)
+    return inner and (hard or reflect and scope) or hard and scope and (unspecific or reflect and personal)
+        or reflect and personal and (t[last]=="gone" or t[last]=="anymore") and scope
+        or absence and (hard or scope) or wish and (personal or unspecific) and phrase:find(" forever ",1,true)
+        or feeling and hard and phrase:find(" anything ",1,true)
+end
+-- Keep evidence about one speaker together. In "I think she feels hollow",
+-- the speaker never claimed that feeling. Words of attribution and quotation
+-- marks are handled before looking at anyone's emotional state.
+local function reflectiveClause(t)
+    local first,own=1,false
+    for i,w in ipairs(t) do
+        if otherSpeaker[w] or w=="my" and relations[t[i+1]] then
+            if own and reflectiveSpan(t,first,i-1) then return true end
+            first,own=i+1,false
+        elseif w=="i" or w=="me" or w=="myself" or w=="my" and inward[t[i+1]] then own=true end
+    end
+    return own and reflectiveSpan(t,first,#t)
+end
 local function matchesEnding(predicate,ending)
     if predicate==ending then return true end
     if predicate:sub(1,#ending+1)~=ending.." " then return false end
@@ -829,17 +891,25 @@ local function unplacedCare(tokens)
             end
         end
     end
-    -- An unfamiliar description of struggling with one's own thoughts still
-    -- deserves a private hearing. Neither an ordinary difficulty nor a
-    -- neutral reference to one's inner life supplies both pieces of evidence.
-    for _,lead in ipairs(personalDifficulty) do
-        if statement:sub(1,#lead+1)==lead.." " then
-            local rest=statement:sub(#lead+1).." "
-            for _,phrase in ipairs(innerLife) do
-                if rest:find(" "..phrase.." ",1,true) then return "care_gentle" end
-            end
+end
+
+local function disclosureIn(raw)
+    local text=tostring(raw):sub(1,512):lower():gsub("\226\128\156",'"'):gsub("\226\128\157",'"')
+    text=text:gsub("\226\128\153","'"):gsub("i'll","i will")
+    text=(" "..text.." "):gsub('"[^"]*"'," "):gsub('".*$'," "):gsub(" '%S.-'([%s%p])"," %1")
+    text=text:gsub("%s+but%s+",";"):gsub("%s+although%s+",";")
+    local gentle
+    for clause in text:gmatch("[^.!?;]+") do
+        local words=Care.tokens(clause)
+        local reported=false
+        for _,w in ipairs(words) do if report[w] then reported=true;break end end
+        if not reported and not any(words,gameWords) then
+            local intent=unplacedCare(words)
+            if intent=="care_check" then return intent end
+            if intent or reflectiveClause(words) then gentle="care_gentle" end
         end
     end
+    return gentle
 end
 
 function Care.distress(raw,parsed)
@@ -878,7 +948,7 @@ function Care.distress(raw,parsed)
         and any(tokens,{"river","bridge","edge","roof","ledge","rope","pills","gun","knife","tracks","train"})
         and not game then return "care_check" end
     if any(tokens,sadSigns) and not game then return "care_gentle" end
-    if unplaced[parsed] and not game and not asked then return unplacedCare(tokens) end
+    if unplaced[parsed] and not game and not asked then return disclosureIn(raw) end
     return nil
 end
 
