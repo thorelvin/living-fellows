@@ -2,6 +2,22 @@
 
 # Changelog
 
+## 0.27.49 - Power Night
+
+- Discover EMMA's county archive at an unlocked computer. Separate TV and radio
+  channels air nightly from 20:00 to 21:00 while the original or restored grid
+  supplies power. Outages and late arrivals rejoin the current programme.
+- Start with three VHS and three audio recordings. Copy compatible recordings
+  at EMMA, keep the physical originals, and expand the world-shared archive.
+- Available camp companions can share a TV, react and discuss recent programmes.
+  Guard duty, orders, urgent needs and emergencies retain priority. Players
+  control receivers, tuning and volume.
+- Preserve original tape lessons across reruns, saves and companion Handover.
+  Verified attendance grants a small nightly mood benefit shared across receivers.
+- Fix companion TV XP being silently discarded by the stock player-only helper,
+  and keep survivor identity when Handover prepares its durable receipt again.
+- Bridge protocol remains `42.22-isocompanion-35`; world save schema remains 3.
+
 ## 0.27.48 - Rescue shelter retry
 
 - Stranded followers choose another nearby shelter after a locked entrance,

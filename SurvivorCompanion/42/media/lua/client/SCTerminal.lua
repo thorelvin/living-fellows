@@ -1140,6 +1140,7 @@ end
 function SCTerminalWindow:startEmma()
     local entry,sharedReason
     self.session,entry,sharedReason = Terminal.sessionFor(self.player, self.object)
+    local archiveDiscovered=SC.PowerNight and SC.PowerNight.discover(self.player,self.object)
     if SC.Guidance then SC.Guidance.report("computer") end
     local reply = Brain().boot(self.session, self.world)
     local checkin=SC.EmmaTerminal and SC.EmmaTerminal.checkin(self.player,self.session,worldHours())
@@ -1169,6 +1170,7 @@ function SCTerminalWindow:startEmma()
     end
     Terminal.writeMemory(self.object, self.session, worldHours())
     local lines = reply.lines or {}
+    if archiveDiscovered then lines[#lines+1]="EMMA: The county archive is available. Power Night airs on TV and radio, 20:00-21:00 while the grid holds. Look under Local services." end
     local count = #(Lines().BOOT or {})
     local bootLines, greeting = {}, {}
     for index, line in ipairs(lines) do

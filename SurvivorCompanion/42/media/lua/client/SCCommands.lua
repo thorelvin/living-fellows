@@ -2160,6 +2160,7 @@ function Commands.describe(companionId, player)
 end
 
 local conversationActions = {
+    power_night = true,
     doing = true,
     status = true,
     needs = true,

@@ -114,6 +114,7 @@ function Radio.candidate(actor, state, now, hooks, desiredKind)
     local ax, ay, az = U().position(actor)
     if not ax then return nil end
     local seated = hooks.seatingStatus(actor) == "furniture"
+    local gathering=SC.PowerNight and SC.PowerNight.mayJoin(actor)
     local camp = not seated and SC.BaseLife
         and type(SC.BaseLife.active) == "function" and SC.BaseLife.active()
     local best, bestScore
@@ -124,9 +125,11 @@ function Radio.candidate(actor, state, now, hooks, desiredKind)
             for dx = -radius, radius do
                 for dy = -radius, radius do
                     local square = U().gridSquare(ax + dx, ay + dy, floor)
-                    if square and (crossFloor or sameRoom(actor, square)) then
+                    if square and (crossFloor or sameRoom(actor, square)
+                        or gathering and SC.BaseLife.isInside(square)) then
                         U().squareObjects(square, function(object)
                             local usable, data = Radio.usable(object)
+                            local archive=gathering and SC.PowerNight.isArchive(object)
                             if not usable or (crossFloor
                                 and not campFloorRoute(actor, square)) then return true end
                             local seat
@@ -147,7 +150,7 @@ function Radio.candidate(actor, state, now, hooks, desiredKind)
                                     object = object, seated = true,
                                     durationMs = 90000,
                                     fact = { activity = "radio_listen" } }
-                            elseif not seated and (not audible or crossFloor)
+                            elseif not seated and (not audible or crossFloor and not archive)
                                 and desiredKind ~= "sit"
                                 and desiredKind ~= "radio_listen" then
                                 candidate = { kind = "radio_setup", score = 26,
@@ -159,9 +162,13 @@ function Radio.candidate(actor, state, now, hooks, desiredKind)
                                 and desiredKind ~= "radio_listen" then
                                 candidate = { kind = "sit", score = 32,
                                     object = seat, square = U().squareOf(seat),
+                                    receiver = object,
+                                    crossFloor = crossFloor,
+                                    originSquare = crossFloor and U().squareOf(actor) or nil,
                                     fact = { activity = "sit",
                                         seatingFor = "radio_listen" } }
                             end
+                            if candidate and SC.PowerNight then candidate=SC.PowerNight.candidate(actor,candidate) end
                             if candidate then
                                 local distance = U().distance(actor, square)
                                 candidate.score = candidate.score - distance * 0.2
@@ -282,6 +289,7 @@ function Radio.finish(actor, activity)
 end
 
 function Radio.onDeviceText(guid, codes, x, y, z)
+    if SC.PowerNight and codes==SC.PowerNight.MARKER then return end
     if tonumber(x) == -1 or tonumber(y) == -1 or tonumber(z) == -1
         or not SC.Registry or type(SC.Registry.living) ~= "function" then return end
     for _, actor in ipairs(SC.Registry.living()) do

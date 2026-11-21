@@ -1,6 +1,8 @@
 -- SPDX-License-Identifier: MIT
 
 local SC = SurvivorCompanion
+SC_TEST_PRIMARY={}
+function getSpecificPlayer(index) if index==0 then return SC_TEST_PRIMARY end end
 
 local function event()
     local value = { handlers = {}, failAdd = false, failRemove = false }
@@ -183,6 +185,18 @@ function SC.GridRadio.remove()
     return true
 end
 function SC.GridRadio.isInstalled() return SC.GridRadio.installed end
+SC.PowerNight={installed=false,installs=0,removes=0}
+function SC.PowerNight.install()
+    if not SC.PowerNight.installed then SC.PowerNight.installs=SC.PowerNight.installs+1 end
+    SC.PowerNight.installed=true return true
+end
+function SC.PowerNight.remove()
+    if SC.PowerNight.installed then SC.PowerNight.removes=SC.PowerNight.removes+1 end
+    SC.PowerNight.installed=false return true
+end
+function SC.PowerNight.isInstalled() return SC.PowerNight.installed end
+function SC.PowerNight.reset() end
+function SC.PowerNight.restoreKnowledge(actor) SC.PowerNight.restored=actor end
 SC.CompanionMap = { installed = false, installs = 0, removes = 0,
     failRemove = false }
 function SC.CompanionMap.install()

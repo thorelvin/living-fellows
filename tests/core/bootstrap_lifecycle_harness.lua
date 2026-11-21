@@ -54,6 +54,8 @@ check(SC.GridRadio.installs == 1,
 
 Events.OnGameStart.fire()
 Events.OnGameStart.fire()
+check(SC.PowerNight.restored==SC_TEST_PRIMARY,
+    "world start restores the current player's durable recorded lessons")
 check(SC.UserOptions.loads == 2 and SC.Runtime.starts == 2
         and SC.Factions.installs == 1
         and SC.FactionContracts.installs == 1

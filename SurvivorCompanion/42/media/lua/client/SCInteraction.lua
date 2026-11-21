@@ -9,11 +9,12 @@ Interaction.categories = {
     { id = "check_in", key = "UI_SC_Talk_CheckIn",
         actions = { "doing", "status", "needs", "plans" } },
     { id = "get_to_know", key = "UI_SC_Talk_GetToKnow",
-        actions = { "memory", "background", "opinion", "relationship" } },
+        actions = { "memory", "background", "opinion", "relationship", "power_night" } },
     { id = "support", key = "UI_SC_Talk_Support",
         actions = { "encourage", "praise" } },
 }
 Interaction.actions = {
+    power_night = { key = "UI_SC_Action_PowerNight", kind = "talk" },
     doing = { key = "UI_SC_Action_Doing", kind = "talk" },
     status = { key = "UI_SC_Action_Status", kind = "talk" },
     needs = { key = "UI_SC_Action_Needs", kind = "talk" },
@@ -55,12 +56,15 @@ function Interaction.choices(categoryId, row)
     category = category or Interaction.categories[1]
     local choices = {}
     for index, action in ipairs(category.actions) do
+        local archiveTopic=action~="power_night" or row and row.actor and SC.PowerNight and SC.PowerNight.topic(row.actor)
+        if archiveTopic then
         local score = 0
         if action == "needs" and row and row.currentNeed then score = score + 5 end
         if action == "doing" and row and row.actionSummary then score = score + 3 end
         if action == "memory" and row and row.recentMemory then score = score + 4 end
         if action == "plans" and row and row.activity == "Scavenge" then score = score + 2 end
         choices[#choices + 1] = { action = action, score = score, index = index }
+        end
     end
     table.sort(choices, function(left, right)
         if left.score ~= right.score then return left.score > right.score end

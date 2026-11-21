@@ -1345,6 +1345,7 @@ local RECRUITED_COMMANDS = {
 }
 
 local PROXIMITY_LIMITS = {
+    power_night = 16,
     status = 16,
     needs = 16,
     memory = 16,

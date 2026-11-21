@@ -86,6 +86,11 @@ final class SCHandoverNative {
             player.serverPlayerIndex = -1;
             player.sqlId = 1;
             Object companionId = player.getModData().rawget("SC_Id");
+            // The durable receipt is prepared again for native admission.
+            // Its first preparation has already retired SC_Id; retain the
+            // survivor identity used by persistent per-person learning.
+            if (companionId == null)
+                companionId = player.getModData().rawget("LF_HandoverCompanionId");
             player.getModData().rawset("LF_HandoverCompanionId", companionId);
             player.getModData().rawset("SC_Id", null);
             player.getModData().rawset("SC_Recruited", null);

@@ -1301,6 +1301,7 @@ local function registerTasks()
             if SC.TerminalHardware then SC.TerminalHardware.pulse() end
             if SC.RadioWork then SC.RadioWork.pulse() end
             if SC.GridControl then SC.GridControl.pulse() end
+            if SC.PowerNight then SC.PowerNight.pulse() end
             if current-generatorPulseAt>=1000 or current<generatorPulseAt then
                 generatorPulseAt=current
                 if SC.GeneratorServices then SC.GeneratorServices.pulse() end

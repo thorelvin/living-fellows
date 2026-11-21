@@ -1052,7 +1052,9 @@ function Relationship.respond(action, actor, player, state, description)
     Relationship.initialize(actor, state)
     description = type(description) == "table" and description or {}
     local now = U().nowMs()
-    if action == "doing" then
+    if action == "power_night" then
+        return SC.PowerNight and SC.PowerNight.talk(actor) or "I haven't caught a programme lately.", "undecided", false
+    elseif action == "doing" then
         return doingResponse(actor, state, description)
     elseif action == "plans" then
         if SC.Objectives and type(SC.Objectives.respondPlans) == "function" then

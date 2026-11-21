@@ -97,6 +97,7 @@ local function viewingSeat(actor, television, hooks, state, now)
                     if not best or score > bestScore then
                         best, bestScore = {
                             kind = "sit", score = score, object = object,
+                            receiver = television,
                             square = square,
                             fact = { activity = "sit", seatingFor = "tv_watch" },
                         }, score
@@ -109,11 +110,12 @@ local function viewingSeat(actor, television, hooks, state, now)
     return best
 end
 
-local function standingSquare(actor, television)
+local function standingSquare(actor, television, hooks, now)
     local tx, ty, tz = U().position(television)
     if not tx then return nil end
     local current = U().squareOf(actor)
     if current and sameRoom(current, television)
+        and not hooks.reserved(current,actor,now)
         and U().distance(actor, television) <= 5
         and U().canSee(current, U().squareOf(television)) then
         return current
@@ -124,6 +126,7 @@ local function standingSquare(actor, television)
             if dx ~= 0 or dy ~= 0 then
                 local square = U().gridSquare(tx + dx, ty + dy, tz)
                 if square and sameRoom(square, television)
+                    and not hooks.reserved(square,actor,now)
                     and U().isSquareFree(square)
                     and not U().movingBlocker(square, actor)
                     and U().canSee(square, U().squareOf(television)) then
@@ -146,6 +149,7 @@ function TV.candidate(actor, state, now, hooks, desiredKind)
     if not ax then return nil end
     local seated = hooks.seatingStatus(actor) == "furniture"
     local currentFloor = math.floor(az)
+    local gathering=SC.PowerNight and SC.PowerNight.mayJoin(actor)
     local camp = not seated and desiredKind ~= "sit" and SC.BaseLife
         and type(SC.BaseLife.active) == "function" and SC.BaseLife.active()
     local best, bestScore
@@ -157,11 +161,14 @@ function TV.candidate(actor, state, now, hooks, desiredKind)
                 for dy = -radius, radius do
                     if not crossFloor or dx * dx + dy * dy <= 100 then
                         local square = U().gridSquare(ax + dx, ay + dy, floor)
-                        if square and (crossFloor or sameRoom(actor, square)) then
+                        if square and (crossFloor or sameRoom(actor, square)
+                            or gathering and SC.BaseLife.isInside(square)) then
                             U().squareObjects(square, function(object)
+                                local archive=gathering and SC.PowerNight.isArchive(object)
+                                local campApproach=archive and not crossFloor and not sameRoom(actor,object)
                                 if not TV.isOn(object)
                                     or (crossFloor and not campFloorRoute(actor, square))
-                                    or (not crossFloor and not U().canSee(actor, square)) then
+                                    or (not crossFloor and not campApproach and not U().canSee(actor, square)) then
                                     return true
                                 end
                                 local candidate
@@ -180,12 +187,14 @@ function TV.candidate(actor, state, now, hooks, desiredKind)
                                         and viewingSeat(actor, object, hooks, state, now) or nil
                                     if seat then candidate = seat
                                     else
-                                        local target = standingSquare(actor, object)
+                                        local target = standingSquare(actor, object, hooks, now)
                                         if target and desiredKind ~= "sit" then
                                             candidate = { kind = "tv_watch",
                                                 score = crossFloor and 18 or 24,
                                                 object = object, square = target,
+                                                watchSquare = target,
                                                 crossFloor = crossFloor,
+                                                campApproach = campApproach,
                                                 originSquare = crossFloor
                                                     and U().squareOf(actor) or nil,
                                                 durationMs = 90000,
@@ -194,6 +203,7 @@ function TV.candidate(actor, state, now, hooks, desiredKind)
                                         end
                                     end
                                 end
+                                if SC.PowerNight then candidate=SC.PowerNight.candidate(actor,candidate) end
                                 if candidate and (not best or candidate.score > bestScore) then
                                     best, bestScore = candidate, candidate.score
                                 end
@@ -211,6 +221,9 @@ end
 function TV.valid(actor, activity, atViewpoint)
     if not actor or not activity or not TV.isOn(activity.object) then return false end
     if not sameRoom(actor, activity.object) then
+        if not atViewpoint and activity.campApproach==true
+            and SC.BaseLife.isInside(actor) and SC.BaseLife.isInside(activity.square)
+            and U().sameFloor(actor,activity.square) then return true end
         if atViewpoint or activity.crossFloor ~= true
             or not campFloorRoute(activity.originSquare, activity.square) then
             return false
@@ -249,7 +262,7 @@ function TV.approach(actor, activity)
         action = "move_to_tv", targetSquare = activity.square,
         object = activity.object, requireSameSquare = true,
         arrivalDistance = 0.35, continuousApproach = true,
-        workCampOnly = activity.crossFloor == true,
+        workCampOnly = activity.crossFloor == true or activity.campApproach == true,
         supervisorToken = activity.supervisorToken,
     })
 end
@@ -342,19 +355,45 @@ local function applyCodes(actor, codes)
             if amount and amount > 0 and (not cutoff
                 or (tonumber(level) or 0) < cutoff) then
                 local awarded = false
-                if type(addXp) == "function" then
-                    awarded = pcall(addXp, actor, perk, amount * 50)
+                local xp = select(1, U().call(actor, "getXp"))
+                if xp then
+                    -- The global addXp wrapper silently rejects NPCs. Use the
+                    -- public overload already used by native medical care.
+                    local _,okay=U().call(xp,"AddXP",perk,amount*50,true,true,false,false)
+                    awarded=okay==true
                 end
-                if not awarded then
-                    local xp = select(1, U().call(actor, "getXp"))
-                    U().call(xp, "AddXP", perk, amount * 50)
-                end
+                if not awarded and type(addXp)=="function" then pcall(addXp,actor,perk,amount*50) end
                 cooldown[code] = now + 500
             end
         elseif code == "RCP" and operation == "=" and raw then
             U().call(actor, "learnRecipe", raw)
         end
     end
+end
+
+-- Share original tape lesson IDs with the archive. Entertainment lines cannot
+-- displace durable educational receipts from the older bounded TV cache.
+function TV.lessonCodes(codes)
+    local result={}
+    for value in tostring(codes or ""):gmatch("[^,]+") do
+        local code,op,raw=value:match("^%s*(%u%u%u)([+%-=])(.+)%s*$")
+        if code=="RCP" and op=="=" or skillPerks[code] and tonumber(raw) and tonumber(raw)>0 and op=="+" then
+            result[#result+1]=value
+        end
+    end
+    return table.concat(result,",")
+end
+function TV.learn(actor,guid,codes)
+    local lessons=TV.lessonCodes(codes)
+    local archive=SC.PowerNight
+    if lessons~="" and archive and archive.knowsLesson(actor,guid) then
+        U().call(actor,"addKnownMediaLine",guid)
+        return false
+    end
+    local learned=learnLine(actor,guid)
+    if lessons~="" and archive and type(guid)=="string" and guid~="" then archive.noteLesson(actor,guid) end
+    if learned then applyCodes(actor,codes) end
+    return learned
 end
 
 local function commentOnBroadcast(actor, guid, codes, x, y, z)
@@ -388,6 +427,7 @@ local function commentOnBroadcast(actor, guid, codes, x, y, z)
 end
 
 function TV.onDeviceText(guid, codes, x, y, z)
+    if SC.PowerNight and codes==SC.PowerNight.MARKER then return end
     if tonumber(x) == -1 or tonumber(y) == -1 or tonumber(z) == -1
         or not SC.Registry or type(SC.Registry.living) ~= "function" then
         return
@@ -403,8 +443,11 @@ function TV.onDeviceText(guid, codes, x, y, z)
                     end
                 end
             end
-            if not localPlayer and learnLine(actor, guid) then
-                applyCodes(actor, codes)
+            if not localPlayer then TV.learn(actor,guid,codes)
+            elseif SC.PowerNight and TV.lessonCodes(codes)~="" then
+                -- A temporary companion viewport lets vanilla own the XP.
+                -- Record its receipt without marking the native line early.
+                SC.PowerNight.noteLesson(actor,guid)
             end
             commentOnBroadcast(actor, guid, codes, x, y, z)
         end

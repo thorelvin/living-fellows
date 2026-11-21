@@ -70,6 +70,10 @@ local function crew(window)
     return rows
 end
 function S.menu(window)
+    if SC.PowerNightUI then
+        local archiveMenu=SC.PowerNightUI.menu(window)
+        if archiveMenu then return archiveMenu end
+    end
     if SC.EmmaJump and SC.EmmaJump.active(window.player,window.object) then window.menuPage=nil return nil end
     local p=window.menuPage
     if stationPages[p] and not campComputer(window) then
@@ -78,6 +82,7 @@ function S.menu(window)
     end
     if p=="home_services" then
         local result={option("Building services","page","services"),option("Computer upgrades","page","hardware")}
+        if SC.PowerNightUI then table.insert(result,1,option("Power Night","page","power_night")) end
         if campComputer(window) then result[#result+1]=option("Expedition station","page","station") end
         result[#result+1]=option("Back to EMMA","page",nil)
         local hardware=SC.TerminalHardware.state(window.object,false)
@@ -93,7 +98,8 @@ function S.menu(window)
         end
         return result
     elseif p=="home_services_more" then
-        local result={option("Computer upgrades","page","hardware")}
+        local result={option("Building services","page","services"),option("Computer upgrades","page","hardware")}
+        if SC.PowerNightUI then result[#result+1]=option("Power Night","page","power_night") end
         if campComputer(window) then result[#result+1]=option("Expedition station","page","station") end
         result[#result+1]=option("Back to services","page","home_services")
         return result
@@ -544,6 +550,8 @@ function S.input(window,raw,chosen)
     if window.system.locked then return false end
     local text=string.lower(raw):match("^%s*(.-)%s*$")
     local action,value=chosen and chosen.serviceAction,chosen and chosen.serviceValue
+    if SC.PowerNightUI and SC.PowerNightUI.input(window,action,value,show) then return true end
+    if text=="power night" and SC.PowerNightUI then page(window,"power_night") show(window,SC.PowerNightUI.status()) return true end
     if text=="discover building" or text=="scan building" or text=="scan the building" or text=="find devices"
         or action=="discover" then
         if SC.TerminalScanUI then SC.TerminalScanUI.open(window,true) else show(window,"Building discovery is unavailable.") end

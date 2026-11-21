@@ -200,6 +200,7 @@ function H.chooseCompanion(id)
     if seated and (not vehicle or not vehicle.vehicle or (tonumber(vehicle.vehicle.sqlId) or -1)<0) then
         return false,'This vehicle has not finished saving its seat state.'
     end
+    if SC.PowerNight then SC.PowerNight.restoreKnowledge(actor) end
     local snapshot=SCBridge.captureHandoverPlayer(actor)
     local store=assert(journal());local receipt={kind='companion',id=id,token=token(store),phase='prepared'}
     local prepared=SCBridge.prepareHandoverPlayer(snapshot,receipt.token)

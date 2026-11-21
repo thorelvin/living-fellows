@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.48-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.49-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -14,6 +14,12 @@ After your death, **The Handover** lets the camp carry on. Create a fresh surviv
 at base or permanently play a living recruit at their current location, keeping
 their skills, gear and wounds. Separated followers seek shelter and call for help
 when working radios connect them to you. Ordinary respawn remains available.
+
+**Power Night** brings familiar voices back to camp. Access an unlocked EMMA
+computer, then open **Local services > Power Night** for the archive channels.
+Tune a TV or radio for the nightly 20:00-21:00 slot while the grid is on.
+Available companions may join, learn and talk about the programme afterward.
+Copy found recordings at EMMA to expand the archive; you keep the originals.
 
 > **Playing 42.22.2? [Download the standalone Windows release →][standalone]**
 >

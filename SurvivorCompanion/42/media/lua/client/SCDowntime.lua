@@ -4105,13 +4105,14 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
         and SC.TVWatching and type(SC.TVWatching.candidate) == "function"
         and (desiredKind ~= nil
             or current < (tonumber(state.tvSeatPendingUntil) or 0)
+            or SC.PowerNight and SC.PowerNight.surveyDue(actor,"tv",current)
             or utility.isDue(actor, "downtime_tv_probe", 12000, current)) then
         television = SC.TVWatching.candidate(actor, state, current, {
             seatingStatus = seatingStatus, furnitureKind = furnitureKind,
             reserved = reservationHeldByOther, cooling = furnitureCooling,
             freeAccess = freeFurnitureAccess,
         }, desiredKind)
-        if television and television.kind == "tv_watch" then
+        if television and (television.kind == "tv_watch" or television.powerNight) then
             if current < (tonumber(state.tvSeatPendingUntil) or 0) then
                 television.score = math.max(television.score, 45)
             end
@@ -4125,13 +4126,14 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
         and SC.RadioListening and type(SC.RadioListening.candidate) == "function"
         and (desiredKind ~= nil
             or current < (tonumber(state.radioSeatPendingUntil) or 0)
+            or SC.PowerNight and SC.PowerNight.surveyDue(actor,"radio",current)
             or utility.isDue(actor, "downtime_radio_listen_probe", 12000, current)) then
         radio = SC.RadioListening.candidate(actor, state, current, {
             seatingStatus = seatingStatus, furnitureKind = furnitureKind,
             reserved = reservationHeldByOther, cooling = furnitureCooling,
             freeAccess = freeFurnitureAccess,
         }, desiredKind)
-        if radio and radio.kind ~= "sit" then
+        if radio and (radio.kind ~= "sit" or radio.powerNight) then
             if radio.kind == "radio_listen"
                 and current < (tonumber(state.radioSeatPendingUntil) or 0) then
                 radio.score = math.max(radio.score, 46)
@@ -4192,7 +4194,7 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
                 rest = readingSeat
             end
         end
-        if rest then filtered[#filtered + 1] = rest end
+        if rest and not rest.powerNight then filtered[#filtered + 1] = rest end
         local floorRest = floorRestActivity(actor,
             furniture ~= nil and desiredKind ~= "rest_floor", commands.order == "follow")
         if floorRest then filtered[#filtered + 1] = floorRest end
@@ -4258,7 +4260,7 @@ local function reserveActivity(actor, activity, now)
     end
     -- A switched-on receiver is shared room ambience: several seated
     -- companions may listen without claiming the radio from one another.
-    if (activity.kind ~= "radio_listen" and not take(activity.object))
+    if (activity.kind ~= "radio_listen" and activity.kind ~= "tv_watch" and not take(activity.object))
         or not take(activity.craftSurface)
         or not take(activity.watchSquare)
         or not take(activity.item) or not take(activity.material) then
@@ -4445,7 +4447,7 @@ local function beginSupervisedActivity(actor, state, activity)
     end
     activity.supervisorToken = token
     local resources = {}
-    if activity.object and activity.kind ~= "radio_listen" then
+    if activity.object and activity.kind ~= "radio_listen" and activity.kind ~= "tv_watch" then
         resources[#resources + 1] = activity.object
     end
     if activity.item then resources[#resources + 1] = activity.item end
@@ -5832,6 +5834,9 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         end
         if state.active.kind == "tv_watch" then
             local watching = state.active
+            if watching.powerNight and SC.PowerNight and not SC.PowerNight.mayJoin(actor) then
+                return finishActivity(actor,state,current)
+            end
             if not SC.TVWatching
                 or not SC.TVWatching.valid(actor, watching, false) then
                 return failActivity(actor, state, "tv_turned_off")
@@ -5877,6 +5882,9 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         end
         if state.active.kind == "radio_listen" then
             local listening = state.active
+            if listening.powerNight and SC.PowerNight and not SC.PowerNight.mayJoin(actor) then
+                return finishActivity(actor,state,current)
+            end
             if not SC.RadioListening.valid(actor, listening, true) then
                 return failActivity(actor, state, "radio_listening_lost")
             end
@@ -6105,6 +6113,9 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                     return true, "sleeping_on_bed"
                 end
                 if floorRest then return true, "resting_on_floor" end
+                if state.active.powerNight and state.active.fact and state.active.fact.seatingFor then
+                    return finishActivity(actor,state,current)
+                end
                 return true, "sitting_on_furniture"
             end
             local elapsed = current - (tonumber(state.active.entryStartedAt) or current)

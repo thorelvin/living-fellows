@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: MIT
 # Group boundaries are fresh Lua environments in the shared serial runner.
+@{ Name = 'behaviour.power-night'; Files = @(
+    (Join-Path $Essential 'power_night_fixture.lua'),
+    (Join-Path $Client 'SCTVWatching.lua'),
+    (Join-Path $Client 'SCPowerNightCatalog.lua'),
+    (Join-Path $Client 'SCPowerNight.lua'),
+    (Join-Path $Client 'SCPowerNightUI.lua'),
+    (Join-Path $Client 'SCTerminalServices.lua'),
+    (Join-Path $Essential 'power_night_harness.lua')) }
+@{ Name = 'behaviour.power-night-seating'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Essential 'power_night_seating_harness.lua')) }
 @{ Name = 'behaviour.decision-arbitration-and-shelter-entry'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Shared 'SCSpeechColors.lua'),

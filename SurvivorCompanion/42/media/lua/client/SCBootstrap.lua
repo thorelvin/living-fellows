@@ -276,6 +276,9 @@ require "SCTerminalRadioUI"
 require "SCRadioWork"
 require "SCGridControl"
 require "SCGridRadio"
+require "SCPowerNightCatalog"
+require "SCPowerNight"
+require "SCPowerNightUI"
 require "SCTerminalGridUI"
 require "SCTerminalScanUI"
 require "SCRadioEndpoints"
@@ -365,6 +368,9 @@ local requiredFunctions = {
     { "GridRadio", "install" },
     { "GridRadio", "remove" },
     { "GridRadio", "isInstalled" },
+    { "PowerNight", "install" },
+    { "PowerNight", "remove" },
+    { "PowerNight", "isInstalled" },
     { "FactionContracts", "installHooks" },
     { "FactionContracts", "removeHooks" },
     { "FactionContracts", "hooksInstalled" },
@@ -405,6 +411,8 @@ local contractDefinitions = {
     { name = "rescue distress radio", owner = function() return SC.OddballDistressRadio end,
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "grid radio report", owner = function() return SC.GridRadio end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "power night archive", owner = function() return SC.PowerNight end,
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "terminal damage feedback", owner = function() return SC.TerminalLamp end,
         install = "install", remove = "remove", state = "isInstalled" },
@@ -556,6 +564,7 @@ local function onGameStart()
             return
         end
     end
+    if SC.PowerNight then SC.PowerNight.restoreKnowledge(getSpecificPlayer(0)) end
     local _, runtimeReason, operational = SC.Runtime.start()
     if operational == false then
         SC.State.active = false
@@ -579,6 +588,7 @@ local function onSave()
 end
 
 local function onInitGlobalModData(isNewGame)
+    if SC.PowerNight then SC.PowerNight.reset() end
     if SC.TerminalLockPhone then SC.TerminalLockPhone.reset() end
     if SC.TerminalLockRadio then SC.TerminalLockRadio.reset() end
     if SC.TerminalLocks then SC.TerminalLocks.reset() end
@@ -592,6 +602,7 @@ local function onInitGlobalModData(isNewGame)
 end
 
 local function onMainMenuEnter()
+    if SC.PowerNight then SC.PowerNight.reset() end
     if SC.HandoverUI then SC.HandoverUI.installResume() end
     if SC.HandoverRescue then
         local okay,reason=SC.HandoverRescue.prepareReset()
