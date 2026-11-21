@@ -365,6 +365,7 @@ check(Service.tick(22000) and Service.current() == nil and booking == nil
 check(cabRetired == 1 and fareRetired == 1,
     "cab and fare ownership retire once")
 check(fareCancelled == 0, "successful ride retains payment")
+check(not Service.retainsActor("markus-driver"), "a finished fare releases its driver ID")
 
 -- A nonrecruited service driver is absent from ordinary companion saves. The
 -- exact saved cab and passenger remain; rebuild Markus with his stable id,
@@ -428,14 +429,29 @@ local resumed = { schema = 1, driverId = "markus-driver",
         pickup = { x = 100, y = 200, z = 0 },
         destination = { x = 250.5, y = 300.5, z = 0 },
         roadTiles = 250 } }
+resumed.visit.phase = "retiring"
+check(Service.restore(resumed) and not Service.retainsActor("markus-driver"),
+    "a fare already retiring its cab has no recoverable driver")
+resumed.visit.phase, resumed.visit.driverId = "in_transit", nil
+check(Service.restore(resumed) and Service.retainsActor("markus-driver"),
+    "an older fare can recover its driver from the service identity")
+resumed.visit.driverId, resumed.driverId = "markus-driver", "older-fare-driver"
 check(Service.restore(resumed), "restore ride missing only its driver")
+local originalLookup = SC.Registry.byId
+SC.Registry.byId = function() error("checking the taxi recovery ID must not read the registry") end
+check(Service.retainsActor("markus-driver"), "cold fare retains the missing driver's exact ID")
+check(not Service.retainsActor("another-driver"), "cold fare cannot retain a different driver")
+check(not Service.retainsActor("older-fare-driver"), "the active trip takes precedence over a previous fare")
+SC.Registry.byId = originalLookup
 check(Service.tick(1000) and restoreTicket == nil,
     "wait briefly for an existing actor to register")
 check(Service.tick(6000) and restoreTicket ~= nil,
     "spawn one replacement only after cab recovery")
+check(Service.retainsActor("markus-driver"), "waiting for the driver's spawn ticket keeps the ID")
 check(Service.tick(7000) and car.seats[0] == restoredDriver
     and driveCalls == 5 and Service.current().phase == "in_transit",
     "same ride resumes with stable driver identity")
+check(not Service.retainsActor("markus-driver"), "boarding the recovered driver releases the cold fare claim")
 check(Service.isBookedPassenger(caller, car),
     "driver boarding exception is limited to the booked passenger")
 

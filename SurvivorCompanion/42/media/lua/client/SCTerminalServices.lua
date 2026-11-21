@@ -422,7 +422,7 @@ function S.install(player,object,effect,duration)
     if not U().near(player,object,3) or not installationAccess(player,object) then
         if not luautils or not luautils.walkAdj or not luautils.walkAdj(player,U().square(object)) then return false,"Cannot reach the equipment." end
     end
-    if not ISTimedActionQueue or not ISTimedActionQueue.add then return false,"Native installation actions unavailable." end
+    if not ISTimedActionQueue or not ISTimedActionQueue.add then return false,"Installation cannot begin." end
     local action=ISBaseTimedAction.new(SCComputerInstallAction,player)
     action.object,action.effect,action.maxTime=object,effect,duration or 180
     action.stopOnWalk,action.stopOnRun=true,true

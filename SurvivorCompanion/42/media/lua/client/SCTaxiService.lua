@@ -754,6 +754,12 @@ end
 
 function Service.current() return snapshot() end
 
+-- Cold fares recover this driver through the cab service's own spawn ticket.
+function Service.retainsActor(id)
+    return resumePending and visit ~= nil and type(id) == "string" and id ~= ""
+        and id == (visit.driverId or persistentDriverId)
+end
+
 function Service.available()
     return SC.Driving and SC.Driving.passengerAvailable()
         and SC.TaxiCab and SC.TaxiFares and SC.ExpeditionRoute

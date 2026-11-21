@@ -5689,7 +5689,7 @@ function BaseLife.resident(actorId)
     return ensure().residents[actorId]
 end
 
-function BaseLife.setRestriction(actorId, value, owner)
+function BaseLife.setRestriction(actorId, value, owner, observedRecord)
     if value ~= nil and not BaseLife.RESTRICTIONS[value] then
         return false, "invalid_restriction"
     end
@@ -5701,7 +5701,9 @@ function BaseLife.setRestriction(actorId, value, owner)
     state.restrictionOwners[actorId] = value ~= nil and owner or nil
     if SC.Registry and type(SC.Registry.byId) == "function"
         and SC.Commands and type(SC.Commands.refreshPlayerAttackProtection) == "function" then
-        local record = SC.Registry.byId(actorId)
+        -- Crisis cleanup may already have observed this exact record, or its absence.
+        local record = observedRecord
+        if record == nil then record = SC.Registry.byId(actorId) end
         if record and record.actor then
             SC.Commands.refreshPlayerAttackProtection(record.actor)
         end

@@ -1,4 +1,4 @@
-"""Audit of every persona line: voice rules, fit on the real screen, holes on key beats, duplicates, forbidden text."""
+"""Audit terminal persona lines and the building computer's Circuits status."""
 import collections
 import re
 import sys
@@ -105,6 +105,13 @@ for name in ("spiffy", "ellis", "duty"):
     print(name, "tallest replies at 70 columns:", worst[:3])
     if worst and worst[0][0] > 14:
         notes.append(f"{name}: a reply is {worst[0][0]} rows at 70 columns: {worst[0][1]}")
+
+circuits = (ROOT / "SCBuildingCircuits.lua").read_text(encoding="utf-8")
+status = re.search(r"^function C\.status\(\)(.*?)^end\b", circuits, re.M | re.S)
+if status:
+    for text in STRING.findall(status.group(1)):
+        if IMMERSION.search(text) or re.search(r"\b(?:LF|Living Fellows|native|not available yet)\b", text, re.I):
+            errors.append(f"Circuits status breaks the fiction: {text}")
 
 for note in notes:
     print("NOTE ", note)

@@ -85,13 +85,13 @@ function G.remote(player,generator,operation,row)
     local charge=U().charge(battery) or 0
     if (tonumber(U().call(battery,"getCondition")) or 0)<=0 then return false,"The starter battery is broken." end
     if operation=="start" and charge<0.01 then return false,"The starter battery needs charging." end
-    if type(ISActivateGenerator)~="table" or type(ISActivateGenerator.complete)~="function" then return false,"Native generator activation unavailable." end
+    if type(ISActivateGenerator)~="table" or type(ISActivateGenerator.complete)~="function" then return false,"The generator control is unavailable." end
     if operation=="start" then U().setCharge(battery,math.max(0,charge-0.01)) end
     local saved=SC.TerminalHardware.capturePart(battery)
     if not saved then return false,"Starter battery state could not be preserved." end
     row.starter=saved
     local okay=pcall(ISActivateGenerator.complete,{generator=generator,activate=operation=="start"})
-    if not okay then return false,"Native startup did not complete. Inspect the generator." end
+    if not okay then return false,"No confirmation from the generator. Check it before trying again." end
     return U().call(generator,"isActivated")== (operation=="start"),"Generator "..(U().call(generator,"isActivated") and "running." or "stopped; a failed start may need repair.")
 end
 function G.fit(player,generator,row,battery)

@@ -6,7 +6,7 @@ local SC=SurvivorCompanion
 SC.BuildingCircuits=SC.BuildingCircuits or {}
 local C=SC.BuildingCircuits
 function C.status()
-    return "LF circuits control named lighting relays and generators. Grid power stays independent. Individual fridge switches are not available yet."
+    return "Lighting relays and generator controls."
 end
 function C.list(computer)
     local panel=SC.BuildingControls.panel(computer,false)
@@ -40,8 +40,12 @@ function C.prepare(computer,id,on,player)
         if not ticket then return nil,reason end
         saved.tickets[#saved.tickets+1]=ticket
     end
-    return saved,(on and "Enable " or "Disable ")..selected.label.." ("..#selected.devices.." devices)? "
-        ..(selected.kind=="generator" and "Generators use native start/stop services; grid supply is unchanged. " or "").."[Y/N]"
+    local count=#saved.tickets
+    if selected.kind=="generator" then
+        return saved,(on and "Request start for " or "Request stop for ")..count
+            ..(count==1 and " generator? [Y/N]" or " generators? [Y/N]")
+    end
+    return saved,(on and "Enable " or "Disable ")..selected.label.." ("..count.." devices)? [Y/N]"
 end
 function C.execute(computer,saved)
     local current

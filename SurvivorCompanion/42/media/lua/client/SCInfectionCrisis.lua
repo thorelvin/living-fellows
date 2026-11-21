@@ -134,16 +134,34 @@ local function actorId(actor, player)
     return U().idOf(actor)
 end
 
+local function actorFromRecord(record)
+    if type(record) ~= "table" then return nil end
+    if record.actor then return record.actor end
+    local _, loaded = U().call(record, "getX")
+    return loaded and record or nil
+end
+
 local function resolveActor(id, player)
     if id == PLAYER_LOCAL then return player end
     if SC.Registry and type(SC.Registry.byId) == "function" then
-        local record = SC.Registry.byId(id)
-        if type(record) ~= "table" then return nil end
-        if record.actor then return record.actor end
-        local _, loaded = U().call(record, "getX")
-        return loaded and record or nil
+        return actorFromRecord(SC.Registry.byId(id))
     end
     return nil
+end
+
+local function pulseSubject(id, player)
+    if isPlayerSubject(id) then return id == PLAYER_LOCAL and player or nil, false, false end
+    if not (SC.BaseWork and SC.BaseWork.workerUnregistered and SC.BaseFuel and SC.BaseFuel.workerIdGone) then
+        return resolveActor(id, player), false
+    end
+    local gone, record = SC.BaseWork.workerUnregistered(id)
+    -- The crisis also observes people outside the camp. A household or taxi
+    -- can own the same identity all the way through a later wake or pickup.
+    if gone and (SC.Factions and SC.Factions.retainsActor and SC.Factions.retainsActor(id)
+        or SC.TaxiService and SC.TaxiService.retainsActor and SC.TaxiService.retainsActor(id)) then
+        gone = false
+    end
+    return actorFromRecord(record), gone, record or false
 end
 
 -- Where the rotating scan window starts. Runtime only: coverage is a property
@@ -304,15 +322,15 @@ local function clearAuthorization(crisis)
     crisis.finalAuthorized = false
 end
 
-local function restrictionFor(crisis, value)
+local function restrictionFor(crisis, value, observedRecord)
     local base = SC.BaseLife
     if not base or type(base.setRestriction) ~= "function" then return false end
-    local accepted = base.setRestriction(crisis.subjectId, value, crisis.id)
+    local accepted = base.setRestriction(crisis.subjectId, value, crisis.id, observedRecord)
     if accepted then crisis.effectiveRestriction = value end
     return accepted == true
 end
 
-local function clearCrisisRuntime(crisis)
+local function clearCrisisRuntime(crisis, observedSubject)
     local actor = finalActors[crisis.id]
     if actor and SC.NativeActions and SC.NativeActions.resetFinal then
         local accepted, reason = SC.NativeActions.resetFinal(actor)
@@ -323,7 +341,8 @@ local function clearCrisisRuntime(crisis)
         local ids = { [crisis.subjectId] = true }
         for id in pairs(crisis.participants or {}) do ids[id] = true end
         for id in pairs(ids) do
-            local person = resolveActor(id, mainPlayer())
+            local person = observedSubject
+            if id ~= crisis.subjectId or person == nil then person = resolveActor(id, mainPlayer()) end
             local navigation = person and SC.Navigation.peek(person)
             local request = navigation and navigation.lastApproachRequest
             if request and request.intent and request.intent.crisisId == crisis.id then
@@ -338,10 +357,10 @@ local function clearCrisisRuntime(crisis)
     return true
 end
 
-local function clearCrisisRestriction(crisis)
+local function clearCrisisRestriction(crisis, observedRecord)
     local base = SC.BaseLife
     if base and base.restrictionOwner and base.restrictionOwner(crisis.subjectId) == crisis.id then
-        restrictionFor(crisis, nil)
+        restrictionFor(crisis, nil, observedRecord)
     end
 end
 
@@ -356,12 +375,12 @@ end
 
 -- The single way a crisis ends. Every path that used to assign phase/terminalAt
 -- by hand left its own combination of leftover state behind.
-local function enterTerminal(crisis, reason, at)
+local function enterTerminal(crisis, reason, at, observedSubject, observedRecord)
     if crisis.phase == "terminal" then return crisis end
     crisis.phase, crisis.terminalAt = "terminal", finite(at, now())
     clearAuthorization(crisis)
-    clearCrisisRuntime(crisis)
-    clearCrisisRestriction(crisis)
+    clearCrisisRuntime(crisis, observedSubject)
+    clearCrisisRestriction(crisis, observedRecord)
     changeStage(crisis, "ended", nil)
     archiveCrisis(crisis)
     debugTrace("terminal", crisis, reason)
@@ -1535,6 +1554,9 @@ function Crisis.pulse(player, current)
         end
     end
     for _, crisis in pairs(ensure().crises) do
+        local open = crisis.phase ~= "terminal" and crisis.phase ~= "closed"
+        local subject, gone, record
+        if open then subject, gone, record = pulseSubject(crisis.subjectId, player) end
         if restoredPending then
             local base = SC.BaseLife
             local restriction = base and base.restriction and base.restriction(crisis.subjectId)
@@ -1545,17 +1567,17 @@ function Crisis.pulse(player, current)
             -- Only adopt a legacy restriction supported by this subject's saved verdict.
             if restriction and restriction == expected and base.restrictionOwner
                 and base.restrictionOwner(crisis.subjectId) == nil then
-                restrictionFor(crisis, restriction)
+                restrictionFor(crisis, restriction, record)
             end
         end
-        if crisis.phase ~= "terminal" and crisis.phase ~= "closed" then
-            local subject = resolveActor(crisis.subjectId, player)
+        if open then
             if subject and liveCommands(subject) and liveCommands(subject).order == "dismissed" then
                 Crisis.release(crisis.id, "dismissed")
-            elseif subject and U().isDead(subject) then
+            elseif gone or subject and U().isDead(subject) then
                 local outcome = crisis.outcome
-                enterTerminal(crisis, "subject_died", current)
-                history("subject_died", {
+                local reason = gone and "subject_gone" or "subject_died"
+                enterTerminal(crisis, reason, current, subject or false, record)
+                history(reason, {
                     crisisId = crisis.id, subjectId = crisis.subjectId,
                     outcome = outcome,
                 })

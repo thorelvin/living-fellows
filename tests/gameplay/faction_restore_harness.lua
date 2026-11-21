@@ -197,9 +197,27 @@ do
     local member = group.members[1]
     local saved = { id = "resident-wake-test", identity = member.identity,
         inventory = { receipt = "outfit-and-kit" }, vitals = { health = 83 } }
-    member.actorId, member.hibernated, member.snapshot = saved.id, true, saved
+    local native = actor(saved.id, 2, 2, { recruited = false })
+    member.actorId = saved.id
+    registry[saved.id] = { id = saved.id, actor = native, factionId = group.id, runtime = {} }
+    local originalRemove, originalCanSee = Actor.remove, SC.GameplayUtil.canSee
+    local originalSenses, originalComplete = SC.Senses.snapshot, SC.Senses.isCompleteObservation
+    local originalX, originalY = player.worldX, player.worldY
+    player.worldX, player.worldY = 1000, 1000
+    Actor.remove = function(subject)
+        assert(subject == native)
+        registry[saved.id] = nil
+        return true
+    end
+    SC.GameplayUtil.canSee = function() return false end
+    SC.Senses.snapshot = function() return { valid = true, threatCount = 0 } end
+    SC.Senses.isCompleteObservation = function() return true end
     local initialized, finished, reject = 0, 0, true
     SC.Persistence = {
+        captureRecord = function(record)
+            assert(record.actor == native)
+            return saved
+        end,
         initializeRestoredActor = function(native, input, snapshot)
             initialized = initialized + 1
             assert(snapshot == saved and input.factionId == group.id)
@@ -212,6 +230,43 @@ do
             finished = finished + 1
         end,
     }
+    for _ = 1, 12 do f.clock = f.clock + 3000; Factions.pulse(player, f.clock) end
+    check(registry[saved.id] == nil and Factions.retainsActor(saved.id),
+        "a distant household holds the sleeping actor's ID across repeated pulses")
+    check(not Factions.affiliation({ id = saved.id, actor = native }),
+        "a retained snapshot does not give a retired native actor active affiliation")
+    check(not Factions.retainsActor("other-resident"), "a household snapshot is specific to one ID")
+    local sleeping = assert(Factions.export())
+    check(Factions.restore(nil) and not Factions.retainsActor(saved.id),
+        "loading a fresh world drops the previous household's sleeping ID")
+    check(Factions.restore(sleeping) and Factions.retainsActor(saved.id),
+        "loading a sleeping household restores ownership before its actor wakes")
+    group = Factions.group("faction-transaction-a")
+    member = group.members[1]
+    saved = member.snapshot
+    local byId = SC.Registry.byId
+    SC.Registry.byId = function() error("the faction snapshot lookup must not read the registry") end
+    check(Factions.retainsActor(saved.id), "the sleeping identity is independent of the live registry")
+    SC.Registry.byId = byId
+    local id = saved.id
+    saved.id = "other-snapshot"
+    check(not Factions.retainsActor(id), "a mismatched saved identity cannot retain a house resident")
+    saved.id = id
+    member.away = "recruitment_trial"
+    check(not Factions.retainsActor(id), "a trial recruit belongs to the party")
+    member.away, member.departed = nil, true
+    check(not Factions.retainsActor(id), "a departed member leaves faction ownership")
+    member.departed, member.alive = nil, false
+    check(not Factions.retainsActor(id), "a dead member cannot keep an old snapshot")
+    member.alive = true
+    group.lifecycle = "destroyed"
+    check(not Factions.retainsActor(id), "a retired household cannot reclaim its member")
+    group.lifecycle = "settled"
+    group.oddball = { id = "hitchhiker_ruth_ann", stage = "gone_inside" }
+    check(not Factions.retainsActor(id) and group.oddball.departed == nil,
+        "the hitchhiker's permanent exit closes ownership without rewriting the story")
+    group.oddball = nil
+    player.worldX, player.worldY = 2, 2
     Actor.beginSpawn = function(square, profile)
         local native = actor(saved.id, square.x, square.y, { recruited = false })
         assert(profile.restored == true and profile.state == saved)
@@ -225,7 +280,7 @@ do
     end
     for _ = 1, 8 do f.clock = f.clock + 1000; Factions.pulse(player, f.clock) end
     check(initialized > 0 and registry[saved.id] == nil and finished == 0
-            and member.hibernated == true and member.snapshot == saved,
+            and member.hibernated == true and member.snapshot == saved and Factions.retainsActor(saved.id),
         "failed clothing restoration retains the snapshot without publishing a bare actor")
     reject, f.clock = false, f.clock + 31000
     for _ = 1, 8 do f.clock = f.clock + 1000; Factions.pulse(player, f.clock) end
@@ -233,8 +288,55 @@ do
     check(restored and restored.savedInventory == saved.inventory and restored.savedVitals == saved.vitals
             and finished == 1 and member.hibernated == false and member.snapshot == nil,
         "a successful wake restores outfit, kit and vitals once before consuming its snapshot")
+    check(not Factions.retainsActor(saved.id), "a successful wake releases faction snapshot ownership")
+    local unaffiliatedRecord = { id = id, actor = restored }
+    group.members[2] = { key = "member-b", alive = true, role = "resident" }
+    local function currentAffiliation()
+        local found = Factions.affiliation(unaffiliatedRecord)
+        return found and found.factionId
+    end
+    check(currentAffiliation() == group.id,
+        "a waking member's actor ID still resolves its faction")
+    check(Factions.detachMemberForRecruitment(group.id, member.key)
+            and not Factions.affiliation(unaffiliatedRecord) and not Factions.retainsActor(id),
+        "a public recruitment trial releases faction ownership")
+    check(Factions.restoreMemberFromRecruitment(group.id, member.key, id)
+            and currentAffiliation() == group.id,
+        "a returned recruit regains its faction identity")
+    check(Factions.detachMemberForRecruitment(group.id, member.key)
+            and Factions.completeMemberRecruitment(group.id, member.key, id)
+            and not Factions.affiliation(unaffiliatedRecord) and not Factions.retainsActor(id),
+        "a completed recruitment releases the former faction identity")
+    check(Factions.restore(sleeping), "restore household for captive release")
+    group = Factions.group(group.id)
+    group.oddball = { captives = true }
+    group.members[1].captive, group.members[1].role = true, "captive"
+    registry[id].factionId = group.id
+    local releaseCaptive = SC.Commands.releaseFactionCaptive
+    SC.Commands.releaseFactionCaptive = function(subject) return subject == restored end
+    check(Factions.releaseCaptiveMember(group.id, member.key) and not Factions.retainsActor(id),
+        "freeing a captive drops its former household claim")
+    SC.Commands.releaseFactionCaptive = releaseCaptive
+    check(Factions.restore(sleeping) and Factions.memberDied({ id = saved.id, factionId = group.id })
+            and not Factions.retainsActor(saved.id), "final faction death releases the saved ID")
+    registry[id] = nil
+    check(Factions.restore(sleeping), "restore household for group deletion")
+    Factions.group(group.id).debugCreated = true
+    local configGet = SC.Config.get
+    SC.Config.get = function(key)
+        if key == "debugSpawnEnabled" then return true end
+        return configGet(key)
+    end
+    check(Factions.debugDelete(group.id) and not Factions.retainsActor(id),
+        "removing a household drops its sleeping actor IDs")
+    SC.Config.get = configGet
+    check(Factions.restore(sleeping) and Factions.retainsActor(saved.id), "a later world can reuse its own resident ID")
     Factions.reset()
+    check(not Factions.retainsActor(saved.id), "world reset drops sleeping faction identities")
     registry[saved.id] = nil
+    SC.Senses.snapshot, SC.Senses.isCompleteObservation = originalSenses, originalComplete
+    Actor.remove, SC.GameplayUtil.canSee = originalRemove, originalCanSee
+    player.worldX, player.worldY = originalX, originalY
     SC.Persistence, Actor.beginSpawn, Actor.pollSpawn, f.clock =
         originalPersistence, originalBegin, originalPoll, clockBefore
 end

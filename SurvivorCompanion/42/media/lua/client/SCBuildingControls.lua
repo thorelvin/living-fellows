@@ -303,7 +303,7 @@ local function operate(panel,row,object,action,player)
             if B.status(row)==(action=="on" and "On" or "Off") then return true,"Lighting is already in that state." end
             U().call(object,"setActive",action=="on")
         else
-            if U().call(object,"haveFuel")~=true then return false,"The floodlight needs its native battery or fuel." end
+            if U().call(object,"haveFuel")~=true then return false,"Check the floodlight's battery or fuel." end
             if B.status(row)==(action=="on" and "On" or "Off") then return true,"Lighting is already in that state." end
             U().call(object,"toggleLightSource",action=="on")
             if IsoObjectChange and IsoObjectChange.LIGHT_SOURCE then U().call(object,"sendObjectChange",IsoObjectChange.LIGHT_SOURCE) end
@@ -323,7 +323,7 @@ local function operate(panel,row,object,action,player)
                 local okay,result=pcall(SCBridge.setControlDoorLocked,object,action=="lock")
                 return okay and result==true,"Lock updated."
             end
-            return false,"Native lock control unavailable."
+            return false,"The lock control does not respond."
         end
         if action~="open" and action~="close" then return false,"Unsupported door request." end
         if row.kind=="cabinet" then return false,"This cabinet supports lock control only." end

@@ -104,6 +104,14 @@ check(B.status(doorRow)=="Locked","status observes the actual lock")
 local ticket=B.prepare(pc,"unlock",doorRow.id,player)
 check(ticket~=nil and B.execute(ticket)==true and not door.locked,"unlock changes only the captured device")
 check(B.execute(ticket)==false and nativeCalls==1,"a confirmation is consumed exactly once")
+do
+    local original=SCBridge.setControlDoorLocked
+    SCBridge.setControlDoorLocked=nil
+    local accepted,reason=B.execute(assert(B.prepare(pc,"lock",doorRow.id,player)))
+    check(not accepted and reason=="The lock control does not respond."
+        and panel.history[#panel.history].text:find(reason,1,true),"the failed lock and its history name the unresponsive control")
+    SCBridge.setControlDoorLocked=original
+end
 ticket=B.prepare(pc,"lock",doorRow.id,player)
 door.open=true
 check(B.execute(ticket)==false and nativeCalls==1,"a changed door state invalidates confirmation")
@@ -275,6 +283,18 @@ check(#window:menuOptions()==4 and window:menuOptions()[1].systemCommand=="files
     "outside computers retain numbered local services while hiding Camp report")
 S.input(window,"building services")
 check(window.menuPage=="services" and #window:menuOptions()<=9,"building services have bounded numbered controls")
+do
+    window:flush()
+    local first=#window.rows+1
+    S.input(window,"",{serviceAction="page",serviceValue="circuits"})
+    window:flush()
+    local visible={}
+    for i=first,#window.rows do
+        local text=window.rows[i].text
+        if text~="" then visible[#visible+1]=text end
+    end
+    check(table.concat(visible," ")=="Lighting relays and generator controls.","the Circuits screen shows only its in-world scope")
+end
 window.menuPage="device" window.serviceDevice=doorRow.id
 check(#window:menuOptions()<=9,"device menus remain selectable with single digit keys")
 window.menuPage="services"
@@ -299,6 +319,9 @@ do
     check(SCComputerInstallAction.complete(action) and effects==1,"reachable equipment completes one physical installation")
     check(not SCComputerInstallAction.complete(action) and effects==1,"physical installation effects cannot replay")
     local add=ISTimedActionQueue.add
+    ISTimedActionQueue.add=nil
+    local accepted,reason=S.install(player,pc,function() effects=effects+1 end)
+    check(not accepted and effects==1 and reason=="Installation cannot begin.","an unavailable installation reports that work cannot begin")
     local captured
     ISTimedActionQueue.add=function(task) captured=task.maxTime end
     local queued,_,task=S.install(player,pc,function() return true end,1050)
@@ -332,6 +355,10 @@ do
     check(B.operate(panel,floodRow,flood,"on",player) and flood.on,"a fueled constructed floodlight switches on")
     flood.fuel=false
     check(not B.operate(panel,floodRow,flood,"off",player) and flood.on,"missing floodlight fuel cannot fabricate success")
+    local floodCircuit="lights:"..(floodRow.group or "Building lighting")
+    local switched,reason=SC.BuildingCircuits.execute(pc,assert(SC.BuildingCircuits.prepare(pc,floodCircuit,false,player)))
+    check(not switched and flood.on and reason:find("Check the floodlight's battery or fuel.",1,true),
+        "an unpowered floodlight circuit tells the operator what to check")
     definition.setAlarmed=function(self,value) self.alarmed=value end
     check(SC.BuildingSecurity.operate(panel,pc,"arm",player) and definition.alarmed,"arming uses the native building alarm flag")
     check(SC.BuildingSecurity.operate(panel,pc,"disarm",player) and not definition.alarmed,"disarming updates the same native building")
@@ -492,6 +519,31 @@ do
     local generator=T.computer(squares["101:102"],"Generator") generator.kind="IsoGenerator" generator.condition=100
     function generator:isActivated() return self.on==true end function generator:isConnected() return true end
     function generator:getFuel() return 8 end function generator:getCondition() return self.condition end
+    do
+        local row=assert(B.observeDevice(panel,generator))
+        local request={operation="circuit",id="supply:Generator supply",on=true}
+        local prepared,prompt=S.prepare(window,{request=request})
+        check(prepared and prompt=="Request start for 1 generator? [Y/N]","the generator start prompt requests service for one device")
+        local second=T.computer(squares["102:103"],"Generator")
+        second.kind="IsoGenerator"
+        assert(B.observeDevice(panel,second))
+        request.on=false
+        prepared,prompt=S.prepare(window,{request=request})
+        check(prepared and prompt=="Request stop for 2 generators? [Y/N]","the generator stop prompt counts all selected devices")
+        row.starter=assert(H.capturePart(item("Base.CarBattery1")))
+        local activation=ISActivateGenerator
+        ISActivateGenerator=nil
+        local accepted,reason=G.request(player,generator,"start",row)
+        check(not accepted and reason=="The generator control is unavailable.","a missing starter control gives an equipment error")
+        generator.on=true
+        ISActivateGenerator={complete=function() error("interrupted") end}
+        accepted,reason=G.request(player,generator,"stop",row)
+        check(not accepted and reason=="No confirmation from the generator. Check it before trying again.",
+            "an unconfirmed generator stop asks for inspection")
+        generator.on=false
+        row.starter=nil
+        ISActivateGenerator=activation
+    end
     local helper=T.player(101,101,0) helper.serial=7
     function helper:getSquare() return squares["101:101"] end
     function helper:getPerkLevel() return 4 end
@@ -603,3 +655,4 @@ do
     SC.Terminal.window=nil
 end
 print("PASS building services checks="..T.checks)
+SC_TEST_REPORT="BUILDING_SERVICES_PASS checks="..T.checks

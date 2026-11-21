@@ -157,6 +157,9 @@
 @{ Name = 'behaviour.crisis-recovery'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCActionFeedback.lua'),
     (Join-Path $Essential 'crisis_feedback_harness.lua')) }
+@{ Name = 'behaviour.crisis-subject'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'),
+    (Join-Path $Essential 'crisis_subject_harness.lua')) }
 @{ Name = 'behaviour.radio-operator'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCRadioWork.lua'),
     (Join-Path $Essential 'radio_work_harness.lua')) }

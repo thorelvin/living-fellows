@@ -105,6 +105,19 @@ foreach ($module in @(
 )) {
     $interfaceTerminalFiles += Join-Path $Client ($module + '.lua')
 }
+@{ Name = 'interface-building-services'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $Client 'SCBuildingControls.lua'),
+    (Join-Path $Client 'SCBuildingScan.lua'),
+    (Join-Path $Client 'SCTerminalHardware.lua'),
+    (Join-Path $Client 'SCTerminalRadio.lua'),
+    (Join-Path $Client 'SCRadioEndpoints.lua'),
+    (Join-Path $Client 'SCGeneratorServices.lua'),
+    (Join-Path $Client 'SCBuildingSecurity.lua'),
+    (Join-Path $Client 'SCBuildingCircuits.lua'),
+    (Join-Path $Client 'SCExpeditionTargets.lua'),
+    (Join-Path $Client 'SCTerminalServices.lua'),
+    (Join-Path $UI 'SCBuildingServicesTests.lua')
+) }
 @{ Name = 'interface-terminal-access-and-keys'; Files = @($interfaceTerminalFiles) + @(
     (Join-Path $UI 'SCTerminalLockCardTests.lua'),
     (Join-Path $UI 'SCTerminalLockCardUITests.lua'),

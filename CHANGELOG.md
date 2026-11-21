@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.54 - Infection crisis recovery and building computers
+
+- An old infection crisis now closes when its companion is permanently gone.
+  The camp clears the watch, quarantine or exile order that belonged to the
+  crisis. A companion who is away or waiting to return keeps their crisis.
+- Building computers describe the lighting relays and generator controls on
+  the Circuits page. Their messages now distinguish an unpowered floodlight,
+  an unresponsive lock and a generator that failed to start or stop.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.53 - Camp staffing, work and medical recovery
 
 - Companions leave the camp roster after their deaths are confirmed. Older

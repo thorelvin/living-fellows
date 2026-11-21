@@ -13,7 +13,7 @@ local SCHEMA = 2
 local LEGACY_SCHEMA = 1
 local groups = {}
 local groupOrder = {}
-local memberToGroup = {}
+local membersByActorId = {}
 local sequence = 0
 local lastWorldSpawnDay = -math.huge
 local lastProductionCheckDay = -math.huge
@@ -1429,12 +1429,12 @@ end
 
 Factions._chooseMemberSquareForTests = chooseMemberSquare
 
-local function authoredMemberDeparted(group)
+local function authoredMemberDeparted(group, readOnly)
     local story = group and group.oddball
     local departed = type(story) == "table" and story.id == "hitchhiker_ruth_ann"
         and (story.departed == true or story.stage == "gone_inside"
             or story.stage == "waiting_to_be_found")
-    if departed then story.departed = true end
+    if departed and not readOnly then story.departed = true end
     return departed == true
 end
 
@@ -2051,7 +2051,7 @@ local function pollSpawn()
         member.snapshot = nil
         member.spawnFailure = nil
         member.spawnRetryAt = nil
-        memberToGroup[actorId] = group.id
+        membersByActorId[actorId] = { groupId = group.id, member = member }
     end
     if group then
         group.lifecycle = hasOpenJobs(group) and "fortifying" or "settled"
@@ -2555,7 +2555,10 @@ function Factions.affiliation(subject)
         record = id and SC.Registry.byId(id) or nil
     end
     local factionId = record and record.factionId
-    if not factionId and record and record.id then factionId = memberToGroup[record.id] end
+    if not factionId and record and record.id then
+        local entry = membersByActorId[record.id]
+        if entry and not entry.member.hibernated then factionId = entry.groupId end
+    end
     local group = factionId and groups[factionId] or nil
     if not group then return nil end
     return {
@@ -2723,6 +2726,18 @@ function Factions.memberIsPresent(member)
         and member.away == nil and member.departed ~= true
 end
 
+-- A sleeping household member keeps their exact actor snapshot outside the
+-- registry and companion spawn queue until the faction wakes them.
+function Factions.retainsActor(id)
+    local entry = membersByActorId[id]
+    local group = entry and groups[entry.groupId]
+    if not group or group.lifecycle == "destroyed" or authoredMemberDeparted(group, true) then return false end
+    local member = entry.member
+    return Factions.memberIsPresent(member) and member.hibernated == true
+        and member.actorId == id and type(member.snapshot) == "table"
+        and member.snapshot.id == id
+end
+
 function Factions.presentCount(id)
     local group = type(id) == "table" and id or groups[id]
     return group and aliveCount(group) or 0
@@ -2758,7 +2773,7 @@ function Factions.releaseCaptiveMember(id, memberKey)
     end
     local released, reason = SC.Commands.releaseFactionCaptive(record.actor, id)
     if released ~= true then return false, reason end
-    memberToGroup[actorId] = nil
+    membersByActorId[actorId] = nil
     releaseMemberJobs(group, actorId)
     member.away = nil
     member.departed = true
@@ -2802,7 +2817,7 @@ function Factions.releaseOddballMember(id, memberKey, order)
     local released, reason = SC.Commands.releaseOddballMember(
         record.actor, id, member.role, order)
     if released ~= true then return false, reason end
-    memberToGroup[actorId] = nil
+    membersByActorId[actorId] = nil
     releaseMemberJobs(group, actorId)
     member.away = nil
     member.departed = true
@@ -2841,7 +2856,7 @@ function Factions.detachMemberForRecruitment(id, memberKey)
     member.departed = false
     member.hibernated = false
     member.snapshot = nil
-    memberToGroup[actorId] = nil
+    membersByActorId[actorId] = nil
     releaseMemberJobs(group, actorId)
     appendBounded(group.history, {
         day = worldDay(), kind = "recruitment_trial_started", member = member.key,
@@ -2864,7 +2879,7 @@ function Factions.restoreMemberFromRecruitment(id, memberKey, actorId, reason)
     member.away = nil
     member.hibernated = false
     member.snapshot = nil
-    memberToGroup[actorId] = id
+    membersByActorId[actorId] = { groupId = id, member = member }
     appendBounded(group.history, {
         day = worldDay(), kind = "recruitment_trial_returned", member = member.key,
         actorId = actorId, reason = tostring(reason or "returned"),
@@ -2881,7 +2896,7 @@ function Factions.completeMemberRecruitment(id, memberKey, actorId)
     if member.away ~= "recruitment_trial" or member.actorId ~= actorId then
         return false, "recruitment_trial_identity_changed"
     end
-    memberToGroup[actorId] = nil
+    membersByActorId[actorId] = nil
     releaseMemberJobs(group, actorId)
     member.away = nil
     member.departed = true
@@ -3146,7 +3161,7 @@ function Factions.memberDied(record)
     local playerCaused = nowMs() - (tonumber(recentPlayerAttacks[record.id]) or -math.huge) <= 10000
     recentPlayerAttacks[record.id] = nil
     if playerCaused then Factions.noteOffense(factionId, "murder", 1) end
-    memberToGroup[record.id] = nil
+    membersByActorId[record.id] = nil
     for _, job in ipairs(group.jobs or {}) do
         if job.assignedId == record.id and job.status == "active" then
             job.status, job.assignedId = "open", nil
@@ -3331,8 +3346,8 @@ local function hibernateMember(group, member, player, allowDetachedRecovery)
     member.speechColorKey = snapshot.speechColorKey
     member.hibernated = true
     if wakePosition then group.oddball.site.wake = wakePosition end
-    memberToGroup[member.actorId] = nil
     member.actorId = snapshot.id
+    membersByActorId[snapshot.id] = { groupId = group.id, member = member }
     for _, job in ipairs(group.jobs or {}) do
         if job.assignedId == snapshot.id and job.status == "active" then
             job.status, job.assignedId = "open", nil
@@ -3458,6 +3473,7 @@ local function lifecyclePulse(group, player, remainingBudget, cursor)
                 -- A valid faction document may outlive a missing/corrupt actor
                 -- snapshot. Recreate that resident at its territory once the
                 -- persistence queue confirms it has nothing left to restore.
+                membersByActorId[member.actorId] = nil
                 member.actorId = nil
                 local square = chooseMemberSquare(group, index)
                 if square then queueMemberSpawn(group, member, square, nil, group.debugCreated) end
@@ -3692,7 +3708,7 @@ function Factions.debugDelete(id)
             local removed, reason = SC.Actor.remove(record.actor)
             if not removed then return false, reason end
         end
-        memberToGroup[member.actorId] = nil
+        membersByActorId[member.actorId] = nil
     end
     groups[id] = nil
     for index = #groupOrder, 1, -1 do
@@ -4448,7 +4464,7 @@ end
 
 local function captureRestoreState()
     return {
-        groups = groups, order = groupOrder, members = memberToGroup,
+        groups = groups, order = groupOrder, members = membersByActorId,
         sequence = sequence, worldDay = lastWorldSpawnDay,
         checkDay = lastProductionCheckDay,
         banditWorldDay = lastBanditSpawnDay, banditCheckDay = lastBanditCheckDay,
@@ -4462,7 +4478,7 @@ local function captureRestoreState()
 end
 
 local function reinstateRestoreState(previous)
-    groups, groupOrder, memberToGroup = previous.groups, previous.order, previous.members
+    groups, groupOrder, membersByActorId = previous.groups, previous.order, previous.members
     sequence, lastWorldSpawnDay, lastProductionCheckDay = previous.sequence,
         previous.worldDay, previous.checkDay
     lastBanditSpawnDay, lastBanditCheckDay = previous.banditWorldDay, previous.banditCheckDay
@@ -4505,7 +4521,7 @@ function Factions.restore(document)
         local previous = captureRestoreState()
         local cancelled, cancelReason = cancelRestoreSpawn(previous.ticket)
         if not cancelled then return false, cancelReason end
-        groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
+        groups, groupOrder, membersByActorId = candidateGroups, candidateOrder, candidateMembers
         sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
         lastBanditSpawnDay, lastBanditCheckDay = -math.huge, -math.huge
         restored = true
@@ -4623,7 +4639,7 @@ function Factions.restore(document)
                     if member.hibernated ~= true then member.snapshot = nil end
                     if member.actorId and Factions.memberIsPresent(member) then
                         seenActors[member.actorId] = true
-                        candidateMembers[member.actorId] = id
+                        candidateMembers[member.actorId] = { groupId = id, member = member }
                     end
                 end
             else
@@ -4651,7 +4667,7 @@ function Factions.restore(document)
         and type(world.transaction) ~= "function" then
         return false, "faction world transaction unavailable"
     end
-    groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
+    groups, groupOrder, membersByActorId = candidateGroups, candidateOrder, candidateMembers
     sequence, lastWorldSpawnDay, lastProductionCheckDay = candidateSequence,
         candidateWorldDay, candidateCheckDay
     lastBanditSpawnDay, lastBanditCheckDay = candidateBanditWorldDay, candidateBanditCheckDay
@@ -4688,7 +4704,7 @@ function Factions.reset()
     if spawnTicket and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
         pcall(SC.Actor.cancelSpawn, spawnTicket)
     end
-    groups, groupOrder, memberToGroup = {}, {}, {}
+    groups, groupOrder, membersByActorId = {}, {}, {}
     sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
     lastBanditSpawnDay, lastBanditCheckDay = -math.huge, -math.huge
     productionHouseSearch, banditHouseSearch = nil, nil
