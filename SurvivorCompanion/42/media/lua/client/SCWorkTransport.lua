@@ -68,11 +68,6 @@ local function itemData(item)
     return nil
 end
 
-local function markerOf(item)
-    local data = itemData(item)
-    return data and data[Transport.MARKERS.id] or nil
-end
-
 local function markerState(item)
     local data = itemData(item)
     return data and data[Transport.MARKERS.state] or nil
@@ -116,6 +111,14 @@ local function clearMarker(item, receiptId)
     end
     touchWorkOwnership()
     return true
+end
+
+local function markerOf(item, data)
+    data = data or itemData(item)
+    local id = data and data[Transport.MARKERS.id]
+    if id and SC.BaseLife and SC.BaseLife.workMarkerOrphan and SC.BaseLife.workMarkerOrphan(id)
+        and clearMarker(item, id) then return nil end
+    return id
 end
 
 local function itemNativeId(item)
@@ -308,7 +311,7 @@ local function quarantine(receipt, reason, owner, preserveDetachedProof)
     receipt.updatedAt = now()
     liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
     touchWorkOwnership()
-    if SC.BaseLife and SC.BaseLife.blockGatherOrder then
+    if owner ~= "retired" and SC.BaseLife and SC.BaseLife.blockGatherOrder then
         SC.BaseLife.blockGatherOrder(receipt.orderId, receipt.blocker)
     end
     return false, receipt.blocker
@@ -325,6 +328,8 @@ function Transport.isCargoProtected(item, actorOrId, operation, exceptWashJobId)
         and SC.FarmWork.isItemProtected(item, actorOrId, operation) then return true end
     local data = itemData(item)
     if not data then return false end
+    if data.SC_ChefSupplyReceipt ~= nil and (not SC.BaseLife or not SC.BaseLife.chefSupplyReserved
+        or SC.BaseLife.chefSupplyReserved(data)) then return true, "chef_supply_owned" end
     if data.LF_BaseReturnOwner ~= nil
         and (actorOrId == nil or data.LF_BaseReturnOwner == tostring(type(actorOrId) == "string"
             and actorOrId or U().idOf(actorOrId) or ""))
@@ -379,7 +384,7 @@ function Transport.isCargoProtected(item, actorOrId, operation, exceptWashJobId)
     if data.LF_FarmReceiptId ~= nil then
         return not (operation == "farm_return" or operation == "farm_deposit")
     end
-    local receiptId = data[Transport.MARKERS.id] or data[Transport.MARKERS.build]
+    local receiptId = markerOf(item, data) or data[Transport.MARKERS.build]
     if receiptId == nil then return false end
     if allowedProtectedOperations[operation] then return false end
     local receipt = SC.BaseLife and SC.BaseLife.workReceipt
@@ -409,6 +414,8 @@ function Transport.foreignProtected(item, actor, exceptWashJobId)
     end
     local data = itemData(item)
     if not data then return true, "item_mod_data_unavailable" end
+    if data.SC_ChefSupplyReceipt ~= nil and (not SC.BaseLife or not SC.BaseLife.chefSupplyReserved
+        or SC.BaseLife.chefSupplyReserved(data)) then return true, "chef_supply_owned" end
     if data.LF_LogYardSplit ~= nil and (not SC.LogYard or not SC.LogYard.splitReserved
         or SC.LogYard.splitReserved(item)) then return true, "log_yard_split_pending" end
     if data.LF_LogYardBundle ~= nil and SC.LogYard and SC.LogYard.reserved
@@ -459,7 +466,7 @@ function Transport.foreignProtected(item, actor, exceptWashJobId)
             return true, "production_item_owned"
         end
     end
-    local workReceiptId = markerOf(item)
+    local workReceiptId = markerOf(item, data)
     if workReceiptId ~= nil then
         local receipt = SC.BaseLife and SC.BaseLife.workReceipt
             and SC.BaseLife.workReceipt(workReceiptId) or nil
@@ -538,7 +545,7 @@ function Transport.transferVerified(source, destination, item, actor)
         and "transfer_ownership_unknown" or "transfer_rollback_failed", details
 end
 
-local function findMarkedInContainer(container, receiptId)
+local function findMarkedInContainer(container, receiptId, requiredNativeId)
     if not container then return "unavailable" end
     local list, readable = listForContainer(container)
     if not readable then return "unavailable" end
@@ -548,7 +555,8 @@ local function findMarkedInContainer(container, receiptId)
     for index = 0, count - 1 do
         local item, available = listEntry(list, index)
         if not available then return "pending" end
-        if markerOf(item) == receiptId then return "found", item end
+        if markerOf(item) == receiptId and (requiredNativeId == nil
+            or tostring(itemNativeId(item)) == tostring(requiredNativeId)) then return "found", item end
     end
     return "absent"
 end
@@ -1038,16 +1046,21 @@ function Transport.reconcile(receipt, actor)
     return quarantine(receipt, "work_item_absence_unproven", "unknown")
 end
 
-local function settleQuarantinedDelivery(receipt)
+local function settleQuarantinedDelivery(receipt, retiring)
+    -- Old camp-local tokens could already have been reused before this update.
+    -- Require the original native identity to credit a legacy worker on loss.
+    local legacy = (retiring or receipt.owner == "retired") and receipt.id:match("^work%-receipt:%d+$")
+    if legacy and receipt.nativeId == nil then return false, "work_receipt_item_unknown" end
+    local requiredNativeId = legacy and receipt.nativeId or nil
     if receipt and receipt.destinationZoneId and SC.LogYard then
-        local state, item, world = SC.LogYard.findMarked(receipt)
+        local state, item, world = SC.LogYard.findMarked(receipt, requiredNativeId)
         if state ~= "found" then return false, state == "unavailable" and
             "work_ownership_evidence_incomplete" or "quarantined_destination_not_verified" end
         return finishYardDelivery(receipt, item, world)
     end
     local storage = storageById(receipt and receipt.destinationStorageId)
     local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
-    local state, item = findMarkedInContainer(destination, receipt and receipt.id)
+    local state, item = findMarkedInContainer(destination, receipt and receipt.id, requiredNativeId)
     if state ~= "found" then return false, state == "pending" and
         "work_ownership_evidence_incomplete" or "quarantined_destination_not_verified" end
     if verifiedContainerOwner(destination, item) ~= true then
@@ -1278,6 +1291,23 @@ function Transport.yieldActor(actorId, reason)
         end
     end
     return true
+end
+
+-- Restored orders may predate retirement of their worker. An unobserved
+-- physical item is never reconstructed or credited as a delivery.
+function Transport.forgetGoneWorker(orderId, actorId, inactiveBase)
+    for _, receipt in ipairs(SC.BaseLife.workReceipts(orderId, false, inactiveBase)) do
+        if receipt.actorId == actorId then
+            if not inactiveBase and receipt.phase == "selected" and Transport.abandonSelected(receipt, "worker_retired") then
+                -- The exact original world item was released in place.
+            elseif inactiveBase or not settleQuarantinedDelivery(receipt, true) then
+                receipt.phase, receipt.owner, receipt.accounted = "cancelled", "retired", true
+                receipt.detachedProof, receipt.blocker, receipt.updatedAt = false, "worker_retired", now()
+                if not inactiveBase then liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil end
+                touchWorkOwnership()
+            end
+        end
+    end
 end
 
 function Transport.prepareActorRetirement(actor)

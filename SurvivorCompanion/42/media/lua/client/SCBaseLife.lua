@@ -251,6 +251,28 @@ local WORK_RECEIPT_PHASES = {
 }
 
 local document
+-- Maintain the audit's index when roster membership changes. A maintenance
+-- pulse can then inspect one resident without traversing or sorting a camp.
+local residentAudit = { ids = {}, positions = {}, cursor = 1 }
+function residentAudit.add(id)
+    if residentAudit.positions[id] then return end
+    local index = #residentAudit.ids + 1
+    residentAudit.ids[index], residentAudit.positions[id] = id, index
+end
+function residentAudit.remove(id)
+    local index = residentAudit.positions[id]
+    if not index then return end
+    local ids = residentAudit.ids
+    local last = ids[#ids]
+    ids[index], residentAudit.positions[last] = last, index
+    ids[#ids], residentAudit.positions[id] = nil, nil
+    if residentAudit.cursor > #ids then residentAudit.cursor = 1 end
+end
+function residentAudit.reset(residents)
+    residentAudit.ids, residentAudit.positions, residentAudit.cursor = {}, {}, 1
+    for id in pairs(residents) do residentAudit.add(id) end
+end
+
 local draftZone
 local operationsCache
 local operationsScan
@@ -672,8 +694,8 @@ local function normalizeWork(source)
         return result
     end
     local result = emptyWork()
-    result.nextOrderSerial = integer(source.nextOrderSerial, 1, 1, 999999)
-    result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1, 999999)
+    result.nextOrderSerial = integer(source.nextOrderSerial, 1, 1)
+    result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1)
     result.recoveryCursor = integer(source.recoveryCursor, 1, 1, 999999)
     local maximumOrders = U() and U().config("workOrderRecordLimit") or 32
     for _, row in ipairs(type(source.orders) == "table" and source.orders or {}) do
@@ -812,7 +834,7 @@ local function normalizeProduction(source)
         return result
     end
     local result = emptyProduction()
-    result.nextOrderSerial = integer(source.nextOrderSerial, 1, 1, 999999)
+    result.nextOrderSerial = integer(source.nextOrderSerial, 1, 1)
     local limit = U() and U().config("productionOrderRecordLimit") or 16
     local unknown = {}
     local rows = {}
@@ -949,7 +971,7 @@ local function normalizeFarm(source)
         if not copied then error("animal document cannot be preserved: " .. tostring(reason)) end
         result.animals = copied
     end
-    result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1, 999999)
+    result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1)
     result.recoveryCursor = integer(source.recoveryCursor, 1, 1, 999999)
     local limit = U() and U().config("farmReceiptLimit") or 128
     local seen = {}
@@ -1083,12 +1105,12 @@ end
 local function normalize(source)
     local result = emptyDocument()
     if type(source) ~= "table" or tonumber(source.version) ~= BaseLife.VERSION then return result end
-    result.nextBaseSerial = integer(source.nextBaseSerial, 1, 1, 999999)
+    result.nextBaseSerial = integer(source.nextBaseSerial, 1, 1)
     result.nextZoneSerial = integer(source.nextZoneSerial, 1, 1, 999999)
     result.nextStorageSerial = integer(source.nextStorageSerial, 1, 1, 999999)
     result.nextTargetSerial = integer(source.nextTargetSerial, 1, 1, 999999)
     result.nextObjectSerial = integer(source.nextObjectSerial, 1, 1, 999999)
-    result.nextJobSerial = integer(source.nextJobSerial, 1, 1, 999999)
+    result.nextJobSerial = integer(source.nextJobSerial, 1, 1)
     for id, candidate in pairs(type(source.bases) == "table" and source.bases or {}) do
         local base = normalizeBase(candidate)
         if base and id == base.id then result.bases[id] = base end
@@ -1140,7 +1162,7 @@ end
 
 local function nextId(field, prefix)
     local state = ensure()
-    local serial = integer(state[field], 1, 1, 999999)
+    local serial = integer(state[field], 1, 1)
     state[field] = serial + 1
     return prefix .. tostring(serial)
 end
@@ -2586,7 +2608,7 @@ local function pruneWorkRows(work)
 end
 
 local function nextWorkId(work, field, prefix)
-    local serial = integer(work[field], 1, 1, 999999)
+    local serial = integer(work[field], 1, 1)
     work[field] = serial + 1
     return prefix .. tostring(serial)
 end
@@ -2647,8 +2669,18 @@ function BaseLife.workReceipt(id)
     return workReceiptIn(activeBase(), id)
 end
 
-function BaseLife.workReceipts(orderId, includeTerminal)
-    local result, work = {}, workFor(activeBase())
+function BaseLife.workMarkerOrphan(id)
+    if type(document) ~= "table" or SC.Persistence and SC.Persistence.restoreStatus
+        and SC.Persistence.restoreStatus() ~= true then return false end
+    for _, base in pairs(document.bases or {}) do
+        local receipt = findById(base.work and base.work.receipts, id)
+        if receipt then return receipt.phase == "cancelled" and receipt.owner == "retired" end
+    end
+    return true
+end
+
+function BaseLife.workReceipts(orderId, includeTerminal, base)
+    local result, work = {}, workFor(base or activeBase())
     for _, receipt in ipairs(work and work.receipts or {}) do
         if (orderId == nil or receipt.orderId == orderId)
             and (includeTerminal == true or not receiptIsTerminal(receipt)) then
@@ -2679,7 +2711,9 @@ function BaseLife.allocateWorkReceipt(spec)
         return false, "gather_quota_reserved"
     end
     local copied = stableCopy(spec, 20, { count = 12288 }) or {}
-    copied.id = nextWorkId(work, "nextReceiptSerial", "work-receipt:")
+    -- The per-camp serial restarts when a new camp is founded. Include its
+    -- persistent identity so cargo in an unloaded chunk cannot claim a later receipt.
+    copied.id = nextWorkId(work, "nextReceiptSerial", "work-receipt:" .. base.id .. ":")
     copied.token = copied.id
     copied.itemType = order.itemType
     if spec.destinationZoneId then
@@ -3088,10 +3122,8 @@ function BaseLife.allocateFarmReceipt(spec)
         end
     end
     if #farm.receipts >= limit then return false, "farm_receipt_limit" end
-    local serial = integer(farm.nextReceiptSerial, 1, 1, 999999)
-    farm.nextReceiptSerial = serial + 1
     local copied = stableCopy(spec, 5, { count = 96 }) or {}
-    copied.id = "farm-receipt:" .. tostring(serial)
+    copied.id = nextWorkId(farm, "nextReceiptSerial", "farm-receipt:" .. base.id .. ":")
     copied.phase = copied.phase or (copied.kind == "output" and "carried" or "borrowed")
     copied.createdAt, copied.updatedAt = current, current
     local receipt = normalizeFarmReceipt(copied)
@@ -3104,6 +3136,16 @@ end
 function BaseLife.farmReceipt(id)
     local farm = farmFor(activeBase())
     return farm and findById(farm.receipts, id) or nil
+end
+
+function BaseLife.farmReceiptLive(id)
+    if type(document) ~= "table" or SC.Persistence and SC.Persistence.restoreStatus
+        and SC.Persistence.restoreStatus() ~= true then return nil end
+    for _, base in pairs(document.bases or {}) do
+        local receipt = findById(base.farm and base.farm.receipts, id)
+        if receipt then return not farmReceiptTerminal(receipt) end
+    end
+    return false
 end
 
 function BaseLife.farmReceipts(jobId, includeTerminal)
@@ -3441,6 +3483,27 @@ function BaseLife.productionOrderLive(id)
     return false
 end
 
+-- A marked supply may turn up on a corpse or in a previously unloaded stove.
+-- Its saved token survives native item-ID changes during actor reconstruction.
+function BaseLife.chefSupplyReserved(data)
+    local token = data.SC_ChefSupplyReceipt
+    if token == nil then return false end
+    if type(document) ~= "table" or SC.Persistence and SC.Persistence.restoreStatus
+        and SC.Persistence.restoreStatus() ~= true then return true end
+    local jobId = type(token) == "string" and token:match("^(.*):%d+$")
+    for _, base in pairs(document.bases or {}) do
+        local job = jobId and findById(base.jobs, jobId)
+        if job and job.type == "cook" and job.state ~= "cancelled" and job.state ~= "completed" then
+            local supplies = job.target and job.target.chefSupplies
+            for _, receipt in ipairs(type(supplies) == "table" and supplies or {}) do
+                if type(receipt) == "table" and receipt.token == token then return true end
+            end
+        end
+    end
+    data.SC_ChefSupplyReceipt = nil
+    return false
+end
+
 function BaseLife.productionOrders(includeTerminal)
     local result, production = {}, productionFor(activeBase())
     for _, order in ipairs(production and production.orders or {}) do
@@ -3460,11 +3523,28 @@ function BaseLife.productionCounters()
     return result
 end
 
+local function residentPresent(id, needRecord)
+    if SC.BaseWork and SC.BaseWork.workerUnregistered then
+        local gone, record = SC.BaseWork.workerUnregistered(id)
+        if gone or not needRecord or SC.BaseFuel and SC.BaseFuel.workerIdGone then
+            return not gone, record
+        end
+    end
+    -- Before the camp-work modules load, keep saved rows and use any known name.
+    if needRecord and SC.Registry and type(SC.Registry.byId) == "function" then
+        local ok, record = pcall(SC.Registry.byId, id)
+        if ok then return true, record end
+    end
+    return true
+end
+
 function BaseLife.dutyResidentIds()
     local base, result = activeBase(), {}
     if not base then return result end
     for id, resident in pairs(ensure().residents) do
-        if resident.baseId == base.id and resident.duty == true then result[#result + 1] = id end
+        if resident.baseId == base.id and resident.duty == true and residentPresent(id) then
+            result[#result + 1] = id
+        end
     end
     table.sort(result)
     while #result > 16 do table.remove(result) end
@@ -3555,9 +3635,9 @@ function BaseLife.createProductionOrder(spec)
             return false, "production_worker_off_duty"
         end
     end
-    local serial = integer(production.nextOrderSerial, 1, 1, 999999)
+    local serial = integer(production.nextOrderSerial, 1, 1)
     local order = normalizeProductionOrder({
-        id = "production-order:" .. tostring(serial), operation = spec.operation,
+        id = "production-order:" .. base.id .. ":" .. tostring(serial), operation = spec.operation,
         zoneId = zone and zone.id or nil,
         sourceStorageId = sourceStorage and sourceStorage.id or nil,
         sourceZoneId = sourceYard and sourceYard.id or nil,
@@ -4465,8 +4545,157 @@ function BaseLife.barricadeJobCurrent(id, actorId, objectId)
     return true
 end
 
+-- Orders can survive an older save without their per-worker job row.
+-- Remove the worker through the same receipt owner in both recovery paths.
+local function retireOrderWorker(base, kind, order, owner)
+    if not order or orderIsTerminal(order) then return end
+    local active = base == activeBase()
+    for i = #order.workers, 1, -1 do
+        if order.workers[i] == owner then
+            if kind == "production" then
+                if active and SC.Production and SC.Production.forgetGoneWorker then
+                    SC.Production.forgetGoneWorker(order.id, owner)
+                end
+            elseif SC.WorkTransport and SC.WorkTransport.forgetGoneWorker then
+                local state, blocker = order.state, order.blocker
+                SC.WorkTransport.forgetGoneWorker(order.id, owner, not active and base or nil)
+                if not orderIsTerminal(order) and (state == "paused" or state == "blocked") then
+                    order.state, order.blocker = state, blocker
+                end
+            end
+            table.remove(order.workers, i)
+            if not orderIsTerminal(order) and #order.workers == 0 then
+                if not active then
+                    -- No controller runs for a detached saved camp. Do not
+                    -- call an active camp by its possibly identical legacy ID.
+                    order.state, order.blocker, order.updatedAt = "cancelled", nil, now()
+                elseif kind == "production" then BaseLife.cancelProductionOrder(order.id)
+                else BaseLife.cancelGatherOrder(order.id) end
+            elseif kind == "gather_materials" and order.state == "blocked"
+                and tostring(order.blocker):match("^worker_retired_") then
+                order.state, order.blocker, order.updatedAt = "running", nil, now()
+            end
+            return
+        end
+    end
+end
+
+-- A queued assignment has no lease. The same retirement handles it and an
+-- occupied lease without ever restarting the dead worker's native action.
+local workerJobs = { cook = true, production = true, gather_materials = true, farm = true }
+function BaseLife.releaseGoneWorkerJob(job, index, base)
+    if not workerJobs[job.type] then return false end
+    local owner = job.assignedId or job.reservedBy
+    local gone = SC.BaseWork and SC.BaseWork.workerUnregistered
+    if not owner or not gone or not gone(owner)
+        or job.reservedBy and job.reservedBy ~= owner and not gone(job.reservedBy) then return false end
+    base = base or BaseLife.active()
+    if not base then return false end
+    if not index then
+        local found
+        found, index = findById(base.jobs, job.id)
+        if found ~= job then return false end
+    end
+    if base.jobs[index] ~= job then return false end
+    if base == activeBase() then
+        if job.type == "cook" and SC.ChefWork and SC.ChefWork.forgetGoneJob then SC.ChefWork.forgetGoneJob(job) end
+        if job.type == "farm" and SC.FarmWork and SC.FarmWork.forgetGoneJob then SC.FarmWork.forgetGoneJob(job) end
+    end
+    job.state, job.reservedBy, job.leaseUntil, job.updatedAt = "cancelled", nil, 0, now()
+    table.remove(base.jobs, index)
+    local orderId = job.target and job.target.orderId
+    if job.type == "production" then retireOrderWorker(base, job.type, productionOrderIn(base, orderId), owner)
+    elseif job.type == "gather_materials" then retireOrderWorker(base, job.type, workOrderIn(base, orderId), owner) end
+    bumpWorkConsistencyRevision()
+    return true, "expired_job_worker_gone"
+end
+
+local function retireResidentJob(base, job, index, id)
+    local visit = SC.MedicalVisits and SC.MedicalVisits.isJob(job)
+    if visit and job.target.patientId == id then
+        if base == activeBase() then return BaseLife.cancelJob(job.id) end
+    else
+        if job.assignedId ~= id and job.reservedBy ~= id then return true end
+        if job.state == "manual" or job.reservedBy and job.reservedBy ~= id then
+            -- The current lease (or player build) belongs to someone else.
+            if job.assignedId == id then
+                job.assignedId = nil
+                local holder = job.reservedBy
+                if (job.state == "reserved" or job.state == "active") and workerJobs[job.type]
+                    and holder and not SC.BaseWork.workerUnregistered(holder) then
+                    job.assignedId = holder
+                    local orderId = job.target and job.target.orderId
+                    local order = job.type == "production" and productionOrderIn(base, orderId)
+                        or job.type == "gather_materials" and workOrderIn(base, orderId)
+                    if order and not orderIsTerminal(order) then
+                        local hasHolder, hasRetired
+                        for _, worker in ipairs(order.workers) do
+                            if worker == holder then hasHolder = true end
+                            if worker == id then hasRetired = true end
+                        end
+                        -- Preserve the actual lease when the saved assignment
+                        -- was stale, before removing its retired order member.
+                        if hasRetired and not hasHolder then order.workers[#order.workers+1] = holder end
+                    end
+                end
+            end
+            return true
+        end
+        if workerJobs[job.type] and job.assignedId and job.assignedId ~= id then
+            -- Preserve a different worker's explicit assignment and receipt.
+            job.reservedBy, job.leaseUntil, job.state = nil, 0, "pending"
+            return true
+        end
+        if BaseLife.releaseGoneWorkerJob(job, index, base) then return true end
+        if visit then
+            return SC.MedicalVisits.releaseGoneMedic(job, id)
+        elseif job.type ~= "repair" and job.type ~= "craft_supply" and job.type ~= "replace_bandage" then
+            if job.type == "barricade" and base == activeBase() then
+                local stopped, why = SC.Commands.cancelBaseJob(job.id, "base_job_cancelled")
+                if stopped ~= true then return false, why end
+            elseif job.type ~= "barricade" then
+                -- Transferable chores must reconcile their exact cargo before
+                -- the same task and target can safely take a new worker.
+                if base ~= activeBase() then return false end
+                local okay, why = SC.BaseWork.reconcileExpiredJob(job, id)
+                if okay ~= true then return false, why end
+            end
+            if job.assignedId == id then job.assignedId = nil end
+            job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+            job.attempts, job.retryAt, job.blocker, job.updatedAt = 0, 0, nil, now()
+            return true
+        end
+    end
+    job.state, job.reservedBy, job.leaseUntil, job.updatedAt = "cancelled", nil, 0, now()
+    table.remove(base.jobs, index)
+    return true
+end
+
+function BaseLife.forgetGoneResident(id)
+    local state = ensure()
+    local resident = state.residents[id]
+    if not resident or not SC.BaseWork or not SC.BaseWork.workerUnregistered(id) then return false end
+    local base = state.bases[resident.baseId]
+    if base then
+        for index = #base.jobs, 1, -1 do
+            local job = base.jobs[index]
+            -- A temporarily inaccessible receipt still belongs to its chore.
+            -- Its ordinary maintenance retry is independent of camp staffing.
+            if job then retireResidentJob(base, job, index, id) end
+        end
+        for _, order in ipairs(productionFor(base).orders) do retireOrderWorker(base, "production", order, id) end
+        for _, order in ipairs(workFor(base).orders) do retireOrderWorker(base, "gather_materials", order, id) end
+    end
+    state.residents[id] = nil
+    residentAudit.remove(id)
+    operationsCache, operationsScan = nil, nil
+    bumpWorkConsistencyRevision()
+    return true
+end
+
 local function releaseExpiredJob(job)
     if job.state == "reserved" then
+        if BaseLife.releaseGoneWorkerJob(job) then return true end
         if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
             local settled, why = SC.BaseWork.reconcileExpiredJob(job, job.reservedBy)
             if settled ~= true then job.blocker=why return false,why end
@@ -4488,6 +4717,7 @@ local function releaseExpiredJob(job)
         job.blocker = cleanText(reason, "expired_job_recovery_pending", 160)
         return false, job.blocker
     end
+    if job.state == "cancelled" then return true end
     job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
     job.updatedAt, job.blocker = now(), nil
     bumpWorkConsistencyRevision()
@@ -4717,6 +4947,14 @@ function BaseLife.claimJob(actorId, accept)
     local actor = U().resolveActor and U().resolveActor(actorId)
     local settlement = actor and SC.Production and SC.Production.settlementFor
         and SC.Production.settlementFor(actor)
+    -- Retirement can remove jobs. Finish those lease transitions before the
+    -- forward scoring pass so it sees the immediately following live job.
+    for index = #base.jobs, 1, -1 do
+        local job = base.jobs[index]
+        if job and (job.state == "reserved" or job.state == "active") and job.leaseUntil <= current then
+            releaseExpiredJob(job)
+        end
+    end
     local best, bestScore
     for _, job in ipairs(base.jobs) do
         -- Older saves may already have parked a farm job after repeated
@@ -4724,10 +4962,6 @@ function BaseLife.claimJob(actorId, accept)
         if job.state == "blocked" and (job.attempts or 0) > 0
             and transientJobDelay(job, job.blocker) then
             job.attempts, job.retryAt, job.updatedAt = 0, current, current
-        end
-        if (job.state == "reserved" or job.state == "active")
-            and job.leaseUntil <= current then
-            releaseExpiredJob(job)
         end
         if (job.state == "pending" or (job.state == "blocked" and job.retryAt <= current
             and (not BaseLife.jobParked(job) or BaseLife.jobAutoRetry(job))))
@@ -4781,7 +5015,8 @@ end
 function BaseLife.releaseJob(id, actorId, reason)
     local job = BaseLife.job(id)
     if not job or (actorId ~= nil and job.reservedBy ~= actorId) then return false, "job_not_owned" end
-    if SC.MedicalVisits and SC.MedicalVisits.isJob(job) then
+    if (SC.MedicalVisits and SC.MedicalVisits.isJob(job))
+        or (job.type == "wash_dressings" and job.target and job.target.dressingBatch) then
         local stopped, why = SC.BaseWork.cancelJob(id, actorId or job.reservedBy, reason or "job_released")
         if stopped ~= true then return false, why end
     end
@@ -4946,6 +5181,7 @@ function BaseLife.cancelJob(id)
     if base then job, index = findById(base.jobs, id) end
     if not job then return false, "unknown_job" end
     if job.state == "manual" then return false, "player_build_in_progress" end
+    if BaseLife.releaseGoneWorkerJob(job, index) then return true, job end
     if job.target and job.target.yardUnstack and SC.LogYard then
         local actor = U().resolveActor(job.target.yardUnstack.ownerId)
         local stopped, reason = SC.LogYard.cancelUnstack(actor, job)
@@ -5083,7 +5319,10 @@ function BaseLife.abandon()
     end
     -- A resident belongs to its camp, and a save refuses one that names a camp
     -- that no longer exists. Joining the next camp assigns a role afresh.
-    for _, id in ipairs(leaving) do state.residents[id] = nil end
+    for _, id in ipairs(leaving) do
+        state.residents[id] = nil
+        residentAudit.remove(id)
+    end
     local farmZones = {}
     for _, zone in ipairs(base.zones) do
         if zone.kind == "farm" then farmZones[#farmZones + 1] = zone.id end
@@ -5236,9 +5475,31 @@ function BaseLife.noteWorkAccessChanged(subject)
     return changed
 end
 
+function BaseLife.auditResidentRoster()
+    local index = residentAudit.cursor
+    local id = residentAudit.ids[index]
+    if not id then return false end
+    -- A removal swaps the last resident into this slot. Inspect it next.
+    if BaseLife.forgetGoneResident(id) then return true end
+    residentAudit.cursor = index % #residentAudit.ids + 1
+    return false
+end
+
 function BaseLife.auditJobRecovery()
     local base = activeBase()
     if not base or #base.jobs == 0 then return false, "no_parked_navigation_job" end
+    BaseLife._goneWorkerCursor = (BaseLife._goneWorkerCursor or 0) % #base.jobs + 1
+    local index = BaseLife._goneWorkerCursor
+    local candidate = base.jobs[index]
+    if BaseLife.releaseGoneWorkerJob(candidate, index) then
+        return true, "expired_job_worker_gone"
+    end
+    local owner = candidate.reservedBy or candidate.assignedId
+    if not workerJobs[candidate.type] and candidate.state ~= "manual" and owner and not ensure().residents[owner]
+        and SC.BaseWork and SC.BaseWork.workerUnregistered(owner) and retireResidentJob(base, candidate, index, owner) then
+        bumpWorkConsistencyRevision()
+        return true, "expired_job_worker_gone"
+    end
     -- Check one candidate per maintenance pulse. No routes or inventories are
     -- searched here; the job's ordinary controller owns its one retry.
     for _ = 1, #base.jobs do
@@ -5307,6 +5568,7 @@ function BaseLife.assign(actorId, role, duty)
     resident.baseId, resident.role = base.id, role
     if duty ~= nil then resident.duty = duty == true end
     ensure().residents[actorId] = resident
+    residentAudit.add(actorId)
     return true, resident
 end
 
@@ -5365,6 +5627,7 @@ function BaseLife.applyResidentAssignment(plan)
     end
     resident.baseId, resident.role, resident.duty = plan.baseId, plan.role, plan.duty == true
     ensure().residents[plan.actorId] = resident
+    residentAudit.add(plan.actorId)
     return true, resident
 end
 
@@ -5374,11 +5637,13 @@ function BaseLife.restoreResident(actorId, snapshot)
     end
     if snapshot.present ~= true then
         ensure().residents[actorId] = nil
+        residentAudit.remove(actorId)
         return true
     end
     local copied, reason = stableCopy(snapshot.value, 4, { count = 64 })
     if copied == nil then return false, reason or "resident_restore_failed" end
     ensure().residents[actorId] = copied
+    residentAudit.add(actorId)
     return true
 end
 
@@ -5471,33 +5736,37 @@ function BaseLife.setPolicy(key, value)
     return true, value
 end
 
-function BaseLife.guardStatus(actorId, current)
-    local base = activeBase()
-    if not base then return false, nil, 0 end
+local function guardAssignments(base, current, present)
     local all, guards = {}, {}
-    for id, resident in pairs(ensure().residents) do
+    for id, resident in pairs(present or ensure().residents) do
         if resident.baseId == base.id and resident.duty == true
-            and ensure().restrictions[id] == nil then
+            and ensure().restrictions[id] == nil and (present or residentPresent(id)) then
             all[#all + 1] = id
             if resident.role == "guard" then guards[#guards + 1] = id end
         end
     end
-    table.sort(all)
-    table.sort(guards)
     local policy = base.settings.defense
-    if policy == "all_hands" then
-        for _, id in ipairs(all) do if id == actorId then return true, actorId, #all end end
-        return false, nil, #all
-    end
-    if policy == "role_based" then
-        for _, id in ipairs(guards) do if id == actorId then return true, actorId, #guards end end
-        return false, nil, #guards
+    local serving = {}
+    if policy == "all_hands" or policy == "role_based" then
+        local candidates = policy == "all_hands" and all or guards
+        for _, id in ipairs(candidates) do serving[id] = true end
+        return serving, nil, #candidates
     end
     local candidates = #guards > 0 and guards or all
-    if #candidates == 0 then return false, nil, 0 end
+    if #candidates == 0 then return serving, nil, 0 end
+    table.sort(candidates)
     local shift = U() and U().config("baseGuardShiftMs") or 180000
     local index = (math.floor(finite(current, now()) / math.max(30000, shift)) % #candidates) + 1
-    return candidates[index] == actorId, candidates[index], #candidates
+    local selected = candidates[index]
+    serving[selected] = true
+    return serving, selected, #candidates
+end
+
+function BaseLife.guardStatus(actorId, current)
+    local base = activeBase()
+    if not base then return false, nil, 0 end
+    local serving, selected, count = guardAssignments(base, current)
+    return serving[actorId] == true, selected or (serving[actorId] and actorId), count
 end
 
 local function hasZone(base, kind)
@@ -5536,9 +5805,10 @@ function BaseLife.auditOperations(force, remainingBudget)
     end
     while scan.residentIndex <= #scan.ids do
         if not available() then return pending() end
-        local resident = ensure().residents[scan.ids[scan.residentIndex]]
+        local id = scan.ids[scan.residentIndex]
+        local resident = ensure().residents[id]
         scan.residentIndex = scan.residentIndex + 1
-        if resident and resident.baseId == base.id then
+        if resident and resident.baseId == base.id and residentPresent(id) then
             scan.residents = scan.residents + 1
             scan.roles[resident.role] = (scan.roles[resident.role] or 0) + 1
         end
@@ -5717,20 +5987,29 @@ function BaseLife.summary()
             and SC.FarmWork.summary() or nil,
         farmReceipts = 0,
     }
+    local present = {}
     for id, resident in pairs(ensure().residents) do
+        local included, record
         if base and resident.baseId == base.id then
+            included, record = residentPresent(id, true)
+        end
+        if included then
+            present[id] = resident
             result.residents = result.residents + 1
             if resident.duty then result.duty = result.duty + 1 end
-            local record = SC.Registry and type(SC.Registry.byId) == "function"
-                and SC.Registry.byId(id) or nil
-            local name = record and record.actor and U().nameOf(record.actor) or id
-            local guarding = select(1, BaseLife.guardStatus(id, now()))
+            local name = record and record.identity and SC.Names and SC.Names.displayName
+                and SC.Names.displayName(record, false) or record and record.actor and U().nameOf(record.actor)
             result.residentRows[#result.residentRows + 1] = {
-                id = id, name = name, role = resident.role, duty = resident.duty == true,
-                guarding = guarding == true, job = jobByActor[id],
+                id = id, name = name and name ~= id and name or "Survivor",
+                role = resident.role, duty = resident.duty == true,
+                job = jobByActor[id],
                 restriction = ensure().restrictions[id],
             }
         end
+    end
+    if base then
+        local serving = guardAssignments(base, now(), present)
+        for _, row in ipairs(result.residentRows) do row.guarding = serving[row.id] == true end
     end
     table.sort(result.residentRows, function(a, b) return a.id < b.id end)
     if base then
@@ -6445,6 +6724,7 @@ function BaseLife.restore(source)
     local priorRestrictions = document and document.restrictions
     if source == nil then
         document, draftZone, operationsCache = emptyDocument(), nil, nil
+        residentAudit.reset(document.residents)
         autonomousTreeScan, autonomousBodyScan = nil, nil
         autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
         autonomousWorkerCursor, autonomousRetryAt = 0, {}
@@ -6461,6 +6741,7 @@ function BaseLife.restore(source)
         return restoreFailure("$.baseLife", normalized and "normalization failed" or candidate)
     end
     document = candidate
+    residentAudit.reset(document.residents)
     draftZone, operationsCache = nil, nil
     autonomousTreeScan, autonomousBodyScan = nil, nil
     autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
@@ -6473,6 +6754,7 @@ end
 
 function BaseLife.reset()
     document, draftZone, operationsCache = emptyDocument(), nil, nil
+    residentAudit.reset(document.residents)
     autonomousTreeScan, autonomousBodyScan = nil, nil
     autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
     autonomousWorkerCursor, autonomousRetryAt = 0, {}

@@ -29,6 +29,12 @@ local function terminal(actor,label)
         label..' retains inactive forensic proof without immobilizing the patient')
     released(actor,label)
 end
+local function retired(actor,result)
+    local recent=SC.MedicalMaintenance.recent()
+    check(M.pendingCare(actor)==nil and recent[#recent].result==result,
+        'verified absent bullet clears its hold and preserves the secondary result '..result)
+    released(actor,result)
+end
 
 -- A replacement is appended at the end of its actual source container. The
 -- ordinary discovery prefix is not a complete post-effect inventory receipt.
@@ -56,7 +62,7 @@ check(okay and why=='medical_procedure_unverified','refused native pain is repor
 check(not p.bullet and p.bulletCalls==1 and p:getAdditionalPain()==0 and p.isBandaged,
     'pain failure preserves verified removal and completes safe redress')
 check(not actor.inventory:contains(fresh) and actor.inventory:contains(tool),'pain failure spends only its exact fresh dressing')
-terminal(actor,'pain failure')
+retired(actor,why)
 xpRequest(actor,20,'bullet removal')
 local requests=#actor.medicalXpCalls
 for index=1,4 do M.treat(actor,actor) end
@@ -120,7 +126,7 @@ end
 okay,why=M.treat(actor,actor)
 check(okay and why=='medical_return_uncertain' and p.isBandaged and not p.bullet,
     'ambiguous native returns report uncertainty after safe redress')
-terminal(actor,'ambiguous return')
+retired(actor,why)
 for index=1,4 do M.treat(actor,actor) end
 check(attempts==1 and F.count(inventory,'Base.Bandage')==2 and p.bulletCalls==1,
     'ambiguous return preserves observed objects without adding any further copy')

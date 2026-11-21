@@ -1533,6 +1533,9 @@ function actorService.retireDead(actor)
         and type(SC.BaseFuel.prepareActorRetirement) == "function" then
         pcall(SC.BaseFuel.prepareActorRetirement, actor)
     end
+    if SC.ChefWork and SC.ChefWork.prepareActorRetirement then
+        pcall(SC.ChefWork.prepareActorRetirement, actor)
+    end
     local id = SC.Registry.idOf(actor)
     retainActorCleanup(actor, cachedProvider, {
         operation = "retireDead",

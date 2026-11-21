@@ -3506,11 +3506,13 @@ function BaseWork.auditMaintenance(player, remainingBudget)
     -- Recovery precedes optional audits, but at most once per second during
     -- continuations. Re-arming one job yields this frame and preserves the
     -- family cursor, so recurrent blocked work cannot starve every family.
-    if type(SC.BaseLife.auditJobRecovery) == "function"
-        and now() >= (scan.nextRecoveryAt or 0) then
+    if now() >= (scan.nextRecoveryAt or 0) then
         scan.nextRecoveryAt = now() + 1000
-        local recovered, reason = SC.BaseLife.auditJobRecovery()
-        if recovered then return true, reason, true end
+        if SC.BaseLife.auditResidentRoster then SC.BaseLife.auditResidentRoster() end
+        if SC.BaseLife.auditJobRecovery then
+            local recovered, reason = SC.BaseLife.auditJobRecovery()
+            if recovered then return true, reason, true end
+        end
     end
     if not maintenanceBudget(remainingBudget) then
         if SC.Performance and SC.Performance.count then SC.Performance.count("base_maintenance_yield") end
@@ -3878,8 +3880,11 @@ end
 -- A worker that died or was removed for good (SCBaseFuel owns the rule: a
 -- dormant or not-yet-restored companion still counts as present).
 function BaseWork.workerUnregistered(id)
-    return SC.BaseFuel and type(SC.BaseFuel.workerIdGone) == "function"
-        and SC.BaseFuel.workerIdGone(id) == true or false
+    if SC.BaseFuel and type(SC.BaseFuel.workerIdGone) == "function" then
+        local gone, record = SC.BaseFuel.workerIdGone(id)
+        return gone == true, record
+    end
+    return false
 end
 
 function BaseWork.reconcileExpiredJob(job, ownerId)
@@ -3894,6 +3899,11 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
             return SC.BandageWashing.reconcileExpiredJob(job, ownerId)
         end
         return false, "dressing_wash_uncertain"
+    end
+    if job.type == "sort_floor" and job.target and job.target.floorCargo
+        and BaseWork.workerUnregistered(ownerId) then
+        if SC.FloorSort and SC.FloorSort.cancel then return SC.FloorSort.cancel(nil, job) end
+        return false, "floor_sort_cancel_unavailable"
     end
     if job.target and job.target.yardUnstack and SC.LogYard then
         local actor = U().resolveActor(job.target.yardUnstack.ownerId)
@@ -3910,8 +3920,9 @@ function BaseWork.reconcileExpiredJob(job, ownerId)
         end
         return false, "expired_job_subsystem_owned"
     end
-    if job.type == "farm" or job.type == "gather_materials"
-        or job.type == "cook" then
+    if job.type == "cook" and SC.ChefWork then return SC.ChefWork.reconcileExpiredJob(job) end
+    if job.type == "farm" or job.type == "gather_materials" or job.type == "cook" then
+        if SC.BaseLife.releaseGoneWorkerJob(job) then return true, "expired_job_worker_gone" end
         return false, "expired_job_subsystem_owned"
     end
     if job.type == "clean" and type(job.target.cleanLoans) == "table"

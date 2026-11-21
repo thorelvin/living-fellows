@@ -264,7 +264,7 @@ function M.antibioticEligible(patient,assessment,context)
     if not current or current<0 or isPlayer(patient) then return false end
     context=type(context)=="table" and context or {}
     local native=M.nativeState(patient,"take_antibiotics")
-    if not native or native.active or not ledger(patient,current) or M.pending(patient) then return false end
+    if not native or native.active or M.pending(patient,"take_antibiotics") or not ledger(patient,current) then return false end
     return antibioticEligible(patient,assessment or {},context,context.helper or patient,current,true)
 end
 function M.handles(kind) return kinds[kind]==true end
@@ -296,23 +296,70 @@ local function receiptValid(saved,patient,current)
     elseif saved.powerBefore~=0 or saved.effectVerified and saved.powerAfter~=50 then return false end
     return true
 end
-function M.pending(patient)
+local doseKinds={"take_painkillers","take_antibiotics"}
+local holdFields={since=true,itemId=true,archivedHours=true}
+local function holdView(patient,kind,reason)
+    return {kind=kind,patientId=id(patient),quarantined=true,terminalQuarantine=true,
+        reason=reason or "medical_consumption_uncertain"}
+end
+-- Keep one forensic row per kind. An unrelated dose can own the ordinary
+-- recovery slot immediately. An archived row is evidence only, never a dose.
+function M.pending(patient,wanted)
+    local P=P()
     local current=hours()
-    local saved=P().readCare(patient,"medicalMedicineRecovery")
-    if saved==nil then return nil end
-    if not current or current<0 or not receiptValid(saved,patient,current) then
-        return {kind="take_painkillers",patientId=id(patient),quarantined=true,terminalQuarantine=true,
-            reason="medical_medicine_unreadable",malformed=true}
-    end
-    if saved.effectVerified and saved.debitVerified and not saved.quarantined then return nil end
     local live=receipts[id(patient)]
-    if live and live.saved.itemId==saved.itemId and live.saved.hours==saved.hours
-        and live.saved.helperId==saved.helperId then return live end
-    -- Native handles do not cross a save boundary. Unknown exact debit is a
-    -- forensic receipt, never permission to replay a dose or create stock.
-    saved.quarantined,saved.terminalQuarantine,saved.reason=true,true,"medical_consumption_uncertain"
-    P().writeCare(patient,"medicalMedicineRecovery",saved)
-    return saved
+    local saved=P.readCare(patient,"medicalMedicineRecovery")
+    if saved==nil and live then saved=live.saved end
+    local holds=P.readCare(patient,"medicalMedicineQuarantines")
+    if saved==nil and holds==nil then return nil end
+    if not current or current<0 then
+        return holdView(patient,wanted or doseKinds[1],"medical_medicine_unreadable")
+    end
+    local rows,changed={},false
+    if holds~=nil and not checkedTable(holds,kinds,2) then
+        for _,kind in ipairs(doseKinds) do rows[kind]={since=current} end
+        changed=true
+    else
+        for _,kind in ipairs(doseKinds) do rows[kind]=holds and holds[kind] end
+    end
+    local valid=saved~=nil and receiptValid(saved,patient,current)
+    if saved~=nil and not (valid and saved.effectVerified and saved.debitVerified and not saved.quarantined) then
+        if live and valid and not live.terminalQuarantine and not saved.quarantined
+            and live.saved.itemId==saved.itemId and live.saved.hours==saved.hours and live.saved.helperId==saved.helperId then return live end
+        local knownKind=type(saved)=="table" and kinds[saved.kind] and saved.kind
+        local since=valid and saved.hours or current
+        for _,kind in ipairs(doseKinds) do
+            if not knownKind or knownKind==kind then
+                rows[kind]={since=since,itemId=valid and saved.itemId or nil}
+            end
+        end
+        if not P.writeCare(patient,"medicalMedicineRecovery",nil,{medicalMedicineQuarantines=rows}) then
+            return holdView(patient,wanted or knownKind or doseKinds[1],"medical_medicine_unreadable")
+        end
+        receipts[id(patient)]=nil
+    end
+    local pending
+    for _,kind in ipairs(doseKinds) do
+        local row=rows[kind]
+        if row~=nil and (not wanted or kind==wanted) then
+            if not checkedTable(row,holdFields,3) or not finite(row.since) or row.since<0 or row.since>current
+                or row.itemId~=nil and (not finite(row.itemId) or row.itemId<=0 or row.itemId~=math.floor(row.itemId)) then
+                row={since=current};rows[kind]=row;changed=true
+            end
+            if not finite(row.archivedHours) or row.archivedHours<row.since+24 or row.archivedHours>current then
+                local native=current-row.since>=24 and M.nativeState(patient,kind)
+                -- The game can leave a spent pain timer fractionally below zero.
+                -- nativeState requires a clear delta/reduction or antibiotic power.
+                if native and not native.active then
+                    rows[kind]={since=row.since,itemId=row.itemId,archivedHours=current};changed=true
+                elseif not pending then pending=holdView(patient,kind) end
+            end
+        end
+    end
+    if changed and not P.writeCare(patient,"medicalMedicineQuarantines",rows) then
+        return holdView(patient,wanted or doseKinds[1],"medical_medicine_unreadable")
+    end
+    return pending
 end
 function M.pendingView(patient)
     local pending=M.pending(patient)
@@ -325,10 +372,10 @@ local function policy(patient,kind,assessment,context,helper)
     if isPlayer(patient) then return false,"player_takes_own_medicine" end
     local current=hours()
     if not current or current<0 then return false,"medical_medicine_unreadable" end
+    local pending=M.pending(patient,kind)
+    if pending then return false,pending.reason or "medical_consumption_uncertain" end
     local state=ledger(patient,current)
     if not state then return false,"medical_medicine_unreadable" end
-    local pending=M.pending(patient)
-    if pending then return false,pending.reason or "medical_consumption_uncertain" end
     local native=M.nativeState(patient,kind)
     if not native then return false,"medical_medicine_unreadable" end
     if native.active then return false,kind=="take_painkillers" and "painkillers_still_working" or "antibiotics_still_working" end
@@ -347,8 +394,7 @@ function M.need(patient,assessment,context)
     if not patient or isPlayer(patient) then return nil end
     context=type(context)=="table" and context or {}
     local pending=M.pending(patient)
-    if pending then
-        if pending.terminalQuarantine then return nil end
+    if pending and not pending.terminalQuarantine then
         return {kind=pending.kind,key=M.key(patient,pending.kind),wholeBody=true,rank=0,visitEligible=true,pending=true}
     end
     for _,kind in ipairs({"take_painkillers","take_antibiotics"}) do
@@ -462,10 +508,12 @@ function M.commit(helper,state)
     return true,saved.quarantined and saved.reason or plan.kind=="take_painkillers" and "painkillers_taken" or "antibiotics_taken"
 end
 function M.recover(_,state)
-    local pending=M.pending(state.patient)
+    local pending=M.pending(state.patient,state.medicineKind)
     if not pending then return true,"medicine_already_taken" end
-    pending.quarantined,pending.terminalQuarantine,pending.reason=true,true,"medical_consumption_uncertain"
-    saveReceipt(state.patient,pending.saved or pending)
+    if pending.saved then
+        pending.saved.quarantined,pending.saved.terminalQuarantine,pending.saved.reason=true,true,"medical_consumption_uncertain"
+        saveReceipt(state.patient,pending.saved)
+    end
     receipts[id(state.patient)]=nil
     return true,"medical_consumption_uncertain"
 end
@@ -489,4 +537,15 @@ function M.releaseActor(actor)
     end
 end
 function M.reset() receipts={} end
+function M.retireVisit(patientId,careKey,patient)
+    local key=tostring(patientId)
+    local live=receipts[key]
+    if live and careKey==key..":whole:"..live.kind then receipts[key]=nil end
+    if patient and id(patient)==key then
+        local saved=P().readCare(patient,"medicalMedicineRecovery")
+        if type(saved)=="table" and kinds[saved.kind] and careKey==key..":whole:"..saved.kind then
+            P().writeCare(patient,"medicalMedicineRecovery",nil)
+        end
+    end
+end
 return M

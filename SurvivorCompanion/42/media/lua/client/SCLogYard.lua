@@ -298,14 +298,15 @@ function Yard.restoreDestination(receipt)
         x = point.x, y = point.y, z = point.z, square = square }
 end
 
-function Yard.findMarked(receipt)
+function Yard.findMarked(receipt, requiredNativeId)
     local destination = Yard.restoreDestination(receipt)
     local rows = destination and worldItems(destination.square) or nil
     if not rows then return "unavailable" end
     for _, row in ipairs(rows) do
         local marker = SC.WorkTransport and SC.WorkTransport.marker
             and SC.WorkTransport.marker(row.item)
-        if marker == receipt.id then return "found", row.item, row.world end
+        if marker == receipt.id and (requiredNativeId == nil or tostring(select(1, U().call(row.item, "getID")))
+            == tostring(requiredNativeId)) then return "found", row.item, row.world end
     end
     return "absent"
 end

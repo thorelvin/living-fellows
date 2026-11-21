@@ -253,5 +253,61 @@ for _,other in ipairs({false,true}) do
             'unsafe elective maintenance cannot restart under rescue-only safety bar')
     end
 end
+do
+    SC.NativeActions=nil
+    local P,clinical=SC.MedicalProcedures,SC.TestMedicalProcedures
+    local function burn()
+        return clinical.part({burn=10,needBurnWash=true,isBandaged=true,bandageType='Base.Bandage',bandageLife=10})
+    end
+    local first,other,stitches=burn(),burn(),part({stitchFlag=true,stitchTime=45})
+    local splint=part({splintFlag=true,splintFactor=1,splintItem='Base.Splint',fracture=0})
+    local patient=clinical.actor({first,other,stitches,splint},{clinical.item('Base.Bandage'),clinical.item('Base.Bandage')})
+    P.writeCare(patient,'medicalRecovery',{version=1,patientId=P.actorId(patient),index=0,kind='clean_burn',
+        redress=false,returned=true,quarantined=true,terminalQuarantine=true,returns={},
+        procedure={kind='clean_burn',painVerified=false,debitDone=false,debitAttempted=true}})
+    Care.forget(patient)
+    local accepted,refusal=Care.commit(patient,{patient=patient,maintenanceKind='clean_burn'},{part=first,index=0})
+    check(not accepted and refusal=='medical_consumption_uncertain' and not first.burnCleanCalls,
+        'unloading before first restore retains the receipt and a stale commit cannot replay the uncertain burn')
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=='burn_cleaned' and not first.burnCleanCalls and other.burnCleanCalls==1,
+        'an uncertain burn on one index permits the same operation on a different wound')
+    local hold=M.pendingCare(patient)
+    check(hold and hold.kind=='clean_burn' and hold.woundIndex==0 and hold.active==false,
+        'another committed surgery preserves the exact inactive hold')
+    Care.reset()
+    M.invalidate(patient)
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=='stitches_removed' and stitches.removals==1 and not first.burnCleanCalls,
+        'restored uncertainty permits native removal of mature stitches')
+    -- The newly uncovered healed scratch is covered by the player.
+    stitches.isBandaged,stitches.bandageLife,stitches.bandageType=true,10,'Base.Bandage'
+    M.invalidate(patient)
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=='splint_removed' and not splint.splintFlag and count(patient.inventory,'Base.Splint')==1,
+        'the healed fracture can shed its splint and return it exactly once during quarantine')
+    first.burn=0;first.needBurnWash=false
+    check(not M.pendingCare(patient) and not first.burnCleanCalls and other.burnCleanCalls==1,
+        'the healed native burn clears its own hold without replaying the uncertain procedure')
+    first.burn,first.needBurnWash=12,true
+    patient.inventory:AddItem(clinical.item('Base.Bandage'));patient.inventory:AddItem(clinical.item('Base.Bandage'))
+    M.invalidate(patient)
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=='burn_cleaned' and first.burnCleanCalls==1 and other.burnCleanCalls==1,
+        'a later burn on the same native index receives exactly one new treatment')
+end
+do
+    local P,clinical=SC.MedicalProcedures,SC.TestMedicalProcedures
+    local wound=clinical.part({bullet=true,glass=true,isBandaged=true,bandageLife=10,bandageType='Base.Bandage'})
+    local patient=clinical.actor({wound},{clinical.item('Base.Bandage'),clinical.item('Base.Tweezers')})
+    P.writeCare(patient,'medicalRecovery',{version=-1,index=0,kind='remove_bullet'})
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=='glass_removed' and wound.bullet and not wound.glass and not wound.bulletCalls,
+        'malformed receipt with recognizable scope allows another procedure on the very same index')
+    wound.haveBullet=function() return nil end
+    check(M.pendingCare(patient)~=nil,'an unreadable native bullet flag cannot clear its hold')
+    wound.haveBullet=function() return false end
+    check(not M.pendingCare(patient) and not wound.bulletCalls,'verified absent bullet retires the malformed hold without surgery')
+end
 SC.NativeActions,SC.ActionSupervisor,SC.GameplayUtil.move,SC.GameplayUtil.stop,ZombRand=savedNative,savedSupervisor,savedMove,savedStop,savedRand
 print('Medical maintenance PASS checks='..checks)

@@ -247,10 +247,10 @@ SC.Navigation = {
 }
 
 local contextSerial = 0
-local function setup(material, requested, workerCount)
+local function setup(material, requested, workerCount, keepDocument)
     contextSerial = contextSerial + 1
     SC.BaseWork.reset()
-    SC.BaseLife.reset()
+    if not keepDocument then SC.BaseLife.reset() end
     SC.Registry.reset()
     squares = {}
     local core = addSquare(0, 0, 0)
@@ -2751,6 +2751,102 @@ do
         and foreign:contains(axe) and SC.ExpeditionWood.toolsPending(wood),
         "stale nested membership cannot authorize moving an external axe")
 end
+do
+    local status = SC.Persistence.restoreStatus
+    SC.Persistence.restoreStatus = function() return true end
+    for _, count in ipairs({1, 2}) do
+        local ctx = setup("logs", 1, count)
+        local id, job = ctx.actor.modData.SC_Id, ctx.base.jobs[1]
+        local log = makeItem("Base.Log")
+        putOnGround(ctx.source, log)
+        local receipt = reserveCandidate(ctx, ctx.actor, log)
+        check(SC.WorkTransport.collect(receipt, ctx.actor, log, log.worldItem), "worker collects this log")
+        if count == 2 then job.state, job.reservedBy, job.leaseUntil = "active", id, 0 end
+        SC.WorkTransport.prepareActorRetirement(ctx.actor)
+        SC.Registry.unregister(ctx.actor)
+        for _ = 1, #ctx.base.jobs do SC.BaseLife.auditJobRecovery() end
+        check(job.state == "cancelled" and #ctx.base.jobs == count-1
+            and #ctx.order.workers == count-1 and ctx.order.delivered == 0
+            and (count == 1 and ctx.order.state == "cancelled" or count == 2 and ctx.order.state == "running"),
+            "retirement releases only the fallen gatherer's job and its quota slot")
+        check(receipt.phase == "cancelled" and receipt.owner == "retired"
+            and SC.WorkTransport.marker(log) == nil and #ctx.actor.inventory.items == 1
+            and ctx.actor.inventory.items[1] == log and #ctx.storageObject.container.items == 0,
+            "the exact corpse log remains lootable without a replacement or a delivery")
+        if count == 2 then
+            local nextLog = makeItem("Base.Log")
+            putOnGround(ctx.source, nextLog)
+            local second = SC.WorkTransport.reserve(ctx.order, ctx.base.jobs[1], ctx.actors[2],
+                nextLog, nextLog.worldItem, ctx.source)
+            check(second ~= nil and second ~= receipt, "a living gatherer can reserve a different native log for the remaining unit")
+        end
+    end
+    SC.Persistence.restoreStatus = status
+end
+do
+    local status = SC.Persistence.restoreStatus
+    SC.Persistence.restoreStatus = function() return true end
+    local first = setup("logs", 1)
+    local lost = makeItem("Base.Log")
+    putOnGround(first.source, lost)
+    local old = reserveCandidate(first, first.actor, lost)
+    assert(SC.WorkTransport.collect(old, first.actor, lost, lost.worldItem))
+    SC.WorkTransport.prepareActorRetirement(first.actor)
+    SC.Registry.unregister(first.actor)
+    SC.BaseLife.auditJobRecovery()
+    assert(SC.BaseLife.abandon())
+    local second = setup("logs", 1, 1, true)
+    local log = makeItem("Base.Log")
+    putOnGround(second.source, log)
+    local nextReceipt = reserveCandidate(second, second.actor, log)
+    check(nextReceipt.id ~= old.id, "receipt identity cannot repeat when a new camp reuses its local serial")
+    assert(SC.WorkTransport.collect(nextReceipt, second.actor, log, log.worldItem))
+    first.actor.inventory:Remove(lost)
+    second.storageObject.container:AddItem(lost)
+    SC.WorkTransport.prepareActorRetirement(second.actor)
+    SC.Registry.unregister(second.actor)
+    SC.BaseLife.auditJobRecovery()
+    check(second.order.delivered == 0 and nextReceipt.phase == "cancelled"
+        and second.storageObject.container.items[1] == lost and second.actor.inventory.items[1] == log,
+        "a marked log moved out of an old camp never verifies an unrelated delivery in its successor")
+    SC.Persistence.restoreStatus = status
+end
+-- Older saves used numeric receipt IDs that a previous camp could already
+-- have reused. On retirement only the matching native log verifies delivery.
+do
+    local status = SC.Persistence.restoreStatus
+    SC.Persistence.restoreStatus = function() return true end
+    for _, exact in ipairs({false, true}) do
+        local ctx = setup("logs", 1)
+        local log = makeItem("Base.Log")
+        putOnGround(ctx.source, log)
+        local receipt = reserveCandidate(ctx, ctx.actor, log)
+        assert(SC.WorkTransport.collect(receipt, ctx.actor, log, log.worldItem))
+        SC.WorkTransport.prepareActorRetirement(ctx.actor)
+        SC.Registry.unregister(ctx.actor)
+        receipt.id = "work-receipt:1"
+        log.modData.LF_WorkReceiptId = receipt.id
+        local found = makeItem("Base.Log")
+        found.modData.LF_WorkReceiptId = receipt.id
+        ctx.storageObject.container:AddItem(found)
+        check(not SC.WorkTransport.retryOrder(ctx.order.id) and ctx.order.delivered == 0
+            and receipt.phase == "quarantined", "manual retry rejects a recycled legacy marker on the wrong log")
+        if exact then
+            ctx.actor.inventory:Remove(log)
+            ctx.storageObject.container:AddItem(log)
+            check(SC.WorkTransport.retryOrder(ctx.order.id) and receipt.phase == "delivered" and ctx.order.delivered == 1
+                and log.modData.LF_WorkReceiptId == nil and found.modData.LF_WorkReceiptId == receipt.id,
+                "a legacy retry skips a conflicting first token and credits only its verified native log")
+        else
+            SC.BaseLife.auditJobRecovery()
+            check(receipt.phase == "cancelled" and ctx.order.delivered == 0
+                and ctx.actor.inventory.items[1] == log and ctx.storageObject.container.items[1] == found,
+                "a recycled legacy marker on a different native log cannot credit a delivery")
+        end
+    end
+    SC.Persistence.restoreStatus = status
+end
+
 SC_TEST_WORK_TRANSPORT = { setup = setup, item = makeItem, inventory = makeInventory,
     actor = makeActor, square = addSquare, storage = makeStorage }
 print("WORK_TRANSPORT_PASS checks=" .. tostring(checks)

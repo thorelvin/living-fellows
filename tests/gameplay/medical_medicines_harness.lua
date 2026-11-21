@@ -307,6 +307,84 @@ do
     check(okay and reason=="painkillers_taken" and pills.uses==5
         and P.readCare(actor,"medicalMedicineState").painCount==1,"next game day renews the allowance once without refilling native stock")
 end
+do
+    local start=SC_TEST_CLOCK
+    local patient,stock=pain()
+    patient.throwAfterEffect=true
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=="medical_consumption_uncertain","native pain effect without exact debit creates a hold")
+    patient.throwAfterEffect=nil
+    F.clearPain(patient)
+    local antibioticStock=F.item("Base.Antibiotics")
+    patient.inventory:AddItem(antibioticStock)
+    patient.body.parts[1]=SC.TestMedicalProcedures.part({infectedWound=true,infectionLevel=25,scratchTime=4,
+        isBandaged=true,bandageType="Base.Bandage",bandageLife=10})
+    F.refresh(patient)
+    okay,reason=M.treat(patient,patient,nil,{supplyContext={disinfectantAvailable=false}})
+    check(okay and reason=="antibiotics_taken" and patient.eatCalls==1 and not patient.inventory:contains(antibioticStock),
+        "uncertain painkillers permit a real antibiotic dose")
+    local saved=SC.Commands.export(patient)
+    SC.Commands.reset(patient);D.reset();SC.Commands.restore(patient,saved)
+    local function held() return D.pending(patient,"take_painkillers") end
+    SC_TEST_CLOCK=start+24*3600000-1000
+    check(held() and P.readCare(patient,"medicalMedicineState").painCount==1,
+        "successful unrelated medicine and reload preserve the full cooldown and charged daily allowance")
+    SC_TEST_CLOCK=start+24*3600000
+    for _,field in ipairs({"nativePainEffect","nativePainDelta","nativePainReduction"}) do
+        patient[field]=1
+        check(held(),field.." must reach zero before pain quarantine archives")
+        patient[field]=0
+    end
+    patient.nativePainDelta=nil
+    check(held(),"unknown analgesic activity cannot retire an uncertain dose")
+    patient.nativePainDelta=0
+    check(not held() and P.readCare(patient,"medicalMedicineQuarantines").take_painkillers.archivedHours==P.worldHours()
+        and stock.uses==10 and patient.pillCalls==1 and P.readCare(patient,"medicalMedicineState").painCount==1,
+        "native clearance at 24 hours archives without replaying, debiting or refunding painkillers")
+    patient.body.parts[1]=SC.TestMedicalProcedures.part({})
+    F.refresh(patient)
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=="painkillers_taken" and patient.pillCalls==2 and stock.uses==9,
+        "new eligible pain gets one newly accounted dose after archival")
+    SC_TEST_CLOCK=start
+end
+do
+    local start=SC_TEST_CLOCK
+    local patient,stock=antibiotic()
+    patient.throwAfterEffect=true
+    M.treat(patient,patient,nil,{supplyContext={disinfectantAvailable=false}})
+    patient.throwAfterEffect=nil
+    patient.body.parts[1]=SC.TestMedicalProcedures.part({})
+    patient.moodles[MoodleType.PAIN]=2
+    patient.inventory:AddItem(F.item("Base.Pills"));F.refresh(patient)
+    okay,reason=M.treat(patient,patient)
+    check(okay and reason=="painkillers_taken" and patient.pillCalls==1,
+        "uncertain antibiotics permit a real analgesic dose")
+    SC_TEST_CLOCK=start+24*3600000
+    check(D.pending(patient,"take_antibiotics"),"active native antibiotic power retains its own hold at 24 hours")
+    patient.nativeAntibioticPower=0
+    check(not D.pending(patient,"take_antibiotics") and P.readCare(patient,"medicalMedicineQuarantines").take_antibiotics.archivedHours
+        and patient.eatCalls==1 and patient.inventory:contains(stock),"cleared antibiotic power archives without a second dose or stock change")
+    SC_TEST_CLOCK=start
+end
+do
+    local start=SC_TEST_CLOCK
+    local patient=pain()
+    P.writeCare(patient,"medicalMedicineState",{version=1,painDay=math.floor(P.worldHours()/24),
+        painCount=3,lastPainHours=P.worldHours()})
+    P.writeCare(patient,"medicalMedicineRecovery",{version=-1,kind="take_antibiotics"})
+    check(not D.pending(patient,"take_painkillers") and D.pending(patient,"take_antibiotics")
+        and P.readCare(patient,"medicalMedicineState").painCount==3,
+        "a malformed legacy receipt preserves its recognizable kind and the already charged daily count")
+    P.writeCare(patient,"medicalMedicineRecovery",{version=-1,kind="unknown"})
+    check(D.pending(patient,"take_painkillers") and D.pending(patient,"take_antibiotics"),
+        "an unidentifiable legacy dose conservatively holds both possible medicines")
+    SC_TEST_CLOCK=start+24*3600000
+    patient.nativePainEffect=-0.0015716552734375
+    check(not D.pending(patient) and not patient.pillCalls and not patient.eatCalls,
+        "malformed receipts also expire from first observation and clear native evidence without replay")
+    SC_TEST_CLOCK=start
+end
 SC.NativeActions,SC.ActionSupervisor,U.move,U.stop=native,service,move,stop
 SC_TEST_REPORT="MEDICAL_MEDICINES_PASS checks="..checks
 print(SC_TEST_REPORT)

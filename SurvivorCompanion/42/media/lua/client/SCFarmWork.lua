@@ -258,6 +258,20 @@ local function unmark(item, receiptId)
     return data[FarmWork.ITEM_MARKER] == nil
 end
 
+local function legacyReceiptConflict(item, receipt)
+    if type(receipt.id) ~= "string" or not receipt.id:match("^farm%-receipt:%d+$") then return false end
+    local fullType = select(1, invoke(item, "getFullType"))
+    if fullType and receipt.itemType and tostring(fullType) ~= receipt.itemType then return true end
+    -- Animal loans, wool and manure use exact inventory snapshots. Ordinary
+    -- farm supplies can receive a new native ID when an actor is reconstructed.
+    if receipt.nativeId and (receipt.milk or receipt.milkInvalid or receipt.wool or receipt.woolInvalid
+        or receipt.destinationCategory == "manure") then
+        local nativeId = select(1, invoke(item, "getID"))
+        return nativeId ~= nil and tostring(nativeId) ~= tostring(receipt.nativeId)
+    end
+    return false
+end
+
 function FarmWork.isItemProtected(item, actorOrId, operation)
     for actor, state in pairs(states) do
         if state.carriedWaterSupply and state.carriedWaterSupply.item == item then
@@ -270,8 +284,13 @@ function FarmWork.isItemProtected(item, actorOrId, operation)
     if operation == "farm_return" or operation == "farm_deposit" then return false end
     local receipt = SC.BaseLife and SC.BaseLife.farmReceipt
         and SC.BaseLife.farmReceipt(receiptId) or nil
-    return receipt == nil or (receipt.phase ~= "returned" and receipt.phase ~= "delivered"
-        and receipt.phase ~= "consumed")
+    if receipt then
+        if receipt.phase ~= "returned" and receipt.phase ~= "delivered"
+            and receipt.phase ~= "consumed" and not legacyReceiptConflict(item, receipt) then return true end
+    elseif not SC.BaseLife or not SC.BaseLife.farmReceiptLive
+        or SC.BaseLife.farmReceiptLive(receiptId) ~= false then return true end
+    unmark(item, receiptId)
+    return false
 end
 
 -- Reuse the existing exact native-ID inventory snapshot while a milk loan is
@@ -824,10 +843,7 @@ local carrierLostSince = {}
 -- enough to rule out load ordering, settle the receipt so it cannot block
 -- the farm zone or the camp forever.
 local function settleLostCarrier(receipt, now)
-    local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
-    local actor = type(record) == "table" and (record.actor or record) or nil
-    local lost = record == nil or (actor ~= nil and U().isDead(actor))
-    if not lost then
+    if not SC.BaseFuel or not SC.BaseFuel.workerIdGone(receipt.actorId) then
         carrierLostSince[receipt.id] = nil
         return false
     end
@@ -877,7 +893,7 @@ local function recoverPending(limit)
         local inventory = actor and U().inventory(actor) or nil
         local item
         for _, candidate in ipairs(inventory and U().inventoryItems(inventory, 256) or {}) do
-            if marker(candidate) == receipt.id and (not receipt.wool
+            if marker(candidate) == receipt.id and not legacyReceiptConflict(candidate, receipt) and (not receipt.wool
                 or U().itemType(candidate)==receipt.itemType
                     and tostring((invoke(candidate,"getID")))==tostring(receipt.nativeId)
                     and select(1,invoke(candidate,"getContainer"))==inventory) then item = candidate break end
@@ -938,18 +954,25 @@ local function reopenCarriedWaterJobs(base)
     local able = {}
     for _, job in ipairs(base.jobs or {}) do
         local id = job.assignedId
-        if job.type == "farm" and id ~= nil
+        if job.type == "farm" and id ~= nil and job.target and job.target.operation == "water"
             and (job.state == "pending" or job.state == "blocked") then
             if able[id] == nil then
                 local resident = SC.BaseLife.resident(id)
                 local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id)
                 local actor = record and record.actor
-                able[id] = resident ~= nil and resident.role == "farmer" and resident.duty == true
-                    and actor ~= nil and not U().isDead(actor)
-                    and SC.BaseLife.isInside(actor) == true
-                    and FarmWork.carriedWaterContainer(actor) ~= nil
+                if not actor or U().isDead(actor) then
+                    -- An unloaded farmer may still own the can. When permanent
+                    -- loss is confirmed, a source-only plan may reopen, while
+                    -- a plan with an exact receipt stays for the retirement audit.
+                    able[id] = not (SC.BaseFuel and SC.BaseFuel.workerIdGone(id))
+                else
+                    able[id] = resident ~= nil and resident.role == "farmer" and resident.duty == true
+                        and SC.BaseLife.isInside(actor) == true and FarmWork.carriedWaterContainer(actor) ~= nil
+                end
             end
-            if able[id] == false then job.assignedId = nil end
+            if able[id] == false and #SC.BaseLife.farmReceipts(job.id, false) == 0 then
+                job.assignedId = nil
+            end
         end
     end
 end
@@ -2221,6 +2244,14 @@ function FarmWork.canCancelActor(actor)
     local state = states[actor]
     if state == nil then return true end
     return FarmWork.canCancelJob(state.jobId)
+end
+
+-- Persistent animal outputs and borrowed supplies settle independently in
+-- recoverPending when their exact native owner or source can be observed.
+function FarmWork.forgetGoneJob(job)
+    for actor, state in pairs(states) do
+        if state.jobId == job.id then states[actor] = nil end
+    end
 end
 
 function FarmWork.cancelJob(jobId, reason)

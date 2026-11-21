@@ -260,11 +260,19 @@ local emptyMilkFluid={getAmount=function() return 0 end,getCapacity=function() r
     canAddFluid=function() return true end}
 function milkBucket:getFluidContainer() return emptyMilkFluid end
 milkFarmer.inventory:AddItem(milkBucket)
-milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]="farm:milk-loan"
+local milkLoan = {id="farm-receipt:base:1:7",actorId=milkFarmer.id,itemType="Base.Bucket",phase="borrowed"}
+local priorFarmLookup = SC.BaseLife.farmReceipt
+SC.BaseLife.farmReceipt = function(id)
+    if id == milkLoan.id then return milkLoan end
+    return priorFarmLookup(id)
+end
+milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]=milkLoan.id
 check(not SC.Needs.refillDue(milkFarmer,f.clock),"an empty receipted milk bucket cannot trigger hydration refill")
-milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]=nil
+milkLoan.phase="returned"
 SC.Needs.reset(milkFarmer)
 check(SC.Needs.refillDue(milkFarmer,f.clock+60000),"releasing the same vessel restores ordinary hydration eligibility")
+check(milkBucket:getModData()[SC.FarmWork.ITEM_MARKER]==nil,"observing a returned bucket retires its exact farm marker")
+SC.BaseLife.farmReceipt = priorFarmLookup
 -- A bloody backpack does not soil the clean supplies inside it. The displayed
 -- counts, relationship replies, restocking and treatment must see the same kit.
 do

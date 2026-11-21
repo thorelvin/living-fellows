@@ -32,12 +32,14 @@ $Client = $ClientRoot
 $LuaFiles = @(Get-ScGameplayFiles)
 $BaseLuaFiles = @($LuaFiles)
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
+$LuaFiles += Join-Path $ClientRoot 'SCPZOptimizerAdapter.lua'
 $LuaFiles += Join-Path $Essential 'combat_harness.lua'
 $LuaFiles += Join-Path $Essential 'needs_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'tv_watching_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'computer_use_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'radio_listening_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'fishing_harness.lua'
+$LuaFiles += Join-Path $ClientRoot 'SCBaseFuel.lua'
 $LuaFiles += Join-Path $TestRoot 'chef_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'hygiene_effects_harness.lua'
 $LuaFiles += Join-Path $TestRoot 'hygiene_audio_harness.lua'
@@ -75,6 +77,7 @@ try {
             (Join-Path $SharedRoot 'SCNativeList.lua'),
             (Join-Path $SharedRoot 'SCConfig.lua'),
             (Join-Path $SharedRoot 'SCDiagnostics.lua'),
+            (Join-Path $ClientRoot 'SCBaseFuel.lua'),
             (Join-Path $ClientRoot 'SCPersistence.lua'),
             (Join-Path $TestRoot 'home_arrival_persistence_harness.lua')
         )
@@ -297,7 +300,7 @@ try {
             $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
             if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
-            $maintenanceFiles = @($BaseLuaFiles) + (Join-Path $TestRoot 'medical_maintenance_harness.lua')
+            $maintenanceFiles = @($BaseLuaFiles) + (Join-Path $TestRoot 'medical_procedures_fixture.lua') + (Join-Path $TestRoot 'medical_maintenance_harness.lua')
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @maintenanceFiles
             if ($LASTEXITCODE -ne 0) { throw 'Medical maintenance regression harness failed.' }
             $procedureFiles = @($BaseLuaFiles) + @(
@@ -332,7 +335,8 @@ try {
                 (Join-Path $Essential 'medical_recovery_persistence_harness.lua'))
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalRecoveryFiles
             if ($LASTEXITCODE -ne 0) { throw 'Medical recovery persistence harness failed.' }
-            $visitFiles = @($BaseLuaFiles) + (Join-Path $Essential 'medical_visits_harness.lua')
+            $visitFiles = @($BaseLuaFiles) + @(
+                (Join-Path $ClientRoot 'SCBaseFuel.lua'), (Join-Path $Essential 'medical_visits_harness.lua'))
             & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @visitFiles
             if ($LASTEXITCODE -ne 0) { throw 'Visiting camp medic regression harness failed.' }
             $combatFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))

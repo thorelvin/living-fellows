@@ -436,13 +436,18 @@ do
     local vitalsTask = SC.Runtime._vitalsTaskForTests
     check(type(vitalsTask) == "function", "vitalsTask test seam is exposed")
     SC.Scheduler.reset(true)
-    local oldRetire, oldFactions = SC.Actor.retireDead, SC.Factions
-    local retireCalls, factionDeaths = 0, 0
+    local oldRetire, oldFactions, oldBase = SC.Actor.retireDead, SC.Factions, SC.BaseLife
+    local retireCalls, factionDeaths, rosterRemovals = 0, 0, 0
+    local removedId, registrySizeAtRemoval
     local corpse = makeRecord(900, {
         deathReported = true, griefNotified = true, diaryNotified = true,
     })
     function corpse.actor:isDead() return true end
     records = { corpse }
+    SC.BaseLife = { forgetGoneResident = function(id)
+        removedId, registrySizeAtRemoval = id, #records
+        rosterRemovals = rosterRemovals + 1
+    end }
     SC.Actor.retireDead = function(actor)
         check(actor == corpse.actor, "death retry changed actor identity")
         retireCalls = retireCalls + 1
@@ -463,9 +468,12 @@ do
     check(retireCalls == 1 and corpse.runtime.dying == true
             and corpse.runtime.inactive == true and #records == 1,
         "initial pending corpse did not retain its exact inactive record")
+    check(rosterRemovals == 0, "a pending corpse retains the camp resident")
     vitalsTask(1002000)
     check(retireCalls == 2 and factionDeaths == 1 and #records == 0,
         "vitals lane failed to retry and finalize the pending native corpse")
+    check(rosterRemovals == 1, "final native death must ask the camp to retire the exact resident once")
+    check(removedId == corpse.id and registrySizeAtRemoval == 0, "camp cleanup must follow final registry removal for that ID")
 
     local unrelated = makeRecord(901, {
         inactive = true, removalPending = true, dying = false,
@@ -476,7 +484,7 @@ do
     check(retireCalls == 2,
         "an unrelated inactive record was retried as a permanent death")
     records = {}
-    SC.Actor.retireDead, SC.Factions = oldRetire, oldFactions
+    SC.Actor.retireDead, SC.Factions, SC.BaseLife = oldRetire, oldFactions, oldBase
 end
 
 -- A posted companion whose area unloaded while the player was away comes back

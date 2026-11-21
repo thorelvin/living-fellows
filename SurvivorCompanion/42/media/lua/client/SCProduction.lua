@@ -5642,6 +5642,7 @@ function Production.toolReserved(item)
     if type(data) ~= "table" or data.LF_ProductionToolKey == nil then return false end
     if not SC.BaseLife or type(SC.BaseLife.active) ~= "function" then return true end
     local base = SC.BaseLife.active()
+    if not base then return true end
     local nativeId = (invoke(item, "getID"))
     for _, job in ipairs(base and base.jobs or {}) do
         local target = job.type == "production" and type(job.target) == "table" and job.target
@@ -5652,10 +5653,27 @@ function Production.toolReserved(item)
                 or not receipt.stableId and nativeId ~= nil
                     and tonumber(receipt.itemId) == tonumber(nativeId)) then return true end
     end
+    local orderId = data[Production.CARGO_MARKER]
+    if not SC.BaseLife.productionOrder(orderId) and SC.BaseLife.productionOrderLive(orderId) == nil then
+        return true
+    end
+    data[Production.CARGO_MARKER], data.LF_ProductionToolKey = nil, nil
     return false
 end
 
+function Production.forgetGoneWorker(orderId, id)
+    releaseQuota(orderId, id)
+    if phases[orderId] then phases[orderId][id] = nil end
+    for key, entry in pairs(claims) do
+        if entry.orderId == orderId and entry.actorId == id then claims[key] = nil end
+    end
+    for actor, state in pairs(actorStates) do
+        if state.orderId == orderId and state.job and state.job.assignedId == id then actorStates[actor] = nil end
+    end
+end
+
 function Production.reconcileExpiredJob(job, ownerId)
+    if SC.BaseLife.releaseGoneWorkerJob(job) then return true, "expired_job_worker_gone" end
     local actor = U().resolveActor(ownerId)
     if not actor then return false, "production_recovery_worker_unloaded" end
     local state = actorStates[actor]

@@ -43,13 +43,25 @@ local function clearMarker(item, job)
 end
 function W.reserved(item, exceptJobId)
     local fields = data(item)
-    local job = fields and fields[MARKER] and SC.BaseLife.job(fields[MARKER])
+    local id = fields and fields[MARKER]
+    if not id then return false end
+    local job = SC.BaseLife.job(id)
     local batch = receipt(job)
-    if not batch or job.id == exceptJobId
-        or job.state == 'completed' or job.state == 'cancelled' then return false end
+    if not batch or job.state == 'completed' or job.state == 'cancelled' then
+        -- Items outside the worker and camp stores can surface after the
+        -- receipt has closed. A missing job during world restoration is not
+        -- proof that its exact marker is stale.
+        if not job and not (SC.Persistence and SC.Persistence.restoreStatus
+            and SC.Persistence.restoreStatus() == true) then return true end
+        fields[MARKER] = nil
+        return false
+    end
+    if job.id == exceptJobId then return false end
     if type(batch) ~= 'table' or type(batch.ids) ~= 'table' then return true end
-    local id = identity(item)
-    for _, expected in ipairs(batch.ids or {}) do if id == expected then return true end end
+    local itemId = identity(item)
+    if not itemId then return false end
+    for _, expected in ipairs(batch.ids) do if itemId == expected then return true end end
+    fields[MARKER] = nil
     return false
 end
 function W.ownsInput(actor, item, jobId)
@@ -311,20 +323,27 @@ local function restoreItems(actor, state, job)
         end
         if id ~= 0 then ids[id] = true end
     end
-    if batch.phase == 'washing' then return false, 'dressing_wash_uncertain' end
+    -- onAttempt persisted this slot before calling the game. After a restart
+    -- the original might already be consumed. All other slots still require
+    -- exact, marked identities and their ordinary ownership checks.
+    local uncertain = batch.phase == 'washing' and batch.index
+    if uncertain and (not batch.ids[uncertain] or batch.ids[uncertain] == 0
+        or batch.washed[uncertain]) then return false, 'dressing_wash_uncertain' end
     if state.items then
         for index, id in ipairs(batch.ids) do
-            if id ~= 0 and not marked(state.items[index], job, batch, index) then
+            if index ~= uncertain and id ~= 0 and not marked(state.items[index], job, batch, index) then
                 return false, 'dressing_wash_uncertain'
             end
         end
         return true
     end
+    if state.restoreAfter and U().nowMs() < state.restoreAfter then return nil, 'base_storage_unloaded' end
     state.found = state.found or {}
     local ambiguous = false
     local function remember(item)
         for index, id in ipairs(batch.ids) do
-            if id ~= 0 and marked(item, job, batch, index) then
+            local fields = index == uncertain and id == identity(item) and data(item)
+            if id ~= 0 and (fields and fields[MARKER] == job.id or marked(item, job, batch, index)) then
                 if state.found[index] and state.found[index] ~= item then ambiguous = true end
                 state.found[index] = item
             end
@@ -346,6 +365,7 @@ local function restoreItems(actor, state, job)
     while budget > 0 and (state.restoreStore or 1) <= #state.restoreStores do
         local row = state.restoreStores[state.restoreStore or 1]
         local container = SC.BaseLife.storage(row.id) == row and SC.BaseLife.resolveContainer(row)
+        if not container then state.restoreStoreUnavailable = true end
         if container then
             local items = select(1, call(container, 'getItems'))
             local index = state.sourceCursor or 0
@@ -369,7 +389,15 @@ local function restoreItems(actor, state, job)
     end
     for index, id in ipairs(batch.ids) do
         local item = state.found[index]
-        if id == 0 then state.found[index] = false
+        if index == uncertain then state.found[index] = item or false
+        elseif id == 0 then state.found[index] = false
+        elseif not item and state.restoreStoreUnavailable then
+            -- A sibling may already be on a shelf whose square was unloaded.
+            -- Revisit those stores on a later pulse before giving up its claim.
+            state.found, state.restoreStore, state.restoreCursor, state.sourceCursor = nil, nil, nil, nil
+            state.restoreStoresReady, state.restoreStoreUnavailable = nil, nil
+            state.restoreAfter = U().nowMs() + 1000
+            return nil, 'base_storage_unloaded'
         elseif not item or not marked(item, job, batch, index) then
             return false, 'dressing_wash_uncertain'
         elseif not owned(actor, item) then
@@ -433,12 +461,15 @@ function W.update(actor, workState, job, context)
         if not ready then return terminal ~= true, why, terminal end
         batch = receipt(job)
     end
-    if batch.phase == 'washing' and owner == 'owned' and SC.NativeActions.isWorkActive(actor) then
-        return true, 'washing_bandages'
+    if batch.phase == 'washing' or batch.phase == 'returning' then
+        if owner == 'owned' and SC.NativeActions.isWorkActive(actor) then return true, 'washing_bandages' end
+        local done, why = W.cancel(actor, job)
+        if done then return true, why, false, true end
+        if why == 'dressing_stock_scanning' then return true, why end
+        return failed(why)
     end
     local restored, reason = restoreItems(actor, state, job)
     if restored ~= true then return restored == nil, reason, restored == false end
-    if batch.phase == 'returning' then return false, 'dressing_return_pending', true end
     if batch.phase == 'take' then
         local storage = SC.BaseLife.storage(batch.sourceId)
         local container = storage and SC.BaseLife.resolveContainer(storage)
@@ -469,7 +500,6 @@ function W.update(actor, workState, job, context)
         state.activity = nil
         changed()
     end
-    if batch.phase == 'washing' then return false, 'dressing_wash_uncertain', true end
     if batch.phase == 'wash' then
         while batch.index <= #batch.ids and (batch.washed[batch.index] or batch.ids[batch.index] == 0) do
             batch.index = batch.index + 1; changed()
@@ -533,13 +563,23 @@ function W.cancel(actor, job)
     if owner == 'owned' and not SC.NativeActions.cancelWork(actor, 'dressing_wash_cancelled') then
         return false, 'dressing_wash_uncertain'
     end
-    if state.activity then
-        if batch.phase == 'washing' then return false, 'dressing_wash_uncertain' end
-        state.activity = nil
-    end
     local restored, why = restoreItems(actor, state, job)
     if restored ~= true then return false, why end
-    batch.phase = 'returning'; changed()
+    state.activity = nil
+    if batch.phase == 'washing' then
+        local index = batch.index
+        local input = state.items[index]
+        -- Leave any remaining original where the game put it. Never infer
+        -- the replacement from a matching type or attempt the wash again.
+        if input and identity(input) == batch.ids[index] then clearMarker(input, job) end
+        batch.ids[index], batch.types[index], batch.washed[index] = 0, '', false
+        batch.phase = 'returning'
+        changed()
+        if SC.Diagnostics and SC.Diagnostics.report then
+            SC.Diagnostics.report('dressing_wash', batch.owner, 'unverified wash retired', job.id)
+        end
+    end
+    if batch.phase ~= 'returning' then batch.phase = 'returning'; changed() end
     local source = SC.BaseLife.storage(batch.sourceId)
     local sourceContainer = source and SC.BaseLife.resolveContainer(source)
     for index, item in ipairs(state.items) do
@@ -561,6 +601,7 @@ function W.cancel(actor, job)
         end
     end
     job.target.dressingBatch, runtime[job] = nil, nil
+    if job.assignedId == batch.owner then job.assignedId = nil end
     changed()
     return true, 'dressings_returned'
 end

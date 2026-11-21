@@ -662,6 +662,9 @@ local function finishNativeDeath(record)
     if retired and SC.Factions and type(SC.Factions.memberDied) == "function" then
         pcall(SC.Factions.memberDied, retireReason)
     end
+    if retired and SC.BaseLife and SC.BaseLife.forgetGoneResident then
+        SC.BaseLife.forgetGoneResident(record.id)
+    end
     if not retired and retireReason ~= "death_pending" then
         SC.Diagnostics.report("actor-death", record.id,
             "permanent companion death finalization failed", retireReason)

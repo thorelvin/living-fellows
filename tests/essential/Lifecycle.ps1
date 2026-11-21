@@ -1,5 +1,15 @@
 # SPDX-License-Identifier: MIT
 # These are ordered source lists, consumed by the shared fresh-environment runner.
+@{ Name = 'camp-roster-migration'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Essential 'roster_migration_harness.lua')
+) }
+@{ Name = 'runtime-final-death'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'), (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCSpeechColors.lua'), (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCConfig.lua'), (Join-Path $Shared 'SCDiagnostics.lua'),
+    (Join-Path $Core 'runtime_hook_fixture.lua'), (Join-Path $Client 'SCScheduler.lua'),
+    (Join-Path $Client 'SCRuntime.lua'), (Join-Path $Core 'decision_scheduler_harness.lua')
+) }
 @{ Name = 'shelter-candidate-exclusions'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),
@@ -61,8 +71,16 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     'SCStableValue.lua', 'SCNativeList.lua', 'SCConfig.lua', 'SCDiagnostics.lua', 'SCForceEntryState.lua') |
     ForEach-Object { Join-Path $Shared $_ }
 @{ Name = 'arrival-exact-reload'; Files = @($lifecycleArrivalFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Gameplay 'home_arrival_persistence_harness.lua')) }
+@{ Name = 'camp-resident-absence'; Files = @($lifecycleArrivalFiles) + @(
+    (Join-Path $Shared 'SCRegistry.lua'), (Join-Path $Client 'SCGameplayUtil.lua'),
+    (Join-Path $Client 'SCBaseLife.lua'), (Join-Path $Gameplay 'base_work_fixture.lua'),
+    (Join-Path $Client 'SCBaseWork.lua'),
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Client 'SCVehicle.lua'),
+    (Join-Path $Client 'SCPersistence.lua'), (Join-Path $Client 'SCHandoverRescue.lua'),
+    (Join-Path $Essential 'resident_absence_harness.lua')) }
 @{ Name = 'bootstrap-waiting-restoration'; Files = @($lifecycleArrivalFiles) + @(
     (Join-Path $Shared 'SCRegistry.lua'),
     (Join-Path $Client 'SCPersistence.lua'),

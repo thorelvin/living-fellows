@@ -2,6 +2,29 @@
 
 # Changelog
 
+## 0.27.53 - Camp staffing, work and medical recovery
+
+- Companions leave the camp roster after their deaths are confirmed. Older
+  saves clear stale residents during camp maintenance. Guard shifts, barricade
+  upkeep, staffing totals and meal planning count the surviving residents.
+  Companions who are away or waiting to be restored keep their roles and duty.
+
+- A medic can return to duty when a patient dies during a visit. A patient who
+  temporarily unloads keeps the visit and its reserved supplies.
+- When a camp worker dies, another chef can start the next automatic meal and
+  surviving workers can continue production, gathering and farming. Borrowed
+  supplies lose the dead chef's claim. Food already in an appliance stays there.
+- A new camp keeps its supply claims separate from an abandoned camp. A chef
+  also leaves bowls and ingredients reserved for another meal in place.
+- An uncertain dose now holds only that medicine. The hold expires after 24
+  game hours once its native effects have cleared. An uncertain procedure holds
+  only that procedure on the affected wound. Other wounds and healed stitch or
+  splint removal can still receive care.
+- If a dressing wash cannot be confirmed, the washer leaves that dressing in
+  place and returns the rest of the batch. The job can then close without
+  repeating the wash.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.52 - Report a bug from the pause menu
 
 - Choose **Report a Living Fellows bug**, describe what happened and enter the

@@ -75,8 +75,8 @@ function P.canWriteCare(patient,field,value,extra)
     local copied=SC.StableValue.copyStrict(candidate,{maxDepth=4,maxEntries=512})
     return copied~=nil,copied
 end
-function P.writeCare(patient,field,value)
-    local valid,copied=P.canWriteCare(patient,field,value)
+function P.writeCare(patient,field,value,extra)
+    local valid,copied=P.canWriteCare(patient,field,value,extra)
     if not valid then return false end
     local care=P.careStore(patient,true)
     if type(care)~="table" then return false end
@@ -162,11 +162,13 @@ function P.need(patient,assessment)
         for _,w in ipairs(wounds) do if w.index==pending.index then wound=w break end end
         if wound then return descriptor(patient,wound,pending.kind,0,true) end
     end
+    local Care=SC.MedicalMaintenance
+    local holds=Care and Care.holds(patient)
     for _,kind in ipairs({"remove_bullet","remove_glass","apply_splint","clean_burn","disinfect_wound","stitch_wound",
         "bandage","replace_bandage","remove_stitches","remove_splint"}) do
         for _,w in ipairs(wounds) do
-            local allowed=not pending or not pending.terminalQuarantine
-                or kind=="apply_splint" or kind=="bandage" or kind=="replace_bandage"
+            local allowed=(not pending or not pending.terminalQuarantine or kind=="apply_splint" or kind=="bandage" or kind=="replace_bandage")
+                and (not Care or not Care.held(holds,w.index,kind))
             local needed=allowed and (kind=="remove_bullet" and w.bullet
                 or kind=="remove_glass" and w.glass
                 or kind=="apply_splint" and w.needsSplint
@@ -179,11 +181,6 @@ function P.need(patient,assessment)
                 or kind=="remove_splint" and w.boneHealed)
             if needed then return descriptor(patient,w,kind,kind=="bandage" and 7 or ranks[kind]) end
         end
-    end
-    if pending and pending.terminalQuarantine and pending.wound then
-        local need=descriptor(patient,pending.wound,pending.kind,0,true)
-        need.terminalQuarantine=true
-        return need
     end
 end
 function P.publicNeed(need)

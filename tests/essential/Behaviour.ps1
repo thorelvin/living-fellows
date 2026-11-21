@@ -77,7 +77,7 @@
     (Join-Path $Essential 'combat_harness.lua')) }
 @{ Name = 'behaviour.needs-and-sleep'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'needs_harness.lua') }
 @{ Name = 'behaviour.medical-summary'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'medical_summary_harness.lua') }
-@{ Name = 'behaviour.medical-maintenance'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'medical_maintenance_harness.lua') }
+@{ Name = 'behaviour.medical-maintenance'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'medical_procedures_fixture.lua') + (Join-Path $Gameplay 'medical_maintenance_harness.lua') }
 @{ Name = 'behaviour.medical-procedures'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
     (Join-Path $Gameplay 'medical_procedures_harness.lua')) }
@@ -104,9 +104,15 @@
     (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Essential 'medical_recovery_persistence_harness.lua')) }
-@{ Name = 'behaviour.medical-visits'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'medical_visits_harness.lua') }
+@{ Name = 'behaviour.medical-visits'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Essential 'medical_visits_harness.lua')) }
 @{ Name = 'behaviour.medical-liveness'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'medical_liveness_regression_harness.lua') }
 @{ Name = 'behaviour.camp-dressing-wash'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'dressing_job_harness.lua') }
+@{ Name = 'behaviour.camp-resident-consumers'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Essential 'camp_resident_consumers_harness.lua'),
+    (Join-Path $UI 'SCUIBasePolicyFixture.lua'), (Join-Path $Client 'SCUIFormat.lua'),
+    (Join-Path $Client 'SCUIBounds.lua'), (Join-Path $Client 'SCUIAttention.lua'),
+    (Join-Path $Client 'SCUI.lua'), (Join-Path $Essential 'camp_roster_staffing_ui_harness.lua')) }
 @{ Name = 'behaviour.passenger-reading'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Shared 'SCCall.lua'),
     (Join-Path $Shared 'SCConfig.lua'),
@@ -159,7 +165,7 @@
     (Join-Path $Core 'farming_lifecycle_fixture.lua'),
     (Join-Path $Essential 'animal_work_harness.lua')) }
 @{ Name = 'behaviour.cattle-care'; Files = @(Get-ScGameplayFiles) + @(
-    (Join-Path $Essential 'cattle_receipt_harness.lua'),
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Essential 'cattle_receipt_harness.lua'),
     (Join-Path $Core 'farming_lifecycle_fixture.lua'),
     (Join-Path $Essential 'cattle_work_harness.lua')) }
 @{ Name = 'behaviour.sheep-care'; Files = @(Get-ScGameplayFiles) + @(

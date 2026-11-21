@@ -253,8 +253,8 @@ local function markedContainerMap()
     return marked
 end
 
-local function sources(scan, marked, wanted, actor)
-    local result, seen = {}, {}
+local function sources(scan, marked, wanted, actor, job)
+    local result, seen = {job = job}, {}
     local storages = {}
     if wanted then
         for _, category in ipairs(wanted) do
@@ -288,8 +288,19 @@ local function sources(scan, marked, wanted, actor)
     return result
 end
 
-local function withdrawalAllowed(row, item)
-    if not contains(row.container, item) then return false end
+local function foreignSupply(job, item)
+    local data = select(1, call(item, "getModData"))
+    local token = type(data) == "table" and data.SC_ChefSupplyReceipt
+    if not token then return false end
+    local supplies = job and job.target and job.target.chefSupplies
+    for _, receipt in ipairs(type(supplies) == "table" and supplies or {}) do
+        if type(receipt) == "table" and receipt.token == token then return false end
+    end
+    return SC.BaseLife.chefSupplyReserved(data)
+end
+
+local function withdrawalAllowed(row, item, job)
+    if not contains(row.container, item) or foreignSupply(job, item) then return false end
     if row.storage then
         if not SC.BaseLife.withdrawable(row.storage)
             or SC.BaseLife.storage(row.storage.id) ~= row.storage
@@ -303,7 +314,7 @@ local function bestItem(rows, predicate)
     local best, bestRow, age = nil, nil, -math.huge
     for _, row in ipairs(rows) do
         for _, item in ipairs(U().inventoryItems(row.container, 500)) do
-            if predicate(item) and withdrawalAllowed(row, item) then
+            if predicate(item) and withdrawalAllowed(row, item, rows.job) then
                 local itemAge = numeric(select(1, call(item, "getAge"))) or 0
                 if not best or itemAge > age then
                     best, bestRow, age = item, row, itemAge
@@ -445,7 +456,7 @@ end
 
 local function recordSupply(state, row, item)
     local job = state.job
-    if not job or not job.target then return false end
+    if not job or not job.target or foreignSupply(job, item) then return false end
     local data = select(1, call(item, "getModData"))
     local id = select(1, call(item, "getID"))
     if type(data) ~= "table" or id == nil then return false end
@@ -479,7 +490,7 @@ local function take(actor, state, row, item)
     -- operand is false), the pitfall SCNavigation documents at its passage
     -- check, so every failed approach also reported progress.
     if not at then return not terminal, reason, terminal end
-    if not withdrawalAllowed(row, item) then return false, "chef_supply_changed", true end
+    if not withdrawalAllowed(row, item, state.job) then return false, "chef_supply_changed", true end
     local moved, moveReason
     if row.storage and SC.BaseWork then
         moved, moveReason = SC.BaseWork.withdrawFromStorage(actor,
@@ -868,8 +879,10 @@ function Chef.ensureAutomaticJob(actor, resident)
     if resident.role ~= "chef" or resident.duty ~= true then return false, "not_chef" end
     local base = SC.BaseLife.active()
     if not base then return false, "base_missing" end
-    for _, job in ipairs(base.jobs or {}) do
-        if job.type == "cook" and job.state ~= "completed" and job.state ~= "cancelled" then
+    for index = #base.jobs, 1, -1 do
+        local job = base.jobs[index]
+        if job.type == "cook" and job.state ~= "completed" and job.state ~= "cancelled"
+            and not SC.BaseLife.releaseGoneWorkerJob(job, index) then
             return false, "chef_job_pending"
         end
     end
@@ -1062,7 +1075,7 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
         state.mealTaken, state.ownOven, state.phase = true, oven, "switch_off"
         return true
     end
-    local allSources = sources(scan, marked, nil, actor)
+    local allSources = sources(scan, marked, nil, actor, job)
     local rebound, rebindReason = rebindSupplies(actor, state, job, allSources)
     if not rebound then return false, rebindReason, true end
     for _, spec in ipairs(recipes) do
@@ -1336,7 +1349,7 @@ local function restoreReceipt(actor, player, state, job, scan, marked)
 end
 
 local function chooseRecipe(actor, state, job, scan, marked)
-    local allSources = sources(scan, marked, nil, actor)
+    local allSources = sources(scan, marked, nil, actor, job)
     local fridgeReady = #storageDestinations(scan) > 0
     local missingTool
     local availableBowls = 0
@@ -2343,6 +2356,30 @@ local function releaseSupplyTokens(actor, state, job)
     end
 end
 
+function Chef.prepareActorRetirement(actor)
+    local base = SC.BaseLife and SC.BaseLife.active()
+    local id = U().idOf(actor)
+    if not id then return end
+    for _, job in ipairs(base and base.jobs or {}) do
+        if job.type == "cook" and (job.assignedId or job.reservedBy) == id then
+            local state = states[actor]
+            releaseSupplyTokens(actor, state and state.jobId == job.id and state or nil, job)
+        end
+    end
+end
+
+function Chef.forgetGoneJob(job)
+    for actor, state in pairs(states) do
+        if state.jobId == job.id then
+            releaseSupplyTokens(actor, state, job)
+            states[actor] = nil
+        end
+    end
+    -- A borrowed item outside the loaded inventory loses its exact marker
+    -- on next observation through BaseLife.chefSupplyReserved.
+    if job.target then job.target.chefSupplies = nil end
+end
+
 function Chef.update(actor, baseState, job, player)
     local before = states[actor]
     local handled, reason, terminal, completed = updateCook(actor, baseState,
@@ -2503,7 +2540,10 @@ function Chef.canLeaveDuty(actorId)
 end
 
 function Chef.reconcileExpiredJob(job)
-    if job and job.type == "cook" then return false, "chef_receipt_recovery_required" end
+    if job and job.type == "cook" then
+        if SC.BaseLife.releaseGoneWorkerJob(job) then return true, "expired_job_worker_gone" end
+        return false, "chef_receipt_recovery_required"
+    end
     return true
 end
 

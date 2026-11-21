@@ -345,20 +345,86 @@ batch.phase = 'deposit'
 check(not W.cancel(actor, job) and actor.inventory:contains(unchanged) and #medical.container.items == 0,
     'a malformed saved deposit phase cannot deposit an unwashed input as clean output')
 
-quiet = fresh(1, true)
-batch = job.target.dressingBatch; batch.phase = 'washing'
-local original = actor.inventory.items[1]
+local previousDiagnostics, reports = SC.Diagnostics, 0
+SC.Diagnostics = {report=function(system, owner, message)
+    if system == 'dressing_wash' and owner == actor.id and message == 'unverified wash retired' then
+        reports = reports + 1
+    end
+end}
+quiet = fresh(3, true)
+batch = job.target.dressingBatch
+local verified, original, untouched = unpack(actor.inventory.items)
+verified.itemType, batch.types[1], batch.washed[1] = 'Base.Bandage', 'Base.Bandage', true
+batch.phase, batch.index = 'washing', 2
 actor.inventory:Remove(original)
 local lookalike = item('Base.Bandage'); actor.inventory:AddItem(lookalike)
-check(not W.cancel(actor, job) and job.target.dressingBatch == batch and actor.inventory:contains(lookalike)
-    and #medical.container.items == 0,
-    'ambiguous restart after native attempt retains uncertainty and never adopts a lookalike')
-check(not W.reconcileExpiredJob(job, actor.id), 'an ambiguous native attempt cannot release its expired lease')
+local done
+handled, why, terminal, done = W.update(actor, {}, job, quiet)
+check(handled and done and why == 'dressings_returned' and job.target.dressingBatch == nil
+    and actor.inventory:contains(lookalike) and #actor.inventory.items == 1 and attempts == 0,
+    'cold update closes an unverified batch without repeating the wash or claiming an unknown output')
+check(medical.container:contains(verified) and source.container:contains(untouched)
+    and not verified:getModData().LF_DressingWashJob and not untouched:getModData().LF_DressingWashJob,
+    'the verified result and untouched dirty sibling go to their respective stores')
+check(reports == 1 and W.cancel(actor, job) and reports == 1, 'uncertainty is reported once')
+check(not W.reserved(original) and not original:getModData().LF_DressingWashJob,
+    'an exact input outside the restored inventory loses its stale marker when it next appears')
+
+do
+    local priorPersistence = SC.Persistence
+    local loaded = false
+    SC.Persistence = {restoreStatus=function() return loaded end}
+    original:getModData().LF_DressingWashJob = 'previous-world-job'
+    check(W.reserved(original) and original:getModData().LF_DressingWashJob == 'previous-world-job',
+        'a temporarily unavailable camp ledger keeps the marked dressing reserved')
+    loaded = true
+    check(not W.reserved(original) and not original:getModData().LF_DressingWashJob,
+        'an absent job in the restored ledger releases its stale physical marker')
+    SC.Persistence = priorPersistence
+end
+
+quiet = fresh(2)
+check(W.update(actor, {}, job, quiet) and validator() and activity.washJobClaim.onAttempt(activity),
+    'native wash records its input before the effect')
+original, untouched = actor.inventory.items[1], actor.inventory.items[2]
+check(W.update(actor, {}, job, quiet) and attempts == 1 and W.reserved(original),
+    'the active native owner retains its input until it stops')
+active = false
+check(W.cancel(actor, job) and actor.inventory:contains(original) and not original:getModData().LF_DressingWashJob
+    and source.container:contains(untouched) and reports == 2 and attempts == 1,
+    'a surviving original loses its marker in place without another native call')
+
+quiet = fresh(2, true)
+batch.phase = 'washing'
+original, untouched = actor.inventory.items[1], actor.inventory.items[2]
+local returnDirty = SC.BaseWork.restoreToStorage
+SC.BaseWork.restoreToStorage = function() return false, 'base_storage_unloaded' end
+check(not W.cancel(actor, job) and batch.phase == 'returning' and batch.ids[1] == 0
+    and not original:getModData().LF_DressingWashJob and W.reserved(untouched),
+    'a blocked sibling return persists the settled attempt without losing its other claims')
+SC.BaseWork.restoreToStorage = returnDirty
+W.reset()
+handled, why, terminal, done = W.update(actor, {}, job, quiet)
+check(handled and done and reports == 3 and attempts == 0 and actor.inventory:contains(original)
+    and source.container:contains(untouched) and not W.reserved(untouched),
+    'restart resumes only the exact pending return without another diagnostic or native wash')
+
+quiet = fresh(1, true)
+batch = job.target.dressingBatch; batch.phase = 'washing'
+original = actor.inventory.items[1]
+check(W.reconcileExpiredJob(job, actor.id) and actor.inventory:contains(original)
+    and not original:getModData().LF_DressingWashJob and not job.target.dressingBatch and reports == 4,
+    'an expired wash lease releases the exact surviving input after runtime loss')
+
+quiet = fresh(1, true)
+batch = job.target.dressingBatch; batch.phase = 'washing'
+original = actor.inventory.items[1]
 f.registry[actor.id] = nil
 check(not W.reconcileExpiredJob(job, actor.id), 'a dormant missing owner keeps exact cargo ownership')
 gone = true
 check(W.reconcileExpiredJob(job, actor.id) and job.target.dressingBatch == nil
-    and actor.inventory:contains(lookalike), 'proven removed owner retires affinity without fabricating or deleting items')
+    and actor.inventory:contains(original), 'proven removed owner retires affinity without fabricating or deleting items')
+SC.Diagnostics = previousDiagnostics
 
 quiet = fresh(1, true)
 active = true
@@ -419,9 +485,53 @@ check(not handled and why == 'dressing_stock_scanning' and terminal == true and 
 check(W.audit(base, nil, scan) and #base.jobs == 1,
     'the bounded empty-shelf audit resumes and eventually finds eligible stock')
 
+-- A save can precede recording an exact return already made to a shelf.
+do
+    quiet = fresh(2, true)
+    batch.phase = 'washing'
+    local sibling, shelf = actor.inventory.items[2], source.container
+    actor.inventory:Remove(sibling); shelf:AddItem(sibling)
+    source.container = nil
+    handled, why, terminal, done = W.update(actor, {}, job, quiet)
+    check(handled and not terminal and not done and why == 'base_storage_unloaded'
+        and W.reserved(sibling), 'an unloaded shelf retains its exact sibling during uncertain wash recovery')
+    source.container = shelf
+    f.clock = f.clock + 2000
+    handled, why, terminal, done = W.update(actor, {}, job, quiet)
+    check(handled and done and shelf:contains(sibling) and not W.reserved(sibling) and attempts == 0,
+        'the returning shelf is searched again and settles its exact sibling without another wash')
+end
+
+-- Public transitions must settle a saved uncertain slot themselves.
+SC.BaseLife = priorBase
+for _, route in ipairs({'cancel_work', 'release_job', 'leave_duty', 'abandon'}) do
+    fresh(1, true)
+    batch.phase = 'washing'
+    original = actor.inventory.items[1]
+    local created, camp = priorBase.create(waterSquare, 'Wash recovery')
+    check(created and priorBase.assign(actor.id, 'medic', true), 'restore a real camp and resident')
+    camp.jobs[1], job.leaseUntil = job, f.clock + 60000
+    if route == 'cancel_work' then
+        check(SC.BaseWork.cancel(actor, 'left_base_duty') and not job.target.dressingBatch,
+            'the public worker cancellation settles the interrupted batch')
+    elseif route == 'release_job' then
+        check(priorBase.releaseJob(job.id, actor.id, 'left_base_duty') and not job.target.dressingBatch
+            and job.state == 'pending' and job.assignedId == nil,
+            'releasing the reservation settles the cargo before the job becomes claimable')
+    end
+    if route ~= 'abandon' then
+        check(priorBase.setDuty(actor.id, false) and not priorBase.resident(actor.id).duty
+            and not job.target.dressingBatch and job.assignedId == nil,
+            'leaving duty releases both the exact receipt and its worker affinity')
+    end
+    check(priorBase.abandon() and priorBase.active() == nil and actor.inventory:contains(original)
+        and not original:getModData().LF_DressingWashJob and not job.target.dressingBatch and attempts == 0,
+        'abandon releases the exact remaining original without replay, including on direct abandon')
+end
+
 SC.BaseWork.withdrawFromStorage, SC.BaseWork.depositToStorage = priorTake, priorDeposit
 SC.BaseWork.restoreToStorage, SC.BaseWork.restoreDepositToStorage = priorReturn, priorRestore
 SC.BaseWork.workerUnregistered = priorGone
 U.directInteractionAccess, SC.Navigation, SC.NativeCareActions.prepare = priorAccess, priorNavigation, priorPrepare
 SC.BaseLife, SC.NativeActions = priorBase, priorNative
-print('DRESSING_JOB_PASS checks=' .. checks)
+SC_TEST_REPORT = 'DRESSING_JOB_PASS checks=' .. checks

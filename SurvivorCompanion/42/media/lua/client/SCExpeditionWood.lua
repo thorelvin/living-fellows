@@ -169,7 +169,8 @@ local function toolAllowed(item, memberId, wood)
         if Wood.reserved(item) then return false end
     end
     if value.LF_FieldBorrowedAxe or value.LF_ProductionToolLoan
-        or value.LF_WorkTransport or value.SC_ChefSupplyReceipt then return false end
+        or value.LF_WorkTransport or value.SC_ChefSupplyReceipt and (not SC.BaseLife
+            or not SC.BaseLife.chefSupplyReserved or SC.BaseLife.chefSupplyReserved(value)) then return false end
     return true
 end
 local function axe(actor, wood)

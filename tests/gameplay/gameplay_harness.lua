@@ -5,6 +5,7 @@ local check = f.check
 local follower = f.actor("essential-follower", 0, 0, {})
 f.registry[follower.id] = follower
 local player = f.player
+local startingSquare = player.square
 player.square = f.cell:getGridSquare(8, 0, 0)
 local playerMoves, playerHealth = player.movementCalls or 0, player.body.health
 local obstacle = f.cell:getGridSquare(2, 0, 0)
@@ -141,4 +142,5 @@ do
     end
     SC.Navigation.request = navigation
 end
+player.square = startingSquare
 print("BEHAVIOUR_NAVIGATION_PASS checks=" .. tostring(f.checks()))

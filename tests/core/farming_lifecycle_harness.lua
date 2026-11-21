@@ -938,7 +938,7 @@ for _, case in ipairs({
     { name = "leaves duty", change = function(_, resident) resident.duty = false end },
     { name = "changes role", change = function(_, resident) resident.role = "guard" end },
     { name = "leaves camp", change = function(farmer) farmer.x = 200 end },
-    { name = "dies", change = function(farmer) function farmer:isDead() return true end end },
+    { name = "dies but remains registered", keeps = true, change = function(farmer) function farmer:isDead() return true end end },
     { name = "loses the can", change = function(farmer, _, item) farmer.inventory:Remove(item) end },
     { name = "is gone from the registry", change = function(farmer) F.actors[farmer.id] = nil end },
 }) do

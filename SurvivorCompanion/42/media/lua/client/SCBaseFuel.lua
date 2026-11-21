@@ -42,22 +42,25 @@ function Fuel.reserved(item)
         or Fuel.liveMarker(item, Fuel.UPKEEP_MARKER) ~= nil
 end
 
--- A worker that died or was removed has left the registry, and anything it
--- carried went with it. A dormant (unloaded) worker keeps its record, and a
--- saved companion is unregistered only until the load restores its actor;
--- either can still bring a borrowed item back, so neither counts as gone.
+-- Dormancy, vehicle storage and saved recovery can retain a companion's
+-- identity after its native actor leaves the registry.
 function Fuel.workerIdGone(id)
     local registry = SC.Registry
     if type(id) ~= "string" or type(registry) ~= "table"
         or type(registry.byId) ~= "function" then return false end
     local okay, record = pcall(registry.byId, id)
-    if not okay or record ~= nil then return false end
+    if not okay then return false end
+    if record ~= nil then return false, record end
+    if SC.Vehicle and type(SC.Vehicle.contains) == "function" and SC.Vehicle.contains(id) then return false end
     local persistence = SC.Persistence
     if type(persistence) == "table" then
         if type(persistence.restoreStatus) == "function"
             and persistence.restoreStatus() ~= true then return false end
         if type(persistence.isPending) == "function"
             and persistence.isPending(id) == true then return false end
+        -- Validation failures live outside the spawn queue until a player retries.
+        if type(persistence.pendingRestoreStatus) == "function"
+            and persistence.pendingRestoreStatus(id) == "quarantined" then return false end
     end
     return true
 end

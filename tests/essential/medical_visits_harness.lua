@@ -242,4 +242,99 @@ check(progressed and complete and result=='bandaged' and not wound.dirty and wou
 check(not medic.inventory:contains(exactFresh) and M.peek(medic)==nil and not V.isPatientHeld(patient,patientRuntime,M.assess(patient),f.clock),
     'actual cross-resident completion consumes only the helper fresh dressing and releases clinical/hold ownership')
 SC.NativeActions,SC.ActionSupervisor,U.move,U.stop=native,service,move,stop
-print('MEDICAL_VISITS_PASS checks='..checks)
+-- An active visit owns real clinical resources while its medic approaches.
+check(SC.BaseLife.completeJob(actualJob.id,medic.id,'previous_case'), 'previous visit closes')
+local function goneJob(suffix)
+    local part=f.bodyPart({isScratched=true,isBandaged=true,dirty=true})
+    local who=f.actor('visit-death-'..suffix,8,4,{body=f.bodyDamage(100,{part})})
+    f.registry[who.id]={id=who.id,actor=who,recruited=true}
+    who.modData.SC_Order='base_duty'
+    check(SC.BaseLife.assign(who.id,'generalist',true), 'new patient on duty')
+    local accepted,row=SC.BaseLife.enqueueJob({type='replace_bandage',assignedId=medic.id,
+        target={patientId=who.id,x=8,y=4,z=0}})
+    check(accepted and SC.BaseLife.claimJob(medic.id)==row and SC.BaseLife.touchJob(row.id,medic.id,'active'), 'new exact visit active')
+    U.actorState(who).snapshot=doctorRuntime.snapshot
+    return who,row
+end
+local dead,liveJob=goneJob('approach')
+local heldBandage=f.item('Base.Bandage','Medical',{})
+medic.inventory:AddItem(heldBandage)
+U.move=function() return true end; U.stop=function() return true end
+local accepted,why=V.update(medic,{},liveJob,doctorRuntime)
+local activeVisit=M.peek(medic)
+check(accepted and activeVisit and activeVisit.patient==dead and activeVisit.supervisorToken
+    and service.isCurrent(activeVisit.supervisorToken) and service.isReserved(heldBandage),
+    'real visit reserves its exact dressing and supervisor during the approach: '..tostring(why))
+check(M.releaseActor(dead), 'normal retirement releases clinical resources')
+check(M.peek(medic)==nil and not service.isCurrent(activeVisit.supervisorToken) and not service.isReserved(heldBandage)
+    and medic.inventory:contains(heldBandage) and not M.treatmentHolder(dead),
+    'patient release returns the exact still-unused dressing and clears the medic supervisor and claim')
+f.registry[dead.id]=nil
+check(SC.BaseWork.workerUnregistered(dead.id), 'missing registry record is confirmed terminal')
+local ok,r,_,finished=V.update(medic,{},liveJob,doctorRuntime)
+check(ok and finished and r=='medical_visit_patient_gone' and not liveJob.target.medicalVisit.careKey
+    and not liveJob.target.medicalVisit.owner, 'next update completes a pinned visit to a gone patient')
+check(V.cancel(medic,liveJob) and SC.BaseWork.cancel(medic,'leave_base_duty') and SC.BaseLife.cancelJob(liveJob.id),
+    'terminal uncommitted visit permits public work and job cancellation')
+U.move,U.stop=move,stop
+
+local function pinnedRecovery(suffix)
+    local who,row=goneJob(suffix)
+    local key=who.id..':0:remove_glass'
+    local receipt={version=1,patientId=who.id,index=0,kind='remove_glass',redress=true,
+        returned=false,returns={},quarantined=false,terminalQuarantine=false,
+        procedure={kind='remove_glass',ownerId=medic.id,painVerified=true,debitDone=true,debitAttempted=true}}
+    check(SC.MedicalProcedures.writeCare(who,'medicalRecovery',receipt),'committed procedure receipt saved')
+    local obligation=assert(SC.MedicalMaintenance.pending(who))
+    obligation.ownerId=medic.id
+    row.target.medicalVisit={owner=medic.id,baseId=base.id,phase='recovery',careKey=key,careKind='remove_glass',woundIndex=0}
+    return who,row
+end
+dead,liveJob=pinnedRecovery('committed')
+dead.dead=true
+check(SC.BaseWork.cancel(dead,'base_work_reset'), 'a confirmed native death can retire before registry removal')
+check(not SC.MedicalMaintenance.pending(dead) and not liveJob.target.medicalVisit.careKey,
+    'confirmed death clears only the pinned clinical obligation')
+f.registry[dead.id]=nil
+local _,_,_,committedFinished=V.update(medic,{},liveJob,doctorRuntime)
+check(committedFinished and SC.BaseLife.cancelJob(liveJob.id), 'committed dead-patient visit ends without replay')
+dead,liveJob=pinnedRecovery('lease')
+f.registry[dead.id]=nil
+local medicRecord=f.registry[medic.id]
+f.registry[medic.id]={id=medic.id,recruited=true}
+liveJob.leaseUntil=f.clock-1
+check(SC.BaseLife.jobFor(medic.id)==nil and not liveJob.reservedBy and not liveJob.target.medicalVisit.careKey,
+    'public lease reconciliation releases the dead patient row even while its medic is dormant')
+f.registry[medic.id]=medicRecord
+f.clock=f.clock+1500
+for _=1,4 do V.auditOpenJobs(base,function() return math.huge end); f.clock=f.clock+1500 end
+check(SC.BaseLife.job(liveJob.id)==nil, 'bounded visit audit removes the gone patient job')
+-- A dead patient's other obligation still belongs to its own treatment.
+dead,liveJob=pinnedRecovery('different-operation')
+liveJob.target.medicalVisit.careKey=dead.id..':0:clean_burn'
+liveJob.target.medicalVisit.careKind='clean_burn'
+dead.dead=true
+check(V.cancel(medic,liveJob) and SC.MedicalMaintenance.pending(dead)
+    and SC.MedicalMaintenance.pending(dead).kind=='remove_glass', 'a different pinned care cannot discard the foreign glass receipt')
+check(SC.BaseLife.cancelJob(liveJob.id), 'foreign procedure case closes its job')
+
+for _,kind in ipairs({'take_painkillers','take_antibiotics'}) do
+    local who,row=goneJob('medicine-'..kind)
+    local saved={version=1,kind='take_painkillers',ownerId=medic.id,phase='effect_attempted'}
+    check(SC.MedicalProcedures.writeCare(who,'medicalMedicineRecovery',saved),'medicine stores its dose receipt')
+    row.target.medicalVisit={owner=medic.id,baseId=base.id,phase='recovery',careKind=kind,careKey=who.id..':whole:'..kind}
+    who.dead=true
+    check(V.cancel(medic,row),'gone visit releases its medicine pin')
+    local after=SC.MedicalProcedures.readCare(who,'medicalMedicineRecovery')
+    if kind=='take_painkillers' then
+        check(after==nil,'exact dead-patient medicine debt retires without redosing')
+    else
+        check(after and after.kind=='take_painkillers','a foreign medicine receipt remains with its original treatment')
+    end
+    check(SC.BaseLife.cancelJob(row.id),'medicine visit cancellation succeeds')
+end
+
+dead,liveJob=pinnedRecovery('abandon')
+f.registry[dead.id]=nil
+check(SC.BaseLife.abandon() and not SC.BaseLife.active(), 'camp abandon succeeds directly on a pinned dead-patient visit')
+SC_TEST_REPORT='MEDICAL_VISITS_PASS checks='..checks

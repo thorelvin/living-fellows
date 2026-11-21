@@ -41,6 +41,9 @@ local function sync(part, mask)
 end
 local allowedKinds={remove_bullet=true,remove_glass=true,clean_burn=true,disinfect_wound=true,stitch_wound=true,
     remove_stitches=true,remove_splint=true}
+local function knownIndex(index)
+    return type(index)=="number" and index>=0 and index<=31 and index==math.floor(index)
+end
 local function receipt(pending)
     if not pending then return nil end
     local out={version=1,patientId=pending.patientId,index=pending.index,kind=pending.kind,
@@ -94,9 +97,16 @@ local function restore(patient)
     if saved==nil then return nil end
     local id=patientKey(patient)
     local valid=type(saved)=="table" and saved.version==1 and saved.patientId==id
-        and allowedKinds[saved.kind] and type(saved.index)=="number" and saved.index>=0
-        and saved.index<=31 and saved.index==math.floor(saved.index) and type(saved.returns)=="table"
-    local pending={patientId=id,index=valid and saved.index or 0,kind=valid and saved.kind or "remove_stitches",
+        and allowedKinds[saved.kind] and knownIndex(saved.index) and type(saved.returns)=="table"
+        and type(saved.redress)=="boolean" and type(saved.returned)=="boolean"
+        and type(saved.quarantined)=="boolean" and type(saved.terminalQuarantine)=="boolean"
+    if valid and P.handles(saved.kind) then
+        local data=saved.procedure
+        valid=type(data)=="table" and data.kind==saved.kind and type(data.painVerified)=="boolean"
+            and type(data.debitDone)=="boolean" and type(data.debitAttempted)=="boolean"
+    end
+    local pending={patientId=id,index=type(saved)=="table" and knownIndex(saved.index) and saved.index or nil,
+        kind=type(saved)=="table" and allowedKinds[saved.kind] and saved.kind or nil,
         returns={},redress=valid and saved.redress==true,returned=valid and saved.returned==true,
         quarantined=not valid or saved.quarantined==true,terminalQuarantine=not valid or saved.terminalQuarantine==true,
         quarantineReason=valid and saved.quarantineReason or "medical_recovery_unreadable"}
@@ -105,7 +115,8 @@ local function restore(patient)
         local count=0
         for i,entry in pairs(saved.returns) do
             count=count+1
-            if count>2 or type(i)~="number" or i<1 or i>2 or type(entry)~="table" or type(entry.kind)~="string" then
+            if count>2 or (i~=1 and i~=2) or type(entry)~="table" or type(entry.kind)~="string"
+                or #entry.kind==0 or #entry.kind>256 or type(entry.delivered)~="boolean" or type(entry.quarantined)~="boolean" then
                 pending.quarantined,pending.terminalQuarantine,pending.quarantineReason=true,true,"medical_recovery_unreadable";break
             end
             pending.returns[i]={kind=entry.kind,delivered=entry.delivered==true,
@@ -129,7 +140,7 @@ local function restore(patient)
     -- Exact native handles never cross a save boundary. A published effect is
     -- proof of commitment, never permission to replay surgery or unknown debit.
     obligations[id]=pending
-    Care.save(patient)
+    if not pending.terminalQuarantine then Care.save(patient) end
     return pending
 end
 function Care.injuryFree(part)
@@ -145,8 +156,93 @@ function Care.injuryFree(part)
     end
     return true
 end
+local function knownFalse(part,method)
+    local value,known=call(part,method)
+    return known and value==false
+end
+local function resolved(part,kind)
+    if not part then return false end
+    if kind=="remove_bullet" then return knownFalse(part,"haveBullet") end
+    if kind=="remove_glass" then return knownFalse(part,"haveGlass") end
+    if kind=="clean_burn" then return verifiedNumber(part,"getBurnTime")==0 end
+    if kind=="disinfect_wound" then return knownFalse(part,"isInfectedWound") end
+    if kind=="remove_splint" then
+        -- These receipts are published after a verified removal. A currently
+        -- attached, mature splint or stitch can be removed as a new operation.
+        return knownFalse(part,"isSplint") and verifiedNumber(part,"getSplintFactor")==0
+            or (flag(part,"isSplint") or (verifiedNumber(part,"getSplintFactor") or 0)>0)
+                and verifiedNumber(part,"getFractureTime")==0
+    end
+    -- A covered wound can hide native flags. For stitching, include the
+    -- timers and the existing attachment until this wound episode has ended.
+    if kind=="remove_stitches" then
+        local time=verifiedNumber(part,"getStitchTime")
+        return time and (time>=40 or time==0 and knownFalse(part,"stitched"))
+    end
+    if kind=="stitch_wound" then
+        return knownFalse(part,"stitched") and verifiedNumber(part,"getStitchTime")==0
+            and knownFalse(part,"deepWounded") and verifiedNumber(part,"getDeepWoundTime")==0
+    end
+    return false
+end
+local function slot(index,kind) return tostring(index)..":"..kind end
+local function firstKey(rows)
+    if type(rows)=="table" then for key in pairs(rows) do return key end end
+end
+-- Finished uncertainty has no work owner or replayable inventory handles.
+-- The compact set has at most one entry per native part and operation. Move
+-- the old active receipt and its holds in one durable care-table write.
+local function updateHolds(patient,terminal)
+    local P=SC.MedicalProcedures
+    local saved=P and P.readCare(patient,"medicalProcedureQuarantines")
+    if not terminal and (saved==nil or type(saved)=="table" and not firstKey(saved)) then return nil end
+    local body=select(1,call(patient,"getBodyDamage"))
+    local parts=select(1,call(body,"getBodyParts"))
+    local size=SC.GameplayUtil.listSize(parts)
+    if size<1 or size>32 then return saved end
+    local holds,changed,unknown={},false,saved~=nil and type(saved)~="table"
+    for key,enabled in pairs(type(saved)=="table" and saved or {}) do
+        local index,kind
+        if type(key)=="string" then index,kind=key:match("^(%d+):([%a_]+)$") end
+        index=tonumber(index)
+        if not knownIndex(index) or not allowedKinds[kind] or key~=slot(index,kind) or enabled~=true then unknown=true;break end
+        if resolved(SC.GameplayUtil.listGet(parts,index),kind) then changed=true
+        else holds[key]=true end
+    end
+    if terminal or unknown then
+        -- An old malformed receipt may only identify the part, the action or
+        -- neither. Hold the plausible unresolved actions until native evidence
+        -- rules them out; never turn that ambiguous record into an operation.
+        for index=0,size-1 do
+            if unknown or terminal.index==nil or terminal.index==index then
+                local part=SC.GameplayUtil.listGet(parts,index)
+                if not part then return saved end
+                for kind in pairs(allowedKinds) do
+                    if (unknown or not terminal.kind or terminal.kind==kind) and not resolved(part,kind) then
+                        holds[slot(index,kind)]=true
+                    end
+                end
+            end
+        end
+    end
+    if terminal then
+        if not P.writeCare(patient,"medicalRecovery",nil,{medicalProcedureQuarantines=holds}) then return saved end
+        obligations[patientKey(patient)]=nil
+    elseif changed or unknown then
+        if not P.writeCare(patient,"medicalProcedureQuarantines",firstKey(holds) and holds or nil) then return saved end
+    end
+    return holds
+end
+function Care.holds(patient) return updateHolds(patient) end
+function Care.held(holds,index,kind)
+    return holds~=nil and (type(holds)~="table" or holds[slot(index,kind)]==true)
+end
 function Care.pending(patient)
     local pending=obligations[patientKey(patient)] or restore(patient)
+    if pending and pending.terminalQuarantine then
+        updateHolds(patient,pending)
+        return obligations[patientKey(patient)]
+    end
     if pending and not pending.terminalQuarantine and not pending.part and SC.GameplayUtil.isValidActor(patient) then
         local body=select(1,call(patient,"getBodyDamage"))
         local parts=select(1,call(body,"getBodyParts"))
@@ -170,11 +266,12 @@ function Care.choose(patient, assessment)
         end
         return pending.wound,kind,not pending.redress
     end
+    local holds=Care.holds(patient)
     for _,wound in ipairs(assessment.wounds or {}) do
-        if wound.stitchReady then return wound,"remove_stitches" end
+        if wound.stitchReady and not Care.held(holds,wound.index,"remove_stitches") then return wound,"remove_stitches" end
     end
     for _,wound in ipairs(assessment.wounds or {}) do
-        if wound.boneHealed then return wound,"remove_splint" end
+        if wound.boneHealed and not Care.held(holds,wound.index,"remove_splint") then return wound,"remove_splint" end
     end
 end
 function Care.supplyAllowed(helper,item,source)
@@ -243,9 +340,19 @@ function Care.handoff(state)
     end
     return true,"medical_recovery_handed_off"
 end
+-- Only the terminal camp visit that pinned this exact obligation can retire it.
+-- Other treatment paths may still own a verifiable material return.
+function Care.retireVisit(id,key,patient)
+    local pending=obligations[id] or (patient and restore(patient))
+    if pending and key==id..":"..tostring(pending.index)..":"..tostring(pending.kind) then
+        obligations[id]=nil
+        if patient then SC.MedicalProcedures.writeCare(patient,"medicalRecovery",nil) end
+    end
+end
 function Care.forget(patient)
     local pending=obligations[patientKey(patient)]
-    if pending and (pending.procedure or not pending.returned or pending.redress) then
+    if not pending then return end
+    if pending.procedure or not pending.returned or pending.redress then
         if confirmedDead(patient) then pending.redress=false end
         pending.part=nil
         if pending.wound then pending.wound.part=nil end
@@ -279,7 +386,16 @@ function Care.reset()
 end
 function Care.pendingView(patient)
     local pending=Care.pending(patient)
-    if not pending then return nil end
+    if not pending then
+        local holds=Care.holds(patient)
+        local key=firstKey(holds)
+        if type(key)~="string" then return nil end
+        local index,kind=key:match("^(%d+):([%a_]+)$")
+        if not index or not allowedKinds[kind] then return nil end
+        return {kind=kind,key=SC.MedicalProcedures.key(patient,tonumber(index),kind),woundIndex=tonumber(index),
+            committed=true,pending=true,quarantined=true,terminalQuarantine=true,active=false}
+    end
+    if not pending.kind or pending.index==nil then return nil end
     return {kind=pending.kind,key=SC.MedicalProcedures and SC.MedicalProcedures.key(patient,pending.index,pending.kind)
         or patientKey(patient)..":"..pending.index..":"..pending.kind,
         woundIndex=pending.index,owner=pending.ownerId,committed=true,pending=true,returnOnly=not pending.redress,
@@ -339,6 +455,9 @@ local function commit(helper,state,wound,applyDressing)
     local part=wound.part
     local pending=Care.pending(state.patient)
     if pending and pending.terminalQuarantine then return false,pending.quarantineReason or "medical_consumption_uncertain" end
+    if not pending and Care.held(Care.holds(state.patient),wound.index,state.maintenanceKind) then
+        return false,"medical_consumption_uncertain"
+    end
     if not pending and SC.MedicalProcedures and SC.MedicalProcedures.handles(state.maintenanceKind) then
         local reason
         pending,reason=SC.MedicalProcedures.start(helper,state,wound)

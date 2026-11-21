@@ -391,7 +391,8 @@ local function workCargo(actor, item, keptHarvestDeposit, baseReturnDeposit)
     if itemData.LF_QuestItem == true or itemData.LF_QuestReward == true
         or itemData.LF_TradeRecoveryId ~= nil
         or itemData.LF_TradeRecoveryBuildId ~= nil
-        or itemData.SC_ChefSupplyReceipt ~= nil then
+        or itemData.SC_ChefSupplyReceipt ~= nil and (not SC.BaseLife
+            or not SC.BaseLife.chefSupplyReserved or SC.BaseLife.chefSupplyReserved(itemData)) then
         return true
     end
     if (itemData.LF_CleanToolJobId ~= nil or itemData.LF_CleanLiquidJobId ~= nil)

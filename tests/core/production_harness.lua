@@ -518,7 +518,7 @@ local function setup(options)
     contextSerial = contextSerial + 1
     SC.BaseWork.reset()
     SC.Production.reset()
-    SC.BaseLife.reset()
+    if not options.keepDocument then SC.BaseLife.reset() end
     SC.Registry.reset()
     SC.NativeActions.resetWork()
     ISTimedActionQueue.queues = setmetatable({}, { __mode = "k" })
@@ -4960,6 +4960,49 @@ do
     check(SC.BaseLife.productionOrder(order.id).state == "completed"
             and SC.BaseLife.productionCounters().bodiesBuried == before,
         "normal production settlement closes the old order without inventing another burial")
+end
+
+do
+    local status = SC.Persistence.restoreStatus
+    SC.Persistence.restoreStatus = function() return true end
+    for _, count in ipairs({1, 2}) do
+        local ctx = setup({workers = count})
+        local ids = {ctx.id}
+        if count == 2 then ids[2] = ctx.actors[2].modData.SC_Id end
+        local order = start(ctx, {operation = "dig_graves", zoneId = ctx.burial.id,
+            requested = 2, workers = ids})
+        local job = ctx.base.jobs[1]
+        job.state, job.reservedBy, job.leaseUntil = "active", ctx.id, 0
+        local record = SC.Registry.byId(ctx.id)
+        record.actor = nil
+        check(not SC.BaseWork.reconcileExpiredJob(job, ctx.id) and job.state == "active",
+            "dormant production worker retains its order")
+        record.actor = ctx.actor
+        SC.Registry.unregister(ctx.actor)
+        check(SC.BaseLife.jobFor(ctx.id) == nil and job.state == "cancelled"
+            and order.completed == 0, "production lease releases a retired worker without a fabricated unit")
+        check(#order.workers == count - 1 and #ctx.base.jobs == count - 1
+            and (count == 1 and order.state == "cancelled" or count == 2 and order.state == "running"
+            and ctx.base.jobs[1].assignedId == ids[2]), "only the lost production worker is removed")
+    end
+    SC.Persistence.restoreStatus = status
+end
+
+do
+    local status = SC.Persistence.restoreStatus
+    SC.Persistence.restoreStatus = function() return true end
+    local ctx = setup({})
+    local old = start(ctx, {operation="dig_graves", zoneId=ctx.burial.id, requested=2})
+    local oldTool = makeItem("Base.Saw")
+    oldTool.modData.LF_ProductionOrderId, oldTool.modData.LF_ProductionToolKey = old.id, "saw"
+    assert(SC.BaseLife.cancelProductionOrder(old.id))
+    assert(SC.BaseLife.abandon())
+    ctx = setup({keepDocument=true})
+    local nextOrder = start(ctx,{operation="dig_graves",zoneId=ctx.burial.id,requested=2})
+    check(nextOrder.id ~= old.id and not SC.Production.toolReserved(oldTool)
+        and oldTool.modData.LF_ProductionOrderId==nil and oldTool.modData.LF_ProductionToolKey==nil,
+        "an unloaded saw from a prior camp never carries a later camp's production loan")
+    SC.Persistence.restoreStatus = status
 end
 
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))

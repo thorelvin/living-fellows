@@ -147,11 +147,42 @@ local function clearPin(job)
     local entry = meta(job)
     if entry then entry.careKind, entry.careKey, entry.woundIndex = nil,nil,nil end
 end
+local function patientGone(job, patient)
+    -- Retirement runs BaseWork.reset before unregistering a native death.
+    -- For a missing actor the registry and restore queue decide finality.
+    if patient then return U().isDead(patient) end
+    return SC.BaseWork.workerUnregistered(job.target.patientId)
+end
+local function retireVisit(helper, job, patient)
+    local entry, state = meta(job), runtimes[job]
+    if not entry then return true end
+    helper = helper or (state and state.helper)
+    patient = patient or (state and state.patient)
+    if patient and ownedPeek(helper, patient, entry) then
+        local okay, why = M().cancelCare(helper, patient, entry.careKey, 'medical_visit_patient_gone', true)
+        if okay ~= true then return false, why end
+    end
+    if patient then
+        releaseHold(patient, job)
+        if helper and not M().peek(helper) then M().releasePatient(helper, patient) end
+    end
+    if entry.careKey then
+        local clinical = SC.MedicalMedicines.handles(entry.careKind) and SC.MedicalMedicines or SC.MedicalMaintenance
+        clinical.retireVisit(job.target.patientId, entry.careKey, patient)
+    end
+    clearPin(job)
+    entry.owner, entry.phase = nil, 'finished'
+    if helper and visitOwners[helper]==job then visitOwners[helper]=nil end
+    runtimes[job]=nil
+    changed()
+    return true
+end
 function V.cancel(helper, job, reason)
     if not V.isJob(job) then return true end
     local entry = meta(job)
     helper = helper or resolve(entry and entry.owner or job.reservedBy or job.assignedId)
     local patient = resolve(job.target.patientId)
+    if patientGone(job, patient) then return retireVisit(helper, job, patient) end
     if not patient and helper then
         local tracked=M().peek(helper)
         if tracked and U().idOf(tracked.patient)==job.target.patientId then patient=tracked.patient end
@@ -197,11 +228,36 @@ function V.cancelActor(actor, reason)
     end
     return true
 end
+-- The missing medic has already left the registry. A living, unloaded
+-- patient's pinned recovery survives this scheduler handoff.
+function V.releaseGoneMedic(job, id)
+    local entry = meta(job)
+    if entry and entry.owner and entry.owner ~= id then return false, 'medical_visit_owner_busy' end
+    local state = runtimes[job]
+    local helper, patient = state and state.helper, state and state.patient
+    if entry and helper and patient and ownedPeek(helper, patient, entry) then
+        local okay, why = M().cancelCare(helper, patient, entry.careKey, 'medical_visit_medic_left')
+        if okay ~= true then return false, why end
+    end
+    releaseHold(patient, job)
+    if helper and patient and not M().peek(helper) then M().releasePatient(helper, patient) end
+    if helper and visitOwners[helper]==job then visitOwners[helper]=nil end
+    runtimes[job]=nil
+    if entry then entry.owner,entry.medicId,entry.phase,entry.selfFallback=nil,nil,'waiting',true end
+    job.assignedId,job.reservedBy,job.state,job.leaseUntil=job.target.patientId,nil,'pending',0
+    job.retryAt,job.blocker=0,nil
+    changed()
+    return true
+end
 function V.update(helper, _, job, helperRuntime)
     local base = SC.BaseLife.active()
     if not base or not current(job, helper) then return false,'medical_visit_owner_changed',true end
     local entry = initialize(job, base)
     local patient = resolve(job.target.patientId)
+    if patientGone(job, patient) then
+        local okay, why = retireVisit(helper, job, patient)
+        return true, why or 'medical_visit_patient_gone', false, okay==true
+    end
     if not patient then return true,'medical_visit_patient_missing' end
     if entry.owner and entry.owner~=U().idOf(helper) then
         local previous=resolve(entry.owner)
@@ -213,7 +269,8 @@ function V.update(helper, _, job, helperRuntime)
         if not stopped then return true,why end
     end
     entry.owner = U().idOf(helper)
-    local state = runtimes[job] or {}; runtimes[job]=state; state.runtime=helperRuntime
+    local state = runtimes[job] or {}; runtimes[job]=state
+    state.runtime, state.helper, state.patient = helperRuntime, helper, patient
     local debt = pending(patient)
     local active = M().peek(helper)
     if active and not ownedPeek(helper,patient,entry) then return true,'medical_visit_owner_busy' end
@@ -351,6 +408,7 @@ function V.reconcileExpiredJob(job, ownerId)
     if not entry then return true end
     local helper=resolve(entry.owner or ownerId)
     local patient=resolve(job.target.patientId)
+    if patientGone(job, patient) then return retireVisit(helper, job, patient) end
     local debt=pending(patient)
     if not helper and not SC.BaseWork.workerUnregistered(entry.owner or ownerId) then
         return false,'expired_medical_visit_owner_missing'

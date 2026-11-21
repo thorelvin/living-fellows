@@ -6,12 +6,19 @@ assert(baseLife.ROLES.chef and baseLife.JOB_TYPES.cook,
     "Chef must survive role and job normalization")
 
 local nextFoodId = 0
+local containers = {}
 local function food(kind, flags)
     flags = flags or {}
     nextFoodId = nextFoodId + 1
     local item = { id = nextFoodId, data = {} }
     function item:getID() return self.id end
     function item:getModData() return self.data end
+    function item:getContainer()
+        for _, owner in ipairs(containers) do
+            for _, entry in ipairs(owner.items) do if entry == self then return owner end end
+        end
+    end
+    function item:getWorldItem() return nil end
     function item:getFullType() return kind end
     function item:getCategory() return "Food" end
     function item:isRotten() return flags.rotten == true end
@@ -50,6 +57,8 @@ end
 local actor, player = { id = "chef:1" }, { x = 0, y = 0, z = 0 }
 local stored = {}
 local fridge = { items = stored, powered = true }
+containers[#containers+1] = fridge
+function fridge:hasRoomFor() return true end
 function fridge:getType() return "fridge" end
 function fridge:isPowered() return self.powered end
 function fridge:getItems() return self.items end
@@ -69,8 +78,12 @@ swap(baseLife, "summary", function() return { residentRows = {
     { id = "chef:1", duty = true }, { id = "friend:2", duty = true },
 } } end)
 swap(baseLife, "outdoorNightRestricted", function() return false end)
+local jobSerial = 0
+local known = SC.Registry.byId
+swap(SC.Registry, "byId", function(id) return id == actor.id and {actor = actor} or known(id) end)
 swap(baseLife, "enqueueJob", function(spec)
-    spec.id, spec.state = "job:" .. tostring(#world.jobs + 1), "pending"
+    jobSerial = jobSerial + 1
+    spec.id, spec.state = "job:" .. tostring(jobSerial), "pending"
     world.jobs[#world.jobs + 1] = spec
     return true, spec
 end)
@@ -91,6 +104,70 @@ assert(queued == true and #world.jobs == 1 and world.jobs[1].type == "cook",
 queued, reason = chef.ensureAutomaticJob(actor, { role = "chef", duty = true })
 assert(queued == false and reason == "chef_job_pending",
     "an active cook job must suppress stock duplicates")
+do
+    local records, restoring, pending = {[actor.id] = {}, ["chef:2"] = {}}, false, false
+    local replacement = { id = "chef:2" }
+    local resident = { role = "chef", duty = true }
+    local originalWorld = world
+    local baseline = baseLife.export()
+    baseLife.reset()
+    local created, camp = baseLife.create({ x = 0, y = 0, z = 0 }, "Chef retirement")
+    assert(created)
+    world = camp
+    world.zones = originalWorld.zones
+    local savedRegistry, savedPersistence = SC.Registry, SC.Persistence
+    SC.Registry = {byId = function(id) return records[id] end}
+    SC.Persistence = {restoreStatus = function() return not restoring end,
+        isPending = function(id) return id == actor.id and pending end}
+    local function meal() return chef.ensureAutomaticJob(replacement, resident) end
+    for _, phase in ipairs({"pending", "active"}) do
+        chef.reset()
+        local queued, job = chef.ensureAutomaticJob(actor, resident)
+        assert(queued, "the first chef queues automatic cooking")
+        local token = job.id .. ":1"
+        local pot = food("Base.PotOfSoupRecipe")
+        pot.data.SC_ChefSupplyReceipt = token
+        local stove = {pot}
+        job.target.chefSupplies = {{token = token, oldId = pot.id}}
+        if phase == "active" then
+            job.state, job.reservedBy, job.leaseUntil = phase, actor.id, 0
+            job.target.cookPhase = "heating"
+        end
+        assert(select(2, meal()) == "chef_job_pending" and world.jobs[1] == job,
+            "a dormant chef still owns the queued or heating meal")
+        records[actor.id], restoring = nil, true
+        baseLife.auditJobRecovery()
+        assert(select(2, meal()) == "chef_job_pending" and pot.data.SC_ChefSupplyReceipt == token,
+            "unfinished restore keeps chef, supplies and automatic stock suppression")
+        restoring, pending = false, true
+        assert(select(2, meal()) == "chef_job_pending", "an actor pending respawn keeps the meal")
+        pending = false
+        if phase == "active" then
+            assert(baseLife.jobFor(actor.id) == nil and job.state == "cancelled",
+                "an expired heating lease ends for a permanently gone chef")
+        else
+            baseLife.auditJobRecovery()
+            assert(job.state == "cancelled", "a dead chef's pending automatic job leaves the queue")
+        end
+        local ok, second = meal()
+        assert(ok and second.assignedId == replacement.id and #world.jobs == 1,
+            "a second chef obtains a fresh automatic meal")
+        second.target.chefSupplies = {{token = second.id .. ":1"}}
+        local other = food("Base.Bowl")
+        other.data.SC_ChefSupplyReceipt = second.target.chefSupplies[1].token
+        assert(SC.WorkTransport.isCargoProtected(other, replacement, "loadout"),
+            "the exact supply for another living meal remains protected")
+        assert(not SC.WorkTransport.isCargoProtected(pot, replacement, "loadout")
+            and pot.data.SC_ChefSupplyReceipt == nil and #stove == 1 and stove[1] == pot
+            and other.data.SC_ChefSupplyReceipt == second.target.chefSupplies[1].token,
+            "reloading a stove releases only the dead chef's marker in place")
+        world.jobs = {}
+        records[actor.id] = {}
+    end
+    SC.Registry, SC.Persistence = savedRegistry, savedPersistence
+    world = originalWorld
+    assert(baseLife.restore(baseline))
+end
 world.jobs = {}
 local oldZones, oldGridSquare = world.zones, util.gridSquare
 local emptySquare = { getObjects = function() return {} end }
@@ -138,6 +215,8 @@ assert(failed == false and type(failure) == "string"
 -- alone must never count as a meal or deposit a replacement item.
 local function container(kind, contents)
     local value = { kind = kind, items = contents or {} }
+    containers[#containers+1] = value
+    function value:hasRoomFor() return true end
     function value:getType() return self.kind end
     function value:getItems() return self.items end
     function value:contains(item)
@@ -226,11 +305,38 @@ baseLife.storage = function(id)
     return id == craftingStorage.id and craftingStorage or nil
 end
 baseLife.availableCountExact = function() return 2 end
+do
+    local previousWorld, previousDoc, rows = world, baseLife.export(), baseLife.storageRows
+    baseLife.reset()
+    local _, camp = baseLife.create({x=0,y=0,z=0}, "Two chefs")
+    world = camp
+    camp.zones = previousWorld.zones
+    local original = {id="job:original", type="cook", assignedId="chef:other", state="active",
+        target={chefSupplies={{token="job:original:1", oldId=bowl.id}}}}
+    camp.jobs = {original}
+    bowl.data.SC_ChefSupplyReceipt = "job:original:1"
+    baseLife.storageRows = function() return {} end
+    for _, location in ipairs({"shelf","carried"}) do
+        if location == "carried" then shelf:Remove(bowl) actorInventory:AddItem(bowl) end
+        chef.reset()
+        local competitor = {id="job:competing", type="cook", target={manual=true}}
+        local _, why = chef.update(actor, {}, competitor, player)
+        assert(not queuedAction and not competitor.target.chefSupplies and why=="chef_tool_missing:bowl"
+            and bowl.data.SC_ChefSupplyReceipt=="job:original:1" and shelf:contains(tomato)
+            and (location=="shelf" and shelf:contains(bowl) or location=="carried" and actorInventory:contains(bowl)),
+            "a competing chef leaves another cook's exact bowl on the shelf or in the pack: " .. tostring(why))
+    end
+    actorInventory:Remove(bowl)
+    shelf:AddItem(bowl)
+    bowl.data.SC_ChefSupplyReceipt = nil
+    baseLife.storageRows, world = rows, previousWorld
+    assert(baseLife.restore(previousDoc))
+end
 chef.reset()
 local job = { id = "job:meal", type = "cook", target = { manual = false } }
 local handled, progress, _, completed = chef.update(actor, {}, job, player)
 assert(handled == true and completed ~= true and queuedAction ~= nil,
-    "sourcing and native queueing must not count as a completed meal")
+    "sourcing and native queueing must not count as a completed meal: " .. tostring(progress))
 assert(#fridge.items == 0 and #actorInventory.items == 2,
     "exact bowl and ingredient are carried until native completion")
 local mayCancel, cancelReason = chef.cancelJob(job, actor.id)

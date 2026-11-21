@@ -17,6 +17,16 @@
             (Join-Path $Gameplay 'sorting_batch_reload_harness.lua')
         }) }
 
+@{ Name = 'camp-worker-retirement'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Essential 'camp_worker_loss_harness.lua')) }
+
+@{ Name = 'camp-resident-work-release'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Client 'SCLogYard.lua'),
+    (Join-Path $Essential 'camp_resident_work_harness.lua')) }
+
+@{ Name = 'chef-cooking-and-retirement'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Gameplay 'chef_harness.lua')) }
+
 @{ Name = 'logistics-storage-commit-policy'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Essential 'logistics_storage_commit_harness.lua')) }
 

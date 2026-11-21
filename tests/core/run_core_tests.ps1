@@ -616,6 +616,7 @@ try {
             (Join-Path $Client 'SCBaseWork.lua'),
             (Join-Path $Client 'SCDiaryItem.lua'),
             (Join-Path $Client 'SCProduction.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
             (Join-Path $TestRoot 'production_harness.lua')
         )
         Add-ScJvmStep 'production' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $productionFiles 'Base production (fell/saw/dig/bury) integration harness failed.'
@@ -701,6 +702,7 @@ try {
             (Join-Path $TestRoot 'farming_lifecycle_fixture.lua'),
             (Join-Path $Client 'SCActionSupervisor.lua'),
             (Join-Path $Client 'SCFarmWork.lua'),
+            (Join-Path $Client 'SCBaseFuel.lua'),
             (Join-Path $TestRoot 'farming_lifecycle_harness.lua')
         )
         Add-ScJvmStep 'farming-lifecycle' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $farmingLifecycleFiles 'Farm ownership, recovery, and cancellation regression harness failed.'

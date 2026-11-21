@@ -147,6 +147,10 @@ assert(P.restore({}) and P.pendingCount()==3,"cold idle restore keeps tagged dor
 P.restorePulse({})
 P.restorePulse({})
 assert(spawns==0 and otherSpawns==1 and P.pendingCount()==2,"primary-only policy survives crash while unrelated transfer restores fresh")
+for _,crew in ipairs(actors) do
+    assert(not SC.Registry.byId(crew.id) and P.restoreStatus() and P.isPending(crew.id)
+        and not SC.BaseFuel.workerIdGone(crew.id), "remote expedition crew remains a camp member after cold detach")
+end
 primaryLoaded=true SC_TEST_CLOCK=SC_TEST_CLOCK+100000
 P.restorePulse({})
 assert(spawns==2 and P.pendingCount()==0,"actual primary coverage reactivates exact crew once")
