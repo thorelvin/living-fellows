@@ -37,6 +37,7 @@ local function crew()
     world.crew.crew={id='crew',serial=7,phase='waiting',x=F.driver.x,y=F.driver.y,z=0}
     return world.crew.crew
 end
+if not SC_TEST_SHELTER_REVIEW_CASE then
 local row=crew();F.shelter={x=802,y=803,z=0}
 local copy=R.commands(F.driver,F.player,order)
 check(copy~=order and copy.order=='stay' and order.order=='follow','shelter uses decision copy and preserves saved Follow')
@@ -68,7 +69,7 @@ do
         'reselection preserves standing Follow and cannot invent an indoor arrival report')
     result(a,false,'native_path_failed')
     check(row.target.x==b.x and cancelled==1,'late failure for the old anchor cannot invalidate its replacement')
-    result(b,false,'native_path_failed');R.commands(F.driver,F.player,order)
+    result(b,false,'recovery_exhausted:blocked_static');R.commands(F.driver,F.player,order)
     check(row.phase=='holding' and not R.commands(F.driver,F.player,order).handoverShelter,
         'exhausted candidates hold without another invalid indoor destination')
     local scans=F.scans
@@ -95,7 +96,7 @@ do
     -- Old 0.27.46 saves omit the selected footprint ID.
     row=crew();row.target={x=a.x,y=a.y,z=0};row.phase='seeking_shelter'
     SC.ExpeditionPlaces.atPoint=function() return {id=a.buildingId} end
-    result(a,false,'recovery_exhausted:static');R.commands(F.driver,F.player,order)
+    result(a,false,'recovery_exhausted:blocked_static');R.commands(F.driver,F.player,order)
     check(row.target.buildingId==b.buildingId,'legacy saved targets resolve their failed building before reselection')
     SC.ExpeditionPlaces.atPoint=nil
     local before=cancelled;order.commandSerial=8;R.commands(F.driver,F.player,order)
@@ -106,7 +107,7 @@ do
     for i=1,8 do
         R.commands(F.driver,F.player,order)
         check(row.target.buildingId=='blocked-'..i,'bounded fallback visits each fresh building once')
-        result(row.target,false,'native_path_failed')
+        result(row.target,false,'path_blocked:blocked_static')
     end
     local scans=F.scans;R.commands(F.driver,F.player,order)
     check(row.phase=='holding' and F.scans==scans,'eight failed buildings exhaust the bounded retry window')
@@ -180,4 +181,149 @@ row=crew();row.phase='sheltered';row.target={x=F.driver.x,y=F.driver.y,z=0}
 world.crew.cold={id='cold',serial=7,phase='waiting'}
 F.clock=F.clock+31000;R.pulse()
 check(owner==nil and records.crew==nil and world.crew.cold.phase=='waiting','a sheltered remote group releases the slot so another separated group can load')
+end
+
+local function scenario(name,run)
+    if SC_TEST_SHELTER_REVIEW_CASE and SC_TEST_SHELTER_REVIEW_CASE~=name then return end
+    run()
+end
+local function context(nodes)
+    R.reset();F.clock=F.clock+1000000
+    world.crew,world.retired,world.suspended={},{},nil
+    owner,secondary=nil,nil;records.crew={id='crew',actor=F.driver}
+    F.driver.x,F.driver.y,F.player.x,F.player.y,F.inside=800,800,100,100,false
+    order.order,order.commandSerial='follow',7
+    local a={x=804,y=805,z=0,buildingId='first',pathNodes=nodes or 4}
+    local b={x=810,y=812,z=0,buildingId='second',pathNodes=20}
+    F.shelters={a,b};local row=crew();local cancelled={}
+    SC.Navigation={cancel=function(actor,reason)
+        check(actor==F.driver,'shelter review cancels only its companion')
+        cancelled[#cancelled+1]=reason;return true
+    end}
+    R.commands(F.driver,F.player,order)
+    local function result(handled,reason,advance,moving)
+        F.clock=F.clock+(advance or 0)
+        if moving then F.driver.x=F.driver.x==800 and 801 or 800 end
+        R.navigationResult(F.driver,row.target,handled,reason)
+    end
+    return row,a,b,result,cancelled
+end
+scenario('terminal',function()
+    for _,reason in ipairs({'path_blocked:door_locked','path_blocked:blocked_static','recovery_exhausted:blocked_static'}) do
+        local row,a,b,result=context()
+        result(false,reason)
+        check(row.target==nil and row.shelterFailures==1 and row.lastShelterFailure==reason,
+            'real navigation terminal reason rejects immediately: '..reason)
+        check(row.rejectedShelters.first==F.clock+300000,'terminal rejection retains the five-minute exclusion')
+        R.commands(F.driver,F.player,order)
+        check(row.target.buildingId==b.buildingId,'terminal reason selects a different loaded house')
+    end
+    for _,reason in ipairs({'path_blocked:drag_unverified_native_edge','path_blocked:cross_floor_dragging','planning'}) do
+        local row,a,b,result=context();result(false,reason)
+        check(row.target and not row.shelterFailures,'unrelated path prefixes do not reject a shelter: '..reason)
+    end
+end)
+scenario('transient',function()
+    for _,reason in ipairs({'native_path_failed','native_path_timeout','native_path_stalled'}) do
+        local row,a,b,result=context();result(false,reason)
+        check(row.target and not row.shelterFailures and not row.rejectedShelters,
+            'one native step failure keeps the reachable shelter: '..reason)
+        result(true,'walking',1000,true)
+        check(row.target.buildingId==a.buildingId,'movement after native recovery keeps the original house')
+        for _=1,21 do if row.target then result(false,reason,1000) end end
+        check(row.target==nil and row.lastShelterFailure=='shelter_no_progress',
+            'repeated native failures without movement are bounded by no progress')
+    end
+end)
+scenario('unloaded',function()
+    local row,a,b,result,cancelled=context()
+    result(true,'shelter_unloaded')
+    local scans=F.scans
+    check(row.target and not row.shelterFailures and not row.rejectedShelters,
+        'unloaded target enters grace without a failure or exclusion')
+    for _=1,29 do result(true,'shelter_unloaded',1000);R.commands(F.driver,F.player,order) end
+    check(row.target and #cancelled==1 and cancelled[1]=='handover_shelter_wait_loaded' and F.scans==scans,
+        'streaming grace holds the same target and cancels its route only once')
+    F.shelters={b};result(true,'shelter_unloaded',1000)
+    check(row.target==nil and row.lastShelterReselectReason=='shelter_unloaded_timeout',
+        'repeated unloaded observations cannot renew the thirty-second grace')
+    check(not row.shelterFailures and not row.rejectedShelters,'streaming expiry is not evidence of a bad house')
+    R.commands(F.driver,F.player,order)
+    check(row.target.buildingId==b.buildingId,'streaming expiry reselects a loaded alternative')
+end)
+scenario('reload',function()
+    local row,a,b,result=context(80)
+    row.shelterActiveMs=12000
+    row.target={x=a.x,y=a.y,z=a.z,buildingId=a.buildingId,pathNodes=80}
+    R.reset();F.clock=F.clock+300000
+    result(true,'shelter_unloaded')
+    check(row.target.buildingId==a.buildingId and row.shelterActiveMs==12000,
+        'saved seeking target receives fresh streaming grace without consuming offline time')
+    result(true,'shelter_unloaded',5000)
+    result(true,'walking',1000,true)
+    check(row.target.buildingId==a.buildingId and not row.shelterFailures and row.shelterActiveMs==12000,
+        'loading the saved target resumes the same house and saved attempt budget')
+    result(true,'walking',1000,true)
+    check(row.shelterActiveMs==13000,'restored route continues its consumed service budget')
+end)
+scenario('loop',function()
+    local row,a,b,result=context(4)
+    check(row.target.pathNodes==4,'selected path node count survives on the rescue target')
+    result(true,'walking')
+    for _=1,65 do result(true,'walking',1000,true) end
+    check(row.target~=nil,'moving detour remains valid before its route-based deadline')
+    result(true,'walking',1000,true)
+    check(row.target==nil and row.lastShelterFailure=='shelter_attempt_timeout',
+        'a continuously moving loop expires at the overall route deadline')
+end)
+scenario('cap',function()
+    local row,a,b,result=context(80)
+    row.target.pathNodes=1000000
+    result(true,'walking')
+    for _=1,179 do result(true,'walking',1000,true) end
+    check(row.target~=nil,'long routes retain their conservative three-minute allowance')
+    result(true,'walking',1000,true)
+    check(row.target==nil and row.lastShelterFailure=='shelter_attempt_timeout','malformed path metadata cannot create an unbounded attempt')
+end)
+scenario('interrupt',function()
+    local row,a,b,result=context(80)
+    result(true,'walking')
+    for _=1,20 do result(true,'walking',1000,true) end
+    result(true,'walking',300000,true)
+    check(row.target and row.shelterActiveMs==21000,'long emergency interruption counts at most one new service slice')
+    R.reset();result(true,'walking',300000,true)
+    check(row.shelterActiveMs==21000,'runtime reset retains consumed budget without charging offline time')
+    result(true,'shelter_unloaded',1000)
+    result(true,'shelter_unloaded',29000)
+    result(true,'walking',1000,true)
+    check(row.target and row.shelterActiveMs==21000,'unloaded wait contributes no active route budget')
+end)
+scenario('arrival',function()
+    local row,a,b,result=context(80)
+    result(true,'walking')
+    for _=1,100 do result(true,'walking',1000,true) end
+    check(row.target~=nil,'long legitimate detours are not judged by distance to the house')
+    row.shelterActiveMs=180000
+    F.driver.x,F.driver.y,F.inside=a.x,a.y,true
+    result(true,'arrived',1000)
+    R.commands(F.driver,F.player,order)
+    check(row.phase=='sheltered' and not row.shelterFailures,'physical indoor arrival wins over deadline expiry')
+end)
+scenario('loader',function()
+    context();records.crew=nil
+    SC.Persistence.pendingBootstrap=function(id) return {id=id,x=800,y=800,z=0} end
+    local loads=0
+    SC.ViewSession.loadHandoverArea=function()
+        loads=loads+1;owner='handover';return {}
+    end
+    check(R.loadCandidate('crew')==true,'rescue starts a real pending area load')
+    for _=1,3 do F.clock=F.clock+1001;R.pollPreparation();R.pulse() end
+    check(loads==1 and owner=='handover','a still-owned pending loader is not restarted while its native slot is joining')
+    owner,secondary=nil,nil
+    R.pollPreparation();F.clock=F.clock+1001;R.pulse()
+    check(loads==2 and owner=='handover','lost startup loader ownership permits the saved seeking area to load again')
+    owner,secondary='expedition',{}
+    R.pollPreparation();F.clock=F.clock+1001;R.pulse()
+    check(loads==2 and owner=='expedition','rescue retry never releases or replaces another view owner')
+end)
 SC_TEST_REPORT='HANDOVER_RESCUE_PASS checks='..F.checks

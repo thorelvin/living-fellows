@@ -1,18 +1,46 @@
 -- SPDX-License-Identifier: MIT
 -- Actual camp creator, cancellation, surviving crew and native radio rescue.
 local SC=SurvivorCompanion
-local s={phase='menu',checks=0}
+local s={phase='menu',checks=0,routeReasons={}}
 local function write(k,v) local w=assert(getFileWriter(k,true,false));w:write(v);w:close() end
+local rescuePulse=SC.HandoverRescue.pulse
+SC.HandoverRescue.pulse=function(...)
+    s.rescuePulses=(s.rescuePulses or 0)+1
+    return rescuePulse(...)
+end
+local loadCandidate=SC.HandoverRescue.loadCandidate
+SC.HandoverRescue.loadCandidate=function(...)
+    local okay,why=loadCandidate(...)
+    s.loadCalls,s.loadReason=(s.loadCalls or 0)+1,tostring(why)
+    return okay,why
+end
+local nativeResult=SC.HandoverRescue.navigationResult
+SC.HandoverRescue.navigationResult=function(actor,target,handled,reason)
+    local row=ModData.getOrCreate(SC.Handover.KEY).crew[SC.Registry.idOf(actor)]
+    local before=row and row.target
+    local x,y,z=SC.GameplayUtil.position(actor)
+    nativeResult(actor,target,handled,reason)
+    local signature=tostring(handled)..':'..tostring(reason)..':'..tostring(row and row.lastShelterFailure)
+    if signature~=s.routeSignature and #s.routeReasons<256 then
+        s.routeSignature=signature
+        s.routeReasons[#s.routeReasons+1]=getTimestampMs()..' handled='..tostring(handled)..' reason='..tostring(reason)
+            ..' at='..tostring(x)..','..tostring(y)..','..tostring(z)
+            ..' target='..tostring(before and before.buildingId)..' rejected='..tostring(row and row.target~=before)
+            ..' failure='..tostring(row and row.lastShelterFailure)
+        write('pzo-handover-reasons.txt',table.concat(s.routeReasons,'\n')..'\n')
+    end
+end
 local function read(k) local r=getFileReader(k,false);if not r then return end;local v=r:readLine();r:close();return v end
 local mode=read('pzo-handover-mode.txt') or 'new'
-local reload=mode=='new-reload' or mode=='rescue-reload'
-local rescue=mode=='rescue' or mode=='rescue-reload'
+local seeking=mode=='rescue-seeking' or mode=='rescue-seeking-reload'
+local reload=mode=='new-reload' or mode=='rescue-reload' or mode=='rescue-seeking-reload'
+local rescue=mode:find('^rescue')~=nil
 local function store() return ModData.getOrCreate('LF_HandoverNewAcceptance') end
 local function check(v,why) s.checks=s.checks+1;assert(v,'New survivor '..s.checks..': '..tostring(why)) end
 local function phase(v) s.phase,s.at=v,getTimestampMs();write('pzo-handover-progress.txt',v..'\n') end
 local function finish(ok,why)
     if s.done then return end;s.done=true
-    write('pzo-handover-result.txt','result='..(ok and 'PASS' or 'FAIL')..'\nmode='..mode..'\nphase='..s.phase..'\nchecks='..s.checks..'\nreason='..tostring(why)..'\n')
+    write('pzo-handover-result.txt','result='..(ok and 'PASS' or 'FAIL')..'\nrelease='..SC.Identity.release..'\nmode='..mode..'\nphase='..s.phase..'\nchecks='..s.checks..'\nreason='..tostring(why)..'\n')
 end
 local function click(b) check(b and b.enable~=false,'real UI button enabled');b.onclick(b.target,b) end
 local function tagCount(container)
@@ -92,7 +120,23 @@ Events.OnRenderTick.Add(function()
     local modal=MainScreen and MainScreen.instance and MainScreen.instance.checkSavefileModal
     if modal and modal.yes and not seen[modal] then seen[modal]=true;modal:onClick(modal.yes) end
 end)
-Events.OnGameStart.Add(function() s.original=getSpecificPlayer(0);phase('load') end)
+local function onGameStart()
+    s.original=getSpecificPlayer(0)
+    setGameSpeed(1)
+    if seeking and reload then
+        local saved=store();local row=ModData.getOrCreate(SC.Handover.KEY).crew[saved.id]
+        check(row and row.phase=='seeking_shelter' and row.target.buildingId==saved.firstShelter,
+            'native restart begins with the exact saved seeking shelter')
+        check(row.target.pathNodes==saved.seekingNodes and row.shelterActiveMs==saved.seekingMs,
+            'native restart preserves route length and consumed service budget')
+        s.seekingRestored=true
+        local q=getCell():getGridSquare(row.target.x,row.target.y,row.target.z)
+        write('pzo-handover-seeking.txt','targetInitiallyLoaded='..tostring(q~=nil)..'\nphase='..row.phase
+            ..'\npathNodes='..tostring(row.target.pathNodes)..'\nactiveMs='..tostring(row.shelterActiveMs)..'\n')
+    end
+    phase('load')
+end
+Events.OnGameStart.Add(function() local okay,why=pcall(onGameStart);if not okay then finish(false,why) end end)
 Events.OnCreatePlayer.Add(function(index,player)
     if rescue and index==0 and SC.Handover.current() and SC.Handover.current().phase=='creating' then radio(player) end
 end)
@@ -101,6 +145,7 @@ local function step()
     local age=getTimestampMs()-s.at
     if s.phase=='load' and age>12000 then
         local saved=store();local player=getSpecificPlayer(0)
+        if not s.checkedLoad then
         check(SCBridge and PZOEngine and SC.Handover,'actual production modules')
         if reload then
             check(player:getModData().LF_HandoverToken==saved.token and player:getDescriptor():getForename()=='Renewed','fresh character persists through native disk restart')
@@ -108,6 +153,41 @@ local function step()
             check(SC.BaseLife.active().name=='Handover New Camp' and SC.BaseLife.isInside(player),'fresh survivor reopens at the original camp')
             check(s.persistedBonds,'exact saved recruitment and bonds survive native restart')
             check(not SC.Handover.retired(saved.id),'remaining companion was not consumed')
+        end
+        s.checkedLoad=true
+        end
+        if reload then
+            if seeking then
+                local record=SC.Registry.byId(saved.id)
+                if not s.restoreAt or getTimestampMs()-s.restoreAt>=1000 then
+                    s.restoreAt=getTimestampMs()
+                    local pending=SC.Persistence.pendingSnapshot()[saved.id] or {}
+                    local row=ModData.getOrCreate(SC.Handover.KEY).crew[saved.id]
+                    local candidate=SC.Persistence.pendingBootstrap(saved.id)
+                    write('pzo-handover-restore.txt','record='..tostring(record~=nil)..'\nowner='..tostring(SC.ViewSession.owner())
+                        ..'\nsecondary='..tostring(getSpecificPlayer(1)~=nil)..'\nphase='..tostring(row and row.phase)
+                        ..'\npending='..tostring(pending.status)..':'..tostring(pending.reason)
+                        ..'\nloaderCandidate='..tostring(candidate~=nil)..'\nerror='..tostring(SC.Handover.error())
+                        ..'\npulses='..tostring(s.rescuePulses)..'\nloadCalls='..tostring(s.loadCalls)..'\nloadReason='..tostring(s.loadReason)
+                        ..'\npaused='..tostring(SC.Handover.isPaused())..'\nplayerDead='..tostring(SC.GameplayUtil.isDead(player))
+                        ..'\nrenderHook='..tostring(SC.Handover._render~=nil)..'\n')
+                end
+                if not record then assert(age<45000,'saved seeking companion is still streaming');return end
+                check(s.seekingRestored,'seeking row was verified before normal simulation resumed')
+                s.actor,s.firstShelter,s.lockedDoors=record.actor,saved.firstShelter,{}
+                local first=assert(SC.ExpeditionPlaces.atPoint(saved.seekingTarget))
+                for x=first.bounds.x-1,first.bounds.x2+1 do for y=first.bounds.y-1,first.bounds.y2+1 do
+                    local q=getCell():getGridSquare(x,y,0)
+                    if q then for i=0,q:getObjects():size()-1 do local object=q:getObjects():get(i)
+                        if instanceof(object,'IsoDoor') then
+                            check(object:isLocked() and not object:IsOpen(),'saved failed-house door remains locked and shut')
+                            s.lockedDoors[#s.lockedDoors+1]=object
+                        end
+                    end end
+                end end
+                check(#s.lockedDoors>0,'reloaded seeking case observes original native doors without changing them')
+                phase('rescue');return
+            end
             if rescue then
                 check(saved.radioHelp and saved.radioShelter,'real radio and shelter outcomes survive restart')
                 check(saved.rescueRetargeted and saved.firstShelter~=saved.finalShelter,
@@ -202,6 +282,16 @@ local function step()
                 ..'\nfirstBuilding='..tostring(s.firstShelter)..'\ncurrentBuilding='..tostring(row.target and row.target.buildingId)
                 ..'\nfailures='..tostring(row.shelterFailures)..'\nlastFailure='..tostring(row.lastShelterFailure)..'\n')
         end
+        if seeking and not reload then
+            if age<5000 then return end
+            check(row and row.phase=='seeking_shelter' and row.target.buildingId==s.firstShelter,
+                'checkpoint is taken while the original shelter route is still seeking')
+            local saved=store()
+            saved.seekingTarget={x=row.target.x,y=row.target.y,z=row.target.z,buildingId=row.target.buildingId}
+            saved.seekingNodes,saved.seekingMs=row.target.pathNodes,row.shelterActiveMs
+            check(saved.seekingNodes and saved.seekingMs and saved.seekingMs>0,'seeking checkpoint contains live route metadata and consumed budget')
+            phase('settle');return
+        end
         if not store().radioHelp or not store().radioShelter then assert(age<120000,'native shelter/radio did not finish');return end
         check(true,'actual native receiver heard help and indoor arrival')
         check(row and row.phase=='sheltered','crew physically reached indoor shelter')
@@ -216,6 +306,12 @@ local function step()
         store().rescueRetargeted,store().finalShelter=true,row.target.buildingId
         phase('settle')
     elseif s.phase=='settle' and age>3500 then
+        if seeking and not reload then
+            setGameSpeed(0)
+            local row=ModData.getOrCreate(SC.Handover.KEY).crew[store().id]
+            check(row and row.phase=='seeking_shelter','checkpoint still seeks shelter at the actual save boundary')
+            store().seekingNodes,store().seekingMs=row.target.pathNodes,row.shelterActiveMs
+        end
         local saved=store();local record=SC.Registry.byId(saved.id)
         if not rescue then
             check(record and record.actor==s.actor,'original companion body remains')

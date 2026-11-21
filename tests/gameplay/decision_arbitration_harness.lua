@@ -820,6 +820,24 @@ check(not accepted and reason=='path_blocked:door_locked' and shelterResults==1,
 shelterCommand.handoverShelter=false
 D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
 check(shelterResults==1,'ordinary Stay routes never reject a rescue shelter')
+local priorLoadedSquare=SC.GameplayUtil.loadedSquare
+local loaded,requests,streamResults=false,0,{}
+SC.GameplayUtil.loadedSquare=function(point) return loaded and point or nil end
+SC.Navigation.request=function() requests=requests+1 return true,'walking' end
+SC.HandoverRescue.navigationResult=function(value,point,handled,status)
+    streamResults[#streamResults+1]={actor=value,target=point,handled=handled,reason=status}
+end
+shelterCommand.handoverShelter=true
+accepted,reason=D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
+check(accepted and reason=='shelter_unloaded' and requests==0 and #streamResults==1
+    and streamResults[1].target==shelterCommand.anchor and streamResults[1].handled==true,
+    'a saved shelter whose chunk is unavailable reports a handled streaming wait without dispatching navigation')
+loaded=true
+accepted,reason=D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
+check(accepted and reason=='walking' and requests==1 and #streamResults==2
+    and streamResults[2].target==shelterCommand.anchor and shelterCommand.order=='stay',
+    'loading the saved shelter resumes the same tactical route')
+SC.GameplayUtil.loadedSquare=priorLoadedSquare
 SC.HandoverRescue=priorRescue
 SC.Navigation=priorNavigation
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

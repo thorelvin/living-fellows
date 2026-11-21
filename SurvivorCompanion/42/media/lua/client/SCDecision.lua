@@ -1985,6 +1985,11 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         if commands.handoverShelter then
             local shelter=anchorSquare(commands)
             local handled,reason=false,"shelter_unavailable"
+            local point=commands.anchor
+            if not shelter and type(point)=='table' and type(point.x)=='number'
+                and type(point.y)=='number' and type(point.z)=='number' then
+                handled,reason=true,"shelter_unloaded"
+            end
             if shelter and SC.Navigation then
                 handled,reason=SC.Navigation.request(actor,shelter,"walk",{
                     action="handover_shelter",snapshot=snapshot,

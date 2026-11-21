@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.50 - Shelter recovery review
+
+- Match the static blockage reason navigation actually emits. Individual native
+  path failures, stalls and timeouts can recover without banning a reachable house.
+- Hold an unloaded shelter target for up to 30 seconds. Expired streaming waits
+  select a loaded alternative without counting the unloaded house as a failure.
+- Keep pending rescue-area loaders until their companion joins. Retry if both
+  ownership and slot are lost, without taking another view's ownership.
+- Bound moving shelter loops with a 60-180 second route-based service budget.
+  Preserve consumed budget and route length through saves; streaming waits and
+  long interruptions cannot consume the whole allowance. Real indoor arrival,
+  standing Follow, emergency control and existing retry limits remain intact.
+- Bridge protocol remains `42.22-isocompanion-35`; world save schema remains 3.
+
 ## 0.27.49 - Power Night
 
 - Discover EMMA's county archive at an unlocked computer. Separate TV and radio

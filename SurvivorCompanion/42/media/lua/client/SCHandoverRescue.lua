@@ -144,6 +144,13 @@ function R.loadCandidate(id)
 end
 function R.pollPreparation()
     SCBridge.pollHandoverPlayerAdmission()
+    -- A loader can lose its native view during cleanup. Do not keep waiting
+    -- on its stale Lua ticket after both ownership and slot have
+    -- gone; the bounded rescue pulse may request the saved area again.
+    if loadingId and SC.ViewSession.owner()~='handover' and getSpecificPlayer(1)~=bootstrap then
+        loadingId,bootstrap=nil,nil
+        return
+    end
     if loadingId then
         SC.Persistence.restorePulse(primary())
         local current=record(loadingId)
@@ -200,19 +207,35 @@ local function rejectedShelters(row,now)
     end
     return excluded,count
 end
-local function rejectShelter(actor,row,reason,now)
-    local target=row.target
-    local building=target.buildingId
-    if not building and SC.ExpeditionPlaces.atPoint then
-        local place=SC.ExpeditionPlaces.atPoint(target);building=place and place.id
+local function releaseShelter(actor,row,reason,now,failed)
+    if failed then
+        local target=row.target
+        local building=target.buildingId
+        if not building and SC.ExpeditionPlaces.atPoint then
+            local place=SC.ExpeditionPlaces.atPoint(target);building=place and place.id
+        end
+        row.rejectedShelters=row.rejectedShelters or {}
+        row.rejectedShelters[building or shelterKey(target)]=now+300000
+        row.shelterFailures=(row.shelterFailures or 0)+1
+        row.lastShelterFailure=reason
     end
-    row.rejectedShelters=row.rejectedShelters or {}
-    row.rejectedShelters[building or shelterKey(target)]=now+300000
-    row.shelterFailures=(row.shelterFailures or 0)+1
-    row.lastShelterFailure=reason
+    row.lastShelterReselectReason=reason
     row.target,row.phase,row.nextShelterAt=nil,'holding',now
+    row.shelterActiveMs=nil
     shelterAttempts[actor]=nil
     if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor,'handover_shelter_reselect') end
+end
+local function rejectShelter(actor,row,reason,now) releaseShelter(actor,row,reason,now,true) end
+local function pathNodes(value)
+    local count=tonumber(value)
+    if not count or count~=count or count<=0 then return 80 end
+    return math.min(80,math.max(1,math.ceil(count)))
+end
+local function attemptLimit(target) return 60000+1500*pathNodes(target.pathNodes) end
+local function atShelter(actor,target,x,y,z)
+    local square=actor:getCurrentSquare()
+    return x and square and square:getRoom() and math.floor(z)==target.z
+        and (x-target.x)^2+(y-target.y)^2<=9
 end
 -- Only the tactical shelter controller reports these results. Combat, needs
 -- and other routes must neither reject a shelter nor consume its stall budget.
@@ -221,40 +244,66 @@ function R.navigationResult(actor,target,handled,reason)
     if not row or row.phase~='seeking_shelter' or not target
         or shelterKey(row.target)~=shelterKey(target) then return end
     local now=getTimestampMs()
-    if handled~=true and (reason=='path_blocked:door_locked' or reason=='native_path_failed'
-        or reason=='native_path_timeout' or reason=='shelter_unavailable'
-        or type(reason)=='string' and (reason:find('^recovery_exhausted:') or reason:find('^path_blocked:static'))) then
-        rejectShelter(actor,row,reason,now);return
-    end
     local x,y,z=SC.GameplayUtil.position(actor)
     if not x then return end
+    if atShelter(actor,row.target,x,y,z) then row.phase='sheltered';shelterAttempts[actor]=nil;return end
+    if handled~=true and (reason=='path_blocked:door_locked' or reason=='path_blocked:blocked_static'
+        or reason=='shelter_unavailable'
+        or type(reason)=='string' and reason:find('^recovery_exhausted:')) then
+        rejectShelter(actor,row,reason,now);return
+    end
     local attempt=shelterAttempts[actor]
-    if not attempt or attempt.row~=row or attempt.target~=row.target or now-attempt.lastAt>3000 then
+    if not attempt or attempt.row~=row or attempt.target~=row.target then
         attempt={row=row,target=row.target,x=x,y=y,z=z,progressAt=now}
         shelterAttempts[actor]=attempt
+    end
+    if reason=='shelter_unloaded' then
+        if not attempt.unloadedSince or now<attempt.unloadedSince then
+            attempt.unloadedSince=now
+            attempt.lastAt=nil
+            if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor,'handover_shelter_wait_loaded') end
+        end
+        if now-attempt.unloadedSince>=30000 then releaseShelter(actor,row,'shelter_unloaded_timeout',now,false) end
+        return
+    end
+    if attempt.unloadedSince then
+        attempt.unloadedSince,attempt.lastAt=nil,nil
+        attempt.x,attempt.y,attempt.z,attempt.progressAt=x,y,z,now
+    end
+    local gap=attempt.lastAt and math.max(0,now-attempt.lastAt) or 0
+    local elapsed=tonumber(row.shelterActiveMs) or 0
+    if elapsed~=elapsed or elapsed<0 then elapsed=0 end
+    -- Keep consumed service time across movement and reloads, but never charge
+    -- a long emergency/offline gap as continuous shelter work.
+    row.shelterActiveMs=elapsed+math.min(gap,1000)
+    if not attempt.lastAt or now<attempt.lastAt or gap>3000 then
+        attempt.x,attempt.y,attempt.z,attempt.progressAt=x,y,z,now
     elseif math.floor(z)~=math.floor(attempt.z) or (x-attempt.x)^2+(y-attempt.y)^2>=.25 then
         attempt.x,attempt.y,attempt.z,attempt.progressAt=x,y,z,now
     end
     attempt.lastAt=now
-    if now-attempt.progressAt>=20000 then rejectShelter(actor,row,'shelter_no_progress',now) end
+    if now-attempt.progressAt>=20000 then rejectShelter(actor,row,'shelter_no_progress',now)
+    elseif row.shelterActiveMs>=attemptLimit(row.target) then rejectShelter(actor,row,'shelter_attempt_timeout',now) end
 end
 -- Modify the decision's copy; preserve standing Follow and normal emergency control.
 function R.commands(actor,player,commands)
     local id=SC.Registry.idOf(actor);local world=store();local row=world.crew and world.crew[id]
     if not row then return commands end
-    if commands.order~='follow' and commands.order~='regroup' or (commands.commandSerial or 0)~=row.serial then world.crew[id]=nil;return commands end
-    if near(actor,player) then world.crew[id]=nil;return commands end
+    if commands.order~='follow' and commands.order~='regroup' or (commands.commandSerial or 0)~=row.serial then world.crew[id]=nil;shelterAttempts[actor]=nil;return commands end
+    if near(actor,player) then world.crew[id]=nil;shelterAttempts[actor]=nil;return commands end
     if (not row.target or row.phase=='holding') and getTimestampMs()>=(row.nextShelterAt or 0) then
         row.nextShelterAt=getTimestampMs()+30000
         local excluded,count=rejectedShelters(row,getTimestampMs())
         local point
         if count<8 then point=SC.ExpeditionPlaces.nearestLoadedShelter(actor,nil,excluded) end
-        if point then row.target={x=point.x,y=point.y,z=point.z,buildingId=point.buildingId};row.phase='seeking_shelter'
+        if point then
+            row.target={x=point.x,y=point.y,z=point.z,buildingId=point.buildingId,pathNodes=pathNodes(point.pathNodes)}
+            row.phase,row.shelterActiveMs='seeking_shelter',0
         else local x,y,z=SC.GameplayUtil.position(actor);row.target={x=math.floor(x),y=math.floor(y),z=math.floor(z)};row.phase='holding' end
     end
     if row.target then
-        local x,y,z=SC.GameplayUtil.position(actor);local square=actor:getCurrentSquare()
-        if square and square:getRoom() and math.floor(z)==row.target.z and (x-row.target.x)^2+(y-row.target.y)^2<=9 then row.phase='sheltered' end
+        local x,y,z=SC.GameplayUtil.position(actor)
+        if atShelter(actor,row.target,x,y,z) then row.phase='sheltered' end
         local copy={};for key,value in pairs(commands) do copy[key]=value end
         copy.order,copy.anchor,copy.scavenge='stay',row.target,false
         copy.handoverShelter=row.phase=='seeking_shelter'
@@ -310,7 +359,7 @@ function R.pulse()
     end
     -- One native remote slot can visit several separated groups. Park the
     -- settled group before streaming the next; the expedition stays suspended.
-    if missing and loadedSheltered and SC.ViewSession.owner()=='handover' then
+    if missing and loadedSheltered and not loadingId and SC.ViewSession.owner()=='handover' then
         parkCrew(world,player);return
     end
     if not any or allSheltered then
