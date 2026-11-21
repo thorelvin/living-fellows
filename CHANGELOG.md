@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.52 - Report a bug from the pause menu
+
+- Choose **Report a Living Fellows bug**, describe what happened and enter the
+  steps you took. Review the draft in-game before opening it on GitHub.
+  You can also copy the reviewed link and open it in a browser yourself.
+- Reports include the mod and game versions, the bridge protocol and up to
+  five recent Living Fellows diagnostic summaries. The game filters known
+  account and save identifiers and checks for file paths before building a link.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.51 - EMMA listens for distress
 
 - When EMMA cannot otherwise place a personal disclosure, she can now

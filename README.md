@@ -6,7 +6,7 @@
 
 **[Read the Field Guide →](https://thorelvin.github.io/living-fellows/)** · [Quick reference](https://thorelvin.github.io/living-fellows/quick-reference.html) · [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339)
 
-[![Release](https://img.shields.io/badge/release-0.27.51-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
+[![Release](https://img.shields.io/badge/release-0.27.52-blue.svg)](https://github.com/thorelvin/living-fellows/releases/latest) [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.22.2-red.svg)](#get-started) [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#get-started)
 
 Companions, working bases and survivor stories for Project Zomboid. Find your people, build a home and send a crew across town while you keep camp going. Your fellows carry real supplies, get hurt and remember what happens.
 
@@ -144,7 +144,9 @@ The **[Field Guide](https://thorelvin.github.io/living-fellows/)** walks through
 
 ## Need a hand?
 
-Open **More → Support** for a diagnostic report. Include it, your game and mod versions, and a screenshot or relevant logs in a [bug report](https://github.com/thorelvin/living-fellows/issues/new/choose). You can also join us on [Discord](https://discord.gg/vPK7faQVt).
+Pause the game and choose **Report a Living Fellows bug**. Describe what happened and how to reproduce it, then review the draft. It includes the game and mod versions, bridge protocol and recent diagnostic summaries. Choose **Open GitHub draft** to finish and submit it in your browser. You can also use the [bug report form](https://github.com/thorelvin/living-fellows/issues/new/choose) directly.
+
+Open **More → Support** for additional diagnostics, or join us on [Discord](https://discord.gg/vPK7faQVt).
 
 [What's new](CHANGELOG.md) · [Contributing and building](CONTRIBUTING.md) · [Architecture](ARCHITECTURE.md) · [MIT license](LICENSE)
 

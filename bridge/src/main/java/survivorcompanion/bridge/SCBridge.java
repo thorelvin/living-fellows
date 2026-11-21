@@ -281,6 +281,10 @@ public final class SCBridge {
         return PROTOCOL;
     }
 
+    public static boolean openBugReportDraft(String url) {
+        return SCBugReportDraft.open(url, zombie.network.DesktopBrowser::openURL);
+    }
+
     public static String getDetectedGameVersion() {
         try {
             String value = Core.getInstance().getVersionNumber();

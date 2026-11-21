@@ -76,7 +76,7 @@ body:
     attributes:
       label: Safety checks
       options:
-        - label: I reproduced this in single-player on Project Zomboid 42.20.4.
+        - label: I reproduced this in single-player on the Project Zomboid build I reported above.
           required: true
         - label: I am not running the Workshop and standalone copies together.
           required: true

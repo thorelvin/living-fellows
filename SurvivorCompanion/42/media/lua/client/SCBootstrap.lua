@@ -295,6 +295,7 @@ require "SCUIHomeTrip"
 require "SCHandover"
 require "SCHandoverRescue"
 require "SCHandoverUI"
+require "SCBugReportUI"
 
 local SC = SurvivorCompanion
 SC.Bootstrap = SC.Bootstrap or {}
@@ -529,6 +530,10 @@ local function removeContracts()
 end
 
 local function onGameStart()
+    if SC.BugReportUI then
+        local attached, reason = pcall(SC.BugReportUI.install, MainScreen and MainScreen.instance)
+        if not attached then SC.Diagnostics.report("bug-report", nil, "could not attach pause-menu form", reason) end
+    end
     local optionsLoaded, optionsReason = SC.UserOptions.load()
     if not optionsLoaded then
         SC.Diagnostics.report("user_options", nil,
@@ -588,6 +593,8 @@ local function onSave()
 end
 
 local function onInitGlobalModData(isNewGame)
+    -- Old-world teardown can still report failures after leaving play.
+    if SC.Diagnostics and SC.Diagnostics.clearReportLines then SC.Diagnostics.clearReportLines() end
     if SC.PowerNight then SC.PowerNight.reset() end
     if SC.TerminalLockPhone then SC.TerminalLockPhone.reset() end
     if SC.TerminalLockRadio then SC.TerminalLockRadio.reset() end

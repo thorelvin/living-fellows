@@ -42,7 +42,7 @@ $native = @{
         'SCNativeCleanupTransactionTest', 'SCRemoteArrivalTest', 'SCVehicleSaveBarrierTest')
     Behaviour = @('SCCompanionFatigueTest', 'SCCompanionComfortTest')
     Cargo = @('SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest')
-    Interface = @('SCTerminalLogoRendererTest')
+    Interface = @('SCTerminalLogoRendererTest', 'SCBugReportDraftTest')
 }
 $stubTests = @('SCBootstrapLifecycleTest', 'SCCompanionFatigueTest', 'SCCompanionComfortTest',
     'SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest', 'SCTerminalLogoRendererTest')

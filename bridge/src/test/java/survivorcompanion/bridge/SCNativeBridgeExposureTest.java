@@ -355,6 +355,7 @@ public final class SCNativeBridgeExposureTest {
         Object thread = managerClass.getField("thread").get(null);
         Class<?> tableClass = Class.forName("se.krka.kahlua.vm.KahluaTable");
         String source = "assert(SCBridge ~= nil, 'SCBridge is not exposed')\n"
+                + "assert(SCBridge.openBugReportDraft('') == false, 'report browser guard is unavailable')\n"
                 + "assert(AttackType ~= nil, 'AttackType is not exposed')\n"
                 + "assert(AttackType.SHOVE ~= nil, 'AttackType.SHOVE is unavailable')\n"
                 + "assert(AttackType.STOMP ~= nil, 'AttackType.STOMP is unavailable')\n"

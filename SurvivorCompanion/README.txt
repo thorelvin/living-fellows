@@ -1,4 +1,4 @@
-Living Fellows 0.27.51 - release
+Living Fellows 0.27.52 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -55,6 +55,7 @@ GETTING STARTED
 - Hold keypad 1 to Peek, press keypad 2 for Watch and hold keypad 3 to Steer.
   These keys can be rebound.
 - More > Support provides a diagnostic report if something goes wrong.
+- Pause and choose Report a Living Fellows bug to review a draft and open it on GitHub.
 
 Wood expeditions borrow a usable axe, find nearby woodland and return logs
 to permitted Log Yard, Construction or General storage. Collected, carried

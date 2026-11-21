@@ -12,6 +12,57 @@ local entries = {}
 local circuits = {}
 local circuitCount = 0
 local failingCount = 0
+local reportLines = {}
+
+-- Keys and error details in the ordinary console can contain actor names,
+-- world names and filesystem paths. Only these source literals may enter the
+-- player-facing report. A new diagnostic remains private by default.
+local publicSystems = {}
+for _, name in ipairs({
+    "action-supervisor", "actor", "actor-death", "actor-provider", "actor-removal",
+    "alife-adapter", "background", "bandits-adapter", "base-job", "base-work", "bootstrap",
+    "camp-supply-transfer", "commands", "companion-map", "container-hook", "convoy",
+    "departure-preparation", "diary-ui", "downtime", "field-work", "floor-sort",
+    "expedition", "expedition-map", "faction", "faction-spawn", "factions",
+    "fishing-map", "handover", "medical", "persistence", "power-night",
+    "pzoptimizer-adapter", "runtime", "terminal", "terminal-load", "terminal-place",
+    "terminal_hardware", "trade-recovery", "trade-transaction", "vehicle", "vitals",
+    "combat-gun-service", "needs-rate", "radio-work", "senses", "senses-reflex",
+    "wood-cargo", "wood-expedition",
+}) do publicSystems[name] = true end
+local publicMessages = {}
+for _, message in ipairs({
+    "A-Life adapter unavailable", "Bandits adapter unavailable", "PZOptimizer adapter unavailable",
+    "OnInitGlobalModData failed", "OnSave failed", "action cancellation callback failed",
+    "action rollback verification failed", "actor quarantined inactive after unverified removal",
+    "bootstrap installation failed", "companion actors disabled", "companion container refresh failed",
+    "companion placement recovery retained for retry", "computer menu failed", "container marker failed",
+    "diary reader failed", "initial restore pulse failed; imported records retained",
+    "item ownership retained for recovery", "map overlay failed", "mapped shore lookup failed",
+    "module contract failed", "native companion failed its runtime health gate",
+    "native corpse chunk save failed", "native vitals update failed", "radio restore failed",
+    "receiver delivery failed", "recovery pending; world records preserved", "restore initialization failed",
+    "restore record quarantined", "runtime contracts failed", "runtime start failed", "save incomplete",
+    "save record quarantined", "save transaction aborted; prior snapshot retained",
+    "saved successor recovery failed", "started", "subsystem exception", "view teardown pending",
+}) do publicMessages[message] = true end
+
+local function rememberReportLine(system, message)
+    if not publicSystems[system] then return end
+    if #reportLines == 5 then table.remove(reportLines, 1) end
+    reportLines[#reportLines + 1] = "[" .. system .. "] "
+        .. (publicMessages[message] and message or "Diagnostic reported")
+end
+
+function diagnostics.recentReportLines()
+    local copy = {}
+    for index, line in ipairs(reportLines) do copy[index] = line end
+    return copy
+end
+
+function diagnostics.clearReportLines()
+    reportLines = {}
+end
 
 local function setCircuit(key, circuit)
     local hadCircuit = circuits[key] ~= nil
@@ -66,6 +117,7 @@ function diagnostics.report(subsystem, companionId, message, detail)
 
     if current - entry.lastPrint >= SC.Config.get("runtime", "diagnosticCooldownMs") then
         entry.lastPrint = current
+        rememberReportLine(subsystem, entry.lastMessage)
         local suffix = entry.lastDetail and (": " .. entry.lastDetail) or ""
         print("[SurvivorCompanion][" .. key .. "] " .. entry.lastMessage .. suffix)
     end
@@ -199,6 +251,7 @@ function diagnostics.snapshot()
 end
 
 function diagnostics.reset()
+    diagnostics.clearReportLines()
     entries = {}
     circuits = {}
     circuitCount = 0

@@ -108,3 +108,15 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Client 'SCViewSession.lua'),
     (Join-Path $Client 'SCBaseWatch.lua'),
     (Join-Path $Core 'base_watch_harness.lua')) }
+@{ Name = 'bootstrap-lifecycle-and-world-report-reset'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCSpeechColors.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Core 'bootstrap_lifecycle_fixture.lua'),
+    (Join-Path $Client 'SCTerminalLockPhone.lua'),
+    (Join-Path $Client 'SCTerminalLockRadio.lua'),
+    (Join-Path $Client 'SCTerminalLamp.lua'),
+    (Join-Path $Client 'SCBootstrap.lua'),
+    (Join-Path $Core 'bootstrap_lifecycle_harness.lua')
+) }

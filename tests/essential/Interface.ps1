@@ -1,5 +1,19 @@
 # SPDX-License-Identifier: MIT
 # Ordered production files and observable cases; the shared runner owns execution.
+@{ Name = 'interface-bug-report-draft'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $Shared 'SCDiagnostics.lua'),
+    (Join-Path $Client 'SCBugReport.lua'),
+    (Join-Path $UI 'SCBugReportDraftTests.lua')
+) }
+@{ Name = 'interface-bug-report-form'; Files = @(
+    (Join-Path $UI 'SCBugReportFormFixture.lua'),
+    (Join-Path $Client 'SCBugReportUI.lua'),
+    (Join-Path $UI 'SCBugReportFormTests.lua')
+) }
 @{ Name = 'interface.medical-format'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),

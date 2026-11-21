@@ -14,6 +14,25 @@ check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         .. tostring(SC.State.disabledReason))
 check(Events.LoadGridsquare.count()==1 and Events.OnObjectAdded.count()==1,
     "mounted radio load/place hooks are owned by the bootstrap transaction")
+do
+    local savedDiagnostics, savedRescue = SC.Diagnostics, SC.HandoverRescue
+    local savedBind, savedRadioReset = SC.Persistence.bindWorldStore, SC.GridRadio.reset
+    local lines = {}
+    SC.Diagnostics = {
+        clearReportLines = function() lines = {} end,
+        report = function(_, _, message) lines[#lines + 1] = message end,
+    }
+    SC.HandoverRescue = {prepareReset = function() return false, "old loader" end, reset = function() end}
+    SC.GridRadio.reset = function() end
+    SC.Persistence.bindWorldStore = function() return false, "new world bind" end
+    Events.OnMainMenuEnter.fire()
+    check(lines[#lines] == "view teardown pending", "exiting world can report a teardown failure")
+    Events.OnInitGlobalModData.fire(false)
+    check(#lines == 1 and lines[1] == "OnInitGlobalModData failed",
+        "next world's report clears old teardown and retains its own startup failure")
+    SC.Diagnostics, SC.HandoverRescue = savedDiagnostics, savedRescue
+    SC.Persistence.bindWorldStore, SC.GridRadio.reset = savedBind, savedRadioReset
+end
 -- OnPlayerGetDamage has two owners: the terminal lamp contract and the
 -- bootstrap's own native damage note.
 check(SC.TerminalLamp.isInstalled() and Events.OnPlayerGetDamage.count()==2
