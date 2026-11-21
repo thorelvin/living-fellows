@@ -731,6 +731,117 @@ local realLife={"work","school","class","college","job","boss","coworkers","gf",
 local gameWords={"loot","looting","raid","scavenge","scavenging","expedition","mall","store","base","camp","zombie",
     "zombies","horde","car","truck","generator","map","wall","farm","fishing","hunting","craft","build","building",
     "character","game","save","server","mod","run","trip","fight","fighting","beans","food","water","ammo"}
+
+-- Only reconsider a reply for which EMMA found no subject. Require the speaker's
+-- own predicate and its object together: "I can't face another day" differs
+-- from "I can't face another day of painting" or "she can't face another day".
+local unplaced = {fallback=true, fallback_echo=true, did_you_mean=true, news_plain=true}
+local disclosures = {
+    {intent="care_check",
+        starts={"i can not", "i do not think i can", "i am not sure i can", "i do not know if i can",
+            "i do not know how to", "i can barely", "i can hardly"},
+        ends={"face another day", "face another night", "face another morning", "get through another day",
+            "get through another night", "make it through another night", "trust myself to stay safe",
+            "keep myself safe", "be alone with my thoughts"}},
+    {intent="care_check",
+        starts={"i have been", "i keep", "i started", "i am", "i caught myself"},
+        ends={"rehearsing my goodbyes", "planning my own funeral", "picturing my own funeral",
+            "wondering who would find me", "wondering who would miss me", "thinking about my last words"}},
+    {intent="care_check",
+        starts={"i need to", "i have to", "i want to", "i ought to", "i had to"},
+        ends={"put my affairs in order before i go", "get my affairs in order before i go",
+            "put my affairs in order before i am gone", "leave something for them to remember me by"}},
+    {intent="care_check",
+        starts={"i can not see", "i can not find", "i see no", "i have no", "i have run out of",
+            "i am running out of", "i am looking for"},
+        ends={"a reason to stay", "any reason to stay", "reasons to stay", "reason to stay",
+            "a reason to go on", "any reason to go on", "reasons to go on", "reason to go on",
+            "a way through another day", "any way through another day"}},
+    {intent="care_gentle",
+        starts={"i am struggling to", "i am trying to", "i can barely", "i can hardly", "i can not",
+            "i do not know how to", "i do not know how much longer i can"},
+        ends={"hold it together", "hold myself together", "keep it together", "put on a brave face",
+            "pretend i am fine", "pretend i am okay", "keep pretending i am fine",
+            "keep pretending i am all right", "keep pretending i am okay", "face the day"}},
+    {intent="care_gentle",
+        starts={"i feel", "i am feeling", "i have been feeling", "i keep feeling", "i am", "i have been"},
+        ends={"like a stranger in my own skin", "like a stranger to myself", "at the end of my tether",
+            "at breaking point", "at my breaking point", "coming apart at the seams",
+            "like i am coming apart", "as though i am coming apart", "trapped", "ashamed of myself",
+            "a shell of myself", "a shell of who i was", "scared of my own thoughts"}},
+    {intent="care_gentle",
+        starts={"i keep", "i have been", "i am", "i started"},
+        ends={"shutting everyone out", "shutting people out", "pushing everyone away", "avoiding everyone",
+            "avoiding my friends"}},
+    {intent="care_gentle",
+        starts={"i stopped", "i have stopped"},
+        ends={"answering my friends", "speaking to my friends", "seeing my friends", "returning anyones calls",
+            "returning calls", "opening my curtains"}},
+    {intent="care_gentle",
+        starts={"i need", "i needed", "i wish i had", "i could use"},
+        ends={"someone to listen", "someone to hear me", "somebody to listen", "someone i can talk to",
+            "someone to sit with me", "some company"}},
+    {intent="care_gentle",
+        starts={"i do not", "i hardly", "i barely", "i no longer"},
+        ends={"recognise myself", "recognize myself", "recognise the person in the mirror",
+            "recognize the person in the mirror", "know who else to tell", "know who else to talk to",
+            "know where else to turn", "feel like myself"}},
+}
+local disclosureFillers = {emma=true, honestly=true, just=true, really=true, actually=true, even=true,
+    sometimes=true, lately=true, anymore=true, tonight=true, ngl=true, tbh=true}
+local personalDifficulty = {"i can not bear", "i can not stand", "i can not bring myself to", "i dread",
+    "i am dreading", "i am struggling", "i am ashamed", "i can barely", "i can hardly",
+    "i am losing", "i am afraid of", "i can not face", "i have lost interest in", "i am giving up on",
+    "i have given up on", "i can not shake", "i can not imagine", "i can not picture"}
+local innerLife = {"in my own head", "with my thoughts", "about myself", "in my own skin", "who i am",
+    "what i have become", "what is left of me", "myself here", "my life", "any pleasure", "a future",
+    "the things i used to love", "the person i used to be", "the way i feel", "the way i am feeling"}
+local function matchesEnding(predicate,ending)
+    if predicate==ending then return true end
+    if predicate:sub(1,#ending+1)~=ending.." " then return false end
+    local rest=predicate:sub(#ending+2)
+    return rest:find("^since ") or rest:find("^because ") or rest:find("^and i ")
+        or rest=="on my own" or rest=="any longer" or rest=="for much longer"
+end
+local function unplacedCare(tokens)
+    local words = {}
+    for _,word in ipairs(tokens) do
+        if not disclosureFillers[word] then words[#words+1]=word end
+    end
+    local statement=table.concat(words," "):gsub(" these days$",""):gsub(" right now$","")
+    statement=statement:gsub("^some days ",""):gsub("^these days ",""):gsub("^most days ","")
+    if statement:sub(1,2)~="i " then return nil end
+    -- The person can be reaching out without having named the problem yet.
+    -- Let the rest of the disclosure be in their own words.
+    for _,lead in ipairs({"i am scared to admit", "i am afraid to admit", "i am ashamed to say",
+        "i have been too scared to tell", "i have been too ashamed to tell",
+        "i do not know how to ask for help", "i do not know how to tell anyone how",
+        "i keep pretending i am fine", "i keep pretending i am okay"}) do
+        if statement==lead or statement:sub(1,#lead+1)==lead.." " then return "care_gentle" end
+    end
+    for _,frame in ipairs(disclosures) do
+        for _,lead in ipairs(frame.starts) do
+            if statement:sub(1,#lead+1)==lead.." " then
+                local predicate=statement:sub(#lead+2)
+                for _,ending in ipairs(frame.ends) do
+                    if matchesEnding(predicate,ending) then return frame.intent end
+                end
+            end
+        end
+    end
+    -- An unfamiliar description of struggling with one's own thoughts still
+    -- deserves a private hearing. Neither an ordinary difficulty nor a
+    -- neutral reference to one's inner life supplies both pieces of evidence.
+    for _,lead in ipairs(personalDifficulty) do
+        if statement:sub(1,#lead+1)==lead.." " then
+            local rest=statement:sub(#lead+1).." "
+            for _,phrase in ipairs(innerLife) do
+                if rest:find(" "..phrase.." ",1,true) then return "care_gentle" end
+            end
+        end
+    end
+end
+
 function Care.distress(raw,parsed)
     -- A long apology or thanks can carry the real news: "sorry if im quiet,
     -- just had a huge fight with my gf".
@@ -767,6 +878,7 @@ function Care.distress(raw,parsed)
         and any(tokens,{"river","bridge","edge","roof","ledge","rope","pills","gun","knife","tracks","train"})
         and not game then return "care_check" end
     if any(tokens,sadSigns) and not game then return "care_gentle" end
+    if unplaced[parsed] and not game and not asked then return unplacedCare(tokens) end
     return nil
 end
 

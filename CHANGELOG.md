@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.51 - EMMA listens for distress
+
+- When EMMA cannot otherwise place a personal disclosure, she can now
+  acknowledge distress or ask whether the player is safe. These replies use
+  the existing private conversation and follow-up controls.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.50 - Shelter recovery review
 
 - Match the static blockage reason navigation actually emits. Individual native

@@ -112,6 +112,9 @@ foreach ($module in @(
     (Join-Path $UI 'SCEmmaCareSetGData.lua'),
     (Join-Path $Gameplay 'emma_care_set_g_harness.lua')
 ) }
+@{ Name = 'interface-emma-care-fallback'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $Gameplay 'emma_care_fallback_harness.lua')
+) }
 @{ Name = 'interface-emma-talk-polish'; Files = @($interfaceTerminalFiles) + @(
     (Join-Path $UI 'SCEmmaTalkPolishData.lua'),
     (Join-Path $UI 'SCEmmaTalkPolishFixture.lua'),

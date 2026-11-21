@@ -94,9 +94,9 @@ P.care_check = {
 }
 -- Sadness the rules could not place. Warm, no question, and a nudge toward a person.
 P.care_gentle = {
-    "That sounds hard, {name}. I am here, and I am listening. Tell me more, or tell someone you trust today.",
-    "I hear you. You do not have to carry that alone. People love you, even when it does not feel that way. Call a friend today.",
-    "That sounds heavy. I am staying right here. One person you trust should hear this too, today if you can.",
+    "I hear you, {name}. You can say as much or as little as you want. Is there someone you trust who could listen today?",
+    "I am glad you told me. Take your time. If talking is hard, you could ask someone you trust just to sit with you.",
+    "You do not have to find the right words for me. If you want company today, is there someone you would like to call?",
 }
 -- The reply right after that question was not an answer. Stay warm, never joke.
 P.care_check_open = {
