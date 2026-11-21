@@ -8,20 +8,29 @@ param(
     [string]$GameRoot='C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [ValidateRange(240,900)][int]$TimeoutSeconds=600,
     [string]$ReuseRun,
-    [ValidateSet('baseline','acceptance','seeking-reload')][string]$Stage='acceptance'
+    [string]$BaselineProjectRoot,
+    [ValidateSet('baseline','acceptance','seeking-reload','takeover-loss')][string]$Stage='acceptance'
 )
-$Acceptance=$true
-$EngineSound=$true
-$VisualOnly=$false
-$PayloadProjectRoot=$null
 $ErrorActionPreference='Stop'
 if($Stage -eq 'seeking-reload' -and -not $ReuseRun){throw 'The seeking reload needs an existing checkpoint via -ReuseRun.'}
 if(Get-Process -Name ProjectZomboid64 -ErrorAction SilentlyContinue){throw 'Only one native game client may run; close the existing client first.'}
 $project=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $fixtures=Join-Path $project 'tests\live\pzo_startup'
-if(-not $PayloadProjectRoot){$PayloadProjectRoot=$project}
-$PayloadProjectRoot=[IO.Path]::GetFullPath($PayloadProjectRoot)
-if($Acceptance -and $PayloadProjectRoot -ne $project){throw 'Final acceptance must use this checkout payload.'}
+$PayloadProjectRoot=$project
+$baselineCommit='00823250bf1ff053070d001f8a201015f070fc43'
+if($Stage -eq 'baseline'){
+    if(-not $BaselineProjectRoot){throw 'Baseline needs a clean 0.27.49 worktree via -BaselineProjectRoot.'}
+    $PayloadProjectRoot=(Resolve-Path -LiteralPath $BaselineProjectRoot).Path
+    if($PayloadProjectRoot -eq $project){throw 'The baseline must come from its own 0.27.49 worktree.'}
+}elseif($BaselineProjectRoot){throw '-BaselineProjectRoot is only valid for the baseline stage.'}
+$payloadCommit=& git -C $PayloadProjectRoot rev-parse --verify HEAD
+if($LASTEXITCODE -ne 0){throw 'Cannot identify the native payload revision.'}
+if($Stage -eq 'baseline'){
+    if($payloadCommit -ne $baselineCommit){throw "Baseline needs the published 0.27.49 commit $baselineCommit."}
+    $baselineChanges=@(& git -C $PayloadProjectRoot status --porcelain=v1 --untracked-files=all --ignored -- SurvivorCompanion scripts VERSION.txt)
+    if($LASTEXITCODE -ne 0 -or $baselineChanges.Count){throw 'Baseline payload and build scripts must match the published 0.27.49 tree.'}
+}
+$expectedRelease=(Get-Content -LiteralPath (Join-Path $PayloadProjectRoot 'VERSION.txt') -Raw).Trim()
 $pinnedPzo='026de0512c6058e00f2df1f30d68c1acddeb6efee27877a6015a49f1da2d4d5b'
 if((Get-FileHash -LiteralPath $PzoJar).Hash.ToLowerInvariant() -ne $pinnedPzo){throw 'Supply the unmodified official PZO V2.2 engine.'}
 if(-not (Test-Path -LiteralPath (Join-Path $SeedSave 'players.db'))){throw 'A complete disposable seed save is required.'}
@@ -94,6 +103,11 @@ try {
         if([IO.Path]::GetFullPath($fixture.game) -ne (Join-Path $run 'game') -or
             [IO.Path]::GetFullPath($fixture.cache) -ne (Join-Path $run 'home\Zomboid') -or
             $fixture.scenario -ne 'approved'){throw 'Reused fixture paths or ownership do not match the owned run.'}
+    }
+    $fixturePzoHash=(Get-FileHash -LiteralPath (Join-Path $fixture.game 'PZOptimEngine.jar')).Hash.ToLowerInvariant()
+    if($fixturePzoHash -ne $pinnedPzo){throw 'The fixture PZO runtime differs from the pinned official V2.2 engine.'}
+    & (Join-Path $project 'scripts\Test-PzRuntime.ps1') -GameRoot $fixture.game *> (Join-Path $output 'fixture-runtime.log')
+    if($ReuseRun){
         & (Join-Path $project 'scripts\Install-Standalone.ps1') -ProjectRoot $PayloadProjectRoot -GameRoot $fixture.game `
             -ModsRoot (Join-Path $fixture.cache 'mods') -InstallDataRoot (Join-Path $run 'install-data') *> (Join-Path $output 'refresh-install.log')
         if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw 'Owned fixture payload refresh failed.'}
@@ -140,7 +154,7 @@ try {
         throw 'Fixture game bridge differs from the exact staged payload bridge.'
     }
     $probe=Join-Path $output 'ShelterReviewCapabilities.lua'
-    $probeName='HandoverNewAcceptance.lua'
+    $probeName=if($Stage -eq 'takeover-loss'){'HandoverAcceptance.lua'}else{'HandoverNewAcceptance.lua'}
     Copy-Item -LiteralPath (Join-Path $fixtures $probeName) -Destination $probe
     $worldMode=if($Stage -eq 'seeking-reload'){'disk-restored'}else{'seed'}
     & (Join-Path $fixtures 'PrepareWorld.ps1') -Run $run -Mode $worldMode -SeedSave $SeedSave -GateJar $gateJar -ProbePath $probe
@@ -150,26 +164,28 @@ try {
     $pzoConfig=Get-Content -LiteralPath $pzoConfigPath -Raw|ConvertFrom-Json
     $pzoConfig.ignored_version='2.3.1'
     [IO.File]::WriteAllText($pzoConfigPath,($pzoConfig|ConvertTo-Json -Compress),$utf8)
-    $launchScript=Join-Path $fixtures 'StartClient.ps1'
-    if($Acceptance -or $EngineSound){
-        $launchScript=Join-Path $output 'StartShelterReviewClient.ps1'
-        $launcher=Get-Content -LiteralPath (Join-Path $fixtures 'StartClient.ps1') -Raw
-        [IO.File]::WriteAllText($launchScript,$launcher.Replace(' -nosteam -nosound -novoip',' -nosteam -novoip'),$utf8)
-        $optionsPath=Join-Path $fixture.cache 'options.ini'
-        $optionLines=@(Get-Content -LiteralPath $optionsPath|Where-Object {$_ -notmatch '^soundVolume='})+@('soundVolume=8')
-        [IO.File]::WriteAllLines($optionsPath,[string[]]$optionLines,$utf8)
-    }
-    $modes=@(if($Stage -eq 'baseline'){'rescue'}elseif($Stage -eq 'seeking-reload'){'rescue-seeking-reload'}else{'rescue';'rescue-reload';'rescue-seeking';'rescue-seeking-reload'})
+    $launchScript=Join-Path $output 'StartShelterReviewClient.ps1'
+    $launcher=Get-Content -LiteralPath (Join-Path $fixtures 'StartClient.ps1') -Raw
+    [IO.File]::WriteAllText($launchScript,$launcher.Replace(' -nosteam -nosound -novoip',' -nosteam -novoip'),$utf8)
+    $optionsPath=Join-Path $fixture.cache 'options.ini'
+    $optionLines=@(Get-Content -LiteralPath $optionsPath|Where-Object {$_ -notmatch '^soundVolume='})+@('soundVolume=8')
+    [IO.File]::WriteAllLines($optionsPath,[string[]]$optionLines,$utf8)
+    $modes=@(switch($Stage){
+        baseline {'rescue'}
+        'seeking-reload' {'rescue-seeking-reload'}
+        'takeover-loss' {'dormant-setup';'dormant-loader-loss';'dormant-reload'}
+        acceptance {'rescue';'rescue-reload';'rescue-seeking';'rescue-seeking-reload'}
+    })
     foreach($mode in $modes){
         if(Get-Process -Name ProjectZomboid64 -ErrorAction SilentlyContinue){throw 'Only one native game client may run.'}
-        $probeName='HandoverNewAcceptance.lua'
         Copy-Item -LiteralPath (Join-Path $fixtures $probeName) -Destination $probe
         if($mode -ne $modes[0]){
             & (Join-Path $fixtures 'PrepareWorld.ps1') -Run $run -Mode $(if($mode -eq 'rescue-seeking'){'seed'}else{'disk-restored'}) -SeedSave $SeedSave -GateJar $gateJar -ProbePath $probe
         }
         [IO.File]::WriteAllText((Join-Path $fixture.cache 'Lua\pzo-handover-mode.txt'),$mode,$utf8)
         $receipt=Join-Path $fixture.cache 'Lua\pzo-handover-result.txt'
-        foreach($name in @('result','reasons','rescue','radio','progress')){
+        $evidenceNames=@('reasons','rescue','radio','seeking','restore','native-state','progress')
+        foreach($name in @('result')+$evidenceNames){
             $old=Join-Path $fixture.cache ('Lua\pzo-handover-'+$name+'.txt')
             if(Test-Path -LiteralPath $old){Remove-Item -LiteralPath $old}
         }
@@ -191,12 +207,16 @@ try {
         }
         if(-not $receiptText){throw "Native ShelterReview timed out. Evidence: $run"}
         Copy-Item -LiteralPath $receipt -Destination (Join-Path $output ($mode+'-result.txt'))
-        foreach($name in @('reasons','rescue','radio','seeking','restore')){
+        foreach($name in $evidenceNames){
             $capture=Join-Path $fixture.cache ('Lua\pzo-handover-'+$name+'.txt')
             if(Test-Path -LiteralPath $capture){Copy-Item -LiteralPath $capture -Destination (Join-Path $output ($mode+'-'+$name+'.txt'))}
         }
         Write-Output $receiptText
         if($receiptText -notmatch '(?m)^result=PASS\r?$'){throw 'Native ShelterReview failed; see captured receipt.'}
+        $receiptFields=ConvertFrom-StringData -StringData $receiptText
+        if($receiptFields.mode -cne $mode -or $receiptFields.release -cne $expectedRelease){
+            throw "Native receipt must identify mode $mode and payload release $expectedRelease."
+        }
         $client.Refresh()
         if(-not $client.HasExited){
             if($client.Path -ne (Join-Path $run 'game\ProjectZomboid64.exe')){throw 'Refusing to stop a process outside the owned fixture.'}
@@ -233,7 +253,8 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $output 'results.json'),(@{
         run=$run;sourceUntouched=$untouched;frozenSourceFiles=$sourceBefore.Count;frozenSourceUnchanged=$sourceUnchanged;receipt=$receiptText
-        mode=$Stage;payloadProjectRoot=$PayloadProjectRoot
+        mode=$Stage;payloadProjectRoot=$PayloadProjectRoot;payloadCommit=$payloadCommit;payloadRelease=$expectedRelease
+        fixturePzoSha256=$fixturePzoHash
         seedFingerprintBefore=$seedBefore;seedFingerprintAfter=$seedAfter
         payloadFingerprintBefore=$payloadBefore;payloadFingerprintAfter=$payloadAfter
         installedHashesBefore=$protected;installedHashesAfter=$protectedAfter

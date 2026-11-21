@@ -8,8 +8,12 @@
   path failures, stalls and timeouts can recover without banning a reachable house.
 - Hold an unloaded shelter target for up to 30 seconds. Expired streaming waits
   select a loaded alternative without counting the unloaded house as a failure.
+- Briefly loading and unloading the same shelter no longer restarts the wait.
 - Keep pending rescue-area loaders until their companion joins. Retry if both
   ownership and slot are lost, without taking another view's ownership.
+- If a companion cannot load during takeover, the player can choose another
+  successor. A quarantined companion also releases the rescue view so the
+  next stranded follower can use it.
 - Bound moving shelter loops with a 60-180 second route-based service budget.
   Preserve consumed budget and route length through saves; streaming waits and
   long interruptions cannot consume the whole allowance. Real indoor arrival,

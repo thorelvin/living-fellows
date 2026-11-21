@@ -6,7 +6,8 @@ local function write(k,v) local w=assert(getFileWriter(k,true,false));w:write(v)
 local function read(k) local r=getFileReader(k,false);if not r then return end;local v=r:readLine();r:close();return v end
 local mode=read('pzo-handover-mode.txt') or 'acceptance'
 local reload=mode=='acceptance-reload' or mode=='interrupt-reload' or mode=='vehicle-reload' or mode=='dormant-reload'
-local dormant=mode=='dormant' or mode=='dormant-reload'
+local loaderLoss=mode=='dormant-loader-loss'
+local dormant=mode=='dormant' or mode=='dormant-reload' or loaderLoss
 local interrupt=mode=='interrupt'
 local vehicle=mode=='vehicle' or mode=='vehicle-reload'
 local function store() return ModData.getOrCreate('LF_HandoverAcceptance') end
@@ -14,7 +15,7 @@ local function check(v,why) s.checks=s.checks+1;assert(v,'Handover acceptance '.
 local function phase(v) s.phase,s.at=v,getTimestampMs();write('pzo-handover-progress.txt',v..'\n') end
 local function finish(ok,why)
     if s.done then return end;s.done=true
-    write('pzo-handover-result.txt','result='..(ok and 'PASS' or 'FAIL')..'\nmode='..mode..'\nphase='..s.phase..'\nchecks='..s.checks
+    write('pzo-handover-result.txt','result='..(ok and 'PASS' or 'FAIL')..'\nrelease='..SC.Identity.release..'\nmode='..mode..'\nphase='..s.phase..'\nchecks='..s.checks
         ..'\nreason='..tostring(why)..'\n'..table.concat(s.notes,'\n')..'\n')
 end
 local function spawnSquare()
@@ -23,6 +24,33 @@ local function spawnSquare()
         local square=getCell():getGridSquare(q:getX()+dx,q:getY()+dy,q:getZ())
         if square and SC.GameplayUtil.isClearActorSpawnSquare(square) and square:isFree(false) then return square end
     end end end
+end
+if loaderLoss then
+    -- Let the native co-op admission finish, then retire the first loader
+    -- before persistence can register its recruit. All subsequent polls and
+    -- requests run through the production takeover and rescue controllers.
+    local poll=SC.HandoverRescue.pollPreparation
+    SC.HandoverRescue.pollPreparation=function(...)
+        local active=SC.Handover.current()
+        if not s.lostLoader and active and active.phase=='loading'
+            and SC.ViewSession.owner()=='handover' then
+            SCBridge.pollHandoverPlayerAdmission()
+            if not getSpecificPlayer(1) then return end
+            if SC.Registry.byId(store().id) then
+                finish(false,'recruit already restored before the loader-loss injection');return
+            end
+            local called,released,why=pcall(SC.HandoverRescue.prepareReset)
+            if not called or not released then
+                s.releaseWait=tostring(called and why or released)
+                return
+            end
+            s.lostLoader=SC.ViewSession.owner()==nil and getSpecificPlayer(1)==nil
+            if not s.lostLoader then finish(false,'native loader did not release its view') end
+            s.notes[#s.notes+1]='lostSelectedLoader='..tostring(s.lostLoader)
+            return
+        end
+        return poll(...)
+    end
 end
 local function click(button) check(button and button.enable~=false,'actual UI button is enabled');button.onclick(button.target,button) end
 local function tagged(container,key)
@@ -47,7 +75,7 @@ local function corpseLoot()
 end
 Events.OnInitGlobalModData.Add(function()
     local world=ModData.getOrCreate(SC.Identity.worldSaveKey)
-    if not reload and mode~='dormant' then world.document={schema=SC.Identity.saveSchema,companions={},factionActors={}}
+    if not reload and mode~='dormant' and not loaderLoss then world.document={schema=SC.Identity.saveSchema,companions={},factionActors={}}
     else
         local saved=store()
         -- Deliberately reintroduce a stale companion snapshot. The real restore
@@ -68,7 +96,7 @@ local function step()
     if s.done or s.phase=='menu' then return end
     local age=getTimestampMs()-s.at
     if s.phase=='load' and age>12000 then
-        check(SC.Identity.release=='0.27.46' and SCBridge.getProtocol()==SC.Identity.bridgeProtocol and PZOEngine,'final production source and official PZO')
+        check(SC.Identity.release and SCBridge.getProtocol()==SC.Identity.bridgeProtocol and PZOEngine,'production bridge protocol and official PZO')
         if reload then
             local saved=store();local player=getSpecificPlayer(0)
             check(player:getModData().LF_HandoverToken==saved.token,'same successor reopened from native player database')
@@ -87,7 +115,7 @@ local function step()
             check(SC.BaseLife.active() and SC.BaseLife.active().name=='Handover Test Camp','camp remains after death and disk reload')
             finish(true,'production takeover, durable ownership and actual stale-snapshot disk reload passed');return
         end
-        if mode=='dormant' then
+        if mode=='dormant' or loaderLoss then
             local saved=store()
             check(SC.Registry.byId(saved.id)==nil and SC.Persistence.isPending(saved.id),'saved recruit starts genuinely unloaded after disk restart')
             check(SC.Persistence.pendingBootstrap(saved.id)~=nil,'normal persistence owns a valid cold bootstrap')
@@ -169,9 +197,13 @@ local function step()
             local slot=getSpecificPlayer(1);local sq=slot and slot:getCurrentSquare()
             write('pzo-handover-native-state.txt','phase='..tostring(current and current.phase)..'\nowner='..tostring(SC.ViewSession.owner())
                 ..'\nslotSquare='..tostring(sq and sq:getX())..','..tostring(sq and sq:getY())
-                ..'\nrecord='..tostring(SC.Registry.byId(store().id)~=nil)..'\npending='..tostring(pending and pending.status)..':'..tostring(pending and pending.reason)..'\n')
+                ..'\nrecord='..tostring(SC.Registry.byId(store().id)~=nil)..'\npending='..tostring(pending and pending.status)..':'..tostring(pending and pending.reason)
+                ..'\nlostLoader='..tostring(s.lostLoader)..'\nreleaseWait='..tostring(s.releaseWait)..'\n')
         end
         if SC.Handover.current() then assert(age<45000,'takeover pending: '..tostring(SC.Handover.error()));return end
+        if loaderLoss then
+            check(s.lostLoader,'takeover recovered after the selected recruit lost an admitted native loader')
+        end
         local saved=store();local player=getSpecificPlayer(0)
         check(player~=s.original and player~=s.actor and player:isLocalPlayer() and not player:isNpc(),'actual companion became a stock primary player')
         check(player:getDescriptor():getForename()=='Mara','companion identity kept')

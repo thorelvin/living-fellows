@@ -30,7 +30,7 @@ SCBridge.pollHandoverPlayerAdmission=function() end
 SCSplitScreenProbe={releaseForWorldExit=function() F.releases=(F.releases or 0)+1;return true end,
     releaseHandoverView=function() F.releases=(F.releases or 0)+1;return true end,
     flushGlobalModDataForWorldExit=function() F.flushed=(F.flushed or 0)+1;return true end}
-SC.Persistence={save=function() return true end,retainForHandover=function(current)
+SC.Persistence={save=function() return true end,pendingRestoreStatus=function() end,retainForHandover=function(current)
     F.retained=current.id;return true end,restorePulse=function() end,pendingBootstrap=function() end}
 SC.Actor.remove=function(actor) F.removed=actor.id;records[actor.id]=nil;return true end
 local function crew()
@@ -250,6 +250,40 @@ scenario('unloaded',function()
     check(not row.shelterFailures and not row.rejectedShelters,'streaming expiry is not evidence of a bad house')
     R.commands(F.driver,F.player,order)
     check(row.target.buildingId==b.buildingId,'streaming expiry reselects a loaded alternative')
+end)
+scenario('streaming_interruptions',function()
+    local row,a,b,result=context()
+    for _=1,30 do
+        result(true,'shelter_unloaded',1000)
+        result(true,'path_searching',1000)
+    end
+    check(row.target and row.target.buildingId==a.buildingId and row.shelterActiveMs==0,
+        'intermittent streaming does not spend the walking budget')
+    F.shelters={b}
+    result(true,'shelter_unloaded',1000)
+    check(row.target==nil and row.lastShelterReselectReason=='shelter_unloaded_timeout',
+        'one loaded observation between waits cannot renew the streaming allowance')
+    check(not row.shelterFailures and not row.rejectedShelters,'intermittent streaming never bans the house')
+    R.commands(F.driver,F.player,order)
+    check(row.target.buildingId==b.buildingId,'intermittent streaming releases the follower to a loaded house')
+
+    row,a,b,result=context(80)
+    result(true,'shelter_unloaded')
+    result(true,'walking',1000,true)
+    for _=1,35 do result(true,'walking',1000,true) end
+    result(true,'shelter_unloaded',1000)
+    result(true,'shelter_unloaded',28000)
+    check(row.target and row.shelterActiveMs==35000,'loaded walking time does not spend streaming grace')
+    F.driver.x,F.driver.y,F.inside=a.x,a.y,true
+    result(true,'arrived',1000)
+    check(row.phase=='sheltered' and not row.shelterFailures,'an intermittently loaded house can still be reached')
+
+    row,a,b,result=context()
+    result(true,'shelter_unloaded')
+    result(true,'walking',300000,true)
+    result(true,'shelter_unloaded',1000)
+    check(row.target and row.target.buildingId==a.buildingId,
+        'an emergency gap ending with a loaded square cannot exhaust the next streaming wait')
 end)
 scenario('reload',function()
     local row,a,b,result=context(80)

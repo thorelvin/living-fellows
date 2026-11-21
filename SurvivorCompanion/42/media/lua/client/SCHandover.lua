@@ -179,7 +179,8 @@ function H.chooseCompanion(id)
     if not option.loaded then
         local okay,why=SC.HandoverRescue.loadCandidate(id)
         if not okay then return fail(why) end
-        active.phase,active.loadingId='loading',id
+        active.phase,active.loadingId,active.loadAttempts,active.retryLoadAt='loading',id,1,nil
+        active.reason,lastError=nil,nil
         return true
     end
     local record=SC.Registry.byId(id);local actor=record and record.actor
@@ -328,13 +329,53 @@ function H.reconcile()
     return true
 end
 
+local function returnToChoice(reason)
+    active.phase,active.loadingId,active.loadAttempts,active.retryLoadAt='choosing',nil,nil,nil
+    return fail(reason)
+end
+
+local function pollColdChoice(noticeId,notice)
+    local id,now=active.loadingId,getTimestampMs()
+    if noticeId==id then
+        if notice=='loading' then return end
+        if notice=='quarantined' then return returnToChoice('This survivor could not be restored. Choose another survivor.') end
+        if notice=='occupied' then return returnToChoice('Another survivor is using the view. Choose again.') end
+        if notice=='lost' then active.retryLoadAt=now+1000 end
+    end
+    if active.retryLoadAt and now>=active.retryLoadAt then
+        if SC.ViewSession.owner() or getSpecificPlayer(1) then
+            return returnToChoice('Another survivor is using the view. Choose again.')
+        end
+        -- The lost view may already have streamed the square. Give ordinary
+        -- persistence the chance to complete its existing spawn before reloading.
+        SC.Persistence.restorePulse(primary())
+        if not SC.Registry.byId(id) then
+            local status=SC.Persistence.pendingRestoreStatus(id)
+            if status=='spawn_pending' then active.retryLoadAt=now+250;return end
+            if status=='quarantined' or active.loadAttempts>=3 then
+                return returnToChoice('This survivor could not be restored. Choose again or use ordinary respawn.')
+            end
+            active.loadAttempts=active.loadAttempts+1
+            active.retryLoadAt=now+5000
+            if SC.HandoverRescue.loadCandidate(id) then active.retryLoadAt=nil end
+            return
+        end
+    end
+    if SC.Registry.byId(id) then
+        active.phase,active.loadingId,active.loadAttempts,active.retryLoadAt='choosing',nil,nil,nil
+        local okay,why=H.chooseCompanion(id)
+        if not okay then return fail(why) end
+    end
+end
+
 function H.pulse()
     if not active then return end
     setGameSpeed(0)
     local store=assert(journal());local receipt=store.pending
-    if SC.HandoverRescue then SC.HandoverRescue.pollPreparation() end
+    local noticeId,notice
+    if SC.HandoverRescue then noticeId,notice=SC.HandoverRescue.pollPreparation() end
     if active.phase=='loading' then
-        if SC.Registry.byId(active.loadingId) then local id=active.loadingId;active.phase='choosing';H.chooseCompanion(id) end
+        pollColdChoice(noticeId,notice)
     elseif active.phase=='loading-base' then
         local point=H.basePoint()
         if point and not point.unloaded then active.phase='choosing';H.startNew(false) end

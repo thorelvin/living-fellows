@@ -4680,6 +4680,15 @@ function persistence.isPending(id)
     return type(id) == "string" and pending[id] ~= nil
 end
 
+function persistence.pendingRestoreStatus(id)
+    local entry = pending[id]
+    if entry then
+        if entry.spawnTicket ~= nil then return "spawn_pending" end
+        return entry.status or "pending"
+    end
+    if quarantined.companions[id] or quarantined.factionActors[id] then return "quarantined" end
+end
+
 -- A pickup may restore only a declared camp candidate under its exact owned
 -- secondary map. The ordinary primary-only restore rule stays the default.
 function persistence.pickupDepartureAllowed(id, at)

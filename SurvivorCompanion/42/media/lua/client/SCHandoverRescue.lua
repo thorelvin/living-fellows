@@ -3,6 +3,7 @@
 local SC=SurvivorCompanion
 local R={} SC.HandoverRescue=R
 local nextPulse,loadingId,bootstrap,detachedUI=0,nil,nil,nil
+local foreignSlot
 local shelterAttempts=setmetatable({},{__mode='k'})
 local function store() return ModData.getOrCreate(SC.Handover.KEY) end
 local function alive(actor) return actor and not SC.GameplayUtil.isDead(actor) end
@@ -12,9 +13,14 @@ local function flush()
     local okay,why=SC.Persistence.save(primary());if not okay then return false,why end
     return SCSplitScreenProbe.flushGlobalModDataForWorldExit()
 end
+local function foreignView()
+    if foreignSlot and (SC.ViewSession.owner()~='handover' or getSpecificPlayer(1)~=foreignSlot) then foreignSlot=nil end
+    return foreignSlot~=nil
+end
 local function releaseView(worldExit)
     if SC.ViewSession.owner()~='handover' then return true end
     local actor=getSpecificPlayer(1)
+    if foreignView() or loadingId and actor and actor~=bootstrap then return false,'Another survivor is using the view.' end
     if actor and destroyPlayerData and detachedUI~=actor then destroyPlayerData(actor);detachedUI=actor end
     local released
     if worldExit then released=SCSplitScreenProbe.releaseForWorldExit()
@@ -109,8 +115,13 @@ function R.detachCandidate(id)
 end
 function R.restoreDetached(value) store().suspended=value end
 function R.prepareChoice(selected)
+    if foreignView() then
+        if selected and SC.Registry.idOf(foreignSlot)==selected then return false,'Another survivor is using the view.' end
+        return true
+    end
     local ready,why=suspendRemote(selected);if not ready then return false,why end
     local leader=getSpecificPlayer(1)
+    if loadingId and leader and leader~=bootstrap then return false,'Another survivor is using the view.' end
     if SC.ViewSession.owner()=='handover' and leader and SC.Registry.idOf(leader)==selected then
         local replacement
         for id in pairs(store().crew or {}) do local current=record(id)
@@ -131,6 +142,7 @@ function R.prepareChoice(selected)
     return true
 end
 function R.loadCandidate(id)
+    if foreignView() then return false,'Another survivor is using the view.' end
     local candidate=SC.Persistence.pendingBootstrap(id)
     if not candidate then return false,'This saved companion has an unresolved transfer or vehicle state.' end
     local ready,why=suspendRemote();if not ready then return false,why end
@@ -141,25 +153,6 @@ function R.loadCandidate(id)
     local loader,reason=SC.ViewSession.loadHandoverArea(candidate)
     if not loader then return false,reason end
     loadingId,bootstrap=id,loader;return true
-end
-function R.pollPreparation()
-    SCBridge.pollHandoverPlayerAdmission()
-    -- A loader can lose its native view during cleanup. Do not keep waiting
-    -- on its stale Lua ticket after both ownership and slot have
-    -- gone; the bounded rescue pulse may request the saved area again.
-    if loadingId and SC.ViewSession.owner()~='handover' and getSpecificPlayer(1)~=bootstrap then
-        loadingId,bootstrap=nil,nil
-        return
-    end
-    if loadingId then
-        SC.Persistence.restorePulse(primary())
-        local current=record(loadingId)
-        if current and alive(current.actor) and getSpecificPlayer(1)==bootstrap then
-            SCSplitScreenProbe.replaceColdProbeWithRestoredLeader(current.actor,SC.ViewSession.slotSqlId() or -1)
-            SC.ViewSession.adopt('handover',current.actor,SCSplitScreenProbe.leaderSqlId())
-            loadingId,bootstrap=nil,nil
-        end
-    end
 end
 local function near(actor,player)
     local x,y,z=SC.GameplayUtil.position(actor);local px,py,pz=SC.GameplayUtil.position(player)
@@ -232,6 +225,9 @@ local function pathNodes(value)
     return math.min(80,math.max(1,math.ceil(count)))
 end
 local function attemptLimit(target) return 60000+1500*pathNodes(target.pathNodes) end
+local function unloadedTime(attempt,now)
+    return (attempt.unloadedMs or 0)+math.max(0,now-attempt.unloadedSince)
+end
 local function atShelter(actor,target,x,y,z)
     local square=actor:getCurrentSquare()
     return x and square and square:getRoom() and math.floor(z)==target.z
@@ -263,10 +259,17 @@ function R.navigationResult(actor,target,handled,reason)
             attempt.lastAt=nil
             if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor,'handover_shelter_wait_loaded') end
         end
-        if now-attempt.unloadedSince>=30000 then releaseShelter(actor,row,'shelter_unloaded_timeout',now,false) end
+        attempt.lastUnloadedAt=now
+        if unloadedTime(attempt,now)>=30000 then releaseShelter(actor,row,'shelter_unloaded_timeout',now,false) end
         return
     end
     if attempt.unloadedSince then
+        -- A square at a streaming boundary can disappear again on the next
+        -- decision. Keep earlier waits for this target, excluding loaded time.
+        -- After a long emergency gap the chunk may already have loaded. Only
+        -- charge one service slice past its last confirmed absence.
+        local observedUntil=math.min(now,attempt.lastUnloadedAt+1000)
+        attempt.unloadedMs=unloadedTime(attempt,observedUntil)
         attempt.unloadedSince,attempt.lastAt=nil,nil
         attempt.x,attempt.y,attempt.z,attempt.progressAt=x,y,z,now
     end
@@ -312,6 +315,7 @@ function R.commands(actor,player,commands)
     return commands
 end
 local function parkCrew(world,player)
+    if foreignView() then return false end
     local dormant={}
     for id in pairs(world.crew or {}) do
         local current=record(id)
@@ -327,6 +331,44 @@ local function parkCrew(world,player)
         local removed=SC.Actor.remove(actor);if not removed then return false end
     end
     return #dormant==0 or flush()
+end
+function R.pollPreparation()
+    SCBridge.pollHandoverPlayerAdmission()
+    if not loadingId then return end
+    local id,slot=loadingId,getSpecificPlayer(1)
+    if SC.ViewSession.owner()~='handover' then
+        loadingId,bootstrap=nil,nil
+        return id,'lost'
+    end
+    -- A pending native join can leave slot one empty for several frames.
+    -- A different occupant is never ours to replace or release.
+    if slot and slot~=bootstrap then
+        local current=record(id)
+        if current and current.actor==slot and alive(slot)
+            and SC.ViewSession.adopt('handover',slot,SCSplitScreenProbe.leaderSqlId()) then
+            loadingId,bootstrap=nil,nil
+            return id,'ready'
+        end
+        foreignSlot,loadingId,bootstrap=slot,nil,nil
+        return id,'occupied'
+    end
+    SC.Persistence.restorePulse(primary())
+    local current=record(id)
+    if current and alive(current.actor) and slot==bootstrap then
+        if SCSplitScreenProbe.replaceColdProbeWithRestoredLeader(current.actor,SC.ViewSession.slotSqlId() or -1)
+            and SC.ViewSession.adopt('handover',current.actor,SCSplitScreenProbe.leaderSqlId()) then
+            loadingId,bootstrap=nil,nil
+            return id,'ready'
+        end
+    elseif SC.Persistence.pendingRestoreStatus(id)=='quarantined' and slot==bootstrap then
+        -- Neighbours may already have restored into this map. Retain them
+        -- before releasing the exact loader. Keep the quarantined save for Retry.
+        if parkCrew(store(),primary()) then
+            loadingId,bootstrap=nil,nil
+            return id,'quarantined'
+        end
+    end
+    return id,'loading'
 end
 function R.pulse()
     local player=primary();if not alive(player) or SC.Handover.isPaused() then return end
@@ -352,7 +394,7 @@ function R.pulse()
     local any,allSheltered,missing,loadedSheltered=false,true,false,true
     for id,row in pairs(world.crew or {}) do
         any=true
-        if row.phase~='sheltered' then
+        if row.phase~='sheltered' and (record(id) or SC.Persistence.pendingRestoreStatus(id)~='quarantined') then
             allSheltered=false
             if record(id) then loadedSheltered=false else missing=true end
         end
@@ -362,7 +404,7 @@ function R.pulse()
     if missing and loadedSheltered and not loadingId and SC.ViewSession.owner()=='handover' then
         parkCrew(world,player);return
     end
-    if not any or allSheltered then
+    if (not any or allSheltered) and not loadingId then
         if SC.ViewSession.owner()=='handover' then
             if not parkCrew(world,player) then return end
         end
@@ -377,7 +419,7 @@ function R.suspends(owner)
     local world=store();return world.suspended~=nil and world.suspended.owner==owner
 end
 function R.reset()
-    nextPulse,loadingId,bootstrap,detachedUI=0,nil,nil,nil
+    nextPulse,loadingId,bootstrap,detachedUI,foreignSlot=0,nil,nil,nil,nil
     shelterAttempts=setmetatable({},{__mode='k'})
 end
 return R

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Actual camp creator, cancellation, surviving crew and native radio rescue.
 local SC=SurvivorCompanion
-local s={phase='menu',checks=0,routeReasons={}}
+local s={phase='menu',checks=0,routeReasons={},loadedCandidates={}}
 local function write(k,v) local w=assert(getFileWriter(k,true,false));w:write(v);w:close() end
 local rescuePulse=SC.HandoverRescue.pulse
 SC.HandoverRescue.pulse=function(...)
@@ -9,9 +9,10 @@ SC.HandoverRescue.pulse=function(...)
     return rescuePulse(...)
 end
 local loadCandidate=SC.HandoverRescue.loadCandidate
-SC.HandoverRescue.loadCandidate=function(...)
-    local okay,why=loadCandidate(...)
+SC.HandoverRescue.loadCandidate=function(id,...)
+    local okay,why=loadCandidate(id,...)
     s.loadCalls,s.loadReason=(s.loadCalls or 0)+1,tostring(why)
+    if okay==true then s.loadedCandidates[id]=(s.loadedCandidates[id] or 0)+1 end
     return okay,why
 end
 local nativeResult=SC.HandoverRescue.navigationResult
@@ -125,14 +126,18 @@ local function onGameStart()
     setGameSpeed(1)
     if seeking and reload then
         local saved=store();local row=ModData.getOrCreate(SC.Handover.KEY).crew[saved.id]
-        check(row and row.phase=='seeking_shelter' and row.target.buildingId==saved.firstShelter,
+        local anchor=saved.seekingTarget
+        check(row and row.phase=='seeking_shelter' and row.target and anchor
+            and row.target.buildingId==saved.firstShelter and row.target.buildingId==anchor.buildingId
+            and row.target.x==anchor.x and row.target.y==anchor.y and row.target.z==anchor.z,
             'native restart begins with the exact saved seeking shelter')
         check(row.target.pathNodes==saved.seekingNodes and row.shelterActiveMs==saved.seekingMs,
             'native restart preserves route length and consumed service budget')
-        s.seekingRestored=true
         local q=getCell():getGridSquare(row.target.x,row.target.y,row.target.z)
         write('pzo-handover-seeking.txt','targetInitiallyLoaded='..tostring(q~=nil)..'\nphase='..row.phase
             ..'\npathNodes='..tostring(row.target.pathNodes)..'\nactiveMs='..tostring(row.shelterActiveMs)..'\n')
+        check(q==nil,'cold restart begins with the saved shelter square unloaded')
+        s.seekingRestored=true
     end
     phase('load')
 end
@@ -169,11 +174,13 @@ local function step()
                         ..'\npending='..tostring(pending.status)..':'..tostring(pending.reason)
                         ..'\nloaderCandidate='..tostring(candidate~=nil)..'\nerror='..tostring(SC.Handover.error())
                         ..'\npulses='..tostring(s.rescuePulses)..'\nloadCalls='..tostring(s.loadCalls)..'\nloadReason='..tostring(s.loadReason)
+                        ..'\nsavedCompanionLoads='..tostring(s.loadedCandidates[saved.id] or 0)
                         ..'\npaused='..tostring(SC.Handover.isPaused())..'\nplayerDead='..tostring(SC.GameplayUtil.isDead(player))
                         ..'\nrenderHook='..tostring(SC.Handover._render~=nil)..'\n')
                 end
                 if not record then assert(age<45000,'saved seeking companion is still streaming');return end
                 check(s.seekingRestored,'seeking row was verified before normal simulation resumed')
+                check((s.loadedCandidates[saved.id] or 0)>0,'Handover successfully requested the saved companion area during cold reload')
                 s.actor,s.firstShelter,s.lockedDoors=record.actor,saved.firstShelter,{}
                 local first=assert(SC.ExpeditionPlaces.atPoint(saved.seekingTarget))
                 for x=first.bounds.x-1,first.bounds.x2+1 do for y=first.bounds.y-1,first.bounds.y2+1 do
@@ -286,10 +293,7 @@ local function step()
             if age<5000 then return end
             check(row and row.phase=='seeking_shelter' and row.target.buildingId==s.firstShelter,
                 'checkpoint is taken while the original shelter route is still seeking')
-            local saved=store()
-            saved.seekingTarget={x=row.target.x,y=row.target.y,z=row.target.z,buildingId=row.target.buildingId}
-            saved.seekingNodes,saved.seekingMs=row.target.pathNodes,row.shelterActiveMs
-            check(saved.seekingNodes and saved.seekingMs and saved.seekingMs>0,'seeking checkpoint contains live route metadata and consumed budget')
+            check(row.target.pathNodes and row.shelterActiveMs and row.shelterActiveMs>0,'seeking checkpoint contains live route metadata and consumed budget')
             phase('settle');return
         end
         if not store().radioHelp or not store().radioShelter then assert(age<120000,'native shelter/radio did not finish');return end
@@ -309,8 +313,11 @@ local function step()
         if seeking and not reload then
             setGameSpeed(0)
             local row=ModData.getOrCreate(SC.Handover.KEY).crew[store().id]
-            check(row and row.phase=='seeking_shelter','checkpoint still seeks shelter at the actual save boundary')
-            store().seekingNodes,store().seekingMs=row.target.pathNodes,row.shelterActiveMs
+            check(row and row.phase=='seeking_shelter' and row.target and row.target.buildingId==s.firstShelter,
+                'checkpoint still seeks its original shelter at the actual save boundary')
+            local saved=store()
+            saved.seekingTarget={x=row.target.x,y=row.target.y,z=row.target.z,buildingId=row.target.buildingId}
+            saved.seekingNodes,saved.seekingMs=row.target.pathNodes,row.shelterActiveMs
         end
         local saved=store();local record=SC.Registry.byId(saved.id)
         if not rescue then

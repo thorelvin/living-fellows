@@ -105,4 +105,23 @@ for _,reason in ipairs({
     check(P.save({}) == true and same(store.document.companions[original.id], original),
         'quarantine still preserves the original record in negative controls')
 end
+-- The rescue loader asks about one recruit while ordinary persistence retains
+-- the native spawn ticket. Both states make pendingBootstrap unavailable.
+check(P.reset()==true,'reset before native spawn ticket')
+local ticket,admitted={},false
+SC.Actor.beginSpawn=function() return ticket end
+SC.Actor.pollSpawn=function(value)
+    check(value==ticket,'poll the exact admitted native spawn')
+    if not admitted then admitted=true;return nil,'spawn_pending' end
+    return nil,'native actor inventory could not be restored'
+end
+SC_TEST_SET_WORLD_STORE({document={schema=SC.Identity.saveSchema,
+    companions={[original.id]=original},factionActors={}}})
+local imported=P.restore({})
+local observed=P.pendingRestoreStatus(original.id)
+check(imported and observed=='spawn_pending' and not P.pendingBootstrap(original.id),
+    'one pending spawn can be distinguished from a terminal restore: '..tostring(observed))
+P.restorePulse({})
+check(P.pendingRestoreStatus(original.id)=='quarantined' and not P.pendingBootstrap(original.id),
+    'terminal restore is visible to rescue without copying the full queue')
 print('PERSISTENCE_BOOTSTRAP_KAHLUA_PASS checks=' .. checks)

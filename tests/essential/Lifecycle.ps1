@@ -16,6 +16,12 @@
     (Join-Path $Client 'SCHandover.lua'),
     (Join-Path $Core 'handover_harness.lua')
 ) }
+@{ Name = 'handover-cold-loader-recovery'; Files = @(
+    (Join-Path $Core 'handover_fixture.lua'),
+    (Join-Path $Client 'SCHandover.lua'),
+    (Join-Path $Client 'SCHandoverRescue.lua'),
+    (Join-Path $Core 'handover_loader_recovery_harness.lua')
+) }
 @{ Name = 'handover-shelter-radio'; Files = @(
     (Join-Path $Core 'pickup_radio_fixture.lua'),
     (Join-Path $Client 'SCControlUtil.lua'),
