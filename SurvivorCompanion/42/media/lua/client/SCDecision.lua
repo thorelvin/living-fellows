@@ -1984,11 +1984,17 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
     if commands.order == "stay" or commands.order == "guard" then
         if commands.handoverShelter then
             local shelter=anchorSquare(commands)
-            if not shelter or not SC.Navigation then return false,"shelter_unavailable" end
-            return SC.Navigation.request(actor,shelter,"walk",{
-                action="handover_shelter",snapshot=snapshot,
-                arrivalDistance=0.35,requireSameSquare=true,
-            })
+            local handled,reason=false,"shelter_unavailable"
+            if shelter and SC.Navigation then
+                handled,reason=SC.Navigation.request(actor,shelter,"walk",{
+                    action="handover_shelter",snapshot=snapshot,
+                    arrivalDistance=0.35,requireSameSquare=true,
+                })
+            end
+            if SC.HandoverRescue and SC.HandoverRescue.navigationResult then
+                SC.HandoverRescue.navigationResult(actor,commands.anchor,handled,reason)
+            end
+            return handled,reason
         end
         if SC.StairCombat then
             local held, why = SC.StairCombat.hold(actor, rootRuntime, snapshot, utility.nowMs())

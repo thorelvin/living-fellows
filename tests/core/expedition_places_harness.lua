@@ -133,6 +133,35 @@ check(shelter ~= nil and shelterReason == nil
         and shelter.x >= 100 and shelter.x <= 110
         and shelter.buildingId == nearby[4].id,
     "emergency refuge selects a native reachable square inside a house")
+local shelterNearby=Places.nearby
+local firstHouse=nearby[4]
+local secondHouse={id='alternate-house',kind='residence',groundFloor=true,
+    bounds={x=120,y=20,x2=130,y2=30}}
+Places.nearby=function() return {firstHouse,secondHouse} end
+fixture.cell.getGridSquare=function(self,x,y,z)
+    local square=originalShelterSquare(self,x,y,z)
+    if (x>=100 and x<=110 or x>=120 and x<=130) and y>=20 and y<=30 then
+        square.getRoom=function() return {id='house-room'} end
+    end
+    return square
+end
+local firstHouseChecks,secondHouseChecks=0,0
+SurvivorCompanion.Navigation.findPath=function(source,destination)
+    if destination:getX()<120 then firstHouseChecks=firstHouseChecks+1
+    else secondHouseChecks=secondHouseChecks+1 end
+    return {source,destination}
+end
+local excluded={[firstHouse.id]=true}
+shelter=Places.nearestLoadedShelter(shelterActor,nil,excluded)
+check(shelter and shelter.buildingId==secondHouse.id and firstHouseChecks==0 and secondHouseChecks==1,
+    'failed house is excluded before path admission so another indoor tile in it cannot win again')
+check(excluded[firstHouse.id] and not excluded[secondHouse.id],
+    'shelter selection does not mutate the caller rejection set')
+excluded[secondHouse.id]=true
+shelter,shelterReason=Places.nearestLoadedShelter(shelterActor,nil,excluded)
+check(not shelter and shelterReason=='shelter_no_loaded_path',
+    'all failed houses yield no shelter rather than cycling their interior tiles')
+Places.nearby=shelterNearby
 SurvivorCompanion.Navigation.findPath = function() return nil end
 shelter, shelterReason = Places.nearestLoadedShelter(shelterActor)
 check(shelter == nil and shelterReason == "shelter_no_loaded_path",

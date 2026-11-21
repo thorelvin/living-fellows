@@ -596,7 +596,7 @@ end
 
 -- Emergency refuge must be an actual reachable interior square. A map house
 -- label or an exterior doorstep alone is not shelter from a blocked road.
-function Places.nearestLoadedShelter(actor, hazard)
+function Places.nearestLoadedShelter(actor, hazard, excluded)
     local source = actor and actor:getCurrentSquare()
     local x, y = SC.GameplayUtil.position(actor)
     local world = type(getWorld) == "function" and getWorld() or nil
@@ -610,7 +610,8 @@ function Places.nearestLoadedShelter(actor, hazard)
     if places == nil then return nil, reason end
     local checked = 0
     for _, place in ipairs(places) do
-        if place.kind == "residence" and place.groundFloor == true then
+        if place.kind == "residence" and place.groundFloor == true
+            and not (excluded and excluded[place.id]) then
             checked = checked + 1
             if checked > 8 then break end
             local options = {}
@@ -623,6 +624,7 @@ function Places.nearestLoadedShelter(actor, hazard)
                     local square = cell:getGridSquare(sx, sy, 0)
                     if square and square:getRoom() ~= nil
                         and SC.GameplayUtil.isSquareFree(square)
+                        and not (excluded and excluded[sx..":"..sy..":0"])
                         and (hazard == nil or math.sqrt((sx - hazard.x)^2
                             + (sy - hazard.y)^2) > hazard.radius + 3) then
                         options[#options + 1] = { square = square,

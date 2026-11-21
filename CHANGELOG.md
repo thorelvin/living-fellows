@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.27.48 - Rescue shelter retry
+
+- Stranded followers choose another nearby shelter after a locked entrance,
+  failed route or sustained lack of movement. Failed houses are temporarily
+  excluded; after eight failures the companion holds and retries after cooldown.
+- Preserve Follow, emergency control and real radio reception. Shelter arrival
+  is reported only after the companion physically reaches an interior.
+- Cover locked-house fallback, saved targets, late results, combat interruptions
+  and bounded retries in regression checks and native rescue/reload acceptance.
+- Bridge protocol remains `42.22-isocompanion-35`; world save schema remains 3.
+
 ## 0.27.47 - Expedition departure cargo recovery
 
 - Prevent a wood, fishing or shared expedition departure from waiting forever

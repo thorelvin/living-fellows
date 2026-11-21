@@ -3,6 +3,7 @@
 local SC=SurvivorCompanion
 local R={} SC.HandoverRescue=R
 local nextPulse,loadingId,bootstrap,detachedUI=0,nil,nil,nil
+local shelterAttempts=setmetatable({},{__mode='k'})
 local function store() return ModData.getOrCreate(SC.Handover.KEY) end
 local function alive(actor) return actor and not SC.GameplayUtil.isDead(actor) end
 local function primary() return getSpecificPlayer(0) end
@@ -188,6 +189,55 @@ local function report(actor,row,now)
         row[kind..'Reported']=true;row.reportedX,row.reportedY=math.floor(x),math.floor(y);primary():setHaloNote(text)
     end
 end
+local function shelterKey(point)
+    return point and point.x..':'..point.y..':'..point.z
+end
+local function rejectedShelters(row,now)
+    local excluded,count={},0
+    for key,untilAt in pairs(row.rejectedShelters or {}) do
+        if type(untilAt)=='number' and now<untilAt then excluded[key]=true;count=count+1
+        else row.rejectedShelters[key]=nil end
+    end
+    return excluded,count
+end
+local function rejectShelter(actor,row,reason,now)
+    local target=row.target
+    local building=target.buildingId
+    if not building and SC.ExpeditionPlaces.atPoint then
+        local place=SC.ExpeditionPlaces.atPoint(target);building=place and place.id
+    end
+    row.rejectedShelters=row.rejectedShelters or {}
+    row.rejectedShelters[building or shelterKey(target)]=now+300000
+    row.shelterFailures=(row.shelterFailures or 0)+1
+    row.lastShelterFailure=reason
+    row.target,row.phase,row.nextShelterAt=nil,'holding',now
+    shelterAttempts[actor]=nil
+    if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor,'handover_shelter_reselect') end
+end
+-- Only the tactical shelter controller reports these results. Combat, needs
+-- and other routes must neither reject a shelter nor consume its stall budget.
+function R.navigationResult(actor,target,handled,reason)
+    local world=store();local row=world.crew and world.crew[SC.Registry.idOf(actor)]
+    if not row or row.phase~='seeking_shelter' or not target
+        or shelterKey(row.target)~=shelterKey(target) then return end
+    local now=getTimestampMs()
+    if handled~=true and (reason=='path_blocked:door_locked' or reason=='native_path_failed'
+        or reason=='native_path_timeout' or reason=='shelter_unavailable'
+        or type(reason)=='string' and (reason:find('^recovery_exhausted:') or reason:find('^path_blocked:static'))) then
+        rejectShelter(actor,row,reason,now);return
+    end
+    local x,y,z=SC.GameplayUtil.position(actor)
+    if not x then return end
+    local attempt=shelterAttempts[actor]
+    if not attempt or attempt.row~=row or attempt.target~=row.target or now-attempt.lastAt>3000 then
+        attempt={row=row,target=row.target,x=x,y=y,z=z,progressAt=now}
+        shelterAttempts[actor]=attempt
+    elseif math.floor(z)~=math.floor(attempt.z) or (x-attempt.x)^2+(y-attempt.y)^2>=.25 then
+        attempt.x,attempt.y,attempt.z,attempt.progressAt=x,y,z,now
+    end
+    attempt.lastAt=now
+    if now-attempt.progressAt>=20000 then rejectShelter(actor,row,'shelter_no_progress',now) end
+end
 -- Modify the decision's copy; preserve standing Follow and normal emergency control.
 function R.commands(actor,player,commands)
     local id=SC.Registry.idOf(actor);local world=store();local row=world.crew and world.crew[id]
@@ -196,8 +246,10 @@ function R.commands(actor,player,commands)
     if near(actor,player) then world.crew[id]=nil;return commands end
     if (not row.target or row.phase=='holding') and getTimestampMs()>=(row.nextShelterAt or 0) then
         row.nextShelterAt=getTimestampMs()+30000
-        local point=SC.ExpeditionPlaces.nearestLoadedShelter(actor)
-        if point then row.target={x=point.x,y=point.y,z=point.z};row.phase='seeking_shelter'
+        local excluded,count=rejectedShelters(row,getTimestampMs())
+        local point
+        if count<8 then point=SC.ExpeditionPlaces.nearestLoadedShelter(actor,nil,excluded) end
+        if point then row.target={x=point.x,y=point.y,z=point.z,buildingId=point.buildingId};row.phase='seeking_shelter'
         else local x,y,z=SC.GameplayUtil.position(actor);row.target={x=math.floor(x),y=math.floor(y),z=math.floor(z)};row.phase='holding' end
     end
     if row.target then
@@ -275,5 +327,8 @@ function R.prepareReset() return releaseView(true) end
 function R.suspends(owner)
     local world=store();return world.suspended~=nil and world.suspended.owner==owner
 end
-function R.reset() nextPulse,loadingId,bootstrap,detachedUI=0,nil,nil,nil end
+function R.reset()
+    nextPulse,loadingId,bootstrap,detachedUI=0,nil,nil,nil
+    shelterAttempts=setmetatable({},{__mode='k'})
+end
 return R

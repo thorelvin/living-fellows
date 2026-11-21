@@ -1,5 +1,16 @@
 # SPDX-License-Identifier: MIT
 # These are ordered source lists, consumed by the shared fresh-environment runner.
+@{ Name = 'shelter-candidate-exclusions'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $Core 'expedition_places_fixture.lua'),
+    (Join-Path $Client 'SCExpeditionPlaces.lua'),
+    (Join-Path $Core 'expedition_places_harness.lua')
+) }
+
 @{ Name = 'handover-recovery'; Files = @(
     (Join-Path $Core 'handover_fixture.lua'),
     (Join-Path $Client 'SCHandover.lua'),

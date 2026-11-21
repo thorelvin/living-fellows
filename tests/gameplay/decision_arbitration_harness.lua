@@ -807,5 +807,19 @@ check(entering,'shelter entry stays eligible even inside the ordinary Stay dista
 check(D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
     and finalIntent.action=='handover_shelter' and finalIntent.arrivalDistance==.35 and finalIntent.requireSameSquare==true,
     'a stranded follower must enter the indoor tile instead of stopping outside the Stay anchor')
+local priorRescue,shelterResults=SC.HandoverRescue,0
+SC.HandoverRescue={navigationResult=function(actor,point,handled,reason)
+    shelterResults=shelterResults+1
+    check(actor==finalActor and point==shelterCommand.anchor and handled==false
+        and reason=='path_blocked:door_locked','rescue receives the exact failed actor, anchor and navigation outcome')
+end}
+SC.Navigation.request=function() return false,'path_blocked:door_locked' end
+local accepted,reason=D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
+check(not accepted and reason=='path_blocked:door_locked' and shelterResults==1,
+    'tactical shelter movement reports failure to rescue without changing its returned result')
+shelterCommand.handoverShelter=false
+D._doTacticalForTests(finalActor,player,{},shelterCommand,quiet(),{})
+check(shelterResults==1,'ordinary Stay routes never reject a rescue shelter')
+SC.HandoverRescue=priorRescue
 SC.Navigation=priorNavigation
 SC_TEST_REPORT = "DECISION_ARBITRATION_PASS checks=" .. checks .. " kinds=" .. #rows

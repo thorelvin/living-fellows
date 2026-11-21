@@ -42,6 +42,42 @@ local function spawn()
     s.ticket=assert(SC.Actor.beginSpawn(assert(spawnSquare()),{recruited=true,identity={forename='Mara',surname='Camp',gender='woman',outfit='Generic01'}}))
     phase('spawn')
 end
+local function shelterDoors(place,locked)
+    local count=0
+    for x=place.bounds.x-1,place.bounds.x2+1 do for y=place.bounds.y-1,place.bounds.y2+1 do
+        local square=getCell():getGridSquare(x,y,0)
+        local objects=square and square:getObjects()
+        for i=0,objects and objects:size()-1 or -1 do local object=objects:get(i)
+            if instanceof(object,'IsoDoor') then
+                if locked and object:IsOpen() then object:ToggleDoorSilent() end
+                object:setLocked(locked);object:setLockedByKey(locked)
+                if not locked and not object:IsOpen() then object:ToggleDoorSilent() end
+                if locked then
+                    check(object:isLocked() and not object:IsOpen(),'initial shelter entrance is physically locked and closed')
+                    s.lockedDoors[#s.lockedDoors+1]=object
+                end
+                count=count+1
+            end
+        end
+    end end
+    return count
+end
+local function blockFirstShelter(row)
+    if s.lockedDoors then return end
+    SC.HandoverRescue.commands(s.actor,getSpecificPlayer(0),SC.Commands.peek(s.actor))
+    check(row and row.target and row.phase=='seeking_shelter','normal rescue selected its first shelter')
+    local first=assert(SC.ExpeditionPlaces.atPoint(row.target));s.firstShelter=first.id;s.lockedDoors={}
+    check(shelterDoors(first,true)>0,'first selected shelter has a real locked door')
+    local x,y=SC.GameplayUtil.position(s.actor)
+    local places=assert(SC.ExpeditionPlaces.nearby(math.floor(x),math.floor(y),40,64,true))
+    local alternatives=0
+    for _,place in ipairs(places) do
+        if place.id~=first.id and place.kind=='residence' and place.groundFloor
+            and shelterDoors(place,false)>0 then alternatives=alternatives+1 end
+    end
+    check(alternatives>0,'a different nearby native residence has open entrances for fallback')
+    store().firstShelter=first.id
+end
 Events.OnInitGlobalModData.Add(function()
     if not reload then ModData.getOrCreate(SC.Identity.worldSaveKey).document={schema=SC.Identity.saveSchema,companions={},factionActors={}} end
     if reload then
@@ -72,7 +108,16 @@ local function step()
             check(SC.BaseLife.active().name=='Handover New Camp' and SC.BaseLife.isInside(player),'fresh survivor reopens at the original camp')
             check(s.persistedBonds,'exact saved recruitment and bonds survive native restart')
             check(not SC.Handover.retired(saved.id),'remaining companion was not consumed')
-            if rescue then check(saved.radioHelp and saved.radioShelter,'real radio and shelter outcomes survive restart') end
+            if rescue then
+                check(saved.radioHelp and saved.radioShelter,'real radio and shelter outcomes survive restart')
+                check(saved.rescueRetargeted and saved.firstShelter~=saved.finalShelter,
+                    'verified locked-house reselection survives native disk restart')
+                local rescueRow=ModData.getOrCreate(SC.Handover.KEY).crew[saved.id]
+                check(rescueRow and rescueRow.phase=='sheltered'
+                    and rescueRow.target.buildingId==saved.finalShelter
+                    and rescueRow.rejectedShelters[saved.firstShelter],
+                    'production rescue target and rejected building survive the native disk restart')
+            end
             finish(true,'new survivor, camp, companions and native disk reload passed');return
         end
         check(SC.BaseLife.create(player:getSquare(),'Handover New Camp')==true,'camp established')
@@ -144,6 +189,7 @@ local function step()
         if rescue then phase('rescue') else phase('settle') end
     elseif s.phase=='rescue' then
         local row=ModData.getOrCreate(SC.Handover.KEY).crew[store().id]
+        blockFirstShelter(row)
         local report=SC.HandoverRescue.lastReport or {};local attempt=SC.PickupRadio.lastAttempt or {};local receive=SC.PickupRadio.lastReception or {}
         write('pzo-handover-radio.txt','source='..tostring(report.source)..',target='..tostring(report.target)..',reason='..tostring(report.reason)
             ..'\nattempt='..tostring(attempt.called)..','..tostring(attempt.accepted)..','..tostring(attempt.received)
@@ -152,11 +198,22 @@ local function step()
         if row then
             if row.helpReported then store().radioHelp=true end
             if row.shelterReported then store().radioShelter=true end
-            write('pzo-handover-rescue.txt','phase='..tostring(row.phase)..'\nhelp='..tostring(row.helpReported)..'\nshelter='..tostring(row.shelterReported)..'\nx='..s.actor:getX()..'\ny='..s.actor:getY()..'\ntarget='..tostring(row.target and row.target.x)..','..tostring(row.target and row.target.y)..'\n')
+            write('pzo-handover-rescue.txt','phase='..tostring(row.phase)..'\nhelp='..tostring(row.helpReported)..'\nshelter='..tostring(row.shelterReported)..'\nx='..s.actor:getX()..'\ny='..s.actor:getY()..'\ntarget='..tostring(row.target and row.target.x)..','..tostring(row.target and row.target.y)
+                ..'\nfirstBuilding='..tostring(s.firstShelter)..'\ncurrentBuilding='..tostring(row.target and row.target.buildingId)
+                ..'\nfailures='..tostring(row.shelterFailures)..'\nlastFailure='..tostring(row.lastShelterFailure)..'\n')
         end
         if not store().radioHelp or not store().radioShelter then assert(age<120000,'native shelter/radio did not finish');return end
         check(true,'actual native receiver heard help and indoor arrival')
         check(row and row.phase=='sheltered','crew physically reached indoor shelter')
+        check((row.shelterFailures or 0)>0 and row.rejectedShelters[s.firstShelter],
+            'real failed first shelter was rejected by production rescue')
+        check(row.target.buildingId and row.target.buildingId~=s.firstShelter,
+            'indoor arrival uses a different residential building')
+        for _,door in ipairs(s.lockedDoors) do
+            check(door:isLocked() and not door:IsOpen(),'failed house doors remain locked and shut')
+        end
+        check(SC.Commands.peek(s.actor).order=='follow','reselection preserves the original standing Follow order')
+        store().rescueRetargeted,store().finalShelter=true,row.target.buildingId
         phase('settle')
     elseif s.phase=='settle' and age>3500 then
         local saved=store();local record=SC.Registry.byId(saved.id)
