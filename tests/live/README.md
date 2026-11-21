@@ -808,3 +808,15 @@ upstairs observer floor, and records body/driver health and native screenshots.
 It is separate from a completed public expedition mission. Preserve rejected
 diagnostic trials too, including a completed bypass rejected for two body points
 lost while the car was still stationary before departure.
+
+## Expedition departure cargo recovery
+
+`scripts/Test-PzoDepartureCargo.ps1` uses the official PZO 2.2 engine and an
+isolated seed-save clone. It creates two native recruits and real camp storage,
+seeds cold sorting receipts with late inventory items and an item now held by
+the player, then starts a wood expedition through the public mission API.
+The real decision handoffs must release both stale receipts while preserving
+every item's native owner. This is a focused departure check, not a complete
+wood harvesting/return trip. `-BaselineBaseWork` stages the published 0.27.46
+controller as a causal control; it is expected to remain blocked and fail.
+Pass `-PzoJar`, `-SeedSave` and `-MediaSnapshotRoot` as for the other PZO checks.

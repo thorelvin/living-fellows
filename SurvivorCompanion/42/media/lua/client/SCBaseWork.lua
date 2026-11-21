@@ -3540,6 +3540,14 @@ local function staleHaulReference(reason)
         or reason == "haul_cargo_owner_unknown"
 end
 
+local function leavingDuty(reason)
+    -- Expedition membership changes the effective order without changing the
+    -- stored base_duty order. Its preparation handoff must retire stale haul
+    -- claims just as an explicit departure from camp duty does.
+    return reason == "left_base_duty" or reason == "expedition_departure_preparation"
+        or reason == "expedition_wood_preparation" or reason == "expedition_fishing_preparation"
+end
+
 function BaseWork.cancel(actor, reason)
     local retainedCargo = false
     if SC.MedicalVisits then
@@ -3567,7 +3575,7 @@ function BaseWork.cancel(actor, reason)
         if batchJob then
             state=state or stateFor(actor);state.jobId=state.jobId or batchJob.id
             local restored,why=SC.SortBatch.restoreState(actor,state,batchJob)
-            if not restored and reason == "left_base_duty" and staleHaulReference(why) then
+            if not restored and leavingDuty(reason) and staleHaulReference(why) then
                 local staleReason = why
                 -- Cold saves have only native IDs. Resolve carried identities
                 -- in bounded slices; absent members are never recreated.
@@ -3596,7 +3604,7 @@ function BaseWork.cancel(actor, reason)
             if okay ~= true then return false, why or "floor_sort_cancel_failed" end
         end
         local settled, cargoReason = settleCargo(actor, state)
-        if settled ~= true and reason == "left_base_duty"
+        if settled ~= true and leavingDuty(reason)
             and staleHaulReference(cargoReason)
             and SC.WorkTransport and type(SC.WorkTransport.retainBaseCargo) == "function" then
             local job = state.jobId and SC.BaseLife.job(state.jobId) or nil

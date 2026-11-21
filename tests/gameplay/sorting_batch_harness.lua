@@ -211,6 +211,75 @@ do
     end
 end
 
+-- Expedition orders replace camp duty without changing its stored order serial.
+-- A stale sorting receipt must not strand one member of the departing squad.
+do
+    local storage, resolveContainer = SC.BaseLife.storage, SC.BaseLife.resolveContainer
+    for _, reason in ipairs({ "expedition_departure_preparation", "expedition_wood_preparation",
+        "expedition_fishing_preparation" }) do
+        for _, mode in ipairs({ "removed", "unloaded", "taken_by_player" }) do
+            reset(3); update(); phase="completed"; update()
+            local originals = { root.items[1], root.items[2], root.items[3] }
+            if mode == "removed" then
+                SC.BaseLife.storage = function() return nil end
+            elseif mode == "unloaded" then
+                SC.BaseLife.resolveContainer = function() return nil end
+            else
+                check(transfer(root, dest, originals[1]), "player takes an exact item before squad dispatch")
+            end
+            local movedBefore = transfers
+            check(SC.BaseWork.cancel(actor, reason) and job.target.stockBatch == nil
+                and transfers == movedBefore, reason .. " releases stale " .. mode .. " cargo without moving it")
+            for index, value in ipairs(originals) do
+                local carried = mode ~= "taken_by_player" or index ~= 1
+                check(value.owner == (carried and root or dest)
+                    and value.data.LF_BaseReturnOwner == (carried and actor.id or nil)
+                    and not SC.SortBatch.protected(value),
+                    "departure keeps each real owner and marks only the carried camp items")
+            end
+            SC.BaseLife.storage, SC.BaseLife.resolveContainer = storage, resolveContainer
+        end
+    end
+end
+
+-- Cold saved receipts and large inventories must finish their bounded search,
+-- including when a native identity no longer exists or is held by the player.
+do
+    local storage, resolveContainer = SC.BaseLife.storage, SC.BaseLife.resolveContainer
+    for _, reason in ipairs({ "expedition_departure_preparation", "expedition_wood_preparation",
+        "expedition_fishing_preparation" }) do
+        for _, mode in ipairs({ "removed", "unloaded", "missing_item" }) do
+            reset(0)
+            for _ = 1, 600 do add(root, item("Base.Paperclip")); add(source, item("Base.Paperclip")) end
+            local carried, delivered, missing = item(), item(), item()
+            add(root, carried); add(dest, delivered)
+            job.target.stockBatch = { owner=actor.id, sourceId=from.id, destinationId=to.id,
+                ids={carried.id, delivered.id, missing.id}, phase="deposit", assigned=true }
+            carried.data.LF_SortBatchJob, delivered.data.LF_SortBatchJob = job.id, job.id
+            if mode == "removed" then SC.BaseLife.storage = function() return nil end
+            elseif mode == "unloaded" then SC.BaseLife.resolveContainer = function() return nil end end
+            local settled, pending, calls = false, 0, 0
+            for _ = 1, 32 do
+                calls = calls+1
+                local why; settled, why = SC.BaseWork.cancel(actor, reason)
+                if settled then break end
+                check(why == "haul_cargo_search_pending", "cold handoff yields only while its bounded search advances")
+                pending = pending+1
+            end
+            check(settled and pending > 0 and calls <= 20 and job.target.stockBatch == nil,
+                "large cold " .. mode .. " receipt releases within bounded calls for " .. reason)
+            check(#root.items == 601 and #source.items == 600 and #dest.items == 1 and transfers == 0
+                and missing.owner == nil and carried.owner == root and delivered.owner == dest,
+                "cold departure preserves all native objects and never recreates an absent identity")
+            check(carried.data.LF_BaseReturnOwner == actor.id and delivered.data.LF_BaseReturnOwner == nil
+                and not SC.SortBatch.protected(carried) and not SC.SortBatch.protected(delivered)
+                and #job.target.releasedHaul.ids == 3,
+                "cold receipt records all obligations and marks only verified carried cargo")
+            SC.BaseLife.storage, SC.BaseLife.resolveContainer = storage, resolveContainer
+        end
+    end
+end
+
 -- Leave a real carried receipt, then reload the production BaseWork module.
 local function checkpoint()
     job.target=SC.StableValue.copyStrict(job.target,{maxDepth=3,maxEntries=96})

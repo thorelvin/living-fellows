@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.47 - Expedition departure cargo recovery
+
+- Prevent a wood, fishing or shared expedition departure from waiting forever
+  on a previous camp sorting receipt after an item has moved or its storage is
+  unavailable. Keep each item's actual owner and mark verified carried camp
+  supplies for later return; never recreate missing cargo.
+- Cover both crew handoffs, cold receipts and large inventory searches in the
+  cargo gate. Ordinary sorting cancellation retains its exact-return contract.
+- Bridge protocol remains `42.22-isocompanion-35`; world save schema remains 3.
+
 ## 0.27.46 - The Handover
 
 - After the player's death, pause and choose a successor: create a normal new

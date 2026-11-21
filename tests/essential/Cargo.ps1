@@ -1,5 +1,22 @@
 # SPDX-License-Identifier: MIT
 # Ordered production sources and compact outcomes; each group gets a fresh Lua environment.
+@{ Name = 'sorting-receipts-and-expedition-departure'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Shared 'SCStableValue.lua'),
+    (Join-Path $Gameplay 'base_work_fixture.lua'),
+    (Join-Path $Client 'SCMedicKit.lua'),
+    (Join-Path $Client 'SCWorkTransport.lua'),
+    (Join-Path $Client 'SCLogistics.lua'),
+    (Join-Path $Client 'SCBaseWork.lua'),
+    (Join-Path $Gameplay 'sorting_batch_harness.lua')) + @(
+        1..5 | ForEach-Object {
+            (Join-Path $Client 'SCBaseWork.lua')
+            (Join-Path $Gameplay 'sorting_batch_reload_harness.lua')
+        }) }
+
 @{ Name = 'logistics-storage-commit-policy'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Essential 'logistics_storage_commit_harness.lua')) }
 
