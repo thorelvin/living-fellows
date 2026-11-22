@@ -40,7 +40,9 @@ The installer puts the mod in `%USERPROFILE%\Zomboid\mods\SurvivorCompanion` and
 
 Close the game and run **Install.bat** from the new complete download. The installer updates its managed files together, including the matching native bridge, and enables Living Fellows in the default mod profile.
 
-To remove it, close the game and run **Uninstall.bat** from the extracted release folder. Keep `%LOCALAPPDATA%\LivingFellows` intact until uninstall finishes: it contains the ownership records and original launcher configuration. Verified launcher changes from other mods are preserved.
+To remove it, close the game and run **Uninstall.bat** from the extracted release folder. It should end with `UNINSTALL COMPLETE`. Keep `%LOCALAPPDATA%\LivingFellows` intact until uninstall finishes: it contains the ownership records and original launcher configuration. Verified launcher changes from other mods are preserved.
+
+Uninstall also works after Steam's **Verify integrity of game files**, a game update or a PZO install has rewritten the launcher. It removes only what Living Fellows still owns and takes Living Fellows out of the default mod list. Saves keep their own mod lists. It does not remove the Steam Workshop edition: if you are subscribed, the uninstaller names that copy, and you unsubscribe on Steam.
 
 ## If something isn't working
 
@@ -48,7 +50,8 @@ To remove it, close the game and run **Uninstall.bat** from the extracted releas
 - **Runtime inactive or companions appear as shadows:** Workshop users should check ZombieBuddy's loader setup and enable both mods for the save. Standalone users should close the game and rerun the latest installer.
 - **Companions missing after a standalone update with PZO:** check **F10 → JAVA**, then fully restart the game and allow the updated Living Fellows bridge if PZO asks. Installing the files does not approve them in PZO. Saved companions wait for their bridge; their records are retained. If the problem continues, include `Zomboid\Lua\pzo_engine.log`, `pzo_engine.prev.log` and `pzo_config.json` in the report.
 - **After repairing or reinstalling the game:** rerun the latest `Install.bat`. It can restore the managed bridge entry when the retained installation records still verify. If it refuses, keep those records and report the exact error; do not edit the launcher by hand.
-- **Two Living Fellows entries:** remove the duplicate installation. A Workshop upload staged under `%USERPROFILE%\Zomboid\Workshop` can also be discovered by the game; keep upload staging outside that directory when using the standalone edition.
-- **Uninstall refuses:** use `Uninstall.bat` from the latest complete download and include the exact error in a report. The installer checks file ownership before changing an unfamiliar installation.
+- **Two Living Fellows entries:** remove the duplicate installation. The installer names any Workshop subscription or upload staging copy it finds. A Workshop upload staged under `%USERPROFILE%\Zomboid\Workshop` can also be discovered by the game; keep upload staging outside that directory when using the standalone edition.
+- **Very low frame rate or missing models after installing:** close the game, run `Uninstall.bat` and check that it ends with `UNINSTALL COMPLETE` and names no other copy. If the game is still slow after that, Living Fellows is no longer loading. Report it with `%USERPROFILE%\Zomboid\console.txt` from the slow session, your mod list and whether PZO, ZombieBuddy or the Workshop edition is installed.
+- **Uninstall refuses:** close the game completely first; saving can take a minute, so check that `ProjectZomboid64.exe` has gone from Task Manager. Then use `Uninstall.bat` from the latest complete download and include the exact error in a report. The uninstaller checks file ownership before changing an unfamiliar installation.
 
 Open **More → Support** for a copyable report. Include it, your game version and the installation error in a [bug report](https://github.com/thorelvin/living-fellows/issues/new/choose).

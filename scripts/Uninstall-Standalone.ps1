@@ -93,6 +93,66 @@ function Restore-StandaloneDirectorySnapshot($Snapshot) {
     }
 }
 
+# Another copy with the same mod id keeps loading after this uninstall: the
+# Steam Workshop edition in the game's library, or an upload staging folder
+# under Zomboid\Workshop. Report them; never touch them.
+function Get-StandaloneOtherCopies([string]$GameRoot, [string]$ModsRoot) {
+    $copies = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($GameRoot)) {
+        $common = Split-Path -Parent ([System.IO.Path]::GetFullPath($GameRoot).TrimEnd('\'))
+        $steamapps = if ($common) { Split-Path -Parent $common } else { '' }
+        if ($steamapps -and (Split-Path -Leaf $common) -ieq 'common' -and
+            (Split-Path -Leaf $steamapps) -ieq 'steamapps') {
+            $item = Join-Path $steamapps 'workshop\content\108600\3805760339'
+            if (Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container) {
+                $copies.Add($item)
+            }
+        }
+    }
+    $staging = Join-Path (Split-Path -Parent ([System.IO.Path]::GetFullPath($ModsRoot).TrimEnd('\'))) 'Workshop'
+    if (Test-Path -LiteralPath $staging -PathType Container) {
+        Get-ChildItem -LiteralPath $staging -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $copy = Join-Path $_.FullName 'Contents\mods\SurvivorCompanion'
+            if (Test-Path -LiteralPath $copy -PathType Container) { $copies.Add($copy) }
+        }
+    }
+    return $copies.ToArray()
+}
+
+function Write-StandaloneOtherCopies([string[]]$Copies) {
+    foreach ($copy in @($Copies | Where-Object { $_ })) {
+        Write-Warning ("Another copy of Living Fellows is still installed at $copy. " +
+            'Saves and mod lists that enable Living Fellows will load that copy. ' +
+            'Unsubscribe from Living Fellows on the Steam Workshop, or move that folder ' +
+            'out of Zomboid\Workshop, to remove it completely.')
+    }
+}
+
+# Uninstall leaves no Living Fellows to load, so take it out of the main-menu
+# mod list as well. Saves keep their own lists and are never edited.
+function Disable-StandaloneModProfile([string]$ProfilePath) {
+    if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) { return $false }
+    $pattern = '(?m)^[ \t]*mod[ \t]*=[ \t]*SurvivorCompanion[ \t]*,?[ \t]*(?:\r?\n|$)'
+    $profile = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
+    if (-not [regex]::IsMatch($profile, $pattern)) { return $false }
+    $updated = [regex]::Replace($profile, $pattern, '')
+    $temporary = $ProfilePath + '.living-fellows-' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [System.IO.File]::WriteAllText($temporary, $updated,
+            (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $temporary -Destination $ProfilePath -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) {
+            Remove-Item -LiteralPath $temporary -Force
+        }
+    }
+    $verified = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
+    if ([regex]::IsMatch($verified, $pattern)) {
+        throw "Living Fellows is still listed in the mod profile: $ProfilePath"
+    }
+    return $true
+}
+
 function Invoke-StandaloneFault([string]$Boundary) {
     if ($FailAfter -eq $Boundary) {
         throw "Injected standalone uninstaller failure after $Boundary"
@@ -190,6 +250,14 @@ if (-not $Target.StartsWith($modsPrefix, [System.StringComparison]::OrdinalIgnor
 }
 
 if (-not (Test-Path -LiteralPath $modManifest -PathType Leaf) -and
+    -not (Test-Path -LiteralPath $bridgeManifest -PathType Leaf) -and
+    -not (Test-Path -LiteralPath $Target)) {
+    # A second run after a finished uninstall is not a failure.
+    Write-Output 'Living Fellows standalone is not installed here; nothing was removed.'
+    Write-StandaloneOtherCopies @(Get-StandaloneOtherCopies '' $ModsRoot)
+    return
+}
+if (-not (Test-Path -LiteralPath $modManifest -PathType Leaf) -and
     -not (Test-Path -LiteralPath $bridgeManifest -PathType Leaf)) {
     throw 'No owned Living Fellows standalone installation was found.'
 }
@@ -240,6 +308,7 @@ while (-not [string]::IsNullOrWhiteSpace($generationPath)) {
 }
 
 $nativeState = $null
+$nativeMode = ''
 $nativeExpectedHash = ''
 $nativeCurrentHash = ''
 $nativeUninstaller = Join-Path $ProjectRoot 'scripts\Uninstall-NativeBridge.ps1'
@@ -256,6 +325,7 @@ if (Test-Path -LiteralPath $bridgeManifest -PathType Leaf) {
         throw 'Native uninstall preflight did not report the restored launcher hash.'
     }
     $nativeExpectedHash = $Matches[1]
+    if ($nativePlan -match '(?:^|\s)mode=(\S+)(?:\s|$)') { $nativeMode = $Matches[1] }
     $nativeState = Get-Content -LiteralPath $bridgeManifest -Raw -Encoding utf8 |
         ConvertFrom-Json
 }
@@ -428,7 +498,27 @@ finally {
 }
 
 if (-not $committed) { throw 'Standalone uninstall transaction did not commit.' }
+
+$profilePath = Join-Path $ModsRoot 'default.txt'
+$profileMessage = ''
+try {
+    if (Disable-StandaloneModProfile $profilePath) {
+        $profileMessage = 'Living Fellows was taken out of the default mod list.'
+    }
+} catch {
+    Write-Warning ("Living Fellows was removed, but the default mod list could not be " +
+        "updated: $($_.Exception.Message) Disable it in Mods if it is still listed.")
+}
+
 Write-Output ''
 Write-Output 'UNINSTALL COMPLETE'
 Write-Output "Removed $removedVersions managed Living Fellows version(s)."
-Write-Output 'The original Project Zomboid launcher configuration was hash-verified.'
+if ($nativeMode -eq 'already-clean') {
+    Write-Output ('The Project Zomboid launcher no longer used Living Fellows ' +
+        '(for example after a Steam file check) and was left unchanged.')
+} elseif ($null -ne $nativeState) {
+    Write-Output 'The original Project Zomboid launcher configuration was hash-verified.'
+}
+if ($profileMessage) { Write-Output $profileMessage }
+$otherCopiesGameRoot = if ($null -ne $nativeState) { [string]$nativeState.gameRoot } else { '' }
+Write-StandaloneOtherCopies @(Get-StandaloneOtherCopies $otherCopiesGameRoot $ModsRoot)

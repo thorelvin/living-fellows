@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $Owner = 'SurvivorCompanion.NativeBridge'
 $PzoMain = 'com/pzoptimizer/PZOEntrypoint'
+$OriginalMain = 'zombie/gameStates/MainScreenState'
 $AgentArgument = '-javaagent:LivingFellowsBridge.jar'
 $BridgeRoot = [System.IO.Path]::GetFullPath($BridgeRoot).TrimEnd('\')
 $manifestPath = Join-Path $BridgeRoot 'install-manifest.json'
@@ -20,6 +21,10 @@ function Get-HashOrEmpty([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 function Test-PzoMain([string]$Name) { return $Name.Replace('.', '/') -eq $PzoMain }
+function Test-HostMain([string]$Name) {
+    $name = $Name.Replace('.', '/')
+    return $name -eq $OriginalMain -or $name -eq $PzoMain
+}
 function Test-BridgeAgentArgument([string]$Argument) {
     $argument = $Argument.Trim('"')
     if ($argument -notmatch '^-javaagent:(.+?)(?:=.*)?$') { return $false }
@@ -52,7 +57,9 @@ if (-not (Same-Path (Split-Path -Parent $configPath) $gameRoot)) {
 $gameExecutable = Join-Path $gameRoot 'ProjectZomboid64.exe'
 if ((Test-Path -LiteralPath $gameExecutable -PathType Leaf) -and
     (Get-Process -Name 'ProjectZomboid*' -ErrorAction SilentlyContinue)) {
-    throw 'Close Project Zomboid before uninstalling the native companion bridge.'
+    throw ('Project Zomboid is still running. Close it and wait until ProjectZomboid64.exe ' +
+        'has gone from Task Manager (saving can take a minute), then run Uninstall.bat again. ' +
+        'Nothing was changed.')
 }
 if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "Project Zomboid launcher configuration is missing: $configPath"
@@ -94,7 +101,27 @@ $wrapper = [string]$manifest.wrapperMainClass
 $launchMode = if ($manifest.launchMode) { [string]$manifest.launchMode } else { 'wrapper' }
 if ($launchMode -notin @('wrapper', 'agent', 'pzo-loader')) { throw 'Unknown native bridge launch mode; refusing automatic rollback.' }
 $agentMatches = @($config.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) })
-if ($launchMode -eq 'agent') {
+$jarArgument = if ($launcherJar) { 'LivingFellowsBridge.jar' }
+    else { $bridgeJar.Replace('\', '/') }
+function Test-OwnedClasspathEntry([string]$Entry) {
+    $normalized = $Entry.Replace('\', '/')
+    return $normalized.Equals($jarArgument, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $normalized.Equals($bridgeJar.Replace('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)
+}
+$classpathMatches = @($config.classpath | Where-Object { Test-OwnedClasspathEntry ([string]$_) })
+# A Steam file check, a game reinstall or update, or another launcher's own
+# restore can put back a launcher that no longer mentions Living Fellows. There
+# is nothing left to roll back there, and refusing would strand the mod files.
+$launcherAlreadyClean = (Test-HostMain ([string]$config.mainClass)) -and
+    $classpathMatches.Count -eq 0 -and $agentMatches.Count -eq 0
+# PZO replaces the main class but keeps existing classpath entries. Then only
+# our classpath entry is ours to remove; the main class now belongs to PZO.
+$foreignHostKeepsEntry = -not $launcherAlreadyClean -and $launchMode -eq 'wrapper' -and
+    (Test-HostMain ([string]$config.mainClass)) -and
+    $classpathMatches.Count -eq 1 -and $agentMatches.Count -eq 0
+if ($launcherAlreadyClean -or $foreignHostKeepsEntry) {
+    # Ownership of the remaining files was verified above.
+} elseif ($launchMode -eq 'agent') {
     if (-not (Test-PzoMain ([string]$config.mainClass)) -or
         -not (Test-PzoMain ([string]$manifest.installedMainClass)) -or
         -not (Test-PzoMain ([string]$manifest.originalMainClass)) -or
@@ -112,47 +139,41 @@ if ($launchMode -eq 'agent') {
 } elseif ($config.mainClass -ne $wrapper -or $agentMatches.Count -ne 0) {
     throw "Launcher mainClass changed after installation; refusing automatic rollback: $($config.mainClass)"
 }
-$jarArgument = if ($launcherJar) { 'LivingFellowsBridge.jar' }
-    else { $bridgeJar.Replace('\', '/') }
-$classpathMatches = @($config.classpath | Where-Object {
-    ([string]$_).Replace('\', '/').Equals($jarArgument,
-        [System.StringComparison]::OrdinalIgnoreCase) -or
-    ([string]$_).Replace('\', '/').Equals($bridgeJar.Replace('\', '/'),
-        [System.StringComparison]::OrdinalIgnoreCase)
-})
-if ($classpathMatches.Count -ne 1) {
+if (-not $launcherAlreadyClean -and $classpathMatches.Count -ne 1) {
     throw 'SCLauncher classpath ownership is missing or duplicated; refusing automatic rollback.'
 }
-$originalBackup = [System.IO.Path]::GetFullPath([string]$manifest.originalConfigBackup)
-if (-not (Test-Path -LiteralPath $originalBackup -PathType Leaf)) {
-    throw "Original launcher backup is missing: $originalBackup"
-}
-$originalHash = Get-HashOrEmpty $originalBackup
-$recordedOriginalHash = [string]$manifest.originalConfigSha256
-if ([string]::IsNullOrWhiteSpace($recordedOriginalHash)) {
-    throw 'Native bridge manifest has no originalConfigSha256; refusing automatic rollback.'
-}
-if ($originalHash -ne $recordedOriginalHash.ToLowerInvariant()) {
-    throw 'Original launcher backup hash no longer matches the owned manifest.'
-}
-$original = Get-Content -LiteralPath $originalBackup -Raw -Encoding utf8 | ConvertFrom-Json
-if ([string]$original.mainClass -ne [string]$manifest.originalMainClass -or
-    [string]$original.mainClass -eq $wrapper) {
-    throw 'Original launcher backup does not preserve the true original main class.'
+if (-not $launcherAlreadyClean) {
+    $originalBackup = [System.IO.Path]::GetFullPath([string]$manifest.originalConfigBackup)
+    if (-not (Test-Path -LiteralPath $originalBackup -PathType Leaf)) {
+        throw "Original launcher backup is missing: $originalBackup"
+    }
+    $originalHash = Get-HashOrEmpty $originalBackup
+    $recordedOriginalHash = [string]$manifest.originalConfigSha256
+    if ([string]::IsNullOrWhiteSpace($recordedOriginalHash)) {
+        throw 'Native bridge manifest has no originalConfigSha256; refusing automatic rollback.'
+    }
+    if ($originalHash -ne $recordedOriginalHash.ToLowerInvariant()) {
+        throw 'Original launcher backup hash no longer matches the owned manifest.'
+    }
+    $original = Get-Content -LiteralPath $originalBackup -Raw -Encoding utf8 | ConvertFrom-Json
+    if ([string]$original.mainClass -ne [string]$manifest.originalMainClass -or
+        [string]$original.mainClass -eq $wrapper) {
+        throw 'Original launcher backup does not preserve the true original main class.'
+    }
 }
 
-$mode = if (-not [bool]$manifest.preserveLauncherEdits -and
-    $configHash -eq $installedConfigHash.ToLowerInvariant()) { 'exact' } else { 'selective' }
-$expectedHash = $originalHash
+$mode = if ($launcherAlreadyClean) { 'already-clean' }
+    elseif (-not $foreignHostKeepsEntry -and -not [bool]$manifest.preserveLauncherEdits -and
+        $configHash -eq $installedConfigHash.ToLowerInvariant()) { 'exact' } else { 'selective' }
+$expectedHash = if ($launcherAlreadyClean) { $configHash } else { $originalHash }
 $updatedConfigText = ''
 if ($mode -eq 'selective') {
     # Keep later VM and classpath edits from other mods; remove only our entries.
-    if ($launchMode -eq 'wrapper') { $config.mainClass = [string]$manifest.originalMainClass }
+    if ($launchMode -eq 'wrapper' -and -not $foreignHostKeepsEntry) {
+        $config.mainClass = [string]$manifest.originalMainClass
+    }
     $config.classpath = @($config.classpath | Where-Object {
-        -not ([string]$_).Replace('\', '/').Equals($jarArgument,
-            [System.StringComparison]::OrdinalIgnoreCase) -and
-        -not ([string]$_).Replace('\', '/').Equals($bridgeJar.Replace('\', '/'),
-            [System.StringComparison]::OrdinalIgnoreCase)
+        -not (Test-OwnedClasspathEntry ([string]$_))
     })
     if ($launchMode -eq 'agent') {
         $config.vmArgs = @($config.vmArgs | Where-Object { [string]$_ -cne $AgentArgument })
@@ -160,14 +181,13 @@ if ($mode -eq 'selective') {
     $updatedConfigText = $config | ConvertTo-Json -Depth 100
     $roundTrip = $updatedConfigText | ConvertFrom-Json
     $mainRestored = if ($launchMode -in @('agent', 'pzo-loader')) { Test-PzoMain ([string]$roundTrip.mainClass) }
+        elseif ($foreignHostKeepsEntry) {
+            [string]$roundTrip.mainClass -ceq [string]$config.mainClass -and
+                (Test-HostMain ([string]$roundTrip.mainClass))
+        }
         else { [string]$roundTrip.mainClass -eq [string]$manifest.originalMainClass }
     if (-not $mainRestored -or
-        @($roundTrip.classpath | Where-Object {
-            ([string]$_).Replace('\', '/').Equals($jarArgument,
-                [System.StringComparison]::OrdinalIgnoreCase) -or
-            ([string]$_).Replace('\', '/').Equals($bridgeJar.Replace('\', '/'),
-                [System.StringComparison]::OrdinalIgnoreCase)
-        }).Count -ne 0 -or
+        @($roundTrip.classpath | Where-Object { Test-OwnedClasspathEntry ([string]$_) }).Count -ne 0 -or
         @($roundTrip.vmArgs | Where-Object { Test-BridgeAgentArgument ([string]$_) }).Count -ne 0) {
         throw 'Selective launcher rollback failed validation.'
     }
@@ -196,10 +216,10 @@ if ($launcherJarExisted) {
 Copy-Item -LiteralPath $manifestPath -Destination $currentManifestBackup
 if ($mode -eq 'exact') {
     Copy-Item -LiteralPath $originalBackup -Destination $stagedOriginal
-} else {
+} elseif ($mode -eq 'selective') {
     [System.IO.File]::WriteAllText($stagedOriginal, $updatedConfigText, $utf8NoBom)
 }
-if ((Get-HashOrEmpty $stagedOriginal) -ne $expectedHash) {
+if ($mode -ne 'already-clean' -and (Get-HashOrEmpty $stagedOriginal) -ne $expectedHash) {
     throw 'Staged launcher rollback hash mismatch.'
 }
 $disabledManifest = Join-Path $BridgeRoot `
@@ -211,8 +231,10 @@ try {
     if ((Get-HashOrEmpty $configPath) -ne $configHash) {
         throw 'Launcher configuration changed during uninstall; refusing automatic rollback.'
     }
-    $configPublished = $true
-    Copy-Item -LiteralPath $stagedOriginal -Destination $configPath -Force
+    if ($mode -ne 'already-clean') {
+        $configPublished = $true
+        Copy-Item -LiteralPath $stagedOriginal -Destination $configPath -Force
+    }
     if ((Get-HashOrEmpty $configPath) -ne $expectedHash) {
         throw 'Launcher configuration restore hash mismatch.'
     }

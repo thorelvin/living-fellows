@@ -2,6 +2,23 @@
 
 # Changelog
 
+## 0.27.59 - Standalone uninstall after a game repair
+
+- `Uninstall.bat` now works after Steam's **Verify integrity of game files**,
+  a game update or a PZO install has rewritten the launcher. It used to refuse
+  and leave the mod installed. A launcher that no longer uses Living Fellows
+  is left unchanged; when PZO took over the launcher, only the Living Fellows
+  classpath entry is removed.
+- Uninstall takes Living Fellows out of the default mod list. Saves keep their
+  own mod lists.
+- Install and uninstall name any Steam Workshop subscription or Workshop upload
+  staging copy of Living Fellows. Those copies share the mod id and can load
+  instead of the standalone copy, or keep loading after it is removed.
+- Running `Uninstall.bat` again after a finished uninstall says nothing is
+  installed instead of failing.
+- Clearer messages when the game is still running or uninstall fails.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.58 - Wood expedition departure and nearby cancellation
 
 - Wood crews can finish packing away from their parked vehicle when the

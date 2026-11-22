@@ -787,6 +787,159 @@ switch ($Case) {
     }
 }
 
+'uninstall-after-game-repair' {
+    # Steam's file check, a game update or another launcher can rewrite the
+    # launcher after Living Fellows was installed. Uninstall must still remove
+    # everything of ours and leave everything else exactly as it is.
+    $fixture = New-StandaloneFixture ('uninstall-after-repair-' + $Variant)
+    $profilePath = Join-Path $fixture.mods 'default.txt'
+    $profileBefore = "VERSION = 1,`r`n`r`nmods`r`n{`r`n    mod = KeepThisMod,`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
+    [System.IO.File]::WriteAllText($profilePath, $profileBefore,
+        (New-Object System.Text.UTF8Encoding($false)))
+    $foreignJar = ''
+    if ($Variant -eq 'pzo-steam-check') { $foreignJar = Set-ScPzoLauncherFixture $fixture }
+    $foreignHash = if ($foreignJar) {
+        (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash
+    } else { '' }
+    Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+    $gameJar = Join-Path $fixture.game 'LivingFellowsBridge.jar'
+    $bridgeManifest = Join-Path $fixture.bridge 'install-manifest.json'
+    if (-not (Test-Path -LiteralPath $gameJar -PathType Leaf) -or
+        (Get-Content -LiteralPath $profilePath -Raw -Encoding utf8) -notmatch
+            '(?m)^\s*mod = SurvivorCompanion,') {
+        throw 'Repair fixture install did not place the bridge and enable the mod.'
+    }
+    if ($Variant -in @('steam-check', 'pzo-steam-check')) {
+        # Steam restores its own launcher and leaves extra files such as our JAR.
+        Set-Content -LiteralPath $fixture.config -Value $originalConfig -Encoding utf8
+    } elseif ($Variant -eq 'pzo-takeover') {
+        # PZO replaces the main class but keeps the classpath entries it found.
+        $taken = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+        $taken.mainClass = 'com/pzoptimizer/PZOEntrypoint'
+        $taken.classpath += 'pzoptimizer.jar'
+        $taken.vmArgs += '-Dforeign.keep=one'
+        $taken | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+    } else { throw "Unknown repair variant: $Variant" }
+    $repairedHash = (Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash
+    $output = (@(& $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+        -InstallDataRoot $fixture.data 3>&1) | ForEach-Object { [string]$_ }) -join "`n"
+    if ((Test-Path -LiteralPath $fixture.target) -or (Test-Path -LiteralPath $gameJar) -or
+        (Test-Path -LiteralPath $bridgeManifest)) {
+        throw "Uninstall after a launcher repair ($Variant) left Living Fellows files behind."
+    }
+    if ((Get-Content -LiteralPath $profilePath -Raw -Encoding utf8) -cne $profileBefore) {
+        throw "Uninstall after a launcher repair ($Variant) did not restore the default mod list exactly."
+    }
+    if ($foreignJar -and (Get-FileHash -LiteralPath $foreignJar -Algorithm SHA256).Hash -ne $foreignHash) {
+        throw 'Uninstall after a launcher repair changed the PZO JAR.'
+    }
+    $after = Get-Content -LiteralPath $fixture.config -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($Variant -eq 'pzo-takeover') {
+        if ($after.mainClass -ne 'com/pzoptimizer/PZOEntrypoint' -or
+            $after.classpath -contains 'LivingFellowsBridge.jar' -or
+            $after.classpath -notcontains 'pzoptimizer.jar' -or
+            $after.vmArgs -notcontains '-Dforeign.keep=one') {
+            throw 'Uninstall after a PZO takeover did not remove only the Living Fellows classpath entry.'
+        }
+    } elseif ((Get-FileHash -LiteralPath $fixture.config -Algorithm SHA256).Hash -ne $repairedHash -or
+        $output -notmatch 'left unchanged') {
+        throw "Uninstall rewrote a launcher that no longer used Living Fellows ($Variant)."
+    }
+}
+
+'uninstall-after-repair-ambiguous' {
+    # A launcher still holding some Living Fellows entry next to a host main
+    # class is not one the uninstaller can read safely; it must refuse untouched.
+    foreach ($shape in @('duplicate-classpath', 'stray-agent')) {
+        $fixture = New-StandaloneFixture ('uninstall-repair-ambiguous-' + $shape)
+        Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
+        $config = $originalConfig | ConvertFrom-Json
+        if ($shape -eq 'duplicate-classpath') {
+            $config.classpath += @('LivingFellowsBridge.jar', 'LivingFellowsBridge.jar')
+        } else {
+            $config.vmArgs += '-javaagent:LivingFellowsBridge.jar'
+        }
+        $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixture.config -Encoding utf8
+        $before = Get-StandaloneFixtureSnapshot $fixture
+        $refused = $false
+        try {
+            & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+                -InstallDataRoot $fixture.data | Out-Null
+        } catch { $refused = $_.Exception.Message -like '*refusing automatic rollback*' }
+        if (-not $refused -or (Get-StandaloneFixtureSnapshot $fixture) -ne $before) {
+            throw "Ambiguous repaired launcher ($shape) was not refused before any change."
+        }
+    }
+}
+
+'other-copies' {
+    # The Steam Workshop edition and an upload staging folder share the mod id.
+    # Install and uninstall name them so a player knows what still loads; they
+    # never touch them.
+    $root = Join-Path $Sandbox 'other-copies'
+    $steamapps = Join-Path $root 'library\steamapps'
+    $zomboid = Join-Path $root 'Zomboid'
+    $data = Join-Path $root 'install-data'
+    $fixture = [ordered]@{
+        root = $root; mods = (Join-Path $zomboid 'mods')
+        game = (Join-Path $steamapps 'common\ProjectZomboid'); data = $data
+        backups = (Join-Path $data 'mod-backups'); bridge = (Join-Path $data 'bridge')
+        configBackups = (Join-Path $data 'config-backups')
+    }
+    $fixture.config = Join-Path $fixture.game 'ProjectZomboid64.json'
+    $fixture.target = Join-Path $fixture.mods 'SurvivorCompanion'
+    New-Item -ItemType Directory -Path $fixture.mods, $fixture.game, $fixture.backups,
+        $fixture.configBackups -Force | Out-Null
+    Set-Content -LiteralPath $fixture.config -Value $originalConfig -Encoding utf8
+    function Get-CaseText([scriptblock]$Action) {
+        return (@(& $Action 3>&1) | ForEach-Object {
+            if ($_ -is [System.Management.Automation.WarningRecord]) { $_.Message } else { [string]$_ }
+        }) -join "`n"
+    }
+    function Test-Mentions([string]$Text, [string]$Path) {
+        return $Text.IndexOf($Path, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    }
+    $runInstall = {
+        & $Install -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods -GameRoot $fixture.game `
+            -BackupRoot $fixture.backups -BridgeRoot $fixture.bridge `
+            -ConfigBackupRoot $fixture.configBackups -PreparedPayloadRoot $StandalonePreparedPayload `
+            -PrebuiltBridgeJar $PrebuiltJar -Standalone
+    }
+    $runUninstall = {
+        & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+            -InstallDataRoot $fixture.data
+    }
+    $quiet = Get-CaseText $runInstall
+    if ($quiet -match 'Another copy of Living Fellows') {
+        throw 'Installer warned about another copy when there was none.'
+    }
+    $workshopItem = Join-Path $steamapps 'workshop\content\108600\3805760339'
+    $stagingCopy = Join-Path $zomboid 'Workshop\LivingFellowsCompanion\Contents\mods\SurvivorCompanion'
+    New-Item -ItemType Directory -Path (Join-Path $workshopItem 'mods\SurvivorCompanion'),
+        $stagingCopy -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $workshopItem 'mods\SurvivorCompanion\mod.info') `
+        -Value 'id=SurvivorCompanion' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $stagingCopy 'mod.info') -Value 'id=SurvivorCompanion' -Encoding utf8
+    $copiesBefore = Get-TreeSnapshot @{ workshop = $workshopItem; staging = $stagingCopy }
+    $installText = Get-CaseText $runInstall
+    if (-not (Test-Mentions $installText $workshopItem) -or -not (Test-Mentions $installText $stagingCopy)) {
+        throw 'Installer did not name the Workshop and staging copies that share the mod id.'
+    }
+    $uninstallText = Get-CaseText $runUninstall
+    if (-not (Test-Mentions $uninstallText $workshopItem) -or
+        -not (Test-Mentions $uninstallText $stagingCopy) -or
+        (Test-Path -LiteralPath $fixture.target)) {
+        throw 'Uninstall did not finish or did not name the copies that still load.'
+    }
+    $again = Get-CaseText $runUninstall
+    if ($again -notmatch 'nothing was removed' -or -not (Test-Mentions $again $stagingCopy)) {
+        throw 'A second uninstall run did not report a clean state and the remaining copy.'
+    }
+    if ((Get-TreeSnapshot @{ workshop = $workshopItem; staging = $stagingCopy }) -ne $copiesBefore) {
+        throw 'Install or uninstall changed another copy of Living Fellows.'
+    }
+}
+
 'standalone-success' {
     $standaloneSuccess = New-StandaloneFixture 'standalone-success'
     1..3 | ForEach-Object {

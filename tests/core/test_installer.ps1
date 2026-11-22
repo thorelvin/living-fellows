@@ -241,6 +241,13 @@ try {
     Add-InstallerCase 'pzo-agent-rejected'
     Add-InstallerCase 'pzo-legacy-agent-upgrade'
     Add-InstallerCase 'pzo-loader-reinstall'
+    # Players reach these after a Steam file check or a PZO install, and with
+    # the Workshop edition still subscribed.
+    foreach ($variant in @('steam-check', 'pzo-steam-check', 'pzo-takeover')) {
+        Add-InstallerCase 'uninstall-after-game-repair' $variant
+    }
+    Add-InstallerCase 'uninstall-after-repair-ambiguous'
+    Add-InstallerCase 'other-copies'
     Invoke-ScParallelSteps -Steps $cases.ToArray() -Throttle $Jobs -Label 'installer cases'
 
     $legacy = Join-Path $GameRoot 'zombie\characters\IsoSurvivor.class'

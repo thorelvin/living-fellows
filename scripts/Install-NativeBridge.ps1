@@ -139,7 +139,8 @@ $BridgeRoot = Normalize-Path $BridgeRoot
 $gameExecutable = Join-Path $GameRoot 'ProjectZomboid64.exe'
 if ((Test-Path -LiteralPath $gameExecutable -PathType Leaf) -and
     (Get-Process -Name 'ProjectZomboid*' -ErrorAction SilentlyContinue)) {
-    throw 'Close Project Zomboid before installing the native companion bridge.'
+    throw ('Project Zomboid is still running. Close it and wait until ProjectZomboid64.exe ' +
+        'has gone from Task Manager (saving can take a minute), then run this again.')
 }
 $configPath = Join-Path $GameRoot 'ProjectZomboid64.json'
 if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {

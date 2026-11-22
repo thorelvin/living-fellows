@@ -47,7 +47,8 @@ if ($NativeBridge -and $Standalone) {
 $gameExecutable = Join-Path $GameRoot 'ProjectZomboid64.exe'
 if ((Test-Path -LiteralPath $gameExecutable -PathType Leaf) -and
     (Get-Process -Name 'ProjectZomboid*' -ErrorAction SilentlyContinue)) {
-    throw 'Close Project Zomboid before installing.'
+    throw ('Project Zomboid is still running. Close it and wait until ProjectZomboid64.exe ' +
+        'has gone from Task Manager (saving can take a minute), then run this again.')
 }
 $legacyClass = Join-Path $GameRoot 'zombie\characters\IsoSurvivor.class'
 if (Test-Path -LiteralPath $legacyClass -PathType Leaf) {
@@ -84,6 +85,30 @@ function Test-InstallSamePath([string]$Left, [string]$Right) {
     return ([System.IO.Path]::GetFullPath($Left).TrimEnd('\')).Equals(
         [System.IO.Path]::GetFullPath($Right).TrimEnd('\'),
         [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+# Copies that share the mod id SurvivorCompanion: the Steam Workshop edition in
+# the game's library and upload staging folders under Zomboid\Workshop. Project
+# Zomboid may load one of those instead of this install. Report, never touch.
+function Get-InstallOtherCopies([string]$GameRoot, [string]$ModsRoot) {
+    $copies = New-Object System.Collections.Generic.List[string]
+    $common = Split-Path -Parent ([System.IO.Path]::GetFullPath($GameRoot).TrimEnd('\'))
+    $steamapps = if ($common) { Split-Path -Parent $common } else { '' }
+    if ($steamapps -and (Split-Path -Leaf $common) -ieq 'common' -and
+        (Split-Path -Leaf $steamapps) -ieq 'steamapps') {
+        $item = Join-Path $steamapps 'workshop\content\108600\3805760339'
+        if (Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container) {
+            $copies.Add($item)
+        }
+    }
+    $staging = Join-Path (Split-Path -Parent ([System.IO.Path]::GetFullPath($ModsRoot).TrimEnd('\'))) 'Workshop'
+    if (Test-Path -LiteralPath $staging -PathType Container) {
+        Get-ChildItem -LiteralPath $staging -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $copy = Join-Path $_.FullName 'Contents\mods\SurvivorCompanion'
+            if (Test-Path -LiteralPath $copy -PathType Container) { $copies.Add($copy) }
+        }
+    }
+    return $copies.ToArray()
 }
 
 function Enable-LivingFellowsModProfile([string]$ProfilePath) {
@@ -512,4 +537,10 @@ if (-not $profileActivationFailed -and $profileUpdated) {
     Write-Output 'Living Fellows was enabled in the default Project Zomboid mod profile.'
 } elseif (-not $profileActivationFailed) {
     Write-Output 'Living Fellows is already present in the default Project Zomboid mod profile.'
+}
+foreach ($copy in @(Get-InstallOtherCopies $GameRoot $ModsRoot)) {
+    Write-Warning ("Another copy of Living Fellows is installed at $copy. Project Zomboid " +
+        'may load that copy instead of this one, with a bridge that does not match it. ' +
+        'Unsubscribe from Living Fellows on the Steam Workshop, or move that folder out ' +
+        'of Zomboid\Workshop, and use one copy at a time.')
 }
