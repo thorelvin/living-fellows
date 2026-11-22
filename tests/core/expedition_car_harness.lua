@@ -291,6 +291,44 @@ check(Car.requestReturn(T.mission, 1002, "wood_quantity_met")
     and T.mission.scout.phase == "returning_to_car"
     and T.mission.scout.wood.pendingCarReturnReason == nil,
     "wood quota completion at the forest changes the native car leg before boarding home")
+do
+    local savedBase, savedExpedition = SC.BaseLife, SC.ExpeditionPrototype
+    local canPack, inventoryReleases = false, 0
+    local scout = T.mission.scout
+    scout.departurePreparation = { members = {} }
+    scout.wood.preparation, scout.wood.complete = true, nil
+    scout.returnRequested = nil
+    preparingTrip.state, preparingTrip.leg, scout.phase = "walking_to_car", "outbound", "outbound"
+    SC.BaseLife = { isInside = function() return true end }
+    SC.ExpeditionPrototype = { _cancelDeparturePreparation = function(m, _, retain)
+        inventoryReleases = inventoryReleases + 1
+        if canPack and not retain then m.scout.departurePreparation = nil end
+        return canPack, "inventory_settling"
+    end }
+    check(not Car.requestReturn(T.mission, 1003, "called_off_nearby")
+        and scout.departurePreparation.returnReason == "called_off_nearby" and preparingTrip.leg == "outbound",
+        "the parked trip keeps recall pending while an exact inventory owner is busy")
+    canPack, stopReady = true, false
+    check(not Car.requestReturn(T.mission, 1004, "called_off_nearby")
+        and scout.wood.pendingCarReturnReason == "called_off_nearby" and scout.departurePreparation,
+        "native wood work gets to settle before the trip releases preparation")
+    stopReady = true
+    check(Car.requestReturn(T.mission, 1005, "called_off_nearby")
+        and inventoryReleases == 3 and not scout.departurePreparation
+        and preparingTrip.state == "home_wait" and preparingTrip.leg == "home" and scout.phase == "awaiting_player"
+        and scout.wood.loans.leader.itemId == "axe-1", "local recall leaves the car parked and keeps the exact tool loan")
+    local loader = SC.Vehicle.loadedBySqlId
+    SC.Vehicle.loadedBySqlId = function() error("a crew that never boarded must not need the parked car") end
+    check(not Car.pulse(T.mission, 1006, 999) and not Car.requestReturn(T.mission, 1006, "called_off_nearby")
+        and T.driveCalls == beforePreparationDrive, "further updates or duplicate orders cannot reopen the car")
+    SC.Vehicle.loadedBySqlId = loader
+    scout.returnRequested = nil
+    SC.BaseLife, SC.ExpeditionPrototype = savedBase, savedExpedition
+    preparingTrip.state, preparingTrip.leg = "walking_to_car", "outbound"
+    check(Car.requestReturn(T.mission, 1007, "called_off_nearby") and preparingTrip.state == "boarding_rollback",
+        "after packing releases boarding, recall still settles any in-flight vehicle ownership")
+    scout.returnRequested = nil
+end
 SC.ExpeditionWood = originalWood
 T.mission.scout.wood = nil
 preparingTrip.state, preparingTrip.leg, T.mission.scout.phase = priorState, "outbound", priorPhase

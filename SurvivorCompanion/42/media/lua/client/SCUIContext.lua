@@ -1671,6 +1671,29 @@ local function clickedCompanionRow(rows, worldObjects, clickSquare)
     return #matches == 1 and matches[1] or nil, matches
 end
 
+local function cancelExpeditionFromContext(row, player, tripId)
+    local expedition = SC.ExpeditionPrototype
+    if not expedition or not currentRecord(row, player) then return false end
+    local accepted, reason = expedition.cancelNearby(player, row.actor, tripId)
+    local key = accepted and "UI_SC_Expedition_CancelRequested"
+        or reason == "expedition_out_of_reach" and "UI_SC_Expedition_CancelMoveCloser"
+        or reason == "expedition_already_returning" and "UI_SC_Expedition_CancelAlreadyReturning"
+        or "UI_SC_Expedition_CancelUnavailable"
+    safeMethod(player, "setHaloNote", text(key))
+    if SC.UI and SC.UI.refresh then SC.UI.refresh() end
+    return accepted, reason
+end
+
+local function addExpeditionCancellation(menu, row, player)
+    local expedition = SC.ExpeditionPrototype
+    local tripId = row.recruited and expedition and expedition.nearbyCancellation
+        and expedition.nearbyCancellation(player, row.actor)
+    if not tripId then return end
+    local option = Menus.action(menu, "expedition.cancel:" .. row.id, text("UI_SC_Expedition_CancelNearby"),
+        row, cancelExpeditionFromContext, player, tripId)
+    option.scLFWorld = true
+end
+
 local function addWatchControl(menu, row, player)
     local status = SC.ViewControl and type(SC.ViewControl.status) == "function"
         and SC.ViewControl.status() or {}
@@ -2310,6 +2333,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             sealedDoorGroup.id, "touch_door", player)
         option.scLFWorld = true
     end
+    if clickedCompanion then addExpeditionCancellation(context, clickedCompanion, player) end
     local selected = selectedNearbyRow(rows)
     local medicalPatient = medicalOption and (medicalOption.onSelect == context.onGetUpAndThen
         and medicalOption.param4 or medicalOption.param2)
@@ -2363,7 +2387,10 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if primary then personMenu(rootMenu, primary, player, popup, clickedCompanion ~= nil) end
     if ambiguous then
         local choose = Menus.group(rootMenu, "choose", text("UI_SC_Talk_ChoosePerson"))
-        for _, row in ipairs(clickedMatches) do personMenu(choose, row, player, popup, false) end
+        for _, row in ipairs(clickedMatches) do
+            local person = personMenu(choose, row, player, popup, false)
+            addExpeditionCancellation(person, row, player)
+        end
     else
         local nearby
         for _, row in ipairs(rows) do

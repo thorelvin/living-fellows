@@ -39,6 +39,30 @@ check(#target.world == 2 and target.world[1].item.kind ~= "Base.Log"
 local returned, _, done = W.returnTools(cutter, { wood = W.copy(wood) })
 check(returned and done and axe.owner == source.container, "the original borrowed tool physically returns to its source")
 
+do
+    local packer = X.actor("packer", 10)
+    X.put(packer.bag, X.item("Base.Axe"))
+    packer.x, packer.y = 52, 20
+    local team = { { id = packer.id, actor = packer } }
+    local plan = W.createState({ mode = "count", quantity = 1 })
+    local integration, stationary = SC.ExpeditionIntegration, SC.Vehicle.isStationary
+    SC.ExpeditionIntegration = { woodReturnShuttleAvailable = function() return true end }
+    local truck = { sqlId = 42 }
+    check(W.departureReady(team, plan, truck), "parking distance cannot block packing for a later short shuttle")
+    check(not W.carryDestination(packer, nil, { carId = 42, target = { x = 21, y = 20, z = 0 } }),
+        "future shuttle capacity never permits a current off-site transfer")
+    check(select(2, W.departureReady(team, plan)) == "wood_carry_capacity",
+        "the same crew still requires safe walking capacity without a car")
+    SC.Vehicle.isStationary = function() return false end
+    check(select(2, W.departureReady(team, plan, truck)) == "wood_carry_capacity",
+        "a moving car cannot offer shuttle capacity")
+    SC.Vehicle.isStationary = stationary
+    SC.ExpeditionIntegration.woodReturnShuttleAvailable = function() return false end
+    check(select(2, W.departureReady(team, plan, truck)) == "wood_return_carry_capacity",
+        "the planned heavy shuttle still requires reachable camp storage")
+    SC.ExpeditionIntegration = integration
+end
+
 local full = X.actor("full", 2)
 X.put(full.bag, X.item("Base.Axe"))
 local fullWork = W.createState({ mode = "full" })

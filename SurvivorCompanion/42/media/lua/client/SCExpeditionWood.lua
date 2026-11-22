@@ -264,11 +264,11 @@ local function eligible(member)
     return type(member) == "table" and member.actor ~= nil
         and call(member.actor, "isDead") == false and resolve(member.id) == member.actor
 end
-local function rosterCanCarry(roster, carId, target, options)
+local function rosterCanCarry(roster, carId, target, options, plannedShuttle)
     for _, member in ipairs(roster or {}) do
         local allowed = not options or not options.allowHeldById or options.allowHeldById[member.id] ~= false
         if eligible(member)
-            and carryDestination(member.actor, nil, shortShuttle(member.actor, carId, target),
+            and carryDestination(member.actor, nil, plannedShuttle == true or shortShuttle(member.actor, carId, target),
                 { allowHeldBag = allowed }) then return true end
     end
     return false
@@ -313,14 +313,21 @@ function Wood.departureReady(roster, wood, carDescriptor, options)
         if eligible(member) and axe(member.actor, wood) then cutter = member break end
     end
     if not cutter then return false, "wood_axe_missing" end
-    if not rosterCanCarry(roster, carId, nil, options) then return false, "wood_carry_capacity" end
-    if carId and not rosterCanCarry(roster, nil, nil, options)
-        and (not SC.ExpeditionIntegration or not SC.ExpeditionIntegration.woodReturnShuttleAvailable
-            or SC.ExpeditionIntegration.woodReturnShuttleAvailable(cutter.actor, carId) ~= true) then
-        return false, "wood_return_carry_capacity"
+    local vehicle = carId and SC.Vehicle and SC.Vehicle.loadedBySqlId(carId)
+    if not rosterCanCarry(roster, nil, nil, options) then
+        -- Packing may take place far from the parking bay. The crew has no
+        -- log yet. Actual transfers still require both ends of a short haul.
+        if not vehicle or SC.Vehicle.isStationary(vehicle) ~= true
+            or not rosterCanCarry(roster, nil, nil, options, true) then
+            return false, "wood_carry_capacity"
+        end
+        local integration = SC.ExpeditionIntegration
+        if not integration or not integration.woodReturnShuttleAvailable
+            or integration.woodReturnShuttleAvailable(cutter.actor, carId) ~= true then
+            return false, "wood_return_carry_capacity"
+        end
     end
     if carId then
-        local vehicle = SC.Vehicle.loadedBySqlId(carId)
         local container
         if vehicle then
             local part

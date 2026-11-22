@@ -244,7 +244,7 @@ local function unstartedSearchReturn(itinerary)
     local reason = itinerary.search and itinerary.search.endReason
     return (reason == "return_time_reached" and itinerary.turnHomeAtHour ~= nil)
         or (reason == "arrival_reserve_reached" and itinerary.arriveByHour ~= nil)
-        or reason == "radio_return" or reason == "legacy_car_return"
+        or reason == "radio_return" or reason == "called_off_nearby" or reason == "legacy_car_return"
         or reason == "squad_wounded"
         or reason == "horde_no_safe_detour" or reason == "site_unreachable"
         or reason == "road_path_unreachable"
@@ -1034,7 +1034,7 @@ function Expedition.updateDeparturePreparation(actor, runtime)
         local settled, reason = Expedition._settleDeparturePreparation(actor, row, runtime)
         if not settled then return true, reason or "departure_preparation_settling", false end
     end
-    if mission.scout.departurePreparation.finishing then
+    if mission.scout.departurePreparation.finishing and not mission.scout.departurePreparation.returnReason then
         local finished = Expedition._finishDeparturePreparation(mission, row)
         if not finished and SC.Actor and SC.Actor.stop then SC.Actor.stop(actor) end
         return true, finished and "departure_ready" or "departure_preparation_settling", finished
@@ -1095,7 +1095,8 @@ end
 
 function Expedition.retryDeparturePreparation(tripId)
     local preparation = mission and mission.scout and mission.scout.departurePreparation
-    if not preparation or mission.radioSession ~= tripId or mission.restoring or mission.terminal then
+    if not preparation or preparation.returnReason or mission.radioSession ~= tripId
+        or mission.restoring or mission.terminal then
         return false, "departure_preparation_stale"
     end
     if mission.scout.fuel and mission.scout.fuel.preparation then SC.ExpeditionFuel.retryPreparation(mission) end
@@ -1862,7 +1863,8 @@ function Expedition.woodRequestFor(actor)
     local wood = itinerary and itinerary.wood
     if actor == nil or not wood or not mission.members[actor] or mission.terminal
         or mission.technicalIssue then return nil end
-    if wood.pendingCarReturnReason then return nil end
+    if wood.pendingReturnReason or wood.pendingCarReturnReason
+        or itinerary.departurePreparation and itinerary.departurePreparation.returnReason then return nil end
     if wood.preparation and actor ~= mission.leader.actor then return nil end
     if not wood.preparation and itinerary.phase ~= "wood_working" then return nil end
     local car = activeWoodCar(itinerary)
@@ -1945,7 +1947,10 @@ end
 function Expedition.fishingPreparationFor(actor)
     if mission and not mission.restoring and not mission.terminal
         and mission.leader.actor == actor and alive(mission.leader)
-        and mission.scout then return mission.scout.fishingPreparation end
+        and mission.scout then
+        local preparation = mission.scout.departurePreparation
+        if not preparation or not preparation.returnReason then return mission.scout.fishingPreparation end
+    end
     return nil
 end
 
@@ -3127,6 +3132,58 @@ function Expedition.playerCanObserve(actor, viewer)
     if px == nil or x == nil or math.floor(pz or -1) ~= math.floor(z or -2)
         or (px - x)^2 + (py - y)^2 > 20 * 20 then return false end
     return SC.GameplayUtil.canSee(viewer, actor) == true
+end
+
+function Expedition.nearbyCancellation(player, actor)
+    local scout = mission and mission.scout
+    if not scout or scout.kind == "home" or mission.terminal or mission.restoring
+        or mission.suspended or mission.technicalIssue or not Expedition.isMember(actor)
+        or not alive(missionRecordForActor(actor)) then
+        return nil, "expedition_cancel_unavailable"
+    end
+    local wood, fuel, packing = scout.wood, scout.fuel, scout.departurePreparation
+    if travelBudgetPhase(scout) == "inbound" or scout.returnRequested
+        or packing and packing.returnReason
+        or wood and (wood.pendingReturnReason or wood.pendingCarReturnReason)
+        or fuel and fuel.cleanupRequested then
+        return nil, "expedition_already_returning"
+    end
+    local util = SC.GameplayUtil
+    if not Expedition.playerCanObserve(actor, player) or util.isDead(player)
+        or util.distance(player, actor) > 2
+        or util.directInteractionAccess(player, util.squareOf(actor)) ~= true then
+        return nil, "expedition_out_of_reach"
+    end
+    return mission.radioSession
+end
+
+function Expedition._requestReturn(reason)
+    local scout = mission.scout
+    local car = scout.vehicle
+    if car and car.state ~= "abandoned" then
+        local accepted, why = SC.ExpeditionCar.requestReturn(mission, SC.GameplayUtil.nowMs(), reason)
+        if accepted then
+            cancelFishingPreparation()
+            scout.fishingPreparation = nil
+        end
+        return accepted, why
+    end
+    return startReturnFromSite(scout, reason)
+end
+
+function Expedition.cancelNearby(player, actor, tripId)
+    local currentId, issue = Expedition.nearbyCancellation(player, actor)
+    if not currentId then return false, issue end
+    if currentId ~= tripId then return false, "expedition_cancel_unavailable" end
+    local accepted, why = Expedition._requestReturn("called_off_nearby")
+    local scout = mission.scout
+    local packing, wood = scout.departurePreparation, scout.wood
+    if accepted or packing and packing.returnReason == "called_off_nearby"
+        or wood and (wood.pendingReturnReason == "called_off_nearby"
+            or wood.pendingCarReturnReason == "called_off_nearby") then
+        return true, "expedition_cancel_requested"
+    end
+    return false, why
 end
 
 -- Normal UI receives only known plans and locally visible member facts. A
@@ -4800,13 +4857,14 @@ startReturnFromSite = function(itinerary, reason)
             if not entryReady then
                 useReachedTrailForReturn(itinerary, avoidance)
                 itinerary.lastRoadFailure = entryReason
-                return
+                return true, "returning"
             end
             itinerary.roadRoute = route
             itinerary.trailReturn = nil
             itinerary.road = SC.ExpeditionRoute.descriptor(route, "inbound")
         end
     end
+    return true, "returning"
 end
 
 local function blockForOrders(itinerary, avoidance, reason)
@@ -5055,7 +5113,11 @@ local function pulseScout()
     if scout.departurePreparation then
         Expedition._syncDeparturePreparation(mission)
         if scout.departurePreparation.returnReason then
-            startReturnFromSite(scout, scout.departurePreparation.returnReason)
+            if scout.departurePreparation.returnReason == "called_off_nearby" then
+                Expedition._requestReturn(scout.departurePreparation.returnReason)
+            else
+                startReturnFromSite(scout, scout.departurePreparation.returnReason)
+            end
             return
         end
         if scout.arriveByHour and scoutWorldHour() and scoutWorldHour() >= scout.arriveByHour then
@@ -5064,15 +5126,15 @@ local function pulseScout()
         end
         return
     end
+    if scout.wood and scout.wood.pendingReturnReason then
+        startReturnFromSite(scout, scout.wood.pendingReturnReason)
+        return
+    end
     if scout.fishingPreparation or scout.wood and scout.wood.preparation then return end
     if scout.fuel and scout.vehicle and scout.vehicle.state=="parked_at_site" and scout.phase=="outbound" then
         scout.fuel.startedHour=scout.fuel.startedHour or scoutWorldHour()
         scout.phase="fuel_working"
         if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
-        return
-    end
-    if scout.wood and scout.wood.pendingReturnReason then
-        startReturnFromSite(scout, scout.wood.pendingReturnReason)
         return
     end
     if scout.wood and scout.phase ~= "inbound" and scout.phase ~= "awaiting_player"

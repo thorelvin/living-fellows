@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.27.58 - Wood expedition departure and nearby cancellation
+
+- Wood crews can finish packing away from their parked vehicle when the
+  crew, vehicle and camp storage can support short log hauls later.
+- Right-click a nearby expedition crew member and choose **Cancel expedition**
+  to call off the trip in person. Before boarding, the crew leaves the car
+  parked and settles its equipment before rejoining camp.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.57 - Prepared cleaning mixtures in storage
 
 - Cleaners check marked shelves for newly stocked mixtures before making a

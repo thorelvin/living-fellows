@@ -351,6 +351,29 @@ select(find(clicked, "leaf:" .. a.id .. ":stay", true))
 check(#issued == issuedBefore, "stale clicked identity cannot send an order to a replacement record")
 records[a.id] = { id = a.id, name = a.name, actor = a, recruited = true }
 
+do
+    local previous, near, called = SC.ExpeditionPrototype, true, nil
+    SC.ExpeditionPrototype = {
+        nearbyCancellation = function(player, value)
+            if near and player == T.doctor and value == a then return "exact-trip" end
+        end,
+        cancelNearby = function(player, value, tripId)
+            called = { player = player, actor = value, tripId = tripId }
+            return true
+        end,
+    }
+    SC.UI.instance.selectedId = b.id
+    local option = find(fill({ a }), "expedition.cancel:" .. a.id, true)
+    check(option and option.name == "UI_SC_Expedition_CancelNearby", "right-click exposes a direct expedition recall")
+    select(option)
+    check(called and called.player == T.doctor and called.actor == a and called.tripId == "exact-trip",
+        "recall selection sends the exact clicked member and active trip")
+    check(not find(fill({ b }), "UI_SC_Expedition_CancelNearby"), "unrelated companions expose no recall")
+    near = false
+    check(not find(fill({ a }), "UI_SC_Expedition_CancelNearby"), "out-of-reach crew expose no recall")
+    SC.ExpeditionPrototype = previous
+end
+
 -- No body hit: the explicitly selected companion retains named ground and
 -- object shortcuts, and an ambiguous body hit must not guess a primary.
 SC.UI.instance.selectedId = b.id

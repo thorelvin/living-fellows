@@ -517,13 +517,32 @@ do
     prepared = true
     E.updateWood(leader)
     pending = follower
-    trip.scout.departurePreparation.returnReason = "radio_return"
+    local util, oldSight, oldPlayerX = SC.GameplayUtil, SC.GameplayUtil.canSee, player.x
+    util.canSee = function() return true end
+    util.squareOf = function(a) return a:getCurrentSquare() end
+    util.directInteractionAccess = function() return false end
+    player.x = 104
+    check(not E.nearbyCancellation(player, follower), "closed access hides the cancellation command")
+    util.directInteractionAccess = function() return true end
+    check(not E.nearbyCancellation(leader, follower) and not E.cancelNearby(player, follower, "old-trip"),
+        "secondary operator and stale order cannot recall the active crew")
+    player.x = 99
+    check(not E.nearbyCancellation(player, follower), "distance hides the cancellation command")
+    player.x = 104
+    local token = E.nearbyCancellation(player, follower)
+    check(token == trip.radioSession and E.cancelNearby(player, follower, token),
+        "the adjacent primary player can recall via any living crew member without a radio")
+    check(E.export().scout.departurePreparation.returnReason == "called_off_nearby"
+        and not E.nearbyCancellation(player, leader) and not E.woodPreparationFor(leader)
+        and not E.retryDeparturePreparation(token), "queued recall saves its intent and suppresses more packing")
     E.pulse()
     check(trip.scout.departurePreparation and pending == follower, "return waits while the exact inventory transfer is pending")
     E.updateDeparturePreparation(follower)
     E.pulse()
     check(settles == 2 and calls[follower] == beforePacking and not trip.scout.departurePreparation
-        and trip.scout.phase == "inbound", "the actor settles cancellation ownership before return resumes without new preparation")
+        and trip.scout.phase == "inbound" and trip.scout.wood.endReason == "called_off_nearby",
+        "the actor settles cancellation ownership before return resumes without new preparation")
+    util.canSee, util.squareOf, util.directInteractionAccess, player.x = oldSight, nil, nil, oldPlayerX
     check(E.prepareReset() and E.reset(), "pending preparation return tears down cleanly")
     SC.Logistics, SC.Actor, F.preview = previousLogistics, previousActor, previousPreview
     W.departureGear, W.departureReady, SC_TEST_CLOCK = previousGear, previousReady, previousClock

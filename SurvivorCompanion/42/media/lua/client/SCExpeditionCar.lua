@@ -1233,13 +1233,16 @@ function Car.requestReturn(mission, now, reason)
     if trip.leg == "home" or trip.state == "home_wait" then
         return false, "expedition_already_returning"
     end
+    local neverBoarded = reason == "called_off_nearby" and preparingSupplies(scout)
+        and trip.state == "walking_to_car" and wholeTeamOnFoot(mission)
     if scout.departurePreparation and SC.ExpeditionPrototype
         and SC.ExpeditionPrototype._cancelDeparturePreparation then
-        local stopped, why = SC.ExpeditionPrototype._cancelDeparturePreparation(mission, "expedition_return")
+        local stopped, why = SC.ExpeditionPrototype._cancelDeparturePreparation(mission, "expedition_return", neverBoarded)
         if stopped ~= true then
             scout.departurePreparation.returnReason = reason or "radio_return"
             return false, why or "departure_preparation_settling"
         end
+        if neverBoarded then scout.departurePreparation.returnReason = reason end
     end
     if scout.wood then
         if not SC.ExpeditionWood or type(SC.ExpeditionWood.stop) ~= "function" then
@@ -1278,6 +1281,17 @@ function Car.requestReturn(mission, now, reason)
     if trip.state == "walking_to_car" or trip.state == "boarding_out" then
         recordReturnIntent(scout, reason)
         trip.leg = "home"
+        if neverBoarded then
+            -- The whole crew is still on foot. Leave the parked car alone.
+            scout.departurePreparation = nil
+            local base = SC.BaseLife
+            local leader = mission.leader.actor
+            local home = base and base.isInside and (base.isInside(leader) or base.isInside(leader, "parking"))
+            trip.state, trip.blocker = "home_wait", nil
+            scout.phase = home and "awaiting_player" or "inbound"
+            scout.roadRoute, scout.road, scout.travelBudget, scout.legs = nil, nil, nil, 0
+            return true, "returning"
+        end
         trip.state, scout.phase = "boarding_rollback", "boarding_rollback"
         trip.blocker = "return_requested_before_departure"
         return true, "returning_from_parking"
@@ -1579,7 +1593,7 @@ end
 function Car.pulse(mission, now, worldHour)
     local scout = mission and mission.scout
     local trip = scout and scout.vehicle
-    if not trip or trip.state == "abandoned" then return false end
+    if not trip or trip.state == "abandoned" or trip.state == "home_wait" and not trip.field then return false end
     -- A radio hold owns the existing car and seats until an explicit resume
     -- or recall. Generic held recovery must not abandon it after a timer.
     if trip.radioResumeState or preparingSupplies(scout) then
