@@ -330,6 +330,11 @@ local function canCarry(actor, row)
     local weight, capacity = U().carryLoad(actor)
     return not capacity or capacity <= 0 or weight + extraWeight(row) <= capacity
 end
+local function tooHeavy(actor, tool, liquid)
+    local weight, capacity = U().carryLoad(actor)
+    return capacity ~= nil and capacity > 0
+        and weight + extraWeight(tool) + extraWeight(liquid) > capacity * 0.90
+end
 local function batch(actor, tool, pure, bucket, water, job)
     if not available(bucket, actor) then return nil end
     local info, concentrated = C.inspect(bucket.item), C.inspect(pure.item)
@@ -377,7 +382,13 @@ function C.plan(actor, job, remainingBudget)
             inventories[actor].selection = nil
             return nil, "cleaning_supplies_scanning"
         end
-        for _, row in ipairs({ selection.tool or false, selection.mixed or false, selection.pure or false }) do
+        -- A mixture too heavy to carry plays no part in this call's plan. Checking
+        -- it anyway would take one of the four containers that a mixing step
+        -- needs for its tool, concentrate, bucket and water, and that step would
+        -- then never get past a fifth container.
+        local liveMixed = selection.mixed and not tooHeavy(actor, selection.tool, selection.mixed)
+            and selection.mixed or false
+        for _, row in ipairs({ selection.tool or false, liveMixed, selection.pure or false }) do
             if row then
                 if not surveyContainer(camp.quota, row) then return nil, "cleaning_supplies_scanning" end
                 if not available(row, actor, job) then
@@ -386,9 +397,9 @@ function C.plan(actor, job, remainingBudget)
                 end
             end
         end
-        local mixedInfo = selection.mixed and C.inspect(selection.mixed.item)
+        local mixedInfo = liveMixed and C.inspect(liveMixed.item)
         local pureInfo = selection.pure and C.inspect(selection.pure.item)
-        if selection.mixed and (not mixedInfo or not mixedInfo.usable or not mixedInfo.mixture)
+        if liveMixed and (not mixedInfo or not mixedInfo.usable or not mixedInfo.mixture)
             or selection.pure and (not pureInfo or not pureInfo.pureCleaner
                 or pureInfo.amount < C.dose() * C.RATIO) then
             inventories[actor].selection = nil
@@ -420,8 +431,7 @@ function C.plan(actor, job, remainingBudget)
     selection.complete = selection.index > #rows
     if not selection.complete then return nil, "cleaning_supplies_scanning" end
     local weight, capacity = U().carryLoad(actor)
-    local mixedTooHeavy = mixed and capacity and capacity > 0
-        and weight + extraWeight(tool) + extraWeight(mixed) > capacity * 0.90
+    local mixedTooHeavy = mixed and tooHeavy(actor, tool, mixed)
     local function resolved(plan, why)
         camp.scan.used, selection.resolved, selection.stockChecked = true, true, nil
         return plan, why

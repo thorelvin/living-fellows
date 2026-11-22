@@ -413,6 +413,9 @@ local function woodReason(reason)
         wood_quantity_met = "UI_SC_Expedition_WoodTargetMet",
         wood_storage_missing = "UI_SC_Expedition_WoodStorageMissing",
         wood_base_missing = "UI_SC_Expedition_WoodStorageMissing",
+        -- A recall is an order, not a failure: no retry wording.
+        radio_return = "UI_SC_Expedition_ReturnRecalled",
+        called_off_nearby = "UI_SC_Expedition_ReturnCalledOff",
     }
     if keys[reason] then return tr(keys[reason]) end
     if SC.UI and type(SC.UI.baseFailureReason) == "function" then

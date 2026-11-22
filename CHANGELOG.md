@@ -9,6 +9,12 @@
 - Right-click a nearby expedition crew member and choose **Cancel expedition**
   to call off the trip in person. Before boarding, the crew leaves the car
   parked and settles its equipment before rejoining camp.
+- After a radio recall or a call-off in person, the wood and fuel trip report
+  says the crew was called back instead of showing a generic "task stopped"
+  message with retry advice.
+- A cleaner no longer stays on "Finding cleaning supplies" when a prepared
+  mixture is too heavy to carry and the tool, cleaner, bucket and water sit in
+  four other places.
 - Bridge protocol `42.22-isocompanion-35`. World save schema 3.
 
 ## 0.27.57 - Prepared cleaning mixtures in storage

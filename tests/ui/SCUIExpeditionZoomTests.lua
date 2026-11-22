@@ -456,6 +456,21 @@ assert(string.find(partialWoodText, "UI_SC_Expedition_WoodForestEmpty", 1, true)
         and string.find(partialWoodText, "UI_SC_Expedition_CarFailure", 1, true)
         and not string.find(partialWoodText, "Base.Log", 1, true),
     "partial wood debriefs explain empty woodland and pending cargo with readable log names")
+-- A recall is the player's order. The report says so instead of falling
+-- through to the generic "stopped before completion, retry" wording.
+fixture.setPendingReports({})
+for _, case in ipairs({ { "called_off_nearby", "UI_SC_Expedition_ReturnCalledOff" },
+    { "radio_return", "UI_SC_Expedition_ReturnRecalled" } }) do
+    for _, kind in ipairs({ "wood", "fuel" }) do
+        fixture.setDebrief({ kind = kind, endReason = case[1] })
+        delivery.lines = {}
+        Planner.build(delivery, newPanel(400))
+        local recallText = table.concat(delivery.lines, "\n")
+        assert(string.find(recallText, case[2], 1, true) and not string.find(recallText, case[1], 1, true),
+            kind .. " report explains a " .. case[1] .. " recall: " .. recallText)
+    end
+end
+fixture.setDebrief(nil)
 local preparation = { total = 1, ready = 0, members = { { name = "Tess Nolan", stage = "supplies",
     reason = "loadout_seeking_food", assessment = { cargoBagId = "bag:test", cargoBagName = "Hiking Bag", itemName = "Fresh peach",
         supplies = { food = { carried = 0, required = 2 } } } } } }

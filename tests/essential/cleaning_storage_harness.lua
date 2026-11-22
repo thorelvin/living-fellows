@@ -189,6 +189,30 @@ do
     check(not C.sourceUsable(sink) and unsafe == 0,
         "a newly observed detached source is rejected before coordinate or water reads")
 end
+do
+    -- Five containers: the mop in the cleaner's pack, a prepared mixture too
+    -- heavy to carry, the bleach, an empty bucket and stored rainwater each on
+    -- their own shelf. A slice may survey four containers, and a mixing step
+    -- needs four of them. Rechecking the unusable mixture must not take one.
+    local actor, _, shelves = scene()
+    actor.inventory.capacity = 10
+    actor.inventory:AddItem(tool("Base.Mop"))
+    actor.inventory:AddItem(f.item("Base.Brick", "Normal", { weight = 4 }))
+    local heavy = cleaner("Base.BucketEmpty", { [Fluid.Water] = 1.9, [Fluid.Bleach] = 0.1 })
+    heavy.weight = 4.5
+    shelves.weapons:AddItem(heavy)
+    local bucket = f.item("Base.BucketEmpty", "Normal", { weight = 0.5, fluidContainer = {
+        getAmount = function() return 0 end, getCapacity = function() return 10 end,
+        canAddFluid = function() return true end,
+    } })
+    shelves.ammunition:AddItem(bucket)
+    local water = cleaner("Base.WaterBottle", { [Fluid.TaintedWater] = 1 })
+    shelves.general:AddItem(water)
+    local selection, why = plan(actor)
+    check(selection and selection.mode == "prepare" and selection.liquid.item == bucket
+        and selection.water and selection.water.item == water and selection.concentrate.storageId ~= nil,
+        "a too-heavy mixture does not stall a batch that needs four other containers: " .. tostring(why))
+end
 local actor, rows, containers = scene()
 containers.general:AddItem(f.item("Base.Paperclip", "Normal"))
 local destinations = SC.BaseWork.floorDestinations(actor, mop)

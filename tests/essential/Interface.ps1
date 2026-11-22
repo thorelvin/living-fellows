@@ -65,6 +65,12 @@ $interfacePanelFiles = @(
     (Join-Path $UI 'SCExpeditionMapLayoutTests.lua')
 )
 @{ Name = 'interface-selected-and-cached'; Files = $interfacePanelFiles }
+@{ Name = 'interface-expedition-panel'; Files = @(
+    (Join-Path $UI 'SCUIExpeditionZoomFixture.lua'),
+    (Join-Path $Client 'SCUIFormat.lua'),
+    (Join-Path $Client 'SCUIExpeditions.lua'),
+    (Join-Path $UI 'SCUIExpeditionZoomTests.lua')
+) }
 
 $interfaceContextFiles = @(
     (Join-Path $UI 'SCMedicalContextFixture.lua'),
