@@ -29,6 +29,17 @@ end
 local function woodRecord(record)
     return type(record) == "table" and record.version == 2 and record.kind == "wood"
 end
+local function woodFloor(kind)
+    return kind == "log_yard" or kind == "sorting_floor"
+end
+local function woodFloorSquare(destination)
+    if destination.kind == "log_yard" and SC.LogYard then
+        return SC.LogYard.tile(destination.x, destination.y, destination.z, destination.zoneId)
+    end
+    if destination.kind == "sorting_floor" and SC.FloorSort then
+        return SC.FloorSort.sortingTile(destination.zoneId, destination.x, destination.y, destination.z)
+    end
+end
 local function remainingRetry(row)
     if row.retryRemainingMs == nil then return nil end
     local current = U().nowMs()
@@ -139,7 +150,7 @@ function Integration.valid(value)
         if row.destination ~= nil then
             local destination = row.destination
             if not wood or type(destination) ~= "table"
-                or (destination.kind ~= "container" and destination.kind ~= "log_yard") then return false end
+                or (destination.kind ~= "container" and not woodFloor(destination.kind)) then return false end
             if destination.kind == "container" then
                 if not validId(destination.id, 128) then return false end
             else
@@ -490,9 +501,9 @@ local function reconcileWoodStorage(record, row)
             end
         end
     else
-        local yard = SC.LogYard
-        local square = yard and yard.tile(destination.x, destination.y,
-            destination.z, destination.zoneId)
+        -- The journal records the tile at commit time. A later zone edit
+        -- does not change the location of the original dropped item.
+        local square = U().gridSquare(destination.x, destination.y, destination.z)
         local objects = square and call(square, "getWorldObjects")
         local count = objects and U().listSize and U().listSize(objects)
         if type(count) == "number" and count <= 128 then
@@ -602,6 +613,9 @@ function Integration.woodDestinationAvailable(actor)
     if SC.LogYard and SC.LogYard.hasZone and SC.LogYard.hasZone() then
         return true, "wood_log_yard_registered"
     end
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "sorting_floor" then return true, "wood_storage_registered" end
+    end
     for _, category in ipairs({ "construction", "general" }) do
         for _, storage in ipairs(SC.BaseLife.depositStorageRows(category)) do
             if storage.deposits ~= false then return true, "wood_storage_registered" end
@@ -611,7 +625,7 @@ function Integration.woodDestinationAvailable(actor)
 end
 
 local function woodStoragePoint(storage)
-    if storage.kind == "log_yard" then return { x = storage.x, y = storage.y, z = storage.z } end
+    if woodFloor(storage.kind) then return storage end
     local object = SC.BaseLife.resolveObject and SC.BaseLife.resolveObject(storage)
     local x, y, z = U().position(object)
     if type(x) == "number" and type(y) == "number" and type(z) == "number" then
@@ -619,28 +633,80 @@ local function woodStoragePoint(storage)
     end
 end
 
--- This checks geometry, including a currently full destination: space may
--- become available during the trip, but a heavy crew cannot walk across camp.
-function Integration.woodReturnShuttleAvailable(actor, carId)
-    local car = SC.Vehicle and SC.Vehicle.loadedBySqlId(carId)
+local function nearWoodCar(car, point)
+    return car and point and point.z == car.z
+        and (point.x - car.x)^2 + (point.y - car.y)^2 <= 400
+end
+
+local function woodCarPoint(carId)
+    local car = carId and SC.Vehicle and SC.Vehicle.loadedBySqlId(carId)
+    if not car then return nil end
     local x, y, z = U().position(car)
-    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number"
-        or SC.Vehicle.isStationary(car) ~= true then return false end
-    local function near(target)
-        return target and target.z == z and (target.x - x)^2 + (target.y - y)^2 <= 400
-    end
-    local base = SC.BaseLife.active()
-    for _, zone in ipairs(base and base.zones or {}) do
-        if zone.kind == "log_yard" and zone.z == z and near({ z = z,
-            x = math.max(zone.x1, math.min(x, zone.x2)),
-            y = math.max(zone.y1, math.min(y, zone.y2)) }) then return true end
-    end
-    for _, category in ipairs({ "construction", "general" }) do
-        for _, storage in ipairs(SC.BaseLife.depositStorageRows(category)) do
-            if storage.deposits ~= false and near(woodStoragePoint(storage)) then return true end
+    if type(x) == "number" and type(y) == "number" and type(z) == "number"
+        and SC.Vehicle.isStationary(car) == true then return { x = x, y = y, z = z } end
+end
+
+local function nearestZonePoint(zone, point)
+    return { x = math.max(zone.x1, math.min(math.floor(point.x), zone.x2)),
+        y = math.max(zone.y1, math.min(math.floor(point.y), zone.y2)), z = zone.z }
+end
+
+local function visitZoneFrom(zone, center, radius, visit)
+    for ring = 0, radius do
+        for y = math.max(zone.y1, center.y - ring), math.min(zone.y2, center.y + ring) do
+            for x = math.max(zone.x1, center.x - ring), math.min(zone.x2, center.x + ring) do
+                if math.max(math.abs(x - center.x), math.abs(y - center.y)) == ring and visit(x, y) then
+                    return true
+                end
+            end
         end
     end
     return false
+end
+
+local function overflowSquares(base, car)
+    local squares = {}
+    if not car or not SC.FloorSort or not SC.BaseLife.canPlaceLootOverflowFloor
+        or SC.BaseLife.lootOverflowFloor() then return squares end
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "area" and zone.z == car.z then
+            local center = nearestZonePoint(zone, car)
+            if nearWoodCar(car, center) then
+                local settled = visitZoneFrom(zone, center, 4, function(x, y)
+                    if not nearWoodCar(car, { x = x, y = y, z = zone.z }) then return false end
+                    local square = U().gridSquare(x, y, zone.z)
+                    if SC.FloorSort.clearOverflowTile(square) and SC.BaseLife.canPlaceLootOverflowFloor(square) then
+                        squares[#squares + 1] = square
+                    end
+                    return #squares == 4
+                end)
+                if settled then return squares end
+            end
+        end
+    end
+    return squares
+end
+
+local function campLogRoute(car, target)
+    return target and (nearWoodCar(car, target)
+        or target.z == car.z and SC.BaseLife.isInside(target) == true)
+end
+
+-- Before departure, check whether the parked car has a plausible unloading
+-- destination. Capacity and the route from the trunk are checked on return.
+function Integration.woodReturnShuttleAvailable(actor, carId)
+    local base = SC.BaseLife.active()
+    local car = woodCarPoint(carId)
+    if not base or not car then return false end
+    for _, zone in ipairs(base.zones or {}) do
+        if woodFloor(zone.kind) and campLogRoute(car, nearestZonePoint(zone, car)) then return true end
+    end
+    for _, category in ipairs({ "construction", "general" }) do
+        for _, storage in ipairs(SC.BaseLife.depositStorageRows(category)) do
+            if storage.deposits ~= false and campLogRoute(car, woodStoragePoint(storage)) then return true end
+        end
+    end
+    return #overflowSquares(base, car) > 0
 end
 
 function Integration.summary(record)
@@ -929,74 +995,143 @@ local function selectStorage(actor, item, state, homeReceipt)
     return nil, nil, unavailable
 end
 
-local function selectWoodStorage(actor, item, state, carId)
-    local function canCarry(storage)
-        if not carId then return true end
-        local worker = SC.ExpeditionWood
-        if sourceWithin(call(item, "getContainer"), U().inventory(actor)) and U().carryLoad then
-            local weight, maximum = U().carryLoad(actor)
-            if type(weight) == "number" and type(maximum) == "number" and weight <= maximum then return true end
-        elseif worker and worker.carryDestination and worker.carryDestination(actor, item) then return true end
-        -- The worker may still need to walk empty-handed to the trunk.
-        -- Exact actor proximity and physical admission are checked after that
-        -- approach, before taking the log, by woodTakeExact.
-        local car = SC.Vehicle and SC.Vehicle.loadedBySqlId(carId)
-        local x, y, z = U().position(car)
-        local target = woodStoragePoint(storage)
-        return target and type(x) == "number" and type(y) == "number" and target.z == z
-            and (target.x - x)^2 + (target.y - y)^2 <= 400
-            and SC.Vehicle.isStationary(car) == true
+local function woodFloorId(kind, zoneId, x, y, z)
+    return kind .. ":" .. tostring(zoneId) .. ":" .. x .. ":" .. y .. ":" .. z
+end
+
+local function woodFloorHasRoom(square)
+    local contents = square and SC.LogYard and SC.LogYard.contents(square, true)
+    if not contents then return false, "matching_storage_unloaded" end
+    if contents.splitPending then return false, "log_yard_split_pending" end
+    if contents.units >= 4 then return false, "matching_storage_full" end
+    return true
+end
+
+local function selectWoodStorage(actor, item, state, carId, overloaded)
+    local base, car = SC.BaseLife.active(), woodCarPoint(carId)
+    if not base then return nil, nil, "matching_storage_missing" end
+    local x, y, z = U().position(actor)
+    if x == nil then return nil, nil, "matching_storage_unreachable" end
+    local origin = car or { x = x, y = y, z = z }
+    local choices, now = {}, U().nowMs()
+    local function available(id)
+        return not state.blockedStorage or (state.blockedStorage[id] or 0) <= now
     end
-    local yard = SC.LogYard
-    if yard and yard.hasZone and yard.hasZone() and type(yard.select) == "function" then
-        local selected = yard.select(actor)
-        if selected then
-            selected.id = "yard:" .. tostring(selected.zoneId) .. ":"
-                .. tostring(selected.x) .. ":" .. tostring(selected.y) .. ":" .. tostring(selected.z)
-            if canCarry(selected) and (not state.blockedStorage
-                or (state.blockedStorage[selected.id] or 0) <= U().nowMs()) then
-                return selected, selected.square
+    local function tierFor(target, tier)
+        if not overloaded or nearWoodCar(car, target) then return tier end
+        if target and target.z == origin.z and SC.BaseLife.isInside(target) == true then return tier + 5 end
+    end
+    local function add(storage, object, container, tier)
+        if tier and available(storage.id) then
+            choices[#choices + 1] = { id = storage.id, object = object, tier = tier,
+                storage = storage, container = container }
+        end
+    end
+
+    if SC.LogYard and SC.LogYard.select then
+        local function addYard(tier)
+            local yard = SC.LogYard.select(actor, nil, function(square, zone)
+                local x, y, z = U().position(square)
+                return tierFor({ x = x, y = y, z = z }, 1) == tier
+                    and available(woodFloorId("log_yard", zone.id, x, y, z))
+            end)
+            if yard then
+                yard.id = woodFloorId(yard.kind, yard.zoneId, yard.x, yard.y, yard.z)
+                add(yard, yard.square, yard.square, tier)
             end
         end
+        addYard(1)
+        if overloaded then addYard(6) end
     end
     local unavailable = "matching_storage_missing"
-    for _, category in ipairs({ "construction", "general" }) do
-        local choices = {}
+    for index, category in ipairs({ "construction", "general" }) do
         for _, storage in ipairs(SC.BaseLife.depositStorageRows(category)) do
-            local blockedUntil = state.blockedStorage and state.blockedStorage[storage.id] or 0
-            local container = blockedUntil <= U().nowMs() and SC.BaseLife.resolveContainer(storage) or nil
-            if blockedUntil > U().nowMs() then unavailable = "matching_storage_unreachable"
-            elseif container then
-                local accepts = SC.BaseLife.storageAcceptsDeposit(storage, container)
-                local room = accepts == true and SC.WorkTransport and SC.WorkTransport.hasRoom
-                    and SC.WorkTransport.hasRoom(container, actor, item)
-                if accepts == true and room == true and canCarry(storage) then
-                    local object = SC.BaseLife.resolveObject and SC.BaseLife.resolveObject(storage)
-                    if object then choices[#choices + 1] = { id = storage.id, object = object,
-                        storage = storage, container = container }
-                    elseif not SC.BaseLife.resolveObject then return storage, container end
-                else unavailable = "matching_storage_full" end
-            else unavailable = "matching_storage_unloaded" end
-        end
-        if #choices > 0 then
-            if SC.Navigation and SC.Navigation.selectInteraction then
-                local selected, reason = SC.Navigation.selectInteraction(actor, state,
-                    "wood_delivery:" .. tostring(state.currentReceiptId), choices,
-                    { nodeBudget = 1800, workCampOnly = true, workReach = true })
-                if selected then return selected.storage, selected.container end
-                if reason == "pending" then return nil, nil, "storage_route_pending" end
-                unavailable = "matching_storage_unreachable"
-            else return choices[1].storage, choices[1].container end
+            local object = SC.BaseLife.resolveObject and SC.BaseLife.resolveObject(storage)
+            local container = object and SC.BaseLife.resolveContainer(storage)
+            if not available(storage.id) then unavailable = "matching_storage_unreachable"
+            elseif not container then unavailable = "matching_storage_unloaded"
+            elseif SC.BaseLife.storageAcceptsDeposit(storage, container) == true
+                and SC.WorkTransport.hasRoom(container, actor, item) == true then
+                local ox, oy, oz = U().position(object)
+                if ox ~= nil then
+                    add(storage, object, container, tierFor({ x = ox, y = oy, z = oz }, index + 1))
+                end
+            else unavailable = "matching_storage_full" end
         end
     end
-    return nil, nil, unavailable
+    local function addFloor(square, zone, tier)
+        if not square then return false end
+        local x, y, z = U().position(square)
+        local point = { x = x, y = y, z = z }
+        local id = woodFloorId("sorting_floor", zone and zone.id, x, y, z)
+        tier = tierFor(point, tier)
+        if not tier or not available(id) then return false end
+        local room, reason = woodFloorHasRoom(square)
+        if not room then unavailable = reason return false end
+        add({ kind = "sorting_floor", zoneId = zone and zone.id, id = id,
+            x = x, y = y, z = z }, square, square, tier)
+        return true
+    end
+    if SC.FloorSort then
+        for _, zone in ipairs(base.zones or {}) do
+            if zone.kind == "sorting_floor" then
+                local added = 0
+                local center = nearestZonePoint(zone, origin)
+                local radius = math.max(center.x - zone.x1, zone.x2 - center.x,
+                    center.y - zone.y1, zone.y2 - center.y)
+                visitZoneFrom(zone, center, radius, function(sx, sy)
+                    if addFloor(SC.FloorSort.sortingTile(zone.id, sx, sy, zone.z),
+                        zone, zone.lootOverflow and 5 or 4) then added = added + 1 end
+                    return added == 4
+                end)
+            end
+        end
+        for _, square in ipairs(overflowSquares(base, car)) do addFloor(square, nil, 5) end
+    end
+    if #choices == 0 then return nil, nil, unavailable end
+    local navigation = SC.Navigation
+    if not navigation or not navigation.selectInteraction then
+        if not overloaded and choices[1].storage.zoneId then return choices[1].storage, choices[1].container end
+        return nil, nil, "matching_storage_unreachable"
+    end
+    local selected, reason, route = navigation.selectInteraction(actor, state,
+        "wood_delivery:" .. tostring(state.currentReceiptId), choices,
+        { nodeBudget = 1800, workCampOnly = true, workReach = true, retainRoute = true })
+    if not selected or overloaded and reason ~= "selected" then
+        if reason == "pending" then return nil, nil, "storage_route_pending" end
+        if reason == "unknown" then return nil, nil, "storage_route_unknown" end
+        return nil, nil, "matching_storage_unreachable"
+    end
+    local storage, container = selected.storage, selected.container
+    if storage.kind == "sorting_floor" and not storage.zoneId then
+        local zone = SC.BaseLife.ensureLootOverflowFloor(container)
+        if not zone or SC.FloorSort.sortingTile(zone.id, storage.x, storage.y, storage.z) ~= container then
+            return nil, nil, "matching_storage_unreachable"
+        end
+        storage.zoneId = zone.id
+        storage.id = woodFloorId(storage.kind, zone.id, storage.x, storage.y, storage.z)
+    end
+    return storage, container, nil, route
 end
 
 local function rememberWoodDestination(row, storage)
-    if storage.kind == "log_yard" then
-        row.destination = { kind = "log_yard", zoneId = storage.zoneId,
+    if woodFloor(storage.kind) then
+        row.destination = { kind = storage.kind, zoneId = storage.zoneId,
             x = storage.x, y = storage.y, z = storage.z }
     else row.destination = { kind = "container", id = storage.id } end
+end
+
+local function approachWoodStorage(actor, state, object, targets, reason)
+    if not targets or #targets == 0 then return false, reason or "no_interaction_targets" end
+    if not SC.Navigation or not SC.Navigation.requestAny then return false, "navigation_unavailable" end
+    return SC.Navigation.requestAny(actor, targets, "walk", {
+        action = "expedition_wood_storage", targetSquare = U().squareOf(object), object = object,
+        arrivalDistance = 0.35, requireSameSquare = true, continuousApproach = true,
+        workCampOnly = true, workReach = true, movementPriority = 60,
+        stationaryFastRoute = true, workRouteClass = "storage",
+        interactionRouteReceipt = state.woodDrop and state.woodDrop.route,
+        interactionRouteOwner = state,
+    })
 end
 
 local function woodDeposit(actor, state, storage, destination, item, source, record, row)
@@ -1005,27 +1140,31 @@ local function woodDeposit(actor, state, storage, destination, item, source, rec
         or call(item, "getContainer") ~= source or not ownsWood(record, row, item) then
         return false, "wood_cargo_ownership_changed"
     end
-    if storage.kind == "log_yard" then
-        local square = SC.LogYard and SC.LogYard.tile(storage.x, storage.y, storage.z, storage.zoneId)
-        local contents = square and SC.LogYard.contents(square)
-        if not square then return false, "log_yard_unloaded" end
-        if not contents or contents.units >= 4 or contents.splitPending then return false, "destination_full" end
-        if not U().sameSquare(actor, square) then
-            if not SC.Navigation or not SC.Navigation.requestAny then return false, "navigation_unavailable" end
-            return SC.Navigation.requestAny(actor, { square }, "walk", {
-                action = "expedition_wood_storage", targetSquare = square, arrivalDistance = 0.45,
-                workCampOnly = true, workReach = true, movementPriority = 60 })
+    local checked = state.woodDrop and state.woodDrop.checkedPoint
+    if checked then
+        local current = woodStoragePoint(storage)
+        if not current or current.x ~= checked.x or current.y ~= checked.y or current.z ~= checked.z then
+            return false, "base_storage_changed"
+        end
+    end
+    if woodFloor(storage.kind) then
+        local square = woodFloorSquare(storage)
+        if not square then return false, "base_storage_unloaded" end
+        if not woodFloorHasRoom(square) then return false, "destination_full" end
+        local atFloor, targets, why = U().directInteractionAccess(actor, square)
+        if atFloor ~= true then
+            return approachWoodStorage(actor, state, square, targets, why)
         end
         rememberWoodDestination(row, storage)
         local dropped, world = U().dropItem(source, square, item)
         if not U().inventoryContains(source, item) and call(item, "getContainer") == nil
             and world and call(world, "getItem") == item and call(item, "getWorldItem") == world
             and U().worldItemPresent(square, world) == true then
-            if SC.LogYard.arrange then SC.LogYard.arrange(square) end
+            if storage.kind == "log_yard" and SC.LogYard.arrange then SC.LogYard.arrange(square) end
             return true, "wood_supply_deposited"
         end
         if reconcileWoodStorage(record, row) then
-            if SC.LogYard.arrange then SC.LogYard.arrange(square) end
+            if storage.kind == "log_yard" and SC.LogYard.arrange then SC.LogYard.arrange(square) end
             return true, "wood_supply_deposited"
         end
         return false, dropped and "wood_drop_unverified" or world or "wood_drop_failed"
@@ -1038,12 +1177,7 @@ local function woodDeposit(actor, state, storage, destination, item, source, rec
     if not object then return false, "base_storage_unloaded" end
     local atStorage, targets, why = U().directInteractionAccess(actor, object)
     if atStorage ~= true then
-        if not targets or #targets == 0 then return false, why or "no_interaction_targets" end
-        if not SC.Navigation or not SC.Navigation.requestAny then return false, "navigation_unavailable" end
-        return SC.Navigation.requestAny(actor, targets, "walk", {
-            action = "expedition_wood_storage", targetSquare = U().squareOf(object), object = object,
-            arrivalDistance = 0.35, requireSameSquare = true, continuousApproach = true,
-            workCampOnly = true, workReach = true, movementPriority = 60 })
+        return approachWoodStorage(actor, state, object, targets, why)
     end
     local native = SC.NativeActions
     if not native or not native.visualStatus then return false, "wood_storage_animation_unavailable" end
@@ -1221,7 +1355,7 @@ local function homeDeliveryReach(record, actor)
     return false
 end
 
-local function woodTakeExact(record, actor, item, source, state, row, storage)
+local function woodTakeExact(record, actor, item, source, state, row)
     if not ownsWood(record, row, item) then return false, "wood_cargo_ownership_changed" end
     local car = record.carId and SC.Vehicle and SC.Vehicle.loadedBySqlId(record.carId)
     if not woodCarAtHome(record, car) then return false, "cargo_pending" end
@@ -1230,7 +1364,8 @@ local function woodTakeExact(record, actor, item, source, state, row, storage)
         return false, "wood_cargo_transfer_unavailable"
     end
     local vehicle, trunk, why, handled = logging.cargo(actor, record.carId, state, nil,
-        { action = "move_to_car_trunk", workCampOnly = true, workReach = true, movementPriority = 60 })
+        { action = "move_to_car_trunk", workCampOnly = true, workReach = true, movementPriority = 60,
+            stationaryFastRoute = true, workRouteClass = "storage" })
     if not vehicle then
         local moving = handled == true or why == "wood_approaching" or why == "wood_unlocking_trunk"
             or why == "pending" or why == "arrived"
@@ -1241,10 +1376,20 @@ local function woodTakeExact(record, actor, item, source, state, row, storage)
         or U().inventoryContains(source, item) ~= true then
         return false, "wood_cargo_ownership_changed"
     end
-    local destination, reason = worker.carryDestination(actor, item,
-        { carId = record.carId, target = woodStoragePoint(storage) })
+    local destination, reason = worker.carryDestination(actor, item)
+    local overloaded = not destination
+    if overloaded then destination, reason = worker.returnLogDestination(actor, item) end
     if not destination then return false, reason or "wood_carry_capacity" end
     if not sourceWithin(destination, U().inventory(actor)) then return false, "wood_carrier_changed" end
+    -- Survey from the actual trunk interaction tile. In particular, an
+    -- overloaded carrier must have a reachable same-floor deposit first.
+    local storage, container, routeReason, route = selectWoodStorage(actor, item, state, record.carId, overloaded)
+    if not storage then
+        if routeReason == "storage_route_pending" then return true, routeReason end
+        record.retryRemainingMs = WOOD_RETRY_MS
+        retryClocks[record] = U().nowMs()
+        return false, routeReason
+    end
     local native = SC.NativeActions
     if not native or not native.visualStatus then return false, "wood_cargo_animation_unavailable" end
     if state.receiptItem ~= item then
@@ -1268,7 +1413,11 @@ local function woodTakeExact(record, actor, item, source, state, row, storage)
     if native.clearVisual then native.clearVisual(actor) end
     local moved, failure = SC.WorkTransport.transferVerified(source, destination, item, actor)
     if call(item, "getContainer") == destination and U().inventoryContains(destination, item) == true
-        and U().inventoryContains(source, item) ~= true then return true, "car_item_carried" end
+        and U().inventoryContains(source, item) ~= true then
+        state.woodDrop = { storage = storage, container = container, route = route,
+            checkedPoint = overloaded and woodStoragePoint(storage) or nil }
+        return true, "car_item_carried"
+    end
     return false, failure or (moved and "car_receipt_transfer_unverified" or "wood_cargo_transfer_failed")
 end
 
@@ -1479,6 +1628,7 @@ function Integration.update(record, actor)
     end
     if state.currentReceiptId ~= row.id then
         state.deliveryApproach, state.visualAt, state.storageVisualToken = nil, nil, nil
+        state.woodDrop = nil
         if record.kind == "home" then state.homeStorage, state.navigationChoice = nil, nil end
         state.currentReceiptId = row.id
     end
@@ -1489,11 +1639,26 @@ function Integration.update(record, actor)
     row.carrierName = kind and "Car trunk"
         or memberFor(record, actor).name
     local storage, container, why
-    if woodRecord(record) then storage, container, why = selectWoodStorage(actor, item, state,
-        (kind == "trunk" or row.carrierKind == "trunk") and record.carId or nil)
-    else storage, container, why = selectStorage(actor, item, state,
-        record.kind == "home" and row or nil) end
-    if not storage then
+    if woodRecord(record) then
+        if kind ~= "trunk" then
+            if state.woodDrop then
+                storage, container = state.woodDrop.storage, state.woodDrop.container
+            else
+                local carId = row.carrierKind == "trunk" and record.carId or nil
+                local load, maximum = U().carryLoad(actor)
+                local overloaded = carId ~= nil and (not load or not maximum or load > maximum)
+                local route
+                storage, container, why, route = selectWoodStorage(actor, item, state, carId, overloaded)
+                if storage then
+                    state.woodDrop = { storage = storage, container = container, route = route,
+                        checkedPoint = overloaded and woodStoragePoint(storage) or nil }
+                end
+            end
+        end
+    else
+        storage, container, why = selectStorage(actor, item, state, record.kind == "home" and row or nil)
+    end
+    if not storage and not (woodRecord(record) and kind == "trunk") then
         if why == "storage_route_pending" then return true, why end
         state.deliveryApproach = nil
         row.reason = why
@@ -1501,11 +1666,11 @@ function Integration.update(record, actor)
         if woodRecord(record) then
             record.retryRemainingMs = WOOD_RETRY_MS
             retryClocks[record] = U().nowMs()
-            return false, why
-        end
-        local member = memberFor(record, actor)
-        if record.restock and member and not member.dutyDone then
-            return restock(actor, member, record, state)
+        else
+            local member = memberFor(record, actor)
+            if record.restock and member and not member.dutyDone then
+                return restock(actor, member, record, state)
+            end
         end
         return false, why
     end
@@ -1516,7 +1681,7 @@ function Integration.update(record, actor)
             return false, row.reason
         end
         local taken, reason
-        if woodRecord(record) then taken, reason = woodTakeExact(record, actor, item, source, state, row, storage)
+        if woodRecord(record) then taken, reason = woodTakeExact(record, actor, item, source, state, row)
         else taken, reason = SC.VehicleUnload.takeExact(actor, record.carId, item, state, source) end
         row.reason = safeReason(reason)
         if record.kind == "home" and taken ~= true and accessFailure(reason) then
@@ -1534,8 +1699,7 @@ function Integration.update(record, actor)
     if woodRecord(record) then
         local moved, reason = woodDeposit(actor, state, storage, container, item, source, record, row)
         if moved == true and reason == "wood_supply_deposited" then
-            if finishWoodStorage(record, row, item,
-                storage.kind == "log_yard" and storage.zoneId or storage.id) then
+            if finishWoodStorage(record, row, item, storage.zoneId or storage.id) then
                 state.visualAt, state.deliveryApproach = nil, nil
                 return true, "expedition_supply_stored"
             end
@@ -1547,11 +1711,13 @@ function Integration.update(record, actor)
             state.blockedStorage = state.blockedStorage or {}
             state.blockedStorage[storage.id] = U().nowMs() + WOOD_RETRY_MS * 2
             state.deliveryApproach = nil
+            state.woodDrop = nil
             row.reason = "expedition_storage_approach_timeout"
             deferReceipt(state, row, WOOD_RETRY_MS)
             return false, row.reason
         elseif moved ~= true then
             state.deliveryApproach = nil
+            state.woodDrop = nil
             if accessFailure(reason) then
                 state.blockedStorage = state.blockedStorage or {}
                 state.blockedStorage[storage.id] = U().nowMs() + WOOD_RETRY_MS * 2

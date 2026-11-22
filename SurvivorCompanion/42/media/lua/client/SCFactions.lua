@@ -4601,6 +4601,17 @@ function Factions.restore(document)
         end
         ensureFactionIdentity(group, occupiedNames)
         ensureBanditState(group)
+        local story = group.oddball
+        if type(story) == "table" and story.id == "gunshop_bob_kenley"
+            and story.hordeSpawned == nil and finiteNumber(story.spawned)
+            and story.spawned >= 0 and story.spawned <= 5 and story.spawned % 1 == 0 then
+            -- Kenley's siege used the actor activation flag for its count.
+            -- A saved actor ID also proves activation before the first zombie.
+            local member = type(group.members) == "table" and group.members[1] or nil
+            story.hordeSpawned = story.spawned
+            story.spawned = story.hordeSpawned > 0
+                or type(member) == "table" and type(member.actorId) == "string"
+        end
         local groupOkay, groupReason = validGroup(group, id,
             "$.factions.groups[" .. tostring(id) .. "]")
         if groupOkay then

@@ -5397,6 +5397,12 @@ function actions.visualToken(actor, expectedAction)
     return record.timedAction
 end
 
+function actions.visualCompleted(actor, token, expectedAction)
+    return type(token) == "table" and token.character == actor
+        and token.actionName == expectedAction and token.scCompleted == true
+        and token.scStopped ~= true and token.scCancelled ~= true
+end
+
 function actions.cancelVisualOwned(actor, token, reason)
     if token == nil then return false, "visual_token_missing" end
     local record = actor and activeVisual[actor] or nil
@@ -5643,6 +5649,7 @@ function actions.cancelVisual(actor, reason)
     endActionSounds(record.timedAction, false)
     endFitnessPose(record.timedAction)
     invoke(actor, "resetModelNextFrame")
+    record.timedAction.scCancelled = true
     activeVisual[actor] = nil
     return true, reason or "visual_action_cancelled"
 end

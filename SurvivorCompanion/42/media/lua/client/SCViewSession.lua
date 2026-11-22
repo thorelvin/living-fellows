@@ -230,12 +230,25 @@ function View.claim(mode, actor, legacySlotId)
     end
     if owner ~= nil then return false, "companion_view_in_use" end
     if SCSplitScreenProbe == nil then return false, "local_view_unavailable" end
-    cleanupReleasedUi()
     local slotId = reusableSlotSqlId or legacySlotId or -1
+    if type(SCSplitScreenProbe.promotionBlocker) == "function" then
+        local blocker = SCSplitScreenProbe.promotionBlocker(actor, slotId)
+        if (blocker == "companion_promotion_saved_identity" or blocker == "companion_promotion_primary_identity")
+            and validSlotId(legacySlotId) and legacySlotId ~= slotId
+            and SCSplitScreenProbe.promotionBlocker(actor, legacySlotId) == nil then
+            -- The restoring owner may have an exact saved slot that is
+            -- newer than the shared reusable ID. Native readiness must
+            -- prove that this ID belongs to the actor and is safe to use.
+            slotId, blocker = legacySlotId, nil
+        end
+        if blocker ~= nil then return false, tostring(blocker) end
+    end
+    cleanupReleasedUi()
     local called, promoted = pcall(SCSplitScreenProbe.promote, actor, slotId)
     if not called or promoted ~= actor then return false, tostring(promoted) end
     cancelPrimaryRestore()
     owner = mode
+    if validSlotId(slotId) then reusableSlotSqlId = slotId end
     if SC.ViewUI and type(SC.ViewUI.remember) == "function" then SC.ViewUI.remember(actor) end
     return true, actor
 end

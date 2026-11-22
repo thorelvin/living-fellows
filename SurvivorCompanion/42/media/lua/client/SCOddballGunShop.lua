@@ -97,7 +97,7 @@ local function story(group)
     if type(value) ~= "table" or value.id ~= ID then return nil end
     if value.stage == nil or value.stage == "unmet" then value.stage = "waiting" end
     value.lines = type(value.lines) == "table" and value.lines or {}
-    value.spawned = tonumber(value.spawned) or 0
+    value.hordeSpawned = tonumber(value.hordeSpawned) or 0
     value.killed = tonumber(value.killed) or 0
     return value
 end
@@ -312,7 +312,7 @@ local function breakIn(group, value, player, current)
         pool = open and "doorOpen" or "door"
     end
     value.siegeVia = glass and "glass" or "door"
-    for index = value.spawned + 1, HORDE_SIZE do
+    for index = value.hordeSpawned + 1, HORDE_SIZE do
         local spot = posts[((index - 1) % #posts) + 1]
         local okay, list = pcall(addZombiesInOutfit, spot.x, spot.y, spot.z or 0,
             1, "Redneck", 50)
@@ -320,7 +320,7 @@ local function breakIn(group, value, player, current)
         if zombie then
             local data = U().modData(zombie)
             if data then data.lfGunShopZombieGroupId = group.id end
-            value.spawned = value.spawned + 1
+            value.hordeSpawned = value.hordeSpawned + 1
         end
     end
     if type(addSound) == "function" then
@@ -380,7 +380,7 @@ function GunShop.pulse(group, player, current)
         return true, reason
     end
     if value.stage == "siege" then
-        local cleared = value.killed >= value.spawned
+        local cleared = value.killed >= value.hordeSpawned
         local expired = current - (tonumber(value.siegeStartedAt) or current) >= SIEGE_LIMIT_MS
         if cleared or expired then
             value.stage = "survived"

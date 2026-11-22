@@ -287,26 +287,38 @@ public final class SCSplitScreenProbe {
         return promote(actor, -1);
     }
 
-    /** Reuse only a slot identity retained from a prior LF-owned view. */
-    public static SCNativeCompanion promote(SCNativeCompanion actor, int savedSlotSqlId) {
-        IsoPlayer original = IsoPlayer.players == null ? null : IsoPlayer.players[0];
+    /** Expected load-time refusals can be checked without throwing across Lua. */
+    public static String promotionBlocker(SCNativeCompanion actor, int savedSlotSqlId) {
         if (actor == null || !SCBridge.isCompanion(actor) || !actor.isBridgeHealthy()) {
-            throw new IllegalStateException("leader must be a healthy owned native companion");
+            return "companion_promotion_leader_unavailable";
         }
-        if (leader != null || original == null || IsoPlayer.players.length != 4
-                || IsoPlayer.players[1] != null || IsoPlayer.numPlayers != 1
-                || actor.getPlayerNum() != SCNativeCompanion.RESERVED_NON_LOCAL_PLAYER_INDEX
-                || (savedSlotSqlId != -1 && savedSlotSqlId < 2)
-                || savedSlotSqlId == original.sqlId
-                || (savedSlotSqlId >= 2 && actor.sqlId != -1
-                    && actor.sqlId != savedSlotSqlId)
-                || actor.sqlId == original.sqlId) {
-            throw new IllegalStateException("local-player slots are not ready for leader promotion");
+        IsoPlayer[] slots = IsoPlayer.players;
+        if (slots == null || slots.length != 4 || slots[0] == null) {
+            return "companion_promotion_primary_unavailable";
+        }
+        if (leader != null || slots[1] != null) return "companion_promotion_view_in_use";
+        if (IsoPlayer.numPlayers != 1) return "companion_promotion_player_count";
+        if (actor.getPlayerNum() != SCNativeCompanion.RESERVED_NON_LOCAL_PLAYER_INDEX) {
+            return "companion_promotion_actor_index";
+        }
+        if (savedSlotSqlId != -1 && savedSlotSqlId < 2) return "companion_promotion_invalid_slot";
+        if (savedSlotSqlId == slots[0].sqlId || actor.sqlId == slots[0].sqlId) {
+            return "companion_promotion_primary_identity";
+        }
+        if (savedSlotSqlId >= 2 && actor.sqlId != -1 && actor.sqlId != savedSlotSqlId) {
+            return "companion_promotion_saved_identity";
         }
         IsoWorld world = IsoWorld.instance;
-        if (world == null || world.addCoopPlayers == null || actor.getCurrentSquare() == null) {
-            throw new IllegalStateException("leader or co-op world loader is unavailable");
-        }
+        return world == null || world.addCoopPlayers == null || actor.getCurrentSquare() == null
+                ? "companion_promotion_world_loading" : null;
+    }
+
+    /** Reuse only a slot identity retained from a prior LF-owned view. */
+    public static SCNativeCompanion promote(SCNativeCompanion actor, int savedSlotSqlId) {
+        String blocker = promotionBlocker(actor, savedSlotSqlId);
+        if (blocker != null) throw new IllegalStateException(blocker);
+        IsoPlayer original = IsoPlayer.players[0];
+        IsoWorld world = IsoWorld.instance;
         int previousSqlId = actor.sqlId;
         try {
             SCLightingSlotRetirement.prepare(world.getCell());

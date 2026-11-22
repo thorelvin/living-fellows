@@ -106,6 +106,34 @@ do
 end
 
 do
+    local save = candidateDocument()
+    local group = save.groups["faction-transaction-b"]
+    group.archetype = "oddball_resident"
+    group.members[1].actorId = "sc-kenley-saved"
+    group.oddball = { id = "gunshop_bob_kenley", stage = "siege",
+        site = { kind = "resident", anchor = {x = 6, y = 2, z = 0},
+            spawn = {x = 6, y = 2, z = 0} },
+        spawned = 3, killed = 1 }
+    local accepted, why = Factions.restore(save)
+    local restored = Factions.group(group.id)
+    check(accepted and restored and Factions.group("faction-transaction-a")
+        and restored.oddball.spawned == true and restored.oddball.hordeSpawned == 3
+        and restored.oddball.killed == 1 and restored.members[1].actorId == "sc-kenley-saved"
+        and group.oddball.spawned == 3,
+        "the legacy siege count restores alongside its household and original actor: " .. tostring(why))
+    group.oddball.spawned = 0
+    check(Factions.restore(save) and Factions.group(group.id).oddball.spawned == true,
+        "zero zombies preserves an encounter whose actor had already spawned")
+    group.members[1].actorId = nil
+    check(Factions.restore(save) and Factions.group(group.id).oddball.spawned == false,
+        "zero zombies keeps an unspawned encounter available")
+    group.oddball.id = "different_encounter"
+    check(not Factions.restore(save),
+        "the migration applies only to Kenley's known legacy count")
+    check(Factions.restore(baseline), "restore original household after gun-shop fixture")
+end
+
+do
     local beforeFaction, beforeWorld = Factions.export(), World.export()
     local originalReconcile = World.reconcile
     World.reconcile = function()

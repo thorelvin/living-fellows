@@ -255,6 +255,7 @@ function Logging.atCar(actor, vehicle, part, options)
         requireSameSquare = true, arrivalDistance = 0.5,
         workCampOnly = options.workCampOnly, workReach = options.workReach,
         movementPriority = options.movementPriority,
+        stationaryFastRoute = options.stationaryFastRoute, workRouteClass = options.workRouteClass,
     })
     if not okay then return false, reason end
     if reason == "arrived" and reached and U().sameSquare(actor, reached) then

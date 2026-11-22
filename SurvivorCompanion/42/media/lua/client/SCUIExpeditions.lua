@@ -413,6 +413,8 @@ local function woodReason(reason)
         wood_quantity_met = "UI_SC_Expedition_WoodTargetMet",
         wood_storage_missing = "UI_SC_Expedition_WoodStorageMissing",
         wood_base_missing = "UI_SC_Expedition_WoodStorageMissing",
+        wood_return_carry_capacity = "UI_SC_Expedition_WoodReturnCarryCapacity",
+        wood_already_carrying_log = "UI_SC_Expedition_WoodAlreadyCarryingLog",
         -- A recall is an order, not a failure: no retry wording.
         radio_return = "UI_SC_Expedition_ReturnRecalled",
         called_off_nearby = "UI_SC_Expedition_ReturnCalledOff",

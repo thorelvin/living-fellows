@@ -767,6 +767,40 @@ check(select(2, Floor.update(actor, timedState, job)) == "floor_item_carried"
     and select(2, Floor.update(actor, timedState, job)) == "floor_item_stored",
     "fresh retry verifies and deposits the exact item")
 
+do
+    SC.NativeActions.activityStatus = function()
+        return currentVisual and "active" or "none"
+    end
+    SC.NativeActions.visualCompleted = function(worker, token, action)
+        return token.character == worker and token.actionName == action and token.scCompleted == true
+    end
+    local expired, expiredState = queueVisualItem(123)
+    check(select(2, Floor.update(actor, expiredState, job)) == "floor_pickup_animation",
+        "the expired completion fixture owns its original floor visual")
+    currentVisual.character, currentVisual.actionName = actor, "loot_container"
+    currentVisual.scCompleted = true
+    currentVisual = nil
+    local completedStarts = visualSerial
+    check(select(2, Floor.update(actor, expiredState, job)) == "floor_item_carried"
+        and visualSerial == completedStarts and contains(inventory, expired),
+        "a completed pickup can commit after its exact native record expires")
+    check(select(2, Floor.update(actor, expiredState, job)) == "floor_item_stored",
+        "the expired completion moves its exact item once")
+
+    local lost, lostState = queueVisualItem(124)
+    Floor.update(actor, lostState, job)
+    currentVisual = nil
+    local waiting, why, terminal = Floor.update(actor, lostState, job)
+    check(waiting and why == "floor_pickup_animation" and not terminal and lost.worldItem ~= nil,
+        "an idle worker with a lost unfinished pickup gets one fresh attempt")
+    check(select(2, Floor.update(actor, lostState, job)) == "floor_pickup_animation" and currentVisual,
+        "the retry starts a new owned visual before taking the item")
+    currentVisual = nil
+    local _, lateReason, lateTerminal = Floor.update(actor, lostState, job)
+    check(lateReason == "floor_pickup_animation_replaced" and lateTerminal and lost.worldItem ~= nil,
+        "repeated loss terminates the attempt and leaves the exact item on the floor")
+end
+
 local replaced, replacedState = queueVisualItem(121)
 Floor.update(actor, replacedState, job)
 local oldToken = currentVisual

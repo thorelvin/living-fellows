@@ -283,7 +283,7 @@ clear()
 item = log("yard:blocked")
 a = T.actor("a", "Alice", { item })
 yard()
-a.x = 11
+a.x = 13
 construction = T.storage("construction:1", "construction", {}, 1)
 record = create(a, { item })
 local requestAny = SC.Navigation.requestAny
@@ -524,10 +524,12 @@ end
 -- Use the production carry helper in the actual trunk-to-storage dispatcher,
 -- including the public argument contract that previously dropped `true`.
 do
-    local oldCarry, oldRoom = SC.ExpeditionWood.carryDestination, SC.WorkTransport.hasRoom
+    local oldCarry, oldReturn, oldRoom = SC.ExpeditionWood.carryDestination,
+        SC.ExpeditionWood.returnLogDestination, SC.WorkTransport.hasRoom
     local oldLoad, oldWeight = U.carryLoad, U.itemWeight
     local oldEntries, oldPoint = SC.LoggingWork.inventoryEntries, SC.LoggingWork.point
     SC.ExpeditionWood.carryDestination = physicalWood.carryDestination
+    SC.ExpeditionWood.returnLogDestination = physicalWood.returnLogDestination
     SC.LoggingWork.inventoryEntries, SC.LoggingWork.point = physicalLogging.inventoryEntries, physicalLogging.point
     U.itemWeight = function(value) return value.fullType == "Base.Log" and 9 or 3 end
     U.carryLoad = function(actor)
@@ -559,21 +561,100 @@ do
         "real dispatcher and real capacity helper carry exact nine-weight log with three-weight axe")
     construction.x = 50
     check(I.update(record, a) == false and item.container == a.inventory and not record.items[1].stored,
-        "a storage change after pickup cannot send the heavy carrier on a long walk")
+        "changing a verified destination after pickup requires a fresh route")
     construction.x = 12
     I.retry(record)
     check(select(2, I.update(record, a)) == "expedition_supply_stored"
         and item.container == construction.container and I.summary(record).stored == 1,
         "nearby heavy delivery deposits exact item and completes with truthful storage count")
     car = setupShuttle(40, 50)
-    check(not I.woodReturnShuttleAvailable(a, car.id) and I.update(record, a) == false
-        and item.container == car.trunk, "distant home storage blocks heavy unloading before trunk removal")
+    T.navigationReason = "unreachable"
+    check(I.woodReturnShuttleAvailable(a, car.id) and I.update(record, a) == false
+        and item.container == car.trunk, "a distant camp store qualifies for planning but must be reachable to unload")
     car = setupShuttle(2, 10)
     check(I.update(record, a) == false and item.container == car.trunk,
         "physical inventory limit blocks actual trunk pickup despite nearby storage")
-    SC.ExpeditionWood.carryDestination, SC.WorkTransport.hasRoom = oldCarry, oldRoom
+    SC.ExpeditionWood.carryDestination, SC.ExpeditionWood.returnLogDestination, SC.WorkTransport.hasRoom =
+        oldCarry, oldReturn, oldRoom
     U.carryLoad, U.itemWeight = oldLoad, oldWeight
     SC.LoggingWork.inventoryEntries, SC.LoggingWork.point = oldEntries, oldPoint
+end
+
+-- The far yard remains eligible for a heavy carrier, but only after the
+-- nearby marked floor and the shared overflow are unavailable.
+do
+    clear()
+    local base = SC.BaseLife.active()
+    local area = { kind = "area", x1 = 10, x2 = 28, y1 = 10, y2 = 10, z = 0 }
+    local marked = { id = "sorting:marked", kind = "sorting_floor", x1 = 20, x2 = 20, y1 = 10, y2 = 10, z = 0 }
+    base.zones = { area, marked }
+    local markedTile = { x = 20, y = 10, z = 0, worlds = {} }
+    local overflowTile = { x = 28, y = 10, z = 0, worlds = {} }
+    local farYard, overflow = yard(), nil
+    function markedTile:getWorldObjects() return self.worlds end
+    function overflowTile:getWorldObjects() return self.worlds end
+    local squares = { [10] = farYard, [20] = markedTile, [28] = overflowTile }
+    U.gridSquare = function(x, y, z) return y == 10 and z == 0 and squares[x] or nil end
+    SC.BaseLife.active = function() return base end
+    SC.BaseLife.lootOverflowFloor = function() return overflow end
+    SC.BaseLife.canPlaceLootOverflowFloor = function(square) return square == overflowTile and not overflow end
+    SC.BaseLife.ensureLootOverflowFloor = function(square)
+        if square ~= overflowTile then return nil end
+        if not overflow then
+            overflow = { id = "sorting:overflow", kind = "sorting_floor", lootOverflow = true,
+                x1 = 28, x2 = 28, y1 = 10, y2 = 10, z = 0 }
+            base.zones[#base.zones + 1] = overflow
+        end
+        return overflow
+    end
+    SC.FloorSort = {
+        clearOverflowTile = function(square) return square == overflowTile end,
+        sortingTile = function(id, x, y, z)
+            if id == marked.id and x == markedTile.x or overflow and id == overflow.id and x == overflowTile.x then
+                return U.gridSquare(x, y, z)
+            end
+        end,
+    }
+    local function fill(square)
+        for index = #square.worlds + 1, 4 do
+            local existing = log("floor-fill:" .. square.x .. ":" .. index)
+            assert(U.dropItem(T.container({ existing }), square, existing))
+        end
+    end
+    local function deliver(id, square)
+        local loose = log(id)
+        I.reset()
+        local companion = T.actor("heavy", "Heavy", {})
+        companion.overloaded, companion.load = true, 15.4
+        local car = carFor(loose)
+        car.x, car.y = 32, 10
+        local ledger = create(companion, { loose }, { car = car })
+        check(select(2, I.update(ledger, companion)) == "car_trunk_looting", "selected the " .. id .. " approach")
+        check(select(2, I.update(ledger, companion)) == "car_item_carried", "transferred the exact " .. id .. " log")
+        check(select(2, I.update(ledger, companion)) == "expedition_supply_stored"
+            and U.worldItemPresent(square, loose.world) and #car.trunk.items == 0
+            and loose.data.LF_ExpeditionWood == nil, "stored the original " .. id .. " log on its intended tile")
+        return ledger
+    end
+    deliver("marked-floor", markedTile)
+    check(not overflow, "a usable marked floor does not create a second drop spot")
+    fill(markedTile)
+    local first = deliver("near-overflow", overflowTile)
+    local second = deliver("shared-overflow", overflowTile)
+    check(#base.zones == 3 and first.items[1].storageId == second.items[1].storageId,
+        "consecutive trips use the original shared overflow")
+    fill(overflowTile)
+    deliver("far-yard", farYard)
+    fill(farYard)
+    local waiting = log("all-full")
+    local companion = T.actor("heavy", "Heavy", {})
+    companion.overloaded, companion.load = true, 15.4
+    local car = carFor(waiting)
+    car.x, car.y = 32, 10
+    record = create(companion, { waiting }, { car = car })
+    check(select(2, I.update(record, companion)) == "matching_storage_full"
+        and waiting.container == car.trunk and not waiting.world,
+        "full floors are reported as full and leave the exact log in the trunk")
 end
 
 SC_TEST_REPORT = "Wood expedition integration: " .. X.checks() .. " checks passed"

@@ -2,6 +2,22 @@
 
 # Changelog
 
+## 0.27.64 - Logging expedition unloading and save recovery
+
+- Logging crews returning by car use reachable camp storage or a marked
+  Sorting Floor. A clear shared Camp overflow tile near the car handles logs
+  when those destinations are unavailable.
+- A crew member can unload one log while over their normal carry limit, with
+  a verified same-floor route and enough physical inventory space. Logs wait
+  in the trunk while a usable route or destination is unavailable.
+- Restored expeditions recover the saved companion view and pause between
+  retries while the game is still loading it.
+- Older saves from Kenley's gun shop siege restore the companion and the
+  number of zombies already spawned.
+- Sorting Floor workers can finish pickups after their animation ends.
+  Background saves give ongoing inventory transfers time to settle.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.63 - EMMA performance and sandbox access
 
 - EMMA extracts follow-up keywords as replies use them. This avoids a long

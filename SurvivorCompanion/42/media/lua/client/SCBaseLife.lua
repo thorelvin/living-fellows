@@ -1648,14 +1648,30 @@ end
 
 -- A fallback pile is a real one-tile Sorting Floor, so workers can empty it
 -- with the usual floor job when space opens and its location survives reload.
+function BaseLife.lootOverflowFloor()
+    local base = activeBase()
+    for _, zone in ipairs(base and base.zones or {}) do
+        if zone.lootOverflow then return zone end
+    end
+end
+
+function BaseLife.canPlaceLootOverflowFloor(square)
+    local base, point = activeBase(), position(square)
+    if not base or not point or BaseLife.isInside(square) ~= true
+        or #base.zones >= (U().config("baseMaxZones") or 24) then return false end
+    for _, zone in ipairs(base.zones) do
+        if zone.lootOverflow or zone.kind ~= "area" and zone.kind ~= "work"
+            and zoneContains(zone, point) then return false end
+    end
+    return true
+end
+
 function BaseLife.ensureLootOverflowFloor(square)
     local base, point = activeBase(), position(square)
     if not base or not point or BaseLife.isInside(square) ~= true then return nil end
-    for _, zone in ipairs(base.zones) do
-        if zone.lootOverflow then return zone end
-        if zone.kind ~= "area" and zone.kind ~= "work" and zoneContains(zone, point) then return nil end
-    end
-    if #base.zones >= (U().config("baseMaxZones") or 24) then return nil end
+    local existing = BaseLife.lootOverflowFloor()
+    if existing then return existing end
+    if not BaseLife.canPlaceLootOverflowFloor(square) then return nil end
     local zone = normalizeZone({
         id = nextId("nextZoneSerial", "zone:"), kind = "sorting_floor",
         name = "Camp overflow", lootOverflow = true, createdAt = now(),

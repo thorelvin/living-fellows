@@ -631,6 +631,54 @@ check(stagedYielded and stagedStatus == "complete"
         and stagedStore.document.sentinel == nil,
     "scheduled save completes through bounded pulses and commits once")
 
+do
+    check(SC.Persistence.reset() == true, "inventory churn fixture starts cleanly")
+    local prior = { sentinel = "last-complete-inventory" }
+    local store = SC_TEST_SET_WORLD_STORE({ document = prior })
+    local id, items = "sc-churning-inventory", {}
+    local inventory = { getItems = function() return items end }
+    local actor = {
+        isDead = function() return false end,
+        getInventory = function() return inventory end,
+        getX = function() return 10 end, getY = function() return 20 end,
+        getZ = function() return 0 end,
+    }
+    local entry = { id = id, actor = actor, recruited = true, runtime = {} }
+    local registry, capture = SC.Registry, SC.Persistence.captureRecord
+    SC.Registry = {
+        records = function() return { entry } end,
+        byId = function(key) if key == id then return entry end end,
+    }
+    local captures, busyUntil = 0, nil
+    SC.Persistence.captureRecord = function(worker)
+        check(worker == entry, "only the changing actor is recaptured")
+        captures = captures + 1
+        if captures == 2 then busyUntil = stagedClock + 100 end
+        if busyUntil and stagedClock < busyUntil then return nil, "inventory changed during capture" end
+        local snapshot = record(id)
+        snapshot.captureEpoch = captures
+        return snapshot
+    end
+    check(SC.Persistence.requestScheduledSave(stagedPlayer), "capture changing actor in the background")
+    local status, result, changed, waited
+    for _ = 1, 10000 do
+        status, result = SC.Persistence.pulse()
+        if captures == 1 and not changed then
+            items[1] = { getModData = function() return {} end }
+            changed = true
+        end
+        if status ~= "yielded" then break end
+        if result == "inventory_settling" then
+            waited = true
+            check(store.document == prior, "the previous complete snapshot stays published during the wait")
+        end
+    end
+    SC.Registry, SC.Persistence.captureRecord = registry, capture
+    check(changed and waited and captures == 3 and status == "complete"
+        and store.document.companions[id].captureEpoch == 3,
+        "a short inventory mutation burst recaptures the actor and publishes the fresh snapshot")
+end
+
 -- Work receipts and marked actor cargo are one persistence consistency unit.
 -- A ledger mutation after baseLife export must reject that mixed staging pass
 -- even when registry and inventory object identities remain stable, then

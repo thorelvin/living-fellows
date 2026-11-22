@@ -91,6 +91,7 @@ end
 local function unclaimed(item)
     local data, readable = U().call(item, "getModData")
     if not readable or type(data) ~= "table" then return false end
+    if SC.ExpeditionWood and SC.ExpeditionWood.reserved and SC.ExpeditionWood.reserved(item) then return false end
     if splitOf(item) or data.LF_LogYardBundle ~= nil and Yard.reserved
         and Yard.reserved(item) then return false end
     if SC.WorkTransport and SC.WorkTransport.marker then
@@ -246,7 +247,7 @@ function Yard.arrange(square)
     return arrangeContents(square, contents, true)
 end
 
-function Yard.select(actor, preferredId)
+function Yard.select(actor, preferredId, acceptTile)
     local best, bestDistance
     local splitPending = false
     local inspected = 0
@@ -264,8 +265,9 @@ function Yard.select(actor, preferredId)
                     return nil, "log_yard_scan_limit"
                 end
                 local square = Yard.tile(x, y, zone.z, zone.id)
-                local contents = square and Yard.contents(square) or nil
-                local distance = square and (actor and U().distance(actor, square) or 0)
+                local accepted = square and (not acceptTile or acceptTile(square, zone))
+                local contents = accepted and Yard.contents(square) or nil
+                local distance = accepted and (actor and U().distance(actor, square) or 0)
                 if distance and (zoneDistance == nil or distance < zoneDistance) then
                     zoneDistance = distance
                 end

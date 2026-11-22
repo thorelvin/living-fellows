@@ -58,7 +58,7 @@ local function pointIn(zone, x, y, z)
         and y >= zone.y1 and y <= zone.y2
 end
 
-local function clearOverflowTile(square)
+function Floor.clearOverflowTile(square)
     if not square or SC.BaseLife.isInside(square) ~= true or not U().isSquareFree(square)
         or U().squareOccupyingObject(square) ~= nil or call(square, "HasStairs") == true then return false end
     local doorway = false
@@ -68,11 +68,17 @@ local function clearOverflowTile(square)
     return not doorway
 end
 
-function Floor.canDropOverflow(actor, zoneId, square)
+function Floor.sortingTile(zoneId, x, y, z)
     local zone = zoneById(zoneId, "sorting_floor")
+    if not pointIn(zone, x, y, z) then return nil end
+    local square = U().gridSquare(x, y, z)
+    if Floor.clearOverflowTile(square) then return square end
+end
+
+function Floor.canDropOverflow(actor, zoneId, square)
     local x, y, z = U().position(square)
-    return SC.BaseLife.isInside(actor) == true and pointIn(zone, x, y, z)
-        and U().gridSquare(x, y, z) == square and clearOverflowTile(square)
+    return square ~= nil and SC.BaseLife.isInside(actor) == true
+        and Floor.sortingTile(zoneId, x, y, z) == square
         and U().directInteractionAccess(actor, square) == true
 end
 
@@ -87,7 +93,7 @@ function Floor.overflowDestination(actor, state)
                 for x = zone.x1, zone.x2 do
                     local square = U().gridSquare(x, y, zone.z)
                     local meters = U().distanceSq(actor, square)
-                    if (not distance or meters < distance) and clearOverflowTile(square) then
+                    if (not distance or meters < distance) and Floor.clearOverflowTile(square) then
                         best, distance = square, meters
                     end
                 end
@@ -120,7 +126,7 @@ function Floor.overflowDestination(actor, state)
     local offsets = { {0, -1}, {-1, 0}, {0, 1}, {1, 0}, {0, 0} }
     for _, offset in ipairs(offsets) do
         local square = U().gridSquare(x + offset[1], y + offset[2], z)
-        if clearOverflowTile(square) and U().directInteractionAccess(actor, square) == true then
+        if Floor.clearOverflowTile(square) and U().directInteractionAccess(actor, square) == true then
             local zone = SC.BaseLife.ensureLootOverflowFloor(square)
             if zone and pointIn(zone, U().position(square)) then
                 return { square = square, zoneId = zone.id }
@@ -174,6 +180,7 @@ local function eligible(item, actor)
     end
     if SC.WorkTransport and SC.WorkTransport.foreignProtected
         and SC.WorkTransport.foreignProtected(item, actor) then return false end
+    if SC.ExpeditionWood and SC.ExpeditionWood.reserved and SC.ExpeditionWood.reserved(item) then return false end
     if SC.BaseWork and SC.BaseWork.choreReserved
         and SC.BaseWork.choreReserved(item) then return false end
     return true
@@ -634,21 +641,34 @@ function Floor.pendingPickup(actor)
     if visual then return visual.jobId, visual.token end
 end
 
-local function pickupVisual(actor, job, item, wrapper, square)
+local function pickupVisual(actor, job, selected)
+    local item = selected.item
     local visual = visuals[actor]
     if visual and visual.item == item and visual.jobId == job.id then
-        if visual.token and SC.NativeActions
-            and type(SC.NativeActions.visualToken) == "function"
-            and SC.NativeActions.visualToken(actor, "loot_container") ~= visual.token then
+        local native = SC.NativeActions
+        if visual.token and native and type(native.visualToken) == "function"
+            and native.visualToken(actor, "loot_container") ~= visual.token then
             local phase, owner, activity = "unknown", "unknown", "unknown"
-            if type(SC.NativeActions.activityStatus) == "function" then
-                phase, owner, activity = SC.NativeActions.activityStatus(actor)
+            if type(native.activityStatus) == "function" then
+                phase, owner, activity = native.activityStatus(actor)
+            end
+            visuals[actor] = nil
+            -- The native record can expire before this job polls its result.
+            -- Only an exact completed token is sufficient to pick up the item.
+            if phase == "none" then
+                if type(native.visualCompleted) == "function"
+                    and native.visualCompleted(actor, visual.token, "loot_container") then
+                    return true, "floor_pickup_ready"
+                end
+                if not selected.pickupRetried then
+                    selected.pickupRetried = true
+                    return false, "floor_pickup_animation", false
+                end
             end
             print("[SurvivorCompanion/floor-pickup] actor=" .. tostring(U().idOf(actor))
                 .. " job=" .. tostring(job.id) .. " expected=loot_container phase="
                 .. tostring(phase) .. " owner=" .. tostring(owner) .. " action="
                 .. tostring(activity) .. " ageMs=" .. tostring(now() - visual.startedAt))
-            visuals[actor] = nil
             return false, "floor_pickup_animation_replaced", true
         end
         local status = SC.NativeActions and SC.NativeActions.visualStatus
@@ -677,8 +697,8 @@ local function pickupVisual(actor, job, item, wrapper, square)
         SC.NativeActions.stopDirect(actor)
     else U().stop(actor) end
     local accepted = U().move(actor, "walk", {
-        action = "loot_container", item = item, worldItem = wrapper,
-        targetSquare = square, lootPosition = "Low", floorSort = true,
+        action = "loot_container", item = item, worldItem = selected.worldItem,
+        targetSquare = selected.square, lootPosition = "Low", floorSort = true,
     })
     if accepted ~= true then return false, "floor_pickup_animation_rejected", true end
     visuals[actor] = { item = item, jobId = job.id, startedAt = now(),
@@ -833,8 +853,7 @@ function Floor.update(actor, baseState, job)
     local arrived, reason, moving = approach(actor, selected.square,
         selected.worldItem, "move_to_floor_item")
     if not arrived then return moving, reason, not moving end
-    local ready, visualReason, failed = pickupVisual(actor, job,
-        selected.item, selected.worldItem, selected.square)
+    local ready, visualReason, failed = pickupVisual(actor, job, selected)
     if not ready then return not failed, visualReason, failed end
     local x, y, z = U().position(selected.square)
     if not pointIn(zone, x, y, z) or not itemId(selected.item)

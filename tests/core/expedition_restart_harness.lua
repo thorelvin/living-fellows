@@ -166,8 +166,43 @@ local descriptor = {
 }
 local restored = expedition.restore(descriptor)
 check(restored == true, "saved mission descriptor is accepted")
-local resumed, reason = expedition.pulse()
-check(resumed == true and reason == "expedition_resumed" and slot1 == leader,
+do
+    local promote, previousClock = SCSplitScreenProbe.promote, SC.GameplayUtil.nowMs
+    local restoreClock, refusals = 100, 0
+    SC.GameplayUtil.nowMs = function() return restoreClock end
+    SCSplitScreenProbe.promote = function()
+        refusals = refusals + 1
+        error("local-player slots are not ready for leader promotion")
+    end
+    check(select(2, expedition.pulse()) == "expedition_restart_view_unavailable",
+        "an older bridge refusal leaves the saved expedition recoverable")
+    for index = 1, 60 do
+        restoreClock = 100 + index * 16
+        expedition.pulse()
+    end
+    check(refusals == 1 and slot1 == nil and expedition.export().slotSqlId == 2,
+        "an older bridge refusal is paced and retains the same saved mission")
+    SCSplitScreenProbe.promotionBlocker = function()
+        return "companion_promotion_player_count"
+    end
+    restoreClock = 1100
+    check(select(2, expedition.pulse()) == "expedition_restart_view_unavailable"
+        and refusals == 1 and expedition.current().technicalIssue.detail == "companion_promotion_player_count",
+        "native readiness reports the precise blocker without calling promotion")
+    SCSplitScreenProbe.promote = promote
+    check(SC.ViewSession.rememberSlotSqlId(17), "fixture has a stale shared reusable slot")
+    SCSplitScreenProbe.promotionBlocker = function(actor, id)
+        check(actor == leader, "only the exact restored actor is considered")
+        return id ~= 2 and "companion_promotion_saved_identity" or nil
+    end
+    restoreClock = 2100
+    check(expedition.pulse() and lastPromotionSlot == 2 and SC.ViewSession.slotSqlId() == 2,
+        "restore uses the exact saved slot after a stale shared identity is refused")
+    SCSplitScreenProbe.promotionBlocker = nil
+    SC.GameplayUtil.nowMs = previousClock
+end
+local resumed, reason
+check(slot1 == leader and not expedition.current().restoring,
     "the saved living leader reacquires slot 1")
 local observed = expedition.describeForPlayer(nil)
 check(observed.leaderName == "beta" and #observed.members == 3

@@ -2148,6 +2148,18 @@ local function actorRetryLimit()
         SC.Config.get("persistenceActorRetryLimit")) or 2))
 end
 
+local function retryScheduledActor(job, record, reason, current)
+    local attempts = (job.actorAttempts[record.id] or 0) + 1
+    job.actorAttempts[record.id] = attempts
+    if attempts > actorRetryLimit() then return false end
+    if reason == "inventory_changed" or reason == "inventory changed during capture" then
+        -- Transfers can edit the same inventory on several successive
+        -- updates. Give that burst time to settle before spending a retry.
+        job.actorRetryAt = current + 250
+    end
+    return true
+end
+
 local function restartableScheduledReason(reason)
     reason = tostring(reason or "")
     local prefixes = {
@@ -2219,6 +2231,8 @@ function persistence.pulse()
         if tonumber(job.hardDeadline) then job.hardDeadline = job.hardDeadline + deferred end
     end
     if current >= job.deadline then return abortScheduledSave(job, "capture deadline exceeded", current) end
+    if job.actorRetryAt and current < job.actorRetryAt then return "yielded", "inventory_settling" end
+    job.actorRetryAt = nil
     local sliceDeadline = current + math.max(0.1,
         tonumber(SC.Config.get("persistenceSliceBudgetMs")) or 0.75)
     local progressed = false
@@ -2272,10 +2286,7 @@ function persistence.pulse()
                     job, record, sliceDeadline, clock)
                 if complete ~= true then return "yielded", reason end
                 if not ok then
-                    local attempts = (job.actorAttempts[record.id] or 0) + 1
-                    job.actorAttempts[record.id] = attempts
-                    if attempts > math.max(0, math.floor(tonumber(
-                        SC.Config.get("persistenceActorRetryLimit")) or 2)) then
+                    if not retryScheduledActor(job, record, reason, current) then
                         return abortScheduledSave(job, "active companion capture failed: "
                             .. tostring(record.id) .. ": " .. tostring(reason), current)
                     end
@@ -2371,9 +2382,7 @@ function persistence.pulse()
                 job, record, sliceDeadline, clock)
             if complete ~= true then return "yielded", reason end
             if not ok then
-                local attempts = (job.actorAttempts[record.id] or 0) + 1
-                job.actorAttempts[record.id] = attempts
-                if attempts > actorRetryLimit() then
+                if not retryScheduledActor(job, record, reason, current) then
                     return abortScheduledSave(job, "active companion capture failed: "
                         .. tostring(record.id) .. ": " .. tostring(reason), current)
                 end

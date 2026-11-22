@@ -63,6 +63,21 @@ do
     SC.ExpeditionIntegration = integration
 end
 
+do
+    local unloader, nextLog = X.actor("one-log-unloader", 10), X.item("Base.Log")
+    X.put(unloader.bag, X.item("Base.Axe"))
+    check(not W.carryDestination(unloader, nextLog)
+        and W.returnLogDestination(unloader, nextLog) == unloader.bag,
+        "the camp unload can admit one physically fitting log over the normal limit")
+    X.put(unloader.bag, nextLog)
+    check(select(2, W.returnLogDestination(unloader, X.item("Base.Log"))) == "wood_already_carrying_log",
+        "another trip's carried log also blocks an overloaded pickup")
+    X.remove(unloader.bag, nextLog)
+    X.put(unloader.bag, X.item("Base.LogStacks2"))
+    check(select(2, W.returnLogDestination(unloader, X.item("Base.Log"))) == "wood_already_carrying_log",
+        "a carried log bundle also blocks an overloaded pickup")
+end
+
 local full = X.actor("full", 2)
 X.put(full.bag, X.item("Base.Axe"))
 local fullWork = W.createState({ mode = "full" })

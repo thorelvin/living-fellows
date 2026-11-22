@@ -209,7 +209,9 @@ for _ = 1, 4 do
 end
 assert(glass.smashCalls == 1 and group.oddball.stage == "siege",
     "the real shop window is smashed")
-assert(#spawned == 5 and group.oddball.spawned == 5, "five real zombies, out on the street")
+assert(#spawned == 5 and group.oddball.hordeSpawned == 5
+    and type(group.oddball.spawned) ~= "number",
+    "five zombies are counted without replacing the faction's activation flag")
 for _, zombie in ipairs(spawned) do
     assert(zombie.data.lfGunShopZombieGroupId == group.id and zombie.x <= -9,
         "each one is tagged and starts past the glass")

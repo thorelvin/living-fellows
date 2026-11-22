@@ -21,11 +21,19 @@ local function clear()
     T.storages, T.actors, T.car, T.yard = {}, {}, nil, nil
     T.blockToolReturn, T.access, T.transferFault, T.dropFault = nil, nil, nil, nil
     T.dropRefused, T.dropAmbiguous, T.arrangeCalls, T.arrangeVerified = nil, nil, 0, nil
+    T.navigationReason = nil
     T.minimums = { food = 0, water = 0, medicine = 0, ammunition = 0 }
 end
 U.modData = function(item) return item.data end
-U.directInteractionAccess = function(_, object)
-    return T.access ~= false, { object }, T.access == false and "approach" or nil
+U.carryLoad = function(actor) return actor.load or 0, 13 end
+U.gridSquare = function(x, y, z)
+    if T.yard and T.yard.x == x and T.yard.y == y and T.yard.z == z then return T.yard end
+end
+U.directInteractionAccess = function(actor, object)
+    local close = object ~= T.yard
+        or math.abs((actor.x or 10) - object.x) <= 1 and math.abs((actor.y or 10) - object.y) <= 1
+    local accessible = T.access ~= false and close
+    return accessible, { object }, not accessible and "approach" or nil
 end
 U.squareOf = function(object) return object end
 U.sameSquare = function(actor, square)
@@ -74,9 +82,15 @@ end
 SC.Navigation = {
     cancel = function() return true end,
     selectInteraction = function(_, _, _, choices)
-        for _, choice in ipairs(choices) do
-            if choice.storage.unreachable ~= true then return choice end
+        if T.navigationReason and T.navigationReason ~= "cross_floor_unverified" then
+            return nil, T.navigationReason
         end
+        local best
+        for _, choice in ipairs(choices) do
+            if choice.storage.unreachable ~= true
+                and (not best or (choice.tier or 1) < (best.tier or 1)) then best = choice end
+        end
+        if best then return best, T.navigationReason or "selected" end
         return nil, "unreachable"
     end,
     requestAny = function(_, _, _, options)
@@ -105,6 +119,9 @@ SC.ExpeditionWood = {
         return actorId and wood.loans[actorId] ~= nil or not actorId and next(wood.loans) ~= nil
     end,
     carryDestination = function(actor)
+        if not actor.overloaded then return actor.carry or actor.inventory end
+    end,
+    returnLogDestination = function(actor)
         return actor.carry or actor.inventory
     end,
     loanState = function(wood, actorId, actor)
@@ -126,8 +143,9 @@ SC.ExpeditionWood = {
 }
 SC.LogYard = {
     hasZone = function() return T.yard ~= nil end,
-    select = function()
+    select = function(_, _, acceptTile)
         if not T.yard or #T.yard.worlds >= 4 then return nil end
+        if acceptTile and not acceptTile(T.yard, { id = "yard:1" }) then return nil end
         return { kind = "log_yard", zoneId = "yard:1", x = 10, y = 10,
             z = 0, square = T.yard }
     end,

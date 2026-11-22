@@ -6761,6 +6761,10 @@ function Expedition.pulse()
         if not alive(leader) then
             return false, "expedition_restart_has_no_living_leader"
         end
+        if mission.restoreViewRetryAt
+            and SC.GameplayUtil.nowMs() < mission.restoreViewRetryAt then
+            return false, "expedition_restart_view_retry_pending"
+        end
         local slot = getSpecificPlayer(1)
         if slot ~= nil then
             if slot ~= leader.actor then
@@ -6776,6 +6780,7 @@ function Expedition.pulse()
                     SCSplitScreenProbe.replaceColdProbeWithRestoredLeader,
                     leader.actor, mission.slotSqlId or -1)
                 if not ok or replaced ~= true then
+                    mission.restoreViewRetryAt = SC.GameplayUtil.nowMs() + 1000
                     mission.technicalIssue = {
                         reason = "expedition_restart_handoff_failed",
                         detail = tostring(replaced),
@@ -6792,6 +6797,7 @@ function Expedition.pulse()
             local ok, promoted = SC.ViewSession.claim("expedition",
                 leader.actor, mission.slotSqlId)
             if not ok then
+                mission.restoreViewRetryAt = SC.GameplayUtil.nowMs() + 1000
                 mission.technicalIssue = {
                     reason = "expedition_restart_view_unavailable",
                     detail = tostring(promoted),
@@ -6815,6 +6821,7 @@ function Expedition.pulse()
         mission.bootstrapQueued = nil
         mission.bootstrapActor = nil
         mission.bootstrapFailed = nil
+        mission.restoreViewRetryAt = nil
         mission.technicalIssue = nil
         if mission.vehicleRestoreIssue and mission.scout then
             local x, y, z = SC.GameplayUtil.position(leader.actor)

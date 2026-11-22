@@ -65,4 +65,33 @@ I.update(receipt, worker)
 check(select(2, I.update(receipt, worker)) == "expedition_supply_stored"
     and original.container == store.container and #car.trunk.items == 0,
     "roadside extraction and storage preserve the same physical log")
+
+X.clear()
+original = X.log("essential:overloaded-return")
+worker = T.actor("hauler", "Hauler", {})
+worker.overloaded, worker.load = true, 15.4
+car = X.carFor(original)
+car.x, car.y = 32, 10
+local yard = X.yard()
+receipt = X.create(worker, { original }, { car = car })
+T.navigationReason = "pending"
+check(select(2, I.update(receipt, worker)) == "storage_route_pending"
+    and original.container == car.trunk and T.animations == 0,
+    "the trunk retains the exact log while the distant route is being surveyed")
+T.navigationReason = "unknown"
+check(select(2, I.update(receipt, worker)) == "storage_route_unknown"
+    and original.container == car.trunk and receipt.retryRemainingMs == 180000,
+    "an unverified camp route preserves cargo and backs off")
+T.navigationReason = "cross_floor_unverified"
+check(I.retry(receipt) and select(2, I.update(receipt, worker)) == "matching_storage_unreachable"
+    and original.container == car.trunk and T.animations == 0,
+    "an unverified cross-floor candidate cannot authorize an overloaded pickup")
+T.navigationReason = nil
+check(I.retry(receipt) and select(2, I.update(receipt, worker)) == "car_trunk_looting",
+    "a proven same-floor route beyond twenty tiles permits the overloaded pickup")
+I.update(receipt, worker)
+check(select(2, I.update(receipt, worker)) == "expedition_supply_stored"
+    and yard.worlds[1]:getItem() == original and #car.trunk.items == 0,
+    "the same log reaches the distant yard exactly once")
+
 SC_TEST_REPORT = "Essential cargo delivery: " .. X.checks() .. " checks passed"

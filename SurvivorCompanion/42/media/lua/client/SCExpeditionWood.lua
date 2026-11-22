@@ -260,6 +260,21 @@ function Wood.carryDestination(actor, log, shuttle)
         and shortShuttle(actor, shuttle.carId, shuttle.target)
     return carryDestination(actor, log, short == true)
 end
+
+-- Camp delivery may add one log after its route from the trunk is verified.
+-- Count every carried log, including other trips' logs and bundled logs.
+function Wood.returnLogDestination(actor, log)
+    if U().itemType(log) ~= "Base.Log" then return nil, "wood_cargo_ownership_changed" end
+    local entries, reason = L().inventoryEntries(actor)
+    if not entries then return nil, reason end
+    for _, entry in ipairs(entries) do
+        local kind = U().itemType(entry.item)
+        if kind == "Base.Log" or kind == "Base.LogStacks2" or kind == "Base.LogStacks3" or kind == "Base.LogStacks4" then
+            return nil, "wood_already_carrying_log"
+        end
+    end
+    return carryDestination(actor, log, true)
+end
 local function eligible(member)
     return type(member) == "table" and member.actor ~= nil
         and call(member.actor, "isDead") == false and resolve(member.id) == member.actor
@@ -316,7 +331,7 @@ function Wood.departureReady(roster, wood, carDescriptor, options)
     local vehicle = carId and SC.Vehicle and SC.Vehicle.loadedBySqlId(carId)
     if not rosterCanCarry(roster, nil, nil, options) then
         -- Packing may take place far from the parking bay. The crew has no
-        -- log yet. Actual transfers still require both ends of a short haul.
+        -- log yet. Trunk pickup at camp will verify the actual route.
         if not vehicle or SC.Vehicle.isStationary(vehicle) ~= true
             or not rosterCanCarry(roster, nil, nil, options, true) then
             return false, "wood_carry_capacity"
