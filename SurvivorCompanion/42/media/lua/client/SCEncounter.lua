@@ -2355,7 +2355,7 @@ function Encounter._transferLoot(actor, row, choice, pendingVisuals)
     end
     if moved then
         local data = utility.modData(drop.item)
-        if data then data.LF_ScavengedBy = nil end
+        if data then data.LF_ScavengedBy, data.LF_ScavengedOuting = nil, nil end
         return moved, why, receipt
     end
     local restored, restoreReason = utility.takeWorldItemVerified(wrapper, drop.source, drop.item)

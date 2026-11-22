@@ -17,7 +17,8 @@ networks and computer systems are fiction within the game.
 **Enable EMMA** is on by default under **Sandbox Options > Living Fellows**.
 Turn it off to hide computer and maintenance actions, computer recovery, and
 EMMA's walkie-talkie grid report. Computer records are kept for when you turn
-EMMA back on. Companion radio orders work with either setting.
+EMMA back on. While it is off, a drawer held by a locked computer opens like
+ordinary furniture. Companion radio orders work with either setting.
 
 ## What is implemented
 

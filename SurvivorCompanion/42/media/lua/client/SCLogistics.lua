@@ -1440,7 +1440,7 @@ end
 function Logistics.noteGift(actor, item)
     if not actor or not item then return false, "invalid_gift" end
     local data = U().modData(item)
-    if data then data.LF_ScavengedBy = nil end
+    if data then data.LF_ScavengedBy, data.LF_ScavengedOuting = nil, nil end
     local gifts = pendingGifts[actor]
     if not gifts then
         gifts = { items = {} }
@@ -1546,6 +1546,7 @@ function Logistics.status(actor)
     local actorData = select(1, U().call(actor, "getModData"))
     local atCamp = SC.BaseLife and type(SC.BaseLife.isInside) == "function"
         and SC.BaseLife.isInside(actor) == true
+    if atCamp then Logistics.closeScavengeOuting(actor) end
     audit.fieldReturnCleanup = atCamp and type(actorData) == "table"
         and actorData.LF_FieldReturnCleanup ~= nil
     audit.lootReturnCleanup = atCamp and type(actorData) == "table"
@@ -1787,8 +1788,8 @@ function Preparation.scavengedSurplus(actor, projection, commands, plannedDrop)
     if projection.replacements and not plannedDrop then return projection.replacements end
     local audit, choices, factors = projection.audit, {}, {}
     for _, bag in ipairs(projection.bags) do factors[bag.container] = bag.factor end
-    local ownerId = U().idOf(actor)
-    if not ownerId then return choices end
+    local ownerId, outing = U().idOf(actor), Logistics.scavengeOuting(actor)
+    if not ownerId or not outing then return choices end
     local _, usable = armedState(actor)
     for _, record in ipairs(audit.items) do
         local factor, category = factors[record.source], record.category
@@ -1800,7 +1801,8 @@ function Preparation.scavengedSurplus(actor, projection, commands, plannedDrop)
             local lastUsableWeapon = category == "weapon" and SC.Combat and SC.Combat.weaponOperational
                 and (usable == nil or usable <= math.max(1, keep))
                 and SC.Combat.weaponOperational(actor, record.item)
-            if type(data) == "table" and data.LF_ScavengedBy == ownerId and count > keep and not lastUsableWeapon
+            if type(data) == "table" and data.LF_ScavengedBy == ownerId
+                and tonumber(data.LF_ScavengedOuting) == outing and count > keep and not lastUsableWeapon
                 and not isProtected(actor, record.item)
                 and U().inventoryContains(record.source, record.item) then
                 local lower = Preparation.lootVacancy(projection, record, factor)
@@ -1847,9 +1849,29 @@ function Logistics.projectLoot(projection, row)
     projection.replacements = nil
 end
 
+-- A field find is swappable only during the outing that picked it up. Once the
+-- companion is back in camp it may be shelved and later issued again from
+-- storage, so it becomes camp kit instead of a find to trade away.
+function Logistics.scavengeOuting(actor)
+    local data = U().modData(actor)
+    return data and (tonumber(data.LF_ScavengeOuting) or 0) or nil
+end
+
+function Logistics.closeScavengeOuting(actor)
+    local data = U().modData(actor)
+    if not data or data.LF_ScavengeOutingOpen ~= true then return false end
+    data.LF_ScavengeOuting = (tonumber(data.LF_ScavengeOuting) or 0) + 1
+    data.LF_ScavengeOutingOpen = nil
+    return true
+end
+
 function Logistics.noteScavengedItem(actor, item)
     local data, id = U().modData(item), U().idOf(actor)
-    if data and id then data.LF_ScavengedBy = id end
+    local outing = Logistics.scavengeOuting(actor)
+    if data and id and outing then
+        data.LF_ScavengedBy, data.LF_ScavengedOuting = id, outing
+        U().modData(actor).LF_ScavengeOutingOpen = true
+    end
 end
 
 function Logistics.noteLootPickup(actor)

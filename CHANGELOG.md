@@ -93,6 +93,10 @@
 - **Enable EMMA** in Living Fellows sandbox settings controls player access to
   computers, computer recovery and maintenance, and EMMA's radio grid reports.
   It is on by default.
+- While EMMA is off, a desk drawer held by a locked computer opens like
+  ordinary furniture. Its lock returns when EMMA is turned back on.
+- A scavenger only sets down a find from its current outing. Finds it took
+  back to camp, including ones later issued to it from camp storage, are kept.
 - Bridge protocol `42.22-isocompanion-35`. World save schema 3.
 
 ## 0.27.62 - Camp overflow and scavenged loot swaps

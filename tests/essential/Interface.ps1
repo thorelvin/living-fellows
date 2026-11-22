@@ -131,6 +131,9 @@ foreach ($module in @(
     (Join-Path $Client 'SCTerminalServices.lua'),
     (Join-Path $UI 'SCTerminalAccessTests.lua')
 ) }
+@{ Name = 'interface-emma-drawer-access'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $UI 'SCTerminalDrawerAccessTests.lua')
+) }
 @{ Name = 'interface-terminal-locks'; Files = @($interfaceTerminalFiles) + @(
     (Join-Path $UI 'SCTerminalLocksTests.lua')
 ) }

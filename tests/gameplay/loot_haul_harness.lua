@@ -303,6 +303,31 @@ do
 end
 
 do
+    -- A find taken home becomes camp kit. It may be shelved and issued back to
+    -- the same companion, who must not trade that camp supply away later.
+    local carrier, concrete, better = readyForUpgrade()
+    local function exchange()
+        local audit = SC.Logistics.audit(carrier)
+        return SC.Logistics.lootReplacement(carrier, better, "medicine",
+            SC.Logistics.lootProjection(carrier, audit), commandViews[carrier])
+    end
+    local before = exchange()
+    check(before and before.drop and before.drop.item == concrete,
+        "control: during its outing the concrete bag is exchange stock")
+    local base, oldInside = SC.BaseLife, SC.BaseLife.isInside
+    base.isInside = function() return true end
+    SC.Logistics.status(carrier)
+    base.isInside = oldInside
+    check(concrete:getModData().LF_ScavengedBy == carrier.id and not exchange(),
+        "after a visit to camp the same find is no longer field exchange stock")
+    carrier.inventory:Remove(concrete)
+    local legacy = f.item("Base.ConcretePowder", "Material", { weight = 6.8 })
+    legacy:getModData().LF_ScavengedBy = carrier.id
+    carrier.inventory:AddItem(legacy)
+    check(not exchange(), "a mark without its outing, as saved by 0.27.62, is not exchange stock")
+end
+
+do
     local heavyFind = f.item("Base.Plank", "Material", { weight = 3 })
     local lighterFind = f.item("Base.Plank", "Material", { weight = .5 })
     local carrier = fixture({ heavyFind, lighterFind })

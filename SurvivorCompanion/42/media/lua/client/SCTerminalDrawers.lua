@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: MIT
 require "SCContextMenu"
+require "SCEmmaAccess"
 -- A UI interlock over ordinary furniture. Rewards do not exist until release.
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local D={} SC.TerminalDrawers=D
@@ -9,6 +10,11 @@ local function U() return SC.ControlUtil end
 local function ledger() return SC.TerminalLocks.ledger() end
 function D.enabled()
     return not (SandboxVars and SandboxVars.LivingFellows and SandboxVars.LivingFellows.LockRealItems==false)
+end
+-- With EMMA switched off the computer that holds a drawer cannot be used, so
+-- the furniture behaves normally. Claims stay recorded for when EMMA returns.
+local function interlocked()
+    return D.enabled() and (not SC.EmmaAccess or SC.EmmaAccess.enabled())
 end
 local function furniture(object,create)
     local data=U().data(object)
@@ -92,7 +98,7 @@ function D.release(object)
     end
 end
 function D.claimFor(container)
-    if not D.enabled() then return nil end
+    if not interlocked() then return nil end
     if not allowed[U().call(container,"getType")] then return nil end
     local book=ledger() if not book then return nil end
     local limit=0
@@ -113,6 +119,7 @@ end
 function D.locked(container) return container~=nil and D.claimFor(container)~=nil end
 function D.snapshot()
     local blocked={} local book=ledger() local count=0
+    if not interlocked() then return blocked end
     for _,claim in pairs(book and book.drawers or {}) do
         count=count+1 if count>32 then break end
         local c=D.container(claim.drawer) local _,state=D.computer(claim)
@@ -133,6 +140,7 @@ function D.refresh(page,phase)
     end
     local limit=0
     local blocked={}
+    local locking=interlocked()
     for id,claim in pairs(book.drawers) do
         limit=limit+1 if limit>32 then break end
         local object,state,why=D.computer(claim) local container,missing=D.container(claim.drawer)
@@ -142,7 +150,7 @@ function D.refresh(page,phase)
             local data=type(desk)~="string" and desk and furniture(desk,false)
             if data and data.LF_LarchDrawerOwner==id then data.LF_LarchDrawerOwner=nil end
             book.drawers[id]=nil
-        elseif container and state and type(state.lock)=="table" and state.lock.drawer
+        elseif locking and container and state and type(state.lock)=="table" and state.lock.drawer
             and not state.lock.drawer.open and not state.lock.drawer.forced then
             blocked[container]=true
         end
