@@ -330,10 +330,10 @@ local function canCarry(actor, row)
     local weight, capacity = U().carryLoad(actor)
     return not capacity or capacity <= 0 or weight + extraWeight(row) <= capacity
 end
-local function tooHeavy(actor, tool, liquid)
+local function mixtureTooHeavy(actor, tool, liquid)
     local weight, capacity = U().carryLoad(actor)
     return capacity ~= nil and capacity > 0
-        and weight + extraWeight(tool) + extraWeight(liquid) > capacity * 0.90
+        and weight + extraWeight(tool) + extraWeight(liquid) > capacity
 end
 local function batch(actor, tool, pure, bucket, water, job)
     if not available(bucket, actor) then return nil end
@@ -371,10 +371,14 @@ function C.plan(actor, job, remainingBudget)
     end
     local rows, reason, camp = C.sources(actor, budget)
     if not rows then return nil, reason end
-    local selection = inventories[actor].selection
-    if not selection then
+    local personal = inventories[actor]
+    local selection = personal.selection
+    if not selection or selection.resolved and (selection.mode ~= "mixed"
+        or mixtureTooHeavy(actor, selection.tool, selection.mixed)) then
+        -- A refill can leave the inventory's item identities and order
+        -- intact. Recheck the cached rows before repeating a fallback.
         selection = { index = 1, buckets = {}, waters = {} }
-        inventories[actor].selection = selection
+        personal.selection = selection
     end
     if selection.complete then
         if not budget() then return nil, "cleaning_supplies_scanning" end
@@ -386,7 +390,7 @@ function C.plan(actor, job, remainingBudget)
         -- it anyway would take one of the four containers that a mixing step
         -- needs for its tool, concentrate, bucket and water, and that step would
         -- then never get past a fifth container.
-        local liveMixed = selection.mixed and not tooHeavy(actor, selection.tool, selection.mixed)
+        local liveMixed = selection.mixed and not mixtureTooHeavy(actor, selection.tool, selection.mixed)
             and selection.mixed or false
         for _, row in ipairs({ selection.tool or false, liveMixed, selection.pure or false }) do
             if row then
@@ -411,19 +415,21 @@ function C.plan(actor, job, remainingBudget)
         local row = rows[selection.index]
         if not surveyContainer(camp.quota, row) then break end
         selection.index, camp.quota.items = selection.index + 1, camp.quota.items - 1
-        if available(row, actor, job) and canCarry(actor, row) then
+        if available(row, actor, job) then
             local info = C.inspect(row.item)
-            if C.tool(row.item) and (not tool or extraWeight(row) < extraWeight(tool)
-                or extraWeight(row) == extraWeight(tool) and score(row, actor) < score(tool, actor)) then tool = row end
-            if info then
-                if info.usable and info.mixture and (not mixed or extraWeight(row) < extraWeight(mixed)
-                    or extraWeight(row) == extraWeight(mixed) and score(row, actor) < score(mixed, actor)) then mixed = row end
-                if info.pureCleaner and info.amount >= C.dose() * C.RATIO
-                    and (not pure or score(row, actor) < score(pure, actor)) then pure = row end
-                if C.bucket(row.item) and info.capacity and (info.empty or info.waterOnly) then buckets[#buckets + 1] = row end
-                if info.waterOnly then waters[#waters + 1] = { item = row.item, container = row.container,
-                    storageId = row.storageId, personal = row.personal,
-                    tainted = info.TaintedWater > 0, rank = score(row, actor) } end
+            if info and info.usable and info.mixture and (not mixed or extraWeight(row) < extraWeight(mixed)
+                or extraWeight(row) == extraWeight(mixed) and score(row, actor) < score(mixed, actor)) then mixed = row end
+            if canCarry(actor, row) then
+                if C.tool(row.item) and (not tool or extraWeight(row) < extraWeight(tool)
+                    or extraWeight(row) == extraWeight(tool) and score(row, actor) < score(tool, actor)) then tool = row end
+                if info then
+                    if info.pureCleaner and info.amount >= C.dose() * C.RATIO
+                        and (not pure or score(row, actor) < score(pure, actor)) then pure = row end
+                    if C.bucket(row.item) and info.capacity and (info.empty or info.waterOnly) then buckets[#buckets + 1] = row end
+                    if info.waterOnly then waters[#waters + 1] = { item = row.item, container = row.container,
+                        storageId = row.storageId, personal = row.personal,
+                        tainted = info.TaintedWater > 0, rank = score(row, actor) } end
+                end
             end
         end
     end
@@ -431,9 +437,10 @@ function C.plan(actor, job, remainingBudget)
     selection.complete = selection.index > #rows
     if not selection.complete then return nil, "cleaning_supplies_scanning" end
     local weight, capacity = U().carryLoad(actor)
-    local mixedTooHeavy = mixed and tooHeavy(actor, tool, mixed)
+    local mixedTooHeavy = mixed and mixtureTooHeavy(actor, tool, mixed)
     local function resolved(plan, why)
         camp.scan.used, selection.resolved, selection.stockChecked = true, true, nil
+        selection.mode = plan and plan.mode
         return plan, why
     end
     if tool and mixed and not mixedTooHeavy then return resolved({ mode = "mixed", tool = tool, liquid = mixed }) end
@@ -491,7 +498,7 @@ function C.plan(actor, job, remainingBudget)
         end
         return resolved({ mode = "undiluted", tool = tool, liquid = pure })
     end
-    return resolved(nil, "cleaning_water_or_bucket_missing")
+    return resolved(nil, mixedTooHeavy and "cleaning_carry_capacity_low" or "cleaning_water_or_bucket_missing")
 end
 function C.carried(actor, remainingBudget)
     local job = SC.BaseLife and SC.BaseLife.jobFor and SC.BaseLife.jobFor(U().idOf(actor))

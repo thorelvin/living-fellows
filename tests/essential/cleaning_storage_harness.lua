@@ -43,7 +43,7 @@ broken.broken, broken.condition = true, 0
 check(not C.tool(broken) and SC.Logistics.itemCategory(broken) == "trash",
     "a ruined mop cannot clean or satisfy a tool loadout")
 
-local function scene()
+local function scene(stockCleaner)
     SC.BaseWork.reset(); SC.BaseLife.reset(); C.reset()
     local centre = f.makeSquare(5, 5, 0)
     check(SC.BaseLife.create(centre, "Cleaning storage test"), "camp created")
@@ -61,7 +61,7 @@ local function scene()
         check(okay, "registered " .. category)
         rows[category], containers[category] = row, container
     end
-    containers.tools:AddItem(cleaner())
+    if stockCleaner ~= false then containers.tools:AddItem(cleaner()) end
     return actor, rows, containers
 end
 local function plan(actor)
@@ -153,6 +153,48 @@ for _, change in ipairs({ "deposit", "swap", "mark" }) do
     end
 end
 do
+    local actor, _, shelves = scene(false)
+    shelves.tools:AddItem(tool("Base.Mop"))
+    local contents = { [Fluid.Water] = 2 }
+    local bucket = cleaner("Base.BucketEmpty", contents)
+    shelves.general:AddItem(bucket)
+    local _, missing = plan(actor)
+    check(missing == "cleaning_cleaner_missing", "warm the survey with a water-only bucket")
+    contents[Fluid.Water], contents[Fluid.Bleach] = 1.9, 0.1
+    local selection, why = plan(actor)
+    check(selection and selection.mode == "mixed" and selection.liquid.item == bucket,
+        "a refill of the same stored item supersedes the cached supply shortage: " .. tostring(why))
+end
+do
+    local actor, _, shelves = scene()
+    actor.inventory.capacity = 10
+    actor.inventory:AddItem(tool("Base.Mop"))
+    actor.inventory:AddItem(f.item("Base.Brick", "Normal", { weight = 4 }))
+    local mixture = {}
+    for _ = 1, 3 do
+        local bucket = cleaner("Base.BucketEmpty", { [Fluid.Water] = 1.9, [Fluid.Bleach] = 0.1 })
+        bucket.weight = 4.5
+        mixture[bucket] = true
+        shelves.general:AddItem(bucket)
+    end
+    local selection, why = plan(actor)
+    check(selection and selection.mode == "mixed" and mixture[selection.liquid.item],
+        "three prepared buckets that fit can be used without an empty bucket: " .. tostring(why))
+end
+do
+    local actor, _, shelves = scene(false)
+    actor.inventory.capacity = 10
+    actor.inventory:AddItem(tool("Base.Mop"))
+    actor.inventory:AddItem(f.item("Base.Brick", "Normal", { weight = 4 }))
+    shelves.tools:AddItem(cleaner(nil, { [Fluid.Bleach] = 0.1 }))
+    local bucket = cleaner("Base.BucketEmpty", { [Fluid.Water] = 1.9, [Fluid.Bleach] = 0.1 })
+    bucket.weight = 5.5
+    shelves.general:AddItem(bucket)
+    local selection, why = plan(actor)
+    check(not selection and why == "cleaning_carry_capacity_low",
+        "a usable mixture that exceeds the carry limit is reported as too heavy: " .. tostring(why))
+end
+do
     local actor, _, shelves = scene()
     shelves.tools:AddItem(tool("Base.Mop"))
     local bucket = f.item("Base.BucketEmpty", "Normal", { fluidContainer = {
@@ -199,7 +241,7 @@ do
     actor.inventory:AddItem(tool("Base.Mop"))
     actor.inventory:AddItem(f.item("Base.Brick", "Normal", { weight = 4 }))
     local heavy = cleaner("Base.BucketEmpty", { [Fluid.Water] = 1.9, [Fluid.Bleach] = 0.1 })
-    heavy.weight = 4.5
+    heavy.weight = 5.5
     shelves.weapons:AddItem(heavy)
     local bucket = f.item("Base.BucketEmpty", "Normal", { weight = 0.5, fluidContainer = {
         getAmount = function() return 0 end, getCapacity = function() return 10 end,

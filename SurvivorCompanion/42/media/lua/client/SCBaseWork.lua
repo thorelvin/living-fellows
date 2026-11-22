@@ -1101,7 +1101,7 @@ local function prepareCleaningMixture(actor, state, job)
     if prep.mode == "undiluted" and not job.target.cleanFallbackReported then
         job.target.cleanFallbackReported = true
         if not prep.fallbackReported then
-            U().say(actor, "I couldn't prepare a cleaning bucket. I'll use the cleaner straight.")
+            U().say(actor, "I'll use the cleaner straight.")
         end
     end
     if prep.stage == "ready" then

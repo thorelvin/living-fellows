@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.27.60 - Prepared cleaning buckets
+
+- Camp cleaners use a prepared bucket when the bucket and tool fit within
+  their normal carry limit.
+- A cleaning supply recheck can find buckets refilled in place on marked shelves.
+- Prepared buckets that are too heavy are reported as a carrying problem when
+  there are no other usable supplies.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.59 - One edition at a time, and uninstall after a game repair
 
 - `Install.bat` checks registered Steam libraries for a Living Fellows Workshop
