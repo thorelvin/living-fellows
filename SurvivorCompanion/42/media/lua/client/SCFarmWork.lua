@@ -886,13 +886,14 @@ local function recoverPending(limit)
         inspected = inspected + 1
         if not receiptActivelyOwned(receipt)
             and not settleLostCarrier(receipt, U().nowMs()) then
-        local animalRecovered = SC.AnimalWork and SC.AnimalWork.recoverReceipt(receipt) == true
-        if not animalRecovered then
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId) or nil
         local actor = type(record) == "table" and (record.actor or record) or nil
+        local animalRecovered, item, eggChecked
+        if SC.AnimalWork then animalRecovered, item, eggChecked = SC.AnimalWork.recoverReceipt(receipt, actor) end
+        if not animalRecovered then
         local inventory = actor and U().inventory(actor) or nil
-        local item
-        for _, candidate in ipairs(inventory and U().inventoryItems(inventory, 256) or {}) do
+        local eggSource = item and select(1, invoke(item, "getContainer"))
+        for _, candidate in ipairs(not eggChecked and inventory and U().inventoryItems(inventory, 256) or {}) do
             if marker(candidate) == receipt.id and not legacyReceiptConflict(candidate, receipt) and (not receipt.wool
                 or U().itemType(candidate)==receipt.itemType
                     and tostring((invoke(candidate,"getID")))==tostring(receipt.nativeId)
@@ -925,7 +926,7 @@ local function recoverPending(limit)
                 unmark(item, receipt.id)
                 local restore = receipt.kind == "output"
                     and SC.BaseWork.restoreDepositToStorage or SC.BaseWork.restoreToStorage
-                local moved, reason = restore(actor, storage, container, item)
+                local moved, reason = restore(actor, storage, container, item, eggSource)
                 if moved == true then
                     SC.BaseLife.updateFarmReceipt(receipt.id, {
                         phase = receipt.kind == "output" and "delivered" or "returned",

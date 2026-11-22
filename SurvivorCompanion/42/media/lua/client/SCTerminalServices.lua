@@ -301,9 +301,9 @@ function S.review(window)
     if draft.kind=="wood" then
         if draft.mapTarget and draft.mapTarget.version==2 then
             local b=draft.mapTarget.workBounds
-            lines[#lines+1]="Logging area: "..(b.x2-b.x1+1).." x "..(b.y2-b.y1+1).." tiles. Trees checked on arrival; cutting stays inside the outline."
+            lines[#lines+1]="Logging area: "..(b.x2-b.x1+1).." x "..(b.y2-b.y1+1).." meters. The crew checks the trees on arrival and cuts inside the outline."
         end
-        lines[#lines+1]="Raw logs only. One trip; full load is limited to 256 verified log receipts. Storage delivery remains required."
+        lines[#lines+1]="One trip for raw logs. A full load is limited to 256 logs. The crew must deliver them to camp storage."
     end
     if preview.carSqlId then lines[#lines+1]="Car: "..tostring(preview.carName)..". Fuel "..tostring(preview.fuel).."; planned reserve "..tostring(preview.fuelRequired).."." end
     return true,lines

@@ -4109,11 +4109,17 @@ function BaseWork.restoreToStorage(actor, storage, container, item)
     return U().transferItemVerified(inventory, container, item)
 end
 
-function BaseWork.restoreDepositToStorage(actor, storage, container, item)
+function BaseWork.restoreDepositToStorage(actor, storage, container, item, source)
     if not actor or not item then return false, "farm_output_missing" end
     local accepts, reason = SC.BaseLife.storageAcceptsDeposit(storage, container)
     if accepts ~= true then return false, reason end
     local inventory = U().inventory(actor)
+    if source and source ~= inventory then
+        if not inventory or U().call(source, "getOutermostContainer") ~= inventory then
+            return false, "farm_output_missing"
+        end
+        inventory = source
+    end
     if not inventory or not U().inventoryContains(inventory, item) then
         return false, "farm_output_missing"
     end

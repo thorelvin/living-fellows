@@ -39,6 +39,7 @@ $tests = @()
 if ($Scope -ne 'Content') { $tests += 'tests\source\test_release_sync.py' }
 if ($Scope -ne 'Metadata') { $tests += @(
     'tests\source\test_content_references.py',
+    'tests\source\test_persona_audit.py',
     'tests\source\test_terminal_lock_assets.py',
     'tests\source\test_no_playtest_output.py'
 ) }

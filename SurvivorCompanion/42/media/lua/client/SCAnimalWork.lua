@@ -1625,8 +1625,58 @@ end
 
 -- Reconcile selected eggs against the exact nest or the exact actor inventory.
 -- No native lookup failure authorizes manufacturing an egg or replaying pickup.
-function A.recoverReceipt(receipt)
-    if receipt.destinationCategory=="manure" then return SC.ManureWork.recoverReceipt(receipt) end
+local function eggInNest(receipt, target)
+    local object, reason = findDevice(target)
+    if not object and reason == "animal_audit_pending" and refreshTarget(target) then
+        object = findDevice(target)
+    end
+    local nest = object and value(object, "getNestBox", target.nestIndex)
+    local count = n(nest, "getEggsNb")
+    if not count or count < 0 or count > 64 or count ~= math.floor(count) then return nil, false end
+    for index = 0, count - 1 do
+        local egg = value(nest, "getEgg", index)
+        local id = value(egg, "getID")
+        local data = value(egg, "getModData")
+        if id == nil or type(data) ~= "table" then return nil, false end
+        if tostring(id) == tostring(receipt.nativeId) then
+            if data[SC.FarmWork.ITEM_MARKER] == receipt.id then return egg, true end
+            return nil, false
+        end
+        if data[SC.FarmWork.ITEM_MARKER] == receipt.id then return nil, false end
+    end
+    return nil, true
+end
+
+local function eggOnFarmer(receipt, actor, stableId)
+    local inventory = actor and U().inventory(actor)
+    local match, readable = nil, true
+    -- The ordinary audit samples the first 256 loose items. A negative result
+    -- here must cover the whole inventory, including the contents of bags.
+    local _, scanned = read(inventory, "getFirstEvalRecurse", function(candidate)
+        local fullType = value(candidate, "getFullType")
+        if not fullType then readable = false return false end
+        if fullType ~= receipt.itemType then return false end
+        local data = value(candidate, "getModData")
+        if type(data) ~= "table" then readable = false return false end
+        if data[SC.FarmWork.ITEM_MARKER] == receipt.id then
+            -- Older saves retained the receipt marker and type across actor
+            -- reconstruction but assigned new native IDs. New jobs also store
+            -- the original egg's persistent item identity.
+            if match or stableId and U().itemStableId(candidate, false) ~= stableId then
+                readable = false
+            else match = candidate end
+            return false
+        end
+        local id = value(candidate, "getID")
+        if id == nil or tostring(id) == tostring(receipt.nativeId)
+            or stableId and U().itemStableId(candidate, false) == stableId then readable = false end
+        return false
+    end)
+    return scanned and readable and match or nil, scanned and readable
+end
+
+function A.recoverReceipt(receipt, actor)
+    if receipt.destinationCategory=="manure" then return SC.ManureWork.recoverReceipt(receipt) == true end
     if receipt.wool or receipt.woolInvalid then
         return SC.AnimalShearing and SC.AnimalShearing.recoverReceipt(receipt)==true
     end
@@ -1655,26 +1705,46 @@ function A.recoverReceipt(receipt)
             return true
         end
     end
-    if receipt.phase ~= "selected" then return false end
+    if receipt.kind ~= "output" then return false end
     local job = SC.BaseLife.job(receipt.jobId)
     local target = job and job.target
     if not target or target.operation ~= "animal_egg" then return false end
-    local object = findDevice(target)
-    local nest = object and value(object, "getNestBox", target.nestIndex)
-    local count = n(nest, "getEggsNb")
-    if not count or count > 64 then return false end
-    for index = 0, count - 1 do
-        local egg = value(nest, "getEgg", index)
-        local data = egg and U().modData(egg)
-        if data and data[SC.FarmWork.ITEM_MARKER] == receipt.id
-            and tostring(value(egg, "getID")) == tostring(receipt.nativeId) then
-            support().unmark(egg, receipt.id)
-            SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed",
-                blocker = "animal_egg_left_in_nest" })
-            return true
+    local nestKnown
+    if receipt.phase == "selected" then
+        local egg
+        egg, nestKnown = eggInNest(receipt, target)
+        if egg then
+            if not support().unmark(egg, receipt.id) then return false end
+            return SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed",
+                blocker = "animal_egg_left_in_nest" }) == true
         end
     end
-    return false
+    if not actor then
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(receipt.actorId)
+        actor = record and record.actor
+    end
+    if not actor or U().idOf(actor) ~= receipt.actorId then return false, nil, true end
+    local item, inventoryKnown = eggOnFarmer(receipt, actor, target.eggStableId)
+    if item then
+        if receipt.phase == "selected" and not SC.BaseLife.updateFarmReceipt(receipt.id,
+            { phase = "carried", blocker = false }) then return false, nil, true end
+        return false, item, true -- The farm audit delivers this exact egg.
+    end
+    if nestKnown and inventoryKnown and receipt.nativeId ~= nil then
+        return SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "consumed",
+            blocker = "animal_egg_taken_elsewhere" }) == true
+    end
+    return false, nil, true
+end
+
+local function settleSelectedEgg(actor, job, state)
+    if reconcileEgg(actor, job, state) then return true end
+    local receipt = SC.BaseLife.farmReceipt(state.animalEgg.receiptId)
+    if not receipt then return false end
+    local settled, item = A.recoverReceipt(receipt, actor)
+    if not settled and not item then return false end
+    state.animalEgg = nil
+    return true
 end
 
 function A.cancel(actor, job, state, reason)
@@ -1692,15 +1762,10 @@ function A.cancel(actor, job, state, reason)
         local stopped, detail = SC.NativeActions.cancelWork(actor, reason or "animal_cancelled")
         if not stopped then return false, detail end
         reconcileFeed(job, state)
-        reconcileEgg(actor, job, state)
         if job.target.operation=="animal_milk" then A.reconcileMilk(actor,job,state) end
         state.animalWork = nil
     end
-    if state.animalEgg then
-        local receipt = SC.BaseLife.farmReceipt(state.animalEgg.receiptId)
-        if not receipt or not A.recoverReceipt(receipt) then return false, "animal_egg_recovery_pending" end
-        state.animalEgg = nil
-    end
+    if state.animalEgg and not settleSelectedEgg(actor, job, state) then return false, "animal_egg_recovery_pending" end
     for _, loan in ipairs(state.animalLoans or {}) do
         local okay, detail = support().restore(actor, loan, reason)
         if not okay then return false, detail end
@@ -2091,6 +2156,7 @@ function A.update(actor, baseState, job, runtime, state)
     if target.operation=="animal_milk" then return A.updateMilk(actor,baseState,job,runtime,state) end
     -- Delivery and loan returns no longer depend on keeping the pen loaded.
     if state.outputs then return S.deposit(actor, baseState, state) end
+    if target.eggFinished then state.animalReturn = true end
     if state.animalReturn and not state.animalWork then
         for _, loan in ipairs(state.animalLoans or {}) do
             local settled, reason, pending = S.settle(actor, baseState, loan)
@@ -2135,7 +2201,9 @@ function A.update(actor, baseState, job, runtime, state)
             or n(object, "getCurrentFeedAmount")
         if amount and amount + 0.001 >= target.high then state.animalReturn = true end
     end
-    if target.eggReceiptId and not state.animalEgg and not state.outputs and not state.animalWork then
+    if target.eggReceiptId and not state.outputs and not state.animalWork then
+        if state.animalEgg and not settleSelectedEgg(actor, job, state) then return true, "animal_egg_recovery_pending" end
+        if state.outputs then return S.deposit(actor, baseState, state) end
         local receipt = SC.BaseLife.farmReceipt(target.eggReceiptId)
         if receipt and (receipt.phase == "delivered" or receipt.phase == "consumed") then
             state.animalReturn = true
@@ -2176,7 +2244,10 @@ function A.update(actor, baseState, job, runtime, state)
             or work.operation == "animal_clean_nest" and (n(object, "getNestBoxDirt") or math.huge) < work.before
             or work.operation == "animal_soothe" and state.soothe and state.soothe.applied == true
         state.animalWork = nil
-        if not verified then return fail(actor, job, "animal_action_incomplete") end
+        if not verified then
+            if work.operation == "animal_egg" then return true, "animal_egg_recovery_pending" end
+            return fail(actor, job, "animal_action_incomplete")
+        end
         if work.operation == "fill_water" then return true, "animal_water_container_filled" end
         if work.operation == "animal_hatch_open" then return true, "animal_egg_hatch_open" end
         if work.operation == "animal_egg" then state.animalReturn = true end
@@ -2229,6 +2300,7 @@ function A.update(actor, baseState, job, runtime, state)
             SC.BaseLife.foodStorageCategory(egg))
         if not receipt then return fail(actor, job, reason) end
         target.eggReceiptId = receipt.id
+        target.eggStableId = U().itemStableId(egg, true)
         SC.BaseLife.updateFarmReceipt(receipt.id, { phase = "selected", blocker = false })
         state.animalEgg = { item = egg, receiptId = receipt.id, nest = nest }
         note()

@@ -3097,11 +3097,16 @@ function BaseLife.animalDocument()
     return document
 end
 
-local function clearSettledMilkPointer(base, receipt)
-    if receipt.phase~="returned" and receipt.phase~="delivered" then return end
+local function retireAnimalReceipt(base, receipt)
+    if receipt.phase~="returned" and receipt.phase~="delivered" and receipt.phase~="consumed" then return end
     for _,job in ipairs(base.jobs or {}) do
-        if job.target and job.target.milkReceiptId==receipt.id then
-            job.target.milkReceiptId=nil
+        local target = job.target
+        if target and target.milkReceiptId==receipt.id and receipt.phase~="consumed" then
+            target.milkReceiptId=nil
+        elseif target and target.eggReceiptId==receipt.id and receipt.phase~="returned" then
+            -- Another farmer can allocate a receipt before this job's next tick.
+            -- Keep proof that the selected egg has already been settled.
+            target.eggReceiptId, target.eggFinished = nil, true
         end
     end
 end
@@ -3117,7 +3122,7 @@ function BaseLife.allocateFarmReceipt(spec)
             -- A safely returned empty milking bucket can leave a retrying job.
             -- Retire its pointer while the terminal receipt still proves the
             -- return; missing or ambiguous cargo remains unreconciled.
-            clearSettledMilkPointer(base,farm.receipts[index])
+            retireAnimalReceipt(base,farm.receipts[index])
             table.remove(farm.receipts, index)
         end
     end
@@ -3208,7 +3213,7 @@ function BaseLife.removeFarmReceipt(id)
     if farm then receipt, index = findById(farm.receipts, id) end
     if not receipt then return false, "unknown_farm_receipt" end
     if not farmReceiptTerminal(receipt) then return false, "farm_receipt_not_terminal" end
-    clearSettledMilkPointer(activeBase(),receipt)
+    retireAnimalReceipt(activeBase(),receipt)
     table.remove(farm.receipts, index)
     bumpWorkConsistencyRevision()
     return true

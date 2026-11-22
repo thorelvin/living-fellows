@@ -4,6 +4,24 @@ local L,S,W,C=SC.TerminalLocks,SC.TerminalSystem,SC.TerminalLockWords,SC.Termina
 local check,before=T.check,T.checks
 local oldMod,oldSandbox=ModData,SandboxVars
 do
+    local window={system={locked=true,lock={kind="word"}}}
+    L.input(window,"case")
+    check(window.securityMessage=="Confirm Other ways in first." and window.lockPage==nil,
+        "asking for the case first tells the operator which confirmation is needed")
+    L.input(window,"other ways in")
+    L.input(window,"yes")
+    L.input(window,"open the case")
+    check(window.lockPage=="case" and window.securityMessage==nil,
+        "confirming Other ways in lets the operator open the case page")
+    local service=SC.TerminalLockCase
+    SC.TerminalLockCase=nil
+    window.lockPage=nil
+    L.input(window,"case")
+    SC.TerminalLockCase=service
+    check(window.lockPage==nil and window.securityMessage=="The case will not open.",
+        "a missing case service reports that the case will not open")
+end
+do
     local previous=SC.TerminalServices
     local duration
     SC.TerminalServices={install=function(_,_,_,ticks) duration=ticks return true end}

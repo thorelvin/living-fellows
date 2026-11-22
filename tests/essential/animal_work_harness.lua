@@ -205,6 +205,210 @@ check(marked ~= nil, "selected egg can acquire an exact persistent receipt")
 SC.BaseLife.updateFarmReceipt(receipt and receipt.id or marked.id, { phase = "selected" })
 check(A.recoverReceipt(marked) and marked.phase == "consumed" and nest.eggs[1] == egg,
     "reload reconciliation releases an unpicked egg without cloning or removing it")
+do
+    local farm, B = SC.FarmWork, SC.BaseLife
+    local marker = farm.ITEM_MARKER
+    local function inventorySearch(container, predicate)
+        for _, item in ipairs(container.items) do
+            if predicate(item) then return item end
+            local nested = item:getInventory()
+            local found = nested and inventorySearch(nested, predicate)
+            if found then return found end
+        end
+    end
+    worker2.inventory.getFirstEvalRecurse = inventorySearch
+    local function selectEgg(item, target)
+        nest.eggs = {item}
+        target = target or F.job("animal_egg", 2, 2, candidate)
+        local receipt = farm.animalSupport.receipt(worker2, target, "output", item, nil, "food")
+        target.target.eggReceiptId = receipt.id
+        SC.BaseLife.updateFarmReceipt(receipt.id, {phase="selected"})
+        nest.eggs = {}
+        return receipt, target
+    end
+    local function shell(id)
+        local item=F.item("Base.Egg", id, {category="Food"})
+        item.isFertilized=egg.isFertilized
+        return item
+    end
+    -- Live selection and interleaving through the public job/cancellation paths.
+    local originalStart = SC.NativeActions.startAnimal
+    SC.NativeActions.startAnimal = SC.NativeActions.startFarm
+    local function startEgg(item)
+        nest.eggs = {item}
+        local current = F.job("animal_egg", 2, 2, candidate)
+        current.reservedBy = worker2.id
+        local started, why = farm.update(worker2, {}, current, {})
+        if why == "farm_previous_supplies_returned" then started, why = farm.update(worker2, {}, current, {}) end
+        check(started and why == "farm_animal_egg_active", "farmer selects a real nest egg: "..tostring(why))
+        local receipt = B.farmReceipt(current.target.eggReceiptId)
+        check(receipt and receipt.phase=="selected" and item.modData[marker]==receipt.id, "selected exact egg is marked")
+        return current, receipt
+    end
+    local player = F.actor("egg-collector", 2, 3)
+    local stolen, spare = shell(2010), shell(2011)
+    local live, liveReceipt = startEgg(stolen)
+    nest.eggs = {spare}
+    player.inventory:AddItem(stolen)
+    check(farm.isItemProtected(stolen), "player egg carries the live reservation")
+    check(farm.cancelActor(worker2,"egg_interrupted") and liveReceipt.phase=="consumed"
+        and liveReceipt.blocker=="animal_egg_taken_elsewhere", "live cancel settles the missing egg")
+    check(farm.canCancelJob(live.id) and not farm.isItemProtected(stolen)
+        and stolen.modData[marker]==nil and player.inventory:contains(stolen) and #player.inventory.items==1
+        and #nest.eggs==1 and nest.eggs[1]==spare, "cancel releases only the player's actual egg")
+    local nextJob = F.job("animal_open", 2, 2, candidate)
+    nextJob.target.operation = "animal_open"
+    for pulse=1,3 do farm.update(worker2, {}, nextJob, {}) end
+    check(nextJob.state=="completed", "same farmer completes the next chore after a cancelled egg")
+    -- Finish an already-stopped grab in place, without cancelling or replaying pickup.
+    local racing = shell(2012)
+    local stopped, stoppedReceipt = startEgg(racing)
+    F.native[worker2].active = false
+    nest.eggs = {spare}
+    player.inventory:AddItem(racing)
+    local starts = #F.nativeStarts
+    for pulse=1,4 do farm.update(worker2, {}, stopped, {}) end
+    check(stopped.state=="completed" and stoppedReceipt.phase=="consumed" and #F.nativeStarts==starts
+        and nest.eggs[1]==spare, "stopped grab completes without picking the replacement")
+    SC.NativeActions.startAnimal = originalStart
+    -- Uncertainty and the inclusive nest boundary.
+    local absent = shell(2013)
+    local pending = selectEgg(absent)
+    local oldBox, oldCount, oldGet = hutch.getNestBox, nest.getEggsNb, nest.getEgg
+    hutch.getNestBox = function() return nil end
+    farm.audit(F.base)
+    check(pending.phase=="selected","unloaded nest remains open")
+    hutch.getNestBox = oldBox
+    local streamed = zone.isFullyStreamed
+    zone.isFullyStreamed = function() return false end
+    farm.audit(F.base)
+    check(pending.phase=="selected","unloaded hutch remains open")
+    zone.isFullyStreamed = streamed
+    for _, count in ipairs({-1,0.5,65}) do
+        nest.getEggsNb = function() return count end
+        farm.audit(F.base)
+        check(pending.phase=="selected","out-of-range nest count remains open")
+    end
+    nest.getEggsNb = function() return 1 end
+    nest.getEgg = function() error("unreadable egg slot") end
+    farm.audit(F.base)
+    check(pending.phase=="selected","failed nest slot remains open")
+    nest.getEggsNb, nest.getEgg = oldCount, oldGet
+    for index=1,64 do nest.eggs[index] = shell(3000+index) end
+    F.actors[worker2.id] = nil
+    farm.audit(F.base)
+    check(pending.phase=="selected","unloaded farmer remains open")
+    F.actors[worker2.id] = worker2
+    worker2.inventory.getFirstEvalRecurse = function() error("inventory unavailable") end
+    farm.audit(F.base)
+    check(pending.phase=="selected","unreadable farmer inventory remains open")
+    worker2.inventory.getFirstEvalRecurse = inventorySearch
+    local unreadable = shell(2014)
+    unreadable.getModData = function() return nil end
+    worker2.inventory:AddItem(unreadable)
+    farm.audit(F.base)
+    check(pending.phase=="selected","partially readable farmer inventory remains open")
+    worker2.inventory:Remove(unreadable)
+    farm.audit(F.base)
+    check(pending.phase=="consumed" and pending.blocker=="animal_egg_taken_elsewhere" and #nest.eggs==64,
+        "fully readable 64-egg nest settles only the missing egg")
+    -- 0.27.54 reconstructed ordinary items with a new native ID and preserved ModData.
+    local carryEgg = shell(2015)
+    local cargo, cargoJob = selectEgg(carryEgg)
+    local storage = F.storageContainers["storage:eggs"]
+    local bag = F.container()
+    function bag:getOutermostContainer() return worker2.inventory end
+    for index=1,257 do worker2.inventory:AddItem(F.item("Base.Pencil",4000+index)) end
+    worker2.inventory:AddItem(F.item("Base.Bag",5000,{inventory=bag}))
+    bag:AddItem(carryEgg)
+    carryEgg.nativeId=5015
+    local realDeposit = SC.BaseWork.restoreDepositToStorage
+    SC.BaseWork.restoreDepositToStorage=F.realBaseWork.restoreDepositToStorage
+    storage.full=true
+    farm.audit(F.base)
+    check(cargo.phase=="carried" and bag:contains(carryEgg) and #storage.items==0,
+        "proven cargo remains carried when the food shelf is full")
+    storage.full=false
+    farm.audit(F.base)
+    check(cargo.phase=="delivered" and storage:contains(carryEgg) and not bag:contains(carryEgg)
+        and carryEgg.modData[marker]==nil, "old marked egg in a nested bag beyond the audit sample is delivered")
+    farm.audit(F.base)
+    check(#storage.items==1, "repeated audit does not duplicate carried eggs")
+    local currentEgg, impostor=shell(2016),shell(2017)
+    local owned, exactJob=selectEgg(currentEgg)
+    exactJob.target.eggStableId=U.itemStableId(currentEgg,true)
+    impostor.modData[marker]=owned.id
+    worker2.inventory:AddItem(impostor)
+    table.remove(worker2.inventory.items)
+    table.insert(worker2.inventory.items,1,impostor) -- Within the generic audit's 256-item sample.
+    farm.audit(F.base)
+    check(owned.phase=="selected" and worker2.inventory:contains(impostor)
+        and #storage.items==1, "wrong stable identity cannot deliver through the generic audit")
+    worker2.inventory:Remove(impostor)
+    currentEgg.modData[marker]=nil
+    currentEgg.nativeId=5016
+    worker2.inventory:AddItem(currentEgg)
+    farm.audit(F.base)
+    check(owned.phase=="selected" and worker2.inventory:contains(currentEgg),
+        "unmarked original with a reconstructed native ID stays unresolved")
+    worker2.inventory:Remove(currentEgg)
+    farm.audit(F.base)
+    check(owned.phase=="consumed", "missing original settles after ambiguous cargo clears")
+    local legacyOne,legacyTwo=shell(6200),shell(6201)
+    local duplicate=selectEgg(legacyOne)
+    legacyTwo.modData[marker]=duplicate.id
+    worker2.inventory:AddItem(legacyOne)
+    worker2.inventory:AddItem(legacyTwo)
+    farm.audit(F.base)
+    check(duplicate.phase=="selected" and worker2.inventory:contains(legacyOne)
+        and worker2.inventory:contains(legacyTwo) and #storage.items==1,
+        "ambiguous legacy egg markers cannot deliver either egg")
+    worker2.inventory:Remove(legacyTwo)
+    farm.audit(F.base)
+    check(duplicate.phase=="delivered" and storage:contains(legacyOne),
+        "unique original legacy cargo can be delivered once ambiguity clears")
+    SC.BaseWork.restoreDepositToStorage=realDeposit
+
+    -- Actual stable document round trip and public farm-zone removal, with a
+    -- 0.27.54 selection (no new identity field or in-memory action).
+    local real = F.realBaseLife
+    SC.BaseLife = real
+    real.reset()
+    local square=F.squares["2:2:0"]
+    check(real.create(square,"Egg camp"),"create a persisted egg camp")
+    check(real.beginZone("farm",square),"start persisted farm zone")
+    local added, farmZone=real.finishZone(square,"Egg farm")
+    check(added,"finish persisted farm zone: "..tostring(farmZone))
+    local target={}
+    for k,v in pairs(candidate) do target[k]=v end
+    target.zoneId=farmZone.id
+    local queued, oldJob=real.enqueueJob({type="farm",target=target})
+    check(queued,"enqueue persisted egg chore")
+    local oldEgg=shell(2018)
+    local legacy=selectEgg(oldEgg,oldJob)
+    local snapshot=real.export()
+    real.reset()
+    A.reset()
+    local loaded, why=real.restore(snapshot)
+    check(loaded,"restore selected egg save: "..tostring(why))
+    local savedJob,savedReceipt=real.job(oldJob.id),real.farmReceipt(legacy.id)
+    check(savedReceipt.phase=="selected" and savedJob.target.eggReceiptId==legacy.id
+        and not real.removeZone(farmZone.id), "restored selection blocks zone removal before the audit")
+    for pulse=1,4 do farm.audit(real.active()) end
+    check(savedReceipt.phase=="consumed" and savedReceipt.blocker=="animal_egg_taken_elsewhere",
+        "restored farm audit settles original missing selection")
+    local allocated=real.allocateFarmReceipt({actorId=worker2.id,jobId="job:999",kind="output",
+        phase="carried",nativeId=6020,itemType="Base.Egg",destinationCategory="food"})
+    check(allocated and not real.farmReceipt(legacy.id), "next allocation prunes the old terminal receipt")
+    savedJob.reservedBy=worker2.id
+    for pulse=1,3 do farm.update(worker2,{},savedJob,{}) end
+    check(savedJob.state=="completed","pruned proof still completes the original restored chore")
+    check(real.removeZone(farmZone.id) and not real.job(savedJob.id), "restored farm zone and its chore can be removed")
+    SC.BaseLife=B
+    nest.eggs={egg}
+    A.reset()
+    A.candidate(F.base)
+end
 local oldConfig = U.config
 U.config = function(name)
     if name == "animalCloseEnabled" then return 1 end

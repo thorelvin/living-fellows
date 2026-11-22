@@ -1,5 +1,6 @@
-"""Audit terminal persona lines and the building computer's Circuits status."""
+"""Audit terminal dialogue, expedition screens and companion work notices."""
 import collections
+import json
 import re
 import sys
 import textwrap
@@ -112,6 +113,23 @@ if status:
     for text in STRING.findall(status.group(1)):
         if IMMERSION.search(text) or re.search(r"\b(?:LF|Living Fellows|native|not available yet)\b", text, re.I):
             errors.append(f"Circuits status breaks the fiction: {text}")
+
+feedback = (ROOT / "SCActionFeedback.lua").read_text(encoding="utf-8")
+wording = feedback.split("local wording = {", 1)[1].split("\n}", 1)[0]
+work_lines = [("Work notice", text) for text in STRING.findall(wording)]
+
+translations = json.loads((ROOT.parent / "shared/Translate/EN/UI.json").read_text(encoding="utf-8"))
+work_keys = ("UI_SC_Feedback_", "UI_SC_Map_Wood", "UI_SC_Map_Reason_wood_", "UI_SC_Expedition_Wood")
+work_lines.extend((key, text) for key, text in translations.items() if key.startswith(work_keys))
+
+services = (ROOT / "SCTerminalServices.lua").read_text(encoding="utf-8")
+review = services.split("function S.review(window)", 1)[1].split("\nend", 1)[0]
+preview = review.split("local lines=", 1)[1].split("return true,lines", 1)[0]
+work_lines.extend(("Expedition preview", text) for text in STRING.findall(preview))
+work_terms = re.compile(r"\b(?:native|receipts?|ownership|save)\b", re.I)
+for surface, text in work_lines:
+    if IMMERSION.search(text) or work_terms.search(text):
+        errors.append(f"{surface} breaks the fiction: {text}")
 
 for note in notes:
     print("NOTE ", note)

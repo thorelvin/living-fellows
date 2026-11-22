@@ -307,7 +307,13 @@ function L.input(w,raw,option)
         return true
     end
     if lower=="case" or lower=="open the case" then
-        if lock.bypass and SC.TerminalLockCase then SC.TerminalLockCase.open(w) else w.securityMessage="Case recovery is not available yet." end
+        if not lock.bypass then
+            w.securityMessage="Confirm Other ways in first."
+        elseif SC.TerminalLockCase then
+            SC.TerminalLockCase.open(w)
+        else
+            w.securityMessage="The case will not open."
+        end
         return true
     end
     if w.lockPage=="crack" then return SC.TerminalLockCrack.input(w,raw,option) end

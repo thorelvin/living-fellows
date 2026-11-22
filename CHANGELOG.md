@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.55 - Egg collection and camp instructions
+
+- If someone else takes an egg a farmer was about to collect, the farmer can
+  return to other chores. Older saves can also clear the unfinished collection
+  once the nest and the farmer's pack can be checked.
+- The wood-trip map and camp computer show distances in meters. Camp work
+  notices now describe the equipment, supplies or space a companion needs.
+- The lock screen tells you to confirm **Other ways in** before opening the case.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.54 - Infection crisis recovery and building computers
 
 - An old infection crisis now closes when its companion is permanently gone.
