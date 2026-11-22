@@ -26,6 +26,22 @@ function A.update(force)
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
     local settings = SC.UI and SC.UI.getSettings and SC.UI.getSettings() or {}
     local acknowledged, retained = settings.attentionAcknowledged or {}, {}
+    -- Two editions mixed is fixed outside the game, so it is shown whatever
+    -- the tips setting, until acknowledged for this pair of versions.
+    local editions = SC.Actor and type(SC.Actor.editionStatus) == "function"
+        and SC.Actor.editionStatus() or nil
+    if type(editions) == "table" and editions.mixed == true then
+        local id = "editions"
+        local revision = tostring(editions.luaSource) .. ":" .. tostring(editions.luaRelease)
+            .. ":" .. tostring(editions.bridgeRelease)
+        updated[#updated + 1] = { id = id, support = true,
+            title = text("two_copies_title", "Two copies installed"),
+            body = text("two_copies", "A Workshop copy of Living Fellows is loading with the "
+                .. "standalone bridge from Install.bat. Keep one, then restart: unsubscribe "
+                .. "from the Workshop copy, or run Uninstall.bat. Review opens Support."),
+            revision = revision, urgent = true, unread = acknowledged[id] ~= revision }
+        retained[id] = acknowledged[id]
+    end
     local count = 0
     for _, job in ipairs(base and base.jobs or {}) do
         if count >= 32 then break end

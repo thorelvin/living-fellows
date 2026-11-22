@@ -93,6 +93,7 @@ try {
         ConfigBackupRoot    = (Join-Path $InstallDataRoot 'config-backups')
         PreparedPayloadRoot = (Join-Path $stageRoot 'SurvivorCompanion')
         PrebuiltBridgeJar   = $bridgeJar
+        OpenWorkshopPageOnConflict = $true
     }
     if ($DebugMenu) { $installLocalArgs.NativeBridge = $true } else { $installLocalArgs.Standalone = $true }
     & (Join-Path $ProjectRoot 'scripts\Install-Local.ps1') @installLocalArgs

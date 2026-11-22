@@ -281,6 +281,16 @@ public final class SCBridge {
         return PROTOCOL;
     }
 
+    /** launcher, workshop, staging, mods or unknown; never a local path. */
+    public static String getBridgeOrigin() {
+        return SCBridgeOrigin.current();
+    }
+
+    /** The Living Fellows release recorded in this bridge JAR, or unknown. */
+    public static String getBridgeRelease() {
+        return SCBridgeOrigin.release();
+    }
+
     public static boolean openBugReportDraft(String url) {
         return SCBugReportDraft.open(url, zombie.network.DesktopBrowser::openURL);
     }

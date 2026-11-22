@@ -28,6 +28,31 @@ SC.InfectionCrisis.summary = function() return { rows = {} } end
 A.update(true)
 assert(A.count() == 0, "resolved decisions clear the badge")
 
+-- Two editions mixed is fixed outside the game: one urgent notice that Review
+-- sends to Support, acknowledged per pair of versions.
+local savedActor, savedSettings, savedOpen = SC.Actor, UI.getSettings, UI.open
+local settings, openedTab = {}, nil
+UI.getSettings = function() return settings end
+UI.open = function(tab) openedTab = tab end
+local editions = { mixed = true, luaSource = "workshop", luaRelease = "0.27.59", bridgeRelease = "0.27.58" }
+SC.Actor = { editionStatus = function() return editions end }
+local rows = A.update(true)
+assert(#rows == 1 and rows[1].id == "editions" and rows[1].urgent and rows[1].unread and A.urgent(),
+    "two editions mixed raise one urgent unread notice")
+assert(rows[1].body:find("Uninstall.bat", 1, true) and rows[1].body:find("unsubscribe", 1, true),
+    "the notice says how to keep one edition")
+UI.reviewAttention(rows[1])
+assert(openedTab == "support", "Review opens Support for a setup problem")
+settings.attentionAcknowledged.editions = rows[1].revision
+rows = A.update(true)
+assert(#rows == 1 and not rows[1].unread, "acknowledging keeps the badge but stops the banner")
+editions.bridgeRelease = "0.27.60"
+rows = A.update(true)
+assert(rows[1].unread, "a different pair of versions asks again")
+editions.mixed = false
+assert(#A.update(true) == 0, "one edition raises no notice")
+SC.Actor, UI.getSettings, UI.open = savedActor, savedSettings, savedOpen
+
 fixture.fontHeight = 16
 local w, h = B.collapsedSize(1920, 1080)
 assert(w == 64 and h == 80)

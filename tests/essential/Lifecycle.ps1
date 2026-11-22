@@ -62,6 +62,11 @@ $lifecycleOwnerFiles += @('SCNativeTraversalActions.lua', 'SCNativeVisualActions
     'SCLocomotion.lua', 'SCVehicle.lua') | ForEach-Object { Join-Path $Client $_ }
 @{ Name = 'actor-action-isolation'; Files = @($lifecycleOwnerFiles) + @(
     (Join-Path $Essential 'lifecycle_harness.lua')) }
+@{ Name = 'bridge-editions'; Files = @($lifecycleOwnerFiles) + @(
+    (Join-Path $Client 'SCScheduler.lua'),
+    (Join-Path $Client 'SCPerformance.lua'),
+    (Join-Path $Client 'SCSupport.lua'),
+    (Join-Path $Core 'bridge_editions_harness.lua')) }
 @{ Name = 'camp-pickup-booked-reboarding'; Files = @($lifecycleOwnerFiles) + @(
     (Join-Path $Client 'SCExpeditionCar.lua'),
     (Join-Path $Core 'pickup_boarding_contract_harness.lua')) }

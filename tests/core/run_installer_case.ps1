@@ -920,11 +920,32 @@ switch ($Case) {
     Set-Content -LiteralPath (Join-Path $workshopItem 'mods\SurvivorCompanion\mod.info') `
         -Value 'id=SurvivorCompanion' -Encoding utf8
     Set-Content -LiteralPath (Join-Path $stagingCopy 'mod.info') -Value 'id=SurvivorCompanion' -Encoding utf8
+    # Steam's record no longer lists the item: a leftover folder the game does
+    # not load. The upload staging copy does load first, so it is named.
+    $record = Join-Path $steamapps 'workshop\appworkshop_108600.acf'
+    Set-Content -LiteralPath $record -Encoding utf8 -Value `
+        "`"AppWorkshop`"`n{`n`t`"WorkshopItemsInstalled`"`n`t{`n`t`t`"515555911`"`n`t`t{`n`t`t}`n`t}`n}"
     $copiesBefore = Get-TreeSnapshot @{ workshop = $workshopItem; staging = $stagingCopy }
     $installText = Get-CaseText $runInstall
-    if (-not (Test-Mentions $installText $workshopItem) -or -not (Test-Mentions $installText $stagingCopy)) {
-        throw 'Installer did not name the Workshop and staging copies that share the mod id.'
+    if ($installText -match 'subscribed' -or (Test-Mentions $installText $workshopItem) -or
+        -not (Test-Mentions $installText $stagingCopy)) {
+        throw 'Installer misjudged a leftover Workshop folder or missed the upload staging copy.'
     }
+    # Subscribed: the Workshop copy would load instead, so refuse before any change.
+    Set-Content -LiteralPath $record -Encoding utf8 -Value `
+        "`"AppWorkshop`"`n{`n`t`"WorkshopItemsInstalled`"`n`t{`n`t`t`"3805760339`"`n`t`t{`n`t`t}`n`t}`n}"
+    $profilePath = Join-Path $fixture.mods 'default.txt'
+    $before = (Get-StandaloneFixtureSnapshot $fixture) + (Get-FileHash -LiteralPath $profilePath).Hash
+    $refusal = ''
+    try { Get-CaseText $runInstall | Out-Null } catch { $refusal = $_.Exception.Message }
+    if ($refusal -notlike '*subscribed to Living Fellows on the Steam Workshop*' -or
+        -not (Test-Mentions $refusal 'filedetails/?id=3805760339') -or
+        -not (Test-Mentions $refusal 'Nothing was changed') -or
+        ((Get-StandaloneFixtureSnapshot $fixture) + (Get-FileHash -LiteralPath $profilePath).Hash) -ne $before) {
+        throw "A Workshop subscription was not refused before any change: $refusal"
+    }
+    # Subscribing after installing standalone: uninstall still finishes and
+    # names everything that keeps loading.
     $uninstallText = Get-CaseText $runUninstall
     if (-not (Test-Mentions $uninstallText $workshopItem) -or
         -not (Test-Mentions $uninstallText $stagingCopy) -or

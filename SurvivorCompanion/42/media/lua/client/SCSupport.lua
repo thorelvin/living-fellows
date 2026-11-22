@@ -69,6 +69,15 @@ local function diagnosticSummary()
 end
 
 local function bridgeAdvice(status)
+    local editions = status and status.editions
+    if type(editions) == "table" and editions.mixed == true then
+        local copy = editions.luaSource == "staging"
+            and "A Workshop upload copy in Zomboid\\Workshop" or "The Steam Workshop copy"
+        return copy .. " of Living Fellows (" .. tostring(editions.luaRelease)
+            .. ") is loading with the standalone bridge from Install.bat ("
+            .. tostring(editions.bridgeRelease) .. "). Keep one edition, then restart: "
+            .. "unsubscribe from the Workshop copy, or run Uninstall.bat from the standalone download."
+    end
     local code = status and status.code or "unavailable"
     if code == "ready" then return "Native companion bridge is ready." end
     if code == "test_provider" then return "A test-only actor provider is active." end
@@ -213,6 +222,9 @@ function support.snapshot(force)
         code = "unavailable",
         reason = "SC.Actor.bridgeStatus is unavailable",
     })
+    bridge.editions = safeCall(function()
+        return SC.Actor.editionStatus and SC.Actor.editionStatus() or nil
+    end, nil)
     bridge.advice = bridgeAdvice(bridge)
     local actionHealth = safeCall(function()
         return SC.ActionSupervisor.health()
@@ -284,6 +296,7 @@ function support.summary(force)
     local persistence = data.persistence or {}
     local expedition = data.expedition or {}
     local view = data.view or {}
+    local editions = type(bridge.editions) == "table" and bridge.editions or {}
     local lines = {
         "Living Fellows support report",
         "First-hour guidance: " .. (SC.Guidance and SC.Guidance.summary() or "unavailable"),
@@ -300,6 +313,11 @@ function support.summary(force)
         "Bridge protocol: " .. tostring(bridge.observedProtocol or "unavailable")
             .. " (expected " .. tostring(bridge.expectedProtocol or "unknown") .. ")",
         "Bridge detail: " .. tostring(bridge.reason or "none"),
+        "Editions: mod " .. tostring(editions.luaSource or "unknown") .. " "
+            .. tostring(editions.luaRelease or "unknown") .. " | bridge "
+            .. tostring(editions.bridgeOrigin or "unknown") .. " "
+            .. tostring(editions.bridgeRelease or "unknown")
+            .. (editions.mixed == true and " | two editions mixed" or ""),
         "Suggested action: " .. tostring(bridge.advice or "none"),
         "Active companions: " .. tostring(data.companions),
         "Bandits adapter: " .. tostring(data.bandits and data.bandits.state or "absent")

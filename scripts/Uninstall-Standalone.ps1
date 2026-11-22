@@ -104,7 +104,13 @@ function Get-StandaloneOtherCopies([string]$GameRoot, [string]$ModsRoot) {
         if ($steamapps -and (Split-Path -Leaf $common) -ieq 'common' -and
             (Split-Path -Leaf $steamapps) -ieq 'steamapps') {
             $item = Join-Path $steamapps 'workshop\content\108600\3805760339'
-            if (Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container) {
+            # Steam drops an unsubscribed item from this record; the game only
+            # loads items it still lists.
+            $record = Join-Path $steamapps 'workshop\appworkshop_108600.acf'
+            $listed = -not (Test-Path -LiteralPath $record -PathType Leaf) -or
+                (Select-String -LiteralPath $record -SimpleMatch '"3805760339"' -Quiet)
+            if ($listed -and
+                (Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container)) {
                 $copies.Add($item)
             }
         }

@@ -6499,6 +6499,10 @@ function UI.showStatus(description)
 end
 
 function UI.reviewAttention(row)
+    if row.support then
+        UI.open("support")
+        return
+    end
     UI._focusAttention = row.crisis and row.id or row.jobId
     UI.open("base", row.subjectId)
     if UI._focusAttention and UI.instance and UI.instance.detail then UI.instance.detail:rebuild(false) end

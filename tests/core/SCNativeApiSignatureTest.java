@@ -474,6 +474,30 @@ public final class SCNativeApiSignatureTest {
                         && method(bridge, "getCleanupFailure", companion).getReturnType()
                                 == String.class,
                 "native cleanup ownership/retry signatures changed");
+        require(method(bridge, "getBridgeOrigin").getReturnType() == String.class
+                        && method(bridge, "getBridgeRelease").getReturnType() == String.class,
+                "bridge edition signatures changed");
+        // The Lua names a mixed Workshop/standalone setup from this result, so
+        // each place a bridge JAR really comes from must classify exactly.
+        Class<?> bridgeOrigin = Class.forName("survivorcompanion.bridge.SCBridgeOrigin");
+        Method classifyOrigin = bridgeOrigin.getDeclaredMethod("classify", String.class);
+        classifyOrigin.setAccessible(true);
+        String[][] origins = {
+            {"C:\\Program Files (x86)\\Steam\\steamapps\\common\\ProjectZomboid\\LivingFellowsBridge.jar", "launcher"},
+            {"D:\\Games\\steamapps\\workshop\\content\\108600\\3805760339\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "workshop"},
+            {"C:\\Users\\Player\\Zomboid\\Workshop\\LivingFellows\\Contents\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "staging"},
+            {"C:\\Users\\Player\\Zomboid\\mods\\SurvivorCompanion\\42\\media\\java\\SurvivorCompanionBridge.jar", "mods"},
+            {"/home/player/Zomboid/mods/SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar", "mods"},
+            {"C:\\work\\build\\native-bridge\\SurvivorCompanionBridge.jar", "unknown"},
+            {"", "unknown"}
+        };
+        for (String[] row : origins) {
+            Object classified = classifyOrigin.invoke(null, row[0]);
+            require(row[1].equals(classified),
+                    "bridge origin " + row[0] + " classified as " + classified + ", expected " + row[1]);
+        }
+        require("unknown".equals(classifyOrigin.invoke(null, (Object) null)),
+                "a missing bridge location must classify as unknown");
         Method runtimeContract = companion.getDeclaredMethod("runtimeContractFailure");
         runtimeContract.setAccessible(true);
         require("".equals(runtimeContract.invoke(null)),

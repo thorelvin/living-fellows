@@ -687,6 +687,53 @@ function actorService.bridgeStatus(force)
     return status
 end
 
+-- Which Living Fellows copy this Lua came from, and which one supplied the
+-- bridge. Project Zomboid loads one copy's Lua by folder order (upload staging,
+-- then the Steam Workshop, then Zomboid\mods), but the standalone launcher
+-- loads its own bridge before any mod. A Workshop or staging copy running on
+-- the standalone bridge is two editions mixed, whatever their versions.
+local editionCache, luaSourceCache = nil, nil
+local luaSources = { Mods = "mods", Steam = "workshop", Workshop = "staging" }
+
+local function luaSource()
+    if luaSourceCache then return luaSourceCache end
+    local lookup = globalValue("getModInfoByID")
+    if type(lookup) ~= "function" then return "unknown" end
+    local ok, source = pcall(function()
+        local info = lookup("SurvivorCompanion")
+        return info and info:getSource() or nil
+    end)
+    local value = ok and source ~= nil and luaSources[tostring(source)] or nil
+    if value then luaSourceCache = value end
+    return value or "unknown"
+end
+
+function actorService.editionStatus()
+    if editionCache then return editionCache end
+    local status = {
+        luaSource = luaSource(),
+        luaRelease = tostring(SC.Identity and SC.Identity.release or "unknown"),
+        bridgeOrigin = "unknown",
+        bridgeRelease = "unknown",
+        mixed = false,
+    }
+    local bridge = globalValue("SCBridge")
+    -- The bridge can be published after the first look; ask again later.
+    if bridge == nil then return status end
+    local originOk, origin = staticInvoke(bridge, "getBridgeOrigin")
+    if originOk and type(origin) == "string" then status.bridgeOrigin = origin end
+    local releaseOk, release = staticInvoke(bridge, "getBridgeRelease")
+    if releaseOk and type(release) == "string" then status.bridgeRelease = release end
+    status.mixed = status.bridgeOrigin == "launcher"
+        and (status.luaSource == "workshop" or status.luaSource == "staging")
+    editionCache = status
+    return status
+end
+
+function actorService._resetEditionStatus()
+    editionCache, luaSourceCache = nil, nil
+end
+
 function actorService._isSurvivor(actor)
     if actor == nil or type(instanceof) ~= "function" then
         return false

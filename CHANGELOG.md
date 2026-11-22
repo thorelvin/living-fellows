@@ -2,8 +2,20 @@
 
 # Changelog
 
-## 0.27.59 - Standalone uninstall after a game repair
+## 0.27.59 - One edition at a time, and uninstall after a game repair
 
+- `Install.bat` stops, without changing anything, while you are subscribed to
+  Living Fellows on the Steam Workshop. Project Zomboid always loads the
+  Workshop copy instead of a standalone copy, and the two don't work together.
+  The installer opens the Workshop page in Steam so you can unsubscribe, then
+  you run it again. A Workshop folder that Steam no longer lists as subscribed
+  doesn't count.
+- In game, a Workshop or upload copy running with the standalone bridge shows
+  one "Two copies installed" notice, whatever the tips setting. **Review**
+  opens Support, which names both versions and how to keep one edition. The
+  copied support report has an Editions line.
+- The bridge reports where it was loaded from and its release, without any
+  local path.
 - `Uninstall.bat` now works after Steam's **Verify integrity of game files**,
   a game update or a PZO install has rewritten the launcher. It used to refuse
   and leave the mod installed. A launcher that no longer uses Living Fellows
@@ -11,9 +23,8 @@
   classpath entry is removed.
 - Uninstall takes Living Fellows out of the default mod list. Saves keep their
   own mod lists.
-- Install and uninstall name any Steam Workshop subscription or Workshop upload
-  staging copy of Living Fellows. Those copies share the mod id and can load
-  instead of the standalone copy, or keep loading after it is removed.
+- Install warns about a Workshop upload staging copy, and uninstall names a
+  Workshop subscription or staging copy that keeps loading after it.
 - Running `Uninstall.bat` again after a finished uninstall says nothing is
   installed instead of failing.
 - Clearer messages when the game is still running or uninstall fails.

@@ -2331,6 +2331,8 @@
     "UI_SC_Feedback_review": "Review",
     "UI_SC_Feedback_acknowledge": "Acknowledge",
     "UI_SC_Feedback_attention": "Needs attention",
+    "UI_SC_Feedback_two_copies_title": "Two copies installed",
+    "UI_SC_Feedback_two_copies": "A Workshop copy of Living Fellows is loading with the standalone bridge from Install.bat. Keep one, then restart: unsubscribe from the Workshop copy, or run Uninstall.bat. Review opens Support.",
     "UI_SC_Feedback_why_paused": "Why paused: %1",
     "UI_SC_Feedback_recent": "Recent problems",
     "UI_SC_Feedback_confirm_final": "Authorize %2 for %1?\nThis can end their life and cannot be undone.\nCancel to reconsider.",
