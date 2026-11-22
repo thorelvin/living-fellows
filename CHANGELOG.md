@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.27.62 - Camp overflow and scavenged loot swaps
+
+- Companions try marked storage first. When eligible storage is full, they
+  put useful surplus on a Sorting Floor or create one shared Camp overflow spot.
+  Floor sorting moves the same items into storage when room opens up.
+- At their carry limit, scavengers can set down one lower-priority item they
+  picked up to make room for a clearly better find. Favorites, equipped gear
+  and reserved supplies stay protected.
+- Scavengers prefer the lighter of two equally useful finds.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.60 - Prepared cleaning buckets
 
 - Camp cleaners use a prepared bucket when the bucket and tool fit within

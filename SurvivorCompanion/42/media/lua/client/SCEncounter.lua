@@ -1389,6 +1389,23 @@ function Encounter._settleUncertainLoot(actor, item, itemData, node)
     return true
 end
 
+function Encounter._canSwapLoot(actor, commands, storage, extras)
+    return extras and not storage and commands.recruited == true
+        and not commands.scavengeRequestedCategory and not commands.scavengeMissionId
+        and not commands.expeditionMember and not insideBase(actor)
+        and not (SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember
+            and SC.ExpeditionPrototype.isMember(actor))
+end
+
+function Encounter._chooseLoot(actor, item, category, projection, commands, storage, extras, planned)
+    local logistics = SC.Logistics
+    local choice, why = logistics.lootChoice(actor, item, category, projection, commands, storage, extras, planned)
+    if choice or not logistics.lootReplacement or planned and not planned.drop
+        or (why ~= "loadout_too_heavy" and why ~= "loadout_satisfied")
+        or not Encounter._canSwapLoot(actor, commands, storage, extras) then return choice end
+    return logistics.lootReplacement(actor, item, category, projection, commands, planned and planned.drop)
+end
+
 local function lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
     if manualEquipmentOnly(item) then return 0 end
     local itemData = select(1, U().call(item, "getModData"))
@@ -1401,7 +1418,7 @@ local function lootEvaluation(actor, item, node, needs, commands, audit, project
         and SC.Logistics.itemCategory(item) or category
     local band = 1
     if SC.Logistics and SC.Logistics.lootChoice then
-        local choice = SC.Logistics.lootChoice(actor, item, supplyCategory, projection,
+        local choice = Encounter._chooseLoot(actor, item, supplyCategory, projection,
             commands, storage, not insideBase(node.root and containerOwner(node.root)))
         if not choice then return 0 end
         score, category, band = choice.score, choice.category, choice.band
@@ -1466,7 +1483,7 @@ local function prepareBatch(actor, state, task, commands, needs, audit)
                 if not allowed then return nil, "storage_withdrawn" end
                 local choice
                 if SC.Logistics and SC.Logistics.lootChoice then
-                    choice = SC.Logistics.lootChoice(actor, row.item, row.category, projection,
+                    choice = Encounter._chooseLoot(actor, row.item, row.category, projection,
                         commands, storage, not insideBase(task.owner))
                 else
                     local destination, kind, name = chooseDestination(actor, row.item, row.category, audit)
@@ -1479,18 +1496,22 @@ local function prepareBatch(actor, state, task, commands, needs, audit)
                         for _, resource in ipairs({ row.root, row.source, row.parentBag or row.item, row.item }) do
                             if not service.reserve(token, resource, "source_item") then reserved = false break end
                         end
+                        if reserved and choice.drop then
+                            reserved = service.reserve(token, choice.drop.item, "carried_exchange_item") == true
+                        end
                     end
                     if reserved then
+                        row.drop = choice.drop
                         for key, value in pairs(choice) do row[key] = value end
-                        batch[#batch + 1], chosen[row.item], picked = row, true, true
-                        if projection then SC.Logistics.projectLoot(projection, row) end
+                        batch[#batch + 1], chosen[row.item], picked = row, true, row
+                        if projection and not row.drop then SC.Logistics.projectLoot(projection, row) end
                         break
                     end
                 end
                 chosen[row.item] = true
             end
         end
-        if not picked then break end
+        if not picked or picked.drop then break end
     end
     if #batch == 0 then return nil, score > 0 and "loadout_too_heavy" or "nothing_needed" end
     return batch
@@ -2316,6 +2337,35 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         commands, audit, time)
 end
 
+function Encounter._transferLoot(actor, row, choice, pendingVisuals)
+    local utility, drop = U(), choice.drop
+    if not drop then return utility.transferItemVerified(row.source, choice.destination, row.item, pendingVisuals) end
+    local square = utility.squareOf(actor)
+    if not square or not utility.isSquareFree(square) then return false, "loot_swap_no_drop_square" end
+    local dropped, wrapper = utility.dropItem(drop.source, square, drop.item)
+    if not dropped then return false, wrapper end
+    if utility.worldItemPresent(square, wrapper) ~= true
+        or utility.inventoryContains(drop.source, drop.item) ~= false then
+        return false, "loot_swap_drop_unverified"
+    end
+    local room, why = utility.containerHasRoom(choice.destination, actor, row.item)
+    local moved, receipt
+    if room then
+        moved, why, receipt = utility.transferItemVerified(row.source, choice.destination, row.item, pendingVisuals)
+    end
+    if moved then
+        local data = utility.modData(drop.item)
+        if data then data.LF_ScavengedBy = nil end
+        return moved, why, receipt
+    end
+    local restored, restoreReason = utility.takeWorldItemVerified(wrapper, drop.source, drop.item)
+    if not restored and SC.Diagnostics and SC.Diagnostics.report then
+        SC.Diagnostics.report("scavenge", utility.idOf(actor),
+            "could not recover the exchanged item from the floor", restoreReason)
+    end
+    return false, why or (restored and "loot_swap_reverted" or "loot_swap_rollback_failed"), receipt
+end
+
 local function commitTask(actor, state, task, commands, audit, time)
     local utility, service, token = U(), supervisor(), task.supervisorToken
     if token and service and service.transition then
@@ -2361,15 +2411,14 @@ local function commitTask(actor, state, task, commands, audit, time)
                 and (not storage or storageAllows(storage, row.item)) then
                 local choice
                 if SC.Logistics and SC.Logistics.lootChoice then
-                    choice = SC.Logistics.lootChoice(actor, row.item, row.category, projection,
+                    choice = Encounter._chooseLoot(actor, row.item, row.category, projection,
                         current, storage, extras, row)
                 else choice = row end
                 if choice then
-                    local destination = choice.destination
                     -- lootChoice has just checked this exact destination's
                     -- native filters and capacity. It is not a cached verdict.
                     do
-                        local transferred, why, receipt = utility.transferItemVerified(row.source, destination, row.item, pendingVisuals)
+                        local transferred, why, receipt = Encounter._transferLoot(actor, row, choice, pendingVisuals)
                         if not transferred then
                             stopReason = why or "transfer_failed"
                             uncertain = stopReason == "transfer_rollback_failed" or stopReason == "destination_already_contains_item"
@@ -2383,12 +2432,17 @@ local function commitTask(actor, state, task, commands, audit, time)
                         row.transferred = true
                         row.itemType, row.itemName = receipt and receipt.itemType or utility.itemType(row.item),
                             receipt and receipt.itemName or utility.itemName(row.item)
-                        if projection then SC.Logistics.projectLoot(projection, choice) end
+                        if projection and not choice.drop then SC.Logistics.projectLoot(projection, choice) end
+                        if SC.Logistics and SC.Logistics.noteScavengedItem
+                            and Encounter._canSwapLoot(actor, current, storage, extras) then
+                            SC.Logistics.noteScavengedItem(actor, row.item)
+                        end
                         local requested = task.scavengeRequestedCategory ~= nil
                             and matchesSupplyRequest(task.scavengeRequestedCategory, row.category)
                         state.lastLoot = { type = row.itemType, name = row.itemName,
                             category = row.category, source = task.sourceKind, destination = choice.destinationKind,
                             destinationName = choice.destinationName, time = time, verified = receipt ~= nil,
+                            replacedItem = choice.drop and utility.itemType(choice.drop.item),
                             requestedCategory = requested and task.scavengeRequestedCategory or nil,
                             stableId = requested and utility.itemStableId(row.item, true) or nil,
                             sourceX = sourceX and math.floor(sourceX), sourceY = sourceY and math.floor(sourceY), sourceZ = sourceZ and math.floor(sourceZ),

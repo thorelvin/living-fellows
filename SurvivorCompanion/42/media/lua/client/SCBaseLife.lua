@@ -451,6 +451,7 @@ local function normalizeZone(source)
         name = cleanText(source.name, source.kind, 48),
         x1 = math.min(a.x, b.x), y1 = math.min(a.y, b.y),
         x2 = math.max(a.x, b.x), y2 = math.max(a.y, b.y), z = a.z,
+        lootOverflow = source.kind == "sorting_floor" and source.lootOverflow == true or nil,
         autoStair = source.kind == "area" and source.autoStair == true,
         autoStairFromZ = source.kind == "area" and source.autoStair == true
             and integer(source.autoStairFromZ, a.z) or nil,
@@ -1643,6 +1644,26 @@ function BaseLife.finishZone(square, name)
     end
     draftZone = nil
     return true, zone
+end
+
+-- A fallback pile is a real one-tile Sorting Floor, so workers can empty it
+-- with the usual floor job when space opens and its location survives reload.
+function BaseLife.ensureLootOverflowFloor(square)
+    local base, point = activeBase(), position(square)
+    if not base or not point or BaseLife.isInside(square) ~= true then return nil end
+    for _, zone in ipairs(base.zones) do
+        if zone.lootOverflow then return zone end
+        if zone.kind ~= "area" and zone.kind ~= "work" and zoneContains(zone, point) then return nil end
+    end
+    if #base.zones >= (U().config("baseMaxZones") or 24) then return nil end
+    local zone = normalizeZone({
+        id = nextId("nextZoneSerial", "zone:"), kind = "sorting_floor",
+        name = "Camp overflow", lootOverflow = true, createdAt = now(),
+        x1 = point.x, x2 = point.x, y1 = point.y, y2 = point.y, z = point.z,
+    })
+    base.zones[#base.zones + 1] = zone
+    BaseLife.noteWorkAccessChanged(zone)
+    return zone
 end
 
 local ROOM_ZONE_KINDS = {

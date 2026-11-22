@@ -1439,6 +1439,8 @@ end
 -- can consider them; several pieces of an outfit may arrive in one UI session.
 function Logistics.noteGift(actor, item)
     if not actor or not item then return false, "invalid_gift" end
+    local data = U().modData(item)
+    if data then data.LF_ScavengedBy = nil end
     local gifts = pendingGifts[actor]
     if not gifts then
         gifts = { items = {} }
@@ -1720,7 +1722,7 @@ function Logistics.lootBand(projection, category)
     return (projection.audit.counts[category] or 0) < (projection.targets[category] or 0) and 2 or 1
 end
 
-function Logistics.lootChoice(actor, item, category, projection, commands, storage, extras, planned)
+function Logistics.lootChoice(actor, item, category, projection, commands, storage, extras, planned, vacancy)
     if not projection then return nil, "inventory_scan_pending" end
     local audit = projection.audit
     category = category or Logistics.itemCategory(item)
@@ -1747,17 +1749,92 @@ function Logistics.lootChoice(actor, item, category, projection, commands, stora
         local root = bag.container == audit.inventory
         if (root or category ~= "container" and category ~= "clothing" and category ~= "weapon"
                 and category ~= "personal") and bag.free - bag.added + 0.000001 >= raw
-            and U().containerHasRoom(bag.container, actor, item) == true
             and audit.weight + raw * bag.factor <= limit * ceiling + 0.000001
             and projection.baseWeight + projection.rawAdded + raw <= audit.capacity * ceiling + 0.000001 then
-            return { item = item, category = category, destination = bag.container,
-                destinationKind = root and "inventory" or isWorn(actor, bag.item) and "worn_bag" or "held_bag",
-                destinationName = bag.item and U().itemName(bag.item) or nil,
-                bag = bag, raw = raw, delta = raw * bag.factor,
-                score = score, band = needed and 2 or 1 }
+            local room, why = U().containerHasRoom(bag.container, actor, item)
+            if room or vacancy and vacancy.source == bag.container and why == "destination_full" then
+                return { item = item, category = category, destination = bag.container,
+                    destinationKind = root and "inventory" or isWorn(actor, bag.item) and "worn_bag" or "held_bag",
+                    destinationName = bag.item and U().itemName(bag.item) or nil,
+                    bag = bag, raw = raw, delta = raw * bag.factor,
+                    score = score, band = needed and 2 or 1 }
+            end
         end
     end
     return nil, "loadout_too_heavy"
+end
+
+-- Compare against the same loadout with just the offered item removed. Native
+-- capacity is checked again after the item is physically out of the pack.
+function Preparation.lootVacancy(projection, record, factor)
+    local audit, bagRows = {}, {}
+    for key, value in pairs(projection.audit) do audit[key] = value end
+    audit.counts = {}
+    for key, value in pairs(projection.audit.counts) do audit.counts[key] = value end
+    audit.counts[record.category] = math.max(0, (audit.counts[record.category] or 0) - 1)
+    local weight = U().itemWeight(record.item)
+    local delta = weight * factor
+    audit.weight = math.max(0, audit.weight - delta)
+    for index, bag in ipairs(projection.bags) do
+        bagRows[index] = { container = bag.container, item = bag.item, factor = bag.factor,
+            added = bag.added, free = bag.free + (bag.container == record.source and weight or 0) }
+    end
+    return { audit = audit, bags = bagRows, targets = projection.targets,
+        baseWeight = math.max(0, projection.baseWeight - delta), rawAdded = projection.rawAdded }
+end
+
+function Preparation.scavengedSurplus(actor, projection, commands, plannedDrop)
+    if projection.replacements and not plannedDrop then return projection.replacements end
+    local audit, choices, factors = projection.audit, {}, {}
+    for _, bag in ipairs(projection.bags) do factors[bag.container] = bag.factor end
+    local ownerId = U().idOf(actor)
+    if not ownerId then return choices end
+    local _, usable = armedState(actor)
+    for _, record in ipairs(audit.items) do
+        local factor, category = factors[record.source], record.category
+        if factor ~= nil and (not plannedDrop or plannedDrop.item == record.item
+            and plannedDrop.source == record.source) then
+            local data = select(1, U().call(record.item, "getModData"))
+            local count = (audit.gearCounts or audit.counts)[category] or 0
+            local keep = tonumber(audit.profile.keep[category]) or 0
+            local lastUsableWeapon = category == "weapon" and SC.Combat and SC.Combat.weaponOperational
+                and (usable == nil or usable <= math.max(1, keep))
+                and SC.Combat.weaponOperational(actor, record.item)
+            if type(data) == "table" and data.LF_ScavengedBy == ownerId and count > keep and not lastUsableWeapon
+                and not isProtected(actor, record.item)
+                and U().inventoryContains(record.source, record.item) then
+                local lower = Preparation.lootVacancy(projection, record, factor)
+                local score = Logistics.itemNeedScore(actor, record.item, commands, lower.audit)
+                choices[#choices + 1] = { record = record, factor = factor, score = score,
+                    freed = U().itemWeight(record.item) * factor }
+            end
+        end
+    end
+    table.sort(choices, function(a, b)
+        if a.score ~= b.score then return a.score < b.score end
+        return a.freed > b.freed
+    end)
+    if not plannedDrop then projection.replacements = choices end
+    return choices
+end
+
+function Logistics.lootReplacement(actor, item, category, projection, commands, plannedDrop)
+    if not projection then return nil end
+    local choices = Preparation.scavengedSurplus(actor, projection, commands, plannedDrop)
+    for index = 1, math.min(6, #choices) do
+        local candidate = choices[index]
+        local record = candidate.record
+        local lower = Preparation.lootVacancy(projection, record, candidate.factor)
+        local choice = Logistics.lootChoice(actor, item, category, lower, commands, nil, true, nil, record)
+        local foodTier = SC.Needs and SC.Needs.foodTier
+        local betterFood = choice and foodTier and category == "food" and record.category == "food"
+            and (foodTier(item) or 99) < (foodTier(record.item) or 99)
+        if choice and (betterFood or choice.score >= candidate.score + 35
+            and choice.score > candidate.score * 1.2) then
+            choice.drop = record
+            return choice
+        end
+    end
 end
 
 function Logistics.projectLoot(projection, row)
@@ -1767,6 +1844,12 @@ function Logistics.projectLoot(projection, row)
     audit.weight = audit.weight + row.delta
     audit.counts[row.category] = (audit.counts[row.category] or 0) + 1
     audit.items[#audit.items + 1] = { item = row.item, category = row.category, source = row.destination }
+    projection.replacements = nil
+end
+
+function Logistics.noteScavengedItem(actor, item)
+    local data, id = U().modData(item), U().idOf(actor)
+    if data and id then data.LF_ScavengedBy = id end
 end
 
 function Logistics.noteLootPickup(actor)
@@ -1827,29 +1910,32 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
         or wanted == "general" and { "general", "output" }
         or { wanted, "general", "output" }
     local best, bestDistance, choices
+    local full, unknown = false, false
     for _, storageType in ipairs(categories) do
         choices = {}
         for _, storage in ipairs(SC.BaseLife.storageRows(storageType) or {}) do
             if storage.deposits ~= false and not (ownerState and ownerState.excludedStorages
                 and ownerState.excludedStorages[storage.id]) then
                 local container, owner = SC.BaseLife.resolveContainer(storage)
-                if container and container ~= U().inventory(actor)
-                    and U().containerHasRoom(container, actor, item) == true then
-                    local distance = U().distance(actor, owner or container)
-                    if distance <= (U().config("logisticsStorageRange") or 32)
-                        and (bestDistance == nil or distance < bestDistance) then
-                        best = { storage = storage, container = container,
+                local distance = U().distance(actor, owner or container or storage)
+                if distance <= (U().config("logisticsStorageRange") or 32)
+                    and container ~= U().inventory(actor) then
+                    local room, reason = U().containerHasRoom(container, actor, item)
+                    if room then
+                        local destination = { storage = storage, container = container,
                             owner = owner or container, distance = distance,
                             storageCategory = storage.category }
-                        bestDistance = distance
-                    end
-                    if distance <= (U().config("logisticsStorageRange") or 32) then
+                        if not bestDistance or distance < bestDistance then
+                            best, bestDistance = destination, distance
+                        end
                         choices[#choices + 1] = {
                             id = storage.id, object = owner or container,
-                            destination = { storage = storage, container = container,
-                                owner = owner or container, distance = distance,
-                                storageCategory = storage.category },
+                            destination = destination,
                         }
+                    elseif reason == "destination_full" then
+                        full = true
+                    elseif reason ~= "destination_item_rejected" then
+                        unknown = true
                     end
                 end
             end
@@ -1875,7 +1961,7 @@ storageFor = function(actor, item, category, dedicatedOnly, ownerState)
             or reason == "unknown" and "storage_route_unknown"
             or "storage_route_unreachable"
     end
-    return best
+    return best, nil, nil, best == nil and full and not unknown
 end
 
 local function safeToManage(actor, runtime)
@@ -1955,7 +2041,7 @@ local function terminalTransaction(actor, state, succeeded, reason, receipt)
     if transaction then
         if succeeded == true then
             moveMemory.clear(actor, transaction.kind, transaction.item)
-        elseif reason ~= "logistics_unsafe" then
+        elseif reason ~= "logistics_unsafe" and reason ~= "overflow_storage_changed" then
             moveMemory.note(actor, transaction.kind, transaction.item, U().nowMs())
         end
     end
@@ -2248,15 +2334,30 @@ local function executeTransaction(actor, state)
     end
 
     if transaction.kind == "drop" then
+        if transaction.overflowZoneId then
+            if not SC.FloorSort.canDropOverflow(actor, transaction.overflowZoneId, transaction.square) then
+                return terminalTransaction(actor, state, false, "camp_overflow_unavailable")
+            end
+            local _, _, _, full = storageFor(actor, transaction.item,
+                transaction.category, transaction.dedicatedOnly)
+            if not full then
+                return terminalTransaction(actor, state, false, "overflow_storage_changed")
+            end
+        end
         markTransactionCommitting(transaction)
-        local dropped, dropReason = U().dropItem(transaction.source,
+        local dropped, worldOrReason = U().dropItem(transaction.source,
             transaction.square, transaction.item, 0.5, 0.5, 0)
+        if dropped and transaction.overflowZoneId then
+            dropped = U().worldItemPresent(transaction.square, worldOrReason) == true
+                and U().inventoryContains(transaction.source, transaction.item) == false
+            if not dropped then worldOrReason = "camp_overflow_unverified" end
+        end
         markTransactionVerifying(transaction, { kind = transaction.kind })
         if dropped and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "logistics_drop", "completed")
         end
         local resultReason = dropped == true and "surplus_dropped"
-            or dropReason or "surplus_drop_failed"
+            or type(worldOrReason) == "string" and worldOrReason or "surplus_drop_failed"
         return terminalTransaction(actor, state, dropped == true, resultReason, {
             dropped = dropped == true, item = U().itemType(transaction.item),
         })
@@ -3371,11 +3472,13 @@ function Logistics.update(actor, player, runtime)
         state.source = audit.surplus.source or audit.inventory
         state.destination, state.navigationChoice, state.interactionRouteReceipt, state.depositSurveyAt = nil, nil, nil, nil
     end
+    local dedicatedOnly = state.proactive and not state.fieldReturnCleanup
+        and (state.category == "literature" or state.category == "farming")
+    local storageFull
     if not state.destination then
-        local destination, routeReason, receipt = storageFor(actor, state.item, state.category,
-            state.proactive and not state.fieldReturnCleanup
-                and (state.category == "literature" or state.category == "farming"),
-            state)
+        local destination, routeReason, receipt, full = storageFor(actor, state.item,
+            state.category, dedicatedOnly, state)
+        storageFull = full
         state.destination = destination
         state.interactionRouteReceipt = receipt
         if routeReason then
@@ -3430,11 +3533,27 @@ function Logistics.update(actor, player, runtime)
         return executeTransaction(actor, state)
     end
 
-    -- Proactive shelving is allowed only when the player marked a real
-    -- literature destination. Without one, keep the item instead of falling
-    -- through to the overload path that drops surplus on the ground. Field
-    -- return cleanup and Strength-limit shelving are storage-only too: only
-    -- the physical overload above may ever drop an item.
+    if storageFull and not state.fieldReturnCleanup and not state.baseReturnStock and not state.keptHarvest
+        and not Logistics.isTrash(state.item) and SC.FloorSort and SC.FloorSort.overflowDestination
+        and SC.BaseLife.isInside(actor) == true then
+        local destination, why, receipt = SC.FloorSort.overflowDestination(actor, state)
+        if destination then
+            state.interactionRouteReceipt = receipt
+            local started, reason = beginTransaction(actor, state, {
+                kind = "drop", item = state.item, source = state.source, destination = state.source,
+                owner = destination.square, square = destination.square, phase = "approach",
+                overflowZoneId = destination.zoneId, category = state.category, dedicatedOnly = dedicatedOnly,
+            })
+            if not started then states[actor] = nil return false, reason end
+            return approachTransaction(actor, state, snapshot)
+        end
+        if why then return true, why end
+        moveMemory.note(actor, "deposit", state.item, U().nowMs())
+        states[actor] = nil
+        return false, "camp_overflow_unavailable"
+    end
+    -- Field receipts and routine shelving hold their items while storage is
+    -- unavailable. The emergency overload path below still handles its own surplus.
     if state.fieldReturnCleanup or state.shelveOnly
         or state.proactive and (state.keptHarvest
         or state.category == "literature" or state.category == "farming") then

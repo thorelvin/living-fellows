@@ -90,6 +90,7 @@ local function better(a, b)
         return a.foodTier < b.foodTier
     end
     if a.score ~= b.score then return a.score > b.score end
+    if a.weight ~= b.weight then return a.weight < b.weight end
     return a.sequence < b.sequence
 end
 Loot.better = better
@@ -186,7 +187,7 @@ function Loot.scan(visit, evaluate, deadline, budget)
                         if (tonumber(score) or 0) > 0 then
                             retain(visit, { item = item, source = node.source, root = node.root,
                                 parentBag = node.parentBag, score = score, category = category,
-                                band = band or 1, sequence = visit.sequence,
+                                band = band or 1, sequence = visit.sequence, weight = U().itemWeight(item),
                                 foodTier = category == "food" and SC.Needs and SC.Needs.foodTier
                                     and (SC.Needs.foodTier(item) or 99) or 2 })
                         end

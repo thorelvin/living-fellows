@@ -57,6 +57,77 @@ local function pointIn(zone, x, y, z)
     return zone and z == zone.z and x >= zone.x1 and x <= zone.x2
         and y >= zone.y1 and y <= zone.y2
 end
+
+local function clearOverflowTile(square)
+    if not square or SC.BaseLife.isInside(square) ~= true or not U().isSquareFree(square)
+        or U().squareOccupyingObject(square) ~= nil or call(square, "HasStairs") == true then return false end
+    local doorway = false
+    U().squareObjects(square, function(object)
+        if call(object, "isDoor") == true or U().instanceOf(object, "IsoDoor") then doorway = true return false end
+    end, 64)
+    return not doorway
+end
+
+function Floor.canDropOverflow(actor, zoneId, square)
+    local zone = zoneById(zoneId, "sorting_floor")
+    local x, y, z = U().position(square)
+    return SC.BaseLife.isInside(actor) == true and pointIn(zone, x, y, z)
+        and U().gridSquare(x, y, z) == square and clearOverflowTile(square)
+        and U().directInteractionAccess(actor, square) == true
+end
+
+function Floor.overflowDestination(actor, state)
+    local base = SC.BaseLife.active()
+    if not base or SC.BaseLife.isInside(actor) ~= true then return nil end
+    local marked, fallback = {}, nil
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "sorting_floor" then
+            local best, distance
+            for y = zone.y1, zone.y2 do
+                for x = zone.x1, zone.x2 do
+                    local square = U().gridSquare(x, y, zone.z)
+                    local meters = U().distanceSq(actor, square)
+                    if (not distance or meters < distance) and clearOverflowTile(square) then
+                        best, distance = square, meters
+                    end
+                end
+            end
+            if best then
+                local pick = { id = zone.id, object = best, destination = { square = best, zoneId = zone.id } }
+                if zone.lootOverflow then fallback = pick
+                else marked[#marked + 1] = pick end
+            end
+        end
+    end
+    local function reachable(choices, key)
+        for _, row in ipairs(choices) do
+            if U().directInteractionAccess(actor, row.object) == true then return row.destination end
+        end
+        if #choices == 0 or not SC.Navigation or not SC.Navigation.selectInteraction then return nil end
+        local selected, why, receipt = SC.Navigation.selectInteraction(actor, state,
+            key, choices, { nodeBudget = 1600, retainRoute = true })
+        if selected then return selected.destination, nil, receipt end
+        if why == "pending" and now() - state.overflowSurveyAt < 15000 then return nil, "storage_route_pending" end
+    end
+    state.overflowSurveyAt = state.overflowSurveyAt or now()
+    local destination, why, receipt = reachable(marked, "loot_overflow_sorting_floor")
+    if destination or why then return destination, why, receipt end
+    if fallback then return reachable({ fallback }, "loot_overflow_camp_floor") end
+    -- The first worker chooses a reachable nearby tile. The camp owns that
+    -- single square afterward, even when other workers approach it.
+    local x, y, z = U().position(U().squareOf(actor))
+    if not x then return nil end
+    local offsets = { {0, -1}, {-1, 0}, {0, 1}, {1, 0}, {0, 0} }
+    for _, offset in ipairs(offsets) do
+        local square = U().gridSquare(x + offset[1], y + offset[2], z)
+        if clearOverflowTile(square) and U().directInteractionAccess(actor, square) == true then
+            local zone = SC.BaseLife.ensureLootOverflowFloor(square)
+            if zone and pointIn(zone, U().position(square)) then
+                return { square = square, zoneId = zone.id }
+            end
+        end
+    end
+end
 local function count(list)
     if type(list) == "table" then return #list end
     return tonumber(call(list, "size"))

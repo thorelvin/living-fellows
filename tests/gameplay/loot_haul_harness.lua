@@ -250,6 +250,67 @@ check(not SC.Logistics.lootChoice(actor, heavy, "construction", projection, {}, 
 check(SC.Logistics.lootChoice(actor, f.item("Base.Nails", "Material", { weight = .05 }),
     "construction", projection, {}, nil, true), "a rejected heavy item does not hide lighter useful loot")
 
+local function readyForUpgrade()
+    local concrete = f.item("Base.ConcretePowder", "Material", { weight = 6.8 })
+    local carrier = fixture({ concrete })
+    function carrier:getMaxWeight() return 10 end
+    animate(carrier); complete(carrier)
+    check(concrete:getModData().LF_ScavengedBy == carrier.id, "a verified field pickup records its original looter")
+    local better = f.item("Base.Bandage", "Medical", { weight = 1 })
+    local cupboard = f.containerObject(carrier.square, { better })
+    commandViews[carrier].scavengeTargetContainer = cupboard
+    return carrier, concrete, better, cupboard
+end
+
+do
+    local carrier, concrete, better, cupboard = readyForUpgrade()
+    local plan = animate(carrier)
+    check(plan.takeList[1].drop and plan.takeList[1].drop.item == concrete
+        and carrier.inventory:contains(concrete) and cupboard:contains(better),
+        "a needed bandage reserves the scavenged concrete bag without changing either owner during animation")
+    complete(carrier)
+    check(carrier.inventory:contains(better) and not cupboard:contains(better)
+        and not carrier.inventory:contains(concrete) and U.worldItemPresent(carrier.square, concrete:getWorldItem())
+        and not concrete:getModData().LF_ScavengedBy,
+        "the verified exchange replaces one exact item and leaves the old concrete recoverable on the floor")
+end
+
+do
+    local carrier, concrete, better, cupboard = readyForUpgrade()
+    animate(carrier)
+    carrier.inventory.rejectAddType = "Base.Bandage"
+    visuals[carrier] = "completed"
+    tick(carrier)
+    check(carrier.inventory:contains(concrete) and not concrete:getWorldItem()
+        and cupboard:contains(better) and not carrier.inventory:contains(better),
+        "a rejected replacement restores the original concrete bag and leaves the find in its cupboard")
+end
+
+do
+    local carrier, concrete, better, cupboard = readyForUpgrade()
+    animate(carrier)
+    concrete:setFavorite(true)
+    visuals[carrier] = "completed"
+    tick(carrier)
+    check(carrier.inventory:contains(concrete) and cupboard:contains(better)
+        and not concrete:getWorldItem(), "favoriting the reserved carried item cancels the exchange at commit")
+    concrete:setFavorite(false)
+    SC.Logistics.noteGift(carrier, concrete)
+    local audit = SC.Logistics.audit(carrier)
+    check(not SC.Logistics.lootReplacement(carrier, better, "medicine",
+        SC.Logistics.lootProjection(carrier, audit), commandViews[carrier]),
+        "player-supplied items cannot be used as field exchange stock")
+end
+
+do
+    local heavyFind = f.item("Base.Plank", "Material", { weight = 3 })
+    local lighterFind = f.item("Base.Plank", "Material", { weight = .5 })
+    local carrier = fixture({ heavyFind, lighterFind })
+    check(animate(carrier).takeList[1].item == lighterFind,
+        "equal-value loot prioritizes the lighter find")
+    complete(carrier)
+end
+
 -- Own needs are recalculated between selections; a third tool is an extra.
 local stocked = nails(7)
 local dressing = f.item("Base.Bandage", "Medical", { weight = .05 })
@@ -407,6 +468,89 @@ check(#returning.inventory.items == 4, "surplus without storage stays carried, n
 SC.Logistics.reset(returning)
 base.isInside, base.active, base.storageRows, base.storage =
     oldInside, oldActive, oldRows, oldStorage
+
+local function campOverflow(placed)
+    base.reset()
+    f.makeSquare(71, 72, 0)
+    local worker = f.actor("overflow-worker", 71, 72, {})
+    f.registry[worker.id] = worker
+    local storageSquare = f.makeSquare(72, 72, 0)
+    local store, crate = f.containerObject(storageSquare, {})
+    function crate:getObjectIndex() return 0 end
+    store.capacity = 0
+    check(base.create(worker.square, "Overflow camp"), "create a marked camp")
+    check(base.registerStorage(crate, "construction"), "mark overflow fixture's construction storage")
+    if placed then
+        check(base.beginZone("sorting_floor", worker.square)
+            and base.finishZone(worker.square, "Sorting"), "mark a sorting floor at the worker")
+    end
+    local items = nails(4)
+    for index, value in ipairs(items) do
+        local id = (placed and 3000 or 3100) + index
+        function value:getID() return id end
+        worker.inventory:AddItem(value)
+    end
+    worker.modData.LF_LootReturnPending = true
+    if placed then
+        for _ = 1, 15 do
+            f.clock = f.clock + 100
+            SC.Logistics.update(worker, nil, safe)
+            if visuals[worker] == "active" then break end
+        end
+        check(visuals[worker] == "active", "the fallback drop entered its inventory animation")
+        store.capacity = 100
+        visuals[worker] = "completed"
+        f.clock = f.clock + 100
+        local _, reason = SC.Logistics.update(worker, nil, safe)
+        check(reason == "overflow_storage_changed" and #worker.square.worldItems == 0
+            and #worker.inventory.items == 4, "opening space during the drop keeps container storage first")
+        store.capacity = 0
+    end
+    for _ = 1, 45 do
+        f.clock = f.clock + 100
+        SC.Logistics.update(worker, nil, safe)
+        if visuals[worker] == "active" then visuals[worker] = "completed" end
+        if not worker.modData.LF_LootReturnPending then break end
+    end
+    local spot, zones = nil, 0
+    for _, zone in ipairs(base.active().zones) do
+        if zone.kind == "sorting_floor" then
+            spot = f.cell:getGridSquare(zone.x1, zone.y1, zone.z)
+            zones = zones + 1
+            check((zone.lootOverflow == true) ~= placed, "the original floor is preferred to automatic marking")
+        end
+    end
+    check(zones == 1 and spot and #spot.worldItems == 3 and #worker.inventory.items == 1
+        and not worker.modData.LF_LootReturnPending and #store.items == 0,
+        "full storage leaves exact surplus on one floor and keeps the role's construction minimum")
+    local saved = base.export()
+    check(base.restore(saved), "the floor persists through camp reload")
+    local floor = base.active().zones[2]
+    check(floor and floor.kind == "sorting_floor" and (floor.lootOverflow == true) ~= placed,
+        "reload preserves the same overflow designation")
+    check(base.assign(worker.id, "generalist", true), "assign a worker to the next sorting pass")
+    worker.modData.SC_Order = "base_duty"
+    local queued, job = base.enqueueJob({ type = "sort_floor", priority = 2,
+        target = { zoneId = floor.id, x = floor.x1, y = floor.y1, z = floor.z } })
+    check(queued, "create a normal sorting job for the overflow floor")
+    local work = {}
+    SC.FloorSort.update(worker, work, job)
+    check(#spot.worldItems == 3 and #worker.inventory.items == 1,
+        "the sorter leaves overflow on the floor while its destination is full")
+    store.capacity = 100
+    f.clock = f.clock + 31000
+    for _ = 1, 35 do
+        f.clock = f.clock + 100
+        SC.FloorSort.update(worker, work, job)
+        if visuals[worker] == "active" then visuals[worker] = "completed" end
+        if #store.items == 3 then break end
+    end
+    check(#spot.worldItems == 0 and #store.items == 3 and #worker.inventory.items == 1,
+        "the ordinary sorter clears the overflow when the container has room")
+end
+
+campOverflow(true)
+campOverflow(false)
 
 U.move, SC.Dialogue.say = originalMove, originalDialogue
 SC_TEST_REPORT = "LOOT_HAUL_PASS checks=" .. f.checks()
