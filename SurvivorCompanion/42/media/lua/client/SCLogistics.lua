@@ -2968,46 +2968,56 @@ function Preparation.findSupply(actor, preparation, audit, purpose, wanted)
         scan = { purpose = purpose, rows = SC.BaseLife.storageRows(nil, true) or {}, row = 1, index = 0 }
         preparation.scan = scan
     end
-    local inspected = 0
-    while scan.row <= #scan.rows and inspected < 80 do
+    -- Resolve a shelf once per slice. A changed shelf is resolved again next
+    -- time and the transfer path still checks the exact row, item and reserves.
+    local precise = SC.Performance and SC.Performance.preciseNowMs
+    local deadline = precise and precise() + 2
+    local inspected, opened = 0, 0
+    local currentRow, container, items, size
+    while scan.row <= #scan.rows and inspected < 80
+        and (opened == 0 or not deadline or precise() < deadline) do
         local row = scan.rows[scan.row]
-        local container = SC.BaseLife.resolveContainer(row)
-        local items = select(1, U().call(container, "getItems"))
-        local size = items and U().listSize(items) or 0
+        if currentRow ~= scan.row then
+            if opened >= 8 then break end
+            currentRow, opened = scan.row, opened + 1
+            container = SC.BaseLife.resolveContainer(row)
+            items = select(1, U().call(container, "getItems"))
+            size = items and U().listSize(items) or 0
+        end
         if scan.index >= size then scan.row, scan.index = scan.row + 1, 0
         else
             local item = U().listGet(items, scan.index)
             scan.index, inspected = scan.index + 1, inspected + 1
-            if Preparation.supplyAllowed(actor, row, container, item, audit) then
-                local matches = purpose == "bag" and select(1, Logistics.bagUpgrade(actor, item)) == true
-                    or purpose == "tool" and Preparation.matches(item, wanted)
-                    or purpose ~= "bag" and purpose ~= "tool" and Logistics.itemCategory(item) == purpose
-                if matches then
-                    local candidate = { storage = row, container = container, item = item, purpose = purpose }
-                    if purpose == "bag" then
-                        local _, difference = Logistics.bagUpgrade(actor, item)
-                        if not scan.best or difference > scan.difference then
-                            scan.best, scan.difference = candidate, difference
-                        end
-                    elseif purpose == "water" then
-                        local weight = SC.Needs and SC.Needs.drinkingContainerWeight
-                            and SC.Needs.drinkingContainerWeight(item) or U().itemWeight(item)
-                        if not scan.best or weight < scan.waterWeight then
-                            scan.best, scan.waterWeight = candidate, weight
-                        end
-                    elseif purpose == "food" then
-                        local tier = Preparation.foodTier(item)
-                        if not scan.best or tier < scan.foodTier then
-                            scan.best, scan.foodTier = candidate, tier
-                        end
-                        if tier == 1 then
-                            preparation.scan, preparation.supply = nil, candidate
-                            return true
-                        end
-                    else
+            local matches, difference
+            if item then
+                if purpose == "bag" then matches, difference = Logistics.bagUpgrade(actor, item)
+                elseif purpose == "tool" then matches = Preparation.matches(item, wanted)
+                else matches = Logistics.itemCategory(item) == purpose end
+            end
+            if matches and Preparation.supplyAllowed(actor, row, container, item, audit) then
+                local candidate = { storage = row, container = container, item = item, purpose = purpose }
+                if purpose == "bag" then
+                    if not scan.best or difference > scan.difference then
+                        scan.best, scan.difference = candidate, difference
+                    end
+                elseif purpose == "water" then
+                    local weight = SC.Needs and SC.Needs.drinkingContainerWeight
+                        and SC.Needs.drinkingContainerWeight(item) or U().itemWeight(item)
+                    if not scan.best or weight < scan.waterWeight then
+                        scan.best, scan.waterWeight = candidate, weight
+                    end
+                elseif purpose == "food" then
+                    local tier = Preparation.foodTier(item)
+                    if not scan.best or tier < scan.foodTier then
+                        scan.best, scan.foodTier = candidate, tier
+                    end
+                    if tier == 1 then
                         preparation.scan, preparation.supply = nil, candidate
                         return true
                     end
+                else
+                    preparation.scan, preparation.supply = nil, candidate
+                    return true
                 end
             end
         end

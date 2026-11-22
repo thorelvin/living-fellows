@@ -676,4 +676,141 @@ do
         "ordinary short open-ground following keeps its existing planner")
     SC.Topology.classifyEdge,edgeCost=oldTopology,oldCost
 end
+-- A floor item can be ready while the preceding Loot effect is still claimable.
+-- Exercise the normal interaction route so a false failed tile stays observable.
+do
+    local savedBase, savedMove = SC.BaseLife, U.move
+    local savedActivity = SC.NativeActions.activityStatus
+    SC.BaseLife = {admitsWork=function() return true end}
+    local worker, goal = actor("sc-loot-handoff",6,5), square(8,5)
+    local intent = {action="move_to_floor_item", workCampOnly=true, workReach=true, arrivalDistance=0.45}
+    local completedAt, moved = current, 0
+    SC.NativeActions.activityStatus = function(subject)
+        if subject==worker then return "result_pending","visual","loot_container",completedAt end
+        return "none"
+    end
+    U.move = function(subject, mode, request)
+        local allowed, reason = SC.Locomotion.authorize(subject,mode,request)
+        if not allowed then return false,reason end
+        moved = moved + 1
+        return true
+    end
+    local status
+    for i=1,12 do
+        Perf.beginFrame(3,current)
+        local accepted
+        accepted,status=N.requestAny(worker,{goal},"walk",intent)
+        Perf.endFrame(1)
+        if not accepted or status=="waiting_for_visual_result" then break end
+        current=current+5
+    end
+    local state=N.peek(worker)
+    check(status=="waiting_for_visual_result" and moved==0 and not state.multiGoalFailures[U.squareKey(goal)]
+        and not state.nativeLease, "a pending loot effect retains the only floor approach without recording a route failure: "..tostring(status))
+    current=completedAt+math.max(SC.Config.get("visualEffectClaimMs") or 2000,SC.Config.get("navigationStuckMs") or 2200)+200
+    Perf.beginFrame(3,current)
+    local accepted,reason=N.requestAny(worker,{goal},"walk",intent)
+    Perf.endFrame(1)
+    check(accepted and moved>0 and not state.multiGoalFailures[U.squareKey(goal)],
+        "the same worker resumes the same approach when the loot claim expires: "..tostring(reason))
+    N.cancel(worker,"finished")
+    SC.BaseLife,U.move,SC.NativeActions.activityStatus=savedBase,savedMove,savedActivity
+end
+-- A busy decision scheduler can skip the entire interval between the first
+-- request for clearance and the traffic deadlock deadline.
+do
+    local savedGrid,savedFree,savedBlocker = U.gridSquare,U.isSquareFree,U.movingBlocker
+    local savedCompanion,savedTopology,savedBase = U.isCompanion,SC.Topology.classifyEdge,SC.BaseLife
+    local worker,blocker=actor("sc-crowd-first",3,3),actor("sc-crowd-second",4,3)
+    local contested,goal=square(4,3),square(6,3)
+    local function floor(x,y) return y==3 and x>=3 and x<=6 or x==5 and y==4 end
+    U.gridSquare=function(x,y,z) return (not z or z==0) and floor(x,y) and square(x,y) or nil end
+    U.isSquareFree=function(q) return q and floor(q.x,q.y) end
+    U.isCompanion=function(a) return a==worker or a==blocker end
+    U.movingBlocker=function(q,mover)
+        if q==contested and mover~=blocker then return blocker,"companion_crowd" end
+    end
+    SC.BaseLife={admitsWork=function() return true end}
+    SC.Topology.classifyEdge=function(_,a,b)
+        return {traversable=floor(b.x,b.y) and (a.x==b.x or a.y==b.y),cost=1,affordance="open"}
+    end
+    local intent={action="move_to_base_storage",workCampOnly=true,workReach=true}
+    local function request()
+        Perf.beginFrame(3,current)
+        local accepted,why=N.request(worker,goal,"walk",intent)
+        Perf.endFrame(1)
+        return accepted,why
+    end
+    for i=1,16 do
+        request()
+        if N.peek(worker).yieldBlocker==blocker then break end
+        current=current+10
+    end
+    local nav=N.peek(worker)
+    check(nav.yieldBlocker==blocker,"camp route meets the other worker in a single-file corridor")
+    current=nav.yieldSince+(SC.Config.get("navigationTrafficDeadlockMs") or 2200)+200
+    local accepted,why=request()
+    local session=SC.NavTraffic.pollYield(worker,current,{})
+    check(accepted and session and session.blocker==blocker,
+        "a late worker asks for its only corridor clearance before rerouting: "..tostring(why))
+    local permission=SC.ActionSupervisor.movementPermission
+    SC.ActionSupervisor.movementPermission=function(subject,...)
+        if subject==blocker then return false,"owner_verifying" end
+        return permission(subject,...)
+    end
+    local yielded=N.serviceCrowdYield(blocker,{})
+    check(not yielded and not blocker.lastIntent,"a clearance request cannot move a worker with a protected action")
+    SC.ActionSupervisor.movementPermission=permission
+    -- A native walker may stop inside the old tile while already within 0.7 m
+    -- of the bay's centre. The service and its route must both require entry.
+    local bay = session.clearance
+    blocker.x, blocker.y = bay.x + 0.5, bay.y - 0.07
+    blocker.square = square(bay.x, bay.y - 1)
+    Perf.beginFrame(3,current)
+    N.serviceCrowdYield(blocker,{})
+    Perf.endFrame(1)
+    check(not session.clearanceReached, "standing just outside the bay cannot release the lane")
+    local approach = N.peek(blocker).lastApproachRequest
+    check(approach and approach.goal == bay and approach.intent.requireSameSquare
+        and approach.intent.arrivalDistance == 0.7,
+        "the blocker must enter the bay through its ordinary navigation request")
+    blocker.x, blocker.y, blocker.square = bay.x + 0.5, bay.y + 0.2, bay
+    local held, holdReason = N.serviceCrowdYield(blocker,{})
+    check(held and holdReason == "holding_clearance_for_passage" and session.clearanceReached,
+        "the blocker can hold for the passing worker once physically inside the bay")
+    N.cancel(worker,"finished")
+    N.cancel(blocker,"finished")
+    local originalClearance=N._crowdClearanceSquareForRequest
+    local attempts=0
+    N._crowdClearanceSquareForRequest=function()
+        attempts=attempts+1
+        return nil
+    end
+    for i=1,2 do
+        worker,blocker=actor("sc-late-worker-"..i,3,3),actor("sc-blocking-worker-"..i,4,3)
+        N._stateForTests(blocker).trafficPriority=i==1 and 1 or 10000
+        for j=1,16 do
+            request()
+            if N.peek(worker).yieldBlocker==blocker then break end
+            current=current+10
+        end
+        current=assert(N.peek(worker).yieldSince)+(SC.Config.get("navigationTrafficDeadlockMs") or 2200)+200
+        accepted,why=request()
+        if i==1 then
+            check(attempts==1 and accepted,"a late priority worker checks for a bay once")
+            current=current+20
+            accepted,why=request()
+            check(attempts==1 and why=="rerouting_around_crowd",
+                "an unavailable bay falls through to the bounded detour: "..tostring(why))
+        else
+            check(attempts==1 and not SC.NavTraffic.pollYield(worker,current,{}),
+                "a delayed worker without right of way never asks the other worker to move")
+        end
+        N.cancel(worker,"finished")
+        N.cancel(blocker,"finished")
+    end
+    N._crowdClearanceSquareForRequest=originalClearance
+    U.gridSquare,U.isSquareFree,U.movingBlocker=savedGrid,savedFree,savedBlocker
+    U.isCompanion,SC.Topology.classifyEdge,SC.BaseLife=savedCompanion,savedTopology,savedBase
+end
 SC_TEST_REPORT = "NAVIGATION_LIVENESS_PASS checks=" .. checks

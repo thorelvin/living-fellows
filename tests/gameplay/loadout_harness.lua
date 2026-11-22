@@ -546,7 +546,7 @@ function SurvivorCompanion.__testPreparationPacking()
     local normal = ration("CannedPeasStoredPreparation", "Vegetables")
     local fresh = ration("PeachStoredPreparation", "Fruit", true)
     supply:AddItem(emergency) supply:AddItem(normal)
-    for index = 1, 80 do supply:AddItem(item("Base.SupplyFiller" .. index, "Item", { favorite = true, weight = 0 })) end
+    for index = 1, 80 do supply:AddItem(item("Base.SupplyFiller" .. index, "Item", { weight = 0 })) end
     supply:AddItem(fresh)
     base.storageRows = function(_, withdrawals) return withdrawals and { supplies } or { row } end
     base.storage = function(id) return id == supplies.id and supplies or id == row.id and row or nil end
@@ -565,6 +565,54 @@ function SurvivorCompanion.__testPreparationPacking()
         "bounded supply discovery finds fresh food beyond its first scan slice")
     local stockAxe = item("Base.HandAxe", "Weapon", { weight = 1 })
     supply:AddItem(stockAxe)
+    do
+        local sourceRows, resolve, available = base.storageRows, base.resolveContainer, base.availableCountExact
+        local performance, listGet = sc.Performance, sc.GameplayUtil.listGet
+        local rows, elapsed, inspected, resolved, irrelevantCounts = {}, 0, 0, 0, 0
+        for i = 1, 12 do rows[i] = { id = "empty-preparation-shelf-" .. i, withdrawals = true } end
+        rows[#rows+1] = supplies
+        base.storageRows = function(category, withdrawals)
+            if withdrawals then return rows end
+            return sourceRows(category, withdrawals)
+        end
+        base.resolveContainer = function(storage)
+            resolved = resolved + 1
+            if storage == supplies or storage == row then return resolve(storage) end
+        end
+        base.availableCountExact = function(storage, kind)
+            if kind:find("SupplyFiller", 1, true) then irrelevantCounts = irrelevantCounts + 1 end
+            return available(storage, kind)
+        end
+        sc.GameplayUtil.listGet = function(list, index)
+            if list == supply.items then inspected, elapsed = inspected + 1, elapsed + 0.6 end
+            return listGet(list, index)
+        end
+        sc.Performance = { preciseNowMs = function() return elapsed end }
+        local seeker = resident("paced-departure-tool", {})
+        local req = { key = "paced-departure-tool", atCamp = true, allowBagUpgrade = false, cargoRaw = 1,
+            requiredTools = { { itemType = "Base.HandAxe" } } }
+        local totalItems, maxItems, maxShelves = 0, 0, 0
+        for i = 1, 100 do
+            inspected, resolved = 0, 0
+            local _, why = sc.Logistics.prepareLoadout(seeker, req, safe)
+            if why == "loadout_seeking_tool" then
+                totalItems = totalItems + inspected
+                maxItems, maxShelves = math.max(maxItems, inspected), math.max(maxShelves, resolved)
+            end
+            if seeker.inventory:contains(stockAxe) then break end
+            f.clock = f.clock + 200
+        end
+        check(seeker.inventory:contains(stockAxe) and totalItems > 80,
+            "the saved expedition survey cursor reaches the exact tool beyond the first 80 items")
+        check(maxShelves <= 8 and maxItems <= 4 and irrelevantCounts == 0,
+            "departure survey bounds empty shelves, respects its clock and skips irrelevant stock counts"
+            .. " shelves=" .. maxShelves .. " items=" .. maxItems .. " counts=" .. irrelevantCounts)
+        seeker.inventory:Remove(stockAxe)
+        supply:AddItem(stockAxe)
+        sc.Logistics.resetPreparation(seeker)
+        sc.Performance, sc.GameplayUtil.listGet = performance, listGet
+        base.storageRows, base.resolveContainer, base.availableCountExact = sourceRows, resolve, available
+    end
     sc.GameplayUtil.directInteractionAccess = function() return false, { fellow.square }, "interaction_route_pending" end
     sc.Navigation.requestAny = function(subject, targets, mode, options)
         sc.ActionSupervisor.transition(options.supervisorToken, "approaching")

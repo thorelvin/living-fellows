@@ -4180,6 +4180,7 @@ local function clearMovementTransients(actor, state)
     releaseChoke(state, actor)
     state.yieldSince = nil
     state.yieldBlocker = nil
+    state.yieldSquare, state.triedCrowdClearance = nil, nil
     state.cornerObserveKey = nil
     state.cornerObserveUntil = nil
     state.roomEntryKey = nil
@@ -6410,10 +6411,10 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         and now <= (tonumber(state.openDoorDirectUntil) or 0) then
         return false, nil, nil
     end
-    -- Turning toward the next movement vector is normal locomotion, not proof
-    -- of an unknown physical blocker. Let the next dispatch continue the turn;
-    -- action-level deadlines still bound a genuinely broken native state.
-    if state.lastMovementReason == "turning_for_movement" then
+    -- A pivot or a completed visual's claim window delays the movement input.
+    -- A late next tick must get to dispatch the step before testing for a stall.
+    if state.lastMovementReason == "turning_for_movement"
+        or SC.Navigation._waitingForVisualResult(state.lastMovementReason) then
         state.lastMovementReason = nil
         state.lastProgressAt = now
         return false, nil, nil
@@ -6489,9 +6490,8 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     -- Generic recovery runs earlier in this function than the crowd detour;
     -- clearing yieldSince here otherwise restarts the same wait indefinitely.
     -- The next request need not land within one frame of the deadline.
-    if state.yieldBlocker and state.yieldSince
-        and state.lastAttemptTo
-        and utility.sameSquare(state.yieldBlocker, state.lastAttemptTo) then
+    if state.yieldBlocker and state.yieldSince and (state.yieldSquare or state.lastAttemptTo)
+        and utility.sameSquare(state.yieldBlocker, state.yieldSquare or state.lastAttemptTo) then
         return false, nil, nil
     end
     if state.nativeRecoveryDue ~= true
@@ -6679,6 +6679,13 @@ local function scheduleNativeRetry(state, goalSquare, reason, now)
     state.nativeRetryAt = now + (U().config("navigationNativeRetryMs") or 500)
     return true
 end
+
+-- A completed visual retains its effect briefly so its owner can commit it.
+-- No movement was attempted. Keep the same route and retry on the next turn.
+function Navigation._waitingForVisualResult(reason)
+    return type(reason) == "string" and (reason:find("^locomotion_protected_activity:result_pending:visual:")
+        or reason:find("^visual_effect_pending:")) ~= nil
+end
 Navigation._scheduleNativeRetryForRequest = scheduleNativeRetry
 
 Navigation.stairTransitionTarget = SC.StairTransition.target
@@ -6732,6 +6739,9 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
             state.lastAttemptFrom, state.lastAttemptTo = sourceSquare, sourceSquare
             local moved, movementReason = utility.move(actor, "walk", requestIntent)
             state.lastMovementReason = movementReason
+            if not moved and SC.Navigation._waitingForVisualResult(movementReason) then
+                return true, true, "waiting_for_visual_result"
+            end
             if moved then
                 state.lastProgressAt = now
                 SC.WorkRoutes.noteFirstMotion(actor, state, now, "native_sheet_rope")
@@ -6762,6 +6772,7 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
     state.lastMovementReason = movementReason
     if not moved then
+        if SC.Navigation._waitingForVisualResult(movementReason) then return true, true, "waiting_for_visual_result" end
         if scheduleNativeRetry(state, goalSquare, movementReason, now) then
             return true, true, "native_verification_retry"
         end
@@ -8120,6 +8131,7 @@ function Navigation.request(actor, target, movementMode, intent)
         local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
         state.lastMovementReason = movementReason
         if not moved then
+            if SC.Navigation._waitingForVisualResult(movementReason) then return true, "waiting_for_visual_result" end
             if SC.Navigation._scheduleNativeRetryForRequest(
                 state, goalSquare, movementReason, now) then
                 return true, "native_verification_retry"
@@ -8280,9 +8292,10 @@ function Navigation.request(actor, target, movementMode, intent)
         and "companion_crowd" or "player_crowd") or nil
     if not blocker then blocker, blockerType = utility.movingBlocker(nextSquare, actor, { swept = true }) end
     if blocker then
-        if state.yieldBlocker ~= blocker then
+        if state.yieldBlocker ~= blocker or state.yieldSquare ~= nextSquare then
             state.yieldBlocker = blocker
             state.yieldSince = now
+            state.yieldSquare, state.triedCrowdClearance = nextSquare, nil
             recordMovement(actor, "traffic_blocked", {
                 blocker = blockerType, nextSquare = nextSquare,
                 status = "blocked_by:" .. tostring(utility.idOf(blocker)),
@@ -8342,8 +8355,12 @@ function Navigation.request(actor, target, movementMode, intent)
         local requestAfter = crowdChoke
             and (utility.config("navigationChokeCrowdRequestMs") or 350)
             or (utility.config("navigationCrowdRequestMs") or 1400)
-        if ownRightOfWay and waited >= requestAfter
-            and waited < (utility.config("navigationTrafficDeadlockMs") or 2200) then
+        -- A delayed decision may first see this occupied square after the
+        -- deadlock deadline. Give the priority worker one clearance attempt
+        -- in that case, then fall back to the normal detour if it still fails.
+        if ownRightOfWay and waited >= requestAfter and (not state.triedCrowdClearance
+            or waited < (utility.config("navigationTrafficDeadlockMs") or 2200)) then
+            state.triedCrowdClearance = true
             local otherState = stateFor(blocker)
             if otherState.forcedYieldFor ~= actor then
                 local clearance = SC.Navigation._crowdClearanceSquareForRequest(blocker, actor, nextSquare,
@@ -8391,6 +8408,7 @@ function Navigation.request(actor, target, movementMode, intent)
     end
     state.yieldSince = nil
     state.yieldBlocker = nil
+    state.yieldSquare, state.triedCrowdClearance = nil, nil
     state.forcedYieldFor = nil
     if not requestIntent.urgent and not reserveStep(nextSquare, actor, state, requestIntent, now) then
         if not utility.stop(actor) then return false, "right_of_way_stop_rejected" end
@@ -8481,6 +8499,7 @@ function Navigation.request(actor, target, movementMode, intent)
     local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
     state.lastMovementReason = movementReason
     if not moved then
+        if SC.Navigation._waitingForVisualResult(movementReason) then return true, "waiting_for_visual_result" end
         if requestIntent.enginePath == true
             and SC.Navigation._scheduleNativeRetryForRequest(
                 state, nextSquare, movementReason, now) then
@@ -9285,7 +9304,10 @@ function Navigation.serviceCrowdYield(actor, snapshot)
         or snapshot.humanThreat ~= nil then
         return false, "crowd_move_deferred_for_danger"
     end
-    if utility.arrived(actor, move.square, { targetKind = "square", distance = 0.7 }) then
+    -- A 0.7-meter radius reaches into the contested square. Hold only once
+    -- the yielding companion has actually stepped into the passing space.
+    if utility.sameSquare(actor, move.square)
+        and utility.arrived(actor, move.square, { targetKind = "square", distance = 0.7 }) then
         if move.yieldSession then
             move.yieldSession.clearanceReached = true
             local session = SC.NavTraffic.pollYield(actor, current, snapshot)
@@ -9305,6 +9327,7 @@ function Navigation.serviceCrowdYield(actor, snapshot)
     local previousRequest = state.lastApproachRequest
     local accepted, reason = Navigation.request(actor, move.square, "walk", {
         action = "crowd_yield_order", targetSquare = move.square,
+        requireSameSquare = true, arrivalDistance = 0.7,
         snapshot = snapshot, continuousApproach = true,
         supervisorToken = yieldToken,
     })

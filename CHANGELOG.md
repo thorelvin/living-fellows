@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.27.56 - Camp hauling, cleaning and supply searches
+
+- A companion waiting to finish a loot animation can resume the same route
+  to a floor item when the animation releases movement.
+- When two companions meet in a narrow passage, the worker with right of
+  way can still ask the other to step aside after a delayed update. The
+  companion giving way enters the passing space before it stops.
+- Cleaners skip water sources that have been removed from the map. Camp job
+  selection checks the reachable work before surveying cleaning supplies.
+- Expedition preparation searches busy shelves over several updates and
+  checks stock limits only for items the crew can use.
+- Loading Caleb Hensley's clearing now restores his faction and its members.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.55 - Egg collection and camp instructions
 
 - If someone else takes an egg a farmer was about to collect, the farmer can

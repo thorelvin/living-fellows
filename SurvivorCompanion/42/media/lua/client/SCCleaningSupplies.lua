@@ -217,7 +217,10 @@ function C.sources(actor, budget)
     return personal.rows, nil, camp
 end
 local function sourceUsable(object)
-    if not (object and SC.BaseLife.withinWorkReach(object) == true
+    -- The survey can outlive a fixture's square. IsoObject's coordinates
+    -- dereference that square, including when a removed sink is still cached.
+    local square = call(object, "getSquare")
+    if not (square and SC.BaseLife.withinWorkReach(square) == true
         and call(object, "hasWater") == true
         and (finite(call(object, "getFluidAmount")) or 0) >= C.dose()
         and type(call(object, "isTaintedWater")) == "boolean") then return false end

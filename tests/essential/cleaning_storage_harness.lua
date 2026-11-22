@@ -105,6 +105,43 @@ for _, restriction in ipairs({ "withdrawals", "reserve", "memorial", "broken" })
     check(not selection and reason == "cleaning_tool_missing", restriction .. " is respected by discovery")
     check(item:getContainer() == containers[category], restriction .. " does not move the unavailable mop")
 end
+do
+    local actor, _, shelves = scene()
+    shelves.tools:AddItem(tool("Base.Mop"))
+    local bucket = f.item("Base.BucketEmpty", "Normal", { fluidContainer = {
+        getAmount = function() return 0 end, getCapacity = function() return 10 end,
+        canAddFluid = function() return true end,
+    } })
+    shelves.tools:AddItem(bucket)
+    local square = f.makeSquare(5, 6, 0)
+    local unsafe = 0
+    local sink = { square = square }
+    function sink:getSquare() return self.square end
+    local function coordinate(self, axis)
+        if not self.square then unsafe = unsafe + 1; error("detached IsoObject") end
+        return self.square[axis]
+    end
+    function sink:getX() return coordinate(self, "x") end
+    function sink:getY() return coordinate(self, "y") end
+    function sink:getZ() return coordinate(self, "z") end
+    function sink:hasWater()
+        if not self.square then unsafe = unsafe + 1; error("detached water source") end
+        return true
+    end
+    function sink:getFluidAmount() return 10 end
+    function sink:isTaintedWater() return false end
+    table.insert(square.objects, sink)
+    local before = plan(actor)
+    check(before and before.mode == "prepare" and before.water.object == sink,
+        "planner selects the mounted sink and empty bucket")
+    table.remove(square.objects)
+    sink.square = nil
+    local after = plan(actor)
+    check(after and after.mode == "undiluted" and unsafe == 0,
+        "a cached detached sink is skipped without unsafe native calls")
+    check(not C.sourceUsable(sink) and unsafe == 0,
+        "a newly observed detached source is rejected before coordinate or water reads")
+end
 local actor, rows, containers = scene()
 containers.general:AddItem(f.item("Base.Paperclip", "Normal"))
 local destinations = SC.BaseWork.floorDestinations(actor, mop)

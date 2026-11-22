@@ -3982,9 +3982,6 @@ local function validGroup(source, id, path)
         if type(story.id) ~= "string" or #story.id < 3 or #story.id > 96
             or type(story.stage) ~= "string" or #story.stage > 64
             or type(story.site) ~= "table"
-            or (story.site.kind ~= "resident" and story.site.kind ~= "roamer"
-                and not (story.id == "survivalist05_mid_storyteller"
-                    and story.site.kind == "forest_camp"))
             or (story.spawned ~= nil and type(story.spawned) ~= "boolean")
             or (story.kitSeeded ~= nil and type(story.kitSeeded) ~= "boolean")
             or (story.captives ~= nil and type(story.captives) ~= "boolean")
@@ -3993,6 +3990,20 @@ local function validGroup(source, id, path)
             or (story.roomGuardDone ~= nil
                 and type(story.roomGuardDone) ~= "boolean") then
             return restoreFailure(path .. ".oddball", "invalid odd encounter state")
+        end
+        local kind = story.site.kind
+        if kind == "family_pyre" and story.id == "family_pyre_caleb_hensley" then
+            local posts = story.site.familySpawns
+            local postsPath = path .. ".oddball.site.familySpawns"
+            local okay, reason = denseArray(posts, postsPath, 3, 3)
+            if not okay then return false, reason end
+            for index, post in ipairs(posts) do
+                okay, reason = validPosition(post, postsPath .. "[" .. index .. "]", false)
+                if not okay then return false, reason end
+            end
+        elseif kind ~= "resident" and kind ~= "roamer"
+            and not (kind == "forest_camp" and story.id == "survivalist05_mid_storyteller") then
+            return restoreFailure(path .. ".oddball.site.kind", "invalid site kind for " .. story.id)
         end
         if story.roomGuardElapsedMs ~= nil
             and (not finiteNumber(story.roomGuardElapsedMs)

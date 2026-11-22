@@ -32,6 +32,33 @@ job.target.cleanLoans = {
 mop:getModData().LF_CleanToolJobId = job.id
 bleach:getModData().LF_CleanLiquidJobId = job.id
 function centre:haveStains() return false end
+do
+    local downtime, survey = SC.Downtime, SC.BaseWork.cleaningSuppliesAvailable
+    local geometryChecks, surveys, stained, present = 0, 0, false, true
+    function centre:haveStains() return stained end
+    SC.Downtime = { canCleanAt = function(_, sq, staged)
+        geometryChecks = geometryChecks + 1
+        if not staged then surveys = surveys + 1 end
+        return staged and sq == centre and present
+    end }
+    SC.BaseWork.cleaningSuppliesAvailable = function() surveys = surveys + 1; return true end
+    local priority, loans = job.priority, job.target.cleanLoans
+    job.priority = 4
+    check(SC.BaseLife.priorityWorkFor(actor.id) == job and surveys == 0 and geometryChecks == 0,
+        'an active cleaning loan keeps its priority without a supply survey')
+    job.target.cleanLoans = nil
+    check(SC.BaseLife.priorityWorkFor(actor.id) == job and surveys == 0 and geometryChecks == 0,
+        'an already clean target can finish without a supply survey')
+    stained = true
+    check(SC.BaseLife.priorityWorkFor(actor.id) == job and surveys == 1 and geometryChecks == 1,
+        'a stained target surveys carried and stored cleaning supplies only once')
+    present = false
+    check(SC.BaseLife.priorityWorkFor(actor.id) == nil and surveys == 1 and geometryChecks == 2,
+        'an unreachable cleaning target spends no supply survey time')
+    stained = false
+    job.priority, job.target.cleanLoans = priority, loans
+    SC.Downtime, SC.BaseWork.cleaningSuppliesAvailable = downtime, survey
+end
 local quiet, pauseUntil, requests, rejected = { active = { kind = 'clean_base' } }, 0, 0, 0
 SC.Downtime = {
     peek = function() return quiet end,

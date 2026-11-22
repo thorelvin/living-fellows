@@ -4798,6 +4798,31 @@ function BaseLife.outdoorJob(job)
     return job.type == "farm"
 end
 
+local function cleaningJobReady(actor, job)
+    if not actor then return false end
+    local target = job.target
+    if type(target) ~= "table" then return false end
+    local loans = target.cleanLoans
+    if type(loans) == "table" and (loans.tool or loans.liquid or loans.concentrate or loans.water) then
+        return true
+    end
+    local square = U().gridSquare(target.x, target.y, target.z)
+    if not square then return false end
+    if select(1, U().call(square, "haveStains")) == false then return true end
+    local downtime, work = SC.Downtime, SC.BaseWork
+    if not downtime or type(downtime.canCleanAt) ~= "function" then return false end
+    if SC.CleaningSupplies and work and type(work.cleaningSuppliesAvailable) == "function" then
+        -- The unified supply survey checks both carried and stored materials.
+        -- Checking carried tools separately advances the same survey twice.
+        return downtime.canCleanAt(actor, square, true) == true
+            and work.cleaningSuppliesAvailable(actor, job) == true
+    end
+    return downtime.canCleanAt(actor, square) == true
+        or work and type(work.cleaningSuppliesAvailable) == "function"
+            and work.cleaningSuppliesAvailable(actor, job) == true
+            and downtime.canCleanAt(actor, square, true) == true
+end
+
 local function jobScore(actorId, job, settlementId)
     if not BaseLife.workPermitted(actorId, job) then return -math.huge end
     if SC.BaseWatch and SC.BaseWatch.isLeaderId
@@ -4844,29 +4869,8 @@ local function jobScore(actorId, job, settlementId)
         return -math.huge
     end
     local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId) or nil
-    if job.type == "clean" then
-        local target = type(job.target) == "table" and U().gridSquare(
-            job.target.x, job.target.y, job.target.z) or nil
-        local hasLoans = type(job.target) == "table"
-            and type(job.target.cleanLoans) == "table"
-            and (job.target.cleanLoans.tool or job.target.cleanLoans.liquid
-                or job.target.cleanLoans.concentrate or job.target.cleanLoans.water)
-        local alreadyClean = target
-            and select(1, U().call(target, "haveStains")) == false
-        local eligible = record and record.actor and SC.Downtime
-            and type(SC.Downtime.canCleanAt) == "function"
-            and SC.Downtime.canCleanAt(record.actor, target) == true
-        if not eligible and record and record.actor and SC.Downtime
-            and type(SC.Downtime.canCleanAt) == "function" and SC.BaseWork
-            and type(SC.BaseWork.cleaningSuppliesAvailable) == "function"
-            and SC.BaseWork.cleaningSuppliesAvailable(record.actor, job) == true then
-            eligible = SC.Downtime.canCleanAt(record.actor, target, true) == true
-        end
-        if not record or not record.actor
-            or (not hasLoans and (not target
-                or (not alreadyClean and not eligible))) then
-            return -math.huge
-        end
+    if job.type == "clean" and not cleaningJobReady(record and record.actor, job) then
+        return -math.huge
     end
     local personality = record and type(record.state) == "table"
         and type(record.state.personality) == "table" and record.state.personality or nil

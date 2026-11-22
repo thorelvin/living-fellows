@@ -80,6 +80,32 @@ check(World.reconcile(), "transaction fixture starts with a reconciled world gra
 World.pulse(10)
 
 do
+    local point = { x = 2, y = 2, z = 0 }
+    local house = baseline.groups["faction-transaction-a"].house
+    local site = { kind = "family_pyre", room = "clearing", anchor = point,
+        spawn = point, house = { id = "family-pyre:2:2", anchor = point,
+            bounds = house.bounds, interior = {point}, openings = {} },
+        familySpawns = {{x=1,y=2,z=0}, {x=2,y=3,z=0}, {x=3,y=2,z=0}} }
+    local group, reason = Factions.createOddballGroup(site, { id = "family_pyre_caleb_hensley",
+        name = "Caleb Hensley", archetype = "oddball_resident", recruitment = false,
+        identity = { forename = "Caleb", surname = "Hensley", gender = "male", outfit = "Farmer" } }, true)
+    check(group ~= nil, "create Caleb's clearing: " .. tostring(reason))
+    local save = Factions.export()
+    local restored, why = Factions.restore(save)
+    check(restored and Factions.group("faction-transaction-a") and Factions.group(group.id)
+        and #Factions.group(group.id).oddball.site.familySpawns == 3,
+        "Caleb's clearing and its neighbouring household survive a restore: " .. tostring(why))
+    local story = save.groups[group.id].oddball
+    story.id = "other_encounter"
+    check(not Factions.restore(save), "only Caleb can use his clearing")
+    story.id = "family_pyre_caleb_hensley"
+    story.site.familySpawns[2].x = "missing"
+    check(not Factions.restore(save) and Factions.group(group.id).oddball.site.familySpawns[2].x == 2,
+        "a damaged clearing cannot replace the healthy faction world")
+    check(Factions.restore(baseline), "restore original household after clearing fixture")
+end
+
+do
     local beforeFaction, beforeWorld = Factions.export(), World.export()
     local originalReconcile = World.reconcile
     World.reconcile = function()
