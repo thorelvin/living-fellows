@@ -12,13 +12,18 @@ local function tool(kind, category, display)
     return f.item(kind, category or "Weapon", { displayCategory = display or "HouseholdWeapon",
         tags = { [ItemTag.CLEAN_STAINS] = true }, weight = 1, condition = 3, conditionMax = 3 })
 end
-local function cleaner()
-    local item = f.item("Base.Bleach", "Normal", { weight = 0.5 })
+local function cleaner(fullType, contents)
+    local item = f.item(fullType or "Base.Bleach", "Normal", { weight = 0.5 })
+    contents = contents or { [Fluid.Bleach] = 1 }
     local fc = {}
-    function fc:getAmount() return 1 end
-    function fc:getCapacity() return 1 end
-    function fc:contains(kind) return kind == Fluid.Bleach end
-    function fc:getSpecificFluidAmount(kind) return self:contains(kind) and 1 or 0 end
+    function fc:getAmount()
+        local amount = 0
+        for _, value in pairs(contents) do amount = amount + value end
+        return amount
+    end
+    function fc:getCapacity() return fullType and 10 or 1 end
+    function fc:contains(kind) return (contents[kind] or 0) > 0 end
+    function fc:getSpecificFluidAmount(kind) return contents[kind] or 0 end
     item.fluidContainer = fc
     return item
 end
@@ -104,6 +109,48 @@ for _, restriction in ipairs({ "withdrawals", "reserve", "memorial", "broken" })
     local selection, reason = plan(actor)
     check(not selection and reason == "cleaning_tool_missing", restriction .. " is respected by discovery")
     check(item:getContainer() == containers[category], restriction .. " does not move the unavailable mop")
+end
+for _, change in ipairs({ "deposit", "swap", "mark" }) do
+    local actor, rows, shelves = scene()
+    shelves.tools:AddItem(tool("Base.Mop"))
+    local shelf = shelves.general
+    local object
+    if change == "mark" then shelf, object = f.containerObject(f.makeSquare(5, 7, 0), {}) end
+    local first, second
+    if change == "swap" then
+        first, second = f.item("Base.Nails", "Normal"), f.item("Base.Nails", "Normal")
+        shelf:AddItem(first)
+        shelf:AddItem(second)
+    end
+    check(plan(actor).mode == "undiluted", "warm the camp survey with concentrate only")
+    if change == "swap" then shelf:Remove(first) shelf:Remove(second) end
+    local mixture = cleaner("Base.BucketEmpty", { [Fluid.Water] = 1.9, [Fluid.Bleach] = 0.1 })
+    local other = cleaner("Base.BucketWood", { [Fluid.TaintedWater] = 1.9, [Fluid.CleaningLiquid] = 0.1 })
+    shelf:AddItem(mixture)
+    shelf:AddItem(other)
+    if change == "mark" then
+        function object:getObjectIndex()
+            for index, candidate in ipairs(self.square.objects) do
+                if candidate == self then return index - 1 end
+            end
+            return -1
+        end
+        check(SC.BaseLife.registerStorage(object, "general"), "mark the newly stocked shelf")
+    end
+    local selection, why = plan(actor)
+    check(selection and selection.mode == "mixed" and selection.liquid.container == shelf
+        and (selection.liquid.item == mixture or selection.liquid.item == other),
+        "already scanned camp uses the exact prepared mixture after " .. change .. ": " .. tostring(why))
+    if change ~= "mark" then
+        check(SC.BaseLife.setReserve(rows.general.id, "Base.BucketEmpty", 1), "hold one type in reserve")
+        selection = plan(actor)
+        check(selection and selection.mode == "mixed" and selection.liquid.item == other,
+            "a stored reserve still leaves the other prepared bucket available")
+        rows.general.withdrawals = false
+        check(plan(actor).mode == "undiluted", "closed storage does not make a mixture available")
+        rows.general.withdrawals = true
+        check(plan(actor).mode == "mixed", "reopened storage supplies the existing mixture")
+    end
 end
 do
     local actor, _, shelves = scene()

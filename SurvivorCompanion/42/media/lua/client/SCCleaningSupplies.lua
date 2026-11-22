@@ -128,6 +128,11 @@ C.available = available
 local function list(container)
     return call(container, "getItems") or type(container) == "table" and container.items or {}
 end
+local function storageContainer(id)
+    local life = SC.BaseLife
+    local storage = life.storage(id)
+    return storage and life.withdrawable(storage) and life.resolveContainer(storage) or nil
+end
 local function scanNew(roots)
     return { roots = roots, root = 1, index = 0, rows = {}, seen = {}, complete = false }
 end
@@ -144,9 +149,7 @@ local function advance(scan, quota, budget)
         if not root then scan.complete = true break end
         if not surveyContainer(quota, root) then break end
         if root.storageId then
-            local storage = SC.BaseLife.storage(root.storageId)
-            local container = storage and SC.BaseLife.withdrawable(storage)
-                and SC.BaseLife.resolveContainer(storage) or nil
+            local container = storageContainer(root.storageId)
             if root.container ~= container then root.container, scan.index = container, 0 end
         end
         local items = list(root.container)
@@ -154,6 +157,7 @@ local function advance(scan, quota, budget)
         while scan.index < size and quota.items > 0 and budget() do
             local item = U().listGet(items, scan.index)
             scan.index, quota.items = scan.index + 1, quota.items - 1
+            if root.storageId and scan.index == size then root.lastItem = item end
             if item and not scan.seen[item] then
                 scan.seen[item] = true
                 if C.tool(item) or call(item, "getFluidContainer") then
@@ -168,24 +172,79 @@ local function advance(scan, quota, budget)
                 end
             end
         end
-        if scan.index >= size then scan.root, scan.index = scan.root + 1, 0 end
+        if scan.index >= size then
+            if root.storageId then
+                root.count = size
+                if size == 0 then root.lastItem = nil end
+            end
+            scan.root, scan.index = scan.root + 1, 0
+        end
         if not scan.roots[scan.root] then scan.complete = true end
     end
 end
+local function campScan(storages)
+    local roots = {}
+    for _, storage in ipairs(storages or SC.BaseLife.storageRows(nil, true)) do
+        roots[#roots + 1] = { storageId = storage.id }
+    end
+    return scanNew(roots)
+end
 local function campState(base)
     local state, current = camps[base], U().nowMs()
-    if not state or state.scan.complete and current - state.finishedAt > 30000
-        and (not state.world or state.worldComplete) then
-        local roots = {}
-        for _, storage in ipairs(SC.BaseLife.storageRows(nil, true)) do
-            roots[#roots + 1] = { storageId = storage.id }
-        end
-        state = { scan = scanNew(roots), finishedAt = current, zone = 1 }
+    if not state then
+        state = { scan = campScan(), zone = 1 }
         camps[base] = state
+    elseif state.scan.complete and current - state.finishedAt > 30000 then
+        state.scan = campScan()
+    end
+    if state.worldComplete and current - state.worldFinishedAt > 30000 then
+        state.world, state.worldComplete, state.worldTick = nil, nil, nil
+        state.zone, state.x, state.y = 1, nil, nil
     end
     local tick = math.floor(current / 100)
     if state.tick ~= tick then state.tick, state.quota = tick, { items = 64, containers = 4, seen = {} } end
     return state
+end
+
+-- Before a cached survey can justify making a batch or using cleaner straight,
+-- check for changed shelves under the same quota as the original survey.
+-- Native storage appends new items. The tail also catches an equal-count swap.
+local function stockCurrent(camp, budget)
+    local scan, quota = camp.scan, camp.quota
+    if not scan.used then return true end
+    if not scan.auditIndex then
+        local storages = SC.BaseLife.storageRows(nil, true)
+        if #storages ~= #scan.roots then
+            camp.scan = campScan(storages)
+            return false
+        end
+        for index, storage in ipairs(storages) do
+            if scan.roots[index].storageId ~= storage.id then
+                camp.scan = campScan(storages)
+                return false
+            end
+        end
+        scan.auditIndex = 1
+    end
+    while scan.auditIndex <= #scan.roots do
+        local root = scan.roots[scan.auditIndex]
+        if quota.items <= 0 or not budget() or not surveyContainer(quota, root) then return false end
+        local container = storageContainer(root.storageId)
+        local items = list(container)
+        local count = U().listSize(items)
+        local lastItem
+        if count > 0 then
+            lastItem = U().listGet(items, count - 1)
+            quota.items = quota.items - 1
+        end
+        if container ~= root.container or count ~= root.count or lastItem ~= root.lastItem then
+            camp.scan = campScan()
+            return false
+        end
+        scan.auditIndex = scan.auditIndex + 1
+    end
+    scan.auditIndex = nil
+    return true
 end
 function C.sources(actor, budget)
     local base = SC.BaseLife and SC.BaseLife.active()
@@ -239,7 +298,7 @@ local function worldSources(camp, budget)
     camp.world = camp.world or {}
     while checked < 32 and budget() do
         local zone = base.zones[camp.zone]
-        if not zone then camp.worldComplete = true break end
+        if not zone then camp.worldComplete, camp.worldFinishedAt = true, U().nowMs() break end
         if zone.kind ~= "area" then camp.zone, camp.x, camp.y = camp.zone + 1, nil, nil
         else
             camp.x, camp.y = camp.x or zone.x1, camp.y or zone.y1
@@ -313,19 +372,23 @@ function C.plan(actor, job, remainingBudget)
         inventories[actor].selection = selection
     end
     if selection.complete then
+        if not budget() then return nil, "cleaning_supplies_scanning" end
         if selection.tool and not C.tool(selection.tool.item) then
             inventories[actor].selection = nil
             return nil, "cleaning_supplies_scanning"
         end
         for _, row in ipairs({ selection.tool or false, selection.mixed or false, selection.pure or false }) do
-            if row and not available(row, actor, job) then
-                inventories[actor].selection = nil
-                return nil, "cleaning_supplies_scanning"
+            if row then
+                if not surveyContainer(camp.quota, row) then return nil, "cleaning_supplies_scanning" end
+                if not available(row, actor, job) then
+                    inventories[actor].selection = nil
+                    return nil, "cleaning_supplies_scanning"
+                end
             end
         end
         local mixedInfo = selection.mixed and C.inspect(selection.mixed.item)
         local pureInfo = selection.pure and C.inspect(selection.pure.item)
-        if selection.mixed and (not mixedInfo or not mixedInfo.usable)
+        if selection.mixed and (not mixedInfo or not mixedInfo.usable or not mixedInfo.mixture)
             or selection.pure and (not pureInfo or not pureInfo.pureCleaner
                 or pureInfo.amount < C.dose() * C.RATIO) then
             inventories[actor].selection = nil
@@ -356,17 +419,26 @@ function C.plan(actor, job, remainingBudget)
     selection.tool, selection.mixed, selection.pure = tool, mixed, pure
     selection.complete = selection.index > #rows
     if not selection.complete then return nil, "cleaning_supplies_scanning" end
-    if not tool then selection.resolved = true return nil, "cleaning_tool_missing" end
     local weight, capacity = U().carryLoad(actor)
     local mixedTooHeavy = mixed and capacity and capacity > 0
         and weight + extraWeight(tool) + extraWeight(mixed) > capacity * 0.90
-    if mixed and not mixedTooHeavy then selection.resolved = true return { mode = "mixed", tool = tool, liquid = mixed } end
-    if not pure then selection.resolved = true return nil,
-        mixedTooHeavy and "cleaning_carry_capacity_low" or "cleaning_cleaner_missing" end
+    local function resolved(plan, why)
+        camp.scan.used, selection.resolved, selection.stockChecked = true, true, nil
+        return plan, why
+    end
+    if tool and mixed and not mixedTooHeavy then return resolved({ mode = "mixed", tool = tool, liquid = mixed }) end
+    if not selection.stockChecked then
+        if not stockCurrent(camp, budget) then return nil, "cleaning_supplies_scanning" end
+        selection.stockChecked = true
+    end
+    if not tool then return resolved(nil, "cleaning_tool_missing") end
+    if not pure then return resolved(nil,
+        mixedTooHeavy and "cleaning_carry_capacity_low" or "cleaning_cleaner_missing") end
     if #buckets > 0 then
         local world = worldSources(camp, budget)
         if not world then return nil, "cleaning_supplies_scanning" end
-        if not selection.choices then
+        if selection.world ~= world then
+            selection.world = world
             selection.choices, selection.bucketIndex, selection.waterIndex = {}, 1, 1
             for _, water in ipairs(waters) do selection.choices[#selection.choices + 1] = water end
             local ax, ay, az = U().position(actor)
@@ -395,22 +467,21 @@ function C.plan(actor, job, remainingBudget)
                 camp.quota.items = camp.quota.items - 1
                 if not water or water.item ~= bucket.item then
                     local candidate = batch(actor, tool, pure, bucket, water, job)
-                    if candidate then selection.resolved = true return candidate end
+                    if candidate then return resolved(candidate) end
                 end
                 selection.waterIndex = selection.waterIndex + 1
             end
             selection.bucketIndex, selection.waterIndex = selection.bucketIndex + 1, 1
         end
     end
-    selection.resolved = true
     local info = C.inspect(pure.item)
     if info.usable then
         if capacity and capacity > 0 and weight + extraWeight(tool) + extraWeight(pure) > capacity * 0.90 then
-            return nil, "cleaning_carry_capacity_low"
+            return resolved(nil, "cleaning_carry_capacity_low")
         end
-        return { mode = "undiluted", tool = tool, liquid = pure }
+        return resolved({ mode = "undiluted", tool = tool, liquid = pure })
     end
-    return nil, "cleaning_water_or_bucket_missing"
+    return resolved(nil, "cleaning_water_or_bucket_missing")
 end
 function C.carried(actor, remainingBudget)
     local job = SC.BaseLife and SC.BaseLife.jobFor and SC.BaseLife.jobFor(U().idOf(actor))

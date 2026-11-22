@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.57 - Prepared cleaning mixtures in storage
+
+- Cleaners check marked shelves for newly stocked mixtures before making a
+  batch or using straight cleaner. A usable prepared mixture takes priority.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.56 - Camp hauling, cleaning and supply searches
 
 - A companion waiting to finish a loot animation can resume the same route

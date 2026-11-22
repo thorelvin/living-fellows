@@ -474,6 +474,7 @@ end
 
 do
     local ctx = scene()
+    ctx.storageObject.container:AddItem(vessel("Base.Bleach", { Bleach = 1 }, 1))
     local last = ctx.storageObject
     for _ = 1, 12 do
         last = F.storage(ctx.destinationSquare)
@@ -481,7 +482,6 @@ do
         for _ = 1, 80 do last.container:AddItem(F.item("Base.Nails")) end
     end
     local mix = vessel("Mod.LastShelfBottle", { Water = 0.475, Bleach = 0.025 }, 1)
-    last.container:AddItem(mix)
     local oldResolve, oldGet = SC.BaseLife.resolveContainer, SC.GameplayUtil.listGet
     local itemLists = { [ctx.actor.inventory:getItems()] = true }
     for _, storage in ipairs(ctx.base.storages) do
@@ -499,17 +499,22 @@ do
     local deferred, deferredReason = C.plan(ctx.actor, nil, function() return 0 end)
     check(deferred == nil and deferredReason == "cleaning_supplies_scanning" and reads == 0,
         "an exhausted maintenance budget yields before inventory discovery")
-    local selected, why
-    for _ = 1, 100 do
-        touched, reads = {}, 0
-        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
-        selected, why = C.plan(ctx.actor)
-        local containers = 0
-        for _ in pairs(touched) do containers = containers + 1 end
-        check(containers <= 4 and reads <= 64,
-            "each retained discovery slice touches at most four shelves and 64 items: shelves=" .. containers .. " reads=" .. reads)
-        if selected or why ~= "cleaning_supplies_scanning" then break end
+    local function boundedPlan()
+        for _ = 1, 100 do
+            touched, reads = {}, 0
+            SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+            local selected, why = C.plan(ctx.actor)
+            local containers = 0
+            for _ in pairs(touched) do containers = containers + 1 end
+            check(containers <= 4 and reads <= 64,
+                "each retained discovery slice touches at most four shelves and 64 items: shelves=" .. containers .. " reads=" .. reads)
+            if selected or why ~= "cleaning_supplies_scanning" then return selected, why end
+        end
     end
+    local before = boundedPlan()
+    check(before and before.mode == "undiluted", "warm the full bounded survey without a prepared mixture")
+    last.container:AddItem(mix)
+    local selected = boundedPlan()
     check(selected and selected.liquid.item == mix, "bounded discovery eventually reaches the last shelf")
     SC.BaseLife.resolveContainer, SC.GameplayUtil.listGet = oldResolve, oldGet
 end
