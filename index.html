@@ -321,7 +321,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <p class="subtitle">A Complete Guide to Living with the Fellows of Knox County</p>
   <p class="divider">· · · ✚ · · ·</p>
   <p class="edition">Living Fellows — Project Zomboid Build 42.22.2 Edition</p>
-  <p class="version">Release 0.27.41 — First Edition, Thirty-Second Printing — You won't die... alone.</p>
+  <p class="version">Release 0.27.63 — First Edition, Thirty-Third Printing — You won't die... alone.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -334,9 +334,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><a href="#emma"><strong>Ask EMMA.</strong></a> Check supplies, find out who needs care, read the old files or fit a radio and run expeditions from your camp computer.</li>
   <li><a href="#emma-locks"><strong>Break into a locked computer.</strong></a> Undelete the owner's files, turn the Larchfield code wheel or argue your case with EMMA, then open the drawer beside it.</li>
   <li><a href="#emma-grid"><strong>Restore the power.</strong></a> Connect a computer at a substation, crack its controller from camp and bring the real lights back, for a day or two at a time.</li>
+  <li><a href="#emma-power"><strong>Watch Power Night.</strong></a> While the grid holds, EMMA's county archive airs an hour of TV and radio every evening, and the camp gathers round.</li>
+  <li><a href="#ch8_handover"><strong>Carry on after you die.</strong></a> The Handover starts a new survivor at camp or hands you a living recruit, and the camp keeps going.</li>
   <li><a href="#ch15_animals"><strong>Keep a working farm.</strong></a> Farmers tend chickens and cattle, collect eggs and deliver milk, leaving a reserve for calves.</li>
 </ul>
-<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.41</strong>: <a href="#ch5c_pickup">rides from camp</a>, <a href="#ch5c_convoy">closer follow cars</a> and <a href="#ch17_turns">lane-to-lane turns</a>, <a href="#ch6_squad">a rear guard and safe ground</a>, <a href="#ch6_solo">fighting alone</a>, <a href="#ch6_hold">doors the guards know they can hold</a>, and <a href="#ch11_storage">storage that sorts by what things are for</a>. New here? Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
+<p style="margin:0.7rem 0 0;">Updated for <strong>0.27.63</strong>: <a href="#ch8_handover">the Handover</a>, <a href="#ch8">stitches, painkillers and antibiotics</a> and <a href="#ch14_medic">a medic's stitching kit</a>, <a href="#emma-power">Power Night</a>, <a href="#emma-locks">LARCH/KEY card readers</a>, <a href="#ch11_floor">a Camp overflow spot</a>, <a href="#ch7_carry">better finds swapped for lesser ones</a>, <a href="#ch17">calling off a trip in person</a> and <a href="#appD">bug reports from the pause menu</a>. New here? Start with the <a href="#ch2_first">First steps card</a>, or keep the <a href="#appF">quick reference</a> beside you.</p>
 </div>
 
 <div class="callout callout-tip" style="margin-bottom:2rem;"><span class="callout-label">Note — </span>
@@ -448,7 +450,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The mod targets <strong>Project Zomboid Build 42.22.2</strong> and is <strong>single-player only</strong>. Multiplayer and user-added split-screen players are refused. The exceptions are the mod's own: an expedition, Send Home, a camp pickup or Base Watch may put one companion in a second local view, to keep the area around it loaded.</p>
 
 <h3>Install on 42.22.2</h3>
-<p>This guide covers <strong>Living Fellows 0.27.41</strong>. If a menu choice is missing, check your installed version in <span class="menu">More &rarr; Support</span>.</p>
+<p>This guide covers <strong>Living Fellows 0.27.63</strong>. If a menu choice is missing, check your installed version in <span class="menu">More &rarr; Support</span>.</p>
 <p><strong>The Windows standalone edition is recommended.</strong> It includes Living Fellows' native bridge and needs neither ZombieBuddy nor a Workshop subscription. Download the <a href="https://github.com/thorelvin/living-fellows/releases/latest">standalone Windows ZIP from GitHub Releases</a> that matches your game build.</p>
 <ol class="steps">
   <li><span class="step-n">1</span>Extract the whole ZIP to a normal folder.</li>
@@ -458,10 +460,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </ol>
 <p>Keep the extracted folder for <strong>Uninstall.bat</strong>. The installer finds Steam automatically. If Windows refuses access to the game folder, run it as Administrator. For another Steam library:</p>
 <div class="callout callout-recipe"><span class="callout-label">How to — </span><code>.\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"</code></div>
-<p>The installer puts the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code> and manages its native bridge automatically. It does not edit <code>projectzomboid.jar</code>. With PZO installed, Living Fellows loads through PZO's own Java mod loader, and PZO's launcher and settings stay as they are. Under <span class="menu">F10 → JAVA</span>, third-party Java mods must be enabled, and PZO asks you to allow the Living Fellows bridge on the next full launch. Allow it again after every Living Fellows update: a new bridge needs a new approval. Reinstalling repairs the launch option an older Living Fellows set up. Uninstall removes Living Fellows' entries while preserving other mods' settings.</p>
+<p>The installer puts the mod under <code>%USERPROFILE%\Zomboid\mods\SurvivorCompanion</code> and manages its native bridge automatically. It does not edit <code>projectzomboid.jar</code>. With PZO installed, Living Fellows loads through PZO's own Java mod loader, and PZO's launcher and settings stay as they are. Under <span class="menu">F10 → JAVA</span>, third-party Java mods must be enabled, and PZO asks you to allow the Living Fellows bridge on the next full launch. Allow it again after every Living Fellows update: a new bridge needs a new approval. Reinstalling repairs the launch option an older Living Fellows set up. Uninstall removes Living Fellows' entries while preserving other mods' settings. It still works after Steam's <strong>Verify integrity of game files</strong>, a game update or a PZO install has rewritten the launcher, and it takes Living Fellows out of the default mod list; each save keeps its own list.</p>
 <h4>Using the Workshop Instead</h4>
 <p>The Workshop edition uses <strong>ZombieBuddy 2.3.3 or newer</strong>, including its one-time loader installation; a subscription alone does not install that loader. Subscribe to both mods, complete the loader's setup, then enable both for your save. The loader must support your game build. Use the standalone edition for 42.22.2 if that support is not yet available.</p>
-<div class="callout callout-tip"><span class="callout-label">Note — </span>Use <strong>one edition at a time</strong>. Both share the mod ID <code>SurvivorCompanion</code>. When changing installation method, remove the old copy so the game can find the version you intend to use.</div>
+<div class="callout callout-tip"><span class="callout-label">Note — </span>Use <strong>one edition at a time</strong>. Both share the mod ID <code>SurvivorCompanion</code>, and the game always loads a subscribed Workshop copy instead of a standalone one. While you are subscribed, <strong>Install.bat</strong> stops without changing anything and opens the Workshop page in Steam: unsubscribe, let Steam remove it, then run the installer again. If both copies load anyway, the game shows a <strong>Two copies installed</strong> notice; <span class="menu">Review</span> opens Support with both versions. To change method, unsubscribe on Steam or run <strong>Uninstall.bat</strong>.</div>
 
 <h3>A World That Remembers</h3>
 <p>Companions, households, relationships, contracts, bases and production orders are saved with the world. They remain if your character dies and you start another survivor in the same world.</p>
@@ -939,8 +941,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3 id="ch7_carry"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/9/9f/Moodle_Icon_HeavyLoad.png" alt="">How Much They Carry</h3>
 <p>A companion has two limits. The <strong>pack limit</strong> is its inventory's physical capacity of 50 units: it decides what the companion can pick up, cook, saw or trade. The <strong>carrying limit</strong> comes from the game's own Strength and condition calculation, the load it can carry before it slows and tires. Strong and Stout raise it; Weak and Feeble lower it. <strong>Allow overload</strong> lets a companion go past both, up to a cap (<a href="#ch3b">Chapter 3b</a>).</p>
 <ul>
-  <li><strong>At camp</strong>, a companion carrying more than about 70% of its carrying limit puts surplus into matching marked storage. Surplus never goes on the ground, and a companion on Stay or Guard, or on an expedition, doesn't leave its task to shelve it.</li>
+  <li><strong>At camp</strong>, a companion carrying more than about 70% of its carrying limit puts surplus into matching marked storage. When every matching shelf is full, useful surplus goes onto a Sorting Floor, or the camp's one <strong>Camp overflow</strong> spot, and is shelved from there when room opens up (<a href="#ch11_floor">Ch 11</a>). A companion on Stay or Guard, or on an expedition, doesn't leave its task to shelve it.</li>
   <li><strong>Routine looting</strong> stops around 72% of the smaller carrying limit, while also checking real bag space and item size. A worn or held bag’s weight reduction counts. This leaves a margin for essentials and avoids picking up items only to drop them on the next update. Explicit work carries and the separate overload option keep their own rules.</li>
+  <li><strong>A better find.</strong> Away from camp, a follower at its limit can put down one lower-priority item it picked up itself, on the floor where it stands, to take a clearly better find. Of two equally useful finds it takes the lighter. Favourites, equipped gear and reserved supplies are never put down, and expedition crews and a search for one kind of supply don't swap.</li>
   <li><strong>Never surplus</strong>: <img class="ico-sm" src="https://pzwiki.net/w/images/7/7f/KeyRing.png" alt="">keys, field-work cargo and borrowed tools, quest items, chef and cleaning supplies, expedition finds and trade recovery items.</li>
 </ul>
 
@@ -1003,7 +1006,12 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>If you start bandaging or splinting yourself, they step back at once and leave your supplies alone.</li>
   <li>You can treat them yourself: <span class="menu">Medical Check</span> opens their body-part panel for your own supplies (<a href="#ch3b">Chapter 3b</a>).</li>
   <li>They treat each other. A rescuer picks the most urgent casualty it can actually treat, so a patient who needs a splint the helper doesn't carry won't hide another who is bleeding.</li>
-  <li>A resident with the <strong>Medic</strong> job carries a stocked first aid kit when supplies are available. See <a href="#ch14_medic">Stocking the Medic's Kit</a> for what to leave on the medical shelf.</li>
+  <li><strong>Deep wounds are stitched</strong> with a suture needle, or a needle and thread, then freshly dressed. Glass still in the wound, danger nearby or missing supplies keep stitching from starting, and a nearby companion with better First Aid can step in. Stitches come out when the wound is ready, and a splint once the bone has healed.</li>
+  <li><strong>Bullets and glass</strong> come out with tweezers or a suture needle holder. Burns are cleaned and get a fresh dressing. An infected wound is disinfected with disinfectant or a spirit of at least 40% alcohol, at most once every two game hours.</li>
+  <li><strong>Painkillers</strong> wait for real pain and for the last dose to wear off, up to four doses a game day. <strong>Antibiotics</strong> treat a wound infection that lingers after disinfection, or when there is no disinfectant; scarce doses go to the worst wound. Neither touches the Knox infection, and nobody eats them as food.</li>
+  <li><strong>Dressings get washed.</strong> When clean ones run out, a companion washes up to eight of its own in one visit to water. Away from a sink or barrel it washes them with water it carries, tainted first, and keeps at least a litre to drink.</li>
+  <li>The companion panel lists stitches, splints, lodged objects and healed dressings. Healed ones stay visible but don't count as injuries.</li>
+  <li>A resident with the <strong>Medic</strong> job carries a stocked first aid kit when supplies are available, and on duty visits other residents who need care. A patient waits for them, and treats itself if the Medic stays busy or away too long. See <a href="#ch14_medic">Stocking the Medic's Kit</a> for what to leave on the medical shelf.</li>
   <li>A helper pinned down by nearby threats doesn't keep choosing an unsafe rescue, and a failed treatment says what stopped it.</li>
 </ul>
 
@@ -1017,6 +1025,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Bandage</strong></td><td>Stops bleeding on a cut, scratch or bite</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/d/d2/Sheet.png" alt=""></td><td><strong>Sheets and clothing</strong></td><td>Torn into strips when bandages run out</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/a/a9/Splint.png" alt=""></td><td><strong>Splint</strong></td><td>Braces a fracture; made in downtime from clean strips and wood</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/6b/Thread.png" alt=""></td><td><strong>Suture needle, or needle and thread</strong></td><td>Stitches a deep wound</td></tr>
+  <tr><td class="icon-cell"></td><td><strong>Tweezers</strong></td><td>Take out a bullet or glass</td></tr>
+  <tr><td class="icon-cell"></td><td><strong>Disinfectant or strong spirits</strong></td><td>Clean an infected wound</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm moodle" src="https://pzwiki.net/w/images/d/dd/Moodle_Icon_Pain.png" alt=""></td><td><strong>Painkillers</strong></td><td>Ease real pain, four doses a day at most</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/00/Antibiotics.png" alt=""></td><td><strong>Antibiotics</strong></td><td>Treat a lingering wound infection, never Knox</td></tr>
 </table>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>Just a scratch. Hold still anyway.<span class="who">— a companion with a bandage</span></div>
@@ -1042,11 +1055,13 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </table>
 
 <div class="callout callout-warn"><span class="callout-label">Take care — </span>Mercy, bleach, and a bitten companion's own choice to sacrifice itself all wait for <strong>your</strong> final authorization. Nothing irreversible happens without it.</div>
+<p>A crisis closes on its own once its companion is gone for good, and the camp lifts the watch, quarantine or exile that went with it. A companion who is only away, or waiting to be restored, keeps theirs.</p>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>No one else has to do this for me.<span class="who">— a bitten companion, accepting the bleach</span></div>
 
 <h3>Death</h3>
 <p>Death is permanent, and it follows the game's own rules for corpses and reanimation. A dying companion may have last words, shaped by how it is dying and how close you were. A diary keeper's book stays with the body (<a href="#ch10">Chapter 10</a>), and a fallen companion found by the gravekeeper gets a grave with a cross and its name (<a href="#ch16">Chapter 16</a>).</p>
+<p>Once a death is confirmed, the camp lets go. The companion leaves the roster, guard shifts, upkeep and meal plans count only the living, and a medic or chef who was working with them goes back to duty. Food already in a stove or oven stays there. A companion who is away or waiting to be restored keeps its role.</p>
 
 <figure class="plate">
   <img loading="lazy" decoding="async" src="https://pzwiki.net/w/images/e/ea/ZedFeast.jpg" alt="A zombie crouched over a body in tall grass.">
@@ -1054,6 +1069,17 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 </figure>
 
 <div class="lore-pull"><span class="lore-label">Overheard — </span>I'm sorry. My body gave up before I did.<span class="who">— last words</span></div>
+
+<h3 id="ch8_handover">The Handover</h3>
+<p>Your own death need not end the game. When your character dies, the death screen's button reads <span class="menu">Continue: The Handover</span>, and the game stays paused while you choose who you play next.</p>
+<table>
+  <tr><th>Choice</th><th>What follows</th></tr>
+  <tr><td><span class="menu">Start a new survivor at base</span></td><td>Make a new character in the ordinary creator, with ordinary starting gear. They arrive at the camp's Rally area, or its centre, on a spot checked for floor, obstructions and fire. Danger nearby is still there when play resumes. Needs a marked camp.</td></tr>
+  <tr><td><span class="menu">Take over selected companion</span></td><td>The list shows each living recruit's health and where they are. You keep their skills, gear, wounds and position. Takeover is permanent: they leave the companion roster.</td></tr>
+  <tr><td><span class="menu">Ordinary respawn</span></td><td>The game's own respawn. <span class="menu">Exit to menu</span> and <span class="menu">Quit game</span> work as usual.</td></tr>
+</table>
+<p>The camp carries on: duties, recruits, relationships and discoveries stay. Your old body and belongings stay where you fell, as the game leaves them. EMMA remembers the previous operator and greets the new one at the next computer they use. A recruit listed with a reason, such as an unfinished pickup or expedition cargo still to deliver, can't be taken over until that settles.</p>
+<p><strong>Followers left behind</strong> keep their order and look for a reachable shelter nearby. A locked house or a failed route sends them to another; after eight failures they hold and try again later. They only call for help, or report reaching shelter, over a working radio on a channel you can hear and within range. Meeting them or giving a new order ends the hold. An expedition or Base Watch crew is paused while they find shelter and carries on afterwards. Taking over a walking expedition member removes them from that trip.</p>
 
 <!-- CH 9 -->
 <h2 class="chapter" id="ch9"><img class="ico" src="https://pzwiki.net/w/images/5/56/Rubberducky.png" alt="">Chapter 9: Voices, Moods and Bonds<span class="stage stage-mid">Settling In</span> <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
@@ -1691,6 +1717,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>Draw a <strong>Sorting floor</strong> where you dump loot, then leave it to the camp. Residents on base duty, Quartermasters first, pick up what lies there in plain view and carry it to marked storage of its category by the shelf sorter's rules. Matching items from one tile travel together, up to <strong>twenty</strong> at a time within the worker's carrying limit, and each keeps its own condition and contents: food goes to Regular or Fresh food, logs to a log yard when one is marked, and valuables wait for marked Valuables storage. An item whose category has no marked storage stays on the floor; the sorting floor never fills General with it. Anything the game counts as trash goes to the nearest free tile of a marked <strong>Trash pile</strong> and is left there on the ground, where you can still pick through it.</p>
 <p>When an item can't be put away, the job waits and the Base panel says why: <em>No marked Tools storage; items remain on the sorting floor</em>, <em>Marked Tools storage is full</em>, or <em>No trash pile is marked</em>. When nothing of that kind, or no trash pile, is marked at all, a resident within earshot also says so once. An item a worker has no room for is set aside for half a minute while lighter ones go first. Items another job has reserved, quest items and things that belong to someone are left alone.</p>
 <p>A worker never drops an item from across the camp. If storage fills up or disappears while it carries something, it walks what is left of the stack back to its tile and puts it down there, or puts it down where it stands if it can't get back within half a minute. Called away, it puts the item down where it stands. If the item is gone from its pack, because you took it or it was used up, the job lets it go. Each sorting floor and trash pile lies inside the camp and holds at most 256 tiles, and none may overlap another of either kind. A zone can't be removed while a worker is carrying an item from it or to it.</p>
+<p><strong>Camp overflow.</strong> When every matching shelf is full, residents put useful surplus on a marked Sorting Floor. Without one, the first resident who needs one marks a single one-tile Sorting Floor named <strong>Camp overflow</strong> on a reachable tile nearby, and the whole camp keeps using it. Floor sorting carries those items to storage once there is room. Remove the zone like any other when you have shelves to spare.</p>
 
 <h3>Abandoning a Camp</h3>
 <p>To move, choose <span class="menu">Abandon camp</span> from the camp's right-click menu or at the end of <span class="menu">More → Base</span>, confirm, and set a new camp core. Running camp work is stopped. Anything a companion was carrying for the camp stays with it, and residents leave duty and stay where they stand. The camp's zones, storage marks and plans are removed; buildings and stored items stay in the world.</p>
@@ -1802,7 +1829,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><th></th><th>Base job</th><th>Reaches first for</th><th>Also</th></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/4/46/Toolbox.png" alt=""></td><td><strong>Generalist</strong></td><td>Nothing in particular; a little more often hauling, sorting and unloading cars</td><td>The all-rounder: it fills in wherever no specialist is free, in a camp of any size. Its kit is balanced: a couple of meals and drinks, some medicine and a spare weapon.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/c/c7/Clipboard.png" alt=""></td><td><strong>Quartermaster</strong></td><td>Sorting, the sorting floor, hauling, fetching and unloading cars, more strongly than anyone</td><td>Lets its pack fill to about four-fifths of its carrying limit before it puts surplus away (<a href="#ch7_carry">Ch 7</a>), and keeps more food, water, medicine, ammunition and building stock on it. A camp of four or more needs one (<a href="#ch14b">Ch 14b</a>).</td></tr>
-  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medic</strong></td><td>Medical supplies and a stocked first aid kit</td><td>Keeps clean dressings and a splint ready for treatment. Give them supplies using the <a href="#ch14_medic">kit setup below</a>. A Medic can also examine a nearby bitten companion, unless that companion refuses (<a href="#ch8">Ch 8</a>). A camp of three or more needs one.</td></tr>
+  <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/0/0c/Bandage.png" alt=""></td><td><strong>Medic</strong></td><td>Medical supplies and a stocked first aid kit</td><td>Keeps clean dressings, a splint, painkillers and a stitching kit ready for treatment, and visits other residents who need care. Give them supplies using the <a href="#ch14_medic">kit setup below</a>. A Medic can also examine a nearby bitten companion, unless that companion refuses (<a href="#ch8">Ch 8</a>). A camp of three or more needs one.</td></tr>
   <tr><td class="icon-cell"><img class="ico-sm" src="https://pzwiki.net/w/images/6/61/Shotgun.png" alt=""></td><td><strong>Guard</strong></td><td>Barricades, between shifts</td><td>On its shift it keeps watch and walks its rounds instead of doing chores (<a href="#ch14b">Ch 14b</a>), and the guard on watch is the first to answer the camp alarm (<a href="#ch14_alarm">below</a>). Its kit has more weapons and ammunition. A camp of two or more needs one.</td></tr>
 </table>
 <p>Put on duty with Stay inside the camp, a companion starts in its natural role the first time and in its last job after that; Guard makes it a Guard. How much of the work residents take on, and who keeps watch, is set by the base policies (<a href="#ch14b">Chapter 14b</a>).</p>
@@ -1813,10 +1840,11 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <h3 id="ch14_medic">Stocking the Medic's Kit</h3>
 <p>Choose <strong>Medic</strong> as a resident's base job in <span class="menu">More &rarr; Base</span>, and keep them on duty. They will prepare a first aid kit during their normal supply runs.</p>
 <ol class="steps">
-  <li><span class="step-n">1</span>Put a <strong>First Aid Kit</strong>, clean bandages or clean rags, and a <strong>splint</strong> in marked <strong>Medical</strong> storage.</li>
+  <li><span class="step-n">1</span>Put a <strong>First Aid Kit</strong>, clean bandages or clean rags, a <strong>splint</strong>, <strong>painkillers</strong> and a <strong>suture needle</strong> (or a needle and thread) in marked <strong>Medical</strong> storage.</li>
   <li><span class="step-n">2</span>Allow withdrawals and make sure the Medic can reach the storage.</li>
-  <li><span class="step-n">3</span>Let them pack. They aim to carry <strong>nine clean dressings and one splint</strong> in the kit, using what the camp actually has.</li>
+  <li><span class="step-n">3</span>Let them pack. They keep at least <strong>two clean dressings and a splint</strong> in the kit, with painkillers and a stitching kit, and add tweezers, disinfectant and antibiotics when the camp has them.</li>
 </ol>
+<p>Needles, thread and tweezers can also come from permitted Crafting, Tools or General storage, and medicines from any permitted shelf, Medical first. Taking them doesn't change how those shelves are sorted.</p>
 <p>The kit stays with the Medic rather than being sorted back onto a shelf. Treatment uses its real contents, so keep the medical shelf stocked as supplies are used. A kit does not replace your own first aid: you can still use <span class="menu">Medical Check</span> to treat someone yourself. If you remove the Medical shelf, a former Medic keeps the kit as ordinary gear.</p>
 
 <h3>Safety Rules for Camp Work</h3>
@@ -1924,9 +1952,9 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <h3 id="ch14b_clean">Cleaning a Stain</h3>
 <p>Right-click a stained tile inside the camp and choose <span class="menu">Ask companion to clean this stain</span>. A resident on base duty comes and scrubs it with the game's own cleaning action. It needs a dry towel, sponge, cleaning brush, broom or mop, plus bleach, cleaning liquid or a prepared mixture: its own, or borrowed from marked camp storage and put back afterwards. Keep them in <strong>Tools</strong> storage: sorting files mops, brooms and cleaner there, not with Weapons.</p>
-<p>The resident uses a stored cleaning mixture first. If there is none, they can prepare a bucket with <strong>5% bleach or Cleaning Liquid and 95% water</strong>, using tainted water before clean. A normal two-litre batch cleans about eight tiles with only 100 ml of cleaner. Borrowed tools and the remaining mixture go back to their source storage.</p>
+<p>The resident uses a prepared mixture first: its own, or a bucket stocked or refilled on a marked shelf, when the bucket and the tool fit within its normal carrying limit. If there is none, they can prepare a bucket with <strong>5% bleach or Cleaning Liquid and 95% water</strong>, using tainted water before clean. A normal two-litre batch cleans about eight tiles with only 100 ml of cleaner. Borrowed tools and the remaining mixture go back to their source storage.</p>
 <p>If dilution is not possible, they can use the cleaner straight and tell you so. Soap bars do not count for floor cleaning. Cleaning mixtures stay out of drinking water, crop watering and car washing.</p>
-<p>When the option is greyed out it says why: no supplies, nobody on duty, no route to the spot from where the cleaner is, or the spot is already clean.</p>
+<p>When the option is greyed out it says why: no supplies, nobody on duty, no route to the spot from where the cleaner is, or the spot is already clean. A prepared bucket too heavy to carry, with nothing else to clean with, is reported as a carrying problem: lighten the bucket or stock bleach or cleaner.</p>
 
 <h3>Zones, Storage and Maintenance</h3>
 <ul>
@@ -2140,7 +2168,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p>There is still someone willing to answer questions at the office. She lives on a desktop, calls herself the <strong>Emergency Management Assistant</strong>, and has rather more confidence in the county's emergency arrangements than the evidence warrants.</p>
 <p>EMMA reads camp records, finds supplies, explains blocked work and helps you ask for medical care or fuel. Add a walkie-talkie and the same computer becomes a radio desk and, inside your camp, an expedition station. Everything runs <strong>offline</strong>: no internet, account or external AI service is needed.</p>
-<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-care">caring conversations</a> · <a href="#emma-memory">shared memory</a> · <a href="#emma-jump">jump-starting</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-radio-watch">survivor radio watch</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-locks">locked computers</a> · <a href="#emma-files">files</a> · <a href="#emma-reset">factory reset</a>.</p>
+<p>The sandbox option <strong>Enable EMMA</strong> is on by default. Turned off, it hides computer use, computer recovery and maintenance, and EMMA's radio grid report. Computer records are kept for when you turn it back on, and companion radio orders still work (<a href="#appB">Appendix B</a>).</p>
+<p class="tbl-note">Jump to <a href="#emma-start">getting started</a> · <a href="#emma-questions">questions and requests</a> · <a href="#emma-care">caring conversations</a> · <a href="#emma-memory">shared memory</a> · <a href="#emma-jump">jump-starting</a> · <a href="#emma-radio">radio and expeditions</a> · <a href="#emma-radio-watch">survivor radio watch</a> · <a href="#emma-grid">restoring the power</a> · <a href="#emma-power">Power Night</a> · <a href="#emma-buildings">building controls</a> · <a href="#emma-discovery">building scanner</a> · <a href="#emma-locks">locked computers</a> · <a href="#emma-files">files</a> · <a href="#emma-reset">factory reset</a>.</p>
 <p class="tbl-note">The screens below were captured in-game. On the website, select a screen image to open it at full size.</p>
 
 <figure class="plate terminal-shot">
@@ -2204,7 +2233,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>For practical advice, try <code>how do I survive winter?</code>, <code>how do I clean drinking water?</code> or <code>tell me about the Knox infection</code>, then <code>tell me more</code>. Her practical reference covers 27 topics, from traps, fishing and foraging to generators, the Knox infection and moving camp; for each, ask what it is, how to make it, how to use it, where to find it, why it matters or what its dangers are. Her survival references are stored locally. She can explain what the game records, but missing information stays unknown.</p>
 
 <h3 id="emma-care">When You Are Not All Right</h3>
-<p>EMMA recognizes grief, distress and self-doubt, and asks when she is unsure. You can answer in ordinary words such as <code>yeah</code> or <code>nah, I'm fine</code>. Her jokes and story progress pause while she listens. Questions about your character's injuries or a dangerous supply run still get game advice. She also hears quieter warning signs, such as a chosen date, saved-up medication, goodbye notes or giving things away, and answers them with care instead of a joke. Talk about a character dying or a lost save stays game talk.</p>
+<p>EMMA recognizes grief, distress and self-doubt, and asks when she is unsure. You can answer in ordinary words such as <code>yeah</code> or <code>nah, I'm fine</code>. Her jokes and story progress pause while she listens. Questions about your character's injuries or a dangerous supply run still get game advice. She also hears quieter warning signs, such as a chosen date, saved-up medication, goodbye notes or giving things away, and answers them with care instead of a joke. Talk about a character dying or a lost save stays game talk. When she can't place something personal you tell her, she says she heard it, or asks whether you are safe.</p>
 <p>Care conversations are excluded from the shared notebook and from local misunderstood-input records. Those local records can help improve recognition; nothing is sent to an internet service. EMMA's support is conversation, not a diagnosis.</p>
 
 <h3 id="emma-memory">Different Desks, the Same EMMA</h3>
@@ -2342,9 +2371,20 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <figcaption><span class="plate-no">Screen 12</span> After a trip, the only thing left to do is wait. <span class="credit">In-game capture: Living Fellows</span></figcaption>
 </figure>
 
+<h3 id="emma-power">Power Night</h3>
+<p>The first time you use an unlocked computer on real power, not a jump-start, EMMA finds the <strong>county archive</strong>. Every evening from <strong>20:00 to 21:00</strong> it airs one programme on <strong>EMMA Archive TV</strong> and one on its own FM frequency, as long as the original or a restored grid is up (<a href="#emma-grid">above</a>). <span class="menu">Local services → Power Night</span> shows tonight's titles, the TV channel and the radio frequency. Tune and turn up your own set; companions leave the receivers to you.</p>
+<ul>
+  <li>The archive starts with three VHS tapes and three audio recordings. Carry a compatible tape or CD to a powered, unlocked computer and choose <span class="menu">Copy a recording (keep original)</span>: you keep the original, and new recordings get aired first.</li>
+  <li>A power cut stops the broadcast. Tune in late, or after an outage, and you join the programme where it has got to.</li>
+  <li>Companions in camp, on base duty or following you, may gather at a set tuned to the archive, and afterwards talk about it: <span class="menu">About the programme...</span> in Talk. Guards on shift, orders, urgent needs and emergencies come first.</li>
+  <li>Fifteen minutes of a programme lifts spirits once a night: a little less boredom and unhappiness for you, a little more morale and less stress for a companion. A tape's lessons count once per survivor, on a rerun or from the tape itself, and carry over through the Handover.</li>
+  <li><span class="menu">Disable nightly broadcasts</span> stops it; enable it again on the same page.</li>
+</ul>
+
 <h3 id="emma-buildings">Connect the Building</h3>
 <p>Open <span class="menu">Local services → Building services → Connect local controls</span>. The connection needs <strong>Electrical 2, a screwdriver, one wire and two Scrap Electronics</strong>. Once connected, choose <strong>Discover building</strong> to look for equipment. Opening <strong>Equipment</strong> only shows what you have already found.</p>
 <p>Building security has its <strong>own password</strong>. Recover it or use the matching physical key before issuing protected commands. Unlocking the computer, or carrying one into a bank, does not unlock the building.</p>
+<p><span class="menu">Building services → Power circuits</span> lists the building's lighting relays and generator controls, each with a switch. When a command fails, EMMA says whether a floodlight has no power, a lock didn't answer, or a generator failed to start or stop.</p>
 
 <figure class="plate terminal-shot">
   <a href="assets/lf_emma_controls.webp" target="_blank" rel="noopener" title="Open full-size in-game screenshot"><img loading="lazy" decoding="async" src="assets/lf_emma_controls.webp" width="1280" height="720" alt="EMMA's in-game Local services page, offering Connect local controls, Authorize building security and Equipment, with numbered keyboard choices."></a>
@@ -2386,6 +2426,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td><strong>Every wrong word remembers</strong></td><td>The same puzzle, made from the owner's own words. Each wrong guess brings back the sentence in their files that holds it.</td></tr>
   <tr><td><strong>UNDELETE.EXE</strong></td><td>Click an index word or type a search of 4 to 32 letters. Restore the owner's four deleted files; each one you recover points to the next index. After three empty searches the screen offers an index, and after eight it offers other ways in.</td></tr>
   <tr><td><strong>Larchfield code wheel</strong></td><td>Open the owner's manual left beside the PC; its last page is the wheel. Turn the marker to the requested letter with the arrow keys, the mouse wheel or the turn buttons, and read the numbered window. Three challenges, or one if you carry a manual of your own. Three wrong letters pause it for ten minutes.</td></tr>
+  <tr><td><strong>LARCH/KEY card reader</strong></td><td>Find the owner's <em>Access Card</em> in another nearby drawer or beside the computer. Some owners took theirs away, and then the reader's log is enough on its own. Swipe it (<span class="menu">Swipe card</span>, or right-click the card: <span class="menu">Swipe at the computer</span>) and compare your read with the reader's log of the owner's last swipe. Pick a gap, then a digit, by mouse or keyboard; the badge digits add up to the last two. Correct digits stay locked in, and run out of mismatches and the reader locks for an hour. Electrical means fewer gaps and decoys and more attempts. Afterwards, <span class="menu">Encode service card</span> turns the card into a <em>LARCH/KEY Service Card</em> that leaves one gap at later readers.</td></tr>
   <tr><td><strong>Make your case to EMMA</strong></td><td>Choose one of four numbered arguments a round. She checks what you claim about days survived, the people with you, a screwdriver in your hand, a zombie nearby or your Electrical skill. A caught lie or an argument she won't hear costs patience. Four points of conviction win; losing her patience twice, or five rounds, closes the discussion for an hour. She remembers how you won.</td></tr>
 </table>
 <p>Lock screens forgive the way people type. Capitals and a trailing full stop or question mark don't matter. <code>quit</code>, <code>log out</code> and <code>close</code> log off; <code>help</code>, <code>hint</code>, <code>?</code> and <code>what do I do</code> ask for help; <code>yeah</code>, <code>yep</code>, <code>nope</code> and <code>nah</code> answer a yes-or-no question. On a numbered choice you can type the number as a word, and a six-digit telephone or radio code may include spaces or dashes. The password or code itself must still be exact.</p>
@@ -2617,6 +2658,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li><span class="step-n">3</span>Right-click your equipped radio and choose <span class="menu">Living Fellows radio → Expedition → Return immediately</span>.</li>
 </ol>
 <div class="callout callout-tip"><span class="callout-label">Note — </span>The order needs a <strong>received transmission</strong>. While the squad is out of sight, the panel doesn't present its position or health as live facts.</div>
+<p><strong>In person</strong>, no radio is needed. Stand within about two metres of a crew member you can see, right-click them and choose <span class="menu">Cancel expedition</span>. The trip turns for home as it would for a radio recall. A crew that hasn't boarded yet leaves the car parked, puts its gear away and goes back to camp, and a wood or fuel report says the crew was called back.</p>
 
 <p>The time you choose decides when the team turns home; it doesn't promise when they arrive. On the way back, a stale route or stair approach gets a bounded retry, and a follower left on the last stair tread is guided to the verified exit. A returning Search squad finishes its trip once everyone has reached you, including when you're standing on a staircase. An intact squad says one of twenty homecoming lines once its leader view is released.</p>
 
@@ -2981,6 +3023,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td>Companion nicknames</td><td>on / off</td><td>on</td><td>Whether companions bring, earn and use nicknames. Saved nicknames stay when it's off (<a href="#ch9g">Ch 9g</a>).</td></tr>
   <tr><td>Rare famous namesakes</td><td>on / off</td><td>off</td><td>A very few new survivors may share an exact name with a fictional zombie-story character</td></tr>
   <tr><td>Expedition destination choices</td><td>All nearby, Known places only</td><td>All nearby</td><td>All nearby includes buildings from map data you haven't visited; Known places only lists locations visited or revealed by reading maps</td></tr>
+  <tr><td>Enable EMMA</td><td>on / off</td><td>on</td><td>Off hides computer use, computer recovery and maintenance, and EMMA's radio grid report. Computer records are kept for when you turn it back on; companion radio orders still work (<a href="#emma">Ch 16b</a>).</td></tr>
   <tr><td>Chance of a locked computer</td><td>0–100%</td><td>40%</td><td>Share of newly discovered computers outside camp that are locked. Machines you already have stay as they are (<a href="#emma-locks">Ch 16b</a>).</td></tr>
   <tr><td>Classic computer locks only</td><td>on / off</td><td>off</td><td>New locked computers use only the original word puzzle; other ways in, the lamp and drawer rewards remain</td></tr>
   <tr><td>Computer drawer rewards</td><td>on / off</td><td>on</td><td>Recoveries can release a desk drawer or reveal real supplies in the building</td></tr>
@@ -3050,7 +3093,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>The shutoff date isn't the one she expects, so she stays out of it. A mod or a changed sandbox setting keeps her standing aside for as long as that holds. If an interrupted save left an old grid lease behind, she takes the controls back by herself once it has run out, within a few game days.</p>
 
 <h3>Workshop and standalone copies conflict</h3>
-<p>Remove one copy. Keep only one <code>SurvivorCompanion</code> mod folder, restart the game, and enable the remaining copy for the save.</p>
+<p>The game always loads a subscribed Workshop copy before a standalone one. Keep one edition: unsubscribe from the Workshop item, or run <code>Uninstall.bat</code> from the standalone download, then restart and enable the remaining copy for the save. In game, a <strong>Two copies installed</strong> notice means both are loading; <span class="menu">Review</span> opens Support with both versions. A Workshop upload staged under <code>%USERPROFILE%\Zomboid\Workshop</code> loads too, so keep upload staging somewhere else.</p>
 
 <h3>The standalone install broke after reinstalling the game</h3>
 <p>Close the game and rerun <code>Install.bat</code> from the latest complete standalone download. It restores Living Fellows' launcher entry when its retained ownership records still verify. If recovery is refused, keep <code>%LOCALAPPDATA%\LivingFellows</code> intact and send the exact error and <code>ProjectZomboid64.json</code> with a Support report. There is no need to rename folders or edit the launcher by hand.</p>
@@ -3059,7 +3102,10 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 <p>With the game closed, run the latest standalone <code>Install.bat</code>. It accepts a launcher that still contains verified Living Fellows entries and preserves the other mod's settings. <code>Uninstall.bat</code> removes only Living Fellows' launcher class and bridge JAR if another mod changed the file after installation. If either script refuses because ownership is unclear, keep the launcher and install records intact and send the exact error and <span class="menu">More → Support</span> report.</p>
 
 <h3>Standalone uninstall can't restore the launcher</h3>
-<p>Close Project Zomboid and rerun <code>Uninstall.bat</code> from the latest standalone release folder. It preserves verified third-party launcher settings; its backup lives under <code>%LOCALAPPDATA%\LivingFellows</code>. Don't delete that folder until the uninstall succeeds.</p>
+<p>Close Project Zomboid and rerun <code>Uninstall.bat</code> from the latest standalone release folder. It preserves verified third-party launcher settings; its backup lives under <code>%LOCALAPPDATA%\LivingFellows</code>. Don't delete that folder until the uninstall succeeds. Uninstall also finishes after Steam's <strong>Verify integrity of game files</strong>, a game update or a PZO install, removing only what Living Fellows still owns. A second run after it has finished says nothing is installed.</p>
+
+<h3>Very low frame rate or missing models after installing</h3>
+<p>Close the game, run <code>Uninstall.bat</code> and check that it ends with <code>UNINSTALL COMPLETE</code> and names no other copy. If the game is still slow after that, Living Fellows is no longer loading. Report it with <code>%USERPROFILE%\Zomboid\console.txt</code> from the slow session, your mod list, and whether PZO, ZombieBuddy or the Workshop edition is installed.</p>
 
 <h3>Mods that may conflict</h3>
 <p>Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher <code>mainClass</code> may conflict. If another mod uses <kbd>Home</kbd>, <kbd>Insert</kbd> or the keypad keys, rebind them under Living Fellows.</p>
@@ -3103,7 +3149,8 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
 
 <p class="appendix-label">Appendix D</p>
 <h2 class="chapter" id="appD">Reporting a Problem <a href="#toc" class="ch-top">&uarr; Contents</a></h2>
-<p>Use the bug report form on the <a href="https://github.com/thorelvin/living-fellows/issues">project's GitHub page</a>, or bring the report to the <a href="https://discord.gg/vPK7faQVt">Living Fellows Discord</a>. Include:</p>
+<p>The quickest way is in the game. In the pause menu, choose <span class="menu">Report a Living Fellows bug</span>, say what happened and the steps you took, then <span class="menu">Review draft</span>. The draft adds the mod and game versions, the bridge protocol and up to five recent Living Fellows diagnostic summaries, with known account and save identifiers filtered out. <span class="menu">Open GitHub draft</span> opens it in your browser, where you submit it yourself; <span class="menu">Copy draft link</span> gives you the link to paste.</p>
+<p>Otherwise use the bug report form on the <a href="https://github.com/thorelvin/living-fellows/issues">project's GitHub page</a>, or bring the report to the <a href="https://discord.gg/vPK7faQVt">Living Fellows Discord</a>. Include:</p>
 <ul class="checklist">
   <li>Living Fellows version and installation method</li>
   <li>The exact Project Zomboid version</li>
@@ -3226,6 +3273,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <li>Clean water only; they eat if no water is in reach.</li>
   <li>They treat you when it's safe: bleeding first, then wounds, then splints. A Medic stocks a real first aid kit from camp supplies.</li>
   <li><span class="k">A bite</span>: conceal, confess or leave; the group votes; you decide. Mercy and bleach wait for your authorization.</li>
+  <li><span class="k">Your death</span>: <em>Continue: The Handover</em>, then a new survivor at camp or a living recruit.</li>
 </ul>
 <p class="tbl-note">Ch 8</p>
 </div>
@@ -3250,7 +3298,7 @@ a.ch-top:hover { color: var(--rust); text-decoration: underline; }
   <tr><td class="k">Carpenter</td><td>Logs, a saw, a second container for planks</td></tr>
   <tr><td class="k">Gravekeeper</td><td>Burial ground and shovel, or a pyre, firestarter and petrol</td></tr>
   <tr><td class="k">Farmer</td><td>Crops; animals in a game animal zone within 30 tiles. Feed and shears in Farming supplies, milk containers there or in Water, Tools or Crafting; milk to barrels marked Milk, wool to Crafting, manure to composters</td></tr>
-  <tr><td class="k">Medic</td><td>First aid kit, clean dressings and a splint in Medical storage</td></tr>
+  <tr><td class="k">Medic</td><td>First aid kit, dressings, a splint, painkillers and a suture needle in Medical storage</td></tr>
   <tr><td class="k">Maintainer</td><td>Barricades marked for upkeep</td></tr>
   <tr><td class="k">Chef</td><td>Food storage or a fridge, food and cookware in storage</td></tr>
   <tr><td class="k">Angler</td><td>Fishing bank, rod and bait</td></tr>
