@@ -8,6 +8,7 @@ require "SCInteraction"
 require "SCConstructionPlanner"
 require "SCGameplayUtil"
 require "SCContextMenu"
+require "SCEmmaAccess"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -2147,7 +2148,8 @@ local function contextProbe(player, context, objects)
         local id = SC.Registry and SC.Registry.idOf and SC.Registry.idOf(object)
         local record = id and SC.Registry.byId and SC.Registry.byId(id)
         if record and record.actor == object then relevant = true end
-        if SC.Terminal and SC.Terminal.isComputer and SC.Terminal.isComputer(object) then relevant = true end
+        if SC.Terminal and SC.Terminal.isComputer and SC.EmmaAccess.enabled()
+            and SC.Terminal.isComputer(object) then relevant = true end
         if safeMethod(object, "getVehicleContainer") or safeMethod(object, "getGenerator") then relevant = true end
         if SC.GameplayUtil and (SC.GameplayUtil.instanceOf(object, "IsoGenerator")
             or SC.GameplayUtil.instanceOf(object, "BaseVehicle")) then relevant = true end
@@ -2762,11 +2764,13 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
                 end
             end
         end
-        if playerIndex == 0 and SC.GridControl and SC.GridControl.visible() and SC.GridRadio then
+        if playerIndex == 0 and SC.GridRadio and SC.EmmaAccess.enabled()
+            and SC.GridControl and SC.GridControl.visible() then
             local emma = Menus.group(services, "radio.emma", text("UI_SC_Context_RadioEmma"))
             entry(emma, "radio.grid", "EMMA: Grid report", function()
                 local okay, message = SC.GridRadio.request(player, equipped)
                 safeMethod(player, "setHaloNote", message)
+                return okay
             end)
         end
     end

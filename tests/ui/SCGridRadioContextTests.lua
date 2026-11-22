@@ -62,8 +62,13 @@ SC.GridControl.visible=function() return false end
 check(find(menuFor({radio}),"radio.grid")==nil,"unsupported grid worlds hide the contact")
 SC.GridControl.visible=function() return true end
 mission={scout={kind="search",search=true,phase="outbound"}}
+SandboxVars={LivingFellows={EmmaEnabled=false}}
+local disabled=menuFor({radio})
+check(not find(disabled,"radio.grid") and find(disabled,"radio.return"),
+    "the sandbox switch hides EMMA and keeps the equipped companion radio orders")
+SandboxVars.LivingFellows.EmmaEnabled=true
 local routine=menuFor({radio})
-check(find(routine,"radio.progress") and find(routine,"radio.return")
+check(find(routine,"radio.grid") and find(routine,"radio.progress") and find(routine,"radio.return")
     and not find(routine,"radio.progress",true) and not find(routine,"radio.return",true),
     "routine expedition progress and recall stay grouped as radio services")
 mission.scout.pause={reported=true}

@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 require "SCNamespace"
 require "SCGameplayUtil"
+require "SCEmmaAccess"
 
 local SC = SurvivorCompanion
 SC.Guidance = SC.Guidance or {}
@@ -36,6 +37,7 @@ local definitions = {
 local byId = {}
 for _, tip in ipairs(definitions) do byId[tip.id] = tip end
 local steps = {"meet","invite","order","camp","storage","job","computer"}
+local computerTips = {computer=true, short_version=true, dead_computer=true, locked_computer=true}
 -- A feature nudge keeps a dot on its tab until that tab is visited.
 local nudgeTabs = {nudge_expeditions="expeditions",nudge_jobs="more"}
 G.definitions, G.steps = definitions, steps
@@ -49,6 +51,7 @@ end
 G.text = text
 local function enabled() return not SC.UserOptions or SC.UserOptions.get("showTips") ~= false end
 G.enabled = enabled
+function G.available(id) return not computerTips[id] or SC.EmmaAccess.enabled() end
 local function restoreTooltip(c)
     if c.menu then if c.control.toolTip then c.control.toolTip.description=c.description or "" end
     else c.control.tooltip=c.tooltip end
@@ -197,7 +200,7 @@ local function facts(player, records)
     return f
 end
 local function currentStep()
-    for _,id in ipairs(steps) do if not learned[id] then return id end end
+    for _,id in ipairs(steps) do if not learned[id] and G.available(id) then return id end end
 end
 function G.pulse(player, current)
     G.load();current=current or now();lastPlayer=player
@@ -240,8 +243,8 @@ function G.pulse(player, current)
     local step=not dismissed and currentStep() or nil
     local id=bridge and "bridge" or step
     -- A nudge's twelve seconds start when it is first on screen.
-    if active and active.kind=="nudge" and (learned[active.id]
-        or active.shownAt and current-active.shownAt>=12000) then
+    if active and (not G.available(active.id) or active.kind=="nudge" and (learned[active.id]
+        or active.shownAt and current-active.shownAt>=12000)) then
         active=nil;G.clearPointer();changed()
     end
     if id then
@@ -279,12 +282,13 @@ function G.teach(player,current,f)
     if inside and f.storage>0 and f.duty==0 and f.idle>=2 then idleSince=idleSince or h else idleSince=nil end
     if current-lastNudge<900000 then return end
     local id,step
+    local computerAccess=SC.EmmaAccess.enabled()
     local o=observations.computer_near
-    if o and current-o.at>=5000 and not learned.computer and SC.Terminal
+    if computerAccess and o and current-o.at>=5000 and not learned.computer and SC.Terminal
         and SC.Terminal.present(o.facts.object) and U().distance(player,U().squareOf(o.facts.object))<=5
         and not SC.Terminal.powered(o.facts.object) then id,step="dead_computer","computer" end
     o=observations.locked_closed
-    if not id and o and SC.Terminal and SC.Terminal.present(o.facts.object)
+    if computerAccess and not id and o and SC.Terminal and SC.Terminal.present(o.facts.object)
         and SC.Terminal.powered(o.facts.object) and U().distance(player,U().squareOf(o.facts.object))<=5
         and o.facts.system and o.facts.system.locked and not SC.Terminal.window then id,step="locked_computer","computer" end
     if not id and h and campSince and h-campSince>=1 then id,step="storage_hint","storage" end
@@ -343,7 +347,7 @@ function G.dot(tab)
 end
 function G.view()
     if not enabled() or not lastSafe or dismissed then return nil end
-    local id=active and active.id or currentStep()
+    local id=active and G.available(active.id) and active.id or currentStep()
     if id then
         local message=text(id)
         if id=="meet" and SC.FirstMeeting and SC.FirstMeeting.pending() then
@@ -354,14 +358,17 @@ function G.view()
     return {id="complete",title=U().text("UI_SC_Guide_Complete","That's the basics."),
         text=U().text("UI_SC_Guide_CompleteText","The Field Guide has the rest: thorelvin.github.io/living-fellows")}
 end
-function G.signature() return tostring(revision)..":"..tostring(G.expanded==true)..":"..tostring(G.tipsExpanded==true) end
+function G.signature()
+    return tostring(revision)..":"..tostring(G.expanded==true)..":"..tostring(G.tipsExpanded==true)
+        ..":"..tostring(SC.EmmaAccess.enabled())
+end
 function G.tip(id)
-    if not enabled() or not lastSafe or learned[id] then return nil end
+    if not enabled() or not lastSafe or learned[id] or not G.available(id) then return nil end
     return text(id)
 end
 function G.list()
     G.load();local out={}
-    for _,d in ipairs(definitions) do if seen[d.id] then
+    for _,d in ipairs(definitions) do if seen[d.id] and G.available(d.id) then
         out[#out+1]={id=d.id,title=text(d.id,"title"),text=text(d.id),done=learned[d.id]==true}
     end end
     return out
@@ -444,7 +451,7 @@ end
 -- checklist card was dismissed; the optional computer step does not linger.
 function G.tracker()
     if not enabled() or not lastSafe then return nil end
-    if active and active.kind=="nudge" then
+    if active and active.kind=="nudge" and G.available(active.id) then
         return {id=active.id,kind="nudge",title=text(active.id,"title"),text=text(active.id),tab=nudgeTabs[active.id]}
     end
     if dismissed then return nil end

@@ -1,5 +1,13 @@
 VERSION = 1,
 
+option LivingFellows.EmmaEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_EmmaEnabled,
+}
+
 option LivingFellows.LockedComputerPercent
 {
     type = integer,

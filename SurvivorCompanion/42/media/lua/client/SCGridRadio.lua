@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCEmmaAccess"
 -- One explicit radio contact; native reception completes it. No polling task.
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion
@@ -24,6 +25,7 @@ end
 function R.onDeviceText(guid,code,x,y,z,message,device)
     local p=pending
     if not p then return end
+    if not SC.EmmaAccess.enabled() then pending=nil return end
     if U().now()>p.expires then pending=nil return end
     if tostring(guid)~=p.guid or tostring(code)~=p.code
         or tostring(message)~=p.text
@@ -42,6 +44,7 @@ function R.lastReport(player)
     return receipt and receipt.player==player and receipt.text or nil
 end
 function R.request(player,handset)
+    if not SC.EmmaAccess.enabled() then return false, SC.EmmaAccess.disabledText() end
     if type(getSpecificPlayer)~="function" or getSpecificPlayer(0)~=player
         or U().call(player,"isDead")==true or not owns(player,handset) or not usable(data(handset),true) then
         return false,"Equip a powered two-way walkie-talkie with an open microphone."

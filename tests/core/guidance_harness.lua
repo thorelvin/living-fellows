@@ -110,6 +110,13 @@ clock=102000;G.pulse(player,clock);check(#spoken==1,"a teaching line never repea
 G.report("ordered");G.report("camp");G.report("storage");G.report("job")
 G.pulse(player,clock)
 check(G.view().id=="computer" and G.tracker()==nil,"the optional computer step stays on the card, not beside the launcher")
+local priorSandbox=SandboxVars
+SandboxVars={LivingFellows={EmmaEnabled=false}}
+G.pulse(player,clock)
+check(G.view().id=="complete" and G.tip("computer")==nil,"disabled computers skip their optional step and hint")
+SandboxVars=priorSandbox
+G.pulse(player,clock)
+check(G.view().id=="computer","enabling EMMA restores the optional computer step")
 local computer={}
 SC.GameplayUtil.squareOf=function(a) return a end
 SC.GameplayUtil.distance=function(_,a) return a==computer and 2 or 10 end

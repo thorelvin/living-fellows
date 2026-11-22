@@ -6,7 +6,28 @@ local function check(ok,why) count=count+1 assert(ok,why) end
 local function fresh() return B.newSession({operator="Test",random=function() return 1 end}) end
 local function text(r) return F.text(r) end
 local world=F.world()
-B.respond(fresh(),"hello",world)
+do
+    local salient=H.salient
+    local calls=0
+    H.salient=function(line)
+        calls=calls+1
+        return salient(line)
+    end
+    local session=fresh()
+    local reply=B.respond(session,"what time is it",world)
+    check(reply.intent=="time" and session.context.replyHooks,"first question returns a tracked time reply")
+    check(calls>0 and calls<=#reply.lines,"first reply only extracts hooks for its own lines")
+
+    local entry=SC.TerminalLore.reference("knox_exclusion")
+    local archiveReply={intent="lore",lines={entry.text}}
+    calls=0
+    H.record(fresh(),archiveReply)
+    check(calls==1 and archiveReply.hooks["quarantine zone"]=="lore:knox_exclusion",
+        "an authored archive line preserves its aliases on first use")
+    H.record(fresh(),archiveReply)
+    check(calls==1,"the same authored line reuses its extracted hooks across sessions")
+    H.salient=salient
+end
 local catalog=H.catalog()
 check(#catalog>700,"complete public authored catalog is indexed")
 local domains={}

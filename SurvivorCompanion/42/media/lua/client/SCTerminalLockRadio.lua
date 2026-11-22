@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCEmmaAccess"
 -- One fixed fictional county transmitter; receipts come from native reception.
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local R={} SC.TerminalLockRadio=R
@@ -79,7 +80,8 @@ local function audible(player,device,x,y)
 end
 function R.onDeviceText(guid,code,x,y,z,message,device)
     local item=expected[tostring(guid)] local now=U().now()
-    if not item or now>item.expires or tostring(code)~="LF_LOCK_ESCROW" or tostring(message)~=item.text then return end
+    if not item or not SC.EmmaAccess.enabled() or now>item.expires
+        or tostring(code)~="LF_LOCK_ESCROW" or tostring(message)~=item.text then return end
     local player=type(getSpecificPlayer)=="function" and getSpecificPlayer(0)
     if not audible(player,device,x,y) then return end
     local ledger=SC.TerminalLocks.ledger() if not ledger then return end
@@ -115,6 +117,10 @@ local function transmit(call,line,now,night)
     return okay
 end
 function R.pulse(now)
+    if not SC.EmmaAccess.enabled() then
+        if lastPoll ~= 0 then R.reset() end
+        return
+    end
     local ledger=SC.TerminalLocks.ledger()
     if not ledger or (#ledger.pending==0 and not broadcast) then return end
     now=now or U().now()

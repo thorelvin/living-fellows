@@ -2,6 +2,7 @@
 # Group boundaries are fresh Lua environments in the shared serial runner.
 @{ Name = 'behaviour.power-night'; Files = @(
     (Join-Path $Essential 'power_night_fixture.lua'),
+    (Join-Path $Shared 'SCEmmaAccess.lua'),
     (Join-Path $Client 'SCTVWatching.lua'),
     (Join-Path $Client 'SCPowerNightCatalog.lua'),
     (Join-Path $Client 'SCPowerNight.lua'),

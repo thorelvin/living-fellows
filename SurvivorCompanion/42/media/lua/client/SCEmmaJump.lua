@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCEmmaAccess"
 -- A paid, foreground-only boot lease. It never powers the building, a mounted
 -- receiver or a background cracker, and it is never restored after reload.
 SurvivorCompanion=SurvivorCompanion or {}
@@ -25,6 +26,7 @@ function J.power(player,object)
     return J.active(player,object) and {source="jump",charge=lease.charge,remainingMs=math.max(0,lease.untilAt-U().now())} or nil
 end
 function J.eligible(player,object,battery)
+    if not SC.EmmaAccess.enabled() then return false, SC.EmmaAccess.disabledText() end
     if type(getSpecificPlayer)=="function" and getSpecificPlayer(0)~=player then return false,"Only the primary operator can connect borrowed power." end
     if not SC.Terminal.isComputer(object) or not U().present(object) or not SC.Terminal.near(player,object)
         or U().call(player,"isDead")==true then return false,"Stand beside the computer." end

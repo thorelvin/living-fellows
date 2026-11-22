@@ -12,6 +12,7 @@ function player:setHaloNote(text) self.note=text end
 function getSpecificPlayer(index) return index==0 and player or nil end
 function U.owns(actor,item) return item.owner==actor end
 SC.GameplayUtil.position=U.position
+SC.GameplayUtil.text=function(_,fallback) return fallback end
 local function device()
     local d={on=true,power=1,twoWay=true,channel=90000,range=500}
     function d:getIsTelevision() return self.tv==true end
@@ -76,6 +77,18 @@ R.reset() calls={}
 check(R.request(player,handset),"six-argument receipt fixture starts")
 sent=calls[2] receive()
 check(R.lastReport(player)==sent.text,"source coordinates and the native equipped handset prove a six-argument receipt")
+R.reset() calls={}
+check(R.request(player,handset),"a contact can be waiting when EMMA is disabled")
+sent=calls[2]
+SandboxVars={LivingFellows={EmmaEnabled=false}}
+local previousContacts=contacts
+check(not R.request(player,handset) and #calls==2 and contacts==previousContacts,
+    "a saved radio action cannot request or transmit with EMMA disabled")
+receive()
+check(R.lastReport(player)==nil,"disabling clears a pending grid report without displaying it")
+SandboxVars.LivingFellows.EmmaEnabled=true
+receive()
+check(R.lastReport(player)==nil,"re-enabling does not acknowledge the discarded reply")
 R.reset() calls={}
 check(R.request(player,handset),"a subsequent contact is independent")
 sent=calls[2] T.now=T.now+15001 receive()

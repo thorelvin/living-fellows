@@ -398,6 +398,7 @@ try {
 
         $vehicleContextFiles = @(
             (Join-Path $TestRoot 'vehicle_context_harness.lua'),
+            (Join-Path $Shared 'SCEmmaAccess.lua'),
             (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCUIContext.lua'),
             (Join-Path $TestRoot 'vehicle_context_run.lua')
@@ -810,6 +811,7 @@ try {
             (Join-Path $Shared 'SCSpeechColors.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $TestRoot 'bootstrap_lifecycle_fixture.lua'),
+            (Join-Path $Shared 'SCEmmaAccess.lua'),
             (Join-Path $Client 'SCTerminalLockPhone.lua'),
             (Join-Path $Client 'SCTerminalLockRadio.lua'),
             (Join-Path $Client 'SCTerminalLamp.lua'),
@@ -826,6 +828,7 @@ try {
             (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $TestRoot 'faction_lifecycle_fixture.lua'),
+            (Join-Path $Shared 'SCEmmaAccess.lua'),
             (Join-Path $Client 'SCTerminalLockPhone.lua'),
             (Join-Path $Client 'SCTerminalLockRadio.lua'),
             (Join-Path $Client 'SCFactions.lua'),

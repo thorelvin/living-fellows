@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCEmmaAccess"
 -- Terminal presentation delegates effects to checked building/hardware/radio
 -- services. Menu entries never hold permission to toggle arbitrary objects.
 require "SCExpeditionMap"
@@ -395,7 +396,8 @@ local function installationAccess(player,object)
     return U().call(from,"canReachTo",to)==true
 end
 function SCComputerInstallAction:isValid()
-    return not self.done and U().call(self.character,"isDead")~=true and U().present(self.object) and U().near(self.character,self.object,3)
+    return SC.EmmaAccess.enabled() and not self.done and U().call(self.character,"isDead")~=true
+        and U().present(self.object) and U().near(self.character,self.object,3)
         and installationAccess(self.character,self.object)
 end
 function SCComputerInstallAction:start()
@@ -419,6 +421,7 @@ function SCComputerInstallAction:perform()
     ISBaseTimedAction.perform(self)
 end
 function S.install(player,object,effect,duration)
+    if not SC.EmmaAccess.enabled() then return false, SC.EmmaAccess.disabledText() end
     if not U().near(player,object,3) or not installationAccess(player,object) then
         if not luautils or not luautils.walkAdj or not luautils.walkAdj(player,U().square(object)) then return false,"Cannot reach the equipment." end
     end

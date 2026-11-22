@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.27.63 - EMMA performance and sandbox access
+
+- EMMA extracts follow-up keywords as replies use them. This avoids a long
+  game-thread pause when a computer answers its first question.
+- **Enable EMMA** in Living Fellows sandbox settings controls player access to
+  computers, computer recovery and maintenance, and EMMA's radio grid reports.
+  It is on by default.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.62 - Camp overflow and scavenged loot swaps
 
 - Companions try marked storage first. When eligible storage is full, they

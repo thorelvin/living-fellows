@@ -2001,6 +2001,7 @@
     "UI_SC_Diary_PageDown": "Page down",
     "UI_SC_Diary_Close": "Close",
     "UI_SC_Terminal_Use": "Use computer",
+    "UI_SC_Terminal_Disabled": "EMMA is disabled in Sandbox Options.",
     "UI_SC_Terminal_NoPower": "The screen is dark. This computer has no power.",
     "UI_SC_Terminal_Placeholder": "Type to EMMA. Enter sends, Esc leaves.",
     "UI_SC_Nickname_Give": "Give nickname...",

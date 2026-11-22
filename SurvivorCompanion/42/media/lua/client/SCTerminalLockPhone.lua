@@ -1,5 +1,6 @@
 -- SPDX-License-Identifier: MIT
 require "SCContextMenu"
+require "SCEmmaAccess"
 -- An explicit internal callback. Only an active call survives a closed CRT.
 SurvivorCompanion=SurvivorCompanion or {}
 local SC=SurvivorCompanion local P={} SC.TerminalLockPhone=P
@@ -81,8 +82,9 @@ function P.stop()
     active=nil
 end
 function P.ringing() return active and active.ringing==true and active or nil end
-function P.answerable() return active and active.cycle>=0 and active or nil end
+function P.answerable() return active and active.cycle>=0 and SC.EmmaAccess.enabled() and active or nil end
 function P.dial(w)
+    if not SC.EmmaAccess.enabled() then return false end
     if not (SC.Terminal.normalPowered or SC.Terminal.powered)(w.object) then
         w.securityMessage="The internal line needs building power. Borrowed battery power only runs this screen."
         return false
@@ -121,8 +123,8 @@ local function show(player,lines)
     pane:addToUIManager() caption=pane
 end
 function P.answer(player,phone)
-    local c=active local sq=U().square(phone) local from=U().square(player)
-    if not c or c.cycle<0 or c.phone~=phone or not U().present(phone) or not U().near(player,phone,1.5)
+    local c=P.answerable() local sq=U().square(phone) local from=U().square(player)
+    if not c or c.phone~=phone or not U().present(phone) or not U().near(player,phone,1.5)
         or from~=sq and U().call(from,"canReachTo",sq)~=true or U().call(player,"isDead")==true then return false end
     local os=currentOS(c)
     if not os or not P.sameLine(c.pc,phone) or not (SC.Terminal.normalPowered or SC.Terminal.powered)(c.pc) then P.stop() return false end
@@ -162,6 +164,7 @@ function P.context(index,context,objects,test)
     end
 end
 function P.pulse(now)
+    if (active or caption) and not SC.EmmaAccess.enabled() then P.reset() return end
     if not active then return end
     local c=active now=now or U().now()
     local dt=math.max(0,math.min(250,now-c.last)) c.last=now

@@ -140,6 +140,7 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Shared 'SCSpeechColors.lua'),
     (Join-Path $Shared 'SCCall.lua'),
     (Join-Path $Core 'bootstrap_lifecycle_fixture.lua'),
+    (Join-Path $Shared 'SCEmmaAccess.lua'),
     (Join-Path $Client 'SCTerminalLockPhone.lua'),
     (Join-Path $Client 'SCTerminalLockRadio.lua'),
     (Join-Path $Client 'SCTerminalLamp.lua'),

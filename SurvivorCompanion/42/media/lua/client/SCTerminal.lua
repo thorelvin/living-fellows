@@ -17,6 +17,7 @@ require "ISUI/ISTextEntryBox"
 require "TimedActions/ISBaseTimedAction"
 require "Moveables/ISMoveableSpriteProps"
 require "SCContextMenu"
+require "SCEmmaAccess"
 require "SCEmmaTerminal"
 require "SCEmmaMind"
 require "SCEmmaJump"
@@ -947,11 +948,19 @@ function SCTerminalWindow:onClose()
     self:close()
 end
 
+function SCTerminalWindow:interactionsAllowed()
+    if self.closed then return false end
+    if SC.EmmaAccess.enabled() then return true end
+    self:close()
+    return false
+end
+
 function SCTerminalWindow:playClickSound()
     return Terminal.playFeedbackSound(Terminal.CLICK_SOUND)
 end
 
 function SCTerminalWindow:otherKey(key)
+    if not self:interactionsAllowed() then return end
     if type(Keyboard) ~= "table" then return end
     if SC.TerminalPersonaUI and SC.TerminalPersonaUI.active(self) and key==Keyboard.KEY_TAB then return end
     if self.system and self.system.locked and self.lockPage=="manual" and SC.TerminalLockWheel then
@@ -1031,6 +1040,7 @@ function SCTerminalWindow:onMouseWheel(delta)
 end
 
 function SCTerminalWindow:onMouseDown(x, y)
+    if not self:interactionsAllowed() then return true end
     if self.state~="closing" and SC.TerminalScanUI and SC.TerminalScanUI.active(self) then
         SC.TerminalScanUI.click(self,x,y)
         if self.entry then pcall(function() self.entry:focus() end) end
@@ -1666,6 +1676,7 @@ function SCTerminalWindow:finishCommand()
 end
 
 function SCTerminalWindow:submit(selected)
+    if not self:interactionsAllowed() then return end
     -- Pointer choices carry their exact value; setting display text and reading
     -- it back in the same frame must not substitute an older editing buffer.
     local raw = selected~=nil and tostring(selected) or Terminal.entryText(self.entry)
@@ -1728,6 +1739,7 @@ end
 -- The inventory action is scoped to this exact open page and exact carried
 -- item. A stale context menu cannot swipe at a replacement computer/window.
 function Terminal.cardWindowFor(player)
+    if not SC.EmmaAccess.enabled() then return nil end
     local w=Terminal.cardWindow
     if not w or w~=Terminal.window or w.closed or w.state~="idle" or w.player~=player
         or not w.system or not w.system.locked or not w.system.lock or w.system.lock.kind~="card"
@@ -1746,7 +1758,7 @@ end
 function SCTerminalWindow:close()
     if Terminal.cardWindow==self then Terminal.cardWindow=nil end
     if self.closed then return end
-    if SC.Guidance and self.system and self.system.locked then
+    if SC.Guidance and SC.EmmaAccess.enabled() and self.system and self.system.locked then
         SC.Guidance.report("locked_closed",{object=self.object,system=self.system})
     end
     if SC.BuildingControls and type(SC.BuildingControls.suspend)=="function" then SC.BuildingControls.suspend(self.object) end
@@ -1837,7 +1849,7 @@ end
 
 function SCTerminalWindow:update()
     ISPanel.update(self)
-    if self.closed then return end
+    if not self:interactionsAllowed() then return end
     local now = nowMs()
     self:watch(now)
     if self.closed then return end
@@ -2344,6 +2356,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function Terminal.open(player, object)
+    if not SC.EmmaAccess.enabled() then return false, "emma_disabled" end
     if not Terminal.isComputer(object) then return false, "not_computer" end
     if not Terminal.powered(object) then return false, "no_power" end
     if not Terminal.near(player, object) or call(player, "isDead") == true then
@@ -2373,7 +2386,8 @@ end
 SCUseTerminalAction = ISBaseTimedAction:derive("SCUseTerminalAction")
 
 function SCUseTerminalAction:isValid()
-    return Terminal.isComputer(self.object) and Terminal.powered(self.object) and Terminal.near(self.character, self.object)
+    return SC.EmmaAccess.enabled() and Terminal.isComputer(self.object)
+        and Terminal.powered(self.object) and Terminal.near(self.character, self.object)
         and call(self.character, "isDead") ~= true
 end
 
@@ -2407,6 +2421,7 @@ function SCUseTerminalAction:new(character, object)
 end
 
 function Terminal.use(player, object)
+    if not SC.EmmaAccess.enabled() then return false, "emma_disabled" end
     if not Terminal.isComputer(object) then return false, "not_computer" end
     if not player or not Terminal.powered(object) then return false, "no_power" end
     if type(ISTimedActionQueue) ~= "table" or type(luautils) ~= "table" then
@@ -2430,9 +2445,11 @@ end
 function Terminal.fillWorldObjectContextMenu(playerIndex, context, worldObjects, player)
     if context == nil or player == nil or playerIndex ~= 0 then return false end
     SC.ContextMenu.removeOwned(context,function(option)
-        return option.scLFContext and type(option.scMenuKey)=="string"
-            and string.sub(option.scMenuKey,1,9)=="terminal."
+        local key = option.scMenuKey
+        return option.scLFContext and type(key) == "string"
+            and (key == "drawer.force" or string.sub(key, 1, 9) == "terminal.")
     end)
+    if not SC.EmmaAccess.enabled() then return false end
     if SC.TerminalDrawers then SC.TerminalDrawers.context(context,player,worldObjects) end
     local computer = Terminal.findComputer(worldObjects)
     if not computer or not Terminal.near(player, computer) then return false end

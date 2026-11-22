@@ -53,8 +53,10 @@ function UI.build(detail,panel,y)
     if G.expanded then
         local done={};for _,item in ipairs(G.list()) do done[item.id]=item.done end
         for _,id in ipairs(G.steps) do
-            y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",
-                (done[id] and label("UI_SC_Guide_Done","Done: ") or "- ")..G.text(id,"title"))
+            if G.available(id) then
+                y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",
+                    (done[id] and label("UI_SC_Guide_Done","Done: ") or "- ")..G.text(id,"title"))
+            end
         end
     end
     local w=math.max(60,(panel:getWidth()-24)/2);local h=metrics.buttonHeight

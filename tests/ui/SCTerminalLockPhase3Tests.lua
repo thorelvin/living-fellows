@@ -138,7 +138,14 @@ do
     -- A later call to the same physical handset cannot satisfy an old action.
     w.system.lock.redialUntil=nil;input(w,"1") T.now=T.now+100 P.pulse(T.now)
     check(not callback() and not w.system.lock.heard,"stale action cannot answer a replacement call")
-    P.stop();SC.TerminalServices=services
+    P.context(0,context,{phone},false) click(receiver)
+    SandboxVars.LivingFellows.EmmaEnabled=false
+    check(not P.context(0,context,{phone},true) and not callback() and not w.system.lock.heard,
+        "disabled EMMA hides the telephone recovery and rejects an already queued answer")
+    P.pulse(T.now)
+    check(not P.ringing() and not P.answerable(),"disabling stops a ringing internal line")
+    SandboxVars.LivingFellows.EmmaEnabled=nil
+    SC.TerminalServices=services
 end
 local definition=square.getBuildingDef square.getBuildingDef=function() return {} end
 check(not P.dial(w),"a moved computer cannot call a different building's internal line") square.getBuildingDef=definition
@@ -220,6 +227,14 @@ T.hours=24*9+2.99 tod=2.99 T.now=T.now+1000 R.pulse(T.now)
 check(#sent==oldSent,"new recovery request still waits through 02:59")
 T.hours=24*9+3.01 tod=3.01 T.now=T.now+1000 R.pulse(T.now)
 check(#sent==oldSent+1,"next real 03:00 starts the queued recovery broadcast")
+SandboxVars.LivingFellows.EmmaEnabled=false
+T.now=T.now+6000 R.pulse(T.now)
+check(#sent==oldSent+1 and #ledger.pending==1,
+    "disabled EMMA suspends the recovery broadcast with its saved request intact")
+T.now=T.now+1000 R.pulse(T.now)
+check(#sent==oldSent+1 and #ledger.pending==1,
+    "idle recovery radio remains quiet while disabled")
+SandboxVars.LivingFellows.EmmaEnabled=nil
 R.reset() ledger={} L.reset() sent={} T.hours=74.9 tod=2.9
 local pendingStates={}
 for i=1,5 do

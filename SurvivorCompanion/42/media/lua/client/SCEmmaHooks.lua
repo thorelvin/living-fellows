@@ -36,7 +36,10 @@ end
 function H.salient(text)
     text=tostring(text or ""):gsub("{[%w_]+}","")
     local out,seen={},{}
-    for _,term in ipairs(nouns) do if contains(text,term) then add(out,seen,term) end end
+    local padded=" "..normal(text).." "
+    for _,term in ipairs(nouns) do
+        if padded:find(" "..term.." ",1,true) then add(out,seen,term) end
+    end
     -- Proper names and capitals inside sentences. Sentence-initial ordinary
     -- words are not names. Whole names are also retained by archive aliases.
     local previous="."
@@ -101,18 +104,40 @@ local aliases={kentucky="state",commonwealth="state",frankfort="state",budget="m
     ["gas station"]="gas_station",["gas stations"]="gas_station"}
 local built=false
 local rows,byText={},{}
-local function derive(text,target,source,declared)
-    local row={text=text,target=target,source=source,hooks={}}
-    for _,term in ipairs(H.salient(text)) do row.hooks[term]=declared and declared[term] or aliases[term] or answers[term] and term or target end
-    for term,value in pairs(declared or {}) do row.hooks[normal(term)]=value end
+local function indexLine(text,target,source,declared)
+    local row={text=text,target=target,source=source,declared=declared}
     rows[#rows+1]=row byText[text]=row
     return row
 end
+local function addHooks(hooks,terms,target,declared)
+    for _,term in ipairs(terms) do
+        hooks[term]=declared and declared[term] or aliases[term] or answers[term] and term or target
+    end
+    if declared then
+        for term,value in pairs(declared) do hooks[normal(term)]=value end
+    end
+end
+local function lineHooks(row)
+    if row.hooks then return row.hooks end
+    local terms=H.salient(row.text)
+    local declared=row.declared
+    local entry=row.lore
+    if entry then
+        declared=entry.hooks or {}
+        for _,term in ipairs(terms) do declared[term]=declared[term] or row.target end
+        for _,term in ipairs(entry.aliases or {}) do declared[normal(term)]=row.target end
+        entry.hooks=declared
+    end
+    local hooks={}
+    addHooks(hooks,terms,row.target,declared)
+    row.hooks=hooks
+    return hooks
+end
 local function walk(value,target,source,depth)
     if depth>5 then return end
-    if type(value)=="string" then derive(value,target,source)
+    if type(value)=="string" then indexLine(value,target,source)
     elseif type(value)=="table" then
-        if value.text then derive(value.text,target,source,value.hooks)
+        if value.text then indexLine(value.text,target,source,value.hooks)
         else for _,part in ipairs(value) do walk(part,target,source,depth+1) end end
     end
 end
@@ -130,6 +155,7 @@ local loreFacets={
 function H.install()
     if built then return end
     built=true
+    -- Register authored lines by text. Extract hooks only when a reply uses a line.
     for id,pool in pairs(SC.TerminalLines and SC.TerminalLines.POOLS or {}) do walk(pool,"pool:"..id,"emma:"..id,0) end
     for id,pool in pairs(SC.EmmaLanguageData and SC.EmmaLanguageData.pools or {}) do walk(pool,"pool:"..id,"emma:"..id,0) end
     for id,pool in pairs(SC.TerminalKnowledge and SC.TerminalKnowledge.EXTRA_POOLS or {}) do
@@ -141,12 +167,11 @@ function H.install()
     for _,entry in ipairs(SC.TerminalLore and SC.TerminalLore.REFERENCE or {}) do
         archive[entry.id]=entry
         entry.facets=entry.facets or loreFacets[entry.id]
-        entry.hooks=entry.hooks or {}
-        for _,term in ipairs(H.salient(entry.text)) do entry.hooks[term]=entry.hooks[term] or "lore:"..entry.id end
-        for _,term in ipairs(entry.aliases or {}) do entry.hooks[normal(term)]="lore:"..entry.id end
-        derive(entry.text,"lore:"..entry.id,"lore:"..entry.id,entry.hooks)
+        local target="lore:"..entry.id
+        local row=indexLine(entry.text,target,target)
+        row.lore=entry
     end
-    for _,row in ipairs(H.weather or {}) do derive(row.text,"pool:weather","emma:weather",row.hooks) end
+    for _,row in ipairs(H.weather or {}) do indexLine(row.text,"pool:weather","emma:weather",row.hooks) end
     for id,facets in pairs(answers) do for _,line in pairs(facets) do walk(line,id,"emma:hook:"..id,0) end end
     for _,guide in ipairs(SC.TerminalConversation.GUIDES) do
         walk(guide.pages,"guide:"..guide.id,"emma:guide:"..guide.id,0)
@@ -171,7 +196,11 @@ function H.install()
         for rule,pools in pairs(data.dark or {}) do for _,pool in pairs(pools) do walk(pool,"persona:"..rule,id..":"..rule,0) end end
     end
 end
-function H.catalog() H.install() return rows end
+function H.catalog()
+    H.install()
+    for _,row in ipairs(rows) do lineHooks(row) end
+    return rows
+end
 function H.lint(record)
     local missing={}
     if not record.closed then
@@ -184,10 +213,11 @@ local function collect(lines,target)
     local out={}
     for _,line in ipairs(lines or {}) do
         local row=byText[line]
-        for _,term in ipairs(H.salient(line)) do
-            out[term]=row and row.hooks[term] or aliases[term] or answers[term] and term or target
+        if row then
+            for term,value in pairs(lineHooks(row)) do out[term]=value end
+        else
+            addHooks(out,H.salient(line),target)
         end
-        if row then for term,value in pairs(row.hooks) do out[term]=value end end
     end
     return out
 end

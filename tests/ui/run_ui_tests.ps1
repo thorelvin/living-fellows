@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
 $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$Shared = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
 $Javac = & (Join-Path $ProjectRoot 'scripts\Resolve-TestJavac.ps1')
@@ -71,6 +72,7 @@ try {
         }
         $medicalContextFiles = @(
             (Join-Path $TestRoot 'SCMedicalContextFixture.lua'),
+            (Join-Path $Shared 'SCEmmaAccess.lua'),
             # Same base classes as the release gate's context groups; area
             # drafting installs a native ISBuildingObject cursor.
             (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
@@ -110,6 +112,7 @@ try {
         if ($ContextOnly) { Write-Output 'CONTEXT_UI_PASS'; return }
         $terminalFiles = @(
             (Join-Path $TestRoot 'SCTerminalFixture.lua'),
+            (Join-Path $Shared 'SCEmmaAccess.lua'),
             (Join-Path $Client 'SCContextMenu.lua'),
             (Join-Path $Client 'SCTerminalLines.lua'),
             (Join-Path $Client 'SCTerminalKnowledge.lua'),
@@ -258,6 +261,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Grid control state and idle-cost tests failed.' }
         $gridRadioFiles=@(
             (Join-Path $TestRoot 'SCGridControlFixture.lua'),
+            (Join-Path $Shared 'SCEmmaAccess.lua'),
             (Join-Path $Client 'SCGridRadio.lua'),
             (Join-Path $TestRoot 'SCGridRadioTests.lua')
         )

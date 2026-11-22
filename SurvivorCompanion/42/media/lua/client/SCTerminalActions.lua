@@ -1,4 +1,5 @@
 -- SPDX-License-Identifier: MIT
+require "SCEmmaAccess"
 -- EMMA may propose a request, but only a fresh, local confirmation can submit
 -- it. Tickets are ephemeral and bind the exact computer, camp and target.
 SurvivorCompanion = SurvivorCompanion or {}
@@ -32,6 +33,7 @@ local function reasonText(reason)
     return tostring(reason or "request unavailable"):gsub("_", " ")
 end
 local function context(window, expectedBase, localServices)
+    if not SC.EmmaAccess.enabled() then return nil, SC.EmmaAccess.disabledText() end
     local terminal = SC.Terminal
     if not window or window.closed or terminal.window ~= window or not window.system
         or window.system.locked ~= false or not terminal.present(window.object)

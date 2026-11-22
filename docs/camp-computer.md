@@ -14,6 +14,11 @@ service. She is a small offline parser with short-term context, and every
 current-world fact she gives you comes from the save. References to county
 networks and computer systems are fiction within the game.
 
+**Enable EMMA** is on by default under **Sandbox Options > Living Fellows**.
+Turn it off to hide computer and maintenance actions, computer recovery, and
+EMMA's walkie-talkie grid report. Computer records are kept for when you turn
+EMMA back on. Companion radio orders work with either setting.
+
 ## What is implemented
 
 EMMA remains the Kentucky civil-defence beta installed on county machines in

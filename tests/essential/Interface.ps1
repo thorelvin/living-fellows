@@ -22,6 +22,7 @@
 @{ Name = 'interface.first-hour-guidance'; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
     (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCEmmaAccess.lua'),
     (Join-Path $Client 'SCGuidance.lua'),
     (Join-Path $Core 'guidance_harness.lua'),
     (Join-Path $Client 'SCGuidance.lua'),
@@ -74,6 +75,7 @@ $interfacePanelFiles = @(
 
 $interfaceContextFiles = @(
     (Join-Path $UI 'SCMedicalContextFixture.lua'),
+    (Join-Path $Shared 'SCEmmaAccess.lua'),
     (Join-Path $GameRoot 'media\lua\shared\ISBaseObject.lua'),
     (Join-Path $GameRoot 'media\lua\server\BuildingObjects\ISBuildingObject.lua'),
     (Join-Path $GameRoot 'media\lua\client\ISUI\ISContextMenu.lua'),
@@ -90,6 +92,7 @@ $interfaceContextFiles = @(
 
 $interfaceTerminalFiles = @((Join-Path $UI 'SCTerminalFixture.lua'),
     (Join-Path $Client 'SCContextMenu.lua'),
+    (Join-Path $Shared 'SCEmmaAccess.lua'),
     (Join-Path $Shared 'SCEmmaCareData.lua'),
     (Join-Path $Shared 'SCEmmaCare.lua'))
 foreach ($module in @(
@@ -124,6 +127,10 @@ foreach ($module in @(
     (Join-Path $Client 'SCTerminalServices.lua'),
     (Join-Path $UI 'SCBuildingServicesTests.lua')
 ) }
+@{ Name = 'interface-emma-sandbox-access'; Files = @($interfaceTerminalFiles) + @(
+    (Join-Path $Client 'SCTerminalServices.lua'),
+    (Join-Path $UI 'SCTerminalAccessTests.lua')
+) }
 @{ Name = 'interface-terminal-locks'; Files = @($interfaceTerminalFiles) + @(
     (Join-Path $UI 'SCTerminalLocksTests.lua')
 ) }
@@ -156,10 +163,10 @@ foreach ($module in @(
     (Join-Path $UI 'SCEmmaTalkPolishFixture.lua'),
     (Join-Path $UI 'SCEmmaTalkPolishBaseline.lua'),
     (Join-Path $UI 'SCEmmaBlindTests.lua'),
+    (Join-Path $Gameplay 'emma_hooks_harness.lua'),
     (Join-Path $Gameplay 'emma_talk_polish_harness.lua'),
     (Join-Path $Gameplay 'lock_talk_polish_harness.lua'),
     (Join-Path $Gameplay 'emma_talk_questions_harness.lua'),
-    (Join-Path $Gameplay 'emma_hooks_harness.lua'),
     (Join-Path $Gameplay 'emma_reference_harness.lua'),
     (Join-Path $Gameplay 'emma_context_harness.lua'),
     (Join-Path $Gameplay 'emma_talk_chat_harness.lua'),
