@@ -28,6 +28,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $GameRoot = [System.IO.Path]::GetFullPath($GameRoot)
+. (Join-Path $PSScriptRoot 'StandaloneEnvironment.ps1')
 $VersionFile = Join-Path $ProjectRoot 'VERSION.txt'
 if (-not (Test-Path -LiteralPath $VersionFile -PathType Leaf)) {
     throw "Canonical version file is missing: $VersionFile"
@@ -90,41 +91,6 @@ function Test-InstallSamePath([string]$Left, [string]$Right) {
         [System.StringComparison]::OrdinalIgnoreCase)
 }
 
-# Copies that share the mod id SurvivorCompanion. Project Zomboid reads mod
-# folders in a fixed order -- upload staging under Zomboid\Workshop, then
-# subscribed Workshop items, then Zomboid\mods -- and keeps the first copy of
-# an id, so either of these loads instead of this install. Never touch them.
-function Get-InstallWorkshopSubscription([string]$GameRoot) {
-    $common = Split-Path -Parent ([System.IO.Path]::GetFullPath($GameRoot).TrimEnd('\'))
-    $steamapps = if ($common) { Split-Path -Parent $common } else { '' }
-    if (-not $steamapps -or (Split-Path -Leaf $common) -ine 'common' -or
-        (Split-Path -Leaf $steamapps) -ine 'steamapps') { return '' }
-    $item = Join-Path $steamapps 'workshop\content\108600\3805760339'
-    if (-not (Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container)) {
-        return ''
-    }
-    # Steam lists subscribed items here and drops an item when it is
-    # unsubscribed; a folder it no longer lists is not loaded by the game.
-    $record = Join-Path $steamapps 'workshop\appworkshop_108600.acf'
-    if ((Test-Path -LiteralPath $record -PathType Leaf) -and
-        -not (Select-String -LiteralPath $record -SimpleMatch '"3805760339"' -Quiet)) {
-        return ''
-    }
-    return $item
-}
-
-function Get-InstallStagingCopies([string]$ModsRoot) {
-    $copies = New-Object System.Collections.Generic.List[string]
-    $staging = Join-Path (Split-Path -Parent ([System.IO.Path]::GetFullPath($ModsRoot).TrimEnd('\'))) 'Workshop'
-    if (Test-Path -LiteralPath $staging -PathType Container) {
-        Get-ChildItem -LiteralPath $staging -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $copy = Join-Path $_.FullName 'Contents\mods\SurvivorCompanion'
-            if (Test-Path -LiteralPath $copy -PathType Container) { $copies.Add($copy) }
-        }
-    }
-    return $copies.ToArray()
-}
-
 function Enable-LivingFellowsModProfile([string]$ProfilePath) {
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     $profile = if (Test-Path -LiteralPath $ProfilePath -PathType Leaf) {
@@ -132,7 +98,7 @@ function Enable-LivingFellowsModProfile([string]$ProfilePath) {
     } else {
         "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
     }
-    if ($profile -match '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$') {
+    if ([regex]::IsMatch($profile, $LivingFellowsProfileEntry)) {
         return $false
     }
     $block = [regex]::Match($profile, '(?ms)(^\s*mods\s*\{)(.*?)(^\s*\})')
@@ -156,14 +122,14 @@ function Enable-LivingFellowsModProfile([string]$ProfilePath) {
         }
     }
     $verified = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
-    if ($verified -notmatch '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$') {
+    if (-not [regex]::IsMatch($verified, $LivingFellowsProfileEntry)) {
         throw "Living Fellows was not retained in the Project Zomboid mod profile: $ProfilePath"
     }
     return $true
 }
 
-$workshopSubscription = Get-InstallWorkshopSubscription $GameRoot
-if ($workshopSubscription) {
+$workshopCopy = @(Get-LivingFellowsWorkshopCopies $GameRoot)[0]
+if ($workshopCopy) {
     $pageOpened = $false
     if ($OpenWorkshopPageOnConflict) {
         try {
@@ -171,10 +137,11 @@ if ($workshopSubscription) {
             $pageOpened = $true
         } catch { }
     }
-    throw ("You are subscribed to Living Fellows on the Steam Workshop ($workshopSubscription). " +
-        'Project Zomboid always loads the Workshop copy instead of this standalone copy, and the two ' +
-        'do not work together. Nothing was changed. ' +
-        $(if ($pageOpened) { 'The Workshop page is now open in Steam: click Unsubscribe there, ' }
+    $effect = if ($workshopCopy.Installed) { 'Project Zomboid can load that copy in place of the standalone edition. ' }
+        else { 'Project Zomboid can load the Workshop copy after Steam finishes downloading it. ' }
+    throw ("Steam still lists or has a Living Fellows Workshop copy at $($workshopCopy.Path). " +
+        $effect + 'Nothing was changed. ' +
+        $(if ($pageOpened) { 'Click Unsubscribe on the Workshop page in Steam, ' }
             else { 'Unsubscribe at https://steamcommunity.com/sharedfiles/filedetails/?id=3805760339, ' }) +
         'wait until Steam has removed it, then run Install.bat again. To keep the Workshop edition ' +
         'instead, use it with ZombieBuddy and do not install this one.')
@@ -570,7 +537,7 @@ if (-not $profileActivationFailed -and $profileUpdated) {
 } elseif (-not $profileActivationFailed) {
     Write-Output 'Living Fellows is already present in the default Project Zomboid mod profile.'
 }
-foreach ($copy in @(Get-InstallStagingCopies $ModsRoot)) {
+foreach ($copy in @(Get-LivingFellowsStagingCopies $ModsRoot)) {
     Write-Warning ("A Workshop upload copy of Living Fellows is at $copy. Project Zomboid " +
         'loads that copy instead of this one, with a bridge that does not match it. ' +
         'Move that folder out of Zomboid\Workshop to use this install.')

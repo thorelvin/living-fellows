@@ -794,7 +794,10 @@ switch ($Case) {
     $fixture = New-StandaloneFixture ('uninstall-after-repair-' + $Variant)
     $profilePath = Join-Path $fixture.mods 'default.txt'
     $profileBefore = "VERSION = 1,`r`n`r`nmods`r`n{`r`n    mod = KeepThisMod,`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
-    [System.IO.File]::WriteAllText($profilePath, $profileBefore,
+    $existingProfile = if ($Variant -eq 'steam-check') {
+        $profileBefore.Replace('    mod = KeepThisMod,', "    mod = \SurvivorCompanion,`r`n    mod = KeepThisMod,")
+    } else { $profileBefore }
+    [System.IO.File]::WriteAllText($profilePath, $existingProfile,
         (New-Object System.Text.UTF8Encoding($false)))
     $foreignJar = ''
     if ($Variant -eq 'pzo-steam-check') { $foreignJar = Set-ScPzoLauncherFixture $fixture }
@@ -804,10 +807,13 @@ switch ($Case) {
     Install-StandaloneFixture $ProjectRoot $fixture $StandalonePreparedPayload $PrebuiltJar
     $gameJar = Join-Path $fixture.game 'LivingFellowsBridge.jar'
     $bridgeManifest = Join-Path $fixture.bridge 'install-manifest.json'
+    $profileAfterInstall = Get-Content -LiteralPath $profilePath -Raw -Encoding utf8
     if (-not (Test-Path -LiteralPath $gameJar -PathType Leaf) -or
-        (Get-Content -LiteralPath $profilePath -Raw -Encoding utf8) -notmatch
-            '(?m)^\s*mod = SurvivorCompanion,') {
+        $profileAfterInstall -notmatch '(?m)^\s*mod = \\?SurvivorCompanion,') {
         throw 'Repair fixture install did not place the bridge and enable the mod.'
+    }
+    if ($Variant -eq 'steam-check' -and $profileAfterInstall -cne $existingProfile) {
+        throw 'Install added a duplicate entry beside the existing backslash-prefixed mod id.'
     }
     if ($Variant -in @('steam-check', 'pzo-steam-check')) {
         # Steam restores its own launcher and leaves extra files such as our JAR.
@@ -931,23 +937,47 @@ switch ($Case) {
         -not (Test-Mentions $installText $stagingCopy)) {
         throw 'Installer misjudged a leftover Workshop folder or missed the upload staging copy.'
     }
-    # Subscribed: the Workshop copy would load instead, so refuse before any change.
-    Set-Content -LiteralPath $record -Encoding utf8 -Value `
-        "`"AppWorkshop`"`n{`n`t`"WorkshopItemsInstalled`"`n`t{`n`t`t`"3805760339`"`n`t`t{`n`t`t}`n`t}`n}"
     $profilePath = Join-Path $fixture.mods 'default.txt'
-    $before = (Get-StandaloneFixtureSnapshot $fixture) + (Get-FileHash -LiteralPath $profilePath).Hash
-    $refusal = ''
-    try { Get-CaseText $runInstall | Out-Null } catch { $refusal = $_.Exception.Message }
-    if ($refusal -notlike '*subscribed to Living Fellows on the Steam Workshop*' -or
-        -not (Test-Mentions $refusal 'filedetails/?id=3805760339') -or
-        -not (Test-Mentions $refusal 'Nothing was changed') -or
-        ((Get-StandaloneFixtureSnapshot $fixture) + (Get-FileHash -LiteralPath $profilePath).Hash) -ne $before) {
-        throw "A Workshop subscription was not refused before any change: $refusal"
+    function Assert-WorkshopRefusal([string]$Location) {
+        $before = (Get-StandaloneFixtureSnapshot $fixture) + (Get-FileHash -LiteralPath $profilePath).Hash
+        $refusal = ''
+        try { Get-CaseText $runInstall | Out-Null } catch { $refusal = $_.Exception.Message }
+        if ($refusal -notlike '*Steam still lists or has a Living Fellows Workshop copy*' -or
+            -not (Test-Mentions $refusal $Location) -or
+            -not (Test-Mentions $refusal 'filedetails/?id=3805760339') -or
+            -not (Test-Mentions $refusal 'Nothing was changed') -or
+            ((Get-StandaloneFixtureSnapshot $fixture) + (Get-FileHash -LiteralPath $profilePath).Hash) -ne $before) {
+            throw "Workshop copy at $Location was not refused before any change: $refusal"
+        }
     }
+    $unlisted = Get-Content -LiteralPath $record -Raw -Encoding utf8
+    $listed = $unlisted.Replace('515555911', '3805760339')
+    [IO.File]::WriteAllText($record, $listed)
+    Assert-WorkshopRefusal $workshopItem
+    [IO.File]::WriteAllText($record, $unlisted)
+
+    $otherLibrary = Join-Path $root 'secondary library'
+    $otherWorkshop = Join-Path $otherLibrary 'steamapps\workshop'
+    $otherRecord = Join-Path $otherWorkshop 'appworkshop_108600.acf'
+    $otherItem = Join-Path $otherWorkshop 'content\108600\3805760339'
+    New-Item -ItemType Directory -Path $otherWorkshop -Force | Out-Null
+    $libraries = Join-Path $steamapps 'libraryfolders.vdf'
+    [IO.File]::WriteAllLines($libraries, [string[]]@('"libraryfolders"', '{', '"1"', '{',
+        ('"path" "' + $otherLibrary.Replace('\', '\\') + '"'), '}', '}'))
+    $pending = $listed.Replace('WorkshopItemsInstalled', 'WorkshopItemDetails')
+    [IO.File]::WriteAllText($otherRecord, $pending)
+    Assert-WorkshopRefusal $otherItem
+    New-Item -ItemType Directory -Path (Join-Path $otherItem 'mods\SurvivorCompanion') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $otherItem 'mods\SurvivorCompanion\mod.info') `
+        -Value 'id=SurvivorCompanion' -Encoding utf8
+    [IO.File]::WriteAllText($otherRecord, $listed)
+    Assert-WorkshopRefusal $otherItem
+    $otherBefore = Get-TreeSnapshot @{ workshop = $otherItem; record = $otherRecord }
+
     # Subscribing after installing standalone: uninstall still finishes and
     # names everything that keeps loading.
     $uninstallText = Get-CaseText $runUninstall
-    if (-not (Test-Mentions $uninstallText $workshopItem) -or
+    if (-not (Test-Mentions $uninstallText $otherItem) -or (Test-Mentions $uninstallText $workshopItem) -or
         -not (Test-Mentions $uninstallText $stagingCopy) -or
         (Test-Path -LiteralPath $fixture.target)) {
         throw 'Uninstall did not finish or did not name the copies that still load.'
@@ -956,7 +986,8 @@ switch ($Case) {
     if ($again -notmatch 'nothing was removed' -or -not (Test-Mentions $again $stagingCopy)) {
         throw 'A second uninstall run did not report a clean state and the remaining copy.'
     }
-    if ((Get-TreeSnapshot @{ workshop = $workshopItem; staging = $stagingCopy }) -ne $copiesBefore) {
+    if ((Get-TreeSnapshot @{ workshop = $workshopItem; staging = $stagingCopy }) -ne $copiesBefore -or
+        (Get-TreeSnapshot @{ workshop = $otherItem; record = $otherRecord }) -ne $otherBefore) {
         throw 'Install or uninstall changed another copy of Living Fellows.'
     }
 }

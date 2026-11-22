@@ -70,13 +70,16 @@ end
 
 local function bridgeAdvice(status)
     local editions = status and status.editions
-    if type(editions) == "table" and editions.mixed == true then
+    if type(editions) == "table" and (editions.mixed == true or editions.standaloneRelease) then
         local copy = editions.luaSource == "staging"
             and "A Workshop upload copy in Zomboid\\Workshop" or "The Steam Workshop copy"
-        return copy .. " of Living Fellows (" .. tostring(editions.luaRelease)
-            .. ") is loading with the standalone bridge from Install.bat ("
-            .. tostring(editions.bridgeRelease) .. "). Keep one edition, then restart: "
-            .. "unsubscribe from the Workshop copy, or run Uninstall.bat from the standalone download."
+        local action = editions.luaSource == "staging"
+            and "Move the upload folder out of Zomboid\\Workshop" or "Unsubscribe from the Steam Workshop copy"
+        local standalone = editions.mixed == true
+            and " is loading with the standalone bridge (" .. tostring(editions.bridgeRelease) .. "). "
+            or " is active alongside a local standalone copy (" .. tostring(editions.standaloneRelease) .. "). "
+        return copy .. " of Living Fellows (" .. tostring(editions.luaRelease) .. ")" .. standalone
+            .. action .. " or run Uninstall.bat from the standalone download, then restart."
     end
     local code = status and status.code or "unavailable"
     if code == "ready" then return "Native companion bridge is ready." end
@@ -317,7 +320,9 @@ function support.summary(force)
             .. tostring(editions.luaRelease or "unknown") .. " | bridge "
             .. tostring(editions.bridgeOrigin or "unknown") .. " "
             .. tostring(editions.bridgeRelease or "unknown")
-            .. (editions.mixed == true and " | two editions mixed" or ""),
+            .. (editions.mixed == true and " | two editions mixed"
+                or editions.standaloneRelease and " | standalone install " .. editions.standaloneRelease
+                    .. " | two editions installed" or ""),
         "Suggested action: " .. tostring(bridge.advice or "none"),
         "Active companions: " .. tostring(data.companions),
         "Bandits adapter: " .. tostring(data.bandits and data.bandits.state or "absent")

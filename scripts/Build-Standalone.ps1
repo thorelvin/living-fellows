@@ -52,7 +52,7 @@ if (-not $SkipNativeBridge) {
 & (Join-Path $ProjectRoot 'scripts\New-StandalonePayload.ps1') `
     -ProjectRoot $ProjectRoot -OutputRoot $stageRoot | Out-Null
 
-foreach ($file in @('VERSION.txt', 'LICENSE', 'README.md', 'Install.bat', 'Uninstall.bat')) {
+foreach ($file in @('VERSION.txt', 'LICENSE', 'README.md', 'INSTALL.md', 'Install.bat', 'Uninstall.bat')) {
     Copy-Item -LiteralPath (Join-Path $ProjectRoot $file) -Destination $stageRoot
 }
 $assetRoot = Join-Path $stageRoot 'assets'
@@ -63,6 +63,7 @@ $scriptsRoot = Join-Path $stageRoot 'scripts'
 New-Item -ItemType Directory -Path $scriptsRoot -Force | Out-Null
 foreach ($script in @(
         'Install-Standalone.ps1',
+        'StandaloneEnvironment.ps1',
         'New-StandalonePayload.ps1',
         'Install-Local.ps1',
         'Install-NativeBridge.ps1',

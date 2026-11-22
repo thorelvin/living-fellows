@@ -19,35 +19,10 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
+. (Join-Path $PSScriptRoot 'StandaloneEnvironment.ps1')
 
 function Find-ProjectZomboidRoot {
-    $steamRoots = New-Object System.Collections.Generic.List[string]
-    foreach ($key in @(
-        'HKCU:\Software\Valve\Steam',
-        'HKLM:\Software\WOW6432Node\Valve\Steam',
-        'HKLM:\Software\Valve\Steam')) {
-        try {
-            $steam = Get-ItemProperty -LiteralPath $key -ErrorAction Stop
-            foreach ($property in @('SteamPath', 'InstallPath')) {
-                if ($steam.$property) { $steamRoots.Add([string]$steam.$property) }
-            }
-        } catch { }
-    }
-    $steamRoots.Add('C:\Program Files (x86)\Steam')
-    $steamRoots.Add('C:\Program Files\Steam')
-
-    $libraries = New-Object System.Collections.Generic.List[string]
-    foreach ($steamRoot in @($steamRoots | Select-Object -Unique)) {
-        $libraries.Add($steamRoot)
-        $vdf = Join-Path $steamRoot 'steamapps\libraryfolders.vdf'
-        if (Test-Path -LiteralPath $vdf -PathType Leaf) {
-            $text = Get-Content -LiteralPath $vdf -Raw -Encoding utf8
-            foreach ($match in [regex]::Matches($text, '"path"\s+"([^"]+)"')) {
-                $libraries.Add($match.Groups[1].Value.Replace('\\', '\'))
-            }
-        }
-    }
-    $candidates = @($libraries | Select-Object -Unique | ForEach-Object {
+    $candidates = @(Get-LivingFellowsSteamLibraries -IncludeRegistered | ForEach-Object {
         Join-Path $_ 'steamapps\common\ProjectZomboid'
     })
     $found = @($candidates | Where-Object {

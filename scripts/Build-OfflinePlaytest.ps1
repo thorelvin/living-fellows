@@ -49,6 +49,7 @@ $toolsRoot = Join-Path $stageRoot 'tools'
 New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
 foreach ($script in @(
     'Install-Local.ps1',
+    'StandaloneEnvironment.ps1',
     'Install-NativeBridge.ps1',
     'Uninstall-Local.ps1',
     'Uninstall-NativeBridge.ps1')) {

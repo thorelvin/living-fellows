@@ -30,15 +30,14 @@ function A.update(force)
     -- the tips setting, until acknowledged for this pair of versions.
     local editions = SC.Actor and type(SC.Actor.editionStatus) == "function"
         and SC.Actor.editionStatus() or nil
-    if type(editions) == "table" and editions.mixed == true then
+    if type(editions) == "table" and (editions.mixed == true or editions.standaloneRelease) then
         local id = "editions"
         local revision = tostring(editions.luaSource) .. ":" .. tostring(editions.luaRelease)
-            .. ":" .. tostring(editions.bridgeRelease)
+            .. ":" .. tostring(editions.standaloneRelease or editions.bridgeRelease)
         updated[#updated + 1] = { id = id, support = true,
             title = text("two_copies_title", "Two copies installed"),
-            body = text("two_copies", "A Workshop copy of Living Fellows is loading with the "
-                .. "standalone bridge from Install.bat. Keep one, then restart: unsubscribe "
-                .. "from the Workshop copy, or run Uninstall.bat. Review opens Support."),
+            body = text("two_copies", "A Workshop copy of Living Fellows is active alongside a standalone "
+                .. "installation. Remove the Workshop copy or run Uninstall.bat, then restart. Review opens Support."),
             revision = revision, urgent = true, unread = acknowledged[id] ~= revision }
         retained[id] = acknowledged[id]
     end

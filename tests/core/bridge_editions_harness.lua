@@ -6,6 +6,7 @@ local SC = SurvivorCompanion
 local checks = 0
 local function check(value, message) checks = checks + 1; assert(value, message) end
 local savedBridge, savedLookup = rawget(_G, "SCBridge"), rawget(_G, "getModInfoByID")
+local savedFolders, savedDetails = rawget(_G, "getModDirectoryTable"), rawget(_G, "getModInfo")
 local lookups = 0
 
 local function install(source, origin, release)
@@ -58,6 +59,36 @@ SC.Actor._resetEditionStatus()
 local older = SC.Actor.editionStatus()
 check(older.mixed == false and older.bridgeOrigin == "unknown",
     "a bridge too old to say where it came from is not guessed at")
+
+local localFolder, steamFolder = "C:\\Zomboid\\mods\\SurvivorCompanion", "D:/steamapps/mods/SurvivorCompanion"
+local paths, folderScans = { steamFolder, "C:/Zomboid/mods/OtherMod", localFolder }, 0
+rawset(_G, "getModDirectoryTable", function()
+    folderScans = folderScans + 1
+    return paths
+end)
+rawset(_G, "getModInfo", function(path)
+    check(path == localFolder or path == steamFolder, "only Living Fellows folders are inspected")
+    return {
+        getSource = function() return path == localFolder and "Mods" or "Steam" end,
+        getId = function() return "SurvivorCompanion" end,
+        getDescription = function() return "Uses the bundled standalone bridge installer." end,
+        getModVersion = function() return "0.27.58" end,
+    }
+end)
+SC.Actor._resetEditionStatus()
+older = SC.Actor.editionStatus()
+check(older.mixed == false and older.bridgeOrigin == "unknown" and older.standaloneRelease == "0.27.58",
+    "an older bridge still reports the separately installed standalone copy and its actual mod version")
+local offline = SC.Support.snapshot(true).bridge.advice
+check(offline:find("local standalone copy (0.27.58)", 1, true) ~= nil and folderScans == 1,
+    "Support identifies the old installation while leaving the bridge origin unknown")
+check(SC.Support.summary(true):find("| standalone install 0.27.58 | two editions installed", 1, true) ~= nil,
+    "the support report includes the old standalone installation")
+paths = { steamFolder }
+install("Steam", nil)
+check(SC.Actor.editionStatus().standaloneRelease == nil, "an ordinary Workshop install has no local edition")
+rawset(_G, "getModDirectoryTable", savedFolders)
+rawset(_G, "getModInfo", savedDetails)
 
 -- Support explains the fix and the copied report records both sides.
 install("Steam", "launcher", "0.27.58")

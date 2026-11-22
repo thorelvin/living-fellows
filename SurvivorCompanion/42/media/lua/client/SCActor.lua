@@ -692,7 +692,7 @@ end
 -- then the Steam Workshop, then Zomboid\mods), but the standalone launcher
 -- loads its own bridge before any mod. A Workshop or staging copy running on
 -- the standalone bridge is two editions mixed, whatever their versions.
-local editionCache, luaSourceCache = nil, nil
+local editionCache, luaSourceCache, standaloneReleaseCache
 local luaSources = { Mods = "mods", Steam = "workshop", Workshop = "staging" }
 
 local function luaSource()
@@ -708,6 +708,33 @@ local function luaSource()
     return value or "unknown"
 end
 
+local function installedStandaloneRelease()
+    if standaloneReleaseCache ~= nil then return standaloneReleaseCache or nil end
+    local folders, details = globalValue("getModDirectoryTable"), globalValue("getModInfo")
+    if type(folders) ~= "function" or type(details) ~= "function" then return nil end
+    local ok, release = pcall(function()
+        for _, path in ipairs(folders()) do
+            if type(path) == "string" and path:lower():match("[/\\]survivorcompanion[/\\]?$") then
+                local info = details(path)
+                if info and info:getSource() == "Mods" and info:getId() == "SurvivorCompanion" then
+                    -- Both installers mark their local mod.info. Stock getModInfo
+                    -- reads this exact folder while respecting the game's load order.
+                    local description = info:getDescription()
+                    if type(description) == "string" and (
+                        description:find("Uses the bundled standalone bridge installer.", 1, true)
+                        or description:find("Uses the local development bridge launcher.", 1, true)) then
+                        local version = info:getModVersion()
+                        return type(version) == "string" and version:match("^%d+%.%d+%.%d+$") or "unknown"
+                    end
+                end
+            end
+        end
+        return false
+    end)
+    if ok then standaloneReleaseCache = release end
+    return ok and release or nil
+end
+
 function actorService.editionStatus()
     if editionCache then return editionCache end
     local status = {
@@ -718,20 +745,23 @@ function actorService.editionStatus()
         mixed = false,
     }
     local bridge = globalValue("SCBridge")
-    -- The bridge can be published after the first look; ask again later.
-    if bridge == nil then return status end
-    local originOk, origin = staticInvoke(bridge, "getBridgeOrigin")
-    if originOk and type(origin) == "string" then status.bridgeOrigin = origin end
-    local releaseOk, release = staticInvoke(bridge, "getBridgeRelease")
-    if releaseOk and type(release) == "string" then status.bridgeRelease = release end
-    status.mixed = status.bridgeOrigin == "launcher"
-        and (status.luaSource == "workshop" or status.luaSource == "staging")
-    editionCache = status
+    if bridge then
+        local originOk, origin = staticInvoke(bridge, "getBridgeOrigin")
+        if originOk and type(origin) == "string" then status.bridgeOrigin = origin end
+        local releaseOk, release = staticInvoke(bridge, "getBridgeRelease")
+        if releaseOk and type(release) == "string" then status.bridgeRelease = release end
+    end
+    if status.luaSource == "workshop" or status.luaSource == "staging" then
+        status.mixed = status.bridgeOrigin == "launcher"
+        if not status.mixed then status.standaloneRelease = installedStandaloneRelease() end
+    end
+    -- Both Lua selection and the bridge can become available during startup.
+    if bridge and status.luaSource ~= "unknown" then editionCache = status end
     return status
 end
 
 function actorService._resetEditionStatus()
-    editionCache, luaSourceCache = nil, nil
+    editionCache, luaSourceCache, standaloneReleaseCache = nil, nil, nil
 end
 
 function actorService._isSurvivor(actor)

@@ -97,37 +97,20 @@ function Restore-StandaloneDirectorySnapshot($Snapshot) {
 # Steam Workshop edition in the game's library, or an upload staging folder
 # under Zomboid\Workshop. Report them; never touch them.
 function Get-StandaloneOtherCopies([string]$GameRoot, [string]$ModsRoot) {
-    $copies = New-Object System.Collections.Generic.List[string]
-    if (-not [string]::IsNullOrWhiteSpace($GameRoot)) {
-        $common = Split-Path -Parent ([System.IO.Path]::GetFullPath($GameRoot).TrimEnd('\'))
-        $steamapps = if ($common) { Split-Path -Parent $common } else { '' }
-        if ($steamapps -and (Split-Path -Leaf $common) -ieq 'common' -and
-            (Split-Path -Leaf $steamapps) -ieq 'steamapps') {
-            $item = Join-Path $steamapps 'workshop\content\108600\3805760339'
-            # Steam drops an unsubscribed item from this record; the game only
-            # loads items it still lists.
-            $record = Join-Path $steamapps 'workshop\appworkshop_108600.acf'
-            $listed = -not (Test-Path -LiteralPath $record -PathType Leaf) -or
-                (Select-String -LiteralPath $record -SimpleMatch '"3805760339"' -Quiet)
-            if ($listed -and
-                (Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container)) {
-                $copies.Add($item)
-            }
-        }
+    Get-LivingFellowsWorkshopCopies $GameRoot
+    foreach ($path in @(Get-LivingFellowsStagingCopies $ModsRoot)) {
+        [pscustomobject]@{ Path = $path; Installed = $true }
     }
-    $staging = Join-Path (Split-Path -Parent ([System.IO.Path]::GetFullPath($ModsRoot).TrimEnd('\'))) 'Workshop'
-    if (Test-Path -LiteralPath $staging -PathType Container) {
-        Get-ChildItem -LiteralPath $staging -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            $copy = Join-Path $_.FullName 'Contents\mods\SurvivorCompanion'
-            if (Test-Path -LiteralPath $copy -PathType Container) { $copies.Add($copy) }
-        }
-    }
-    return $copies.ToArray()
 }
 
-function Write-StandaloneOtherCopies([string[]]$Copies) {
-    foreach ($copy in @($Copies | Where-Object { $_ })) {
-        Write-Warning ("Another copy of Living Fellows is still installed at $copy. " +
+function Write-StandaloneOtherCopies([object[]]$Copies) {
+    foreach ($copy in $Copies) {
+        if (-not $copy.Installed) {
+            Write-Warning ("Steam still lists the Living Fellows Workshop item at $($copy.Path). " +
+                'Unsubscribe from it to prevent it from loading after Steam finishes the download.')
+            continue
+        }
+        Write-Warning ("Another copy of Living Fellows is still installed at $($copy.Path). " +
             'Saves and mod lists that enable Living Fellows will load that copy. ' +
             'Unsubscribe from Living Fellows on the Steam Workshop, or move that folder ' +
             'out of Zomboid\Workshop, to remove it completely.')
@@ -138,10 +121,9 @@ function Write-StandaloneOtherCopies([string[]]$Copies) {
 # mod list as well. Saves keep their own lists and are never edited.
 function Disable-StandaloneModProfile([string]$ProfilePath) {
     if (-not (Test-Path -LiteralPath $ProfilePath -PathType Leaf)) { return $false }
-    $pattern = '(?m)^[ \t]*mod[ \t]*=[ \t]*SurvivorCompanion[ \t]*,?[ \t]*(?:\r?\n|$)'
     $profile = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
-    if (-not [regex]::IsMatch($profile, $pattern)) { return $false }
-    $updated = [regex]::Replace($profile, $pattern, '')
+    if (-not [regex]::IsMatch($profile, $LivingFellowsProfileEntry)) { return $false }
+    $updated = [regex]::Replace($profile, $LivingFellowsProfileEntry, '')
     $temporary = $ProfilePath + '.living-fellows-' + [guid]::NewGuid().ToString('N') + '.tmp'
     try {
         [System.IO.File]::WriteAllText($temporary, $updated,
@@ -153,7 +135,7 @@ function Disable-StandaloneModProfile([string]$ProfilePath) {
         }
     }
     $verified = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
-    if ([regex]::IsMatch($verified, $pattern)) {
+    if ([regex]::IsMatch($verified, $LivingFellowsProfileEntry)) {
         throw "Living Fellows is still listed in the mod profile: $ProfilePath"
     }
     return $true
@@ -239,6 +221,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent $PSScriptRoot
 }
 $ProjectRoot = Normalize-StandalonePath $ProjectRoot
+. (Join-Path $PSScriptRoot 'StandaloneEnvironment.ps1')
 $ModsRoot = Normalize-StandalonePath $ModsRoot
 $InstallDataRoot = Normalize-StandalonePath $InstallDataRoot
 $BridgeRoot = Normalize-StandalonePath (Join-Path $InstallDataRoot 'bridge')

@@ -39,7 +39,7 @@ SC.Actor = { editionStatus = function() return editions end }
 local rows = A.update(true)
 assert(#rows == 1 and rows[1].id == "editions" and rows[1].urgent and rows[1].unread and A.urgent(),
     "two editions mixed raise one urgent unread notice")
-assert(rows[1].body:find("Uninstall.bat", 1, true) and rows[1].body:find("unsubscribe", 1, true),
+assert(rows[1].body:find("Uninstall.bat", 1, true) and rows[1].body:find("restart", 1, true),
     "the notice says how to keep one edition")
 UI.reviewAttention(rows[1])
 assert(openedTab == "support", "Review opens Support for a setup problem")
@@ -51,6 +51,10 @@ rows = A.update(true)
 assert(rows[1].unread, "a different pair of versions asks again")
 editions.mixed = false
 assert(#A.update(true) == 0, "one edition raises no notice")
+editions.bridgeRelease, editions.standaloneRelease = "unknown", "0.27.58"
+rows = A.update(true)
+assert(#rows == 1 and rows[1].revision == "workshop:0.27.59:0.27.58",
+    "a legacy standalone installation also raises the edition notice")
 SC.Actor, UI.getSettings, UI.open = savedActor, savedSettings, savedOpen
 
 fixture.fontHeight = 16
