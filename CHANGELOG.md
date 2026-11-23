@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.67 - Watering route recovery
+
+- Watering jobs pause when a companion spends too long unable to reach the
+  plot. The camp names the plot, and the companion returns the watering can
+  or leaves it reserved for recovery before taking other work.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.65 - Tall fences and expedition returns
 
 - Companions look for a route around tall fences when severely winded.

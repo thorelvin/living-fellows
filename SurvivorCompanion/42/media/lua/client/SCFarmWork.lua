@@ -15,6 +15,7 @@ local FarmWork = SC.FarmWork
 -- companion's completed water action consumes a use without updating the
 -- plant, reconcile that spent use through the stock farming command.
 FarmWork.ITEM_MARKER = "LF_FarmReceiptId"
+local WATER_PLOT_BLOCKED = "farm_water_plot_unreachable"
 
 local states = setmetatable({}, { __mode = "k" })
 -- Farm evidence goes through the shared, per-actor rate-limited diagnostic
@@ -1144,6 +1145,52 @@ local function approach(actor, square, object, workReach)
 end
 FarmWork._approachForHarness = approach
 
+local function waterApproachStalled(actor, state)
+    local x, y, z = U().position(actor)
+    local current = now()
+    local travel = state.waterApproach
+    if not travel then
+        travel = { progressAt = current, visited = {} }
+        state.waterApproach = travel
+    end
+    if x and y then
+        z = z or 0
+        local key = pointKey(math.floor(x), math.floor(y), math.floor(z))
+        local advanced = not travel.x or (x - travel.x)^2 + (y - travel.y)^2
+            + (z - travel.z)^2 >= 1
+        -- A new search or a return to a previous position cannot buy more
+        -- time. Actual travel can, including a detour away from the plot.
+        if advanced and not travel.visited[key] then
+            travel.x, travel.y, travel.z = x, y, z
+            travel.visited[key], travel.progressAt = true, current
+        end
+    end
+    return current - travel.progressAt >= math.max(1000, config("navigationPathSearchHardMs", 30000))
+end
+
+local function releaseBlockedWaterPlot(actor, state, job, routeReason)
+    local navigation = SC.Navigation
+    local move = navigation and navigation.peek and navigation.peek(actor)
+    if move and move.goalAction == "move_to_farm_plot" then
+        navigation.cancel(actor, WATER_PLOT_BLOCKED)
+    end
+    local settled, settleReason = FarmWork.cancelActor(actor, WATER_PLOT_BLOCKED)
+    if not settled then
+        local loan = state.borrowed
+        local receipt = loan and SC.BaseLife.farmReceipt(loan.receiptId)
+        if not receipt or receipt.phase ~= "recovery" then return true, settleReason end
+        -- The source can be unloaded or unable to accept the can. Its marked
+        -- item and exact receipt now belong to the existing farm recovery pass.
+        states[actor] = nil
+    end
+    local target = job.target
+    diagnostic(actor, "farm-route", "job=" .. job.id
+        .. " plot=" .. pointKey(target.x, target.y, target.z)
+        .. " reason=" .. tostring(routeReason)
+        .. " loan=" .. (settled and "settled" or tostring(settleReason)))
+    return false, WATER_PLOT_BLOCKED, true
+end
+
 local function digTool(item)
     local broken, brokenOk = invoke(item, "isBroken")
     return U().itemHasTag(item, "DIG_PLOW") and (not brokenOk or broken ~= true)
@@ -1906,6 +1953,13 @@ function FarmWork.jobModifier(actorIdValue, job, resident, record)
     if job.target and job.target.animal == true
         and (not resident or resident.role ~= "farmer") then return 0, false end
     local target = type(job.target) == "table" and job.target or nil
+    if target and target.operation == "water" then
+        -- A blocked job can be retried manually while its original can is
+        -- still in recovery. Wait for that exact loan before reclaiming it.
+        for _, receipt in ipairs(SC.BaseLife.farmReceipts(job.id, false)) do
+            if receipt.kind == "borrowed" then return 0, false end
+        end
+    end
     if target and target.harvestStarted == true and target.harvestActorId ~= nil
         and target.harvestActorId ~= actorIdValue then return 0, false end
     local actor = type(record) == "table" and (record.actor or record) or nil
@@ -2113,6 +2167,13 @@ function FarmWork.update(actor, baseState, job, runtime)
         return false, "farm_food_storage_missing", true
     end
     local approachState, approachReason = approach(actor, square)
+    if operation == "water" then
+        if approachState == "arrived" then
+            state.waterApproach = nil
+        elseif approachState == "failed" or waterApproachStalled(actor, state) then
+            return releaseBlockedWaterPlot(actor, state, job, approachReason)
+        end
+    end
     if approachState == "failed" then return false, approachReason, true end
     if approachState ~= "arrived" then return true, approachReason end
     if operation == "harvest" and not harvestAllowed(plant) then

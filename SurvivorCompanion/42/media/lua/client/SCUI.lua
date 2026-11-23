@@ -514,11 +514,27 @@ function UI.baseFailureReason(reason, knownOnly)
         no_safe_exit = true,
         barricade_target_unloaded = true,
         barricade_target_gone = true,
+        farm_water_plot_unreachable = true,
         fire_spread = true,
     }
     if known[reason] then return UI.text("UI_SC_Base_Reason_" .. reason) end
     return not knownOnly and (SC.ActionFeedback and SC.ActionFeedback.describe(SC.ActionFeedback.reason(reason))
         or UI.text("UI_SC_Feedback_unknown_cause")) or nil
+end
+
+function UI.baseJobBlocker(job, zones)
+    local reason = job.blocker or "blocked"
+    if reason == "farm_water_plot_unreachable" and type(job.target) == "table" then
+        local target = job.target
+        for _, zone in ipairs(zones or {}) do
+            if zone.id == target.zoneId and type(target.x) == "number"
+                and type(target.y) == "number" then
+                return UI.text("UI_SC_Base_WaterPlotBlocked", zone.name,
+                    target.x - zone.x1, target.y - zone.y1)
+            end
+        end
+    end
+    return UI.baseFailureReason(reason)
 end
 
 function UI.fontHeight(font, override)
@@ -4194,7 +4210,7 @@ function SCUIDetail:buildBase(panel, row)
                     and UI.text("UI_SC_Base_ChefRestartRecovery")
                     or job.state == "pending" and job.blocker == "expired_job_subsystem_owned"
                         and UI.text("UI_SC_Base_RecoveryPending")
-                    or UI.baseFailureReason(job.blocker or "blocked")
+                    or UI.baseJobBlocker(job, base.zoneRows)
                 if job.type == "sort_floor" then
                     local category = type(job.target) == "table"
                         and job.target.floorCategory or nil

@@ -30,6 +30,21 @@ assert(UI.baseFailureReason("floor_pickup_unverified", true) == "UI_SC_Base_Reas
 assert(UI.baseFailureReason("future_native_callback_failed", true) == nil
     and UI.baseFailureReason("future_native_callback_failed") == "UI_SC_Feedback_unknown_cause",
     "terminal callers can refuse unknown diagnostics without changing general menu fallback")
+local waterJob = { blocker = "farm_water_plot_unreachable",
+    target = { zoneId = "zone:west", x = 12, y = 23 } }
+local zones = {{ id = "zone:west", name = "West garden", x1 = 9, y1 = 20 }}
+UI.text = function(key, ...)
+    if key == "UI_SC_Base_WaterPlotBlocked" then
+        local name, east, south = ...
+        assert(name == "West garden" and east == 3 and south == 3)
+    end
+    return key
+end
+assert(UI.baseJobBlocker(waterJob, zones) == "UI_SC_Base_WaterPlotBlocked",
+    "the stalled work line identifies the exact plot using the marked garden")
+assert(UI.baseJobBlocker(waterJob, {}) == "UI_SC_Base_Reason_farm_water_plot_unreachable",
+    "a removed garden still has a player-facing explanation")
+UI.text = function(key) return key end
 local detail = fixture.classes.SCUIDetail:new(0, 0, 200, 300, {})
 local panel = ISPanel:new(0, 0, 200, 300)
 local label = "Automatically maintain and sort the base"

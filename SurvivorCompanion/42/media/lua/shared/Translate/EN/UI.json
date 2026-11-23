@@ -590,6 +590,8 @@
     "UI_SC_Base_Reason_production_order_uses_zone": "An active production order still uses this zone.",
     "UI_SC_Base_Reason_player_build_in_progress": "Finish or release the build you are doing yourself first.",
     "UI_SC_Base_Reason_farm_recovery_pending": "A farm job is still being put away. Try again in a moment.",
+    "UI_SC_Base_Reason_farm_water_plot_unreachable": "Can't reach the plot to water it.",
+    "UI_SC_Base_WaterPlotBlocked": "Can't reach the plot in %1, %2 m east and %3 m south of its northwest corner.",
     "UI_SC_Base_Reason_base_missing": "There is no camp to change.",
     "UI_SC_Base_Reason_zone_cursor_unavailable": "The area selection tool could not start. Try marking the first corner again.",
     "UI_SC_Base_Reason_base_watch_active": "End Base Watch before changing the camp area or abandoning camp.",

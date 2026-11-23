@@ -117,6 +117,7 @@ local JOB_STATES = {
 local TRANSIENT_FARM_BLOCKERS = {
     farm_target_unloaded = 30000,
     farm_supply_missing = 120000,
+    farm_water_plot_unreachable = 120000,
     unsafe_area = 30000,
     farm_outside_night = 120000,
     animal_audit_pending = 15000,
