@@ -206,6 +206,8 @@ local function expeditionEvidence()
     local trip = scout and scout.vehicle
     return {
         active = true,
+        phase = scout and scout.phase or nil,
+        returnHandoff = active.returnHandoff or active.technicalIssue and active.technicalIssue.reason,
         targetSource = scout and scout.mapTarget and "manual map" or "automatic/nearby",
         targetName = scout and scout.mapTarget and scout.mapTarget.label or nil,
         targetKind = scout and scout.mapTarget and scout.mapTarget.kind or nil,
@@ -358,6 +360,10 @@ function support.summary(force)
     }
     if expedition.active then
         lines[#lines + 1] = "Expedition: active"
+            .. (expedition.phase and " | phase " .. tostring(expedition.phase) or "")
+        if expedition.returnHandoff then
+            lines[#lines + 1] = "Expedition handoff: " .. tostring(expedition.returnHandoff)
+        end
         if expedition.targetName then
             lines[#lines + 1] = "Expedition target: " .. tostring(expedition.targetName)
                 .. " (" .. tostring(expedition.targetKind) .. ", " .. tostring(expedition.targetSource) .. ")"

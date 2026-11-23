@@ -6033,6 +6033,14 @@ end
 local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, recovery)
     state.lastMovementReason = reason
     state.lastAttemptFrom, state.lastAttemptTo = fromSquare, toSquare
+    if reason == "tall_fence_exhausted" or reason == "tall_fence_retry_wait" then
+        -- Actor recovery is independent of the map and of other workers.
+        -- Discard this actor's route without poisoning shared route memory.
+        clearMovementTransients(actor, state)
+        state.path, state.pathIndex, state.nextRepathAt, state.activeWorkRoute = nil, 1, 0, nil
+        U().stop(actor)
+        return { type = "actor_state", actorState = reason }
+    end
     local blocker = addBlockerEvidence(
         classifyMovementBlocker(actor, fromSquare, toSquare, reason))
     local object, kind = barrierBetween(fromSquare, toSquare)
@@ -6828,8 +6836,11 @@ function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now
             SC.NavTraversal.release(traversal.object, actor)
             if phase == "failed" then
                 state.pendingInteraction = nil
+                local utility = U()
+                local blocked = traversal.action == "climb_wall" and utility.companionTallFenceBlock
+                    and utility.companionTallFenceBlock(actor, now)
                 rememberFailure(actor, state, traversal.fromSquare or sourceSquare,
-                    traversal.toSquare or sourceSquare, traversalReason, now, "traversal_replan")
+                    traversal.toSquare or sourceSquare, blocked or traversalReason, now, "traversal_replan")
                 return true, false, traversalReason
             elseif phase == "cancelled" then
                 -- A queued window climb observed the window close before native
@@ -8252,6 +8263,15 @@ function Navigation.request(actor, target, movementMode, intent)
     elseif kind == "blocked" or kind == "invalid" then
         rememberFailure(actor, state, sourceSquare, nextSquare, "edge_blocked", now, "map_replan")
         return false, "edge_blocked"
+    end
+
+    if kind == "fence" and utility.companionTallFenceBlock and SC.Topology
+        and SC.Topology.fenceHeight and SC.Topology.fenceHeight(barrier, sourceSquare, nextSquare) == "tall" then
+        local blocked = utility.companionTallFenceBlock(actor, now)
+        if blocked then
+            rememberFailure(actor, state, sourceSquare, nextSquare, blocked, now)
+            return false, blocked
+        end
     end
 
     local tacticalAccepted, tacticalStatus = tacticalStep(

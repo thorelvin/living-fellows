@@ -1125,6 +1125,19 @@ function U.characterStatValue(actor, statName, fallback)
     return fallback
 end
 
+function U.companionSeverelyExerted(actor)
+    -- Build 42 enters the severe endurance moodle at one quarter stamina.
+    return actor ~= nil and U.isCompanion(actor)
+        and U.characterStatValue(actor, "ENDURANCE", 1) <= 0.25
+end
+
+function U.companionTallFenceBlock(actor, current)
+    if U.companionSeverelyExerted(actor) then return "tall_fence_exhausted" end
+    local traversal = SC.NativeTraversalActions
+    if traversal and traversal.tallFenceRetryPending
+        and traversal.tallFenceRetryPending(actor, current) then return "tall_fence_retry_wait" end
+end
+
 -- Build 42 exposes perks and moodles as enum-indexed APIs. Keep the enum
 -- lookup and Java-call failure contained here so gameplay systems can use
 -- genuine character capability without becoming brittle in headless tests or

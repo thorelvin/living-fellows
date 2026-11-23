@@ -2873,24 +2873,29 @@ local function homecomingRecord()
     end
 end
 
-function Expedition.integrationFor(actor)
+function Expedition.integrationFor(actor, includeRecovery)
     if not actor or not SC.ExpeditionIntegration then return nil end
     if mission and mission.members[actor] then
-        if mission.homeRelease or mission.scout and mission.scout.kind == "home" then return nil end
+        local scout = mission.scout
+        if mission.homeRelease or scout and (scout.kind == "home"
+            or scout.wood and scout.phase == "awaiting_player") then return nil end
         local record = mission.integration
-        return record and SC.ExpeditionIntegration.wants(record, actor)
+        return record and SC.ExpeditionIntegration.wants(record, actor, includeRecovery)
             and record or nil
     end
     for _, record in ipairs(pendingDeliveries) do
-        if SC.ExpeditionIntegration.wants(record, actor) then return record end
+        if SC.ExpeditionIntegration.wants(record, actor, includeRecovery) then return record end
     end
     return nil
 end
 
-function Expedition.updateIntegration(actor)
-    local record = Expedition.integrationFor(actor)
+function Expedition.updateIntegration(actor, player, runtime)
+    local record = Expedition.integrationFor(actor, true)
     if not record then return false, "delivery_not_ready" end
     local handled, reason, extra = SC.ExpeditionIntegration.update(record, actor)
+    if reason == "wood_delivery_rest" and SC.Downtime then
+        return SC.Downtime.update(actor, player, runtime, "rest_floor", nil, extra)
+    end
     if SC.WorkVoice and type(SC.WorkVoice.deliveryResult) == "function" then
         pcall(SC.WorkVoice.deliveryResult, actor, record, handled, reason)
     end
@@ -3250,11 +3255,19 @@ function Expedition.describeForPlayer(viewer)
             progress = nil
         end
     end
+    local handoff = itinerary and itinerary.phase == "awaiting_player" and mission.returnHandoff
+    -- The primary player can see an active return in the expedition viewport.
+    if handoff and not leaderVisible and (type(getSpecificPlayer) ~= "function"
+        or viewer == nil or getSpecificPlayer(0) ~= viewer
+        or getSpecificPlayer(1) ~= mission.leader.actor or SC.ViewSession.owner() ~= "expedition") then
+        handoff = nil
+    end
     return {
         leaderName = leader and leader.name or "?",
         leaderVisible = leaderVisible,
         visibleMembers = visibleMembers,
         observedPhase = leaderVisible and itinerary and itinerary.phase or nil,
+        returnHandoff = handoff or nil,
         preparation = leaderVisible and itinerary
             and (itinerary.fishingPreparation and itinerary.fishingPreparation.reason
                 or itinerary.wood and itinerary.wood.preparation and itinerary.wood.preparationReason) or nil,
@@ -5034,6 +5047,47 @@ local function woodNight()
     return not SC.ExpeditionWood.outsideWorkAllowed()
 end
 
+function Expedition.campEntryFor(actor)
+    return mission and mission.leader.actor == actor and mission.scout
+        and mission.scout.campEntry == mission.testWaypoint and mission.testWaypoint ~= nil
+end
+
+local function pulseWoodHomecoming(scout, now)
+    if now < (scout.nextHomecomingCheckAt or 0) then return end
+    scout.nextHomecomingCheckAt = now + REUNION_CHECK_INTERVAL_MS
+    local leader = mission.leader.actor
+    local base = mission.homeBaseId and SC.BaseLife and SC.BaseLife.active()
+    if base and base.id == mission.homeBaseId
+        and not SC.BaseLife.isInside(leader) and not SC.BaseLife.isInside(leader, "parking") then
+        -- The saved car door/parking target can be outside the marked area.
+        -- Walk to a loaded square in camp before asking the player to reunite.
+        local core = base.core
+        local square = validPoint(core) and SC.GameplayUtil.gridSquare
+            and SC.GameplayUtil.gridSquare(core.x, core.y, core.z)
+        if not square or not SC.BaseLife.isInside(square) then
+            mission.returnHandoff = "return_camp_entry_unavailable"
+            return
+        end
+        local waypoint = scout.campEntry
+        if not Expedition.campEntryFor(leader) or waypoint.x ~= core.x
+            or waypoint.y ~= core.y or waypoint.z ~= core.z then
+            local staged, reason = Expedition.stageTestWaypoint(leader, core.x, core.y, core.z)
+            if staged ~= true then
+                mission.returnHandoff = reason or "return_camp_entry_unavailable"
+                return
+            end
+            scout.campEntry = mission.testWaypoint
+        end
+        mission.returnHandoff = "return_to_camp_for_delivery"
+        return
+    end
+    if mission.testWaypoint then Expedition.clearTestWaypoint(leader) end
+    scout.campEntry = nil
+    homecomingRecord()
+    local finished, reason = Expedition.finishAtPlayer(getSpecificPlayer(0))
+    if not finished then mission.returnHandoff = reason end
+end
+
 local function nextWoodSite(scout)
     local wood = scout.wood
     if wood.version==2 then
@@ -5181,6 +5235,10 @@ local function pulseScout()
     if now < (scout.returnRetryAt or 0) then return end
     if scout.vehicle and SC.ExpeditionCar
         and SC.ExpeditionCar.pulse(mission, now, scoutWorldHour()) then
+        return
+    end
+    if scout.wood and scout.phase == "awaiting_player" and scout.pause == nil then
+        pulseWoodHomecoming(scout, now)
         return
     end
     local pushActive = scout.pushUntilHour ~= nil
@@ -5518,6 +5576,8 @@ local function pulseScout()
         if woodHome then
             scout.phase = "awaiting_player"
             if mission.testWaypoint then Expedition.clearTestWaypoint(mission.leader.actor) end
+            pulseWoodHomecoming(scout, now)
+            return
         end
         local finished = Expedition.finishAtPlayer(player)
         if finished then return end
@@ -6034,6 +6094,10 @@ local function pulseScout()
         and distanceToPoint(mission.leader.actor, routeTarget) <= 4
         and settledOnFloor(mission.leader.actor, routeTarget.z) then
         scout.phase = "awaiting_player"
+        if scout.wood then
+            pulseWoodHomecoming(scout, now)
+            return
+        end
         local player = getSpecificPlayer(0)
         if player ~= nil then Expedition.finishAtPlayer(player) end
         return

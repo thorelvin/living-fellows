@@ -750,9 +750,14 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
     local tall, tallOk = utility.call(object, "isTallHoppable")
     local low, lowKnown = utility.call(object, "isHoppable")
     if lowKnown and low==true and not (tallOk and tall==true) then tall,tallOk=false,true end
+    local height = SC.Topology and SC.Topology.fenceHeight
+        and SC.Topology.fenceHeight(object, fromSquare, toSquare)
+    if height == "tall" then tall, tallOk = true, true
+    elseif height == "low" then tall, tallOk = false, true
+    elseif height == "blocked" then return false, "fence_not_hoppable" end
     local direction = invoke(context, "directionBetween", fromSquare, toSquare)
     local nativeDirection = cardinalDirection(direction)
-    if (not tallOk or object == nil) and nativeDirection ~= nil then
+    if (not tallOk or object == nil and height == nil) and nativeDirection ~= nil then
         -- This is the same final affordance test used by the player's E action.
         -- It is deliberately only a dispatch-time fallback: arbitrary A-star
         -- nodes are not necessarily adjacent to the actor and cannot safely use
@@ -762,6 +767,9 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
         if climbableOk and climbable == true then tall, tallOk = true, true end
     end
     local action = tallOk and tall == true and "climb_wall" or "climb_fence"
+    local blocked = action == "climb_wall" and utility.companionTallFenceBlock
+        and utility.companionTallFenceBlock(actor)
+    if blocked then return false, blocked end
     local climbIntent = utility.copyShallow(intent)
     for key,value in pairs({
         action = action,

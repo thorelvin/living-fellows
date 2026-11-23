@@ -110,6 +110,14 @@ local function observedPhaseText(phase)
     return value
 end
 
+local function returnHandoffText(reason)
+    if not reason then return nil end
+    if reason == "return_to_camp_for_delivery" then return tr("UI_SC_Expedition_EnteringCamp") end
+    if reason == "return_camp_entry_unavailable" then return tr("UI_SC_Expedition_CampEntryBlocked") end
+    if reason == "return_member_not_assembled" then return tr("UI_SC_Expedition_MeetReturningCrew") end
+    return tr("UI_SC_Expedition_ReturnHandoffWaiting")
+end
+
 local function carRecoveryText(seconds)
     seconds = tonumber(seconds)
     if not seconds or seconds ~= seconds or seconds == math.huge
@@ -185,6 +193,7 @@ local function deliverySignature(expedition)
         parts[#parts + 1] = tostring(record.carried or "")
         parts[#parts + 1] = tostring(record.toolsPending or false)
         parts[#parts + 1] = tostring(record.toolReason or "")
+        parts[#parts + 1] = tostring(record.woodStaminaWaiting == true)
         for _, row in ipairs(record.items or {}) do
             parts[#parts + 1] = row.stored and "stored"
                 or row.reason or "pending"
@@ -193,11 +202,11 @@ local function deliverySignature(expedition)
             parts[#parts + 1] = member.dutyReason or "restocking"
         end
     end
-    append(latest)
     for _, report in ipairs(expedition and expedition.pendingDeliveryReports
             and expedition.pendingDeliveryReports() or {}) do
         append(report.summary)
     end
+    append(latest)
     return table.concat(parts, ":")
 end
 
@@ -222,6 +231,7 @@ function Planner.viewStructureSignature()
         tostring(view and view.preparationMemberId or ""),
         Planner.departurePreparationSignature(view and view.departurePreparation),
         tostring(view and view.observedPhase or ""),
+        tostring(view and view.returnHandoff or ""),
         tostring(view and view.vehicleRecoveryRemainingSeconds ~= nil),
         tostring(view and view.visibleMembers or 0),
         tostring(view and view.supplyProgress
@@ -235,6 +245,7 @@ function Planner.viewStructureSignature()
         tostring(view and view.delivery and view.delivery.broughtBack or ""),
         tostring(view and view.delivery and view.delivery.stored or ""),
         tostring(view and view.delivery and view.delivery.pending or ""),
+        tostring(view and view.delivery and view.delivery.woodStaminaWaiting == true),
         deliverySignature(expedition),
         tostring(request and request.mode or ""),
         tostring(request and request.shelter or ""),
@@ -415,6 +426,11 @@ local function woodReason(reason)
         wood_base_missing = "UI_SC_Expedition_WoodStorageMissing",
         wood_return_carry_capacity = "UI_SC_Expedition_WoodReturnCarryCapacity",
         wood_already_carrying_log = "UI_SC_Expedition_WoodAlreadyCarryingLog",
+        wood_delivery_rest = "UI_SC_Expedition_WoodStaminaWaiting",
+        tall_fence_exhausted = "UI_SC_Expedition_TallFenceExhausted",
+        tall_fence_retry_wait = "UI_SC_Expedition_WoodRouteInterrupted",
+        traversal_exited_without_destination = "UI_SC_Expedition_WoodRouteInterrupted",
+        traversal_exited_without_progress = "UI_SC_Expedition_WoodRouteInterrupted",
         -- A recall is an order, not a failure: no retry wording.
         radio_return = "UI_SC_Expedition_ReturnRecalled",
         called_off_nearby = "UI_SC_Expedition_ReturnCalledOff",
@@ -973,7 +989,8 @@ local function addDeliveryItems(detail, panel, y, report)
         end
         if report.deliveryPending or (report.pending or 0) > 0 then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-                tr((tonumber(report.retryRemainingMs) or 0) > 0
+                tr(report.woodStaminaWaiting and "UI_SC_Expedition_WoodStaminaWaiting"
+                    or (tonumber(report.retryRemainingMs) or 0) > 0
                     and "UI_SC_Expedition_WoodStorageWaiting"
                     or "UI_SC_Expedition_WoodDeliveryPending"))
             y = addButton(detail, panel, y, "UI_SC_Expedition_WoodRetryDelivery",
@@ -1189,6 +1206,9 @@ function Planner.build(detail, panel)
                         math.floor(request.x), math.floor(request.y),
                         tr("UI_SC_Expedition_Help_" .. request.mode)))
             end
+        elseif view and view.returnHandoff then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                returnHandoffText(view.returnHandoff))
         elseif view and not view.departurePreparation and view.observedPhase
             and observedPhaseText(view.observedPhase) then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",

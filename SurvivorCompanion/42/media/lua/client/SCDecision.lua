@@ -84,6 +84,7 @@ local function commandsFor(actor)
                 local homecoming = SC.ExpeditionPrototype.current()
                 if homecoming and homecoming.scout
                     and homecoming.scout.phase == "awaiting_player"
+                    and not homecoming.scout.wood
                     and homecoming.integration
                     and value.order == "base_duty" then
                     return value
@@ -127,7 +128,8 @@ local function commandsFor(actor)
                 missionOrder.tacticalTarget = nil
                 missionOrder.pendingInteraction = nil
                 local waypoint = SC.ExpeditionPrototype.testWaypointFor(actor)
-                missionOrder.expeditionHomeApproach = SC.HomeTrip
+                missionOrder.expeditionHomeApproach = SC.ExpeditionPrototype.campEntryFor
+                    and SC.ExpeditionPrototype.campEntryFor(actor) or SC.HomeTrip
                     and SC.HomeTrip.finalApproachFor and SC.HomeTrip.finalApproachFor(actor) == true
                 local phase = expedition and expedition.scout
                     and expedition.scout.phase or nil
@@ -830,7 +832,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         and commands.temporaryStay ~= true
         and SC.ExpeditionPrototype
         and type(SC.ExpeditionPrototype.integrationFor) == "function"
-        and SC.ExpeditionPrototype.integrationFor(actor) then
+        and SC.ExpeditionPrototype.integrationFor(actor, true) then
         -- Delivering the reserved exact cargo also relieves overload; generic
         -- packing and follow field work must not keep it in the carrier's bag.
         add("expedition_delivery", 94, false)
@@ -2432,7 +2434,7 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         end)
     elseif candidate.kind == "expedition_delivery" then
         return callSubsystem("expedition-delivery", actor, function()
-            return SC.ExpeditionPrototype.updateIntegration(actor)
+            return SC.ExpeditionPrototype.updateIntegration(actor, player, rootRuntime)
         end)
     elseif candidate.kind == "force_tool_return" then
         return callSubsystem("force-tool-return", actor, function()
@@ -3227,7 +3229,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                 -- this resident. BaseWork cancels ambient activity for that
                 -- job, but cannot reach its cancellation branch while this
                 -- early ownership gate keeps polling a long sit/read instead.
-                -- Sleep and a cleaning job's own controller keep their lease.
+                -- Sleep, stamina recovery and the current cleaning job keep their lease.
                 local quiet = type(SC.Downtime.peek) == "function"
                     and SC.Downtime.peek(actor) or nil
                 local activity = quiet and quiet.active
@@ -3247,12 +3249,12 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     -- controller until it can safely release the borrowed item.
                     if safe and cancelled == true then return false end
                 end
-                local job = commands.order == "base_duty"
-                    and activity and activity.kind ~= "rest_bed"
+                local canResumeWork = commands.order == "base_duty" and activity
+                    and activity.kind ~= "rest_bed" and activity.recoveryEndurance == nil
+                local job = canResumeWork
                     and SC.BaseLife and type(SC.BaseLife.jobFor) == "function"
                     and SC.BaseLife.jobFor(U().idOf(actor)) or nil
-                if not job and commands.order=="base_duty" and activity
-                    and activity.kind~="rest_bed" and activity.kind~="clean_base"
+                if not job and canResumeWork and activity.kind ~= "clean_base"
                     and SC.BaseLife and SC.BaseLife.priorityWorkFor and SC.AnimalWork
                     and U().isDue(actor,"ambient_animal_priority",1000,current) then
                     local priority=SC.BaseLife.priorityWorkFor(U().idOf(actor))
@@ -3263,8 +3265,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                         end))
                     end
                 end
-                if not job and commands.order == "base_duty"
-                    and activity and activity.kind == "sit"
+                if not job and canResumeWork and activity.kind == "sit"
                     and SC.BaseWork
                     and type(SC.BaseWork.claimDuringAmbientPause) == "function"
                     and U().isDue(actor, "ambient_sit_base_job", 1000, current) then

@@ -59,6 +59,15 @@ Planner.build(preparingDetail, newPanel(132))
 assert(not string.find(table.concat(preparingDetail.lines,"\n"),"searching for supplies",1,true),
     "visible equipment preparation must not also claim the crew is searching at its destination")
 fixture.view.departurePreparation = nil
+fixture.view.observedPhase = "awaiting_player"
+local beforeHandoff = Planner.viewStructureSignature()
+fixture.view.returnHandoff = "return_member_not_assembled"
+local handoffDetail = newDetail()
+Planner.build(handoffDetail, newPanel(132))
+assert(Planner.viewStructureSignature() ~= beforeHandoff
+    and handoffDetail.lines[#handoffDetail.lines - 1] == "UI_SC_Expedition_MeetReturningCrew",
+    "a local returned crew tells the player how to complete the handoff")
+fixture.view.returnHandoff = nil
 fixture.view.leaderVisible = nil
 fixture.view.visibleMembers = nil
 fixture.view.observedPhase = nil
@@ -413,11 +422,12 @@ assert(string.find(table.concat(preparingWood.lines, "\n"),
     "wood preparation explains missing axes without claiming departure")
 fixture.endTrip()
 fixture.view.kind, fixture.view.preparation, fixture.view.woodProgress = nil, nil, nil
-fixture.setPendingReports({ { tripId = "wood-delivery", summary = {
+local pendingWood = { tripId = "wood-delivery", summary = {
     kind = "wood", version = 2, tripId = "wood-delivery", requested = 12,
     collected = 3, carried = 2, returned = 3, stored = 1, pending = 2,
     deliveryPending = true, items = {}, members = {},
-} } })
+} }
+fixture.setPendingReports({ pendingWood })
 local retryTrip
 expedition.retryDelivery = function(tripId)
     retryTrip = tripId
@@ -436,6 +446,13 @@ for _, child in ipairs(deliveryPanel.children) do
 end
 assert(retryTrip == "wood-delivery" and delivery.feedbackSuccess,
     "manual delivery retry retains the exact trip identity")
+local atWorkSignature = Planner.viewStructureSignature()
+pendingWood.summary.woodStaminaWaiting = true
+delivery.lines = {}
+Planner.build(delivery, newPanel(400))
+assert(Planner.viewStructureSignature() ~= atWorkSignature
+        and string.find(table.concat(delivery.lines, "\n"), "UI_SC_Expedition_WoodStaminaWaiting", 1, true),
+    "the expedition tab refreshes to show the stamina hold while cargo counts stay the same")
 fixture.setDebrief({ kind = "wood", endReason = "forest_no_mature_trees",
     carFailure = { reason = "route_blocked" } })
 fixture.setPendingReports({ { tripId = "wood-cargo", summary = {

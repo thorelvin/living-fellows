@@ -2,6 +2,18 @@
 
 # Changelog
 
+## 0.27.65 - Tall fences and expedition returns
+
+- Companions look for a route around tall fences when severely winded.
+  They favor nearby openings even when rested and pause trying tall fences
+  after a failed climb.
+- Exhausted timber carriers sit to recover and resume hauling automatically.
+  Logs stay reserved in the trunk or with their current carrier. The Expeditions
+  panel shows when the crew is recovering or a route is blocked.
+- A logging crew that leaves its car outside camp walks into the marked area
+  to meet the player. The expedition can close while timber delivery is pending.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.64 - Logging expedition unloading and save recovery
 
 - Logging crews returning by car use reachable camp storage or a marked

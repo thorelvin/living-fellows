@@ -128,6 +128,48 @@ check(not worker.asleep and not SC.Downtime.peek(worker).active and not worker.o
     "danger wakes the sleeper and releases the native bed posture")
 SC.NativeActions, SC.GameplayUtil.directInteractionAccess, getGameTime = native, access, time
 
+do
+    local hauler = f.actor("essential-wood-rest", 60, 60, {})
+    f.registry[hauler.id] = hauler
+    hauler.modData.SC_Order = "base_duty"
+    hauler.endurance, hauler.fatigue = 0, 0.10
+    local runtime = { snapshot = quiet }
+    local onGround = false
+    SC.NativeActions = {
+        groundStatus = function() onGround = true return "entered" end,
+        seatingStatus = function() return onGround and "ground" or "standing" end,
+        leaveSeating = function() onGround = false return true end,
+    }
+    check(SC.Downtime.update(hauler, player, runtime, "rest_floor", nil, 0.50),
+        "waiting to recover keeps the worker from starting another job")
+    f.clock = f.clock + 5500
+    check(SC.Downtime.update(hauler, player, runtime, "rest_floor", nil, 0.50)
+        and hauler.lastIntent and hauler.lastIntent.action == "sit_ground",
+        "a stamina recovery request sits on the spot even outside camp with low fatigue")
+    SC.Downtime.update(hauler, player, runtime)
+    check(onGround and SC.Downtime.peek(hauler).active.startedAt,
+        "ordinary ownership polling maintains the recovery seat")
+    hauler.endurance = 0.49
+    local jobFor, workUpdate = SC.BaseLife.jobFor, SC.BaseWork.update
+    local workStarted = false
+    SC.BaseLife.jobFor = function() return { type = "sort_floor" } end
+    SC.BaseWork.update = function() workStarted = true return true end
+    local held = SC.Decision._holdOwnedActivityOrPacingForTests(hauler, player,
+        quiet, healthy, {}, SC.Commands.effective(hauler), {}, f.clock, runtime)
+    check(held and onGround and not workStarted,
+        "a routine camp job leaves the hauler seated just below the requested stamina")
+    SC.BaseLife.jobFor, SC.BaseWork.update = jobFor, workUpdate
+    hauler.endurance = 0.50
+    SC.Downtime.update(hauler, player, runtime)
+    check(not onGround and not SC.Downtime.peek(hauler).active,
+        "the recovery seat is released as soon as the hauler has enough stamina")
+    f.clock = f.clock + 5500
+    local safe = SC.Downtime.update(hauler, player, { snapshot = immediate }, "rest_floor", nil, 0.50)
+    check(not safe and not SC.Downtime.peek(hauler).active,
+        "a threat takes precedence over a request to recover stamina")
+    SC.NativeActions = native
+end
+
 -- Returned cargo must get a decision after a casual pause, without waking a
 -- sleeper or interrupting cleaning's owned item transfers.
 local downtime, expedition = SC.Downtime, SC.ExpeditionPrototype

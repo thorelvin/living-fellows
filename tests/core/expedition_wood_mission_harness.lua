@@ -31,7 +31,7 @@ SC.Dialogue = { say = function() departures = departures + 1 return true end }
 SC.BaseLife = { active = function() return { id = "camp", core = { x = 100, y = 100, z = 0 } } end,
     policies = function() return { workOutsideAtNight = nightWork } end, isInside = function(a) return a.x <= 110 end }
 SC.ExpeditionIntegration = { woodDestinationAvailable = function() return true end,
-    settle = function() return false end, reset = function() end }
+    create = function() end, settle = function() return false end, reset = function() end }
 SC.ViewSession = { claim = function(_, a) slot = a return true, a end,
     slotSqlId = function() return 2 end, owner = function() return "expedition" end,
     released = function() slot = nil end, rememberSlotSqlId = function() end,
@@ -310,6 +310,41 @@ E.current().testWaypoint = { x = 100, y = 100, z = 0 }
 E.pulse()
 check(reunionPhase == "awaiting_player" and E.current().testWaypoint == nil,
     "a visible assembled wood crew back inside camp can finish before its last walking waypoint")
+do
+    local returned = E.current()
+    returned.scout.vehicle = { state = "abandoned", leg = "home", blocker = "parking_approach_blocked" }
+    leader.x, follower.x = 112, 111
+    local fixtureCar = SC.ExpeditionCar
+    SC.ExpeditionCar = { pulse = function() return false end }
+    SC.GameplayUtil.gridSquare = function(x, y, z) return { x = x, y = y, z = z } end
+    local finishCalls = 0
+    E.finishAtPlayer = function()
+        finishCalls = finishCalls + 1
+        return false, "return_member_not_assembled"
+    end
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 501
+    E.pulse()
+    check(returned.testWaypoint and returned.testWaypoint.x == 100
+        and E.campEntryFor(leader) and finishCalls == 0,
+        "the abandoned car's outside assembly point gives way to a marked camp entry")
+    local integration = SC.ExpeditionIntegration
+    local create = integration.create
+    integration.create = function() return { kind = "wood" } end
+    integration.refresh = function() end
+    integration.wants = function() return true end
+    leader.x, follower.x = 103, 104
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 501
+    E.pulse()
+    check(finishCalls == 1 and returned.testWaypoint == nil
+        and returned.returnHandoff == "return_member_not_assembled"
+        and returned.integration and not E.integrationFor(leader, true),
+        "crew awaits the player while the exact delivery stays reserved for handoff")
+    E.pulse()
+    check(finishCalls == 1, "waiting for the player does not repeat the handoff each frame")
+    integration.create, integration.refresh, integration.wants = create, nil, nil
+    returned.integration, returned.scout.vehicle = nil, nil
+    SC.ExpeditionCar, SC.GameplayUtil.gridSquare = fixtureCar, nil
+end
 E.finishAtPlayer = realFinish
 check(E.prepareReset() and E.reset(), "the restored validation fixture can be disposed")
 saved.scout.wood.acquisitions[1].itemType = "Base.Plank"

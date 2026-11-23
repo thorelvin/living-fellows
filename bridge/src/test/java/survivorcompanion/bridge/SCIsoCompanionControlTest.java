@@ -140,8 +140,9 @@ public final class SCIsoCompanionControlTest {
         boolean client = zombie.network.GameClient.client, server = zombie.network.GameServer.server;
         // This headless control does not boot defines.lua. Seed its installed
         // 42.21 native constants, and restore the caller's globals afterward.
-        String[] rateNames = {"imobileEnduranceReduce", "runningEnduranceReduce", "sprintingEnduranceReduce"};
-        double[] rates = {.0000930 / 3, .0000520, .0004550}, priorRates = new double[3];
+        String[] rateNames = {"imobileEnduranceReduce", "runningEnduranceReduce", "sprintingEnduranceReduce",
+            "sittingEnduranceMultiplier"};
+        double[] rates = {.0000930 / 3, .0000520, .0004550, 2.5}, priorRates = new double[rates.length];
         var globals = Class.forName("zombie.ZomboidGlobals");
         for (int i = 0; i < rateNames.length; i++) {
             var field = globals.getField(rateNames[i]);priorRates[i] = field.getDouble(null);field.setDouble(null, rates[i]);
@@ -184,14 +185,22 @@ public final class SCIsoCompanionControlTest {
             level.setInt(heavy, 2);first.getStats().set(endurance, .4f);
             first.updateCompanionEndurance();
             require(first.getStats().get(endurance) == .4f, "heavy load incorrectly allowed standing recovery");
-            level.setInt(heavy, 0);
-            for (String flag : new String[]{"setSitOnGround", "setIsResting", "setAsleep"}) {
+            for (String flag : new String[]{"setSitOnGround", "setSittingOnFurniture", "setIsResting"}) {
                 var setter = first.getClass().getMethod(flag, boolean.class);
-                setter.invoke(first, true);first.getStats().set(endurance, .4f);
-                first.updateCompanionEndurance();
-                require(first.getStats().get(endurance) == .4f, "duplicate/invalid recovery while " + flag);
-                setter.invoke(first, false);
+                setter.invoke(first, true);
+                try {
+                    first.getStats().set(endurance, .4f);nativeUpdate.invoke(first);
+                    float seatedExpected = first.getStats().get(endurance);
+                    first.getStats().set(endurance, .4f);first.updateCompanionEndurance();
+                    require(seatedExpected > .4f && first.getStats().get(endurance) == seatedExpected,
+                            "expected one native seated recovery tick under load while " + flag);
+                } finally { setter.invoke(first, false); }
             }
+            level.setInt(heavy, 0);
+            first.setAsleep(true);
+            first.getStats().set(endurance, .4f);first.updateCompanionEndurance();
+            require(first.getStats().get(endurance) == .4f, "awake endurance update ran during sleep");
+            first.setAsleep(false);
             var nativeSleep = IsoPlayer.class.getDeclaredMethod("updateStats_Sleeping");
             nativeSleep.setAccessible(true);
             var hunger = zombie.characters.CharacterStat.HUNGER;
@@ -275,7 +284,7 @@ public final class SCIsoCompanionControlTest {
                 actors[i].getStats().set(endurance, saved[i]);actors[i].getStats().set(fatigue, tiredness[i]);
             }
         }
-        System.out.println("STAMINA_RECOVERY_PASS native_once=true standing=true walking=true running_cost=true fatigue=true load=true isolated=true seated_skipped=true sleep=true sleep_speed=true sleep_stats_isolated=true");
+        System.out.println("STAMINA_RECOVERY_PASS native_once=true standing=true walking=true running_cost=true fatigue=true load=true isolated=true seated_native=true sleep=true sleep_speed=true sleep_stats_isolated=true");
     }
 
     private static void testStaminaIsolation(IsoPlayer primary,

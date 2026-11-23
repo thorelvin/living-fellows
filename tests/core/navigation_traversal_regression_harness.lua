@@ -456,6 +456,104 @@ check(T.fence(companionWallActor, "climb_wall", {
     "native companions use the bridge entry that preserves vanilla wall-climb outcomes")
 T.reset(companionWallActor)
 
+do
+    local tired = actor()
+    local originalCompanion, originalGrid, originalStat, originalStop =
+        U.isCompanion, U.gridSquare, CharacterStat, U.stop
+    CharacterStat = { ENDURANCE = "endurance" }
+    local stamina = 0
+    function tired:getStats()
+        return { get = function(_, stat) return stat == "endurance" and stamina end }
+    end
+    U.isCompanion = function(value) return value == tired or originalCompanion(value) end
+
+    local from, destination = tired.square, square(1, 0)
+    local around, approach = square(0, 1), square(1, 1)
+    local wall = { __class = "IsoObject" }
+    function from:getWallHoppableTo(to) if to == destination then return wall end end
+    function destination:getWallHoppableTo(to) if to == from then return wall end end
+    function from:isBlockedTo(to) return to == destination end
+    function destination:isBlockedTo(to) return to == from end
+    local map = { ["0:0:0"] = from, ["1:0:0"] = destination, ["0:1:0"] = around, ["1:1:0"] = approach }
+    U.gridSquare = function(x, y, z) return map[x .. ":" .. y .. ":" .. z] end
+
+    local edge = SC.Topology.classifyEdge(tired, from, destination)
+    check(not edge.traversable and edge.reason == "tall_fence_exhausted" and edge.dynamic,
+        "a remote tall fence is excluded from the exhausted companion's route")
+    local path = N.findPath(from, destination, { actor = tired, nodeBudget = 30 })
+    check(path and #path == 4 and path[2] == around and path[3] == approach,
+        "an exhausted companion chooses the nearby walking detour around the fence")
+    local accepted, reason = N._handleFenceForRequest(tired, wall, from, destination, {})
+    check(not accepted and reason == "tall_fence_exhausted" and tired.calls == 0,
+        "a previously selected fence cannot dispatch after stamina drops")
+    accepted, reason = T.fence(tired, "climb_wall", { direction = "east" }, provider)
+    check(not accepted and reason == "tall_fence_exhausted" and T.poll(tired) == "none",
+        "native tall-wall submission rejects exhaustion before queuing a climb")
+
+    local state = N._stateForTests(tired)
+    state.path = { from, destination }
+    state.activeWorkRoute = { id = "shared-route" }
+    local shared = state.activeWorkRoute
+    U.stop = function(value) value.stopped = true return true end
+    N._rememberFailureForTests(tired, state, from, destination, "tall_fence_exhausted", current)
+    local blacklisted = false
+    for _ in pairs(state.blockedEdges or {}) do blacklisted = true break end
+    check(not state.path and not state.activeWorkRoute and tired.stopped
+        and not blacklisted and shared.failures == nil,
+        "stamina invalidates the current route without blacklisting the physical edge")
+    U.stop = originalStop
+
+    stamina = 0.70
+    check(SC.Topology.classifyEdge(tired, from, destination).traversable,
+        "the same fence is eligible as soon as the companion has stamina")
+    tired.actionState = "Strafe"
+    function tired:getCompanionActionStateName() return self.actionState end
+    check(T.fence(tired, "climb_wall", { direction = "east" }, provider) and tired.calls == 0,
+        "a fit companion can queue a tall climb while the native stance settles")
+    stamina, tired.actionState = 0, "Idle"
+    local phase, failure = T.poll(tired)
+    check(phase == "failed" and failure == "tall_fence_exhausted" and tired.calls == 0,
+        "a deferred tall climb rechecks stamina on the native submission frame")
+    T.reset(tired)
+    check(T.fence(tired, "climb_fence", { direction = "east" }, provider) and tired.calls == 1,
+        "a low fence keeps its walking crossing at zero stamina")
+    T.reset(tired)
+
+    for y = 1, 5 do
+        local near = y == 1 and around or square(0, y)
+        local far = y == 1 and approach or square(1, y)
+        map["0:" .. y .. ":0"], map["1:" .. y .. ":0"] = near, far
+        if y < 5 then
+            function near:getWallHoppableTo(to) if to == far then return wall end end
+            function far:getWallHoppableTo(to) if to == near then return wall end end
+            function near:isBlockedTo(to) return to == far end
+            function far:isBlockedTo(to) return to == near end
+        end
+    end
+    stamina = 0.70
+    path = N.findPath(from, destination, { actor = tired, nodeBudget = 100 })
+    check(path and #path == 12 and path[6] == map["0:5:0"] and path[7] == map["1:5:0"],
+        "a rested companion walks around the fence end five tiles away")
+
+    check(T.fence(tired, "climb_wall", { direction = "east", fromSquare = from,
+        toSquare = destination }, provider), "a permitted tall climb can start")
+    tired.climbing = true
+    check(T.poll(tired) == "active", "failure recovery waits for the native climb to end")
+    tired.climbing = false
+    check(T.poll(tired) == "failed", "landing on the same side fails the wall climb")
+    T.reset(tired)
+    local adjacentFence = SC.Topology.classifyEdge(tired, around, approach)
+    check(not adjacentFence.traversable and adjacentFence.reason == "tall_fence_retry_wait"
+        and SC.Topology.classifyEdge(actor(), around, approach).traversable
+        and select(2, T.fence(tired, "climb_wall", { direction = "east" }, provider))
+            == "tall_fence_retry_wait",
+        "a failed climb briefly rules out the next panel for that companion alone")
+    current = current + 31000
+    check(SC.Topology.classifyEdge(tired, around, approach).traversable,
+        "the fence can be considered again after the failed climb cooldown")
+    U.isCompanion, U.gridSquare, CharacterStat = originalCompanion, originalGrid, originalStat
+end
+
 local reactionTopics, reactionState = {}, {
     recruited = true, order = "follow", stress = 12, morale = 60,
     personalityProfile = { archetype = "practical" },
@@ -1557,7 +1655,7 @@ do
     function from:isHoppableTo() return false end
     function from:isPlayerAbleToHopWallTo() return true end
     local tall = SC.Topology.classifyEdge(mover, from, to, {})
-    check(tall.traversable == true and tall.cost == 4.5,
+    check(tall.traversable == true and tall.cost > 11 and tall.requiresNative,
         "positive wall-hop evidence remains a native climb")
     from.getHoppableTo, from.isHoppableTo, from.isPlayerAbleToHopWallTo = nil, nil, nil
 end

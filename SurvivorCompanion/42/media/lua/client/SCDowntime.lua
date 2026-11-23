@@ -5632,7 +5632,7 @@ function Downtime._sleepStateForTests(actor, activity)
     stateFor(actor).active = activity
 end
 
-function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
+function Downtime.update(actor, player, runtime, desiredKind, requestedSquare, recoveryEndurance)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local rootRuntime = utility.actorState(actor, runtime)
@@ -5655,8 +5655,11 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         local standing = Downtime.cancel(actor, "standing_from_rest")
         if not standing then return true, "standing_from_rest" end
     end
+    local recoveryRequested = desiredKind == "rest_floor" and recoveryEndurance ~= nil
+    local recovering = commands.recruited and commands.temporaryStay ~= true
+        and (recoveryRequested or state.active and state.active.recoveryEndurance ~= nil)
     local unsafe = dangerPresent(snapshot, actor, current)
-        or not orderAllowsIdle(commands, actor, player, snapshot)
+        or not recovering and not orderAllowsIdle(commands, actor, player, snapshot)
     local medicalState = SC.Medical and type(SC.Medical.peek) == "function"
         and SC.Medical.peek(actor) or nil
     if unsafe then
@@ -5678,7 +5681,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
         return SC.Medical.replaceDirtyBandage(actor)
     end
 
-    local followReady = followPauseReady(actor, player, commands, state, current)
+    local followReady = recovering or followPauseReady(actor, player, commands, state, current)
     if not followReady then
         state.safeSince = state.safeSince or current
         if state.followPauseReason == "leader_moving" then
@@ -6186,8 +6189,10 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
                 return finishActivity(actor, state, current)
             end
             return true, "sitting_on_furniture"
-        elseif state.active.kind == "rest_floor" and state.active.recoveryRest and state.active.startedAt
-            and utility.characterStatValue(actor, "ENDURANCE", 1) >= 0.90 then
+        elseif state.active.kind == "rest_floor" and state.active.startedAt
+            and (state.active.recoveryEndurance or state.active.recoveryRest)
+            and utility.characterStatValue(actor, "ENDURANCE", 1)
+                >= (state.active.recoveryEndurance or 0.90) then
             return finishActivity(actor, state, current)
         elseif state.active.startedAt and current - state.active.startedAt >= duration then
             return finishActivity(actor, state, current)
@@ -6197,10 +6202,19 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare)
 
     if current - state.safeSince < (utility.config("downtimeSafeMs") or 5000) then
         if not state.idleStopped then utility.stop(actor) state.idleStopped = true end
-        return false, "settling"
+        return recoveryRequested, "settling"
     end
-    if current < state.nextEvaluationAt then return false, "cooldown" end
+    if current < state.nextEvaluationAt then return recoveryRequested, "cooldown" end
     state.nextEvaluationAt = current + (utility.config("downtimeIntervalMs") or 1500)
+    if recoveryRequested then
+        -- Native standing recovery can stop entirely under a heavy load.
+        -- Sit here instead of asking an exhausted carrier to walk to furniture.
+        if seatingStatus(actor) ~= "standing" then return true, "resting_in_place" end
+        return beginActivity(actor, state, {
+            kind = "rest_floor", durationMs = 120000, recoveryEndurance = recoveryEndurance,
+            exitRestRequired = true, fact = { activity = "rest_floor" },
+        }, commands, current)
+    end
     local choices, searchStatus = candidates(actor, commands, state, current,
         desiredKind, requestedSquare)
     if searchStatus == "searching" then

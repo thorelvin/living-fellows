@@ -563,6 +563,26 @@ local function edgeOwner(fromSquare, toSquare)
     return owner, north
 end
 
+function Topology.fenceHeight(object, fromSquare, toSquare)
+    local utility = U()
+    local tall, tallKnown = utility.call(object, "isTallHoppable")
+    if tall == true then return "tall" end
+    local low, lowKnown = utility.call(object, "isHoppable")
+    if low == true then return "low" end
+    if object ~= nil and tallKnown and tall == false and lowKnown and low == false then
+        return "blocked"
+    end
+    local wall = utility.call(fromSquare, "getWallHoppableTo", toSquare)
+    if wall ~= nil then return "tall" end
+    local lowEdge, lowEdgeKnown = utility.call(fromSquare, "isHoppableTo", toSquare)
+    if lowEdge == true then return "low" end
+    local direction = cardinalDirection(fromSquare, toSquare)
+    local wallEdge, wallEdgeKnown = utility.call(fromSquare,
+        "isPlayerAbleToHopWallTo", direction, toSquare)
+    if wallEdge == true then return "tall" end
+    if object ~= nil and (lowEdgeKnown or wallEdgeKnown) then return "blocked" end
+end
+
 -- Return the concrete boundary object and a topology kind. Only cardinal edges
 -- are legal: allowing diagonal adjacency here lets escape/path probes cut across
 -- the solid corner made by two walls or a wall and a locked door.
@@ -1166,41 +1186,24 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         if not climbable then result.reason = "window_frame_blocked" return result end
         result.cost, result.requiresNative = 2.5, true
     elseif kind == "fence" then
-        local tall, tallOk = U().call(object, "isTallHoppable")
-        local low, lowOk = U().call(object, "isHoppable")
-        -- Some concrete IsoObjects are returned by a square's hoppable-edge
-        -- getter even though both native climb flags reject them. Do not send
-        -- a retreating companion up to that fence only to discover this at
-        -- dispatch time with a zombie already in reach.
-        if object ~= nil and tallOk and tall == false
-            and lowOk and low == false then
+        local height = Topology.fenceHeight(object, fromSquare, toSquare)
+        if height == "blocked" then
             result.reason = "fence_not_hoppable"
             return result
         end
-        if object ~= nil and not (tallOk and tall == true)
-            and not (lowOk and low == true) then
-            -- Generic IsoObjects have neither flag. A square getter can still
-            -- return one for a solid fence, while the player's hop test will
-            -- reject it. Require positive square-level low or wall evidence
-            -- when those probes are available, so A-star routes around it.
-            local lowEdge, lowEdgeOk = U().call(fromSquare, "isHoppableTo", toSquare)
-            local direction = cardinalDirection(fromSquare, toSquare)
-            local wallEdge, wallEdgeOk = U().call(fromSquare,
-                "isPlayerAbleToHopWallTo", direction, toSquare)
-            if (lowEdgeOk or wallEdgeOk) and lowEdge ~= true
-                and wallEdge ~= true then
-                result.reason = "fence_not_hoppable"
-                return result
-            end
-            if wallEdgeOk and wallEdge == true then tall = true end
-        end
-        if tall == true then
+        if height == "tall" then
             -- canClimbOverWall(direction) is relative to the actor's current
             -- square. Calling it while A-star evaluates a distant fence tests
-            -- an unrelated edge and rejects valid routes. Keep the concrete
-            -- tall wall in the route; the adjacent traversal dispatch repeats
-            -- the stock player capability check immediately before climbing.
-            result.cost = 4.5
+            -- an unrelated edge. The actor's recovery applies to all tall fences.
+            local blocked = U().companionTallFenceBlock
+                and U().companionTallFenceBlock(actor, options.now)
+            if blocked then
+                result.reason, result.static, result.dynamic = blocked, false, true
+                return result
+            end
+            -- Allow a short walk around the end of the fence, including the
+            -- walk back on the other side. Tall climbs take time and stamina.
+            result.cost = 16
         else
             result.cost = 2.5
         end

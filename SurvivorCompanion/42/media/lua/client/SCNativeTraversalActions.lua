@@ -7,6 +7,7 @@ SC.NativeTraversalActions = SC.NativeTraversalActions or {}
 local Traversal = SC.NativeTraversalActions
 local context
 local pending = setmetatable({}, { __mode = "k" })
+local tallFenceRetryAt = setmetatable({}, { __mode = "k" })
 local lastWallClimbReactionAt = -math.huge
 
 function Traversal.configure(value)
@@ -29,6 +30,11 @@ end
 
 local function config(name, fallback)
     return SC.Config and tonumber(SC.Config.get(name)) or fallback
+end
+
+function Traversal.tallFenceRetryPending(actor, current)
+    local retryAt = tallFenceRetryAt[actor]
+    return retryAt ~= nil and (current or nowMs()) < retryAt
 end
 
 local function climbing(actor)
@@ -325,6 +331,11 @@ function Traversal.poll(actor, current)
         record.reason = not moved and "traversal_exited_without_progress"
             or destinationReached and "traversal_completed"
             or "traversal_exited_without_destination"
+        local utility = SC.GameplayUtil
+        if record.phase == "failed" and record.action == "climb_wall"
+            and utility and utility.isCompanion and utility.isCompanion(actor) then
+            tallFenceRetryAt[actor] = current + config("navigationTraversalRetryWindowMs", 30000)
+        end
         if record.phase == "completed" then record.destinationVerifiedAt = current end
     elseif record.toSquare and current >= record.startDeadline then
         -- A low-frequency observer can miss a whole short animation. Actual
@@ -402,6 +413,7 @@ function Traversal.reset(actor)
         invoke(actor,"clearCompanionWindowApproval")
     else
         pending = setmetatable({}, { __mode = "k" })
+        tallFenceRetryAt = setmetatable({}, { __mode = "k" })
         lastWallClimbReactionAt = -math.huge
     end
 end
@@ -560,6 +572,10 @@ end
 function Traversal.fence(actor, action, intent, provider)
     local existing, existingReason = existingRequest(actor, action, intent.object)
     if existing ~= nil then return existing, existingReason end
+    local utility = SC.GameplayUtil
+    local blockReason = action == "climb_wall" and utility and utility.companionTallFenceBlock
+    local blocked = blockReason and blockReason(actor)
+    if blocked then return false, blocked end
     local direction = fenceDirection(intent)
     if direction == nil then return false, "fence direction is unavailable" end
     local handled, reason = useProvider(provider, "fence", actor, action,
@@ -576,6 +592,8 @@ function Traversal.fence(actor, action, intent, provider)
         if not checked then return false, "native tall-wall climb check is unavailable" end
         if climbable ~= true then return false, "native tall wall is not climbable" end
         submit = function()
+            local blocked = blockReason and blockReason(actor)
+            if blocked then return false, blocked end
             local prepared, prepareReason = prepareWalkingFenceCrossing(actor)
             if not prepared then return false, prepareReason end
             -- Native companions are intentionally non-local IsoPlayers. Their

@@ -3032,7 +3032,6 @@ public final class SCNativeCompanion extends IsoPlayer {
             refreshBridgeFloorAttackInput();
             boolean seated = getVehicle() != null;
             boolean sleepingAtStart = isAsleep();
-            boolean stateOwnedEndurance = seated || isSitting() || isResting() || sleepingAtStart;
             if (seated) suspendBridgeLocomotion();
             else if (bridgeDriver.isActive()) bridgeDriver.stop(this, "left_driver_seat");
             reconcileBridgePathState();
@@ -3071,10 +3070,10 @@ public final class SCNativeCompanion extends IsoPlayer {
             // Advance this non-local actor's fatigue once, without running the
             // full player awake/input update or duplicating hunger/thirst.
             SCCompanionFatigue.update(this);
-            // An exit/wake action can change posture during the generic pass,
-            // after that state's recovery has already run for this frame.
+            // The on-foot player update owns both standing and seated recovery.
+            // Keep that tick separate from vehicle and sleep recovery on exits.
             if (sleepingAtStart && isAsleep()) updateCompanionSleepEndurance();
-            else if (!stateOwnedEndurance) updateCompanionEndurance();
+            else if (!seated && !sleepingAtStart) updateCompanionEndurance();
             bridgeComfort.afterUpdate(getBodyDamage());
             advanceBridgePath();
             consumeBridgeDeferredMovement();
@@ -3756,11 +3755,10 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     /** Advance only the native on-foot stamina path omitted with local input. */
     void updateCompanionEndurance() {
-        // Sitting/resting and vehicles already own their native recovery. The
-        // singleton, sleep and unsupported multiplayer paths must not tick twice.
+        // The stock method selects the sitting/resting branch itself.
         if (!SystemDisabler.doCharacterStats || GameClient.client || GameServer.server
                 || this == IsoPlayer.getInstance() || isDead() || isAsleep() || isGodMod()
-                || getVehicle() != null || isSitting() || isResting() || getStats() == null) return;
+                || getVehicle() != null || getStats() == null) return;
         if (PLAYER_ENDURANCE_UPDATE == null) {
             throw new IllegalStateException("native on-foot endurance update is unavailable");
         }

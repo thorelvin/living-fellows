@@ -94,4 +94,49 @@ check(select(2, I.update(receipt, worker)) == "expedition_supply_stored"
     and yard.worlds[1]:getItem() == original and #car.trunk.items == 0,
     "the same log reaches the distant yard exactly once")
 
+do
+    X.clear()
+    local log = X.log("essential:resting-carrier")
+    local tired = T.actor("tired", "Tired", {})
+    tired.stamina = 0
+    local parked = X.carFor(log)
+    local destination = T.storage("construction:rest", "construction", {}, 1)
+    local delivery = X.create(tired, { log }, { car = parked })
+    local utility = SC.GameplayUtil
+    utility.characterStatValue = function(actor, _, fallback) return actor.stamina or fallback end
+    utility.companionSeverelyExerted = function(actor) return (actor.stamina or 1) <= 0.25 end
+    local traversal = SC.NativeTraversalActions
+    SC.NativeTraversalActions = { poll = function()
+        return "failed", "traversal_exited_without_destination", { phase = "failed" }
+    end }
+    check(select(2, I.update(delivery, tired)) == "wood_delivery_rest"
+        and log.container == parked.trunk and T.animations == 0 and T.moves == 0,
+        "an exhausted timber worker yields before walking to or opening the trunk")
+    SC.NativeTraversalActions = traversal
+    check(not I.wants(delivery, tired) and I.wants(delivery, tired, true)
+        and I.summary(delivery).woodStaminaWaiting,
+        "only the recovery controller can claim the waiting worker and the report names the wait")
+    check(I.retry(delivery) and not I.wants(delivery, tired),
+        "manual retry preserves the resting pause")
+
+    local relief = T.actor("relief", "Relief", {})
+    delivery.members[2] = { id = relief.id, name = relief.name, commandSerial = 0,
+        restockIndex = 1, dutyDone = true, shortages = {} }
+    check(I.wants(delivery, relief), "an exhausted crew member does not block another from unloading")
+    tired.stamina = 0.30
+    check(not I.wants(delivery, tired), "a small stamina gain does not immediately restart timber work")
+    local resting, reason, target = I.update(delivery, tired)
+    check(not resting and reason == "wood_delivery_rest" and target == 0.50
+        and log.container == parked.trunk, "polling recovery keeps the same trunk log and stamina target")
+    tired.stamina = 0.50
+    check(I.wants(delivery, tired) and not I.summary(delivery).woodStaminaWaiting
+        and select(2, I.update(delivery, tired)) == "car_trunk_looting",
+        "recovery resumes the same delivery without waiting for a retry timer")
+    I.update(delivery, tired)
+    check(select(2, I.update(delivery, tired)) == "expedition_supply_stored"
+        and log.container == destination.container and #parked.trunk.items == 0,
+        "the exact reserved log is deposited after recovery")
+    utility.characterStatValue, utility.companionSeverelyExerted = nil, nil
+end
+
 SC_TEST_REPORT = "Essential cargo delivery: " .. X.checks() .. " checks passed"

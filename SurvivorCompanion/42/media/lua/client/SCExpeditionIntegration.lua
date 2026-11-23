@@ -11,6 +11,7 @@ local retryClocks = setmetatable({}, { __mode = "k" })
 local settlementClocks = setmetatable({}, { __mode = "k" })
 local ESSENTIALS = { "food", "water", "medicine", "ammunition" }
 local WOOD_LIMIT, WOOD_RETRY_MS = 256, 180000
+local WOOD_RESUME_ENDURANCE = 0.50
 local woodToolsPending
 
 local function U() return SC.GameplayUtil end
@@ -82,6 +83,41 @@ local function deferReceipt(state, row, delay)
         retryClocks[row] = U().nowMs()
     else state.retryByReceipt[row.id] = U().nowMs() + delay end
 end
+
+local function woodRestPending(actor, state)
+    return state and state.woodResting == true
+        and U().characterStatValue(actor, "ENDURANCE", 1) < WOOD_RESUME_ENDURANCE
+end
+
+local function pauseWoodDelivery(actor, state, row)
+    if not U().companionSeverelyExerted or not U().companionSeverelyExerted(actor)
+        or call(actor, "getVehicle") then return false end
+    local native = SC.NativeActions
+    if state.currentReceiptId == row.id and (state.receiptItem or state.visualAt)
+        and native and native.visualStatus then
+        local phase = native.visualStatus(actor, "loot_container")
+        if phase == "active" or phase == "completed" then return false end
+    end
+    local traversal = SC.NativeTraversalActions
+    if traversal and traversal.poll then
+        local phase = traversal.poll(actor)
+        if phase == "starting" or phase == "active" then return false end
+    end
+    -- Let the normal needs/downtime policy take over. The receipt stays with
+    -- its current owner and other crew can still handle the trunk.
+    local navigation = SC.Navigation
+    local motion = navigation and navigation.peek and navigation.peek(actor)
+    if state.currentReceiptId and motion and navigation.cancel and (motion.goalAction == "move_to_car_trunk"
+        or motion.goalAction == "expedition_wood_storage") then
+        navigation.cancel(actor, "wood_delivery_rest")
+    end
+    state.woodResting = true
+    state.navigationChoice, state.woodDrop, state.deliveryApproach = nil, nil, nil
+    state.receiptItem, state.receiptVisualToken, state.visualAt, state.storageVisualToken = nil, nil, nil, nil
+    row.reason = "wood_delivery_rest"
+    return true
+end
+
 local function copyRow(row)
     local destination = row.destination
     return { id = row.id, itemType = row.itemType, nativeId = row.nativeId,
@@ -746,6 +782,12 @@ function Integration.summary(record)
         local registered = SC.Registry and SC.Registry.byId(member.id)
         local command = registered and registered.actor and SC.Commands and SC.Commands.peek(registered.actor)
         result.members[#result.members].actualCommandSerial = command and command.commandSerial or nil
+        local actor = registered and registered.actor
+        if woodRecord(record) and result.pending > 0 and actor and not U().isDead(actor)
+            and (woodRestPending(actor, stateFor(record, actor, false))
+                or U().companionSeverelyExerted and U().companionSeverelyExerted(actor) and atBase(actor)) then
+            result.woodStaminaWaiting = true
+        end
         if record.kind == "home" then
             local row = result.members[#result.members]
             row.cleanupDone, row.cleanupReason, row.restocked = member.cleanupDone, member.cleanupReason, {}
@@ -1535,7 +1577,7 @@ local function restock(actor, member, record, state)
     return true, "restock_shortage_" .. category
 end
 
-function Integration.wants(record, actor)
+function Integration.wants(record, actor, includeRecovery)
     if record and record.kind=="fuel" then
         if SC.ExpeditionFuel.deliveryPending(record) then return SC.ExpeditionFuel.deliveryWants(record,actor) end
     end
@@ -1560,7 +1602,8 @@ function Integration.wants(record, actor)
         return false
     end
     local state = stateFor(record, actor, false)
-    if woodRecord(record) and (remainingRetry(record) or 0) > 0 then return false end
+    if woodRecord(record) and ((remainingRetry(record) or 0) > 0
+        or not includeRecovery and woodRestPending(actor, state)) then return false end
     if itemForWorker(record, actor, state) then return true end
     if woodRecord(record) then
         local unfinished = false
@@ -1587,7 +1630,7 @@ function Integration.update(record, actor)
     if record and record.kind=="fuel" then
         if SC.ExpeditionFuel.deliveryPending(record) then return SC.ExpeditionFuel.deliveryUpdate(record,actor) end
     end
-    if not Integration.wants(record, actor) then return false, "delivery_not_ready" end
+    if not Integration.wants(record, actor, true) then return false, "delivery_not_ready" end
     local state = stateFor(record, actor, true)
     if record.kind == "home" then
         local member = memberFor(record, actor)
@@ -1625,6 +1668,11 @@ function Integration.update(record, actor)
             if not record.restock then return handled, reason end
         end
         return restock(actor, memberFor(record, actor), record, state)
+    end
+    if woodRecord(record) then
+        if woodRestPending(actor, state) then return false, "wood_delivery_rest", WOOD_RESUME_ENDURANCE end
+        state.woodResting = nil
+        if pauseWoodDelivery(actor, state, row) then return false, "wood_delivery_rest", WOOD_RESUME_ENDURANCE end
     end
     if state.currentReceiptId ~= row.id then
         state.deliveryApproach, state.visualAt, state.storageVisualToken = nil, nil, nil
