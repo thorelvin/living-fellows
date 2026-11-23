@@ -5394,6 +5394,44 @@ local function vehicleCombat(actor, player, snapshot, target, weapon, inventory,
     return accepted == true, accepted and "vehicle_shoot" or "vehicle_shoot_rejected"
 end
 
+-- A resting or downed contact can draw repeated shoves from a returning
+-- scout. Let the scout leave it behind if the first walking step is clear.
+function Combat.canContinueScoutReturn(actor, waypoint, snapshot, scored)
+    if snapshot.encircled == true or snapshot.humanThreat ~= nil
+        or (snapshot.player and (snapshot.player.immediateThreats or 0) > 0)
+        or (snapshot.immediateCount or 0) > 1 then return false end
+    local utility = U()
+    local reach = utility.config("combatStompPursuitDistance") or 3.25
+    local contact
+    for _, target in ipairs(scored) do
+        if target.rescue or target.playerDesignation then return false end
+        if target.distanceSq <= reach * reach then
+            if contact or target.breaching or target.attacking then return false end
+            contact = target.actor
+        end
+    end
+    if contact == nil then return false end
+    local facts = SC.ZombieFacts and SC.ZombieFacts.get(contact)
+    if not facts or (facts.posture ~= "downed" and facts.posture ~= "sitting") or facts.attacking
+        or facts.gettingUp or facts.climbing then return false end
+    for _, threat in ipairs(snapshot.threats) do
+        if threat.actor ~= contact and not utility.isGoneTarget(threat.actor)
+            and utility.distanceSq(actor, threat.actor) <= reach * reach then return false end
+    end
+    local immediate = snapshot.immediateAttackers and snapshot.immediateAttackers[1]
+    if immediate and immediate.actor ~= contact then return false end
+
+    local x, y, z = utility.position(actor)
+    if x == nil or math.floor(z) ~= waypoint.z or facts.x == nil or facts.y == nil
+        or not utility.loadedSquare(waypoint) then return false end
+    local dx, dy = waypoint.x + 0.5 - x, waypoint.y + 0.5 - y
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.65 or (x - facts.x) * dx + (y - facts.y) * dy < 0 then return false end
+    local nextX, nextY = x + dx * 0.65 / length, y + dy * 0.65 / length
+    local clear, checked = utility.call(actor, "isCompanionMovementClear", nextX, nextY, z)
+    return checked and clear == true
+end
+
 function Combat.update(actor, player, runtime)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -5437,6 +5475,14 @@ function Combat.update(actor, player, runtime)
     if phaseStarted then performance.record("combat.score-targets", nil,
         performance.preciseNowMs() - phaseStarted) end
     addNearbyGrounded(actor, player, snapshot, scored)
+    local expedition = SC.ExpeditionPrototype
+    local waypoint = expedition and expedition.scoutReturnWaypointFor
+        and expedition.scoutReturnWaypointFor(actor)
+    if waypoint and Combat.canContinueScoutReturn(actor, waypoint, snapshot, scored)
+        and not (SC.Medical and SC.Medical.isDowned and SC.Medical.isDowned(actor)) then
+        local released = not state.active or Combat.disengage(actor, rootRuntime, "scout_return")
+        if released then return false, "scout_return_clear" end
+    end
     phaseStarted = performance and performance.preciseNowMs()
     local followUpHandled, followUpReason = tryShoveFollowUp(
         actor, state, snapshot, now, commands)

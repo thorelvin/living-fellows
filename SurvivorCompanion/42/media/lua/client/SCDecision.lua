@@ -2670,18 +2670,17 @@ function Decision._targetlessFollowCandidate(selected, failure, snapshot, candid
     return best
 end
 
--- A road leader can have several close contacts in its sense snapshot yet no
--- attackable zombie in Combat's fresh target list (for example through a
--- wall). In that case let Navigation attempt the already ordered loaded leg
--- instead of standing still until the expedition stall counter expires.
+-- Navigation can resume a road leg if Combat finds no reachable target. A
+-- returning scout can also resume its leg when Combat verifies a safe exit.
 function Decision._unscoredExpeditionMoveCandidate(selected, failure,
         candidates, commands)
     if type(selected) ~= "table" or selected.kind ~= "combat"
-        or (failure ~= "no_threat" and failure ~= "no_credible_target")
         or type(commands) ~= "table"
-        or type(commands.expeditionTravelCombat) ~= "table"
         or commands.order ~= "move_to"
         or commands.tacticalTarget == nil then return nil end
+    if failure ~= "scout_return_clear"
+        and ((failure ~= "no_threat" and failure ~= "no_credible_target")
+            or type(commands.expeditionTravelCombat) ~= "table") then return nil end
     for _, candidate in ipairs(candidates or {}) do
         if candidate.kind == "tactical" then return candidate end
     end

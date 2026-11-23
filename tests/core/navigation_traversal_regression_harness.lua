@@ -751,6 +751,37 @@ check(T.poll(windowActor) == "active", "native state still owns tail after anima
 windowActor.nativeState = nil
 check(T.poll(windowActor) == "completed", "window completion verifies actual effect")
 T.reset(windowActor)
+do
+    local opening = actor()
+    local pane = {IsOpen = function() return false end}
+    opening.actionState = "movement"
+    function opening:getCompanionActionStateName() return self.actionState end
+    local intent = {object=pane, fromSquare=opening.square}
+    local accepted, reason = T.window(opening, "open_window", intent, provider)
+    check(accepted and reason == "traversal_waiting_for_action_state:open_window"
+        and opening.calls == 0 and T.activityStatus(opening) == "active",
+        "a closed window waits until the stock graph can accept opening")
+    opening.actionState = "idle"
+    current = current + 100
+    check(T.poll(opening) == "starting" and opening.calls == 1,
+        "native window opening submits once upon reaching idle")
+    T.poll(opening)
+    check(opening.calls == 1, "window polling preserves the submitted native action")
+    T.reset(opening)
+
+    opening.actionState, opening.calls = "turning", 0
+    check(T.window(opening, "open_window", intent, provider)
+        and T.cancel(opening, "combat_priority") and opening.calls == 0,
+        "combat can cancel a window request before native submission")
+    opening.actionState = "movement"
+    T.window(opening, "open_window", intent, provider)
+    opening.actionState, opening.x = "idle", 2.5
+    current = current + 100
+    local phase, failure = T.poll(opening)
+    check(phase == "failed" and failure == "window_stand_changed" and opening.calls == 0,
+        "a deferred window request rechecks the exterior stand at dispatch")
+    T.reset(opening)
+end
 local interruptedWindowActor, interruptedWindow = actor(), { opened = false }
 function interruptedWindow:IsOpen() return self.opened end
 T.window(interruptedWindowActor, "open_window", { object = interruptedWindow }, provider)

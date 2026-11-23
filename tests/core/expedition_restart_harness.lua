@@ -3034,6 +3034,25 @@ end)()
     reserve.x, reserve.y = camp.core.x, camp.core.y
     check(expedition.finishAtPlayer(player) == true,
         "the team can hand off the view once it reaches camp")
+
+    local startedWalkIn, walkIn = expedition.start(
+        { { id = "delta", actor = reserve } },
+        { kind = "search", destination = {x = player.x + 60, y = player.y, z = 0},
+            request = {category = "useful", quantity = 1} })
+    check(startedWalkIn, "the marked camp walk-in fixture launches")
+    walkIn.scout.phase, walkIn.scout.returnIndex = "inbound", 0
+    walkIn.testWaypoint = {x = player.x + 1, y = player.y, z = 0}
+    walkIn.scout.lastProgressAt, walkIn.scout.waypointStagedAt = scoutClock, scoutClock
+    reserve.x, reserve.y = camp.core.x - 6, camp.core.y
+    expedition.pulse()
+    check(expedition.current() == walkIn and walkIn.scout.phase == "inbound",
+        "the walk-in waits until the returning leader reaches the marked camp")
+    SC.BaseLife.isInside = function(actor)
+        return math.abs(actor.x - camp.core.x) <= 8 and actor.y == camp.core.y
+    end
+    expedition.pulse()
+    check(expedition.current() == nil and expedition.lastOutcome() == "returned",
+        "a final approach inside camp releases the crew while a nearby waypoint is still pending")
     SC.BaseLife = oldBase
 end)()
 

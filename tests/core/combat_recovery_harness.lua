@@ -459,4 +459,48 @@ do
         "a finished shot releases its transient input without changing native gun ammunition")
     AttackType, actor.isAttacking, actor.setAttackType = priorTypes, priorAttacking, priorTypeSetter
 end
+do
+    local loadedSquare = SC.GameplayUtil.loadedSquare
+    local loaded = true
+    SC.GameplayUtil.loadedSquare = function(point) return loaded and point or nil end
+    local scout = { x = 20.5, y = 20.5, z = 0, obstructed = false,
+        isCompanionMovementClear = actor.isCompanionMovementClear }
+    local fallen = { __class = "IsoZombie", x = 19.9, y = 20.5, z = 0 }
+    function fallen:isOnFloor() return self.standing ~= true end
+    function fallen:isSitAgainstWall() return self.sitting == true end
+    function fallen:isGettingUp() return self.rising == true end
+    function fallen:isCrawling() return self.crawling == true end
+    function fallen:isAttacking() return self.attacking == true end
+    local scored = { { actor = fallen, distanceSq = 0.36 } }
+    local snapshot = { threats = scored, immediateCount = 1, immediateAttackers = scored }
+    local waypoint = { x = 24, y = 20, z = 0 }
+    local function canLeave()
+        SC.ZombieFacts.forget(fallen)
+        return SC.Combat.canContinueScoutReturn(scout, waypoint, snapshot, scored)
+    end
+    fallen.sitting = true
+    check(canLeave(), "the scout can walk away from a seated contact even when it reports floor contact")
+    fallen.sitting = false
+    check(canLeave(), "a scout can take a clear first step away from one downed zombie")
+    waypoint.x = 16
+    check(not canLeave(), "a path toward the downed zombie keeps combat in control")
+    waypoint.x, scout.obstructed = 24, true
+    check(not canLeave(), "a blocked first walking step keeps combat in control")
+    scout.obstructed, loaded = false, false
+    check(not canLeave(), "a scout cannot use an unloaded return waypoint to leave combat")
+    loaded, fallen.rising = true, true
+    check(not canLeave(), "a rising zombie still gets a combat response")
+    fallen.rising, fallen.crawling = false, true
+    check(not canLeave(), "a crawler still gets a combat response")
+    fallen.crawling, fallen.attacking = false, true
+    check(not canLeave(), "an active attacker still gets a combat response")
+    fallen.attacking, fallen.standing = false, true
+    check(not canLeave(), "an upright zombie still gets a combat response")
+    fallen.standing, scored[1].rescue = false, true
+    check(not canLeave(), "a scout will still defend a pinned ally")
+    scored[1].rescue = nil
+    snapshot.threats = { scored[1], { actor = { x = 21, y = 20, z = 0 } } }
+    check(not canLeave(), "a second nearby contact still gets a combat response")
+    SC.GameplayUtil.loadedSquare = loadedSquare
+end
 SC_TEST_REPORT = "COMBAT_RECOVERY_KAHLUA_PASS checks=" .. checks

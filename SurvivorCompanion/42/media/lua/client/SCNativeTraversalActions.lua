@@ -189,22 +189,22 @@ local function considerWallClimbReaction(record, current)
 end
 
 -- Build 42 clears every ActionContext event at the end of each update
--- (ActionContext.postUpdateInternal -> clearActionContextEvents). A climb
--- event reported while the stock player graph sits in a state without the
--- matching to_climb* transition (strafe, aim, bumped, turning, melee...) is
--- discarded without error, so the climb never starts. These are the stock
--- player action groups whose transitions consume each climb event.
-local climbAcceptingStates = {
+-- (ActionContext.postUpdateInternal -> clearActionContextEvents). The stock
+-- graph drops a traversal event if the current state has no matching
+-- transition. In particular, stopping at a window can leave the last
+-- movement state in charge for another update. Only idle accepts opening.
+local traversalAcceptingStates = {
     climb_fence = { idle = true, movement = true, run = true, sprint = true, climbrope = true },
     climb_wall = { idle = true, movement = true, run = true },
     climb_window = { idle = true, movement = true, climbrope = true,
         openwindow = true, smashwindow = true },
+    open_window = { idle = true },
 }
 
--- Returns the current action state when it cannot consume the climb event,
+-- Returns the current action state when it cannot consume the event,
 -- or nil when submission is safe or the state is not observable (adapters).
-local function climbStateBlocker(actor, action)
-    local accepting = climbAcceptingStates[action]
+local function traversalStateBlocker(actor, action)
+    local accepting = traversalAcceptingStates[action]
     if accepting == nil then return nil end
     local observed, name = invoke(actor, "getCompanionActionStateName")
     if not observed or type(name) ~= "string" or name == "" then return nil end
@@ -225,10 +225,16 @@ end
 -- wait is bounded by the original start lease; a submitted climb receives a
 -- fresh lease so a late submission is not mistaken for a failed start.
 local function submitDeferred(actor, record, current)
-    local blocker = climbStateBlocker(actor, record.action)
+    if current >= record.startDeadline then
+        record.deferredSubmit = nil
+        record.phase, record.finishedAt = "failed", current
+        record.reason = "traversal_start_timeout:" .. record.action
+        return record.phase, record.reason
+    end
+    local blocker = traversalStateBlocker(actor, record.action)
     if blocker ~= nil then
         record.deferredState = blocker
-        return nil
+        return "starting", record.reason
     end
     local submit = record.deferredSubmit
     record.deferredSubmit, record.deferredState = nil, nil
@@ -244,7 +250,7 @@ local function submitDeferred(actor, record, current)
     end
     record.wallClimbOutcome = outcome
     record.x, record.y, record.z = position(actor)
-    record.startDeadline = current + startTimeoutMs(false)
+    record.startDeadline = current + startTimeoutMs(record.effectOnly)
     record.finishDeadline = current + finishTimeoutMs(record.rope)
     record.reason = "traversal_starting:" .. record.action
     return nil
@@ -392,6 +398,10 @@ function Traversal.activityStatus(actor, current)
 end
 
 function Traversal.cancel(actor, reason)
+    if pending[actor] and pending[actor].deferredSubmit then
+        pending[actor] = nil
+        return true, reason or "traversal_cleared"
+    end
     local phase, _, record = Traversal.poll(actor)
     if phase == "active" then
         -- Opening/smashing a window has no cross-boundary motion and can yield
@@ -462,12 +472,13 @@ end
 -- otherwise retain the same bounded ownership and let poll() submit it once the
 -- graph leaves strafe/aim/turning. Navigation keeps waiting on a "starting"
 -- traversal, so a transient pose never blacklists a valid fence or window.
-local function submitOrDefer(actor, action, intent, submit, startedReason)
-    local blocker = climbStateBlocker(actor, action)
+local function submitOrDefer(actor, action, intent, submit, startedReason, effectOnly)
+    local blocker = traversalStateBlocker(actor, action)
     if blocker ~= nil then
-        local retained, retainReason = retainRequest(actor, action, intent, startedReason)
+        local retained, retainReason = retainRequest(actor, action, intent, startedReason, effectOnly)
         local record = pending[actor]
         if not retained or record == nil then return retained, retainReason end
+        record.phase, record.observedAt = "starting", nil
         record.deferredSubmit, record.deferredState = submit, blocker
         record.reason = "traversal_waiting_for_action_state:" .. action
         return true, record.reason
@@ -475,13 +486,13 @@ local function submitOrDefer(actor, action, intent, submit, startedReason)
     local submitted, failure, outcome = submit()
     if not submitted then
         if failure=="window_verification_pending" then
-            local retained,why=retainRequest(actor,action,intent,startedReason)
+            local retained,why=retainRequest(actor,action,intent,startedReason,effectOnly)
             if retained then pending[actor].deferredSubmit=submit end
             return retained,why
         end
         return false, failure
     end
-    local retained, retainReason = retainRequest(actor, action, intent, startedReason)
+    local retained, retainReason = retainRequest(actor, action, intent, startedReason, effectOnly)
     if retained and pending[actor] then pending[actor].wallClimbOutcome = outcome end
     return retained, retainReason
 end
@@ -502,9 +513,18 @@ function Traversal.window(actor, action, intent, provider)
 
     if action == "open_window" then
         if not SC.Topology.windowOpensFromSide(object,intent.fromSquare) then return false,"window_open_not_permitted" end
-        local started, failure = invoke(actor, "openWindow", object)
-        if not started or failure == false then return false, failure or "native window open rejected" end
-        return retainRequest(actor, action, intent, "window_opened", true)
+        return submitOrDefer(actor, action, intent, function()
+            if intent.fromSquare and not SC.GameplayUtil.sameSquare(actor, intent.fromSquare) then
+                return false, "window_stand_changed"
+            end
+            if effectDone({ action = action, object = object }) then return true end
+            if not SC.Topology.windowOpensFromSide(object, intent.fromSquare) then
+                return false, "window_open_not_permitted"
+            end
+            local started, failure = invoke(actor, "openWindow", object)
+            if not started or failure == false then return false, failure or "native window open rejected" end
+            return true
+        end, "window_opened", true)
     elseif action == "smash_window" then
         local approved,why=SC.NavTraversal.authorizeWindowSubmission(actor,action,intent)
         if not approved then return false,why end

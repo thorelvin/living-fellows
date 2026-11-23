@@ -400,6 +400,34 @@ do
         "immediate danger still preempts fuel work")
 end
 
+do
+    modules()
+    local scout = person("scout-return", 0)
+    local waypoint = { x = 8, y = 0, z = 0 }
+    local expedition = SC.ExpeditionPrototype
+    expedition.current = function() return { scout = { phase = "inbound" } } end
+    expedition.isMember = function(value) return value == scout end
+    expedition.testWaypointFor = function() return waypoint end
+    expedition.testWaypointActiveFor = function() return true end
+    for _, method in ipairs({ "isFollower", "testSearchFor", "testSearchTargetFor",
+        "testSearchCategoryFor", "testSearchMissionIdFor", "searchSiteFor", "searchSiteRadiusFor" }) do
+        expedition[method] = function() end
+    end
+    SC.Commands = { effective = function() return order("stay") end }
+    SC.BaseAlert.voiced = function() return true end
+    SC.Combat.update = function() return false, "scout_return_clear" end
+    local runtime = { snapshot = quiet() }
+    runtime.snapshot.threatCount, runtime.snapshot.immediateCount = 1, 1
+    clock = clock + 1000
+    check(D.update(scout, player, runtime, clock) and delegated == "navigation"
+        and D.peek(scout).current == "tactical",
+        "a scout's checked exit resumes its current straight return leg")
+    SC.Combat.update = record("combat")
+    clock = clock + 1000
+    check(D.update(scout, player, runtime, clock) and delegated == "combat",
+        "a fresh close attack preempts the scout's resumed movement")
+end
+
 -- Drive the complete update/fallback loop as well: a chore that has no
 -- concrete action must not leave the actor stuck on that failed decision.
 modules()

@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.71 - Rosewood expedition recovery
+
+- Returning scouts can leave a lone seated or downed zombie behind when
+  the next walking step is clear and increases separation.
+- Walking crews can hand off near the camp core once they have reached the
+  marked camp and assembled on the correct floor.
+- Companions wait for the native action graph to reach idle before opening
+  a window, then recheck their standing position and the latch.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.70 - Expedition work and returns
 
 - Fishing crews reserve room for fish and pack at most two light bycatch

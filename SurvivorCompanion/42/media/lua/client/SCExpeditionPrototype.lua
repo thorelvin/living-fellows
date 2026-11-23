@@ -3763,6 +3763,15 @@ function Expedition.testWaypointFor(actor)
     return nil
 end
 
+function Expedition.scoutReturnWaypointFor(actor)
+    local scout = mission and not mission.terminal and mission.scout
+    if scout and scout.kind == "scout" and scout.phase == "inbound"
+        and scout.pause == nil and not mission.testWaypointArrived
+        and (not scout.vehicle or scout.vehicle.state == "abandoned") then
+        return Expedition.testWaypointFor(actor)
+    end
+end
+
 local function currentEntryPortal(scout)
     return scout.siteEntryPortals and scout.siteEntryPortals[scout.siteEntryPortalIndex or 1]
 end
@@ -4339,6 +4348,12 @@ end
 
 function Expedition._atReturnCamp(value)
     return SC.BaseLife.isInside(value) or SC.BaseLife.isInside(value, "parking")
+end
+
+local function finalInboundLeg(scout)
+    if scout.phase ~= "inbound" then return false end
+    if scout.roadRoute then return scout.roadRoute.index > #scout.roadRoute.points end
+    return scout.returnIndex == nil or scout.returnIndex == 0
 end
 
 -- Plan just one loaded local leg at a time. The promoted leader streams the
@@ -5813,6 +5828,30 @@ local function pulseScout()
         local finished = Expedition.finishAtPlayer(player)
         if finished then return end
     end
+    -- Accept a physically reached camp stand near the core on the final leg.
+    -- An interior waypoint can otherwise delay an already assembled crew.
+    do
+        local leader = mission.leader.actor
+        if pause == nil and finalInboundLeg(scout) and not scout.wood and scout.kind ~= "home"
+            and (not scout.vehicle or scout.vehicle.state == "abandoned")
+            and scout.returnPoint and settledOnFloor(leader, scout.returnPoint.z)
+            and distanceToPoint(leader, scout.returnPoint) <= 10
+            and Expedition._returnCamp() and Expedition._atReturnCamp(leader)
+            and scoutFollowersNearLeader() then
+            local traversal = SC.NativeTraversalActions
+            local crossing = traversal and traversal.activityStatus
+                and traversal.activityStatus(leader, now) == "active"
+            if not crossing then
+                Expedition.clearTestWaypoint(leader)
+                scout.phase = "awaiting_player"
+                if SC.GameplayUtil.diagnostic then
+                    SC.GameplayUtil.diagnostic("expedition-return", leader, "action=camp_entry")
+                end
+                if player then Expedition.finishAtPlayer(player) end
+                return
+            end
+        end
+    end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
         -- A genuine survival errand can own a different navigation goal before
@@ -6344,10 +6383,7 @@ local function pulseScout()
         scout.returnIndex = scout.returnIndex - 1
         return
     end
-    local finalReturn = pause == nil and scout.phase == "inbound" and (scout.roadRoute ~= nil
-            and scout.roadRoute.index > #scout.roadRoute.points
-            or scout.roadRoute == nil and (scout.returnIndex == nil
-                or scout.returnIndex == 0))
+    local finalReturn = pause == nil and finalInboundLeg(scout)
     local camp = finalReturn and not scout.wood and Expedition._returnCamp()
     if finalReturn
         and distanceToPoint(mission.leader.actor, routeTarget) <= 4
