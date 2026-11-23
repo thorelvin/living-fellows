@@ -2453,6 +2453,10 @@ local function approachTransaction(actor, state, snapshot)
         end
         return executeTransaction(actor, state)
     end
+    local preparation = transaction.preparationKey and Preparation.actors[actor]
+    if preparation and preparation.requirements.expedition and Preparation.tripSupplies[transaction.supplyPurpose] then
+        return terminalTransaction(actor, state, false, "loadout_supplies_deferred")
+    end
     if transaction.preparationKey and transaction.kind == "deposit" then
         local preparation = Preparation.actors[actor]
         local x, y, z = U().position(actor)
@@ -2610,9 +2614,23 @@ function Preparation.foodTier(item)
     return SC.Needs and type(SC.Needs.foodTier) == "function" and SC.Needs.foodTier(item) or 2
 end
 
+-- Departure keeps one portable basic of each kind. Camp-duty stock targets
+-- remain with the ordinary logistics and return-restock routines.
+Preparation.tripSupplies = { food = 1, water = 1, medicine = 1 }
+
+function Preparation.minimums(actor, requirements)
+    return requirements.expedition and Preparation.tripSupplies or Logistics.roleMinimums(actor)
+end
+
+function Preparation.itemLoad(item)
+    local weight = select(1, U().call(item, "getUnequippedWeight"))
+    if type(weight) == "number" and weight >= 0 and weight < math.huge then return weight end
+    return U().itemWeight(item)
+end
+
 function Preparation.kit(actor, audit, requirements)
     local keep, tools, missing, exact = {}, {}, {}, {}
-    if Logistics.roleOf(actor)=="medic" then
+    if not requirements.expedition and Logistics.roleOf(actor)=="medic" then
         local facts=SC.MedicKit.view(actor,audit)
         local dressings=0
         for _,record in ipairs(audit.items) do
@@ -2633,8 +2651,9 @@ function Preparation.kit(actor, audit, requirements)
         if keep[record.item] then exact[#exact + 1] = { item = record.item, source = record.source } end
     end
     end
-    local minima = Logistics.roleMinimums(actor)
+    local minima = Preparation.minimums(actor, requirements)
     local counts, foods = {}, { {}, {}, {} }
+    local tripKit = requirements.expedition and {}
     for _, record in ipairs(audit.items) do
         local category = record.category
         local safe = category ~= "food" or not SC.Needs or not SC.Needs.isSafeFoodItem
@@ -2643,12 +2662,18 @@ function Preparation.kit(actor, audit, requirements)
             or SC.Needs.isSafeWaterItem(record.item))
         if safe and (category == "food" or category == "water" or category == "medicine") then
             counts[category] = (counts[category] or 0) + 1
-            if category == "food" then
+            if tripKit then
+                local weight = Preparation.itemLoad(record.item)
+                if not tripKit[category] or weight < tripKit[category].weight then
+                    tripKit[category] = { item = record.item, weight = weight }
+                end
+            elseif category == "food" then
                 local tier = Preparation.foodTier(record.item)
                 foods[tier][#foods[tier] + 1] = record.item
             elseif counts[category] <= (tonumber(minima[category]) or 0) then keep[record.item] = true end
         end
     end
+    if tripKit then for _, entry in pairs(tripKit) do keep[entry.item] = true end end
     local neededFood = tonumber(minima.food) or 0
     for _, tier in ipairs(foods) do
         for _, item in ipairs(tier) do
@@ -2718,6 +2743,31 @@ function Preparation.bags(actor, audit, requirements, tools)
     return result, held
 end
 
+function Preparation.cargoFits(assessment, free, factor, addedWeight)
+    local raw = assessment.cargoWeight
+    local effective = assessment.cargoEffective or raw * factor
+    local load = (assessment.plannedCarryWeight or 0) + addedWeight
+    return assessment.capacityKnown and free + 0.000001 >= raw
+        and load + effective <= assessment.carryCapacity + 0.000001
+        and load + raw <= assessment.physicalCapacity + 0.000001
+end
+
+function Preparation.provisionsFit(actor, preparation, row, item)
+    local assessment = preparation.assessment
+    if not assessment.cargoReady then return false end
+    local owner = SC.BaseLife.resolveObject(row)
+    if not owner or U().distance(actor, owner) > 2
+        or U().directInteractionAccess(actor, owner) ~= true then return false end
+    local added = Preparation.itemLoad(item)
+    for _, bag in ipairs(assessment.bags) do
+        -- Withdrawal lands in the main inventory. Budget its whole weight
+        -- before trusting the cargo space in a worn or held bag.
+        local free = bag.free - (bag.id == "inventory" and added or 0)
+        if Preparation.cargoFits(assessment, free, bag.factor, added) then return true end
+    end
+    return false
+end
+
 function Preparation.assess(actor, preparation, audit, tools)
     local requirements = preparation.requirements
     local cargo = type(requirements.cargo) == "table" and requirements.cargo or {}
@@ -2734,7 +2784,7 @@ function Preparation.assess(actor, preparation, audit, tools)
         plannedCarryWeight = planned, carryCapacity = maximum,
         physicalCapacity = audit.capacity, rawFree = 0,
         rootFree = math.max(0, Preparation.free(audit.inventory, actor) - (delta or 0)),
-        bags = {}, warnings = preparation.warnings, cargoWeight = raw,
+        bags = {}, warnings = preparation.warnings, cargoWeight = raw, cargoEffective = effective,
         cargoDeficit = { raw = raw, effective = 0 }, capacityKnown = known }
     local deficitScore
     for _, bag in ipairs(bags) do
@@ -2757,9 +2807,7 @@ function Preparation.assess(actor, preparation, audit, tools)
             assessment.cargoDeficit = { raw = rawDeficit, effective = effectiveDeficit }
             deficitScore = rawDeficit + effectiveDeficit
         end
-        if known and free + 0.000001 >= raw and maximum and maximum > 0
-            and weight + (effective or raw * bag.factor) <= maximum + 0.000001
-            and weight + raw <= audit.capacity + 0.000001 then
+        if Preparation.cargoFits(assessment, free, bag.factor, 0) then
             assessment.cargoReady = true
             if raw > 0 and not assessment.cargoBagId then
                 assessment.cargoBagId = bag.item and (U().itemStableId(bag.item, false)
@@ -2869,9 +2917,11 @@ function Preparation.surplus(actor, preparation, audit, keep)
         and U().distance(actor, previous.owner or previous.container) <= 2
         and U().directInteractionAccess(actor, previous.owner) == true
     local preferred, others = {}, {}
+    local weights = preparation.requirements.expedition and {}
     for _, record in ipairs(audit.items) do
         if not keep[record.item] and not isProtected(actor, record.item)
             and not preparation.skipped[record.item] then
+            if weights then weights[record] = Preparation.itemLoad(record.item) end
             -- Finish a shelf visit before choosing another route. Only use
             -- the item's preferred category; convenience cannot demote food,
             -- medicine or valuables into general storage.
@@ -2882,6 +2932,11 @@ function Preparation.surplus(actor, preparation, audit, keep)
                 others[#others + 1] = record
             end
         end
+    end
+    if weights then
+        local function heaviest(a, b) return weights[a] > weights[b] end
+        table.sort(preferred, heaviest)
+        table.sort(others, heaviest)
     end
     local preferredCount = #preferred
     for _, record in ipairs(others) do preferred[#preferred + 1] = record end
@@ -2951,7 +3006,7 @@ function Preparation.validTransfer(actor, transaction)
         end
         return nil, "loadout_inventory_pending"
     end
-    local keep, tools, _, _, exact = Preparation.kit(actor, audit, preparation.requirements)
+    local keep, tools, _, counts, exact = Preparation.kit(actor, audit, preparation.requirements)
     preparation.exactKeep = exact
     Preparation.assess(actor, preparation, audit, tools)
     if transaction.kind == "deposit" then
@@ -2960,11 +3015,19 @@ function Preparation.validTransfer(actor, transaction)
             and SC.BaseLife.storageAcceptsDeposit(transaction.storage, transaction.destination) == true
     end
     if transaction.kind == "withdraw" then
-        return Preparation.camp(actor, preparation.requirements)
+        local allowed = Preparation.camp(actor, preparation.requirements)
             and SC.BaseLife.storage(transaction.storage.id) == transaction.storage
             and SC.BaseLife.resolveContainer(transaction.storage) == transaction.source
             and Preparation.supplyAllowed(actor, transaction.storage, transaction.source,
                 transaction.item, audit)
+        local purpose = transaction.supplyPurpose
+        if preparation.requirements.expedition and Preparation.tripSupplies[purpose] then
+            if not allowed or (counts[purpose] or 0) >= Preparation.tripSupplies[purpose]
+                or not Preparation.provisionsFit(actor, preparation, transaction.storage, transaction.item) then
+                return false, "loadout_supplies_deferred"
+            end
+        end
+        return allowed
     end
     if transaction.kind == "pack" then
         return not tools[transaction.item]
@@ -2985,6 +3048,17 @@ function Preparation.validTransfer(actor, transaction)
     return true
 end
 
+function Preparation.moveFailed(preparation, transaction, reason)
+    local purpose = transaction.supplyPurpose
+    if preparation.requirements.expedition and Preparation.tripSupplies[purpose]
+        and reason == "loadout_supplies_deferred" then
+        preparation.completedSupplies[purpose] = true
+        Preparation.warn(preparation, reason)
+        return Preparation.pending(preparation, "assessing", reason)
+    end
+    return Preparation.finish(preparation, false, reason)
+end
+
 function Preparation.begin(actor, preparation, transaction, snapshot)
     local state = states[actor] or {}
     states[actor] = state
@@ -3003,8 +3077,18 @@ function Preparation.begin(actor, preparation, transaction, snapshot)
     local handled, why
     if transaction.phase == "approach" then handled, why = approachTransaction(actor, state, snapshot)
     else handled, why = executeTransaction(actor, state) end
-    if handled ~= true then return Preparation.finish(preparation, false, why) end
+    if handled ~= true then return Preparation.moveFailed(preparation, transaction, why) end
     return true, why, false, preparation.assessment
+end
+
+function Preparation.pack(actor, preparation, audit, tools, snapshot)
+    local handled, reason, ready, assessment = Preparation.repack(actor, preparation, audit, tools, snapshot)
+    if handled ~= nil then return handled, reason, ready, assessment end
+    local move = selectPackMove(actor, audit, { allowHeldBag = preparation.allowHeld,
+        rawReserve = preparation.rawReserve, tools = tools })
+    if move then return Preparation.begin(actor, preparation, { kind = "pack", item = move.item,
+        source = move.source, destination = move.destination, bag = move.bag,
+        allowHeldBag = preparation.allowHeld }, snapshot) end
 end
 
 -- A replaced bag is drained in one direction only. It cannot become another
@@ -3095,7 +3179,9 @@ function Preparation.findSupply(actor, preparation, audit, purpose, wanted)
                 elseif purpose == "tool" then matches = Preparation.matches(item, wanted)
                 else matches = Logistics.itemCategory(item) == purpose end
             end
-            if matches and Preparation.supplyAllowed(actor, row, container, item, audit) then
+            if matches and Preparation.supplyAllowed(actor, row, container, item, audit)
+                and (not preparation.requirements.expedition or not Preparation.tripSupplies[purpose]
+                    or Preparation.provisionsFit(actor, preparation, row, item)) then
                 local candidate = { storage = row, container = container, item = item, purpose = purpose }
                 if purpose == "bag" then
                     if not scan.best or difference > scan.difference then
@@ -3126,6 +3212,13 @@ function Preparation.findSupply(actor, preparation, audit, purpose, wanted)
     if scan.row <= #scan.rows then return nil end
     preparation.scan = nil
     if scan.best then preparation.supply = scan.best return true end
+    return false
+end
+
+function Preparation.seekBag(actor, preparation, audit)
+    if preparation.completedSupplies.bag then return false end
+    if Preparation.findSupply(actor, preparation, audit, "bag") ~= false then return true end
+    preparation.completedSupplies.bag = true
     return false
 end
 
@@ -3183,7 +3276,7 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
         local handled, why
         if transaction.phase == "approach" then handled, why = approachTransaction(actor, state, snapshot)
         else handled, why = executeTransaction(actor, state) end
-        if not handled then return Preparation.finish(preparation, false, why) end
+        if not handled then return Preparation.moveFailed(preparation, transaction, why) end
         return true, why, false, preparation.assessment
     end
     if preparation.supply then
@@ -3216,7 +3309,7 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
     local keep, tools, missing, counts, exact = Preparation.kit(actor, audit, requirements)
     preparation.exactKeep = exact
     local assessment = Preparation.assess(actor, preparation, audit, tools)
-    local minima = Logistics.roleMinimums(actor)
+    local minima = Preparation.minimums(actor, requirements)
     assessment.supplies = {}
     for _, category in ipairs({ "food", "water", "medicine" }) do
         assessment.supplies[category] = { carried = counts[category] or 0,
@@ -3224,6 +3317,8 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
     end
     if not assessment.capacityKnown then return Preparation.finish(preparation, false, "loadout_capacity_unavailable") end
     local camp = Preparation.camp(actor, requirements)
+    local makeRoom = not requirements.expedition or not assessment.cargoReady
+    local upgradeBag = camp and makeRoom and requirements.allowBagUpgrade ~= false
     if camp then
         if #missing > 0 then
             if preparation.completedSupplies.tool then return Preparation.finish(preparation, false, "loadout_tool_missing") end
@@ -3235,16 +3330,20 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
         local removal = Preparation.maskRemoval(actor, audit)
         if removal then return Preparation.begin(actor, preparation, { kind = "unwear", item = removal.item,
             source = removal.source, record = { location = wearableLocation(removal.item) } }, snapshot) end
-        if requirements.allowBagUpgrade ~= false then
+        if upgradeBag then
             local upgrade = selectBagUpgrade(actor, audit)
             if upgrade then return Preparation.begin(actor, preparation, { kind = "wear", item = upgrade.item,
                 source = upgrade.source, record = upgrade }, snapshot) end
-            if not preparation.completedSupplies.bag then
-                local found = Preparation.findSupply(actor, preparation, audit, "bag")
-                if found ~= false then return Preparation.pending(preparation, "supplies", "loadout_seeking_bag") end
-                preparation.completedSupplies.bag = true
+            if not requirements.expedition and Preparation.seekBag(actor, preparation, audit) then
+                return Preparation.pending(preparation, "supplies", "loadout_seeking_bag")
             end
         end
+    end
+    if requirements.expedition and makeRoom then
+        local handled, reason, ready, report = Preparation.pack(actor, preparation, audit, tools, snapshot)
+        if handled ~= nil then return handled, reason, ready, report end
+    end
+    if camp and makeRoom then
         if not Preparation.stagingExpired(preparation) then
             local surplus, nearby, nearbyCount = Preparation.surplus(actor, preparation, audit, keep)
             for index, record in ipairs(surplus) do
@@ -3280,16 +3379,17 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
             end
         end
     end
-    local repacked, repackReason, repackReady, repackAssessment = Preparation.repack(actor, preparation, audit, tools, snapshot)
-    if repacked ~= nil then return repacked, repackReason, repackReady, repackAssessment end
-    local move = selectPackMove(actor, audit, { allowHeldBag = preparation.allowHeld,
-        rawReserve = preparation.rawReserve, tools = tools })
-    if move then return Preparation.begin(actor, preparation, { kind = "pack", item = move.item,
-        source = move.source, destination = move.destination, bag = move.bag,
-        allowHeldBag = preparation.allowHeld }, snapshot) end
-    if camp then
+    if requirements.expedition then
+        if upgradeBag and Preparation.seekBag(actor, preparation, audit) then
+            return Preparation.pending(preparation, "supplies", "loadout_seeking_bag")
+        end
+    else
+        local handled, reason, ready, report = Preparation.pack(actor, preparation, audit, tools, snapshot)
+        if handled ~= nil then return handled, reason, ready, report end
+    end
+    if camp and (not requirements.expedition or assessment.cargoReady) then
         for _, category in ipairs({ "food", "water", "medicine" }) do
-            if (counts[category] or 0) < (tonumber(Logistics.roleMinimums(actor)[category]) or 0)
+            if (counts[category] or 0) < (tonumber(minima[category]) or 0)
                 and not preparation.completedSupplies[category] then
                 local found = Preparation.findSupply(actor, preparation, audit, category)
                 if found ~= false then return Preparation.pending(preparation, "supplies", "loadout_seeking_" .. category) end
@@ -3299,7 +3399,7 @@ function Logistics.prepareLoadout(actor, requirements, runtime)
         end
     end
     for _, category in ipairs({ "food", "water", "medicine" }) do
-        if (counts[category] or 0) < (tonumber(Logistics.roleMinimums(actor)[category]) or 0) then
+        if (counts[category] or 0) < (tonumber(minima[category]) or 0) then
             Preparation.warn(preparation, "loadout_" .. category .. "_shortage")
         end
     end

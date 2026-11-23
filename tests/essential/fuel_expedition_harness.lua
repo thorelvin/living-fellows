@@ -223,9 +223,40 @@ check(not F.canInfo(sample),"arbitrary drinking containers are not borrowed")
 actor.inventory=container(50)
 local first,second,full,protected=can(2),can(0),can(10),can(0)
 check(math.abs(F.canInfo(first).fullWeight-11.6)<0.001,"full-can reservation includes native fluid contents for partially filled cans")
+local makeItem = instanceItem
+local fuelModelCalls = 0
+instanceItem = function(kind)
+    check(kind == "Base.PetrolCan", "departure uses the native standard fuel can model")
+    fuelModelCalls = fuelModelCalls + 1
+    return can(1, 12)
+end
+check(math.abs(F.departureCargoWeight() - 13.6) < 0.001
+        and math.abs(F.departureCargoWeight() - 13.6) < 0.001 and fuelModelCalls == 1,
+    "departure budgets one full can before packing supplies, using the native volume and shell weight")
+F.reset()
+instanceItem = makeItem
 protected.protected=true
-for _,item in ipairs({first,second,full,protected}) do put(shelves,item) end
 local site={id="90:90:110:110",label="Gas station",anchor={x=100,y=100,z=0},bounds={x=90,y=90,x2=110,y2=110},groundFloor=true}
+do
+    local moved = can(0)
+    put(shelves, moved)
+    local race = F.create({mode="count",quantity=1},{site},true)
+    race.workerId, race.preparation = actor.id, true
+    active={radioSession="moved-can",roster={registry},
+        scout={fuel=race,kind="fuel",phase="walking_to_car",vehicle={sqlId=41}}}
+    local count = SC.BaseLife.availableCountExact
+    SC.BaseLife.availableCountExact = function()
+        put(actor.inventory, moved)
+        return 1
+    end
+    local _, reason = F.prepare(active,actor,{})
+    SC.BaseLife.availableCountExact = count
+    check(reason == "fuel_cans_missing" and moved.container == actor.inventory and #race.acquisitions == 0,
+        "a can moved out of the shelf during planning keeps its exact owner and receives no loan")
+    actor.inventory.items:remove(moved)
+    moved.container = nil
+end
+for _,item in ipairs({first,second,full,protected}) do put(shelves,item) end
 local fuel=F.create({mode="count",quantity=2},{site},true)
 fuel.tripId="trip" fuel.workerId=actor.id fuel.preparation=true
 active={radioSession="trip",homeBaseId="camp",roster={registry},commandSerials={[actor.id]=0},

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.68 - Expedition packing
+
+- Companions make room for expedition cargo before topping up ordinary supplies.
+  They carry a light travel kit and look for extra provisions within reach.
+- Fuel crews reserve room for a full can during packing. Companions can use
+  carried bags or safely store surplus when the planned cargo needs more room.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.67 - Watering route recovery
 
 - Watering jobs pause when a companion spends too long unable to reach the

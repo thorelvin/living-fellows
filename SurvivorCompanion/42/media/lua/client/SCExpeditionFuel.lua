@@ -61,6 +61,18 @@ function F.canInfo(item)
     return {amount=amount,capacity=capacity,free=math.max(0,capacity-amount),
         fullWeight=weight(item)+math.max(0,capacity-amount)}
 end
+
+local departureWeight
+function F.departureCargoWeight()
+    if not departureWeight and type(instanceItem) == "function" then
+        -- Budget one standard filled can. The actual vessel and trunk are
+        -- checked again when selecting the original can from camp stock.
+        local info = F.canInfo(instanceItem("Base.PetrolCan"))
+        departureWeight = info and info.fullWeight or 0
+    end
+    return departureWeight or 0
+end
+
 function F.reserved(item)
     local data=item and U().modData(item)
     return data and data[MARK] and SC.ExpeditionPrototype and SC.ExpeditionPrototype.fuelMarkerLive
@@ -326,18 +338,18 @@ end
 local function handles(actor,info,item)
     local root=U().inventory(actor)
     local space=free(root,actor)
-    local weight,maximum=U().carryLoad(actor)
-    if not space or not number(weight) or not number(maximum) or maximum<=0 then return false end
+    local load,maximum=U().carryLoad(actor)
+    if not space or not number(load) or not number(maximum) or maximum<=0 then return false end
     local carried=call(item,"getContainer")==root and weight(item) or 0
     if space+carried+EPS<info.fullWeight then return false end
-    if weight-carried+info.fullWeight<=maximum+EPS then return true end
+    if load-carried+info.fullWeight<=maximum+EPS then return true end
     for _,entry in ipairs(SC.LoggingWork.inventoryEntries(actor) or {}) do
         local bag=call(entry.item,"getInventory")
         if bag and entry.source==root and (call(actor,"isEquippedClothing",entry.item)==true
             or call(actor,"getClothingItem_Back")==entry.item or call(actor,"isHandItem",entry.item)==true) then
             local reduction=math.max(0,math.min(100,tonumber(call(entry.item,"getWeightReduction")) or 0))
             local room=free(bag,actor)
-            if room and room+EPS>=info.fullWeight and weight+info.fullWeight*(1-reduction/100)<=maximum+EPS then return true end
+            if room and room+EPS>=info.fullWeight and load-carried+info.fullWeight*(1-reduction/100)<=maximum+EPS then return true end
         end
     end
     return false
@@ -1184,7 +1196,10 @@ function F.copyDebrief(value)
     local okay,result=pcall(plain,value,0,{count=0})
     return okay and result or nil
 end
-function F.reset() runtime=setmetatable({}, {__mode="k"}) end
+function F.reset()
+    runtime=setmetatable({}, {__mode="k"})
+    departureWeight=nil
+end
 function F.reason(reason)
     local lines={fuel_station_scan_pending="Finding a known gas station…",fuel_station_missing="No known gas station found. Choose one on your map.",
         fuel_starter_ready="Starter gasoline prepared",fuel_starter="Preparing starter gasoline",

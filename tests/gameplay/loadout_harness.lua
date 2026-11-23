@@ -647,6 +647,71 @@ function SurvivorCompanion.__testPreparationPacking()
     ready = prepare(waterCarrier, { key = "light-water-stock", atCamp = true, allowBagUpgrade = false, cargoRaw = 1 })
     check(ready and waterCarrier.inventory:contains(lightBottle) and supply:contains(pot),
         "preparation prefers a light drinking container over the first stored cooking pot")
+
+    do
+        local oldResident = base.resident
+        base.resident = function() return { role = "quartermaster" } end
+        local function trip(key, cargoWeight)
+            return { key = key, atCamp = true, expedition = true, cargoRaw = cargoWeight, haulRequired = true }
+        end
+        local spare = item("Base.ExpeditionSpare", "Item", { weight = .25 })
+        local bag = item("Base.Bag_ExpeditionStock", "Container", { nestedInventory = inventory(),
+            bagCapacity = 28, weightReduction = 75, equipLocation = "Back", weight = 1 })
+        supply = containerObject(fellow.square, { bag, ration("ExpeditionStockFood", "Fruit", true) })
+        local packed = resident("expedition-stocked", { ration("ExpeditionFood", "Fruit", true),
+            item("Base.ExpeditionWaterBottle", "Food", { weight = .2, fluidContainer = water:getFluidContainer() }),
+            item("Base.ExpeditionBandage", "Medical", { weight = .1 }), spare })
+        ready, assessment = prepare(packed, trip("expedition-stocked", 2))
+        check(ready and assessment.cargoReady and assessment.supplies.food.required == 1
+                and assessment.supplies.water.required == 1 and assessment.supplies.medicine.required == 1
+                and supply:contains(bag) and packed.inventory:contains(spare),
+            "a ready expedition leaves the camp bag and surplus alone and uses travel supply targets")
+
+        local light = item("Base.ExpeditionLightDressing", "Medical", { weight = .15 })
+        local heavy = item("Base.ExpeditionHeavyDressing", "Medical", { weight = 2 })
+        local exact = item("Base.ExpeditionExactItem", "Item", { weight = .4, favorite = true })
+        local working = resident("expedition-needs-room", { heavy, light, exact })
+        ready, assessment = prepare(working, trip("expedition-needs-room", 8.5))
+        check(ready and assessment.cargoReady and shelf:contains(heavy)
+                and working.inventory:contains(light) and working.inventory:contains(exact) and supply:contains(bag),
+            "cargo pressure stores the heavier duplicate and keeps the lightweight dressing and protected gear")
+
+        local offered = item("Base.WaterBottleExpeditionFill", "Food",
+            { weight = .1, fluidContainer = water:getFluidContainer() })
+        local filledWeight = 1.2
+        function offered:getUnequippedWeight() return filledWeight end
+        supply = containerObject(fellow.square, { offered })
+        local full = resident("expedition-full-provisions", { item("Base.ExpeditionExisting", "Item", { weight = 1, favorite = true }) })
+        ready, assessment = prepare(full, trip("expedition-full-provisions", 8.5))
+        check(ready and assessment.cargoReady and supply:contains(offered) and assessment.supplies.water.carried == 0,
+            "filled bottle weight, including the liquid, cannot consume a reserved cargo slot")
+
+        filledWeight = .2
+        local distant = resident("expedition-distant-stock", {})
+        sc.GameplayUtil.directInteractionAccess = function(subject, owner, ...)
+            if subject == distant and owner == supply.owner then return false, { fellow.square } end
+            return priorAccess(subject, owner, ...)
+        end
+        ready, assessment = prepare(distant, trip("expedition-distant-stock", 1))
+        sc.GameplayUtil.directInteractionAccess = priorAccess
+        check(ready and supply:contains(offered) and assessment.supplies.water.carried == 0,
+            "optional field provisions never sent the worker to another storage approach")
+
+        local race = resident("expedition-provision-race", { item("Base.ExpeditionRaceExisting", "Item", { weight = 1, favorite = true }) })
+        local shown = 0
+        sc.Actor.setMovement = function(subject, mode, intent)
+            if subject == race and intent and intent.action == "loot_container" and intent.item == offered then
+                shown, filledWeight = shown + 1, 1.2
+            end
+            return originalMovement(subject, mode, intent)
+        end
+        ready, assessment = prepare(race, trip("expedition-provision-race", 8.5))
+        sc.Actor.setMovement = originalMovement
+        check(ready and shown == 1 and supply:contains(offered) and assessment.supplies.water.carried == 0
+                and sc.ActionSupervisor.reservationCount(race) == 0,
+            "departure rechecks exact provisions at transfer and skips a now too-heavy bottle without blocking")
+        base.resident = oldResident
+    end
     base.availableCountExact, base.resolveObject = oldAvailable, oldObject
     base.isInside, base.active, base.storageRows, base.storage, base.resolveContainer =
         oldInside, oldActive, oldRows, oldStorage, oldResolve

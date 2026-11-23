@@ -465,7 +465,7 @@ do
     SC.Actor = { stop = function(a) a.preparationHeld = true return true end }
     SC.Logistics = {
         prepareLoadout = function(a, request)
-            check(a == expected and request.haulRequired == false and request.cargo.weight == 9,
+            check(a == expected and request.haulRequired == false and request.expedition == true and request.cargo.weight == 9,
                 "only the current actor services its own shared loadout and cargo reservation")
             calls[a] = (calls[a] or 0) + 1
             if a == follower and blocked then return false, "loadout_storage_unavailable", false, { stage = "blocked" } end

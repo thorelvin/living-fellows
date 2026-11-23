@@ -1073,13 +1073,14 @@ function Expedition.updateDeparturePreparation(actor, runtime)
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
     local camp = row.campStaging and base and base.id == preparation.originCampId
         and SC.BaseLife.isInside and SC.BaseLife.isInside(actor) == true or false
-    local cargoWeight = scout.kind == "wood" and 9 or (scout.kind == "scout" or scout.kind == "fuel") and 0 or 1
+    local cargoWeight = scout.kind == "wood" and 9 or scout.kind == "scout" and 0 or 1
+    if scout.fuel then cargoWeight = SC.ExpeditionFuel.departureCargoWeight() end
     local keepItems, allowHeldBag = {}, true
     if scout.wood and SC.ExpeditionWood and SC.ExpeditionWood.departureGear then
         keepItems, allowHeldBag = SC.ExpeditionWood.departureGear(actor, scout.wood)
     end
     row.allowHeldBag = allowHeldBag
-    local requirements = { key = row.key, kind = scout.kind,
+    local requirements = { key = row.key, kind = scout.kind, expedition = true,
         originCampId = preparation.originCampId, allowCampStaging = camp, atCamp = camp,
         cargo = { weight = cargoWeight, itemType = scout.kind == "wood" and "Base.Log" or nil },
         keepItems = keepItems, allowHeldBag = allowHeldBag, allowBagUpgrade = true, haulRequired = false }
