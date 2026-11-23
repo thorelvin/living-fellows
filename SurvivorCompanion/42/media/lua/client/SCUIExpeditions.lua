@@ -1042,6 +1042,12 @@ local function addReturnReports(detail, panel, y, expedition)
     if debrief and debrief.kind ~= "home" then
         y = detail:addSection(panel, y + 4, "UI_SC_Expedition_Debrief")
     end
+    if debrief and debrief.kind == "search" and debrief.request.category == "fish" then
+        local bycatch = debrief.fishingBycatch or {}
+        local pulled, kept = bycatch.pulled or 0, bycatch.kept or 0
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_FishingBycatch", pulled, kept, pulled - kept))
+    end
     if debrief and debrief.endReason == "site_entry_blocked" then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_SiteEntryBlocked"))

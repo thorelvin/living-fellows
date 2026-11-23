@@ -441,6 +441,7 @@
     "UI_SC_Expedition_VisibleProgress": "Visible squad: %1 of %2 requested supplies collected.",
     "UI_SC_Expedition_VisibleProgressPartial": "Visible members collected %1 of %2 requested supplies; the rest of the squad is out of sight.",
     "UI_SC_Expedition_Debrief": "Last expedition debrief",
+    "UI_SC_Expedition_FishingBycatch": "Bycatch pulled %1, packed %2, left behind %3.",
     "UI_SC_Expedition_SiteEntryBlocked": "The squad could not get into the selected building and came home.",
     "UI_SC_Expedition_OlderPendingDeliveries": "Earlier supplies still awaiting storage",
     "UI_SC_Expedition_DeliveryCounts": "Requested %1; collected %2; brought back %3; stored %4; pending %5.",

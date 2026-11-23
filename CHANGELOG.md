@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.70 - Fishing expeditions
+
+- Fishing crews reserve room for fish and pack at most two light bycatch
+  items within a shared half-weight allowance. The debrief counts bycatch.
+- Anglers compare reachable casts at the assigned bank and resurvey after
+  repeated debris pulls.
+- Walking expeditions remember a stalled waypoint across retries and look
+  for another reachable camp approach when the usual way in fails.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.69 - Expedition departure routes
 
 - Straight walking expeditions that finish packing on another floor use a

@@ -43,7 +43,12 @@ util.distanceSq = function(actor, point)
 end
 util.movingBlocker = function() return nil end
 local scout = { x = 100, y = 100 }
+local nav = SC.Navigation
+local oldBegin, oldResume = nav.beginPathSearch, nav.resumePathSearch
+nav.beginPathSearch = function(from, to) return { from, to } end
+nav.resumePathSearch = function(path) return "complete", path end
 squares = {}
+scout.square = square(100, 100, false, false)
 square(124, 124, false, false)
 square(125, 124, true, false)
 square(126, 124, true, false)
@@ -65,6 +70,86 @@ repeat
 until reason ~= "scanning_water"
 assert(found and found.bank.x == 116 and found.water.x == 118.5,
     "a cast inside the receipt radius remains eligible")
+
+do
+    local savedSquares, savedOrigin = squares, scout.square
+    local savedFishing, savedSchools = Fishing, FishSchoolManager
+    squares = {}
+    scout.square = square(100, 100, false, false)
+    square(102, 100, false, false)
+    square(103, 100, true, false)
+    square(104, 100, true, false)
+    local blocked = square(109, 100, false, false)
+    square(110, 100, true, false)
+    square(111, 100, true, false)
+    local bank = square(105, 105, false, false)
+    square(105, 104, true, false)
+    square(105, 103, true, false)
+    square(105, 106, true, false)
+    square(105, 107, true, false)
+    local abundance = { [104] = 4, [111] = 30, [103] = 15, [107] = 30 }
+    local debris = { [104] = 0.4923, [111] = 0.05, [103] = 0.05, [107] = 0.49 }
+    Fishing = { Utils = { getFishNumParams = function(x, y)
+        local n = abundance[math.floor(x) == 105 and math.floor(y) or math.floor(x)] or 0
+        return { value = n, coeff = n == 0 and 0.1 or n < 10 and 0.5 or n <= 25 and 1 or 1.5 }
+    end } }
+    FishSchoolManager = { getInstance = function() return {
+        getTrashAbundance = function(_, x, y)
+            return debris[math.floor(x) == 105 and math.floor(y) or math.floor(x)] or 0.05
+        end
+    } end }
+    local blockedChecks = 0
+    nav.resumePathSearch = function(path)
+        if path[2] == blocked then
+            blockedChecks = blockedChecks + 1
+            return "failed", nil, "blocked"
+        end
+        return "complete", path
+    end
+    local work = {}
+    local function selectCast()
+        for _ = 1, 40 do
+            local cast, why = angling._siteForTests(scout, work, "expedition",
+                { destination = { x = 100, y = 100 }, catchRadius = 27 })
+            if why ~= "scanning_water" then return cast, why end
+        end
+        error("cast survey did not finish within its slices")
+    end
+    local first = selectCast()
+    assert(first and first.bank.x == 105 and first.water.y == 103.5 and blockedChecks == 1,
+        "the survey skips the blocked top stand and picks the productive cast over nearby debris")
+    local previousClock = util.nowMs
+    local clock, pendingChecks = 0, 0
+    util.nowMs = function() return clock end
+    nav.resumePathSearch = function(path)
+        if path[2] == blocked then
+            clock, pendingChecks = clock + 500, pendingChecks + 1
+            return "pending"
+        end
+        return "complete", path
+    end
+    work = {}
+    first = selectCast()
+    assert(first and first.water.y == 103.5 and pendingChecks == 5,
+        "an optional approach yields to the next reachable cast after its wait limit")
+    util.nowMs = previousClock
+    nav.resumePathSearch = function(path)
+        if path[2] == blocked then return "failed", nil, "blocked" end
+        return "complete", path
+    end
+    scout.square, scout.x, scout.y = bank, 105, 105
+    work.resurvey = true
+    assert(selectCast() == first and not work.resurvey,
+        "a resurvey keeps its current safe cast when the odds cannot be improved")
+    debris[107] = 0.05
+    work.resurvey = true
+    local switched = selectCast()
+    assert(switched and switched.water.y == 107.5 and switched.bank.y == 105,
+        "the same stand can use its other legal cast direction after a resurvey")
+    scout.x, scout.y, scout.square = 100, 100, savedOrigin
+    squares, Fishing, FishSchoolManager = savedSquares, savedFishing, savedSchools
+end
+nav.beginPathSearch, nav.resumePathSearch = oldBegin, oldResume
 local oldCell = getCell
 getCell = function()
     return { getGridSquare = function(_, x, y)
@@ -356,6 +441,26 @@ function foodActor:getPrimaryHandItem() return self.hand end
 function foodActor:setPrimaryHandItem(value) self.hand = value end
 function foodActor:setFishingStage(value) self.stage = value end
 function foodActor:setVariable() end
+do
+    local expedition = SC.ExpeditionPrototype
+    local pulled = 0
+    SC.ExpeditionPrototype = { noteFishingBycatch = function(actor, debris, water)
+        assert(actor == foodActor and debris and water.x == 12.5)
+        pulled = pulled + 1
+        return true, false
+    end }
+    local state = { mode = "expedition", isTrash = true,
+        site = { water = { x = 12.5, y = 10.5, z = 0 } } }
+    for index = 1, 3 do
+        state.phase, state.catch = "pickup", item()
+        assert(angling._finishCatchForTests(foodActor, state))
+        assert((state.resurvey == true) == (index == 3),
+            "the third completed debris pull starts a fresh survey between casts")
+    end
+    assert(pulled == 3 and #foodActor.inventory.items == 0,
+        "the landing controller hands debris off to the expedition policy")
+    SC.ExpeditionPrototype = expedition
+end
 local oldInventoryLoad = util.inventoryLoad
 local loadRatio = 0.2
 util.inventoryLoad = function() return 5, 25, loadRatio end

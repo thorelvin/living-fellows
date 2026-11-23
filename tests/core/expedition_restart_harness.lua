@@ -261,6 +261,51 @@ check(expedition.noteFishCaught(leader, caught, { x = 101, y = 100, z = 0 }) == 
     "an exact carried native fish advances the expedition quota")
 check(expedition.noteFishCaught(leader, caught, { x = 101, y = 100, z = 0 }) == false,
     "the same caught fish cannot advance the quota twice")
+do
+    local previousLogistics = SC.Logistics
+    local util = SC.GameplayUtil
+    local oldWeight, oldRoom, oldAdd, oldContains =
+        util.itemWeight, util.containerHasRoom, util.addItem, util.inventoryContains
+    local escortPack, packWeight = {}, 1
+    function follower:getInventory() return escortPack end
+    policyMission.fishingGearEligible = { gamma = true }
+    SC.Logistics = { audit = function()
+        return { weight = packWeight, capacity = 10, hardRatio = 0.8 }
+    end }
+    util.itemWeight = function(item) return item.weight end
+    util.containerHasRoom = function() return true end
+    util.addItem = function(inventory, item) inventory[#inventory + 1] = item return item end
+    util.inventoryContains = function(inventory, item)
+        for _, carried in ipairs(inventory) do if carried == item then return true end end
+        return false
+    end
+    local source = { x = 101.5, y = 100.5, z = 0 }
+    local function pull(actor, weight)
+        local recorded, kept = expedition.noteFishingBycatch(actor, { weight = weight }, source, 3.08)
+        check(recorded, "each native debris pull receives a disposition")
+        return kept
+    end
+    check(not pull(leader, 1), "the weight cap leaves bulky debris behind")
+    packWeight = 5
+    check(not pull(leader, 0.2), "kept debris reserves space for the next native fish")
+    packWeight = 1
+    check(pull(leader, 0.2) and not pull(follower, 0.31)
+        and pull(follower, 0.3) and not pull(leader, 0),
+        "both companions share the half-weight and two-item caps")
+    local totals = policyMission.scout.search.fishingBycatch
+    check(totals.pulled == 6 and totals.kept == 2 and math.abs(totals.weight - 0.5) < 0.000001
+        and #fishInventory == 2 and #escortPack == 1
+        and expedition.fishingRequestFor(leader).remaining == 1,
+        "bycatch records every pull while the exact fish alone counts toward quota")
+    policyMission.scout.workSafetyHold = { blocked = true }
+    check(not expedition.noteFishingBycatch(leader, { weight = 0 }, source, 3.08)
+        and expedition.fishingRequestFor(leader) == nil and totals.pulled == 6,
+        "the work hold suspends fishing without clearing its bycatch totals")
+    policyMission.fishingGearEligible, follower.getInventory = nil, nil
+    SC.Logistics = previousLogistics
+    util.itemWeight, util.containerHasRoom, util.addItem, util.inventoryContains =
+        oldWeight, oldRoom, oldAdd, oldContains
+end
 policyMission.scout = nil
 local exported = expedition.export()
 check(#exported.roster == 3 and #exported.survivors == 2
@@ -1347,9 +1392,26 @@ check(fishStarted and newMission.scout.site == nil
         and newMission.scout.destination.y == 25
         and newMission.scout.search.request.category == "fish",
     "fishing launch accepts a distant selected bank without a building")
+newMission.scout.phase = "searching"
+newMission.scout.search.startedHour, newMission.scout.search.deadlineHour = worldHour, worldHour + 2
+newMission.scout.search.fishingBycatch = { pulled = 7, kept = 2, weight = 0.4 }
+local fishingSave = expedition.export()
+check(fishingSave.scout.search.fishingBycatch ~= newMission.scout.search.fishingBycatch
+        and expedition.prepareReset() and expedition.reset()
+        and expedition.restore(fishingSave) and expedition.pulse(),
+    "an in-progress fishing outing restores its saved bycatch totals")
+newMission = expedition.current()
+check(newMission and newMission.scout.search.fishingBycatch.pulled == 7
+    and newMission.scout.search.fishingBycatch.kept == 2,
+    "the pack allowance persists through a cold restore")
 newMission.scout.phase = "awaiting_player"
 check(expedition.finishAtPlayer(player) == true,
     "the shoreline expedition can close through normal debrief")
+local fishingDebrief = expedition.lastDebrief()
+check(fishingDebrief.fishingBycatch.pulled == 7
+    and fishingDebrief.fishingBycatch.kept == 2
+    and #fishingDebrief.acquisitions == 0,
+    "the final debrief reports bycatch independently of fish receipts")
 SC.Fishing = formerFishing
 end
 SC.ExpeditionPlaces.siteContainsPoint = function(siteId, x, y, z)
@@ -3272,5 +3334,62 @@ end)()
     end
     reserve.x,reserve.y=23,20
 end)()
+
+do
+    local function verifyWalkingReturn()
+        local previousWorld, previousNav, previousBase = getWorld, SC.Navigation, SC.BaseLife
+        local util = SC.GameplayUtil
+        local previousFree, previousPosition = util.isSquareFree, util.position
+        local actor = actorAt(100, 100)
+        local squares = {}
+        local function square(x, y)
+            local here = { x = x, y = y, z = 0 }
+            function here:getRoom() return nil end
+            squares[x .. ":" .. y] = here
+            return here
+        end
+        local origin = square(100, 100)
+        function actor:getCurrentSquare() return origin end
+        local cell = { getGridSquare = function(_, x, y) return squares[x .. ":" .. y] end }
+        getWorld = function() return { getCell = function() return cell end } end
+        util.position = function(value) return value.x, value.y, value.z or 0 end
+        util.isSquareFree = function(value) return not value.blocked end
+        local checked = {}
+        SC.Navigation = {
+            beginPathSearch = function(from, to)
+                checked[#checked + 1] = to
+                return { from, to }
+            end,
+            resumePathSearch = function(path) return "complete", path end,
+        }
+        local target, second, alternate = square(110, 100), square(110, 103), square(110, 97)
+        local scout = { phase = "inbound", returnIndex = 1 }
+        local history = expedition._walkingReturnLeg(scout, target, 100)
+        expedition._rememberReturnStall(history, actor, target, 100)
+        expedition._rememberReturnStall(history, actor, second, 200)
+        check(expedition._walkingReturnLeg(scout, target, 300) == history,
+            "a routine replan retains both failed points on its return leg")
+        local leg = expedition._nextScoutLegForTests(actor, target, second, true, nil, scout, history)
+        check(leg and leg.x == alternate.x and leg.y == alternate.y
+            and #checked == 1 and checked[1] == alternate,
+            "the walking planner skips both failed waypoints even when the first is reachable again")
+        local sameLeg = expedition._walkingReturnLeg(scout, target, 120100)
+        check(sameLeg.failed["110:100:0"] == nil and sameLeg.failed["110:103:0"] ~= nil,
+            "failed waypoints expire individually")
+
+        local inside = square(111, 100)
+        SC.BaseLife = { isInside = function(value) return value == inside end }
+        target.blocked = true
+        scout.returnIndex = 0
+        local newLeg = expedition._walkingReturnLeg(scout, target, 120200)
+        leg = expedition._nextScoutLegForTests(actor, target, nil, true, nil, scout,
+            newLeg, { id = "test-camp" })
+        check(newLeg ~= history and leg and leg.x == inside.x and leg.y == inside.y,
+            "a blocked camp core uses another reachable square inside camp")
+        util.isSquareFree, util.position = previousFree, previousPosition
+        getWorld, SC.Navigation, SC.BaseLife = previousWorld, previousNav, previousBase
+    end
+    verifyWalkingReturn()
+end
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

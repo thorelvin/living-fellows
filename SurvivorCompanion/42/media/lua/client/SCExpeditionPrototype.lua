@@ -252,6 +252,18 @@ local function unstartedSearchReturn(itinerary)
         or reason == "scout_leg_limit"
 end
 
+function Expedition._copyFishingBycatch(value)
+    if type(value) ~= "table" or type(value.pulled) ~= "number"
+        or not (value.pulled >= 0 and value.pulled < math.huge
+            and value.pulled == math.floor(value.pulled))
+        or type(value.kept) ~= "number"
+        or not (value.kept >= 0 and value.kept <= math.min(2, value.pulled)
+            and value.kept == math.floor(value.kept))
+        or type(value.weight) ~= "number"
+        or not (value.weight >= 0 and value.weight <= 0.500001) then return nil end
+    return { pulled = value.pulled, kept = value.kept, weight = value.weight }
+end
+
 local function copySearch(value)
     if value == nil then return nil end
     return {
@@ -261,6 +273,8 @@ local function copySearch(value)
         startedHour = value.startedHour,
         deadlineHour = value.deadlineHour,
         endReason = value.endReason,
+        fishingBycatch = value.request and value.request.category == "fish"
+            and Expedition._copyFishingBycatch(value.fishingBycatch) or nil,
     }
 end
 
@@ -377,6 +391,9 @@ local function copyDebrief(value)
             acquisitions = copyReceipts(value.acquisitions),
             returnedIds = returned, endReason = value.endReason,
             inventoryComplete = value.inventoryComplete,
+            fishingBycatch = value.kind == "search" and value.request
+                and value.request.category == "fish"
+                and Expedition._copyFishingBycatch(value.fishingBycatch) or nil,
             integration = SC.ExpeditionIntegration
                 and SC.ExpeditionIntegration.copy(value.integration) or nil,
             site = copySite(value.site),
@@ -3879,6 +3896,7 @@ function Expedition.clearTestWaypoint(actor)
     mission.testWaypointArrived = false
     mission.testWaypointArrival = nil
     mission.cohesionHold = nil
+    if mission.scout then mission.scout.activeReturnLeg = nil end
     return true
 end
 
@@ -4001,6 +4019,7 @@ function Expedition.fishingRequestFor(actor)
     local search = itinerary and itinerary.search
     if not itinerary or itinerary.phase ~= "searching" or not search
         or search.request.category ~= "fish" or mission.terminal
+        or itinerary.workSafetyHold and itinerary.workSafetyHold.blocked
         or mission.technicalIssue or not Expedition.isMember(actor)
         or #search.acquisitions >= search.request.quantity then return nil end
     local member = missionRecordForActor(actor)
@@ -4026,22 +4045,54 @@ function Expedition.fishingRequestFor(actor)
         remaining = search.request.quantity - #search.acquisitions }
 end
 
-function Expedition.noteFishCaught(actor, item, source)
+function Expedition._fishingSearchAt(actor, source)
     local request = Expedition.fishingRequestFor(actor)
-    if not request or not validPoint({ x = math.floor(source and source.x or -1),
-            y = math.floor(source and source.y or -1), z = source and source.z })
-        or item == nil or SC.GameplayUtil == nil
-        or item:getModData().fishing_FishSize == nil then return false end
+    if not request or type(source) ~= "table"
+        or type(source.x) ~= "number" or type(source.y) ~= "number"
+        or not validPoint({ x = math.floor(source.x), y = math.floor(source.y),
+            z = source.z }) then return nil end
     local dx, dy = source.x - request.destination.x,
         source.y - request.destination.y
     if dx * dx + dy * dy > request.catchRadius * request.catchRadius then
-        return false
+        return nil
     end
+    return mission.scout.search
+end
+
+function Expedition.noteFishingBycatch(actor, item, source, reserve)
+    local search = Expedition._fishingSearchAt(actor, source)
+    local util = SC.GameplayUtil
+    if not search or not item or not util then return false end
+    local totals = search.fishingBycatch or { pulled = 0, kept = 0, weight = 0 }
+    search.fishingBycatch = totals
+    local weight = util.itemWeight(item)
+    local kept = false
+    if totals.kept < 2 and totals.weight + weight <= 0.500001
+        and type(reserve) == "number" and reserve > 0 and SC.Logistics then
+        local audit = SC.Logistics.audit(actor)
+        local inventory = actor:getInventory()
+        if audit and audit.capacity > 0
+            and audit.weight + weight + reserve <= audit.capacity * audit.hardRatio
+            and util.containerHasRoom(inventory, actor, item) then
+            util.addItem(inventory, item)
+            kept = util.inventoryContains(inventory, item)
+        end
+    end
+    totals.pulled = totals.pulled + 1
+    if kept then
+        totals.kept, totals.weight = totals.kept + 1, totals.weight + weight
+    end
+    return true, kept
+end
+
+function Expedition.noteFishCaught(actor, item, source)
+    local search = Expedition._fishingSearchAt(actor, source)
+    if not search or item == nil or SC.GameplayUtil == nil
+        or item:getModData().fishing_FishSize == nil then return false end
     local inventory = actor:getInventory()
     if not SC.GameplayUtil.inventoryContains(inventory, item) then return false end
     local id = SC.GameplayUtil.itemStableId(item, true)
     if type(id) ~= "string" or #id == 0 or #id > 160 then return false end
-    local search = mission.scout.search
     for _, receipt in ipairs(search.acquisitions) do
         if receipt.id == id then return false end
     end
@@ -4201,6 +4252,7 @@ function Expedition.noteTestWaypointArrived(actor)
     if mission.scout ~= nil then
         mission.scout.legs = mission.scout.legs + 1
         mission.scout.lastStalledTarget = nil
+        mission.scout.activeReturnLeg = nil
         mission.scout.replans = 0
         mission.scout.returnRecoveryCount = nil
         if mission.scout.phase == "outbound"
@@ -4230,12 +4282,59 @@ local function exteriorRoute(path, sourceRoom)
     return outside
 end
 
+function Expedition._walkingReturnLeg(scout, target, now)
+    local key = target.x .. ":" .. target.y .. ":" .. target.z
+        .. "/" .. tostring(scout.returnIndex)
+        .. "/" .. tostring(scout.roadRoute and scout.roadRoute.index)
+    local history = scout.walkingReturn
+    if not history or history.key ~= key then
+        history = { key = key, failed = {}, revision = 0 }
+        scout.walkingReturn = history
+    end
+    for waypoint, failedAt in pairs(history.failed) do
+        if now - failedAt >= 120000 then
+            history.failed[waypoint] = nil
+            history.revision = history.revision + 1
+        end
+    end
+    return history
+end
+
+function Expedition._rememberReturnStall(history, actor, waypoint, now)
+    local key = waypoint.x .. ":" .. waypoint.y .. ":" .. waypoint.z
+    local count, oldest, oldestAt = 0, nil, math.huge
+    for failed, failedAt in pairs(history.failed) do
+        count = count + 1
+        if failedAt < oldestAt then oldest, oldestAt = failed, failedAt end
+    end
+    if count >= 32 and history.failed[key] == nil then history.failed[oldest] = nil end
+    history.failed[key] = now
+    history.revision = history.revision + 1
+    if SC.GameplayUtil.diagnostic then
+        local nav = SC.Navigation and SC.Navigation.status and SC.Navigation.status(actor)
+        local why = nav and (nav.terminalReason or nav.pathReason or nav.lastMovementReason)
+        SC.GameplayUtil.diagnostic("expedition-return", actor,
+            "action=waypoint_stalled waypoint=" .. key .. " leg=" .. history.key
+                .. " reason=" .. tostring(why or "waypoint_timeout"))
+    end
+end
+
+function Expedition._returnCamp()
+    local baseLife = SC.BaseLife
+    local base = mission.homeBaseId and baseLife and baseLife.active and baseLife.active()
+    if base and base.id == mission.homeBaseId and baseLife.isInside then return base end
+end
+
+function Expedition._atReturnCamp(value)
+    return SC.BaseLife.isInside(value) or SC.BaseLife.isInside(value, "parking")
+end
+
 -- Plan just one loaded local leg at a time. The promoted leader streams the
 -- next area while walking; an unloaded destination must never be handed to
 -- the ordinary local pathfinder. Outdoor legs keep followers from entering a
 -- locked building that only the leader could unlock from its inside face.
 local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
-        roadRoute, scout)
+        roadRoute, scout, walkingReturn, camp)
     local source = actor:getCurrentSquare()
     local world = type(getWorld) == "function" and getWorld() or nil
     local cell = world and world:getCell() or nil
@@ -4254,6 +4353,12 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
     end
     local dx, dy = target.x - x, target.y - y
     local distance = math.sqrt(dx * dx + dy * dy)
+    local function failed(tx, ty, tz)
+        return walkingReturn and walkingReturn.failed[tx .. ":" .. ty .. ":" .. tz] ~= nil
+    end
+    local function rejected(tx, ty, tz)
+        return failed(tx, ty, tz) or excluded and excluded.x == tx and excluded.y == ty
+    end
     -- The bounded waypoint planner is planar. A nearby loaded destination on
     -- another floor must go to Navigation's native stair route as one goal;
     -- reducing it to a stair tile makes the engine stop on the wrong landing.
@@ -4266,13 +4371,17 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
         end
         return nil, "scout_cross_floor_destination_unavailable"
     end
-    if distance < 1 then return copyPoint(target) end
+    if distance < 1 and (not walkingReturn or not rejected(target.x, target.y, target.z)
+        and (not camp or Expedition._atReturnCamp(actor))) then return copyPoint(target) end
     local plan = scout.legPlan
     if plan ~= nil and (plan.source ~= source
         or plan.target.x ~= target.x or plan.target.y ~= target.y
         or plan.target.z ~= target.z
         or plan.excludedX ~= (excluded and excluded.x)
         or plan.excludedY ~= (excluded and excluded.y)
+        or plan.walkingReturn ~= walkingReturn
+        or plan.returnRevision ~= (walkingReturn and walkingReturn.revision)
+        or plan.camp ~= camp
         or plan.allowInterior ~= allowInteriorRoute
         or (plan.roadRoute ~= roadRoute
             and not (plan.roadRoute ~= nil and roadRoute ~= nil
@@ -4289,38 +4398,65 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
         plan = { source = source, target = copyPoint(target),
             excludedX = excluded and excluded.x,
             excludedY = excluded and excluded.y,
+            walkingReturn = walkingReturn,
+            returnRevision = walkingReturn and walkingReturn.revision,
+            camp = camp,
             allowInterior = allowInteriorRoute, roadRoute = roadRoute,
             sourceRoom = source:getRoom(), candidates = {}, index = 1 }
         local candidates = plan.candidates
         if allowInteriorRoute and distance <= 18
-            and not (excluded and excluded.x == target.x
-                and excluded.y == target.y) then
+            and not rejected(target.x, target.y, target.z) then
             local destination = cell:getGridSquare(target.x, target.y, target.z)
-            if destination ~= nil and SC.GameplayUtil.isSquareFree(destination) then
+            if destination ~= nil and SC.GameplayUtil.isSquareFree(destination)
+                and (not camp or Expedition._atReturnCamp(destination)) then
                 candidates[#candidates + 1] = {
                     square = destination, interior = true, budget = 2500,
                 }
             end
         end
-        local forwardX, forwardY = dx / distance, dy / distance
-        local sideX, sideY = -forwardY, forwardX
-        for _, length in ipairs({ math.min(12, distance),
-                math.min(10, distance), math.min(8, distance),
-                math.min(5, distance), math.min(3, distance) }) do
-            for _, lateral in ipairs({ 0, 3, -3, 6, -6, 10, -10,
-                    14, -14, 18, -18 }) do
-                local tx = math.floor(x + forwardX * length + sideX * lateral)
-                local ty = math.floor(y + forwardY * length + sideY * lateral)
-                local projected = (tx - x) * forwardX + (ty - y) * forwardY
-                if projected > 1 and not (excluded ~= nil
-                    and excluded.x == tx and excluded.y == ty) then
-                    local square = cell:getGridSquare(tx, ty, target.z)
-                    if square ~= nil and square:getRoom() == nil
-                        and SC.GameplayUtil.isSquareFree(square) then
-                        candidates[#candidates + 1] = {
-                            square = square, budget = 1800,
-                            direct = math.sqrt((tx - x)^2 + (ty - y)^2),
-                        }
+        if camp and distance <= 18 then
+            local stands = {}
+            for tx = target.x - 4, target.x + 4 do
+                for ty = target.y - 4, target.y + 4 do
+                    local gap = (tx + 0.5 - target.x)^2 + (ty + 0.5 - target.y)^2
+                    if gap <= 16 and (tx ~= target.x or ty ~= target.y)
+                        and not rejected(tx, ty, target.z) then
+                        local square = cell:getGridSquare(tx, ty, target.z)
+                        if square and SC.GameplayUtil.isSquareFree(square)
+                            and Expedition._atReturnCamp(square) then
+                            stands[#stands + 1] = { square = square, interior = true,
+                                budget = 2500, gap = gap, x = tx, y = ty }
+                        end
+                    end
+                end
+            end
+            table.sort(stands, function(a, b)
+                if a.gap ~= b.gap then return a.gap < b.gap end
+                if a.y ~= b.y then return a.y < b.y end
+                return a.x < b.x
+            end)
+            for _, stand in ipairs(stands) do candidates[#candidates + 1] = stand end
+        end
+        if distance >= 1 then
+            local forwardX, forwardY = dx / distance, dy / distance
+            local sideX, sideY = -forwardY, forwardX
+            for _, length in ipairs({ math.min(12, distance),
+                    math.min(10, distance), math.min(8, distance),
+                    math.min(5, distance), math.min(3, distance) }) do
+                for _, lateral in ipairs({ 0, 3, -3, 6, -6, 10, -10,
+                        14, -14, 18, -18 }) do
+                    local tx = math.floor(x + forwardX * length + sideX * lateral)
+                    local ty = math.floor(y + forwardY * length + sideY * lateral)
+                    local projected = (tx - x) * forwardX + (ty - y) * forwardY
+                    if projected > 1 and not rejected(tx, ty, target.z) then
+                        local square = cell:getGridSquare(tx, ty, target.z)
+                        if square ~= nil and square:getRoom() == nil
+                            and SC.GameplayUtil.isSquareFree(square) then
+                            candidates[#candidates + 1] = {
+                                square = square, budget = 1800,
+                                direct = math.sqrt((tx - x)^2 + (ty - y)^2),
+                            }
+                        end
                     end
                 end
             end
@@ -4352,7 +4488,7 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
                 or candidate.direct * 1.8 + 8)
                 and exteriorRoute(path, plan.sourceRoom)
         if accepted then
-            if candidate.interior and roadRoute ~= nil
+            if candidate.interior and candidate.gap == nil and roadRoute ~= nil
                 and roadRoute.index <= 1 and #path <= 40 then
                 scout.legPlan = nil
                 return copyPoint(target)
@@ -4360,6 +4496,7 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
             local node = path[math.min(#path, candidate.interior and 5 or 8)]
             local nx, ny, nz = SC.GameplayUtil.position(node)
             if nx ~= nil and ny ~= nil and nz ~= nil
+                and not failed(math.floor(nx), math.floor(ny), math.floor(nz))
                 and (candidate.interior or excluded == nil
                     or excluded.x ~= math.floor(nx)
                     or excluded.y ~= math.floor(ny)) then
@@ -4371,6 +4508,8 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
     end
     return nil, "planning"
 end
+
+Expedition._nextScoutLegForTests = nextScoutLeg
 
 -- These fields are transient navigation state, also cleared by the wood
 -- worker when its exact log reappears. Retain their names for that caller.
@@ -4680,6 +4819,7 @@ retryInboundRoute = function(scout, now, reason, fresh)
             scout.pause = nil
         end
         scout.returnRecoveryCount = 0
+        scout.walkingReturn = nil
         scout.descentRejected = nil
         if scout.travelBudget and scout.legs >= scout.travelBudget.limit then
             scout.travelBudget = nil
@@ -4835,6 +4975,7 @@ startReturnFromSite = function(itinerary, reason)
         itinerary.endReason = reason
     end
     itinerary.phase = "inbound"
+    itinerary.walkingReturn = nil
     itinerary.replans = 0
     itinerary.firstPlanFailureAt = nil
     itinerary.lastPlanFailure = nil
@@ -5724,6 +5865,10 @@ local function pulseScout()
             and type(SC.ActionSupervisor.current) == "function"
             and SC.ActionSupervisor.current(leader) or nil
         if owner ~= nil then return end
+        if scout.activeReturnLeg and scout.phase == "inbound"
+            and pause == nil and not survivalRoute then
+            Expedition._rememberReturnStall(scout.activeReturnLeg, leader, mission.testWaypoint, now)
+        end
         if scout.roadRoute ~= nil
             and SC.ExpeditionRoute.skipLane(scout.roadRoute) then
             scout.lastStalledTarget = nil
@@ -6173,12 +6318,15 @@ local function pulseScout()
         scout.returnIndex = scout.returnIndex - 1
         return
     end
-    if pause == nil and scout.phase == "inbound" and (scout.roadRoute ~= nil
+    local finalReturn = pause == nil and scout.phase == "inbound" and (scout.roadRoute ~= nil
             and scout.roadRoute.index > #scout.roadRoute.points
             or scout.roadRoute == nil and (scout.returnIndex == nil
                 or scout.returnIndex == 0))
+    local camp = finalReturn and not scout.wood and Expedition._returnCamp()
+    if finalReturn
         and distanceToPoint(mission.leader.actor, routeTarget) <= 4
-        and settledOnFloor(mission.leader.actor, routeTarget.z) then
+        and settledOnFloor(mission.leader.actor, routeTarget.z)
+        and (not camp or Expedition._atReturnCamp(mission.leader.actor)) then
         scout.phase = "awaiting_player"
         if scout.wood then
             pulseWoodHomecoming(scout, now)
@@ -6203,6 +6351,12 @@ local function pulseScout()
     local leaderSquare = mission.leader.actor:getCurrentSquare()
     local leaderInRoom = leaderSquare ~= nil
         and leaderSquare:getRoom() ~= nil
+    local walkingReturn
+    if scout.phase == "inbound" and pause == nil and not stairLeg
+        and (not scout.vehicle or scout.vehicle.state == "abandoned")
+        and scout.kind ~= "home" then
+        walkingReturn = Expedition._walkingReturnLeg(scout, routeTarget, now)
+    end
     local leg, reason = nextScoutLeg(mission.leader.actor, target,
         scout.lastStalledTarget,
         stairLeg or pause ~= nil or SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
@@ -6210,7 +6364,8 @@ local function pulseScout()
         scout.roadRoute or (scout.trailReturn and scout.road
             and scout.road.avoidance and { points = {}, index = 1,
                 avoidance = scout.road.avoidance,
-                allowEscapeFromAvoidance = true }) or nil, scout)
+                allowEscapeFromAvoidance = true }) or nil, scout, walkingReturn,
+        walkingReturn and camp or nil)
     if reason == "planning" then return end
     if leg == nil then
         if scout.roadRoute ~= nil
@@ -6250,6 +6405,7 @@ local function pulseScout()
     if staged ~= true then
         mission.technicalIssue = { reason = tostring(stageReason) }
     else
+        scout.activeReturnLeg = walkingReturn
         scout.bestDistanceToWaypoint = distanceToPoint(
             mission.leader.actor, leg)
         scout.lastProgressAt = now
@@ -6473,6 +6629,8 @@ local function searchDebrief(itinerary)
         site = copySite(itinerary.site),
         request = itinerary.wood and copyWoodRequest(search.request) or copyRequest(search.request),
         acquisitions = copyReceipts(search.acquisitions),
+        fishingBycatch = search.request.category == "fish"
+            and Expedition._copyFishingBycatch(search.fishingBycatch) or nil,
         returnedIds = returned, inventoryComplete = complete,
         endReason = search.endReason or "returned_early",
         abandonedCarAt = itinerary.vehicle

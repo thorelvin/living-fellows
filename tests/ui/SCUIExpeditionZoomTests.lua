@@ -172,6 +172,25 @@ end
 assert(reportSignature ~= "expedition:idle" and counts == 2
     and earlier == 1,
     "the latest debrief and earlier unfinished delivery remain visible once")
+do
+    local ui = SurvivorCompanion.UI
+    local previousText, bycatchArgs = ui.text, nil
+    ui.text = function(key, ...)
+        if key == "UI_SC_Expedition_FishingBycatch" then bycatchArgs = { ... } end
+        return previousText(key, ...)
+    end
+    fixture.setDebrief({ kind = "search", request = { category = "fish" },
+        fishingBycatch = { pulled = 7, kept = 2 }, integration = latest })
+    Planner.build(newDetail(), newPanel(132))
+    assert(bycatchArgs and bycatchArgs[1] == 7 and bycatchArgs[2] == 2 and bycatchArgs[3] == 5,
+        "the fishing debrief counts pulled, packed and released bycatch")
+    fixture.setDebrief({ kind = "search", request = { category = "fish" } })
+    Planner.build(newDetail(), newPanel(132))
+    assert(bycatchArgs[1] == 0 and bycatchArgs[2] == 0 and bycatchArgs[3] == 0,
+        "a fishing debrief saved before bycatch tracking displays zero totals")
+    fixture.setDebrief({ integration = latest })
+    ui.text = previousText
+end
 fixture.startTrip()
 local nextTripDetail = newDetail()
 Planner.build(nextTripDetail, newPanel(132))

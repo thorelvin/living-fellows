@@ -13,6 +13,10 @@ local engineRetryAt = setmetatable({}, { __mode = "k" })
 local lastPartyFishingLineAt = -math.huge
 local SEARCH_RADIUS = 24
 local SCAN_BUDGET = 180
+local CAST_SAMPLE_BUDGET = 16
+local RANKED_CASTS = 8
+local CAST_APPROACH_WAIT_MS = 2500
+local DEBRIS_BEFORE_RESURVEY = 3
 local CAST_DELAY = 1100
 local PICKUP_DELAY = 2200
 local ENGINE_RETRY_DELAY = 60000
@@ -37,23 +41,28 @@ local function point(square)
     return { x = square:getX(), y = square:getY(), z = square:getZ() }
 end
 
-local function usableBank(square)
-    if not square or square:getZ() ~= 0 or water(square)
-        or not U().isSquareFree(square) then return nil end
+local function isBank(square)
+    return square and square:getZ() == 0 and not water(square)
+        and U().isSquareFree(square)
+end
+
+local function castAt(square, dx, dy)
     local x, y = square:getX(), square:getY()
+    local first = U().loadedSquare({ x = x + dx, y = y + dy, z = 0 })
+    local second = U().loadedSquare({ x = x + 2 * dx, y = y + 2 * dy, z = 0 })
+    if not water(first) or not water(second) then return nil end
+    local castX, castY = x + 2 * dx + 0.5, y + 2 * dy + 0.5
+    if Fishing and Fishing.isNoFishZone
+        and Fishing.isNoFishZone(castX, castY) then return nil end
+    return { bank = point(square), water = { x = castX, y = castY, z = 0 },
+        dx = dx, dy = dy }
+end
+
+local function usableBank(square)
+    if not isBank(square) then return nil end
     for _, direction in ipairs(BANK_DIRECTIONS) do
-        local dx, dy = direction[1], direction[2]
-        local first = U().loadedSquare({ x = x + dx, y = y + dy, z = 0 })
-        local second = U().loadedSquare({ x = x + 2 * dx,
-            y = y + 2 * dy, z = 0 })
-        if water(first) and water(second) then
-            local castX, castY = x + 2 * dx + 0.5, y + 2 * dy + 0.5
-            if not (Fishing and Fishing.isNoFishZone
-                and Fishing.isNoFishZone(castX, castY)) then
-                return { bank = point(square), water = { x = castX,
-                    y = castY, z = 0 }, dx = dx, dy = dy }
-            end
-        end
+        local site = castAt(square, direction[1], direction[2])
+        if site then return site end
     end
     return nil
 end
@@ -268,8 +277,9 @@ end
 local function reserved(actor, site)
     for other, state in pairs(states) do
         if other ~= actor and state.site and state.phase ~= "failed"
-            and state.site.bank.x == site.bank.x
-            and state.site.bank.y == site.bank.y then return true end
+            and (state.site.bank.x == site.bank.x and state.site.bank.y == site.bank.y
+                or state.mode == "expedition" and state.site.water.x == site.water.x
+                    and state.site.water.y == site.water.y) then return true end
     end
     return false
 end
@@ -333,8 +343,206 @@ local function campRects()
     return #rects > 0 and rects or nil
 end
 
-local function siteFor(actor, state, mode, request)
-    if state.site then return state.site, "bank_found" end
+local function fishingLevel(actor)
+    local level = Perks and Perks.Fishing
+        and U().call(actor, "getPerkLevel", Perks.Fishing)
+    return math.max(0, math.min(10, math.floor(tonumber(level) or 0)))
+end
+
+local function nextFishWeight(actor)
+    local utils = Fishing and Fishing.Utils
+    local level = fishingLevel(actor)
+    local limit = utils and utils.skillSizeLimit and utils.skillSizeLimit[level]
+    if type(limit) ~= "number" or limit <= 0 then return nil end
+    local maximum = limit
+    if level >= 8 then
+        for _, species in ipairs(Fishing.fishes or {}) do
+            if species.maxWeight and species.maxWeight <= limit then
+                maximum = math.max(maximum, species.trophyWeight or 0)
+            end
+        end
+    end
+    -- Build 42 converts the species weight to inventory weight at landing.
+    return 2.2 * maximum
+end
+
+local function castKey(site)
+    return site.water.x .. ":" .. site.water.y
+end
+
+local function sampleCast(site, level)
+    -- Match the stock abundance and fish/debris rolls without consuming RNG.
+    local utils = Fishing and Fishing.Utils
+    if not utils or not utils.getFishNumParams or not FishSchoolManager then return false end
+    local ok, school, debris = pcall(function()
+        local x, y = site.water.x, site.water.y
+        return utils.getFishNumParams(x, y),
+            FishSchoolManager.getInstance():getTrashAbundance(x, y)
+    end)
+    if not ok or type(school) ~= "table" or type(school.value) ~= "number"
+        or type(school.coeff) ~= "number" or type(debris) ~= "number"
+        or debris ~= debris or school.value ~= school.value
+        or school.coeff ~= school.coeff then return false end
+    if school.value <= 0 then return school.coeff * (0.1 + level / 20) / 4 end
+    local low, high = level / 30, 0.5 + level / 20
+    local clean = level >= 9 and 0.2 or level >= 7 and 0.6
+        or level >= 5 and 0.8 or 1
+    return school.coeff * math.max(0, math.min(1, (high - debris * clean) / (high - low)))
+end
+
+local function standAvailable(actor, square)
+    return (not U().movingBlocker or U().movingBlocker(square, actor) == nil)
+        and (not U().safehouseBlocker or not U().safehouseBlocker(square, actor))
+end
+
+local function expeditionStand(actor, site)
+    local square = U().loadedSquare(site.bank)
+    if isBank(square) and standAvailable(actor, square) and not reserved(actor, site)
+        and castAt(square, site.dx, site.dy) then return square end
+end
+
+local function rankCast(survey, site)
+    local ranked = survey.ranked
+    for index, entry in ipairs(ranked) do
+        if entry.bank.x == site.bank.x and entry.bank.y == site.bank.y then
+            if entry.score >= site.score then return end
+            table.remove(ranked, index)
+            break
+        end
+    end
+    ranked[#ranked + 1] = site
+    table.sort(ranked, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        if a.distance ~= b.distance then return a.distance < b.distance end
+        if a.bank.y ~= b.bank.y then return a.bank.y < b.bank.y end
+        return a.bank.x < b.bank.x
+    end)
+    if #ranked > RANKED_CASTS then ranked[#ranked] = nil end
+end
+
+local function surveyExpeditionBank(actor, survey, rect)
+    local width = rect.x2 - rect.x1 + 1
+    local total = width * (rect.y2 - rect.y1 + 1)
+    local sampled, scanned = 0, 0
+    while survey.index < total and scanned < SCAN_BUDGET do
+        local x = rect.x1 + survey.index % width
+        local y = rect.y1 + math.floor(survey.index / width)
+        local square = U().loadedSquare({ x = x, y = y, z = 0 })
+        if isBank(square) then
+            for index = survey.direction, #BANK_DIRECTIONS do
+                local direction = BANK_DIRECTIONS[index]
+                local site = castAt(square, direction[1], direction[2])
+                if eligibleSite(site, rect) then
+                    survey.hasWater = true
+                    if standAvailable(actor, square) and not reserved(actor, site) then
+                        local key = castKey(site)
+                        if survey.samples[key] == nil then
+                            if sampled >= CAST_SAMPLE_BUDGET then
+                                survey.direction = index
+                                return false
+                            end
+                            survey.samples[key] = sampleCast(site, survey.level)
+                            sampled = sampled + 1
+                        end
+                        site.score = survey.samples[key]
+                        site.distance = U().distanceSq(actor, site.bank)
+                        if not survey.nearest or site.distance < survey.nearest.distance then
+                            survey.nearest = site
+                        end
+                        if site.score ~= false then rankCast(survey, site) end
+                    end
+                end
+            end
+        end
+        survey.index, survey.direction = survey.index + 1, 1
+        scanned = scanned + 1
+    end
+    return survey.index >= total
+end
+
+local function testCastApproach(actor, survey, square, snapshot)
+    local source = U().squareOf(actor)
+    local sourceKey = U().squareKey(source)
+    if sourceKey and sourceKey == U().squareKey(square) then return true end
+    local nav = SC.Navigation
+    if not source or not nav or not nav.beginPathSearch or not nav.resumePathSearch then
+        return false
+    end
+    local current = now()
+    survey.approachAt = survey.approachAt or current
+    -- A difficult optional approach cannot keep the angler from a nearby cast.
+    if current - survey.approachAt >= CAST_APPROACH_WAIT_MS then return false end
+    if survey.sourceKey ~= sourceKey or not survey.job then
+        survey.sourceKey = sourceKey
+        survey.job = nav.beginPathSearch(source, square, snapshot, {
+            actor = actor, nodeBudget = 1800,
+        })
+    end
+    if not survey.job then return false end
+    local status, path, reason = nav.resumePathSearch(survey.job, 96)
+    if status == "pending" then return nil end
+    survey.job = nil
+    return status == "complete" and reason == nil and path ~= nil and #path >= 2
+end
+
+local function expeditionSite(actor, state, rect, snapshot)
+    local survey = state.castSurvey
+    if not survey then
+        survey = { index = 0, direction = 1, level = fishingLevel(actor),
+            ranked = {}, samples = {}, candidate = 1 }
+        state.castSurvey = survey
+    end
+    if not survey.ready then
+        if not surveyExpeditionBank(actor, survey, rect) then return nil, "scanning_water" end
+        survey.ready = true
+        if survey.nearest then
+            local found = false
+            for _, site in ipairs(survey.ranked) do
+                if site.bank.x == survey.nearest.bank.x and site.bank.y == survey.nearest.bank.y then
+                    found = true
+                    break
+                end
+            end
+            if not found then survey.ranked[#survey.ranked + 1] = survey.nearest end
+        end
+    end
+    local previous = state.site
+    if previous and (not eligibleSite(previous, rect) or not expeditionStand(actor, previous)) then
+        previous = nil
+    end
+    local site = survey.ranked[survey.candidate]
+    local previousScore = previous and survey.samples[castKey(previous)]
+    if previous and (not site or not site.score or not previousScore
+        or site.score <= previousScore) then
+        site = previous
+    elseif site then
+        local square = expeditionStand(actor, site)
+        local reachable = square and testCastApproach(actor, survey, square, snapshot)
+        if reachable ~= true then
+            if reachable == false or not square then
+                survey.candidate, survey.job = survey.candidate + 1, nil
+                survey.approachAt = nil
+            end
+            return nil, "scanning_water"
+        end
+    end
+    state.site, state.castSurvey, state.resurvey = site, nil, nil
+    if site then
+        if site ~= previous and U().diagnostic then
+            U().diagnostic("fishing-bank", actor, "bank=" .. site.bank.x .. "," .. site.bank.y
+                .. " cast=" .. site.water.x .. "," .. site.water.y .. " score=" .. tostring(site.score))
+        end
+        return site, "bank_found"
+    end
+    if survey.hasWater then
+        state.nextScanAt = now() + 5000
+        return nil, "waiting_for_bank"
+    end
+    return nil, "no_fishing_water"
+end
+
+local function siteFor(actor, state, mode, request, snapshot)
+    if state.site and not state.resurvey then return state.site, "bank_found" end
     if state.nextScanAt and now() < state.nextScanAt then
         return nil, "waiting_for_bank"
     end
@@ -363,7 +571,9 @@ local function siteFor(actor, state, mode, request)
     if state.scanSignature ~= signature then
         state.scanSignature, state.scanRectIndex, state.scanIndex = signature, 1, 0
         state.bestCandidate, state.bestScore = nil, nil
+        state.castSurvey = nil
     end
+    if mode == "expedition" then return expeditionSite(actor, state, rects[1], snapshot) end
     return scanRects(actor, state, rects)
 end
 
@@ -911,10 +1121,23 @@ end
 local function finishCatch(actor, state)
     local item = state.catch
     if not item then return false, "catch_missing" end
-    local inventory = actor:getInventory()
-    local received = U().addItem(inventory, item)
-    if received ~= item or not U().inventoryContains(inventory, item) then
-        return false, "catch_inventory_failed"
+    local expedition = SC.ExpeditionPrototype
+    local expeditionDebris = state.mode == "expedition" and state.isTrash
+    if expeditionDebris then
+        if expedition and expedition.noteFishingBycatch then
+            expedition.noteFishingBycatch(actor, item, state.site.water, nextFishWeight(actor))
+        end
+        state.debrisStreak = (state.debrisStreak or 0) + 1
+        if state.debrisStreak >= DEBRIS_BEFORE_RESURVEY then
+            state.resurvey, state.debrisStreak = true, 0
+        end
+    else
+        local inventory = actor:getInventory()
+        local received = U().addItem(inventory, item)
+        if received ~= item or not U().inventoryContains(inventory, item) then
+            return false, "catch_inventory_failed"
+        end
+        state.debrisStreak = 0
     end
     if state.rodSim and state.rodSim.consumeLure then
         pcall(state.rodSim.consumeLure, state.rodSim, state.isTrash)
@@ -928,14 +1151,11 @@ local function finishCatch(actor, state)
     modData.Fishing_IsFirstFishing = true
     local receiptAccepted = true
     local activeRequest = state.mode == "expedition" and not state.isTrash
-        and SC.ExpeditionPrototype
-        and type(SC.ExpeditionPrototype.fishingRequestFor) == "function"
-        and SC.ExpeditionPrototype.fishingRequestFor(actor)
+        and expedition and expedition.fishingRequestFor
+        and expedition.fishingRequestFor(actor)
     if activeRequest then
-        receiptAccepted = SC.ExpeditionPrototype
-            and type(SC.ExpeditionPrototype.noteFishCaught) == "function"
-            and SC.ExpeditionPrototype.noteFishCaught(actor, item,
-                state.site.water) == true
+        receiptAccepted = expedition.noteFishCaught
+            and expedition.noteFishCaught(actor, item, state.site.water) == true
     end
     if state.bobber then pcall(state.bobber.destroy, state.bobber) end
     state.bobber, state.catch = nil, nil
@@ -1003,7 +1223,7 @@ function Angling.update(actor, mode, request, player, snapshot)
         return missingGearFailure(actor, mode, "fishing_bait_missing", player,
             snapshot)
     end
-    local site, siteReason = siteFor(actor, state, mode, request)
+    local site, siteReason = siteFor(actor, state, mode, request, snapshot)
     if not site then
         if siteReason == "no_fishing_water" then
             Angling.cancel(actor, siteReason)
@@ -1028,7 +1248,16 @@ function Angling.update(actor, mode, request, player, snapshot)
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return false, "navigation_unavailable"
         end
-        local square = U().loadedSquare(site.bank)
+        local square
+        if mode == "expedition" then
+            square = expeditionStand(actor, site)
+            if not square then
+                state.site = nil
+                return true, "waiting_for_bank"
+            end
+        else
+            square = U().loadedSquare(site.bank)
+        end
         if not square then return false, "fishing_bank_unloaded" end
         return SC.Navigation.request(actor, square, "walk", {
             action = "move_to_fishing_spot", targetSquare = square,
