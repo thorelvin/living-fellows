@@ -9,31 +9,34 @@ local function U() return SC.GameplayUtil end
 -- The same loaded stair survey serves expedition leaders and ordinary followers.
 -- It only identifies a verified entry and exit; Navigation still owns each
 -- movement request and the engine performs the actual floor crossing.
-local stairScanOffsets = {}
-for dx = -12, 12 do
-    for dy = -12, 12 do
-        stairScanOffsets[#stairScanOffsets + 1] = {
-            x = dx, y = dy, distanceSq = dx * dx + dy * dy,
-        }
+local function scanOffsets(radius)
+    local offsets = {}
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            offsets[#offsets + 1] = { x = dx, y = dy, distanceSq = dx * dx + dy * dy }
+        end
     end
+    table.sort(offsets, function(a, b)
+        if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
+        if a.x ~= b.x then return a.x < b.x end
+        return a.y < b.y
+    end)
+    return offsets
 end
-table.sort(stairScanOffsets, function(a, b)
-    if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
-    if a.x ~= b.x then return a.x < b.x end
-    return a.y < b.y
-end)
+local stairScanOffsets = scanOffsets(12)
+local extendedScanOffsets
 local stairDirections = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 
-local function chooseLoadedStair(lx, ly, lowerZ, rejected, scan)
+local function chooseLoadedStair(lx, ly, lowerZ, rejected, scan, offsets)
     local originX, originY = math.floor(lx), math.floor(ly)
     if type(scan) ~= "table" or scan.originX ~= originX
         or scan.originY ~= originY or scan.lowerZ ~= lowerZ
-        or scan.rejected ~= rejected then
+        or scan.rejected ~= rejected or scan.offsets ~= offsets then
         scan = { originX = originX, originY = originY, lowerZ = lowerZ,
-            rejected = rejected, index = 1 }
+            rejected = rejected, offsets = offsets, index = 1 }
     end
     for _ = 1, 16 do
-        local offset = stairScanOffsets[scan.index]
+        local offset = offsets[scan.index]
         if offset == nil then return nil, true, nil end
         scan.index = scan.index + 1
         local tx, ty = originX + offset.x, originY + offset.y
@@ -200,9 +203,14 @@ function StairTransition.target(plan, actor, routeTarget, now, options)
         return routeTarget
     end
     if transition == nil and now >= (plan.descentRetryAt or 0) then
+        local offsets = stairScanOffsets
+        if type(options) == "table" and options.extendedSurvey then
+            extendedScanOffsets = extendedScanOffsets or scanOffsets(18)
+            offsets = extendedScanOffsets
+        end
         local complete
         transition, complete, plan.descentScan = chooseLoadedStair(
-            lx, ly, lowerZ, plan.descentRejected, plan.descentScan)
+            lx, ly, lowerZ, plan.descentRejected, plan.descentScan, offsets)
         if not complete then return nil, "planning" end
         if transition == nil and plan.descentRejected ~= nil then
             plan.descentRejected, plan.descentScan = nil, nil

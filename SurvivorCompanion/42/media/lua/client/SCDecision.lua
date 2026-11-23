@@ -133,12 +133,13 @@ local function commandsFor(actor)
                     and SC.HomeTrip.finalApproachFor and SC.HomeTrip.finalApproachFor(actor) == true
                 local phase = expedition and expedition.scout
                     and expedition.scout.phase or nil
-                -- A route briefly has no staged waypoint while its leader
-                -- replans or waits for the tail. Keep the squad travelling so
-                -- followers do not start indoor downtime in that gap.
+                -- Keep the squad on the trip while the leader replans, waits
+                -- for the tail, or stages cargo at the vehicle. A safety hold
+                -- during staging must not send the carrier to an indoor seat.
                 missionOrder.expeditionMoving =
                     SC.ExpeditionPrototype.testWaypointActiveFor(actor)
                     or phase == "outbound" or phase == "inbound"
+                    or phase == "walking_to_car"
                     or phase == "searching" or phase == "entering_site"
                     or phase == "observing"
                     or phase == "awaiting_player"

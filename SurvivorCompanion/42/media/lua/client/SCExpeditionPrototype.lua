@@ -732,31 +732,49 @@ local function stationAcknowledgement(player,endpoint,text,codes)
         and SC.RadioEndpoints.validate(player,endpoint)==true
 end
 
-local function transmitBlockRequest(shelterUpdate)
-    local pause = mission and mission.scout and mission.scout.pause
-    local leader = mission and mission.leader and mission.leader.actor
+local function transmitSquadNotice(message, prefix)
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
-    if pause == nil or player == nil
-        or (shelterUpdate and (pause.shelterReported == true
-            or pause.mode ~= "sheltered" or pause.shelterTarget == nil))
-        or (not shelterUpdate and pause.reported == true)
+    if not mission or not player or not alive(mission.leader)
         or not mission.radioTextHooked
         or mission.pendingRadio ~= nil or mission.pendingReport ~= nil
-        or not alive(mission.leader) or getSpecificPlayer(1) ~= leader then
+        or getSpecificPlayer(1) ~= mission.leader.actor then
         return false
     end
+    local leader = mission.leader.actor
     local source, sourceData = operationalRadio(leader, true)
+    if source == nil then return false end
     local receiver, receiverData = operationalRadio(player, false)
     if SC.RadioEndpoints then
         local station, stationData = SC.RadioEndpoints.activeReceiver(player)
         if station then receiver, receiverData = station, stationData end
     end
-    if source == nil or receiver == nil
-        or sourceData:getChannel() ~= receiverData:getChannel() then
-        return false
-    end
+    if receiver == nil or sourceData:getChannel() ~= receiverData:getChannel() then return false end
     mission.radioSequence = mission.radioSequence + 1
+    local pending = { leader = leader, receiver = receiver,
+        guid = "LF-EXP-" .. mission.radioSession,
+        codes = prefix .. tostring(mission.radioSequence), text = message }
+    mission.pendingReport = pending
+    local sent = pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
+        math.floor(leader:getX()), math.floor(leader:getY()),
+        sourceData:getChannel(), message, pending.guid, pending.codes,
+        0.95, 0.7, 0.35, sourceData:getTransmitRange(), false)
+    mission.pendingReport = nil
+    return sent and pending.received == true and player or nil
+end
+
+local function showSquadNotice(player, message)
+    SC.GameplayUtil.call(player, "setHaloNote", message)
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function transmitBlockRequest(shelterUpdate)
+    local pause = mission and mission.scout and mission.scout.pause
+    if pause == nil or not alive(mission.leader)
+        or (shelterUpdate and (pause.shelterReported == true
+            or pause.mode ~= "sheltered" or pause.shelterTarget == nil))
+        or (not shelterUpdate and pause.reported == true) then return false end
+    local leader = mission.leader.actor
     local name = mission.leader.name or "Squad leader"
     local message
     if shelterUpdate then
@@ -775,30 +793,11 @@ local function transmitBlockRequest(shelterUpdate)
             .. tostring(math.floor(leader:getY()))
             .. ". Need backup or orders: return, push on, or hold position."
     end
-    local pending = { leader = leader, receiver = receiver,
-        guid = "LF-EXP-" .. mission.radioSession,
-        codes = (shelterUpdate and "SHELTER-" or "HELP-")
-            .. tostring(mission.radioSequence),
-        text = message }
-    mission.pendingReport = pending
-    local sent = pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
-        math.floor(leader:getX()), math.floor(leader:getY()),
-        sourceData:getChannel(), message, pending.guid, pending.codes,
-        0.95, 0.7, 0.35, sourceData:getTransmitRange(), false)
-    mission.pendingReport = nil
-    if sent and pending.received == true then
-        if shelterUpdate then
-            pause.shelterReported = true
-        else
-            pause.reported = true
-        end
-        SC.GameplayUtil.call(player, "setHaloNote", message)
-        if SC.UI and type(SC.UI.refresh) == "function" then
-            SC.UI.refresh()
-        end
-        return true
-    end
-    return false
+    local player = transmitSquadNotice(message, shelterUpdate and "SHELTER-" or "HELP-")
+    if not player then return false end
+    if shelterUpdate then pause.shelterReported = true else pause.reported = true end
+    showSquadNotice(player, message)
+    return true
 end
 
 -- Private playtest kit. These are real inventory items and native DeviceData;
@@ -4580,10 +4579,11 @@ local function useReachedTrailForReturn(itinerary, avoidance)
 end
 
 -- Expedition planning uses the shared movement stair survey.
+local outboundStairOptions = { extendedSurvey = true }
 local function stairTransitionTarget(scout, actor, routeTarget, now)
     local previous = scout.descent
     local target, reason = SC.StairTransition.target(scout, actor,
-        routeTarget, now)
+        routeTarget, now, scout.phase == "outbound" and outboundStairOptions or nil)
     -- The leader can clear the lower landing while a follower is still on
     -- its last stair tread. Keep the verified exit for formation targeting
     -- after the leader's own descent plan is retired.
@@ -5001,6 +5001,78 @@ local function squadRoadSnapshot(now)
         threats = threats } or nil
 end
 
+local function zombiesBlockingWork(scout, work, now)
+    local senses = SC.Senses
+    if not senses or type(senses.cached) ~= "function" then return false end
+    local fishing = work == "searching" and scout.search.request.category == "fish"
+    local supplySearch = work == "searching" and not fishing
+    for _, record in ipairs(mission.roster) do
+        if alive(record) and (not fishing or record == mission.leader)
+            and (work ~= "fuel_working" or record.id == scout.fuel.workerId) then
+            local registered = SC.Registry.byId(record.id)
+            local snapshot = senses.cached(record.actor, registered and registered.runtime)
+            -- A fresh full scan has a time but gains a reflexTime only when
+            -- the next immediate refresh runs. Either reading can block work.
+            local observedAt = snapshot and (tonumber(snapshot.reflexTime) or tonumber(snapshot.time))
+            local age = observedAt and now - observedAt
+            if snapshot and snapshot.valid == true and age and age >= 0 and age <= 2000
+                and (snapshot.threatCount or #(snapshot.threats or {})) > 0 then
+                local canLoot = supplySearch and (snapshot.immediateCount or 0) == 0
+                    and (snapshot.pressure or 0) < 1.5 and SC.Combat
+                    and type(SC.Combat.onlyUnreachableThreats) == "function"
+                    and SC.Combat.onlyUnreachableThreats(record.actor, snapshot, now)
+                if not canLoot then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function pollWorkSafety(scout, now)
+    local preparing = scout.departurePreparation or scout.fishingPreparation
+        or scout.wood and scout.wood.preparation or scout.fuel and scout.fuel.preparation
+    local work = preparing and "packing" or scout.phase
+    if scout.pause or scout.fuel and scout.fuel.cleanupRequested
+        or scout.departurePreparation and scout.departurePreparation.returnReason
+        or not (preparing or work == "searching" or work == "wood_working" or work == "fuel_working") then
+        scout.workSafetyHold, scout.workSafetyCheckAt = nil, nil
+        return false
+    end
+    local hold = scout.workSafetyHold
+    if hold and hold.work ~= work then
+        scout.workSafetyHold, scout.workSafetyCheckAt, hold = nil, nil, nil
+    end
+    if now < (scout.workSafetyCheckAt or 0) then return hold and hold.blocked == true end
+    scout.workSafetyCheckAt = now + 1000
+    if not zombiesBlockingWork(scout, work, now) then
+        if hold then
+            hold.blocked = false
+            if now - hold.lastBlockedAt >= 5000 then scout.workSafetyHold = nil end
+        end
+        return false
+    end
+    if not hold or now - hold.lastBlockedAt >= 5000 then
+        hold = { work = work, reportAt = now + 120000 }
+        scout.workSafetyHold = hold
+    end
+    hold.blocked, hold.lastBlockedAt = true, now
+    if not hold.reported and now >= hold.reportAt then
+        hold.reportAt = now + 30000
+        local name = mission.leader.name or "Squad leader"
+        local message = name .. ": Zombies nearby. Holding work until it's safe to resume."
+        local player = transmitSquadNotice(message, "WORK-HOLD-")
+        if player then
+            hold.reported = true
+            showSquadNotice(player, message)
+        end
+        if type(SC.GameplayUtil.diagnostic) == "function" then
+            SC.GameplayUtil.diagnostic("expedition-work", mission.leader.actor,
+                "action=safety_hold phase=" .. work .. " radio_receipt=" .. tostring(hold.reported == true))
+        end
+    end
+    return true
+end
+
 local function beginSearchAtSite(scout, now)
     local worldHour = scoutWorldHour()
     if worldHour == nil then
@@ -5136,8 +5208,10 @@ local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
     if scout.kind == "home" and SC.HomeTrip.pulse(mission) then return end
+    local now = SC.GameplayUtil.nowMs()
+    local workBlocked = pollWorkSafety(scout, now)
     if scout.fuel and (scout.fuel.cleanupRequested or scout.fuel.preparation) then
-        if scout.fuel.emergency and scout.fuel.cleanupDeadline and SC.GameplayUtil.nowMs()>=scout.fuel.cleanupDeadline then
+        if scout.fuel.emergency and scout.fuel.cleanupDeadline and now>=scout.fuel.cleanupDeadline then
             SC.ExpeditionFuel.stop(mission,"fuel_emergency_retreat")
             scout.fuel.warning="Emergency retreat: station generator shutdown could not be confirmed."
             scout.fuel.cleaned=true
@@ -5145,7 +5219,6 @@ local function pulseScout()
         if scout.fuel.cleaned then startReturnFromSite(scout,scout.fuel.endReason or "fuel_finished") end
         return
     end
-    local now = SC.GameplayUtil.nowMs()
     if scout.wood and scout.wood.pendingCarReturnReason and SC.ExpeditionCar then
         local reason = scout.wood.pendingCarReturnReason
         local car = scout.vehicle
@@ -5833,6 +5906,16 @@ local function pulseScout()
             mission.technicalIssue = { reason = "search_clock_unavailable" }
             return
         end
+        local workHold = scout.workSafetyHold
+        if workBlocked then
+            local blockedHours = math.max(0, worldHour - (workHold.lastSearchHour or worldHour))
+            search.deadlineHour = math.min(search.deadlineHour + blockedHours,
+                scout.turnHomeAtHour or math.huge)
+            workHold.lastSearchHour = worldHour
+            return
+        elseif workHold then
+            workHold.lastSearchHour = nil
+        end
         if worldHour >= search.deadlineHour then
             startReturnFromSite(scout, "search_deadline")
             return
@@ -5981,11 +6064,12 @@ local function pulseScout()
         end
     end
     local routeTarget = target
-    -- Stage one adjacent stair transition at a time. This also handles an
-    -- upper storey above z=1 and a basement below z=0; the distant ground
-    -- trail waypoint remains separate from each temporary stair target.
-    if pause == nil and scout.phase == "inbound" and (scout.search ~= nil or scout.wood ~= nil)
-        and scout.roadRoute == nil then
+    -- Packing can finish upstairs. Use the same adjacent stair transitions
+    -- as a return from a search or logging site, keeping the trip destination.
+    if pause == nil and scout.roadRoute == nil
+        and (scout.phase == "outbound" and scout.travelMode == "straight"
+            and (scout.descent ~= nil or not settledOnFloor(mission.leader.actor, target.z))
+            or scout.phase == "inbound" and (scout.search ~= nil or scout.wood ~= nil)) then
         local stairTarget, stairReason = stairTransitionTarget(scout, mission.leader.actor,
             routeTarget, now)
         if stairReason == "planning" then return end
@@ -6005,6 +6089,7 @@ local function pulseScout()
             end
         end
     end
+    local stairLeg = target ~= routeTarget
     local close = distanceToPoint(mission.leader.actor, target)
     if pause and pause.mode == "seeking_shelter" and close <= 2 then
         local square = mission.leader.actor:getCurrentSquare()
@@ -6016,7 +6101,7 @@ local function pulseScout()
             return
         end
     end
-    if scout.phase == "outbound" and close <= 4
+    if scout.phase == "outbound" and not stairLeg and close <= 4
         and (scout.roadRoute == nil
             or scout.roadRoute.index > #scout.roadRoute.points) then
         if scout.fuel then
@@ -6120,7 +6205,7 @@ local function pulseScout()
         and leaderSquare:getRoom() ~= nil
     local leg, reason = nextScoutLeg(mission.leader.actor, target,
         scout.lastStalledTarget,
-        pause ~= nil or SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
+        stairLeg or pause ~= nil or SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
             scout.kind, scout.phase, leaderInRoom),
         scout.roadRoute or (scout.trailReturn and scout.road
             and scout.road.avoidance and { points = {}, index = 1,

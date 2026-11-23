@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.27.69 - Expedition departure routes
+
+- Straight walking expeditions that finish packing on another floor use a
+  local stair route before continuing to their destination.
+- Crews staging at a vehicle stay on expedition duty during safety pauses, so
+  a fuel carrier can resume loading without being sent to sit indoors first.
+- Crews report sustained work pauses over a connected radio. Time spent
+  waiting for a safe search or fishing spot is credited toward the work timer,
+  up to the planned turn-home time.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.68 - Expedition packing
 
 - Companions make room for expedition cargo before topping up ordinary supplies.

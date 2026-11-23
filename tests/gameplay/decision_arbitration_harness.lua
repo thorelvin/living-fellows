@@ -366,6 +366,40 @@ check(D.update(preparing, player, preparingRuntime, clock) == true
     and D.peek(preparing).current == "fishing_preparation" and handoffAttempts == 3,
     "a new preparation descriptor gets its own handoff after danger clears")
 
+do
+    modules()
+    local carrier = person("fuel-staging", 0)
+    local staging = { scout = { phase = "walking_to_car" } }
+    SC.Commands = { effective = function() return order("stay") end }
+    local expedition = SC.ExpeditionPrototype
+    expedition.current = function() return staging end
+    expedition.isMember = function(value) return value == carrier end
+    for _, method in ipairs({ "isFollower", "testWaypointActiveFor", "testWaypointFor",
+        "testSearchFor", "testSearchTargetFor", "testSearchCategoryFor", "testSearchMissionIdFor",
+        "searchSiteFor", "searchSiteRadiusFor" }) do
+        expedition[method] = function() end
+    end
+    expedition.fuelRequestFor = function() return {} end
+    expedition.updateFuel = record("load_pickup")
+    SC.BaseAlert.voiced = function() return true end
+    SC.Combat.update = function() return false, "no_credible_target" end
+    local runtime = { snapshot = quiet() }
+    runtime.snapshot.threatCount = 1
+    clock = clock + 1000
+    D.update(carrier, player, runtime, clock)
+    check(delegated ~= "downtime" and delegated ~= "load_pickup",
+        "a fuel carrier holds its staging assignment when zombies pause cargo work")
+    runtime.snapshot = quiet()
+    clock = clock + 1000
+    check(D.update(carrier, player, runtime, clock) == true and delegated == "load_pickup",
+        "the fuel carrier resumes its pickup handoff once the local danger clears")
+    SC.Combat.update = record("combat")
+    runtime.snapshot.threatCount, runtime.snapshot.immediateCount = 1, 1
+    clock = clock + 1000
+    check(D.update(carrier, player, runtime, clock) == true and delegated == "combat",
+        "immediate danger still preempts fuel work")
+end
+
 -- Drive the complete update/fallback loop as well: a chore that has no
 -- concrete action must not leave the actor stuck on that failed decision.
 modules()

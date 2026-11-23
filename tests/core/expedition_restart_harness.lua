@@ -545,10 +545,14 @@ SC.Navigation = {
 }
 SC.Senses = {
     cached = function(actor, runtime)
-        assert(runtime == actorRuntimes.delta,
-            "scout reads the registered decision runtime's perception snapshot")
+        for id, registered in pairs(actors) do
+            if actor == registered then
+                assert(runtime == actorRuntimes[id],
+                    "expeditions read the registered decision runtime's perception snapshot")
+            end
+        end
         return { valid = true, time = scoutClock,
-            origin = { square = actor:getCurrentSquare() },
+            origin = { square = actor.getCurrentSquare and actor:getCurrentSquare() },
             scannedSquares = 12, scanComplete = true,
             scanDiscoveryComplete = true, scanVisualComplete = true,
             nativeDiscovery = { complete = true, freshComplete = true },
@@ -1974,6 +1978,72 @@ check(expedition.finishAtPlayer(player) == true,
     "the trail-horde probe releases its native leader")
 SC.ExpeditionRoute.plan = successfulRoadPlan
 ;(function()
+    local send, fishing = SCSplitScreenProbe.sendTestRadioWithLeaderText, SC.Fishing
+    local transmissions, contacts, acknowledged = 0, false, false
+    SC.Fishing = { checkGear = function() return true end, cancel = function() return true end }
+    SC.Senses.cached = function()
+        local snapshot = { valid = true, threatCount = contacts and 1 or 0 }
+        -- A complete scan can take the place of an immediate refresh. Use
+        -- both timestamp forms across the same work pause.
+        if acknowledged then snapshot.reflexTime = scoutClock
+        else snapshot.time = scoutClock end
+        return snapshot
+    end
+    SCSplitScreenProbe.sendTestRadioWithLeaderText = function(_, _, _, message, guid, codes)
+        check(codes:find("^WORK%-HOLD%-") and message:find("Holding work", 1, true),
+            "a sustained job pause uses the native trip notice")
+        transmissions = transmissions + 1
+        radioHook(guid, codes, 0, 0, 0, message, acknowledged and sender or receiver)
+    end
+    reserve.x, reserve.y = 23, 20
+    worldHour = worldHour + 1
+    local started, trip = expedition.start({ { id = "delta", actor = reserve } }, {
+        kind = "search", destination = { x = 80, y = 20, z = 0 },
+        request = { category = "fish", quantity = 1 }, turnHomeAfterHours = 6 })
+    check(started, "the fishing work-hold probe launches through the normal trip controller")
+    reserve.x = 80
+    expedition.pulse()
+    check(trip.scout.phase == "searching", "physical bank arrival starts the fishing timer")
+    local deadline = trip.scout.search.deadlineHour
+    contacts = true
+    local function advance(seconds)
+        for _ = 1, seconds do
+            scoutClock = scoutClock + 1000
+            worldHour = worldHour + 0.015
+            expedition.pulse()
+        end
+    end
+    advance(120)
+    check(transmissions == 0 and trip.scout.workSafetyHold and trip.scout.workSafetyHold.blocked,
+        "only a sustained safety pause is reported")
+    advance(1)
+    check(transmissions == 1 and not trip.scout.workSafetyHold.reported,
+        "a receipt from the wrong receiver does not mark the radio report delivered")
+    acknowledged = true
+    advance(29)
+    check(transmissions == 1, "an undelivered work notice retries on the radio cooldown")
+    advance(1)
+    check(transmissions == 2 and trip.scout.workSafetyHold.reported
+        and trip.scout.phase == "searching" and worldHour > deadline
+        and trip.scout.search.deadlineHour > worldHour,
+        "the exact player radio gets the report and the hold preserves remaining fishing time")
+    advance(38)
+    check(transmissions == 2, "an acknowledged work pause is not broadcast repeatedly")
+    contacts = false
+    advance(6)
+    check(not trip.scout.workSafetyHold and trip.scout.phase == "searching"
+        and expedition.fishingRequestFor(reserve), "a cleared shore resumes the original fishing job")
+    contacts = true
+    worldHour = trip.scout.turnHomeAtHour
+    advance(1)
+    check(trip.scout.phase == "inbound" and trip.scout.search.endReason == "return_time_reached",
+        "a requested turn-home deadline still applies during a fresh safety hold")
+    SC.Senses.cached, SC.Fishing = ordinaryCached, fishing
+    SCSplitScreenProbe.sendTestRadioWithLeaderText = send
+    reserve.x = player.x + 3
+    check(expedition.finishAtPlayer(player), "the safety-hold probe releases its crew at camp")
+end)()
+;(function()
     local returnPlans = 0
     SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
         if continuing and goal.x == player.x then
@@ -2507,7 +2577,18 @@ local descentStarted, descentMission = expedition.start(
     { kind = "scout", destination = { x = 80, y = 20, z = 0 },
         travelMode = "straight" })
 check(descentStarted, "the stair retry probe starts")
-reserve.z = 1
+reserve.x, reserve.z = 42, 1
+descentMission.scout.lastPlanAt = scoutClock
+for _ = 1, 90 do
+    expedition.pulse()
+    if descentMission.scout.descent then break end
+end
+check(descentMission.scout.descent and descentMission.scout.descent.landing.y == 20
+        and descentMission.scout.phase == "outbound" and descentMission.scout.destination.x == 80,
+    "straight outbound travel from upper-floor packing chooses a local stair without arriving at the destination")
+descentMission.scout.descent = nil
+expedition.clearTestWaypoint(reserve)
+reserve.x = 29
 descentMission.scout.phase = "inbound"
 descentMission.scout.search = {}
 descentMission.scout.returnIndex = 1
