@@ -83,6 +83,21 @@ local entryActor = {
 local interior = Places.loadedInteriorCandidates(nearby[1].id, entryActor)
 check(#interior > 0 and #interior <= 12 and interior[1].x >= 20,
     "arrival offers bounded loaded floor tiles within the selected building")
+do
+    local oldTopology = SurvivorCompanion.Topology
+    SurvivorCompanion.Topology = {classifyEdge = function(_, outside, inside)
+        if outside:getX() == 19 and inside:getX() == 20 then
+            if outside:getY() == 25 then return {affordance="door", reason="door_locked"} end
+            if outside:getY() == 24 then return {affordance="window", traversable=true} end
+        end
+        return {affordance="blocked"}
+    end}
+    local _, _, portals = Places.loadedInteriorCandidates(nearby[1].id, entryActor)
+    check(portals and #portals == 1 and portals[1].outside.x == 19
+        and portals[1].outside.y == 24 and portals[1].inside.x == 20,
+        "entry survey skips the locked door and pairs the alternate window stand with its landing")
+    SurvivorCompanion.Topology = oldTopology
+end
 check(not Places.actorInsideSite(nearby[1].id, entryActor),
     "the exterior arrival point does not count as entering the building")
 entryActor.getCurrentSquare = function()

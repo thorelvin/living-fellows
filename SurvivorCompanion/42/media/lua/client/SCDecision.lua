@@ -150,12 +150,14 @@ local function commandsFor(actor)
                     missionOrder.doorBashAsLastResort = true
                 end
                 if type(SC.ExpeditionPrototype.siteEntryTargetsFor) == "function" then
-                    local entryTargets = SC.ExpeditionPrototype.siteEntryTargetsFor(actor)
+                    local entryTargets, portal, outside = SC.ExpeditionPrototype.siteEntryTargetsFor(actor)
                     if entryTargets ~= nil then
                         missionOrder.order = "move_to"
                         missionOrder.moveMode = "walk"
                         missionOrder.tacticalTarget = entryTargets[1]
                         missionOrder.expeditionEntryTargets = entryTargets
+                        missionOrder.expeditionEntryPortal = portal
+                        missionOrder.expeditionEntryFrom = outside
                         missionOrder.doorBashAsLastResort = true
                     end
                 end
@@ -2098,7 +2100,10 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
             local accepted, reason = SC.Navigation.requestAny(actor,
                 commands.expeditionEntryTargets, "walk", {
                     action = "expedition_enter_site", snapshot = snapshot,
-                    doorBashAsLastResort = not (SC.ExpeditionPrototype.hasEntryCrowbar
+                    preferVerifiedPath = commands.expeditionEntryPortal == true,
+                    expeditionEntryFrom = commands.expeditionEntryFrom,
+                    doorBashAsLastResort = not commands.expeditionEntryPortal
+                        and not (SC.ExpeditionPrototype.hasEntryCrowbar
                         and SC.ExpeditionPrototype.hasEntryCrowbar()),
                     arrivalDistance = 0.35, requireSameSquare = true,
                     movementPriority = 60,

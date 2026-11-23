@@ -696,12 +696,15 @@ function F.cleanup(active,actor,snapshot)
 end
 function F.requestReturn(active,reason,emergency)
     local fuel=active.scout.fuel
+    -- Late return orders must not restart station cleanup while the car is
+    -- already heading home. The expedition waits on cleanup before driving.
+    if fuel.cleaned == true then return true end
     fuel.endReason=fuel.endReason or reason or "fuel_finished"
     fuel.nextStation,fuel.tryAnotherPump=nil,nil
     fuel.cleanupRequested=true
     fuel.emergency=emergency==true or fuel.emergency
     if fuel.emergency and not fuel.cleanupDeadline then fuel.cleanupDeadline=U().nowMs()+10000 end
-    return fuel.cleaned==true
+    return false
 end
 local function failSite(active,reason)
     local fuel=active.scout.fuel

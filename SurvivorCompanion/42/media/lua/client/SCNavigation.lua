@@ -6973,12 +6973,19 @@ function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         .. (requestIntent.draggingBody == true and ":dragging_body" or "")
     if state.verifiedPathAttemptKey == attemptKey then return end
     state.verifiedPathAttemptKey = attemptKey
-    local verified = Navigation.findPath(sourceSquare, goalSquare,
-        { actor = actor, nodeBudget = 900,
-            draggingBody = requestIntent.draggingBody == true,
-            blockedEdges = state.blockedEdges,
-            blockedSquares = state.blockedSquares,
-            routeMemory = state.routeMemory, now = now })
+    local options = { actor = actor, nodeBudget = 900,
+        draggingBody = requestIntent.draggingBody == true,
+        blockedEdges = state.blockedEdges, blockedSquares = state.blockedSquares,
+        routeMemory = state.routeMemory, now = now }
+    local verified
+    if requestIntent.expeditionEntryFrom and sameSquare(sourceSquare, requestIntent.expeditionEntryFrom)
+        and adjacentStep(sourceSquare, goalSquare, true)
+        and passableEdge(sourceSquare, goalSquare, 1, options) then
+        -- Use the checked threshold from the actual exterior stand. A general
+        -- route to the interior can send the actor back around to a locked door.
+        verified = { sourceSquare, goalSquare }
+    end
+    verified = verified or Navigation.findPath(sourceSquare, goalSquare, options)
     if type(verified) ~= "table" or #verified < 2
         or not sameSquare(verified[1], sourceSquare)
         or not sameSquare(verified[#verified], goalSquare) then return end

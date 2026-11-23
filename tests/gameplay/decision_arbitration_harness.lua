@@ -832,6 +832,29 @@ check(D._doTacticalForTests(finalActor,player,{},finalCommand,quiet(),{})
     and finalIntent.expeditionHomeApproach==false,
     "ordinary ordered movement retains its existing arrival policy")
 SC.Navigation=priorNavigation
+do
+    local navigation = SC.Navigation
+    local actorForEntry = person("supply-search-leader", 13)
+    local command = order("move_to")
+    command.tacticalTarget = {x=10,y=0,z=0}
+    command.expeditionEntryTargets = {command.tacticalTarget}
+    command.expeditionEntryPortal = true
+    command.expeditionEntryFrom = {x=11,y=0,z=0}
+    local entryIntent
+    SC.Navigation = {requestAny=function(_,targets,mode,intent)
+        check(targets == command.expeditionEntryTargets and mode == "walk",
+            "supply entry offers the selected landing on foot")
+        entryIntent = intent
+        return true,"path_searching"
+    end}
+    check(D._doTacticalForTests(actorForEntry,player,{},command,quiet(),{})
+        and entryIntent and entryIntent.preferVerifiedPath == true
+        and entryIntent.expeditionEntryFrom == command.expeditionEntryFrom
+        and not entryIntent.doorBashAsLastResort
+        and entryIntent.requireSameSquare == true,
+        "supply entry preserves the chosen crossing and its exact exterior square")
+    SC.Navigation = navigation
+end
 SC.Navigation={request=function(_,_,_,intent) finalIntent=intent return true,'walking' end}
 local shelterCommand=order('stay');shelterCommand.anchor={x=0,y=0,z=0};shelterCommand.handoverShelter=true
 local edgeActor=person('outside-shelter',-.21)

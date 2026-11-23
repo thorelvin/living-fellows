@@ -308,9 +308,31 @@ function Places.siteContainsPoint(siteId, x, y, z)
     return matchingBuildingAt(grid, place, x, y, z) == true
 end
 
--- Arrival is an exterior waypoint. Offer a few distinct, loaded floor tiles
--- inside the selected building so movement can test actual entrances. Keep
--- the scan local and bounded; a large building must not cost a whole frame.
+local entryOffsets = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+
+local function addEntryPortals(portals, actor, cell, square, x, y, ax, ay)
+    local topology = SC.Topology
+    if not topology or not topology.classifyEdge then return end
+    for _, offset in ipairs(entryOffsets) do
+        local ox, oy = x + offset[1], y + offset[2]
+        local outside = call(cell, "getGridSquare", ox, oy, 0)
+        local room, known = call(outside, "getRoom")
+        if known and not room and SC.GameplayUtil.isSquareFree(outside) then
+            local edge = topology.classifyEdge(actor, outside, square)
+            local kind = edge and edge.affordance
+            local window = kind == "window" or kind == "window_frame"
+            if edge and edge.traversable and (kind == "open" or kind == "door" or window) then
+                portals[#portals + 1] = {
+                    outside = {x = ox, y = oy, z = 0}, inside = {x = x, y = y, z = 0},
+                    score = math.sqrt((ox - ax)^2 + (oy - ay)^2) + (window and 4 or 0),
+                }
+            end
+        end
+    end
+end
+
+-- Keep the scan local. A portal records the actual exterior stand and interior
+-- landing so the expedition can walk around the building before crossing.
 function Places.loadedInteriorCandidates(siteId, actor)
     local place = savedSite(siteId)
     if not place or not actor or not SC.GameplayUtil then
@@ -323,7 +345,7 @@ function Places.loadedInteriorCandidates(siteId, actor)
     if not ax or not ay or not gridOk or not cellOk or not grid or not cell then
         return {}, "site_entry_unavailable"
     end
-    local candidates = {}
+    local candidates, portals = {}, {}
     local bounds = place.bounds
     for y = math.max(bounds.y, math.floor(ay) - 14),
             math.min(bounds.y2, math.floor(ay) + 14) do
@@ -338,6 +360,7 @@ function Places.loadedInteriorCandidates(siteId, actor)
                     x = x, y = y, z = 0,
                     distanceSq = (x - ax)^2 + (y - ay)^2,
                 }
+                addEntryPortals(portals, actor, cell, square, x, y, ax, ay)
             end
         end
     end
@@ -362,7 +385,15 @@ function Places.loadedInteriorCandidates(siteId, actor)
             if #result >= 12 then break end
         end
     end
-    return result, #result > 0 and nil or "site_entry_no_loaded_floor"
+    table.sort(portals, function(a, b)
+        if a.score ~= b.score then return a.score < b.score end
+        if a.outside.x ~= b.outside.x then return a.outside.x < b.outside.x end
+        if a.outside.y ~= b.outside.y then return a.outside.y < b.outside.y end
+        if a.inside.x ~= b.inside.x then return a.inside.x < b.inside.x end
+        return a.inside.y < b.inside.y
+    end)
+    for index = #portals, 5, -1 do portals[index] = nil end
+    return result, #result == 0 and "site_entry_no_loaded_floor" or nil, portals
 end
 
 function Places.actorInsideSite(siteId, actor)

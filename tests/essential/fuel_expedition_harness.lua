@@ -300,6 +300,13 @@ for i=1,180 do
 end
 check(fuel.cleaned==true,"a finite station pass finishes and cleans up")
 check(F.requestFor(active,actor)==nil,"completed station work yields to boarding and home travel")
+do
+    local returnReason=fuel.endReason
+    fuel.cleanupRequested=nil -- The car accepted the return and now owns travel.
+    check(F.requestReturn(active,"radio_return") and not fuel.cleanupRequested
+        and fuel.endReason==returnReason,
+        "a repeated return order cannot give station cleanup back the returning car")
+end
 check(tank.current==50,"the actual car tank is topped up")
 check(first:getFluidContainer():getAmount()==10 and second:getFluidContainer():getAmount()==10,"both original cans are filled")
 check(first.container==cargo and second.container==cargo and #cargo.items==2,"filled cans are physically returned to the trunk")

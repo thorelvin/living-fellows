@@ -3763,18 +3763,29 @@ function Expedition.testWaypointFor(actor)
     return nil
 end
 
--- Let Navigation choose a reachable interior square in one search. Cycling
--- single squares used to cancel a valid path while it was still going around
--- the building to a door.
+local function currentEntryPortal(scout)
+    return scout.siteEntryPortals and scout.siteEntryPortals[scout.siteEntryPortalIndex or 1]
+end
+
 function Expedition.siteEntryTargetsFor(actor)
     if mission == nil or mission.terminal or mission.leader.actor ~= actor
         or mission.scout == nil or mission.scout.phase ~= "entering_site"
         or mission.cohesionHold ~= nil or mission.technicalIssue ~= nil then
         return nil
     end
+    local scout = mission.scout
+    local util = SC.GameplayUtil
+    local portal = currentEntryPortal(scout)
+    if portal then
+        local outside = util.gridSquare(portal.outside.x, portal.outside.y, portal.outside.z)
+        local inside = util.gridSquare(portal.inside.x, portal.inside.y, portal.inside.z)
+        if not outside or not inside then return nil end
+        if util.sameSquare(actor, outside) then return {inside}, true, outside end
+        return {outside}, true
+    end
     local targets = {}
-    for _, point in ipairs(mission.scout.siteEntryCandidates or {}) do
-        local square = SC.GameplayUtil.gridSquare(point.x, point.y, point.z)
+    for _, point in ipairs(scout.siteEntryCandidates or {}) do
+        local square = util.gridSquare(point.x, point.y, point.z)
         if square ~= nil then targets[#targets + 1] = square end
     end
     return #targets > 0 and targets or nil
@@ -3810,6 +3821,7 @@ function Expedition.noteEntryBlocked(actor, reason)
     local scout = mission and mission.scout
     if not scout or scout.kind ~= "search" or scout.phase ~= "entering_site"
         or mission.leader.actor ~= actor or mission.terminal or scout.forceEntry
+        or currentEntryPortal(scout)
         or not Expedition.hasEntryCrowbar() then return end
     local nav = SC.Navigation.status(actor)
     if nav.phase ~= "failed" and reason ~= "locked_door" and reason ~= "no_route"
@@ -4889,7 +4901,10 @@ startReturnFromSite = function(itinerary, reason)
         if not SC.ExpeditionFuel.requestReturn(mission,reason) then return false,"fuel_generator_cleanup_pending" end
         itinerary.fuel.preparation=nil
         local okay,why=SC.ExpeditionCar.requestReturn(mission,SC.GameplayUtil.nowMs(),reason)
-        if okay then itinerary.fuel.cleanupRequested=nil itinerary.fuel.stage="returning" end
+        if okay or why == "expedition_already_returning" then
+            itinerary.fuel.cleanupRequested = nil
+            itinerary.fuel.stage = "returning"
+        end
         return okay,why
     end
     local prepared, preparationReason = Expedition._cancelDeparturePreparation(mission, "expedition_return")
@@ -5245,6 +5260,7 @@ local function beginSearchAtSite(scout, now)
     scout.siteEntryTarget = nil
     scout.siteEntryCandidates = nil
     scout.siteEntryStartedAt = nil
+    scout.siteEntryPortals, scout.siteEntryPortalIndex, scout.siteEntryPortalStartedAt = nil, nil, nil
     if mission.testWaypoint ~= nil then
         Expedition.clearTestWaypoint(mission.leader.actor)
     end
@@ -6147,11 +6163,21 @@ local function pulseScout()
         if scout.siteEntryCandidates == nil
             or (#scout.siteEntryCandidates == 0
                 and now >= (scout.nextSiteEntryScanAt or 0)) then
-            scout.siteEntryCandidates = places
-                and type(places.loadedInteriorCandidates) == "function"
-                and places.loadedInteriorCandidates(scout.site.id,
-                    mission.leader.actor) or {}
+            if places and type(places.loadedInteriorCandidates) == "function" then
+                local candidates, _, portals = places.loadedInteriorCandidates(scout.site.id, mission.leader.actor)
+                scout.siteEntryCandidates = candidates
+                scout.siteEntryPortals, scout.siteEntryPortalIndex = portals, 1
+            else
+                scout.siteEntryCandidates = {}
+            end
             scout.nextSiteEntryScanAt = now + 2000
+        end
+        if currentEntryPortal(scout) then
+            scout.siteEntryPortalStartedAt = scout.siteEntryPortalStartedAt or now
+            if now - scout.siteEntryPortalStartedAt >= 18000 then
+                scout.siteEntryPortalIndex = scout.siteEntryPortalIndex + 1
+                scout.siteEntryPortalStartedAt = nil
+            end
         end
         return
     end

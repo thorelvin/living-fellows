@@ -1500,6 +1500,19 @@ siteSearch.survivors.gamma = nil
 local scopedSite = expedition.searchSiteFor(reserve)
 check(siteSearchStarted and scopedSite.buildingId == place.id,
     "the selected building identity reaches the Search scan")
+do
+    local scout = siteSearch.scout
+    local oldPhase, oldFuel = scout.phase, SC.ExpeditionFuel
+    scout.phase = "driving_home"
+    scout.fuel = {cleaned=true, cleanupRequested=true, stage="returning", endReason="fuel_target_met"}
+    scout.vehicle = {state="driving_home", leg="home"}
+    SC.ExpeditionFuel = {requestReturn=function() return true end}
+    expedition.pulse()
+    check(not scout.fuel.cleanupRequested and scout.vehicle.state == "driving_home",
+        "cleanup left on an already returning fuel save yields to the home drive")
+    scout.phase, scout.fuel, scout.vehicle = oldPhase, nil, nil
+    SC.ExpeditionFuel = oldFuel
+end
 local siteMissionId = siteSearch.radioSession
 check(not expedition.noteVerifiedSearchLoot(reserve, {
         verified = true, missionId = siteMissionId,

@@ -2,7 +2,7 @@
 
 # Changelog
 
-## 0.27.70 - Fishing expeditions
+## 0.27.70 - Expedition work and returns
 
 - Fishing crews reserve room for fish and pack at most two light bycatch
   items within a shared half-weight allowance. The debrief counts bycatch.
@@ -10,6 +10,10 @@
   repeated debris pulls.
 - Walking expeditions remember a stalled waypoint across retries and look
   for another reachable camp approach when the usual way in fails.
+- Supply crews check paths through alternate entrances to the selected
+  building before starting their search.
+- A repeated return order leaves a fuel crew on its drive home after station
+  cleanup. Trips already caught in that state can resume.
 - Bridge protocol `42.22-isocompanion-35`. World save schema 3.
 
 ## 0.27.69 - Expedition departure routes

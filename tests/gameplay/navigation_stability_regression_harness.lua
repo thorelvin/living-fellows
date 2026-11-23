@@ -105,6 +105,21 @@ do
         "verified boarding route uses native closed-door affordance and never cuts transparent wall tiles")
     check(actor.x == 0.5 and actor.y == 0.5 and actor:getSquare() == source,
         "route verification neither teleports actor nor opens its door")
+    do
+        local outside, inside = square(-3, 1), square(-3, 2)
+        local previousFinder = N.findPath
+        N.findPath = function() return nil end
+        local entry = {preferVerifiedPath=true, expeditionEntryFrom=outside}
+        local crossing = {}
+        N._seedVerifiedRoute(actor, crossing, outside, inside, entry, 1000)
+        check(crossing.path and #crossing.path == 2 and crossing.path[2] == inside,
+            "the checked expedition threshold seeds its exact native crossing before a general search")
+        door.locked = true
+        local blocked = {}
+        N._seedVerifiedRoute(actor, blocked, outside, inside, entry, 1001)
+        check(blocked.path == nil, "a locked threshold cannot seed that crossing")
+        N.findPath = previousFinder
+    end
     door.locked = true
     local sealed = {}
     N._seedVerifiedRoute(actor, sealed, source, goal, {
