@@ -560,7 +560,9 @@ function HomeUI.buildSheet(detail, panel)
                     math.floor(car.fuelPercent), math.ceil(car.requiredFuelPercent))
                     or tr("UI_SC_HomeTrip_FuelKnown", math.floor(car.fuelPercent)))
         end
-        if car.keyHolderName then
+        if car.keyInIgnition then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr("UI_SC_HomeTrip_KeyIgnition"))
+        elseif car.keyHolderName then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", tr("UI_SC_HomeTrip_KeyHolder", car.keyHolderName))
         end
     end

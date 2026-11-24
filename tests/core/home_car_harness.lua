@@ -99,7 +99,18 @@ check(select(2,Car.preflightField(T.team,car,T.base))=="too_few_seats","nominal 
 installed[2],installed[3]=true,true
 key.container.items={}
 car.hotwired=true
-check(select(2,Car.preflightField(T.team,car,T.base))=="driver_needs_key","hotwire/ignition cannot fabricate the required trip-held physical key")
+car.ignition=true
+check(select(2,Car.preflightField(T.team,car,T.base))=="driver_needs_key","a flag without a matching physical key cannot approve Send Home")
+car.hotwired=false
+car.ignitionItem=key
+local ignitionPlan=assert(Car.preflightField(T.team,car,T.base))
+local ignitionReady=Car.prepareField(T.team,car,T.base,{reviewedPlan=ignitionPlan})
+check(ignitionPlan.keyInIgnition and not ignitionPlan.keyHolderId and ignitionReady and transfers==0,
+    "Send Home reviews and dispatches using the exact key already in the ignition")
+car.ignitionItem=nil
+check(select(2,Car.prepareField(T.team,car,T.base,{reviewedPlan=ignitionPlan}))=="driver_needs_key",
+    "a reviewed ignition key must still be present at dispatch")
+car.ignition=false
 T.player.inventory.items={key} key.container=T.player.inventory
 check(select(2,Car.preflightField(T.team,car,T.base))=="driver_needs_key_from_player","player-only key is not transferred during review")
 T.player.inventory.items={} key.container=T.team[2].actor.inventory key.container.items={key} car.hotwired=false

@@ -445,6 +445,28 @@ function needsBody:setOverallBodyHealth(value) self.health = value end
     check(sync.postCommit and sync.saveGuard,
         "key transfer follows full commit and blocks reentrant saves: " .. tostring(sync.saveReason))
     retire(sync)
+    local parked = fixture("parked-key") restore(parked)
+    parked.car.occupants[0] = parked.actor
+    function parked.car:setKeysInIgnition(value)
+        assert(value and self:getDriver() == parked.actor)
+        parked.source:AddItem(parked.key)
+    end
+    check(SC.Vehicle.leaveDriverKeyInIgnition(parked.actor, parked.car) and source(parked),
+        "parking inserts the exact carried item in the ignition and empties its prior container")
+    local writes = parked.source.adds
+    check(SC.Vehicle.leaveDriverKeyInIgnition(parked.actor, parked.car) and parked.source.adds == writes,
+        "a repeated unload pulse leaves the key in place")
+    retire(parked)
+
+    local insertFailed = fixture("park-key-rollback") restore(insertFailed)
+    insertFailed.car.occupants[0] = insertFailed.actor
+    function insertFailed.car:setKeysInIgnition()
+        insertFailed.target:Remove(insertFailed.key)
+    end
+    local left, failure = SC.Vehicle.leaveDriverKeyInIgnition(insertFailed.actor, insertFailed.car)
+    check(not left and failure == "ignition_key_insert_failed" and destination(insertFailed),
+        "an interrupted native insertion restores the exact key to the driver's inventory")
+    retire(insertFailed)
     local ready = fixture("ready") restore(ready)
     check(destination(ready) and ready.target.adds == 1,
         "ready-ticket restore recovers the same existing ignition key")

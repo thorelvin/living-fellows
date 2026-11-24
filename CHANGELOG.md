@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.76 - Expedition car keys
+
+- Crews leave the original key in the ignition when they finish with an
+  expedition car. A later Send Home trip can use the key already in that car.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.75 - Expedition driving
 
 - Expedition road routes use double the previous turn speed targets.

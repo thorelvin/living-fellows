@@ -78,6 +78,10 @@ SC.Vehicle = {
         return true
     end,
     recoverDriverKeyAfterExit = function() return true end,
+    ignitionKey = function(car)
+        local key = car:getCurrentKey()
+        if car:isKeysInIgnition() and key and key:getKeyId() == car:getKeyId() then return key end
+    end,
     safeExitSquares = function(_, seat)
         if T.exitBlocked == seat then return nil, "exit_blocked" end
         return { { x = 104, y = 102, z = 0 } }
@@ -212,7 +216,8 @@ function T.car(id, x, y)
             x4 = self.x - 1 + inset, y4 = self.y + 1 }
     end
     function car:isHotwired() return self.hotwired == true end
-    function car:isKeysInIgnition() return false end
+    function car:isKeysInIgnition() return self.ignition == true end
+    function car:getCurrentKey() return self.ignitionItem end
     return car
 end
 

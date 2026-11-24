@@ -931,8 +931,24 @@ do
     local unrelated = T.car(99, 108, 108)
     unrelated.engine = true
     T.cars[2] = unrelated
+    local keyAction
+    local recoverKey = SC.Vehicle.recoverDriverKeyAfterExit
+    SC.Vehicle.leaveDriverKeyInIgnition = function(driver, vehicle)
+        check(vehicle == car and driver == T.team[1].actor and car.occupied[0] == driver
+            and not car.engine and not car.starting,
+            "parking places the key while its own driver is still seated and the car is off")
+        keyAction = "ignition"
+        return true, "key_left_in_ignition"
+    end
+    SC.Vehicle.recoverDriverKeyAfterExit = function(driver, sqlId)
+        check(driver == T.team[1].actor and not driver.car and sqlId == car:getSqlId(),
+            "a key carried on from a stop is recovered after verified exit")
+        keyAction = "recover"
+        return true
+    end
     for index, state in ipairs({ "unloading_site", "unloading_home",
         "fallback_unloading", "boarding_rollback" }) do
+        keyAction = nil
         local trip = seatedTrip(state, state == "unloading_site" and "outbound" or "home")
         local stops = car.engineStops or 0
         check(Car.pulse(T.mission, 700000 + index * 10000)
@@ -942,7 +958,11 @@ do
         check(trip.state == (state == "unloading_site" and "parked_at_site"
                 or state == "unloading_home" and "home_wait" or "abandoned"),
             state .. " completes only after verified engine shutdown and exits")
+        check(keyAction == ((state == "unloading_home" or state == "fallback_unloading")
+                and "ignition" or "recover"), state .. " uses the key handoff for that stop")
     end
+    SC.Vehicle.leaveDriverKeyInIgnition = nil
+    SC.Vehicle.recoverDriverKeyAfterExit = recoverKey
     check(unrelated.engine and not unrelated.engineStops,
         "unloading never shuts off another parked car")
     T.cars[2] = nil

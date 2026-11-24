@@ -149,6 +149,7 @@
     "UI_SC_HomeTrip_FuelCheck": "Fuel %1%%; about %2%% needed.",
     "UI_SC_HomeTrip_FuelKnown": "Fuel %1%%.",
     "UI_SC_HomeTrip_KeyHolder": "Key: %1 has it.",
+    "UI_SC_HomeTrip_KeyIgnition": "The key is in the ignition.",
     "UI_SC_HomeTrip_RouteDrive": "About %1 m by road. %2 driving.",
     "UI_SC_HomeTrip_ParkingReview": "Parking: %1. Camp duty unloads the trunk.",
     "UI_SC_HomeTrip_ParkingExpected": "Expected parking: %1. They check clearance on arrival.",

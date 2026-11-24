@@ -964,6 +964,15 @@ local function stopAndUnload(mission, trip, car, now)
     if not stationary then return false, why or "car_not_stopped" end
     local engineStopped, engineReason = stopOwnedEngine(mission, trip, car, now)
     if not engineStopped then return false, engineReason end
+    local finalStop = trip.state == "unloading_home" or trip.state == "fallback_unloading"
+    local driver = leader and trip.seats[mission.leader.id] == 0 and leader or nil
+    if finalStop and driver and SC.Vehicle.leaveDriverKeyInIgnition then
+        local _, keyReason = SC.Vehicle.leaveDriverKeyInIgnition(driver, car)
+        if keyReason == "key_left_in_ignition" or keyReason == "ignition_key_insert_failed"
+            or keyReason == "ignition_key_restore_failed" then
+            traceTrip(trip, keyReason)
+        end
+    end
     for _, member in ipairs(mission.roster) do
         if member.actor and mission.members[member.actor] then
             local seated, current, seat = SC.Vehicle.isNativeSeated(member.actor)
@@ -978,12 +987,10 @@ local function stopAndUnload(mission, trip, car, now)
         end
     end
     if not teamOnFoot(mission) then return false, "unload_unverified" end
-    -- Step 1's exact-item recovery checks the existing ignition key and
-    -- returns it only to the original driver after the native exit commits.
-    if leader and trip.seats[mission.leader.id] == 0
-        and SC.Vehicle.recoverDriverKeyAfterExit then
+    -- Interim stops hand the key back to the crew for the return leg.
+    if not finalStop and driver and SC.Vehicle.recoverDriverKeyAfterExit then
         local recovered, recoveryReason = SC.Vehicle.recoverDriverKeyAfterExit(
-            leader, trip.sqlId)
+            driver, trip.sqlId)
         if not recovered then return false, recoveryReason end
     end
     if trip.field then trip.engineStopped=true end
@@ -2362,6 +2369,7 @@ do
             return okay and value or nil
         end
         for _,method in ipairs({"getSqlId","getScriptName","getX","getY","getZ","getKeyId","isEngineRunning"}) do read(vehicle,method) end
+        read(vehicle,"isKeysInIgnition") read(vehicle,"getCurrentKey")
         local count=tonumber(read(vehicle,"getMaxPassengers")) or 0
         for seat=0,math.min(31,count-1) do read(vehicle,"isSeatInstalled",seat) read(vehicle,"getCharacter",seat) end
         for _,id in ipairs({"Engine","TireFrontLeft","TireFrontRight","TireRearLeft","TireRearRight","GasTank"}) do
@@ -2463,9 +2471,11 @@ do
         for _,id in ipairs({"TireFrontLeft","TireFrontRight","TireRearLeft","TireRearRight"}) do
             if not componentReady(vehicle,id,true) then return reject("wheel_unusable") end
         end
-        local held=physicalKey(records,vehicle)
-        if not held then return reject(playerKey and "driver_needs_key_from_player" or "driver_needs_key") end
-        review.keyHolderId,review.keyHolderName=held.record.id,nameOf(held.record)
+        local ignition=SC.Vehicle.ignitionKey and SC.Vehicle.ignitionKey(vehicle)
+        local held=not ignition and physicalKey(records,vehicle)
+        if not ignition and not held then return reject(playerKey and "driver_needs_key_from_player" or "driver_needs_key") end
+        review.keyInIgnition=ignition~=nil
+        if held then review.keyHolderId,review.keyHolderName=held.record.id,nameOf(held.record) end
         local tankOkay,tank=call(vehicle,"getPartById","GasTank")
         local fuelOkay,fuel=call(tankOkay and tank or nil,"getContainerContentAmount")
         local capacityOkay,capacity=call(tankOkay and tank or nil,"getContainerCapacity")
@@ -2480,7 +2490,8 @@ do
         review.canUse=true
         return {field=true,vehicle=vehicle,sqlId=sqlId,script=script,name=review.name,seats=seats,seatCount=review.seats,records=records,leaderId=records[1].id,
             neededSeats=#records,departure=at,heading=heading,fuel=fuel,fuelCapacity=capacity,fuelPercent=review.fuelPercent,
-            keyHolderId=review.keyHolderId,keyHolderName=review.keyHolderName,yourCar=review.yourCar},nil,review
+            keyHolderId=review.keyHolderId,keyHolderName=review.keyHolderName,keyInIgnition=review.keyInIgnition,
+            yourCar=review.yourCar},nil,review
     end
     function Car.fieldCandidates(records,player)
         local rows={} local leader=type(records)=="table" and records[1] and point(records[1].actor)
@@ -2671,9 +2682,11 @@ do
             for key,value in pairs(cached) do plan[key]=value end
             plan.records,plan.leaderId=records,records[1].id
             plan.seats=fresh.seats
+            plan.keyInIgnition=fresh.keyInIgnition
             plan.homeStop=Car.copyFieldStop(cached.homeStop,base)
         else plan,reason,review=Car.preflightField(records,vehicle,baseOrOptions) end
         if not plan then return nil,reason,review end
+        if plan.keyInIgnition then return plan,nil,review end
         local held=physicalKey(records,vehicle)
         local target=SC.GameplayUtil.inventory(records[1].actor)
         local okay,source=call(held and held.item,"getContainer")

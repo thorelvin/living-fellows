@@ -1520,6 +1520,57 @@ local function exactItemCount(container, item)
     return count
 end
 
+function vehicleService.ignitionKey(vehicle)
+    local ignitionOk, ignition = invoke(vehicle, "isKeysInIgnition")
+    if not ignitionOk or ignition ~= true then return nil end
+    local keyOk, key = invoke(vehicle, "getCurrentKey")
+    local vehicleIdOk, vehicleKeyId = invoke(vehicle, "getKeyId")
+    local keyIdOk, itemKeyId = invoke(key, "getKeyId")
+    if keyOk and vehicleIdOk and keyIdOk and finite(vehicleKeyId, -1) >= 0
+        and itemKeyId == vehicleKeyId then return key end
+    return nil
+end
+
+-- Vanilla moves the existing key from the seated driver's inventory into
+-- the ignition. The expedition calls this after shutdown and before exit,
+-- which saves the vehicle with that exact item still inside it.
+function vehicleService.leaveDriverKeyInIgnition(actor, vehicle)
+    if multiplayerActive() or not SC.Actor.isCompanion(actor) then
+        return false, "driver_key_unavailable"
+    end
+    local driverOk, driver = invoke(vehicle, "getDriver")
+    if not driverOk or driver ~= actor then return false, "driver_not_seated" end
+    if vehicleService.ignitionKey(vehicle) then return true, "key_already_in_ignition" end
+    local currentOk, current = invoke(vehicle, "getCurrentKey")
+    local ignitionOk, ignition = invoke(vehicle, "isKeysInIgnition")
+    if not currentOk or current ~= nil or not ignitionOk or ignition ~= false then
+        return false, "ignition_key_slot_unavailable"
+    end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    local idOk, id = invoke(vehicle, "getKeyId")
+    if not inventoryOk or not idOk or finite(id, -1) < 0 then return false, "driver_key_unavailable" end
+    local found, key = invoke(inventory, "haveThisKeyId", id)
+    local keyIdOk, itemKeyId = invoke(key, "getKeyId")
+    local sourceOk, source = invoke(key, "getContainer")
+    if not found or not keyIdOk or itemKeyId ~= id or not sourceOk or exactItemCount(source, key) ~= 1 then
+        return false, "driver_key_unavailable"
+    end
+
+    invoke(vehicle, "setKeysInIgnition", true)
+    if vehicleService.ignitionKey(vehicle) == key and exactItemCount(source, key) == 0 then
+        if SC.GameplayUtil and SC.GameplayUtil.touchInventoryIndex then
+            SC.GameplayUtil.touchInventoryIndex(source)
+        end
+        return true, "key_left_in_ignition"
+    end
+    -- If native insertion stopped after taking the key, restore the same item.
+    if exactItemCount(source, key) == 0 then
+        invoke(source, "AddItem", key)
+        if exactItemCount(source, key) ~= 1 then return false, "ignition_key_restore_failed" end
+    end
+    return false, "ignition_key_insert_failed"
+end
+
 local function keyAt(recovery, destination)
     local ownerOk, owner = invoke(recovery.key, "getContainer")
     local sourceCount = exactItemCount(recovery.source, recovery.key)
