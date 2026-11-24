@@ -5632,6 +5632,54 @@ function Downtime._sleepStateForTests(actor, activity)
     stateFor(actor).active = activity
 end
 
+local parkingLeisure = { read = true, sit = true, write_diary = true }
+
+function Downtime.parkingExitCamp(actor, commands)
+    commands = commands or commandState(actor)
+    local baseLife = SC.BaseLife
+    local base = commands.recruited and commands.order == "base_duty"
+        and baseLife and baseLife.active and baseLife.isOutdoorSquare
+        and baseLife.isOutdoorSquare(actor) == true and baseLife.active()
+    if not base then return nil end
+    local state = states[actor]
+    local departure = state and state.parkingDeparture
+    local pending = departure and departure.baseId == base.id
+        and departure.commandSerial == commands.commandSerial
+    if pending or baseLife.isInside(actor, "parking") == true then return base end
+end
+
+-- Parking can overlap the marked camp area. Keep the shelter leg until the
+-- resident reaches cover, including the walk between the lot and the door.
+local function leaveCampParking(actor, commands, state)
+    local base, work = Downtime.parkingExitCamp(actor, commands), SC.BaseWork
+    if not base or not work or not work.approachCampShelter then
+        state.parkingDeparture = nil
+        return nil
+    end
+    local departure = state.parkingDeparture
+    if departure and (departure.baseId ~= base.id
+        or departure.commandSerial ~= commands.commandSerial) then
+        state.parkingDeparture, departure = nil, nil
+    end
+    if not departure then
+        departure = { baseId = base.id, commandSerial = commands.commandSerial }
+        state.parkingDeparture = departure
+        if U().diagnostic then U().diagnostic("camp-parking", actor, "action=heading_for_shelter") end
+    end
+    if state.active or state.passiveFollowSeat then
+        local released, reason = Downtime.cancel(actor, "leaving_camp_parking")
+        if not released or state.exitingRest then return true, reason or "standing_from_rest" end
+    end
+    state.safeSince = nil
+    state.idleStopped = false
+    local _, reason = work.approachCampShelter(actor, departure, true)
+    if reason == "camp_rally_reached" then
+        state.parkingDeparture = nil
+        return nil
+    end
+    return true, reason or "leaving_camp_parking"
+end
+
 function Downtime.update(actor, player, runtime, desiredKind, requestedSquare, recoveryEndurance)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -5679,6 +5727,12 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare, r
     if medicalState and medicalState.dirtyOnly
         and type(SC.Medical.replaceDirtyBandage) == "function" then
         return SC.Medical.replaceDirtyBandage(actor)
+    end
+    local leisure = state.active and parkingLeisure[state.active.kind]
+        or state.active == nil and (desiredKind == nil or parkingLeisure[desiredKind])
+    if not recovering and leisure then
+        local departing, reason = leaveCampParking(actor, commands, state)
+        if departing then return departing, reason end
     end
 
     local followReady = recovering or followPauseReady(actor, player, commands, state, current)

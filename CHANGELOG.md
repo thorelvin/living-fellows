@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.74 - Camp parking and downtime
+
+- Base-duty companions leave camp parking for shelter before starting quiet
+  downtime. Unloading and other assigned work keep their normal priority.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.73 - Review fixes, medical and needs voices
 
 - While EMMA is off, a desk drawer held by a locked computer opens like

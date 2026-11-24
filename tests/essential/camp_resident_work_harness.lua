@@ -169,4 +169,61 @@ revision=B.workConsistencyRevision()
 retire()
 check(B.auditOperations(false)==nil, "retirement immediately invalidates the published operations cache")
 check(B.workConsistencyRevision()==revision+1, "a roster-only death changes the work revision once")
+do
+    local oldBase, oldNav, util = SC.BaseLife, SC.Navigation, SC.GameplayUtil
+    local oldGrid, oldLoaded, oldFree, oldSame =
+        util.gridSquare, util.loadedSquare, util.isSquareFree, util.sameSquare
+    local oldClock, clock, surveyed = util.nowMs, 1000, 0
+    local shelter, rally = { x = 3, y = 3, z = 0 }, { x = 4, y = 3, z = 0 }
+    local camp = { id = "base:parking", zones = {
+        { kind = "area", x1 = 3, y1 = 3, x2 = 3, y2 = 3, z = 0 },
+    } }
+    local indoors, rallied, rallyInParking = true, false, false
+    SC.BaseLife = {
+        active = function() return camp end,
+        isOutdoorSquare = function(square) return square ~= shelter or not indoors end,
+        isInside = function(square, kind) return kind ~= "parking" or rallyInParking end,
+        zoneCenter = function() return rally end,
+        withinWorkReach = function() return true end,
+    }
+    util.nowMs = function() return clock end
+    util.gridSquare = function() surveyed = surveyed + 1 return shelter end
+    util.loadedSquare = function(value) return value end
+    util.isSquareFree = function() return true end
+    util.sameSquare = function(_, target) return rallied and target == rally end
+    local goal
+    SC.Navigation = { requestAny = function(_, choices, _, intent)
+        check(intent.action == "return_to_base" and intent.requireSameSquare
+                and intent.workCampOnly, "parking departure uses ordinary checked base navigation")
+        goal = choices[1]
+        return true, "moving"
+    end }
+    local approach = SC.BaseWork.approachCampShelter
+    local route = {}
+    check(approach(actor, route, true) and goal == shelter, "parking departure prefers a covered camp tile")
+    clock = clock + 11000
+    check(approach(actor, route, true) and surveyed == 1, "a slow route keeps its shelter goals across refresh time")
+    indoors = false
+    check(approach(actor, {}, true) and goal == rally, "an open-air camp routes to its off-lot rally")
+    rallied = true
+    local handled, reason = approach(actor, {}, true)
+    check(not handled and reason == "camp_rally_reached", "the rally must be reached before outdoor downtime")
+    rallyInParking = true
+    handled, reason = approach(actor, {}, true)
+    check(not handled and reason == "camp_shelter_unavailable", "a rally in parking cannot end the departure")
+    local oldDowntime = SC.Downtime
+    SC.BaseLife.resident = function() return { duty = false } end
+    SC.Downtime = {
+        parkingExitCamp = function(owner) return owner == actor and camp or nil end,
+        update = function() return true, "heading_for_shelter" end,
+    }
+    handled, reason = SC.BaseWork.update(actor, nil, {})
+    check(handled and reason == "heading_for_shelter",
+        "an off-duty resident with a parked Base duty order gets the route instead of a job claim")
+    SC.Downtime = oldDowntime
+    SC.BaseLife, SC.Navigation = oldBase, oldNav
+    util.gridSquare, util.loadedSquare, util.isSquareFree, util.sameSquare =
+        oldGrid, oldLoaded, oldFree, oldSame
+    util.nowMs = oldClock
+end
 SC_TEST_REPORT = "CAMP_RESIDENT_WORK_PASS checks=" .. checks

@@ -188,4 +188,51 @@ do
             and actor.visual == nil and pages(actor, book) == 0,
         "a stalled long chapter still has a finite watchdog and releases ownership")
 end
+do
+    local oldBase, oldWork = SC.BaseLife, SC.BaseWork
+    local actor = SC_READING_ACTOR("reader:camp_parking", { SC_READING_BOOK("Parking") })
+    local book = actor.inventory.items[1]
+    actor.commands.order, actor.outside, actor.parked = "base_duty", true, true
+    local camp = { id = "base:reading" }
+    local calls, departure, arrived = 0, nil, false
+    SC.BaseLife = {
+        active = function() return camp end,
+        isOutdoorSquare = function(owner) return owner.outside end,
+        isInside = function(owner, zone) return zone ~= "parking" or owner.parked end,
+    }
+    SC.BaseWork = { approachCampShelter = function(owner, route, leavingParking)
+        check(owner == actor and leavingParking and (departure == nil or departure == route),
+            "parking departure uses one retained shelter route")
+        calls, departure = calls + 1, route
+        return not arrived, arrived and "camp_rally_reached" or "moving"
+    end }
+    local handled, reason = D.update(actor, nil, quiet, "read")
+    check(handled and reason == "moving" and calls == 1 and actor.visual == nil,
+        "being inside the camp area does not let a base-duty companion start reading in parking")
+
+    start(actor, candidate(actor, { book }))
+    D.update(actor, nil, quiet, "read")
+    check(S.current(actor) == nil and D.peek(actor).active == nil and calls == 2
+            and actor.visual == nil and book.container == actor.inventory and pages(actor, book) == 0,
+        "an outdoor reading lease releases its pose and keeps the exact book before walking")
+
+    actor.parked = false
+    D.update(actor, nil, quiet, "read")
+    check(calls == 3 and actor.visual == nil,
+        "leaving the marked lot retains the route across the open forecourt")
+    D.update(actor, nil, { snapshot = { immediateCount = 1 } }, "read")
+    check(calls == 3, "immediate danger preempts the return to shelter")
+    arrived = true
+    D.update(actor, nil, quiet, "read")
+    check(calls == 4 and D.peek(actor).parkingDeparture == nil,
+        "a camp rally outside the lot releases outdoor-only camps to normal downtime")
+
+    actor.parked, arrived, departure = true, false, nil
+    D.update(actor, nil, quiet, "read")
+    actor.parked, actor.outside = false, false
+    D.update(actor, nil, quiet, "read")
+    check(calls == 5 and D.peek(actor).parkingDeparture == nil,
+        "entry to an indoor camp square ends the parking departure")
+    SC.BaseLife, SC.BaseWork = oldBase, oldWork
+end
 SC_TEST_REPORT = "READING_SESSION_PASS checks=" .. tostring(checks)

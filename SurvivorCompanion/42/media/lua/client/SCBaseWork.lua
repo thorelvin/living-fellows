@@ -2608,10 +2608,12 @@ end
 
 -- Large and multi-floor camps are surveyed over several updates. A failed
 -- search never falls back to an outdoor rally/core square.
-local function scanNightShelter(base, state)
+local function scanCampShelter(base, state, approaching)
     local scan = state.nightShelterScan
     if not scan or scan.baseId ~= base.id then
-        scan = { baseId = base.id, zoneIndex = 1 }
+        local x, y
+        if approaching then x, y = U().position(approaching) end
+        scan = { baseId = base.id, zoneIndex = 1, approachX = x, approachY = y }
         state.nightShelterScan = scan
     end
     local targets, checked = {}, 0
@@ -2625,13 +2627,19 @@ local function scanNightShelter(base, state)
         if zone.kind ~= "area" then
             scan.zoneIndex, scan.x, scan.y = scan.zoneIndex + 1, nil, nil
         else
-            local x, y = scan.x or zone.x1, scan.y or zone.y1
+            -- Start on the side nearest the apron when returning in daylight.
+            local fromEast = scan.approachX and scan.approachX > (zone.x1 + zone.x2) / 2
+            local fromSouth = scan.approachY and scan.approachY > (zone.y1 + zone.y2) / 2
+            local firstX, lastX = fromEast and zone.x2 or zone.x1, fromEast and zone.x1 or zone.x2
+            local firstY, lastY = fromSouth and zone.y2 or zone.y1, fromSouth and zone.y1 or zone.y2
+            local x, y = scan.x or firstX, scan.y or firstY
             local square = U().gridSquare(x, y, zone.z)
             checked = checked + 1
-            scan.x, scan.y = x + 1, y
-            if scan.x > zone.x2 then scan.x, scan.y = zone.x1, y + 1 end
-            if scan.y > zone.y2 then
+            scan.x, scan.y = x + (fromEast and -1 or 1), y
+            if x == lastX and y == lastY then
                 scan.zoneIndex, scan.x, scan.y = scan.zoneIndex + 1, nil, nil
+            elseif x == lastX then
+                scan.x, scan.y = firstX, y + (fromSouth and -1 or 1)
             end
             if indoorCampShelter(square) then targets[#targets + 1] = square end
         end
@@ -2639,7 +2647,7 @@ local function scanNightShelter(base, state)
     return targets, false
 end
 
-local function returnInsideAtNight(actor, state)
+function BaseWork.approachCampShelter(actor, state, leavingParking)
     local base = SC.BaseLife.active()
     if not base then return false, "base_missing" end
     if SC.BaseLife.isOutdoorSquare(actor) == false then
@@ -2648,9 +2656,9 @@ local function returnInsideAtNight(actor, state)
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return false, "navigation_unavailable"
     end
-    local cached = state.nightShelterBaseId == base.id
-        and now() < (state.nightShelterRefreshAt or 0)
-        and state.nightShelterTargets or nil
+    local saved = state.nightShelterBaseId == base.id and state.nightShelterTargets or nil
+    local cached = saved and (leavingParking and #saved > 0
+        or now() < (state.nightShelterRefreshAt or 0)) and saved or nil
     local targets = {}
     if cached then
         for _, square in ipairs(cached) do
@@ -2659,21 +2667,37 @@ local function returnInsideAtNight(actor, state)
     end
     if #targets == 0 and not (cached and #cached == 0) then
         local complete
-        targets, complete = scanNightShelter(base, state)
+        targets, complete = scanCampShelter(base, state, leavingParking and actor or nil)
         if #targets == 0 and not complete then
-            return false, "night_shelter_searching"
+            return false, leavingParking and "camp_shelter_searching" or "night_shelter_searching"
         end
         state.nightShelterBaseId = base.id
         state.nightShelterTargets = targets
         state.nightShelterRefreshAt = now() + 10000
     end
-    if #targets == 0 then return false, "night_shelter_unavailable" end
+    if #targets == 0 then
+        if not leavingParking then return false, "night_shelter_unavailable" end
+        local rally = U().loadedSquare(SC.BaseLife.zoneCenter("rally"))
+        if not rally or not SC.BaseLife.isInside(rally)
+            or SC.BaseLife.isInside(rally, "parking") or not U().isSquareFree(rally) then
+            return false, "camp_shelter_unavailable"
+        end
+        if U().sameSquare(actor, rally) then return false, "camp_rally_reached" end
+        targets[1] = rally
+    end
     local intent = {
-        action = "return_to_base", targetSquare = targets[1],
-        nightShelter = true,
+        action = "return_to_base",
+        targetSquare = targets[1],
+        requireSameSquare = leavingParking == true,
+        nightShelter = not leavingParking,
     }
     if SC.BaseLife.withinWorkReach(actor) then intent = workRoute(intent, true) end
     local handled, reason = SC.Navigation.requestAny(actor, targets, "walk", intent)
+    if leavingParking and handled ~= true then
+        -- Resurvey after the route's alternatives fail. A slow search still
+        -- owns its targets and must not be replaced on a fixed timer.
+        state.nightShelterTargets = nil
+    end
     return handled, reason
 end
 
@@ -2717,6 +2741,10 @@ function BaseWork.update(actor, player, runtime)
     local resident = SC.BaseLife and SC.BaseLife.resident(id) or nil
     if not resident or resident.duty ~= true then
         clearGuardPatrol(actor, state, "not_on_base_duty")
+        local downtime = SC.Downtime
+        if downtime and downtime.parkingExitCamp and downtime.parkingExitCamp(actor) then
+            return downtime.update(actor, player, runtime)
+        end
         return false, "not_on_base_duty"
     end
     if not SC.BaseLife.active() then
@@ -2766,7 +2794,7 @@ function BaseWork.update(actor, player, runtime)
             SC.Fishing.cancel(actor, "base_watch_indoor_duty")
         end
         if SC.BaseLife.isOutdoorSquare(actor) == true then
-            return returnInsideAtNight(actor, state)
+            return BaseWork.approachCampShelter(actor, state)
         end
     end
     if not job and resident.role=="farmer" and SC.AnimalWork then
@@ -2791,7 +2819,7 @@ function BaseWork.update(actor, player, runtime)
             and SC.ChefWork.mustTendHeat(actor, job) == true
         if (not job or job.type ~= "farm") and not tendingHeat
             and SC.BaseLife.isOutdoorSquare(actor) == true then
-            return returnInsideAtNight(actor, state)
+            return BaseWork.approachCampShelter(actor, state)
         end
     end
     if not job and SC.BaseLife.restriction(id) == nil and resident.role == "angler" and SC.Fishing
