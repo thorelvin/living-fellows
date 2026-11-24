@@ -35,6 +35,7 @@
 
 @{ Name = 'native-storage-category-contracts'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCCleaningSupplies.lua'),
+    (Join-Path $Client 'SCExpeditionFuel.lua'),
     (Join-Path $Client 'SCWorkTransport.lua'),
     (Join-Path $ProjectRoot 'tests\fixtures\storage-42.22.2\SCStorageCategoryCases.lua'),
     (Join-Path $Essential 'storage_categories_harness.lua')) }

@@ -11,6 +11,8 @@ local function U() return SC.GameplayUtil end
 local function call(object,method,...)
     local value,okay=U().call(object,method,...)
     if okay then return value end
+    -- Kahlua's tonumber needs a single argument even when a getter is unavailable.
+    return nil
 end
 local function weight(item)
     return tonumber(call(item,"getUnequippedWeight")) or U().itemWeight(item)

@@ -46,6 +46,16 @@ for index, category in ipairs(categories) do
     check(okay, 'registered ' .. category)
     storages[category], containers[category] = row, container
 end
+local legacyCan = model({ type='Mod.LegacyFuelCan', category='Item',
+    display='VehicleMaintenance', tags={'Petrol'} })
+function legacyCan:getFluidContainer() return nil end
+local legacyRoutes, legacyCategory = SC.BaseWork.floorDestinations(actor, legacyCan)
+check(legacyCategory == 'tools' and #legacyRoutes == 1 and legacyRoutes[1].destination == storages.tools,
+    'a petrol-tagged item without a fluid component still routes to its ordinary shelf')
+check(SC.ExpeditionFuel.canInfo(legacyCan) == nil, 'a petrol tag alone cannot make a fuel vessel')
+function legacyCan:getFluidContainer() return { getAmount = function() return 0 end } end
+check(SC.ExpeditionFuel.canInfo(legacyCan) == nil, 'a fluid component with no capacity getter is also ineligible')
+
 for _, row in ipairs(cases) do
     local item = model(row)
     local wanted, certain = SC.BaseWork.classifyItem(item)

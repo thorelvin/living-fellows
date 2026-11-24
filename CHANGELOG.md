@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.72 - Camp floor sorting fix
+
+- Petrol-tagged items with missing fluid data use their regular storage
+  category and let floor sorting continue.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.71 - Rosewood expedition recovery
 
 - Returning scouts can leave a lone seated or downed zombie behind when
