@@ -2,6 +2,27 @@
 
 # Changelog
 
+## 0.27.73 - Review fixes, medical and needs voices
+
+- While EMMA is off, a desk drawer held by a locked computer opens like
+  ordinary furniture. Its lock returns when EMMA is turned back on.
+- A scavenger only sets down a find from its current outing. Finds it took
+  back to camp, including ones later issued to it from camp storage, are kept.
+- A medic taking out healed stitches or a healed splint now says so,
+  instead of using lines meant for a fresh wound. Splint lines no longer
+  assume the break is in a leg.
+- A medic speaks when handing over painkillers or antibiotics, and the
+  patient answers in their own words. A companion who takes a dose alone
+  no longer thanks anyone.
+- Patients react to each procedure: removing a bullet or glass, cleaning a
+  burn or wound, stitching, and taking out stitches or a splint.
+- Every procedure and medicine has more lines, with variations for each
+  companion's personality.
+- Hunger, thirst and tiredness lines are rewritten to sound like a tired
+  person rather than a report. Some of them swear, with clean versions when
+  profanity is off.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.72 - Camp floor sorting fix
 
 - Petrol-tagged items with missing fluid data use their regular storage
@@ -93,10 +114,6 @@
 - **Enable EMMA** in Living Fellows sandbox settings controls player access to
   computers, computer recovery and maintenance, and EMMA's radio grid reports.
   It is on by default.
-- While EMMA is off, a desk drawer held by a locked computer opens like
-  ordinary furniture. Its lock returns when EMMA is turned back on.
-- A scavenger only sets down a find from its current outing. Finds it took
-  back to camp, including ones later issued to it from camp storage, are kept.
 - Bridge protocol `42.22-isocompanion-35`. World save schema 3.
 
 ## 0.27.62 - Camp overflow and scavenged loot swaps

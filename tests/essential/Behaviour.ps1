@@ -107,6 +107,10 @@
     (Join-Path $Essential 'medical_recovery_persistence_harness.lua')) }
 @{ Name = 'behaviour.medical-visits'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCBaseFuel.lua'), (Join-Path $Essential 'medical_visits_harness.lua')) }
+@{ Name = 'behaviour.medical-voice'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Gameplay 'medical_procedures_fixture.lua'),
+    (Join-Path $Gameplay 'medical_medicines_fixture.lua'),
+    (Join-Path $Gameplay 'medical_voice_harness.lua')) }
 @{ Name = 'behaviour.medical-liveness'; Files = @(Get-ScGameplayFiles) + (Join-Path $Gameplay 'medical_liveness_regression_harness.lua') }
 @{ Name = 'behaviour.camp-dressing-wash'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'dressing_job_harness.lua') }
 @{ Name = 'behaviour.camp-resident-consumers'; Files = @(Get-ScGameplayFiles) + @(

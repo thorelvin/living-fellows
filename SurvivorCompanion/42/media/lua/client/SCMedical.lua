@@ -1252,16 +1252,32 @@ local function startRipAnimation(helper, state)
     return true, "ripping_emergency_bandage"
 end
 
+-- Who says what around a treatment. The medic speaks as the work starts; the
+-- patient answers once it is verified. Removing healed stitches or a splint is
+-- not a fresh wound, so it has its own lines.
+local PROCEDURE_TOPICS={remove_bullet="medical.remove_bullet",remove_glass="medical.remove_glass",
+    clean_burn="medical.clean_burn",disinfect_wound="medical.disinfect",stitch_wound="medical.stitch",
+    remove_stitches="medical.remove_stitches",remove_splint="medical.remove_splint"}
+local MEDICINE_TOPICS={take_painkillers="medical.painkillers",take_antibiotics="medical.antibiotics"}
+local MEDICINE_REPLIES={
+    painkillers_taken={patient="medical.painkillers.taken",self="medical.painkillers.self"},
+    antibiotics_taken={patient="medical.antibiotics.taken",self="medical.antibiotics.self"},
+}
+local AFTER_TOPICS={bullet_removed="medical.after.extraction",glass_removed="medical.after.extraction",
+    burn_cleaned="medical.after.sting",wound_disinfected="medical.after.sting",
+    wound_stitched="medical.after.stitch",stitches_removed="medical.after.healed",
+    splint_removed="medical.after.healed"}
+
 local function treatmentSpeech(helper, state, assessment, wound)
     if helper == state.patient or not SC.Dialogue
         or type(SC.Dialogue.say) ~= "function" then return end
     local now = U().nowMs()
     if now - (treatmentSpeechAt[helper] or -math.huge) < 8000 then return end
     local topic
-    local procedureTopics={remove_bullet="medical.remove_bullet",remove_glass="medical.remove_glass",
-        clean_burn="medical.clean_burn",disinfect_wound="medical.disinfect",stitch_wound="medical.stitch"}
     if state.returnOnly or state.recovery then return end
-    if procedureTopics[state.maintenanceKind] then topic=procedureTopics[state.maintenanceKind]
+    if MEDICINE_TOPICS[state.medicineKind] then topic=MEDICINE_TOPICS[state.medicineKind]
+    elseif not wound then return
+    elseif PROCEDURE_TOPICS[state.maintenanceKind] then topic=PROCEDURE_TOPICS[state.maintenanceKind]
     elseif state.splintOnly then
         topic = "medical.splint"
     elseif state.dirtyOnly or wound.dirtyBandage then
@@ -1275,13 +1291,14 @@ local function treatmentSpeech(helper, state, assessment, wound)
         { recentLimit = 6 })
     if ok and spoken == true then treatmentSpeechAt[helper] = now end
 end
-local function verifiedThanks(helper,state)
+local function verifiedThanks(helper,state,reason)
     local patient=state.patient
     if helper==patient or not Medical.isLivingPatient(patient) or not SC.Dialogue
         or type(SC.Dialogue.say)~="function" then return end
     local now=U().nowMs()
     if now-(treatmentSpeechAt[patient] or -math.huge)<8000 then return end
-    local okay,spoken=pcall(SC.Dialogue.say,patient,"medical.thanks",nil,nil,{recentLimit=6})
+    local topic=AFTER_TOPICS[reason] or "medical.thanks"
+    local okay,spoken=pcall(SC.Dialogue.say,patient,topic,nil,nil,{recentLimit=6})
     if okay and spoken==true then treatmentSpeechAt[patient]=now end
 end
 
@@ -1330,7 +1347,7 @@ local function startBandageAnimation(helper, state)
     })
     if transitioned ~= true then return clearTreatment(helper, state,
         transitionReason or "animation_phase_rejected") end
-    if wound then treatmentSpeech(helper, state, assessment, wound) end
+    if wound or state.medicineKind then treatmentSpeech(helper, state, assessment, wound) end
     return true, "treatment_animation_started"
 end
 
@@ -1565,7 +1582,7 @@ local function finishMaintenanceTreatment(helper, state)
         SC.NativeActions.noteResult(helper, "medical_treatment", reason, {kind="long"})
     end
     if reason=="bullet_removed" or reason=="glass_removed" or reason=="burn_cleaned"
-        or reason=="wound_disinfected" or reason=="wound_stitched" or reason=="stitches_removed" or reason=="splint_removed" then verifiedThanks(helper,state) end
+        or reason=="wound_disinfected" or reason=="wound_stitched" or reason=="stitches_removed" or reason=="splint_removed" then verifiedThanks(helper,state,reason) end
     return true, reason
 end
 
@@ -1600,8 +1617,10 @@ local function finishTreatment(helper, state)
         if SC.NativeActions and type(SC.NativeActions.noteResult)=="function" then
             SC.NativeActions.noteResult(helper,"medical_treatment",result,{kind="long"})
         end
-        local topic=result=="painkillers_taken" and "medical.painkillers"
-            or result=="antibiotics_taken" and "medical.antibiotics"
+        -- The medic spoke when the dose started. The person who swallowed it
+        -- answers here, in their own words.
+        local reply=MEDICINE_REPLIES[result]
+        local topic=reply and (helper==state.patient and reply.self or reply.patient)
         local current=U().nowMs()
         if topic and SC.Dialogue and type(SC.Dialogue.say)=="function"
             and current-(treatmentSpeechAt[state.patient] or -math.huge)>=8000 then
