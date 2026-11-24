@@ -268,6 +268,8 @@ local function snapshot(job)
             and SC.ActionSupervisor.isCurrent(job.token) == true,
         firstParkingRefusal = job.firstParkingRefusal,
         parkingAlignmentReason = job.parkingAlignmentReason,
+        parkingBlockedX = job.parkingBlockedX, parkingBlockedY = job.parkingBlockedY,
+        parkingBlockedKind = job.parkingBlockedKind,
         alignmentAttempts = job.alignmentAttempts or 0,
         roadGoal = roadGoal and { x = roadGoal.x, y = roadGoal.y, z = roadGoal.z } or nil }
 end
@@ -541,6 +543,7 @@ function Driving.approach(actor, target, seconds, allowStoppedRoadFailure, allow
     end
     local routeText = string.format("%.3f,%.3f,5;%.3f,%.3f,5",
         x, y, tx, ty)
+    job.parkingBlockedX, job.parkingBlockedY, job.parkingBlockedKind = nil, nil, nil
     local started, reason = startNative(job)
     if not started then return false, reason end
     local followed, followReason = call("driveApproach", actor, routeText, 5)
@@ -925,6 +928,9 @@ function Driving.tick(current)
                     and current >= job.approachDeadline then
                     parkResult(job, "failed", "parking_approach_timeout")
                 elseif job.precise and state == "blocked" then
+                    job.parkingBlockedX = finite(status.blockedX)
+                    job.parkingBlockedY = finite(status.blockedY)
+                    job.parkingBlockedKind = status.obstacleKind
                     parkResult(job, "failed", status.obstacleKind == "unloaded"
                         and "parking_streaming_stalled" or "parking_approach_blocked")
                 elseif job.managed and state == "blocked" then

@@ -1013,11 +1013,17 @@ do
         "second managed approach starts from a parked result")
     local plans = #T.plans
     T.native[actor].state, T.native[actor].mode = "blocked", "blocked"
+    T.native[actor].obstacleKind = "solid"
+    T.native[actor].blockedX, T.native[actor].blockedY = 203.5, 101.5
     Driving.tick()
-    check(Driving.jobStatus(actor).result == "failed"
-        and Driving.jobStatus(actor).reason == "parking_approach_blocked"
+    local parked = Driving.jobStatus(actor)
+    check(parked.result == "failed"
+        and parked.reason == "parking_approach_blocked"
         and #T.plans == plans,
         "blocked parking stops without road avoidance or a replanned detour")
+    check(parked.parkingBlockedKind == "solid" and parked.parkingBlockedX == 203.5
+        and parked.parkingBlockedY == 101.5,
+        "the precise approach keeps its own obstruction after native control stops")
     Driving.release(actor)
 end
 

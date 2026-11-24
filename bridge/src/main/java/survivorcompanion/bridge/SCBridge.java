@@ -1576,7 +1576,7 @@ public final class SCBridge {
         return driveFollowTuned(actor, route, cruiseKmh, 1.0);
     }
 
-    /** Route follower with a bounded corner-speed multiplier for Markus's cab. */
+    /** Route follower with a bounded turn-speed multiplier. */
     public static boolean driveFollowTuned(SCNativeCompanion actor, String route,
                                            double cruiseKmh, double cornerSpeedScale) {
         lastFailure = "";

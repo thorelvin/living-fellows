@@ -19,6 +19,11 @@ local function traceTrip(trip, action, detail, driveStatus)
             .. " owned=" .. tostring(driveStatus.owned)
             .. " firstRefusal=" .. tostring(driveStatus.firstParkingRefusal):sub(1, 128)
             .. " alignmentReason=" .. tostring(driveStatus.parkingAlignmentReason):sub(1, 128)
+        if driveStatus.parkingBlockedKind ~= nil then
+            detail = detail .. " parkingObstacle=" .. tostring(driveStatus.parkingBlockedKind):sub(1, 64)
+                .. "@" .. tostring(driveStatus.parkingBlockedX)
+                .. "," .. tostring(driveStatus.parkingBlockedY)
+        end
     end
     print("[SurvivorCompanion/expedition-car] car="
         .. tostring(trip and trip.sqlId or "?") .. " action="
@@ -1840,7 +1845,7 @@ function Car.pulse(mission, now, worldHour)
                 entry = trip.homeRoadEntry, bay = trip.departure,
             } or nil
         local started, reason = SC.Driving.drive(mission.leader.actor,
-            goal, { speedKmh = 30,
+            goal, { speedKmh = 30, cornerSpeedScale = 2,
                 -- A manual logging area is admitted against this exact stop's
                 -- hauling circle. The old ten-tile setback can move it outside.
                 stopShortTiles = trip.leg == "outbound"
@@ -2839,7 +2844,8 @@ do
                 if not ready then return false, why end
                 local goal = trip.homeRoadEntry or trip.departure
                 local started, startReason = SC.Driving.drive(mission.leader.actor, goal, {
-                    speedKmh = 30, stopShortTiles = 0, roadAccessEntry = roadEntry,
+                    speedKmh = 30, cornerSpeedScale = 2,
+                    stopShortTiles = 0, roadAccessEntry = roadEntry,
                     roadAccessExit = trip.homeRoadEntry and { entry = trip.homeRoadEntry, bay = trip.departure } or nil,
                 })
                 if started ~= true then

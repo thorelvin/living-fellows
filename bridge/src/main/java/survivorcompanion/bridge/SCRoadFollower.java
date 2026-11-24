@@ -77,6 +77,7 @@ final class SCRoadFollower {
     private SCDrivePath path;
     private final float cruiseKmh;
     private final float cornerSpeedScale;
+    private final float forwardTurnKmh;
     private final boolean keepRight;
     private final boolean preciseArrival;
     private boolean rollingGoal;
@@ -154,6 +155,8 @@ final class SCRoadFollower {
         this.cruiseKmh = SCDriveControl.clampCruise(cruiseKmh);
         this.cornerSpeedScale = Float.isFinite(cornerSpeedScale)
                 ? Math.max(1.0f, Math.min(2.0f, cornerSpeedScale)) : 1.0f;
+        this.forwardTurnKmh = Math.min(SCTurnAround.FORWARD_KMH * this.cornerSpeedScale,
+                Math.max(SCTurnAround.FORWARD_KMH, this.cruiseKmh));
         this.keepRight = keepRight;
         this.preciseArrival = preciseArrival;
         cornerArmed = new boolean[path.corners()];
@@ -275,7 +278,7 @@ final class SCRoadFollower {
      */
     void beginTurn(float heading, int side, boolean thenFollowBack) {
         parkingAlignment = false;
-        turn = new SCTurnAround(SCTurnAround.wrap(heading + (float) Math.PI), side);
+        turn = new SCTurnAround(SCTurnAround.wrap(heading + (float) Math.PI), side, forwardTurnKmh);
         followBack = thenFollowBack;
         resumeAfterTurn = false;
         initialAlignmentPending = false;
@@ -450,6 +453,7 @@ final class SCRoadFollower {
             }
             command.steering = step.steering;
             command.targetKmh = step.targetKmh;
+            command.cornerSpeed = step.targetKmh > SCTurnAround.FORWARD_KMH;
             command.maneuver = true;
             if (turn.state() == SCTurnAround.State.DONE) {
                 if (parkingAlignment) {
@@ -525,8 +529,8 @@ final class SCRoadFollower {
                 if (Math.abs(speedKmh) < TURN_FIRST_KMH) {
                     if (!preciseArrival && backOutForTurn(world,x,y,z,speedKmh,
                             halfWidth,halfLength,rearClear,nowMs,command)) return command;
-                    turn = new SCTurnAround(routeHeading,
-                            turnSide(world, x, y, z, heading));
+                    turn = new SCTurnAround(routeHeading, turnSide(world, x, y, z, heading),
+                            forwardTurnKmh);
                     followBack = false;
                     resumeAfterTurn = true;
                     initialAlignmentPending = false;
@@ -788,15 +792,17 @@ final class SCRoadFollower {
         backoffStartedAt = nowMs;
         backoffX = x;
         backoffY = y;
-        // Passing needs room to change lanes before the normal three-tile
-        // bumper hold intervenes again. Reverse straight; rotating away from
-        // the selected strip would spend that room undoing the previous turn.
-        backoffDistance = passingBlocked ? SCDriveControl.HOLD_GAP_TILES + 0.5f : BACKOFF_TILES;
-        backoffLimitMs = passingBlocked ? 6000L : BACKOFF_LIMIT_MS;
+        // A parked car outside a bend can trip both checks. Reversing straight
+        // in that case sends the same bumper into the same obstacle again.
+        // Make room to change lanes on straights and correct the angle at bends.
+        boolean correctCorner = cornerBlocked && Math.abs(command.steering) >= 0.15f;
+        boolean makePassingRoom = passingBlocked && !correctCorner;
+        backoffDistance = makePassingRoom ? SCDriveControl.HOLD_GAP_TILES + 0.5f : BACKOFF_TILES;
+        backoffLimitMs = makePassingRoom ? 6000L : BACKOFF_LIMIT_MS;
         // Reverse at the opposite lock, as a three-point turn does: the car
         // keeps rotating the way it was steering while it backs away, so the
         // next forward try meets the corner at a wider angle.
-        backoffSteering = passingBlocked || Math.abs(command.steering) < 0.15f ? 0.0f : -command.steering;
+        backoffSteering = makePassingRoom || Math.abs(command.steering) < 0.15f ? 0.0f : -command.steering;
         command.steering = backoffSteering;
         command.targetKmh = -SCTurnAround.REVERSE_KMH;
         command.maneuver = true;

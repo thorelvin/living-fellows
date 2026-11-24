@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.75 - Expedition driving
+
+- Expedition road routes use double the previous turn speed targets.
+- A short reverse corrects the car's angle when its bumper is blocked at a bend.
+- A refused parking approach logs the obstacle and its map coordinates.
+- Bridge protocol `42.22-isocompanion-35`. World save schema 3.
+
 ## 0.27.74 - Camp parking and downtime
 
 - Base-duty companions leave camp parking for shelter before starting quiet

@@ -684,6 +684,38 @@ public final class SCIntersectionTurnsTest {
         require(raw.mode!=SCRoadFollower.Mode.ARRIVED&&raw.reverseFrames==0,"raw-route bumper policy stays unchanged");
     }
 
+    private static void rosewoodCornerRecovery() {
+        Vehicle pickup = VEHICLES[2];
+        // The parked vehicle occupies the outside of the turn from Main Street.
+        SCDrivePath path = SCDrivePath.parse("8106,11732.484,8;8106,11774,8;8106,11777,6;8149.641,11777,6")
+                .withCorners(pickup.profile);
+        World world = new World() {
+            @Override int kind(int x, int y) {
+                return x >= 8105 && x <= 8107 && y >= 11779 && y <= 11784
+                        ? SCLaneScan.VEHICLE : SCLaneScan.CLEAR;
+            }
+        };
+        float halfWidth = pickup.profile.halfWidth(), halfLength = pickup.profile.halfLength();
+        SCRoadFollower follower = new SCRoadFollower(path, 30, true);
+        SCRoadFollower.Command command = new SCRoadFollower.Command();
+        follower.update(world, 8103.719f, 11766.570f, 0, 0.011f, 1, 20, halfWidth, halfLength,
+                12.4f, -1, SCLaneScan.VEHICLE, 0, command);
+        for (long now : new long[]{ 300, 300 + SCRoadFollower.WEDGE_MS }) {
+            follower.update(world, 8105.430f, 11774.312f, 0, 0.417f, 0.909f, 0, halfWidth, halfLength,
+                    2.8f, -1, SCLaneScan.VEHICLE, now, command);
+        }
+        require(Math.abs(follower.offset() - follower.laneOffset()) > 0.5f,
+                "Rosewood bumper recovery shares an active passing offset");
+        require(follower.backingOff() && command.targetKmh < 0 && command.steering > 0.15f,
+                "Rosewood reverse keeps turning left before trying forward again: steering=" + command.steering);
+
+        follower = new SCRoadFollower(path, 30, true, false, 2);
+        follower.update(world, 8108.203f, 11732.484f, 0, -0.089f, -0.996f, 0, halfWidth, halfLength,
+                -1, -1, SCLaneScan.CLEAR, 0, command);
+        require(follower.mode() == SCRoadFollower.Mode.TURNING && command.targetKmh == 8 && command.cornerSpeed,
+                "the tuned police-station departure uses the doubled forward turn target");
+    }
+
     private static void fixtures() throws java.io.IOException {
         Vehicle vehicle=VEHICLES[0];
         java.nio.file.Path file=java.nio.file.Path.of(System.getProperty("turnFixturePath",
@@ -866,6 +898,7 @@ public final class SCIntersectionTurnsTest {
         if(suite||check.equals("bumper")) bumperCorner();
         if(suite||check.equals("clearBumper")) clearBumperLookAhead();
         if(suite||check.equals("cornerRecovery")) cornerBumperRecovery();
+        if(suite||check.equals("rosewood")) rosewoodCornerRecovery();
         if(suite||check.equals("shortScan")) shortScan();
         if(suite||check.equals("filledStrip")) filledStrip();
         if(suite||check.equals("lateOffset")) lateOffsetBodySweep();

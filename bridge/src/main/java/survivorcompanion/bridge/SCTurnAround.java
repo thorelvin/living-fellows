@@ -47,6 +47,7 @@ final class SCTurnAround {
 
     private final float targetHeading;
     private final int side;
+    private final float forwardKmh;
     private State state = State.FORWARD;
     private boolean settling;
     private State nextLeg = State.FORWARD;
@@ -59,8 +60,13 @@ final class SCTurnAround {
     private String reason = "";
 
     SCTurnAround(float targetHeading, int side) {
+        this(targetHeading, side, FORWARD_KMH);
+    }
+
+    SCTurnAround(float targetHeading, int side, float forwardKmh) {
         this.targetHeading = wrap(targetHeading);
         this.side = side >= 0 ? 1 : -1;
+        this.forwardKmh = forwardKmh;
     }
 
     float targetHeading() {
@@ -171,7 +177,7 @@ final class SCTurnAround {
                 return step;
             }
             step.steering = side;
-            step.targetKmh = FORWARD_KMH;
+            step.targetKmh = forwardKmh;
             return step;
         }
         // Reverse: the opposite lock turns the car the same way round. If the
