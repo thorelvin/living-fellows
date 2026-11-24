@@ -21,6 +21,12 @@ SC.Actor = { isCompanion = function(actor) return actor and actor.id ~= nil end 
 SC.GameplayUtil = {
     nowMs = function() return T.now end,
     position = function(actor) return actor.x, actor.y, actor.z end,
+    squareOf = function(actor) return actor end,
+    squareKey = function(square)
+        return square and (math.floor(square.x) .. ":" .. math.floor(square.y) .. ":" .. math.floor(square.z))
+    end,
+    isSquareFree = function() return true end,
+    safehouseBlocker = function() return false end,
     nativeHealth = function() return T.health or 100 end,
     inventory = function(actor) return actor and actor.inventory end,
     inventoryItemsDeep = function(inventory) return inventory.items end,

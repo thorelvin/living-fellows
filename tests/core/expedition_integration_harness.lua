@@ -252,7 +252,8 @@ check(I.summary(driven).broughtBack == 0
 SC.BaseLife.isInside = campCheck
 check(select(2, I.update(driven, a)) == "car_trunk_locked"
     and cargo.container == T.car.trunk
-    and I.summary(driven).items[1].carrierId == nil,
+    and I.summary(driven).items[1].carrierId == nil
+    and I.summary(driven).trunkPending == 1,
     "locked trunk retains exact cargo")
 T.car.locked = false
 check(select(2, I.update(driven, b)) == "car_item_carried"
@@ -262,7 +263,8 @@ local carriedAfterLoad = I.copy(driven)
 I.reset()
 I.refresh(carriedAfterLoad)
 check(I.summary(carriedAfterLoad).items[1].carrierKind == "trunk"
-    and I.summary(carriedAfterLoad).items[1].carrierName == "Bob",
+    and I.summary(carriedAfterLoad).items[1].carrierName == "Bob"
+    and I.summary(carriedAfterLoad).trunkPending == 0,
     "reload retains both the trunk origin and actual named carrier")
 check(select(2, I.update(carriedAfterLoad, b))
         == "expedition_supply_stored"
@@ -448,4 +450,13 @@ check(I.settle(casualty) == true
         and I.summary(casualty).members[2].dutyReason == "new_player_order",
     "a newer order releases a member who never reached camp")
 a.dead = nil
+local scout = I.create({ radioSession = "trip:scout-restock", homeBaseId = "camp:1",
+    restockBaseDuty = true, returnCamp = {}, roster = mission.roster,
+    scout = { kind = "scout", vehicle = { sqlId = 77 } } })
+local scoutStatus = I.summary(I.copy(scout))
+check(scoutStatus and scoutStatus.kind == "scout" and scoutStatus.requested == 0
+    and scoutStatus.collected == 0 and scoutStatus.deliveryPending and #scoutStatus.items == 0,
+    "a scout restock survives a save copy without inventing cargo")
+check(I.wants(scout, a) and not I.settle(scout),
+    "the empty scout receipt still runs the existing restock and base duty work")
 print("EXPEDITION_INTEGRATION_PASS checks=" .. checks)

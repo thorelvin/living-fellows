@@ -114,6 +114,17 @@ local function returnHandoffText(reason)
     if not reason then return nil end
     if reason == "return_to_camp_for_delivery" then return tr("UI_SC_Expedition_EnteringCamp") end
     if reason == "return_camp_entry_unavailable" then return tr("UI_SC_Expedition_CampEntryBlocked") end
+    local keys = {
+        return_marked_camp_changed = "UI_SC_Expedition_CampChanged",
+        return_camp_assembling = "UI_SC_Expedition_CampAssembling",
+        return_camp_unsafe = "UI_SC_Expedition_CampUnsafe",
+        return_camp_safety_check = "UI_SC_Expedition_CampSafetyCheck",
+        return_camp_primary_map_wait = "UI_SC_Expedition_CampPrimaryMapWait",
+        return_delivery_queue_full = "UI_SC_Expedition_CampQueueFull",
+        return_delivery_save_wait = "UI_SC_Expedition_CampSaveWait",
+        return_car_stop_unverified = "UI_SC_Expedition_CampCarWait",
+    }
+    if keys[reason] then return tr(keys[reason]) end
     if reason == "return_member_not_assembled" then return tr("UI_SC_Expedition_MeetReturningCrew") end
     return tr("UI_SC_Expedition_ReturnHandoffWaiting")
 end
@@ -232,6 +243,10 @@ function Planner.viewStructureSignature()
         Planner.departurePreparationSignature(view and view.departurePreparation),
         tostring(view and view.observedPhase or ""),
         tostring(view and view.returnHandoff or ""),
+        tostring(view and view.boarding and view.boarding.seated or ""),
+        tostring(view and view.boarding and view.boarding.total or ""),
+        tostring(view and view.boarding and view.boarding.name or ""),
+        tostring(view and view.boarding and view.boarding.reason or ""),
         tostring(view and view.vehicleRecoveryRemainingSeconds ~= nil),
         tostring(view and view.visibleMembers or 0),
         tostring(view and view.supplyProgress
@@ -366,6 +381,7 @@ local function selectedPlace(draft)
     if draft.mapTarget and draft.kind ~= "wood" then return draft.mapPlace end
     if draft.kind == "wood" then return draft.forestSite end
     if draft.kind == "fuel" then return draft.fuelSite end
+    if draft.repeatPlace and draft.repeatPlace.id == draft.placeId then return draft.repeatPlace end
     for _, place in ipairs(draft.places or {}) do
         if place.id == draft.placeId then return place end
     end
@@ -445,7 +461,7 @@ end
 function Planner.refreshForestPreview(detail)
     local draft = detail and detail.expeditionDraft
     local expedition = SC.ExpeditionPrototype
-    if not draft or draft.kind ~= "wood" or draft.woodPreviewComplete
+    if not draft or draft.repeatTripId and draft.review or draft.kind ~= "wood" or draft.woodPreviewComplete
         or not expedition or expedition.current()
         or type(expedition.previewWoodCollection) ~= "function" then return false end
     local records, teamReason = currentTeam(detail)
@@ -468,7 +484,8 @@ end
 function Planner.refreshFuelPreview(detail)
     local draft=detail and detail.expeditionDraft
     local expedition=SC.ExpeditionPrototype
-    if not draft or draft.kind~="fuel" or draft.fuelPreviewComplete or not expedition or expedition.current() then return false end
+    if not draft or draft.repeatTripId and draft.review or draft.kind~="fuel"
+        or draft.fuelPreviewComplete or not expedition or expedition.current() then return false end
     local now=SC.GameplayUtil.nowMs()
     if draft.fuelPreviewAt and now<draft.fuelPreviewAt then return false end
     draft.fuelPreviewAt=now+100
@@ -489,6 +506,7 @@ local function onSelect(detail, combo)
     local option = combo:getOptionData(combo.selected)
     if not option then return end
     local draft = detail.expeditionDraft
+    local before = draft[combo.scField]
     draft[combo.scField] = option.value
     draft.preview, draft.previewError = nil, nil
     draft.woodPreviewComplete, draft.forestSite = nil, nil
@@ -498,15 +516,20 @@ local function onSelect(detail, combo)
     if draft.kind == "wood" and draft.woodQuantity == nil then draft.woodQuantity = 12 end
     if combo.scField == "group" then
         draft.leaderId = nil
-        local preferred = SC.ExpeditionCar and
-            SC.ExpeditionCar.preference(draft.group) or nil
-        draft.parkingZoneId = preferred and preferred.zoneId or nil
-        draft.vehicleSqlId = preferred and preferred.sqlId or nil
+        if draft.repeatTripId then
+            if before ~= option.value then draft.repeatCrew = nil end
+        else
+            local preferred = SC.ExpeditionCar and SC.ExpeditionCar.preference(draft.group) or nil
+            draft.parkingZoneId = preferred and preferred.zoneId or nil
+            draft.vehicleSqlId = preferred and preferred.sqlId or nil
+        end
     end
     if combo.scField == "parkingZoneId" then draft.vehicleSqlId = nil end
     if draft.mapTarget and (draft.mapTarget.kind == "scout" or draft.mapTarget.kind == "search")
         and (draft.kind == "scout" or draft.kind == "search") then draft.mapTarget.kind = draft.kind end
-    if combo.scField == "placeId" then draft.mapTarget, draft.mapPlace = nil, nil end
+    if combo.scField == "placeId" then
+        draft.mapTarget, draft.mapPlace, draft.repeatPlace, draft.repeatLabel = nil, nil, nil, nil
+    end
     if (combo.scField == "parkingZoneId"
         or combo.scField == "vehicleSqlId") and SC.ExpeditionCar then
         SC.ExpeditionCar.setPreference(draft.group, draft.parkingZoneId,
@@ -515,7 +538,9 @@ local function onSelect(detail, combo)
     if combo.scField == "group" or combo.scField == "leaderId"
         or combo.scField == "kind" then
         draft.placesLoaded = false
-        if not draft.mapTarget then draft.placeId = nil end
+        if not draft.mapTarget and (not draft.repeatTripId or combo.scField == "kind") then
+            draft.placeId, draft.repeatPlace, draft.repeatLabel = nil, nil, nil
+        end
         draft.placePage = 1
     end
     draft.review = false
@@ -564,6 +589,23 @@ currentTeam = function(detail)
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
     local rows = squadRows(detail, draft.group)
+    if draft.repeatTripId and SC.Registry and SC.Registry.records then
+        rows = {}
+        for _, record in ipairs(SC.Registry.records()) do
+            local state = SC.Commands.describe(record.id, player)
+            if state and state.recruited == true and state.group == draft.group then
+                rows[#rows + 1] = record
+            end
+        end
+    end
+    if draft.repeatCrew then
+        local present = {}
+        for _, row in ipairs(rows) do present[row.id] = true end
+        if #rows ~= #draft.repeatCrew then return nil, "repeat_squad_changed" end
+        for _, id in ipairs(draft.repeatCrew) do
+            if not present[id] then return nil, "repeat_squad_changed" end
+        end
+    end
     if #rows < 1 then return nil, "squad_empty" end
     if #rows > 4 then return nil, "squad_too_large" end
     local records = {}
@@ -574,12 +616,20 @@ currentTeam = function(detail)
         if not record or not record.actor or not state
             or state.recruited ~= true or state.group ~= draft.group
             or state.alive == false or state.available == false then
-            return nil, "squad_changed"
+            return nil, draft.repeatCrew and "repeat_squad_changed" or "squad_changed"
         end
         if row.id == draft.leaderId then leader = record
         else records[#records + 1] = record end
     end
     if not leader then return nil, "leader_unavailable" end
+    if draft.repeatCrew then
+        local byId, ordered = {}, {}
+        for _, record in ipairs(records) do byId[record.id] = record end
+        for _, id in ipairs(draft.repeatCrew) do
+            if id ~= leader.id then ordered[#ordered + 1] = byId[id] end
+        end
+        records = ordered
+    end
     table.insert(records, 1, leader)
     return records
 end
@@ -746,12 +796,77 @@ local function tripOptions(draft)
             {category=draft.kind=="fish" and "fish" or draft.category,quantity=draft.quantity} or nil}
 end
 
+local function previewPlace(team, place, draft)
+    local expedition = SC.ExpeditionPrototype
+    if draft.travelMode == "drive" then
+        return expedition.previewDrive(team, place, draft.kind == "fish",
+            draft.parkingZoneId, draft.vehicleSqlId)
+    end
+    local preview = draft.kind == "fish" and expedition.previewAtFishingBank or expedition.previewAtPlace
+    return preview(team[1], place, draft.travelMode)
+end
+
+function Planner.reviewRepeat(detail, team, teamIssue)
+    local draft, expedition = detail.expeditionDraft, SC.ExpeditionPrototype
+    local options, reason, preview = tripOptions(draft), teamIssue
+    draft.review, draft.preview, draft.repeatReadiness, draft.reviewFingerprint = true, nil, nil, nil
+    if team then
+        if draft.mapTarget then
+            local fresh
+            fresh, reason = SC.ExpeditionTargets.validate(draft.mapTarget, mapContext(detail))
+            draft.mapPlace = fresh and fresh.place or nil
+            if fresh and fresh.kind == draft.kind then
+                preview, reason = expedition.previewMapTarget(team, fresh, options)
+                draft.reviewFingerprint = SC.ExpeditionTargets.reviewFingerprint(draft.mapTarget, options, team)
+            else
+                reason = reason or "map_target_changed"
+            end
+        elseif draft.kind == "wood" then
+            preview, reason = expedition.previewWoodCollection(team, options)
+            draft.forestSite = preview and preview.site
+        elseif draft.kind == "fuel" then
+            preview, reason = expedition.previewFuelCollection(team, options)
+            draft.fuelSite = preview and preview.site
+        elseif draft.placeId then
+            draft.repeatPlace, reason = expedition.resolvePlace(team[1], draft.placeId, draft.kind)
+            if draft.repeatPlace then preview, reason = previewPlace(team, draft.repeatPlace, draft) end
+        else
+            reason = "destination_required"
+        end
+    end
+    if preview then
+        draft.repeatReadiness = expedition.repeatReadiness(team, draft.kind, preview)
+        local parts = { tostring(preview.carSqlId), tostring(preview.site and preview.site.id) }
+        for _, row in ipairs(draft.repeatReadiness) do
+            parts[#parts + 1] = tostring(row.name) .. ":" .. tostring(row.reason)
+        end
+        draft.repeatFingerprint = table.concat(parts, "|")
+    end
+    draft.preview, draft.previewError = preview, reason
+    return preview ~= nil, reason
+end
+
+function Planner.repeatDraft(plan)
+    local request, target = plan.request, plan.target
+    return { kind = plan.kind, group = plan.group, leaderId = plan.leaderId,
+        style = plan.doctrine, hours = plan.hours, travelMode = plan.travelMode,
+        restockBaseDuty = plan.restock, parkingZoneId = plan.parkingZoneId, vehicleSqlId = plan.vehicleSqlId,
+        repeatTripId = plan.tripId, repeatCrew = plan.crew, repeatLabel = plan.label,
+        mapTarget = target, placeId = target and target.id or plan.placeId,
+        category = plan.kind == "search" and request.category or "food",
+        quantity = (plan.kind == "search" or plan.kind == "fish") and request.quantity or 4,
+        woodQuantity = plan.kind == "wood" and (request.quantity or request.mode) or nil,
+        fuelQuantity = plan.kind == "fuel" and (request.quantity or request.mode) or nil,
+        places = {}, placePage = 1, browsePlaces = plan.intent == "place", review = true }
+end
+
 function Planner.applyMapTarget(detail,target,review)
     local draft=detail.expeditionDraft
     if not draft then return false end
     draft.kind=target.kind
     draft.browsePlaces=false
     draft.mapTarget=SC.ExpeditionTargets.copy(target)
+    draft.repeatPlace,draft.repeatLabel=nil,nil
     draft.placeId=target.id
     draft.review,draft.preview,draft.previewError=false,nil,nil
     draft.woodPreviewComplete,draft.forestSite=nil,nil
@@ -768,7 +883,9 @@ end
 
 local function dispatch(detail)
     local draft = detail.expeditionDraft
-    if draft.kind ~= "wood" and draft.kind~="fuel" and not selectedPlace(draft) then return false, "destination_changed" end
+    if not draft.repeatTripId and draft.kind ~= "wood" and draft.kind~="fuel" and not selectedPlace(draft) then
+        return false, "destination_changed"
+    end
     local expedition = SC.ExpeditionPrototype
     if not expedition or type(expedition.startAtPlace) ~= "function"
         or SCSplitScreenProbe == nil then
@@ -777,6 +894,13 @@ local function dispatch(detail)
     if expedition.current() then return false, "expedition_already_active" end
     local records, reason = currentTeam(detail)
     if not records then return false, reason end
+    if draft.repeatTripId then
+        if not draft.review or not draft.preview then return false, "review_required" end
+        local former = draft.repeatFingerprint
+        local ready, issue = Planner.reviewRepeat(detail, records)
+        if not ready then return false, woodReason(issue) end
+        if former ~= draft.repeatFingerprint then return false, tr("UI_SC_Expedition_RepeatCheckChanged") end
+    end
     if draft.mapTarget then
         local options=tripOptions(draft)
         if not draft.review or draft.reviewFingerprint~=SC.ExpeditionTargets.reviewFingerprint(draft.mapTarget,options,records) then
@@ -786,24 +910,17 @@ local function dispatch(detail)
         if not target or target.kind~=draft.kind then return false,SC.ExpeditionMap.reason(why or "map_target_changed") end
         draft.mapPlace=target.place
     end
-    local options = { mapTarget = draft.mapTarget, turnHomeAfterHours = draft.hours,
-        doctrine = draft.style, travelMode = draft.travelMode,
-        restockBaseDuty = draft.restockBaseDuty == true,
-        parkingZoneId = draft.parkingZoneId,
-        vehicleSqlId = draft.vehicleSqlId }
+    local options = tripOptions(draft)
+    local place = selectedPlace(draft)
+    options.repeatSelection = { group = draft.group, placeId = draft.placeId, label = place and place.label }
     if draft.kind == "wood" then
         if type(expedition.startWoodCollection) ~= "function" then return false, "wood_expedition_unavailable" end
-        local called, accepted, failure = pcall(expedition.startWoodCollection, records, woodOptions(draft))
+        local called, accepted, failure = pcall(expedition.startWoodCollection, records, options)
         return called and accepted == true, called and woodReason(failure) or tostring(accepted)
     end
     if draft.kind=="fuel" then
-        local called,accepted,failure=pcall(expedition.startFuelCollection,records,fuelOptions(draft))
+        local called,accepted,failure=pcall(expedition.startFuelCollection,records,options)
         return called and accepted==true,called and woodReason(failure) or tostring(accepted)
-    end
-    if draft.kind == "search" or draft.kind == "fish" then
-        options.request = { category = draft.kind == "fish" and "fish"
-                or draft.category,
-            quantity = draft.quantity }
     end
     local ok, accepted, result, memberName
     if draft.kind == "fish" then
@@ -823,7 +940,26 @@ end
 function Planner.onButton(detail, button)
     local draft = detail.expeditionDraft
     local action = button.scExpeditionAction
-    if action == "choose_map" then
+    if action == "repeat" then
+        local expedition = SC.ExpeditionPrototype
+        local debrief = not expedition.current() and expedition.lastDebrief and expedition.lastDebrief()
+        local plan = debrief and debrief.repeatPlan
+        if not plan or plan.tripId ~= button.scTripId then return end
+        draft = Planner.repeatDraft(plan)
+        detail.expeditionDraft = draft
+        local team, reason = currentTeam(detail)
+        Planner.reviewRepeat(detail, team, reason)
+        detail:rebuild(true)
+        return
+    elseif action == "use_current_squad" and draft.repeatTripId then
+        draft.repeatCrew = nil
+        local members = squadRows(detail, draft.group)
+        local hasLeader = false
+        for _, row in ipairs(members) do if row.id == draft.leaderId then hasLeader = true break end end
+        if not hasLeader then draft.leaderId = members[1] and members[1].id end
+        local team, reason = currentTeam(detail)
+        Planner.reviewRepeat(detail, team, reason)
+    elseif action == "choose_map" then
         local owner=detail.root
         local opened,reason=SC.ExpeditionMap.begin(owner,draft,function() return mapContext(detail) end,
             function(target) Planner.applyMapTarget(detail,target,true) end,nil,
@@ -889,11 +1025,13 @@ function Planner.onButton(detail, button)
         draft.places = places or {}
         draft.placesTotal = total or 0
         draft.placeError = places and nil or reason
-        if not selectedPlace(draft) then draft.placeId = nil end
+        if not draft.repeatTripId and not selectedPlace(draft) then draft.placeId = nil end
         draft.review = false
     elseif action == "review" then
         local team, reason = currentTeam(detail)
-        if draft.mapTarget then
+        if draft.repeatTripId then
+            Planner.reviewRepeat(detail, team, reason)
+        elseif draft.mapTarget then
             if not team then feedback(detail,tr("UI_SC_Expedition_Failed",reason),false) detail:rebuild(true) return end
             local fresh,why=SC.ExpeditionTargets.validate(draft.mapTarget,mapContext(detail))
             if not fresh or fresh.kind~=draft.kind then
@@ -920,17 +1058,8 @@ function Planner.onButton(detail, button)
             feedback(detail, message, false)
             detail:rebuild(true)
             return
-        elseif draft.travelMode == "drive" then
-            draft.preview, draft.previewError =
-                SC.ExpeditionPrototype.previewDrive(team,
-                    selectedPlace(draft), draft.kind == "fish",
-                    draft.parkingZoneId, draft.vehicleSqlId)
         else
-            local preview = draft.kind == "fish"
-                and SC.ExpeditionPrototype.previewAtFishingBank
-                or SC.ExpeditionPrototype.previewAtPlace
-            draft.preview, draft.previewError = preview(
-                team[1], selectedPlace(draft), draft.travelMode)
+            draft.preview, draft.previewError = previewPlace(team, selectedPlace(draft), draft)
         end
         draft.review = true
     elseif action == "edit" then
@@ -963,13 +1092,19 @@ function Planner.onButton(detail, button)
         end
         feedback(detail, ok and (preparation or tr("UI_SC_Expedition_Departed"))
             or tr("UI_SC_Expedition_Failed", reason), ok)
-        if ok then draft.review = false end
+        if ok then
+            draft.review, draft.repeatTripId, draft.repeatCrew = false, nil, nil
+        end
     end
     detail:rebuild(action ~= "review")
 end
 
 local function addDeliveryItems(detail, panel, y, report)
-    if report.kind=="fuel" then
+    if report.kind == "scout" then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr(report.deliveryPending and "UI_SC_Expedition_ScoutRestockPending"
+                or "UI_SC_Expedition_ScoutRestockComplete"))
+    elseif report.kind=="fuel" then
         y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelProgress",
             report.filled or 0,report.requested or report.cans or 0,string.format("%.1f",report.carFuelAdded or 0),
             string.format("%.1f",report.carriedLitres or 0),string.format("%.1f",report.storedLitres or 0)))
@@ -1001,6 +1136,14 @@ local function addDeliveryItems(detail, panel, y, report)
         tr("UI_SC_Expedition_DeliveryCounts", report.requested,
             report.collected, report.broughtBack,
             report.stored, report.pending))
+    end
+    if (report.trunkPending or 0) > 0 then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_TrunkDeliveryCount", report.trunkPending))
+    end
+    if (report.trunkUnverified or 0) > 0 then
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_TrunkLastSeen", report.trunkUnverified))
     end
     local maximum = (report.kind == "wood" or report.version == 2) and 8 or 16
     for index, row in ipairs(report.items) do
@@ -1072,6 +1215,9 @@ local function addReturnReports(detail, panel, y, expedition)
             tr("UI_SC_Expedition_CarAbandoned",
                 math.floor(debrief.abandonedCarAt.x),
                 math.floor(debrief.abandonedCarAt.y)))
+    end
+    if debrief and debrief.repeatPlan and not expedition.current() then
+        y = addButton(detail, panel, y, "UI_SC_Expedition_Repeat", "repeat", debrief.repeatPlan.tripId)
     end
     local older
     for _, report in ipairs(expedition and expedition.pendingDeliveryReports
@@ -1149,6 +1295,26 @@ function Planner.build(detail, panel)
         if view and view.vehicleState and not view.departurePreparation then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_CarState", view.vehicleState))
+        end
+        local boarding = view and view.boarding
+        if boarding then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr(boarding.partial and "UI_SC_Expedition_BoardingVisible"
+                    or "UI_SC_Expedition_BoardingCount", boarding.seated, boarding.total))
+            if boarding.name then
+                local reasonKeys = {
+                    boarding_zombies_nearby = "UI_SC_Expedition_BoardingThreat",
+                    waiting_for_driver_unlock = "UI_SC_Expedition_BoardingLock",
+                    waiting_for_door_clearance = "UI_SC_Expedition_BoardingClearance",
+                    walking_to_door = "UI_SC_Expedition_BoardingApproach",
+                    path_searching = "UI_SC_Expedition_BoardingApproach",
+                    path_following = "UI_SC_Expedition_BoardingApproach",
+                }
+                local key = reasonKeys[boarding.reason]
+                local reason = key and tr(key) or tostring(boarding.reason):gsub("_", " ")
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_BoardingMember", boarding.name, reason))
+            end
         end
         if view and view.vehicleIssue then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -1261,7 +1427,7 @@ function Planner.build(detail, panel)
         for _, row in ipairs(initialMembers) do
             if row.id == draft.leaderId then found = true break end
         end
-        if not found then draft.leaderId = initialMembers[1].id end
+        if not found and not draft.repeatCrew then draft.leaderId = initialMembers[1].id end
     end
     if draft.kind=="fuel" then
         draft.travelMode="drive"
@@ -1269,7 +1435,8 @@ function Planner.build(detail, panel)
     elseif draft.kind == "wood" and not draft.mapTarget then
         if draft.woodQuantity == nil then draft.woodQuantity = 12 end
         Planner.refreshForestPreview(detail)
-    elseif (not draft.mapTarget or draft.browsePlaces) and not draft.placesLoaded then
+    elseif (not draft.repeatTripId or not draft.review)
+        and (not draft.mapTarget or draft.browsePlaces) and not draft.placesLoaded then
         local candidates = draft.kind == "fish"
             and expedition.fishingBankCandidates
             or expedition.placeCandidates
@@ -1282,7 +1449,7 @@ function Planner.build(detail, panel)
     if draft.review then
         local place = selectedPlace(draft)
         local team = squadRows(detail, draft.group)
-        local leaderName = tr("UI_SC_Expedition_SquadMember")
+        local leaderName = memberName(draft.leaderId)
         for _, row in ipairs(team) do
             if row.id == draft.leaderId then leaderName = memberName(row) break end
         end
@@ -1293,8 +1460,8 @@ function Planner.build(detail, panel)
         y = detail:addSection(panel, y + 4, "UI_SC_Expedition_Review")
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_Summary", draft.kind, draft.group,
-                leaderName, #team,
-                place and place.label or "?", draft.hours,
+                leaderName, draft.repeatCrew and #draft.repeatCrew or #team,
+                place and place.label or draft.mapTarget and draft.mapTarget.label or draft.repeatLabel or "?", draft.hours,
                 styleName))
         if draft.kind=="fuel" then
             y=detail:addInformationLine(panel,y,"UI_SC_Info_Message",tr("UI_SC_Expedition_FuelPlan"))
@@ -1373,8 +1540,20 @@ function Planner.build(detail, panel)
                     tr("UI_SC_Expedition_RouteProvisional"))
             end
         elseif draft.previewError then
+            local reason = draft.previewError == "repeat_squad_changed" and tr("UI_SC_Expedition_RepeatCrewChanged")
+                or woodReason(draft.previewError)
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-                tr("UI_SC_Expedition_Failed", draft.previewError))
+                tr("UI_SC_Expedition_Failed", reason))
+        end
+        if draft.repeatTripId then
+            for _, row in ipairs(draft.repeatReadiness or {}) do
+                local reason = row.reason == "pack_space_needed" and tr("UI_SC_Expedition_RepeatPackSpace", memberName(row.name))
+                    or row.reason == "pack_space_unknown" and tr("UI_SC_Expedition_RepeatPackUnknown", memberName(row.name))
+                    or row.reason == "fishing_rod_missing" and tr("UI_SC_Expedition_FishingRodWaiting", memberName(row.name))
+                    or row.reason == "fishing_bait_missing" and tr("UI_SC_Expedition_FishingBaitWaiting", memberName(row.name))
+                    or woodReason(row.reason)
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message", reason)
+            end
         end
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_RadioHint"))
@@ -1383,6 +1562,13 @@ function Planner.build(detail, panel)
                 draft.restockBaseDuty and tr("UI_SC_Expedition_Yes")
                     or tr("UI_SC_Expedition_No")))
         y = addButton(detail, panel, y + 4, "UI_SC_Expedition_Edit", "edit")
+        if draft.repeatTripId and not draft.preview then
+            if draft.repeatCrew and (draft.previewError == "repeat_squad_changed"
+                or draft.previewError == "leader_unavailable") then
+                y = addButton(detail, panel, y, "UI_SC_Expedition_RepeatUseSquad", "use_current_squad")
+            end
+            return addButton(detail, panel, y, "UI_SC_Expedition_RepeatRecheck", "review")
+        end
         if (draft.kind == "wood" or draft.kind=="fuel" or draft.mapTarget) and not draft.preview then
             return detail:addInformationLine(panel, y, "UI_SC_Info_Message", woodReason(draft.previewError))
         end
@@ -1406,7 +1592,14 @@ function Planner.build(detail, panel)
         for _, option in ipairs(leaderOptions) do
             if option.value == draft.leaderId then present = true break end
         end
-        if not present then draft.leaderId = leaderOptions[1].value end
+        if not present then
+            if draft.repeatCrew then
+                leaderOptions[#leaderOptions + 1] = { value = draft.leaderId,
+                    label = tr("UI_SC_Expedition_RepeatLeaderMissing") }
+            else
+                draft.leaderId = leaderOptions[1].value
+            end
+        end
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Leader",
             "leaderId", leaderOptions)
     end
@@ -1446,17 +1639,15 @@ function Planner.build(detail, panel)
             {value="full",key="UI_SC_Expedition_FuelFull"},{value="car",key="UI_SC_Expedition_FuelCarOnly"},
             {value=1,label="1"},{value=2,label="2"},{value=4,label="4"},{value=8,label="8"},{value=12,label="12"},{value=24,label="24"}})
     end
-    if draft.kind == "search" or draft.kind == "fish" or draft.kind == "wood" then
-        if draft.kind ~= "wood" then
+    if draft.kind == "search" or draft.kind == "fish" then
         y = addSelector(detail, panel, y, "UI_SC_Expedition_Quantity",
             "quantity", QUANTITIES)
-        end
-        y = addSelector(detail, panel, y,
-            "UI_SC_Expedition_RestockBaseDuty", "restockBaseDuty", {
-                { value = false, key = "UI_SC_Expedition_No" },
-                { value = true, key = "UI_SC_Expedition_Yes" },
-            })
     end
+    y = addSelector(detail, panel, y,
+        "UI_SC_Expedition_RestockBaseDuty", "restockBaseDuty", {
+            { value = false, key = "UI_SC_Expedition_No" },
+            { value = true, key = "UI_SC_Expedition_Yes" },
+        })
     y = addSelector(detail, panel, y, "UI_SC_Expedition_TurnHome",
         "hours", TIMES)
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Combat",
@@ -1544,10 +1735,17 @@ function Planner.build(detail, panel)
     local places = { { value = nil, key = draft.kind == "fish"
         and "UI_SC_Expedition_SelectBank"
         or "UI_SC_Expedition_SelectPlace" } }
+    local selectedListed = false
     for _, place in ipairs(draft.places) do
         local suffix = place.street and (" - " .. place.street) or ""
         places[#places + 1] = { value = place.id,
             label = place.label .. suffix .. " (" .. tostring(place.distance or "?") .. " meters)" }
+        if place.id == draft.placeId then selectedListed = true end
+    end
+    if draft.repeatTripId and draft.placeId and not selectedListed then
+        local place = selectedPlace(draft)
+        places[#places + 1] = { value = draft.placeId,
+            label = place and place.label or tr("UI_SC_Expedition_RepeatDestinationMissing", draft.repeatLabel or "?") }
     end
     y = addSelector(detail, panel, y, draft.kind == "fish"
         and "UI_SC_Expedition_FishingDestination"

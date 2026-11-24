@@ -85,6 +85,7 @@ local function commandsFor(actor)
                 if homecoming and homecoming.scout
                     and homecoming.scout.phase == "awaiting_player"
                     and not homecoming.scout.wood
+                    and not homecoming.returnCamp
                     and homecoming.integration
                     and value.order == "base_duty" then
                     return value
@@ -127,8 +128,18 @@ local function commandsFor(actor)
                     SC.ExpeditionPrototype.searchSiteRadiusFor(actor)
                 missionOrder.tacticalTarget = nil
                 missionOrder.pendingInteraction = nil
-                local waypoint = SC.ExpeditionPrototype.testWaypointFor(actor)
-                missionOrder.expeditionHomeApproach = SC.ExpeditionPrototype.campEntryFor
+                local rally, arriving
+                if SC.ExpeditionPrototype.campRallyTargetFor then
+                    rally, arriving = SC.ExpeditionPrototype.campRallyTargetFor(actor)
+                end
+                local waypoint = rally
+                if arriving then
+                    missionOrder.order = "stay"
+                else
+                    waypoint = SC.ExpeditionPrototype.testWaypointFor(actor)
+                end
+                missionOrder.expeditionCampRally = rally ~= nil
+                missionOrder.expeditionHomeApproach = rally ~= nil or SC.ExpeditionPrototype.campEntryFor
                     and SC.ExpeditionPrototype.campEntryFor(actor) or SC.HomeTrip
                     and SC.HomeTrip.finalApproachFor and SC.HomeTrip.finalApproachFor(actor) == true
                 local phase = expedition and expedition.scout
@@ -147,7 +158,7 @@ local function commandsFor(actor)
                     missionOrder.order = "move_to"
                     missionOrder.moveMode = "walk"
                     missionOrder.tacticalTarget = waypoint
-                    missionOrder.doorBashAsLastResort = true
+                    missionOrder.doorBashAsLastResort = rally == nil
                 end
                 if type(SC.ExpeditionPrototype.siteEntryTargetsFor) == "function" then
                     local entryTargets, portal, outside = SC.ExpeditionPrototype.siteEntryTargetsFor(actor)
@@ -2126,7 +2137,7 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
             -- leader needs the right of way to get the whole team through.
             movementPriority = commands.expeditionTravelCombat and 90 or nil,
         })
-        if ok and navigationArrived(actor, target, status) then
+        if ok and not commands.expeditionCampRally and navigationArrived(actor, target, status) then
             if SC.ExpeditionPrototype
                 and SC.ExpeditionPrototype.testWaypointFor(actor) then
                 SC.ExpeditionPrototype.noteTestWaypointArrived(actor)

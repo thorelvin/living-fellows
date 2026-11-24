@@ -3424,4 +3424,115 @@ do
     verifyWalkingReturn()
 end
 
+;(function()
+    local camp = { id = "flow-camp", core = { x = 25, y = 25, z = 0 } }
+    local area = { x1 = 23, y1 = 23, x2 = 28, y2 = 28 }
+    SC.BaseLife = {
+        active = function() return camp end,
+        isInside = function(value)
+            if value.x >= area.x1 and value.x < area.x2 + 1
+                and value.y >= area.y1 and value.y < area.y2 + 1 then return true, area end
+            return false
+        end,
+    }
+    SC.GameplayUtil.position = function(value) return value.x, value.y, value.z or 0 end
+    SC.GameplayUtil.sameSquare = function(a, b) return a.x == b.x and a.y == b.y and a.z == b.z end
+    SC.Vehicle = { isNativeSeated = function() return false end }
+    SC.Registry.isValidId = function(id) return id == "delta" end
+    SC.ExpeditionIntegration.create = function(active)
+        return { version = 1, kind = "scout", tripId = active.radioSession, baseId = camp.id,
+            restock = true, requested = 0, items = {}, members = {}, campHandoff = true }
+    end
+    SC.ExpeditionIntegration.refresh = function() end
+    local primaryOwns, danger, expireDuringSave = false, false, false
+    local flushed, saves, releasings, checkpoint = 0, 0, 0
+    local settled = {}
+    SC.ExpeditionIntegration.settle = function(row) return settled[row.tripId] == true end
+    SC.Senses.cached = function()
+        return { valid = true, reflexTime = scoutClock, immediateCount = danger and 1 or 0 }
+    end
+    SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp = function(crew, x, y, z)
+        check(#crew == 1 and crew[1] == reserve and x == 25 and y == 25 and z == 0,
+            "camp release passes the original exact survivor and arrival square")
+        return primaryOwns
+    end
+    SCSplitScreenProbe.persistCampLeaderSlotForReuse = SCSplitScreenProbe.persistJoinedLeaderSlotForReuse
+    SCSplitScreenProbe.releaseJoinedLeaderAtCamp = function()
+        check(flushed == 2 and primaryOwns, "only a saved exact delivery may release the primary-owned view")
+        releasings = releasings + 1
+        return SCSplitScreenProbe.releaseJoinedLeader()
+    end
+    SCSplitScreenProbe.flushGlobalModDataForWorldExit = function()
+        flushed = flushed + 1
+        if expireDuringSave then primaryOwns = false end
+        return true
+    end
+    SC.Persistence = { save = function(viewer)
+        check(viewer == player and slot1 == reserve, "save runs before crew release")
+        checkpoint = expedition.export()
+        saves = saves + 1
+        return true
+    end }
+    local full = {}
+    for index = 1, 32 do
+        full[index] = { version = 1, tripId = "flow-pending-" .. index, requested = 1,
+            restock = false, members = {}, items = {} }
+    end
+    check(expedition.restore({ schema = 2, state = "idle", slotSqlId = 2, deliveries = full }),
+        "existing unsettled deliveries occupy every queue slot")
+    reserve.x, reserve.y = 25, 25
+    player.x, player.y = 46, 24
+    function player:getZ() return 1 end
+    local started, active = expedition.start({ { id = "delta", actor = reserve } }, {
+        kind = "scout", destination = { x = 65, y = 25, z = 0 }, travelMode = "straight",
+        doctrine = "stealth", turnHomeAfterHours = 4, restockBaseDuty = true,
+        repeatSelection = { group = "alpha", placeId = "65:25:68:28", label = "Police station" },
+    })
+    check(started and active.returnCamp and active.repeatPlan and active.scout.returnPoint.x == 25,
+        "departing Scout records the marked camp and approved repeat selections")
+    active.scout.phase = "awaiting_player"
+    local function refused(expected)
+        local okay, why = expedition.finishAtPlayer(player, active.returnCamp)
+        check(not okay and why == expected and slot1 == reserve and releasings == 0,
+            "camp handoff waits with its original view: " .. tostring(why))
+    end
+    refused("return_camp_primary_map_wait")
+    primaryOwns, danger = true, true
+    refused("return_camp_unsafe")
+    danger = false
+    reserve.x = 30
+    refused("return_member_not_assembled")
+    SC.GameplayUtil.gridSquare = function(x, y, z)
+        if x == 25 and y == 25 then return { x = x, y = y, z = z } end
+    end
+    SC.GameplayUtil.squareOf = function(actor) return actor end
+    SC.GameplayUtil.safehouseBlocker = function() return false end
+    expedition._stageCampRally(active.returnCamp, scoutClock)
+    local stand = expedition.campRallyTargetFor(reserve)
+    check(stand and stand.x == 25 and stand.y == 25,
+        "the same existing foot-order path gathers an unloaded member at a clear marked square")
+    reserve.x = 25
+    local settledStand, holding = expedition.campRallyTargetFor(reserve)
+    check(settledStand == nil and holding,
+        "an arrived member holds at the camp through the final ownership checks")
+    refused("return_delivery_queue_full")
+    check(saves == 0 and #expedition.export().deliveries == 32,
+        "a full delivery queue keeps every exact receipt and the active crew")
+    settled["flow-pending-7"] = true
+    expireDuringSave = true
+    refused("return_camp_primary_map_wait")
+    check(checkpoint.integration.tripId == active.radioSession and #checkpoint.deliveries == 31
+        and checkpoint.repeatPlan.placeId == "65:25:68:28",
+        "the active save holds the new receipt exactly once before UI destruction")
+    expireDuringSave, primaryOwns = false, true
+    check(expedition.finishAtPlayer(player, active.returnCamp) and slot1 == nil,
+        "the same distant upstairs player can release a safe, primary-owned arrival")
+    local idle = expedition.export()
+    check(#idle.deliveries == 32 and idle.deliveries[32].tripId == active.radioSession
+        and idle.debrief.integration.kind == "scout" and #idle.debrief.integration.items == 0,
+        "Scout transfers its restock-only delivery once without evicting work")
+    check(expedition.restore(idle) and expedition.lastDebrief().repeatPlan.leaderId == "delta",
+        "idle restore preserves the accepted Repeat and the debrief")
+end)()
+
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

@@ -372,6 +372,9 @@ public final class SCNativeBridgeExposureTest {
                 + "    and SCSplitScreenProbe.acknowledgeRemoteArrival ~= nil\n"
                 + "    and SCSplitScreenProbe.remoteArrivalSlotSqlId ~= nil\n"
                 + "    and SCSplitScreenProbe.primaryAreaContains ~= nil\n"
+                + "    and SCSplitScreenProbe.releaseJoinedLeaderAtCamp ~= nil\n"
+                + "    and SCSplitScreenProbe.persistCampLeaderSlotForReuse ~= nil\n"
+                + "    and not SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp({}, 500, 500, 0)\n"
                 + "    and SCSplitScreenProbe.primaryRetainsHomeVehicle ~= nil\n"
                 + "    and not SCSplitScreenProbe.primaryRetainsHomeVehicle(nil, -1)\n"
                 + "    and not SCSplitScreenProbe.primaryAreaContains(500, 500, 0)\n"
@@ -425,7 +428,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.22-isocompanion-35".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.22-isocompanion-36".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");

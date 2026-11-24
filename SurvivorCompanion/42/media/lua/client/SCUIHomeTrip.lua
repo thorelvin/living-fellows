@@ -953,7 +953,7 @@ function HomeUI.buildCard(detail, panel, y, context)
                 tr("UI_SC_HomeTrip_CarIssue", reasonText(report.vehicleIssue)))
         end
         if arrived and summary then
-            if (tonumber(summary.trunkPending) or 0) > 0 then
+            if (tonumber(summary.trunkPending) or 0) + (tonumber(summary.trunkUnverified) or 0) > 0 then
                 local roadside = report.homeStop and report.homeStop.kind == "roadside"
                 y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                     tr(report.vehicleState == "abandoned" and "UI_SC_HomeTrip_AbandonedCargoPending"

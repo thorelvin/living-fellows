@@ -141,7 +141,7 @@ function Integration.valid(value)
             or value.carId < 0 or value.carId > 2147483647
             or value.carId ~= math.floor(value.carId)))
         or type(value.restock) ~= "boolean"
-        or type(value.requested) ~= "number" or value.requested < 1
+        or type(value.requested) ~= "number" or value.requested < (value.kind == "scout" and 0 or 1)
         or value.requested > (wood and WOOD_LIMIT or 8) or value.requested ~= math.floor(value.requested)
         or (wood and value.requestedMode ~= "count" and value.requestedMode ~= "full")
         or (wood and (type(value.retryRemainingMs) ~= "number"
@@ -153,6 +153,12 @@ function Integration.valid(value)
             or not SC.ExpeditionWood.valid(value.woodWork)))
         or type(value.items) ~= "table" or #value.items > ((wood or value.kind=="home") and WOOD_LIMIT or 16)
         or type(value.members) ~= "table" or #value.members > 4 then return false end
+    if value.campHandoff ~= nil and type(value.campHandoff) ~= "boolean" then return false end
+    if value.kind == "scout" then
+        if value.restock ~= true or value.requested ~= 0
+            or value.baseId == nil or #value.members < 1 then return false end
+        for _ in pairs(value.items) do return false end
+    end
     if value.kind == "home" and (value.version ~= 1 or value.restock ~= true
         or value.requested ~= 1 or #value.members < 1
         or not SC.HomeTrip or not SC.HomeTrip.validCamp(value.homeCamp)
@@ -242,6 +248,7 @@ function Integration.copy(value)
     if type(value)=="table" and value.kind=="fuel" then return SC.ExpeditionFuel.copyDelivery(value) end
     if not Integration.valid(value) then return nil end
     local copy = { version = value.version, kind = value.kind,
+        campHandoff = value.campHandoff == true or nil,
         requestedMode = value.requestedMode, tripId = value.tripId,
         retryRemainingMs = remainingRetry(value),
         returnedToBase = value.returnedToBase,
@@ -273,17 +280,21 @@ function Integration.create(mission)
     if mission and mission.scout and mission.scout.fuel then return SC.ExpeditionFuel.delivery(mission) end
     local scout = mission and mission.scout
     local wood = scout and scout.kind == "wood"
+    local scoutRestock = scout and scout.kind == "scout" and mission.returnCamp and mission.restockBaseDuty
     local search = scout and (wood and scout.wood or scout.search
+        or scoutRestock and { request = { quantity = 0 }, acquisitions = {} }
         or scout.kind == "home" and {request = {quantity = 1}, acquisitions = scout.home.cargo or {}})
     if not search then return nil end
     local base = SC.BaseLife and SC.BaseLife.active()
     local request = search.request or {}
-    local record = { version = wood and 2 or 1, kind = wood and "wood" or scout.kind == "home" and "home" or nil,
+    local record = { version = wood and 2 or 1,
+        kind = wood and "wood" or scoutRestock and "scout" or scout.kind == "home" and "home" or nil,
+        campHandoff = mission.returnCamp ~= nil or nil,
         requestedMode = wood and request.mode or nil, tripId = mission.radioSession,
         retryRemainingMs = wood and 0 or nil,
         woodWork = wood and SC.ExpeditionWood and SC.ExpeditionWood.copy(search) or nil,
         baseId = mission.homeBaseId or base and base.id or nil,
-        carId = scout.vehicle and scout.vehicle.sqlId or nil,
+        carId = not scoutRestock and scout.vehicle and scout.vehicle.sqlId or nil,
         carSaveReceipt = scout.kind=="home" and scout.home.carSaveReceipt
             and SC.HomeTrip.copyCarReceipt(scout.home.carSaveReceipt,scout.home.vehicleSqlId) or nil,
         requested = wood and request.mode == "full" and WOOD_LIMIT or request.quantity,
@@ -749,7 +760,7 @@ function Integration.summary(record)
     if record and record.kind=="fuel" then return SC.ExpeditionFuel.deliverySummary(record) end
     if not Integration.valid(record) then return nil end
     local result = { version = record.version, kind = record.kind, tripId = record.tripId,
-        carId = record.carId, trunkPending = 0,
+        carId = record.carId, trunkPending = 0, trunkUnverified = 0,
         requested = record.requested, collected = #record.items,
         requestedMode = record.requestedMode, requestMode = record.requestedMode,
         broughtBack = 0, returned = 0, carried = 0, stored = 0, released = 0, unknown = 0, pending = 0,
@@ -761,9 +772,16 @@ function Integration.summary(record)
         elseif row.released then result.released = result.released + 1
         else
             result.pending = result.pending + 1
-            if row.carrierKind=="trunk" then result.trunkPending=result.trunkPending+1 end
-            if locate(record, row) then result.carried = result.carried + 1
-            else result.unknown = result.unknown + 1 end
+            local item, _, _, _, kind = locate(record, row)
+            if item then
+                result.carried = result.carried + 1
+                if kind == "trunk" then result.trunkPending = result.trunkPending + 1 end
+            else
+                result.unknown = result.unknown + 1
+                if row.carrierKind == "trunk" and not row.carrierId then
+                    result.trunkUnverified = result.trunkUnverified + 1
+                end
+            end
         end
         result.items[#result.items + 1] = copyRow(row)
     end
@@ -783,6 +801,9 @@ function Integration.summary(record)
         local command = registered and registered.actor and SC.Commands and SC.Commands.peek(registered.actor)
         result.members[#result.members].actualCommandSerial = command and command.commandSerial or nil
         local actor = registered and registered.actor
+        if record.kind == "scout" and not member.dutyDone then
+            result.deliveryPending, result.complete = true, false
+        end
         if woodRecord(record) and result.pending > 0 and actor and not U().isDead(actor)
             and (woodRestPending(actor, stateFor(record, actor, false))
                 or U().companionSeverelyExerted and U().companionSeverelyExerted(actor) and atBase(actor)) then

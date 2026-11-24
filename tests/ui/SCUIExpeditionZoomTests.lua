@@ -527,5 +527,110 @@ packing.lines = {}
 Planner.buildDeparturePreparation(packing, newPanel(400), 0, preparation)
 assert(string.find(table.concat(packing.lines, "\n"), "UI_SC_Expedition_PreparationToolMissing", 1, true),
     "a completed unsuccessful tool search explains missing or broken equipment")
+;(function()
+    local SC = SurvivorCompanion
+    fixture.endTrip()
+    local site = { id = "saved-site", label = "Selected destination" }
+    local missingPlace, missingCar, extraMember, loadChanged
+    SC.ExpeditionTargets = {
+        context = function() return {} end,
+        validate = function(target)
+            if missingPlace then return nil, "map_target_changed" end
+            return { kind = target.kind, id = target.id, place = site }
+        end,
+        reviewFingerprint = function(target) return target.id end,
+    }
+    SC.Registry.records = function()
+        if extraMember then return { record, { id = "sc-extra", actor = {} } } end
+        return { record }
+    end
+    expedition.resolvePlace = function(_, wanted)
+        if missingPlace then return nil, "place_no_longer_selectable" end
+        assert(wanted == site.id, "Repeat must resolve the selected destination by exact ID")
+        return site
+    end
+    local function preview(_, options)
+        if missingCar then return nil, "car_unavailable" end
+        return { mode = "local", distance = 18, carSqlId = 11, site = site }
+    end
+    expedition.previewAtPlace = preview
+    expedition.previewAtFishingBank = preview
+    expedition.previewDrive = preview
+    expedition.previewMapTarget = preview
+    expedition.previewWoodCollection = preview
+    expedition.previewFuelCollection = preview
+    expedition.repeatReadiness = function()
+        return loadChanged and { { reason = "pack_space_needed", name = "Tess Nolan" } } or {}
+    end
+    local dispatches, recorded = 0, nil
+    local function accept(rows, options)
+        dispatches, recorded = dispatches + 1, options
+        assert(rows[1] == record, "Repeat must pass the current actor for the approved leader ID")
+        return true
+    end
+    expedition.startAtPlace = function(rows, placeId, _, options)
+        assert(placeId == site.id)
+        return accept(rows, options)
+    end
+    expedition.startAtFishingBank = function(rows, placeId, options)
+        assert(placeId == site.id)
+        return accept(rows, options)
+    end
+    expedition.startWoodCollection = accept
+    expedition.startFuelCollection = accept
+    local detail = newDetail()
+    detail.root = gearDetail.root
+    function detail:rebuild() end
+
+    local cases = {
+        { kind = "scout", intent = "place", placeId = site.id },
+        { kind = "search", intent = "map", target = { kind = "search", id = site.id },
+            request = { category = "medicine", quantity = 2 } },
+        { kind = "fish", intent = "place", placeId = site.id, request = { category = "fish", quantity = 4 } },
+        { kind = "wood", intent = "map", target = { kind = "wood", id = site.id }, request = { mode = "full" } },
+        { kind = "fuel", intent = "automatic", request = { mode = "car" } },
+    }
+    for index, plan in ipairs(cases) do
+        plan.tripId, plan.crew, plan.leaderId, plan.group = "repeat-" .. index, { id }, id, "alpha"
+        plan.doctrine, plan.hours, plan.restock = "close_defense", 8, true
+        plan.travelMode, plan.vehicleSqlId, plan.parkingZoneId = "drive", 11, "firehouse-parking"
+        fixture.setDebrief({ kind = plan.kind, repeatPlan = plan })
+        Planner.onButton(detail, { scExpeditionAction = "repeat", scTripId = plan.tripId })
+        local draft = detail.expeditionDraft
+        assert(draft.review and draft.preview and dispatches == index - 1
+            and draft.vehicleSqlId == 11 and draft.leaderId == id and draft.restockBaseDuty,
+            plan.kind .. " opens a prefilled review with zero dispatches")
+        Planner.onButton(detail, { scExpeditionAction = "launch" })
+        assert(detail.feedbackSuccess and dispatches == index and recorded.turnHomeAfterHours == 8
+            and recorded.doctrine == "close_defense" and recorded.restockBaseDuty and recorded.vehicleSqlId == 11
+            and (recorded.mapTarget == plan.target)
+            and (not plan.request or recorded.request.quantity == plan.request.quantity
+                and recorded.request.mode == plan.request.mode and recorded.request.category == plan.request.category),
+            plan.kind .. " confirmation reuses the approved choices")
+    end
+    local scout = cases[1]
+    fixture.setDebrief({ kind = "scout", repeatPlan = scout })
+    extraMember = true
+    Planner.onButton(detail, { scExpeditionAction = "repeat", scTripId = scout.tripId })
+    assert(detail.expeditionDraft.review and detail.expeditionDraft.previewError == "repeat_squad_changed"
+        and dispatches == 5, "a changed squad is explicit and never substitutes a member")
+    extraMember, missingPlace = false, true
+    Planner.onButton(detail, { scExpeditionAction = "repeat", scTripId = scout.tripId })
+    assert(detail.expeditionDraft.review and not detail.expeditionDraft.preview and dispatches == 5
+        and detail.expeditionDraft.placeId == site.id, "a missing destination stays selected for editing")
+    missingPlace = false
+    Planner.onButton(detail, { scExpeditionAction = "repeat", scTripId = scout.tripId })
+    missingCar = true
+    Planner.onButton(detail, { scExpeditionAction = "launch" })
+    assert(not detail.feedbackSuccess and detail.expeditionDraft.previewError == "car_unavailable"
+        and dispatches == 5, "launch rechecks the exact car and refuses a newly missing vehicle")
+    missingCar = false
+    Planner.onButton(detail, { scExpeditionAction = "repeat", scTripId = scout.tripId })
+    loadChanged = true
+    Planner.onButton(detail, { scExpeditionAction = "launch" })
+    assert(not detail.feedbackSuccess and detail.expeditionDraft.repeatReadiness[1].reason == "pack_space_needed"
+        and dispatches == 5, "a change in readiness brings the updated review back before dispatch")
+end)()
+
 SurvivorCompanion.UI.text = originalText
 print("SCUI expedition zoom, wood controls and companion-name tests passed")

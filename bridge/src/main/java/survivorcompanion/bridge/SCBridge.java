@@ -72,7 +72,7 @@ import zombie.worldMap.WorldMap;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.22-isocompanion-35";
+    public static final String PROTOCOL = "42.22-isocompanion-36";
 
     public static boolean configurePZOptimizerAdapter(boolean enabled) { return SCPZOptimizerCompatibility.configure(enabled); }
     public static String getPZOptimizerAdapterState() { return SCPZOptimizerCompatibility.state(); }

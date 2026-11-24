@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.77 - Expedition flow
+
+- Crews approach separate assigned doors where possible. Reachable zombies
+  pause boarding, and the squad radios a hold when contact is available.
+- Crews with restock and base duty enabled hand off at their marked camp once
+  the primary map owns the crew and arrival. Pending cargo keeps its receipt.
+- Expedition debriefs can reopen the accepted plan for a fresh review and
+  confirmation.
+- Bridge protocol `42.22-isocompanion-36`. World save schema 3.
+
 ## 0.27.76 - Expedition car keys
 
 - Crews leave the original key in the ignition when they finish with an

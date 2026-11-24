@@ -3246,6 +3246,15 @@ end
 
 -- A task calls this for its own actor. Status probes read only the retained
 -- assessment; blocked attempts remain quiet until the task explicitly retries.
+function Logistics.expeditionCargoStatus(actor, cargoWeight, allowHeldBag)
+    local audit = Logistics.audit(actor)
+    if not audit.inventory then return nil end
+    local preparation = { requirements = { cargoWeight = cargoWeight,
+        allowHeldBag = allowHeldBag, expedition = true }, warnings = {} }
+    local assessment = Preparation.assess(actor, preparation, audit)
+    if assessment.capacityKnown then return assessment.cargoReady end
+end
+
 function Logistics.prepareLoadout(actor, requirements, runtime)
     if not actor or type(requirements) ~= "table" or type(requirements.key) ~= "string"
         or requirements.key == "" or #requirements.key > 256

@@ -7,6 +7,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +34,8 @@ import zombie.iso.fboRenderChunk.FBORenderCell;
 import zombie.iso.fboRenderChunk.FBORenderCutaways;
 import zombie.iso.fboRenderChunk.FBORenderLevels;
 import zombie.iso.objects.IsoDeadBody;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.radio.ZomboidRadio;
 import zombie.savefile.PlayerDB;
 import zombie.util.AddCoopPlayer;
@@ -349,6 +352,16 @@ public final class SCSplitScreenProbe {
         }
         String issue = joinedReleaseIssue();
         if (issue != null) throw new IllegalStateException(issue);
+        return persistJoinedSlot();
+    }
+
+    public static int persistCampLeaderSlotForReuse(KahluaTable roster, int x, int y, int z) {
+        String issue = campReleaseIssue(roster, x, y, z);
+        if (issue != null) throw new IllegalStateException(issue);
+        return persistJoinedSlot();
+    }
+
+    private static int persistJoinedSlot() {
         SCNativeCompanion current = leader;
         IsoPlayer primary = IsoPlayer.players[0];
         if (current.sqlId == primary.sqlId) {
@@ -1042,6 +1055,10 @@ public final class SCSplitScreenProbe {
     }
 
     private static String joinedReleaseIssue() {
+        return joinedReleaseIssue(true);
+    }
+
+    private static String joinedReleaseIssue(boolean requirePlayerNearby) {
         SCNativeCompanion current = leader;
         IsoPlayer[] slots = IsoPlayer.players;
         IsoPlayer primary = slots == null || slots.length != 4 ? null : slots[0];
@@ -1066,11 +1083,65 @@ public final class SCSplitScreenProbe {
                 || x > primaryMap.getWorldXMaxTiles()
                 || y < primaryMap.getWorldYMinTiles()
                 || y > primaryMap.getWorldYMaxTiles()
-                || Math.abs(primary.getX() - current.getX()) > 16.0f
-                || Math.abs(primary.getY() - current.getY()) > 16.0f) {
+                || (requirePlayerNearby && (Math.abs(primary.getX() - current.getX()) > 16.0f
+                    || Math.abs(primary.getY() - current.getY()) > 16.0f))) {
             return "primary player does not own the companion's loaded area";
         }
         return null;
+    }
+
+    /** Keep the live crew only when slot zero owns the arrival and every current square. */
+    public static boolean canReleaseJoinedLeaderAtCamp(KahluaTable roster, int x, int y, int z) {
+        return campReleaseIssue(roster, x, y, z) == null;
+    }
+
+    private static String campReleaseIssue(KahluaTable roster, int x, int y, int z) {
+        if (Thread.currentThread() != MainThread.mainThread || GameClient.client || GameServer.server
+                || remoteArrival != null || coldProbe != null || roster == null) {
+            return "camp release requires an ordinary local companion view";
+        }
+        String viewIssue = joinedReleaseIssue(false);
+        if (viewIssue != null) return viewIssue;
+        if (!primaryAreaContains(x, y, z)) return "arrival square is outside the primary map";
+        IsoCell cell = IsoWorld.instance.getCell();
+        IsoChunkMap map = cell.getChunkMap(0);
+        HashSet<String> ids = new HashSet<>();
+        boolean hasLeader = false;
+        for (int index = 1; index <= 4; index++) {
+            Object value = roster.rawget((double) index);
+            if (value == null) continue;
+            if (index != ids.size() + 1 || !(value instanceof SCNativeCompanion actor)
+                    || !SCBridge.isCompanion(actor) || !actor.isBridgeHealthy()
+                    || actor.isDead() || actor.getVehicle() != null || !actor.isScheduled()
+                    || !actor.isExistInTheWorld()) {
+                return "camp release requires a dense roster of living unseated companions";
+            }
+            IsoGridSquare square = actor.getCurrentSquare();
+            if (square == null || square.getCell() != cell || square.getZ() != z
+                    || !Float.isFinite(actor.getX()) || !Float.isFinite(actor.getY())
+                    || !Float.isFinite(actor.getZ()) || Math.abs(actor.getZ() - z) > 0.2f
+                    || square.getX() != (int) Math.floor(actor.getX())
+                    || square.getY() != (int) Math.floor(actor.getY())
+                    || !primaryAreaContains(square.getX(), square.getY(), z)
+                    || map.getGridSquare(square.getX(), square.getY(), z) != square) {
+                return "companion square is outside the primary map";
+            }
+            KahluaTable data = actor.getModData();
+            Object identity = data == null ? null : data.rawget("SC_Id");
+            if (!(identity instanceof String id) || !id.startsWith("sc-")
+                    || id.length() < 4 || id.length() > 80 || !ids.add(id)) {
+                return "camp release roster has an invalid or duplicate identity";
+            }
+            if (actor == leader) hasLeader = true;
+        }
+        if (!hasLeader || roster.rawget(5.0) != null) return "camp release roster is incomplete";
+        return null;
+    }
+
+    public static boolean releaseJoinedLeaderAtCamp(KahluaTable roster, int x, int y, int z) {
+        String issue = campReleaseIssue(roster, x, y, z);
+        if (issue != null) throw new IllegalStateException(issue);
+        return unloadJoinedView();
     }
 
     public static boolean releaseJoinedLeader() {
@@ -1079,6 +1150,10 @@ public final class SCSplitScreenProbe {
         }
         String issue = joinedReleaseIssue();
         if (issue != null) throw new IllegalStateException(issue);
+        return unloadJoinedView();
+    }
+
+    private static boolean unloadJoinedView() {
         SCNativeCompanion current = leader;
         IsoPlayer[] slots = IsoPlayer.players;
         IsoPlayer primary = slots[0];

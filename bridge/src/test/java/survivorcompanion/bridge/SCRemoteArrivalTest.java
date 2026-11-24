@@ -366,6 +366,33 @@ public final class SCRemoteArrivalTest {
             require(SCSplitScreenProbe.canReleaseJoinedLeader(), "ordinary nearby joined release regressed");
             set(primary, "x", 483.5f);
             require(!SCSplitScreenProbe.canReleaseJoinedLeader(), "joined release lost its sixteen-tile guard");
+            require(!SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp(roster, 500, 500, 0),
+                    "camp handoff bypassed the outstanding remote-arrival lease");
+            leaseField.set(null, null);
+            set(primary, "z", 1.0f);
+            require(!SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp(roster, 500, 500, 0),
+                    "camp handoff admitted a follower square outside primary ownership");
+            IsoGridSquare followerSquare = follower.getCurrentSquare();
+            var originalFollowerChunk = followerSquare.getChunk();
+            set(followerSquare, "chunk", queryChunk);
+            squares[0][4 * 8 + 5] = followerSquare;
+            require(SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp(roster, 500, 500, 0),
+                    "the real primary map must suffice even with a distant upstairs player");
+            require(!SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp(roster, 499, 500, 0),
+                    "camp handoff skipped ownership of the marked arrival square");
+            KahluaTable duplicate = table(); duplicate.rawset(1, leader); duplicate.rawset(2, leader);
+            require(!SCSplitScreenProbe.canReleaseJoinedLeaderAtCamp(duplicate, 500, 500, 0),
+                    "camp handoff admitted duplicate companion identities");
+            queryChunk.refs.remove(primaryMap);
+            refuses(() -> SCSplitScreenProbe.releaseJoinedLeaderAtCamp(roster, 500, 500, 0),
+                    "the camp commit did not recheck map ownership after preflight");
+            require(!companionMap.ignore && IsoPlayer.players[1] == leader,
+                    "refused camp release changed the secondary view");
+            queryChunk.refs.add(primaryMap);
+            set(followerSquare, "chunk", originalFollowerChunk);
+            squares[0][4 * 8 + 5] = null;
+            set(primary, "z", 0.0f);
+            leaseField.set(null, lease);
             set(primary, "x", 300.5f); set(primary, "y", 300.5f);
             require(!SCSplitScreenProbe.canReleaseRemoteArrival(7),
                     "remote map release skipped the durable snapshot acknowledgement");

@@ -539,15 +539,30 @@ local function activeSeat(actor)
     return mission, trip, trip.seats and trip.seats[id]
 end
 
+local function boardingPhase(trip)
+    return trip.state == "walking_to_car" or trip.state == "boarding_out"
+        or trip.state == "returning_to_car" or trip.state == "boarding_home"
+end
+
+local function squadRally(trip)
+    local rally = trip.boardingRally
+    if not rally or rally.leg ~= trip.leg then
+        rally = { leg = trip.leg }
+        trip.boardingRally, trip.boardingStatus = rally, nil
+    end
+    return rally
+end
+
 function Car.boardingOrderFor(actor)
     local mission, trip, seat = activeSeat(actor)
     if not mission or seat == nil then return nil end
     if preparingSupplies(mission.scout) or trip.radioResumeState then return nil end
-    if trip.state ~= "walking_to_car" and trip.state ~= "boarding_out"
-        and trip.state ~= "returning_to_car"
-        and trip.state ~= "boarding_home" then return nil end
+    if not boardingPhase(trip) then return nil end
     local car = SC.Vehicle.loadedBySqlId(trip.sqlId)
-    if car == nil then return nil end
+    if car == nil then
+        local rally = trip.boardingRally
+        if not (rally and rally.hold) then return nil end
+    end
     return { car = car, seat = seat, sqlId = trip.sqlId }
 end
 
@@ -591,9 +606,149 @@ local function boardingResult(actor, order, accepted, reason, navigationReason)
     return accepted, reason
 end
 
+local function passengerLocked(car, seat)
+    if seat == 0 then return false end
+    local _, part = call(car, "getPassengerDoor", seat)
+    local _, door = call(part, "getDoor")
+    local ok, locked = call(door, "isLocked")
+    return ok and locked == true
+end
+
+local function stopBoardingApproach(actor, car, reason)
+    local status = SC.Vehicle.transactionStatus and SC.Vehicle.transactionStatus(actor)
+    if not status or status.action ~= "board_vehicle" or status.vehicle ~= car then return end
+    SC.Vehicle.cancelTransaction(actor, reason)
+end
+
+local function observeBoardingThreat(actor, snapshot, now)
+    if not snapshot or snapshot.valid ~= true then return nil end
+    local at = tonumber(snapshot.reflexTime) or tonumber(snapshot.time)
+    if not at or now < at or now - at > 2000 then return nil end
+    if (snapshot.immediateCount or 0) > 0 or (snapshot.closeThreatCount or 0) > 0 then return true end
+    if (snapshot.threatCount or #(snapshot.threats or {})) == 0 then return false end
+    return not (SC.Combat and SC.Combat.onlyUnreachableThreats
+        and SC.Combat.onlyUnreachableThreats(actor, snapshot, now))
+end
+
+local function startBoardingHold(mission, trip, car, blocker, now)
+    local rally = squadRally(trip)
+    local hold = rally.hold
+    if not hold then
+        hold = { startedAt = now, reportAt = now + 120000 }
+        rally.hold, rally.layout, rally.nextCheckAt = hold, nil, nil
+        for _, record in ipairs(mission.roster) do
+            if record.actor and mission.members[record.actor] then
+                stopBoardingApproach(record.actor, car, "boarding_zombies_nearby")
+            end
+        end
+        traceTrip(trip, "boarding_safety_hold", "actor=" .. tostring(blocker.id))
+    end
+    if hold.clearSince or hold.unknown then hold.reportAt = now + 120000 end
+    hold.blocker, hold.clearSince, hold.unknown = blocker, nil, nil
+    return hold
+end
+
+local function rallyLayout(mission, trip, car, now)
+    local rally = squadRally(trip)
+    local U = SC.GameplayUtil
+    local entries, occupied, byActor = {}, {}, {}
+    for _, record in ipairs(mission.roster) do
+        local actor, seat = record.actor, trip.seats[record.id]
+        if actor and seat ~= nil and mission.members[actor] then
+            local seated = SC.Vehicle.isNativeSeated(actor)
+            local valid, dead = call(actor, "isDead")
+            if not seated and not (valid and dead) then
+                local key = U.squareKey(U.squareOf(actor))
+                if key then occupied[key] = occupied[key] and true or actor end
+                local entry = { actor = actor, seat = seat, locked = passengerLocked(car, seat),
+                    doors = {} }
+                entries[#entries + 1], byActor[actor] = entry, entry
+            end
+        end
+    end
+    local layout = rally.layout
+    if layout and layout.car == car and now < layout.untilAt and #entries == layout.count then
+        local same = true
+        for _, entry in ipairs(entries) do
+            local former = layout.byActor[entry.actor]
+            if not former or former.locked ~= entry.locked then same = false break end
+        end
+        if same then return layout end
+    end
+    table.sort(entries, function(a, b) return a.seat < b.seat end)
+    local previous = layout and layout.car == car and layout.byActor or {}
+    layout = { car = car, byActor = byActor, count = #entries, claims = {}, untilAt = now + 1500 }
+    local doorKeys = {}
+    for _, entry in ipairs(entries) do
+        entry.squares, _, entry.issue = SC.Vehicle.boardingSquares(
+            entry.actor, car, entry.seat, entry.seat == 0)
+        for _, square in ipairs(entry.squares or {}) do doorKeys[U.squareKey(square)] = true end
+    end
+    local function claimDoor(entry, square)
+        local key = U.squareKey(square)
+        if not layout.claims[key] and (not occupied[key] or occupied[key] == entry.actor)
+            and U.isSquareFree(square) and not U.safehouseBlocker(square, entry.actor) then
+            layout.claims[key] = entry.actor
+            entry.doors[#entry.doors + 1] = square
+        end
+    end
+    -- Keep a still-valid contact set while its approach is in progress.
+    -- A neighbour sitting down must not restart that actor's path search.
+    for _, entry in ipairs(entries) do
+        local former = previous[entry.actor]
+        if not entry.locked and former and #former.doors > 0 then
+            local current = {}
+            for _, square in ipairs(entry.squares or {}) do current[U.squareKey(square)] = square end
+            for _, square in ipairs(former.doors) do
+                local loaded = current[U.squareKey(square)]
+                if loaded then claimDoor(entry, loaded) end
+            end
+            entry.retained = #entry.doors > 0
+        end
+    end
+    -- Give each clear seat a contact square before reserving alternative
+    -- routes. The driver has priority if two seats share the only contact.
+    for _, entry in ipairs(entries) do
+        if not entry.locked and #entry.doors == 0 then
+            for _, square in ipairs(entry.squares or {}) do
+                claimDoor(entry, square)
+                if #entry.doors > 0 then break end
+            end
+        end
+    end
+    for _, entry in ipairs(entries) do
+        if #entry.doors > 0 and not entry.retained then
+            for _, square in ipairs(entry.squares) do claimDoor(entry, square) end
+        elseif #entry.doors == 0 and entry.squares then
+            local _, cell = call(car, "getCell")
+            if not cell then _, cell = call(entry.actor, "getCell") end
+            for _, door in ipairs(entry.squares) do
+                local x, y, z = U.position(door)
+                for _, offset in ipairs({ { -1, 0 }, { 0, -1 }, { 1, 0 }, { 0, 1 },
+                    { -2, 0 }, { 0, -2 }, { 2, 0 }, { 0, 2 } }) do
+                    local _, square = call(cell, "getGridSquare", x + offset[1], y + offset[2], z)
+                    local key = U.squareKey(square)
+                    local _, onVehicle = call(square, "getVehicleContainer")
+                    if key and not onVehicle and not doorKeys[key] and not layout.claims[key]
+                        and (not occupied[key] or occupied[key] == entry.actor)
+                        and U.isSquareFree(square) and not U.safehouseBlocker(square, entry.actor) then
+                        layout.claims[key], entry.stage = entry.actor, square
+                        break
+                    end
+                end
+                if entry.stage then break end
+            end
+        end
+    end
+    rally.layout = layout
+    return layout
+end
+
 function Car.boardMember(actor, order, snapshot)
     local car, seat = order.car, order.seat
     local mission, trip = activeSeat(actor)
+    local squad = mission and trip.sqlId == order.sqlId and boardingPhase(trip)
+        and not trip.field and order.fieldWork ~= true and order.hotwire ~= true and mission or nil
     if mission and trip.sqlId == order.sqlId and preparingSupplies(mission.scout) then
         return false, "expedition_preparing_supplies"
     end
@@ -605,13 +760,29 @@ function Car.boardMember(actor, order, snapshot)
         end
         return boardingResult(actor, order, false, "wrong_vehicle_or_seat")
     end
+    local layout, entry
+    if squad then
+        local now = SC.GameplayUtil.nowMs()
+        local rally = squadRally(trip)
+        if observeBoardingThreat(actor, snapshot, now) then
+            for _, record in ipairs(squad.roster) do
+                if record.actor == actor then startBoardingHold(squad, trip, car, record, now) break end
+            end
+        end
+        if rally.hold then return boardingResult(actor, order, true, "boarding_zombies_nearby") end
+        layout = rallyLayout(squad, trip, car, now)
+        entry = layout.byActor[actor]
+    end
     local began, beginReason = SC.Vehicle.beginBoarding(actor, car, seat,
         { driverSeat = seat == 0,
             playerCommand = order.hotwire == true or order.fieldWork == true })
     if began == nil then return boardingResult(actor, order, false, beginReason) end
     local prepared, reason = SC.Vehicle.preflightBoard(actor, car, seat,
         seat == 0, order.permittedPassenger)
-    if prepared then
+    local U = SC.GameplayUtil
+    local claim = layout and layout.claims[U.squareKey(U.squareOf(actor))]
+    local yieldingDoor = entry and (#entry.doors == 0 or claim and claim ~= actor)
+    if prepared and not yieldingDoor then
         if mission and trip.sqlId == order.sqlId and seat > 0 then
             local partOk, part = call(car, "getPassengerDoor", seat)
             local doorOk, door = call(part, "getDoor")
@@ -637,14 +808,29 @@ function Car.boardMember(actor, order, snapshot)
         else boarded, boardReason = SC.Vehicle.board(actor, car, seat, options) end
         return boardingResult(actor, order, boarded, boardReason)
     end
-    if reason ~= "companion is not at the passenger door"
+    if not prepared and reason ~= "companion is not at the passenger door"
         and reason ~= "companion and vehicle are on different floors" then
         SC.Vehicle.failTransaction(actor, "expedition_board_preflight_failed",
             { reason = reason })
         return boardingResult(actor, order, false, reason)
     end
-    local squares, _, squareReason = SC.Vehicle.boardingSquares(
-        actor, car, seat, seat == 0)
+    local squares, _, squareReason
+    local waiting = entry and #entry.doors == 0 and entry.squares ~= nil
+    local waitReason = entry and entry.locked and "waiting_for_driver_unlock" or "waiting_for_door_clearance"
+    if entry then
+        if waiting then
+            if not entry.stage or U.sameSquare(actor, entry.stage) then
+                if SC.Navigation and SC.Navigation.cancel then SC.Navigation.cancel(actor, waitReason) end
+                if SC.Actor and SC.Actor.stop then SC.Actor.stop(actor) end
+                return boardingResult(actor, order, true, waitReason)
+            end
+            squares = { entry.stage }
+        else
+            squares, squareReason = entry.squares and entry.doors, entry.issue
+        end
+    else
+        squares, _, squareReason = SC.Vehicle.boardingSquares(actor, car, seat, seat == 0)
+    end
     if not squares then
         SC.Vehicle.failTransaction(actor, "expedition_door_unavailable",
             { reason = squareReason })
@@ -653,12 +839,12 @@ function Car.boardMember(actor, order, snapshot)
     if not SC.Navigation or not SC.Navigation.requestAny then
         return boardingResult(actor, order, false, "navigation_unavailable")
     end
-    local x, y = SC.GameplayUtil.position(actor)
-    local sx, sy = SC.GameplayUtil.position(squares[1])
+    local x, y = U.position(actor)
+    local sx, sy = U.position(squares[1])
     local gap = x and sx and math.sqrt((x - sx)^2 + (y - sy)^2) or 0
     local accepted, moveReason = SC.Navigation.requestAny(actor, squares,
         gap > 8 and "run" or "walk", {
-            action = "approach_vehicle", vehicle = car, object = car, seat = seat,
+            action = waiting and "rally_vehicle" or "approach_vehicle", vehicle = car, object = car, seat = seat,
             snapshot = snapshot, desiredDistance = 0,
             arrivalDistance = 0.15, continuousApproach = true,
             movementPriority = 30,
@@ -672,11 +858,12 @@ function Car.boardMember(actor, order, snapshot)
             verifiedSelectedGoal = true,
             supervisorToken = began.supervisorToken,
         })
-    if not accepted then
+    if not accepted and not waiting then
+        if squad then squadRally(trip).layout = nil end
         SC.Vehicle.failTransaction(actor, "expedition_door_approach_failed",
             { reason = moveReason })
     end
-    return boardingResult(actor, order, accepted, moveReason, moveReason)
+    return boardingResult(actor, order, accepted or waiting, waiting and waitReason or moveReason, moveReason)
 end
 
 local function sameParkingArea(zone, saved)
@@ -700,6 +887,76 @@ local function travelMember(mission, member)
         if ok and dead then return false end
     end
     return true
+end
+
+function Car.boardingSummary(mission, visible)
+    local trip = mission.scout and mission.scout.vehicle
+    if not trip or trip.field or not boardingPhase(trip) or preparingSupplies(mission.scout)
+        or trip.radioResumeState then return nil end
+    local result = { seated = 0, total = 0 }
+    local car = SC.Vehicle.loadedBySqlId(trip.sqlId)
+    local hold = trip.boardingRally and trip.boardingRally.hold
+    for _, record in ipairs(mission.roster) do
+        if travelMember(mission, record) and (not visible or visible[record.id]) then
+            result.total = result.total + 1
+            local seated, current, seat = SC.Vehicle.isNativeSeated(record.actor)
+            if seated and current == car and seat == trip.seats[record.id] then
+                result.seated = result.seated + 1
+            else
+                local observed = trip.boardingStatus and trip.boardingStatus[record.id]
+                if not result.name or hold and hold.blocker.id == record.id then
+                    result.name = record.name or record.id
+                    result.reason = hold and hold.blocker.id == record.id and "boarding_zombies_nearby"
+                        or not car and "car_not_loaded" or observed and observed.reason or "walking_to_door"
+                end
+            end
+        end
+    end
+    return result.total > 0 and result or nil
+end
+
+local function pollBoardingSafety(mission, trip, now)
+    local rally = squadRally(trip)
+    local hold = rally.hold
+    if now < (rally.nextCheckAt or 0) then return hold ~= nil end
+    rally.nextCheckAt = now + 1000
+    local senses = SC.Senses
+    local blocker, unknown, onFoot
+    for _, member in ipairs(mission.roster) do
+        local actor = member.actor
+        if travelMember(mission, member) and (not actor or not SC.Vehicle.isNativeSeated(actor)) then
+            onFoot = true
+            local record = actor and SC.Registry.byId and SC.Registry.byId(member.id)
+            local snapshot = actor and senses and senses.cached and senses.cached(actor, record and record.runtime)
+            local threatened = observeBoardingThreat(actor, snapshot, now)
+            if threatened then blocker = blocker or member end
+            if threatened == nil then unknown = true end
+        end
+    end
+    if blocker then
+        hold = startBoardingHold(mission, trip, SC.Vehicle.loadedBySqlId(trip.sqlId), blocker, now)
+        if not hold.reported and now >= hold.reportAt then
+            hold.reportAt = now + 30000
+            local expedition = SC.ExpeditionPrototype
+            hold.reported = expedition and expedition.reportBoardingHold
+                and expedition.reportBoardingHold(mission, Car.boardingSummary(mission))
+            traceTrip(trip, "boarding_safety_radio", "receipt=" .. tostring(hold.reported == true))
+        end
+        return true
+    end
+    if not hold then return false end
+    if unknown then
+        hold.clearSince, hold.unknown = nil, true
+        return true
+    end
+    hold.clearSince = hold.clearSince or now
+    if onFoot and now - hold.clearSince < 5000 then return true end
+    if trip.boardStartedAt then
+        trip.boardStartedAt = trip.boardStartedAt + now - math.max(trip.boardStartedAt, hold.startedAt)
+    end
+    rally.hold = nil
+    traceTrip(trip, "boarding_safety_resumed")
+    return false
 end
 
 local function teamSeated(mission, trip, car)
@@ -993,7 +1250,7 @@ local function stopAndUnload(mission, trip, car, now)
             driver, trip.sqlId)
         if not recovered then return false, recoveryReason end
     end
-    if trip.field then trip.engineStopped=true end
+    trip.engineStopped = true
     return true
 end
 
@@ -1006,6 +1263,22 @@ end
 local function carLoaded(trip)
     return SC.Vehicle and SC.Vehicle.loadedBySqlId
         and SC.Vehicle.loadedBySqlId(trip.sqlId) or nil
+end
+
+function Car.campReturnReady(trip)
+    if trip.state ~= "home_wait" and trip.state ~= "abandoned" then
+        return false, "car_return_unsettled"
+    end
+    local car = carLoaded(trip)
+    if not car then return trip.engineStopped == true, "return_car_stop_unverified" end
+    local stationary, why = SC.Vehicle.isStationary(car)
+    if not stationary then return false, why or "car_not_stopped" end
+    local runningOk, running = call(car, "isEngineRunning")
+    local startedOk, started = call(car, "isEngineStarted")
+    if not runningOk or running ~= false or not startedOk or started ~= false then
+        return false, "return_car_stop_unverified"
+    end
+    return true
 end
 
 -- A failed local manoeuvre is not proof the car must be left behind. Retain
@@ -1612,6 +1885,10 @@ function Car.pulse(mission, now, worldHour)
         if trip.recovery then trip.recovery.lastAt = now end
         return true
     end
+    if not trip.field and boardingPhase(trip) and pollBoardingSafety(mission, trip, now) then
+        if trip.recovery then trip.recovery.lastAt = now end
+        return true
+    end
     Car.Recovery.advance(trip, now)
     if trip.state == "parked_at_site" then
         if scout.phase ~= "inbound" then return false end
@@ -1875,6 +2152,7 @@ function Car.pulse(mission, now, worldHour)
             return true
         end
         trip.state = trip.leg == "home" and "driving_home" or "driving_out"
+        trip.boardingRally, trip.engineStopped = nil, false
         scout.phase = trip.state
         return true
     end
@@ -2295,6 +2573,7 @@ function Car.copyDescriptor(value, roster, leaderId)
             at = failureAt, obstacle = failure.obstacle } or nil,
         parkingRefusal = value.parkingRefusal,
         recovery = recovery,
+        engineStopped = value.engineStopped == true or nil,
     }
     if value.field then
         if value.engineStopped~=nil and type(value.engineStopped)~="boolean" then return nil,"vehicle_field_invalid" end

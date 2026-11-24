@@ -143,5 +143,80 @@ for _, message in ipairs(printed) do
         and message:find("navigation=" .. routeFailure, 1, true) then explained = true end
 end
 check(explained, "deadline diagnostics identify the missing driver and last blocked route")
+
+trip.state, trip.boardStartedAt, trip.boardingRally = "boarding_home", now - 9000, nil
+local danger, fresh, notices = true, true, 0
+SC.Senses.cached = function(actor)
+    return { valid = true, reflexTime = fresh and now or now - 3000,
+        immediateCount = actor == driver and danger and 1 or 0 }
+end
+SC.ExpeditionPrototype.reportBoardingHold = function(active, summary)
+    check(active == mission and summary.seated == 1 and summary.total == 2
+        and summary.name == "leader" and summary.reason == "boarding_zombies_nearby",
+        "radio describes the current named blocker and verified headcount")
+    notices = notices + 1
+    return notices == 2
+end
+Car.pulse(mission, now)
+local approachCalls = routeCalls
+local _, holding = Car.boardMember(driver, order, SC.Senses.cached(driver))
+check(holding == "boarding_zombies_nearby" and routeCalls == approachCalls,
+    "the troop cannot start another foot approach while the car holds")
+now = now + 119000
+Car.pulse(mission, now)
+check(notices == 0 and trip.state == "boarding_home", "danger pauses the ordinary deadline before the notice")
+now = now + 1000
+Car.pulse(mission, now)
+check(notices == 1 and passenger.car == car, "the first notice attempt leaves the seated passenger in place")
+now = now + 30000
+Car.pulse(mission, now)
+now = now + 30000
+Car.pulse(mission, now)
+check(notices == 2, "a successful receipt stops further reports during the same hold")
+danger, fresh = false, false
+now = now + 6000
+Car.pulse(mission, now)
+check(trip.boardingRally.hold ~= nil, "stale observations do not open the approach")
+fresh = true
+for _ = 1, 5 do now = now + 1000 Car.pulse(mission, now) end
+check(trip.boardingRally.hold ~= nil, "four seconds of observed clearance still holds the crew")
+now = now + 1000
+Car.pulse(mission, now)
+check(trip.boardingRally.hold == nil and now - trip.boardStartedAt == 9000,
+    "five clear seconds resume the same unfinished boarding budget")
+now = now + 111001
+Car.pulse(mission, now)
+check(trip.state == "boarding_rollback", "a physical blocker still rolls back after the remaining budget")
+
+trip.state, trip.boardStartedAt, trip.boardingRally = "boarding_home", now, nil
+passenger.x, passenger.y, passenger.z = source.x + 1.2, source.y + 1.2, 0
+function passenger:getX() return self.x end
+function passenger:getY() return self.y end
+function passenger:getZ() return self.z end
+passenger.car, passenger.seat, passenger.square, car.occupied[1] = nil, nil, source, nil
+local stage = { x = target.x - 1, y = target.y, z = 0 }
+function stage:getVehicleContainer() return nil end
+function car:getCell() return { getGridSquare = function(_, x, y, z)
+    if x == stage.x and y == stage.y and z == stage.z then return stage end
+end } end
+local locked = true
+function car:getPassengerDoor() return { getDoor = function() return
+    { isLocked = function() return locked end }
+end } end
+local goals = {}
+Navigation.requestAny = function(actor, squares)
+    goals[actor] = squares[1]
+    return true, "path_searching"
+end
+beginBlocked = false
+Car.boardMember(driver, Car.boardingOrderFor(driver), {})
+local _, waitingDoor = Car.boardMember(passenger, Car.boardingOrderFor(passenger), {})
+check(goals[driver] == target and goals[passenger] == stage and waitingDoor == "waiting_for_driver_unlock",
+    "a locked passenger stages outside the claimed driver contact")
+driver.square, driver.x, driver.y = target, target.x + 0.5, target.y + 0.5
+Car.boardMember(driver, Car.boardingOrderFor(driver), {})
+locked = false
+Car.boardMember(passenger, Car.boardingOrderFor(passenger), {})
+check(goals[passenger] == target, "unlocking and seating the driver releases the real contact for the passenger")
 print = oldPrint
 SC_TEST_REPORT = "CAR_BOARDING_NAVIGATION_PASS checks=" .. checks

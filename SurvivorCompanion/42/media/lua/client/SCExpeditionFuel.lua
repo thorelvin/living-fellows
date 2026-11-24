@@ -356,6 +356,28 @@ local function handles(actor,info,item)
     end
     return false
 end
+
+function F.carriedGearStatus(records, carId)
+    local car = carId and SC.Vehicle.loadedBySqlId(carId)
+    local cargo = car and trunk(car)
+    local hasCan, canCarry = false, false
+    for _, record in ipairs(records) do
+        local actor = record.actor
+        for _, entry in ipairs(SC.LoggingWork.inventoryEntries(actor) or {}) do
+            local item = entry.item
+            local info = F.canInfo(item)
+            if info and info.free > EPS and availableItem(actor, item) then
+                hasCan = true
+                if handles(actor, info, item) then
+                    canCarry = true
+                    if (free(cargo, actor) or 0) + EPS >= info.fullWeight then return true end
+                end
+            end
+        end
+    end
+    return false, canCarry and "fuel_trunk_capacity" or hasCan and "fuel_carry_capacity" or "fuel_cans_missing"
+end
+
 local function reserveRoom(active,item,info)
     local fuel,actor=active.scout.fuel,worker(active)
     local cargo=trunk(carFor(active))
@@ -1031,13 +1053,21 @@ local function deliveryActive(record)
 end
 function F.deliverySummary(record)
     if not F.validDelivery(record) then return nil end
-    local result=F.progress(deliveryActive(record))
+    local active=deliveryActive(record)
+    local result=F.progress(active)
+    local cargo=trunk(carFor(active))
     result.version,result.tripId,result.requested=3,record.tripId,record.requested
     result.retryRemainingMs=F.deliveryRetryRemaining(record)
     result.items,result.members={},record.members
-    result.pending,result.released,result.returned=0,0,0
+    result.pending,result.released,result.returned,result.trunkPending=0,0,0,0
+    result.trunkUnverified=0
     for _,row in ipairs(record.items) do
-        if not row.stored and not row.released then result.pending=result.pending+1 end
+        if not row.stored and not row.released then
+            result.pending=result.pending+1
+            local item,source=locate(active,row)
+            if item and cargo and source==cargo then result.trunkPending=result.trunkPending+1
+            elseif not item and row.carrierKind=="trunk" then result.trunkUnverified=result.trunkUnverified+1 end
+        end
         if row.released then result.released=result.released+1 end
         if row.returned then result.returned=result.returned+1 end
         result.items[#result.items+1]=plain(row,0,{count=0})
