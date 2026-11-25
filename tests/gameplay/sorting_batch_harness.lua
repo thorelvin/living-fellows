@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 local SC=SurvivorCompanion
 local checks,clock,poses,phase,transfers=0,1000,0,"active",0
+local physicalReads, strengthReads = 0, 0
 local function check(ok,msg) checks=checks+1;assert(ok,"sorting batch "..checks..": "..msg) end
 local function container()
     local c={items={},capacity=1000}
@@ -46,7 +47,14 @@ SC.GameplayUtil={call=call,nowMs=function() return clock end,config=function() r
     modData=function(o) return o.data end,listSize=function(t) return #(t or {}) end,
     listGet=function(t,n) return t and t[n+1] end,
     each=function(t,limit,fn,offset) for n=(offset or 0)+1,math.min(#(t or {}),(offset or 0)+limit) do if fn(t[n])==false then break end end end,
-    inventoryLoad=function() return root:getCapacityWeight(),50 end,
+    inventoryLoad=function()
+        physicalReads = physicalReads + 1
+        return root:getCapacityWeight(), 50
+    end,
+    carryCapacity=function()
+        strengthReads = strengthReads + 1
+        return actor.carry
+    end,
     carryLoad=function() return root:getCapacityWeight(),actor.carry end,
     characterStatValue=function(_,_,fallback) return fallback end,
     directInteractionAccess=function() return true,{object},"arrived" end,
@@ -88,12 +96,15 @@ local function reset(n,weight)
     from.category,from.withdrawals,from.reserve,to.deposits="general",true,0,true
     actor.carry=12;job={id="job:701",type="sort",state="active",reservedBy=actor.id,target={}};activeJob=job
     poses,transfers,phase=0,0,"active"
+    physicalReads, strengthReads = 0, 0
     for _=1,n or 0 do add(source,item(nil,weight)) end
 end
 local function finish() phase="completed";update();phase="completed";update() end
 reset(35)
 local original={} for _,i in ipairs(source.items) do original[i.id]=i end
 check(update() and #source.items==35 and #job.target.stockBatch.ids==20,"selection reserves a bounded twenty-item native stack without moving it")
+check(physicalReads == 1 and strengthReads == 1,
+    "batch selection reads native physical weight and Strength capacity once for twenty items")
 local competing={id="other-worker",inventory=container(),x=1,y=1,z=0}
 local competingJob,competingItem={type="sort",target={}},nil
 for _=1,8 do
@@ -107,6 +118,16 @@ for _,i in ipairs(root.items) do check(SC.BaseWork.cargoReserved(actor,i) and SC
 phase="completed";check(update() and #dest.items==20 and #root.items==0 and poses==2,"one deposit pose delivers the entire stack")
 for _,i in ipairs(dest.items) do check(original[i.id]==i and not SC.SortBatch.protected(i),"delivered stack preserves identities and releases exact claims") end
 check(job.target.stockBatch==nil and transfers==40,"twenty pickups plus twenty deposits, without replay")
+reset(4, 1)
+check(update() and #job.target.stockBatch.ids == 4, "planning can reserve the full four-item batch")
+actor.carry = 2
+phase = "completed"
+check(update() and #root.items == 1 and #source.items == 3 and strengthReads > 1,
+    "each extra pickup rechecks reduced live Strength capacity and leaves uncarried items at the source")
+local carried = root.items[1]
+phase = "completed"
+check(update() and #dest.items == 1 and dest.items[1] == carried and #root.items == 0,
+    "the reduced-capacity batch delivers its one exact pickup")
 reset(10);dest.capacity=.025
 update();phase="completed";update();phase="completed";update();phase="completed";update()
 check(#dest.items==2 and #source.items==8 and #root.items==0,

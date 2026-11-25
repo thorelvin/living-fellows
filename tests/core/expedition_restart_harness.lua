@@ -269,9 +269,10 @@ do
     local escortPack, packWeight = {}, 1
     function follower:getInventory() return escortPack end
     policyMission.fishingGearEligible = { gamma = true }
-    SC.Logistics = { audit = function()
-        return { weight = packWeight, capacity = 10, hardRatio = 0.8 }
-    end }
+    SC.Logistics = {
+        audit = function() error("bycatch admission should not classify inventory") end,
+        physicalLoadLimit = function(actor) return packWeight, 8, actor:getInventory() end,
+    }
     util.itemWeight = function(item) return item.weight end
     util.containerHasRoom = function() return true end
     util.addItem = function(inventory, item) inventory[#inventory + 1] = item return item end
@@ -280,8 +281,8 @@ do
         return false
     end
     local source = { x = 101.5, y = 100.5, z = 0 }
-    local function pull(actor, weight)
-        local recorded, kept = expedition.noteFishingBycatch(actor, { weight = weight }, source, 3.08)
+    local function pull(actor, weight, reserve)
+        local recorded, kept = expedition.noteFishingBycatch(actor, { weight = weight }, source, reserve or 3.08)
         check(recorded, "each native debris pull receives a disposition")
         return kept
     end
@@ -297,9 +298,17 @@ do
         and #fishInventory == 2 and #escortPack == 1
         and expedition.fishingRequestFor(leader).remaining == 1,
         "bycatch records every pull while the exact fish alone counts toward quota")
+    policyMission.scout.search.fishingBycatch = nil
+    packWeight = 4.75
+    check(pull(follower, 0.25, 3), "bycatch can keep exact physical headroom after reserving the next fish")
+    packWeight = 1
+    util.containerHasRoom = function() return false end
+    check(not pull(follower, 0.25, 3) and #escortPack == 2,
+        "the live destination can still reject otherwise admissible bycatch")
+    totals = policyMission.scout.search.fishingBycatch
     policyMission.scout.workSafetyHold = { blocked = true }
     check(not expedition.noteFishingBycatch(leader, { weight = 0 }, source, 3.08)
-        and expedition.fishingRequestFor(leader) == nil and totals.pulled == 6,
+        and expedition.fishingRequestFor(leader) == nil and totals.pulled == 2,
         "the work hold suspends fishing without clearing its bycatch totals")
     policyMission.fishingGearEligible, follower.getInventory = nil, nil
     SC.Logistics = previousLogistics
@@ -3388,9 +3397,11 @@ end)()
         "the exact exhausted allowance survives save/load")
     active = expedition.current()
     expedition.pulse()
+    scoutClock = scoutClock + 60000
+    expedition.pulse()
     check(active.scout.legs == savedLimit
             and active.scout.travelBudget.limit == savedLimit
-            and active.scout.pause ~= nil,
+            and active.scout.pause ~= nil and active.scout.stalledReturnRecovery == nil,
         "reload does not silently replenish an exhausted direction")
     check(expedition.sendRadioOrder(player, "expedition_decision", "push_on")
             and active.scout.legs == 0 and active.scout.pause == nil
@@ -3456,6 +3467,113 @@ end)()
     SC.ExpeditionRoute.plan, SC.Navigation.findPath, SC.Senses.cached,
         SC.BaseLife = oldPlan, oldFind, oldSenses, oldBase
     reserve.getCurrentSquare, getWorld = oldSquare, oldWorld
+end)()
+
+-- A generic ground return needs alternate path evidence before leaving Hold.
+;(function()
+    local U, clock = SC.GameplayUtil, scoutClock
+    local oldPosition, oldSquare, oldFree, oldSee = U.position, U.gridSquare, U.isSquareFree, U.canSee
+    local oldCurrent, oldNav, oldSenses, oldPerformance = reserve.getCurrentSquare,
+        SC.Navigation, SC.Senses, SC.Performance
+    local squares = {}
+    local function square(x)
+        squares[x] = { x = x, y = 20, z = 0, getRoom = function() end }
+        return squares[x]
+    end
+    local origin, nextTile, alternative = square(100), square(99), square(94)
+    U.position = function(actor) if actor then return actor.x, actor.y, actor.z or 0 end end
+    U.gridSquare = function(x, y, z) return y == 20 and z == 0 and squares[x] or nil end
+    U.isSquareFree, U.canSee = function() return true end, function() return true end
+    reserve.getCurrentSquare = function(actor) return squares[actor.x] end
+    local slices, begins, frame = 0, 0, 0
+    SC.Navigation = {
+        beginPathSearch = function(from, into, view, options)
+            begins = begins + 1
+            check(from == origin and into == alternative and options.nodeBudget == 600
+                    and options.alternatives == false,
+                "the generic recovery searches only a different exact loaded breadcrumb")
+            return { origin, nextTile, alternative }
+        end,
+        resumePathSearch = function(path, quota)
+            slices = slices + 1
+            check(quota == 24, "recovery yields to the background navigation quota")
+            if slices % 2 == 1 then return "pending" end
+            return "complete", path
+        end,
+    }
+    SC.Performance = {
+        frameId = function() return frame end,
+        claimUnits = function(lane, quota, urgent)
+            check(lane == "navigation" and urgent == false, "stalled travel has background priority")
+            return quota
+        end,
+    }
+    SC.Senses = { cached = function()
+        return { valid = true, scanComplete = true, scanDiscoveryComplete = true,
+            scanVisualComplete = true, time = scoutClock, radius = 24, threats = {},
+            origin = { x = origin.x, y = origin.y, z = 0, square = origin } }
+    end }
+    reserve.x, reserve.y = 23, 20
+    local began, active = expedition.start({ { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 103, y = 20, z = 0 }, travelMode = "straight" })
+    check(began, "generic-return fixture starts through the mission controller")
+    reserve.x = 100
+    local scout = active.scout
+    scout.phase, scout.travelBudget.phase = "inbound", "inbound"
+    scout.trail, scout.returnIndex, scout.returnRecoveryCount = { origin }, 1, 4
+    scout.pause = { reason = "return_route_stuck", mode = "awaiting_orders",
+        hazard = { x = 100, y = 20, radius = 1 }, reported = true }
+    local function pulseAfter(ms)
+        scoutClock, frame = scoutClock + ms, frame + 1
+        expedition.pulse()
+    end
+    pulseAfter(0)
+    local recovery = scout.stalledReturnRecovery
+    check(recovery and recovery.nextAt == scoutClock + 4000,
+        "the first generic recheck waits four seconds")
+    pulseAfter(4000)
+    check(scout.pause and not active.testWaypoint and begins == 0 and recovery.nextAt == scoutClock + 8000,
+        "without distinct evidence the squad keeps holding and doubles its backoff")
+    scout.trail, scout.returnIndex = { alternative, origin }, 2
+    pulseAfter(7999)
+    check(begins == 0, "new evidence does not bypass the backoff")
+    pulseAfter(1)
+    expedition.pulse()
+    check(begins == 1 and slices == 1 and scout.pause,
+        "repeated pulses in one frame never spend a second path slice")
+    pulseAfter(1)
+    local receipt = expedition.stalledReturnReceiptFor(reserve, alternative)
+    check(not scout.pause and active.testWaypoint.x == alternative.x and receipt and receipt.path[2] == nextTile
+            and expedition.stalledReturnReceiptFor(reserve, origin) == nil,
+        "the ordinary movement order can receive only its own verified geometry")
+    expedition.rejectStalledReturnReceipt(reserve, receipt, "fixture_changed_edge")
+    check(scout.pause and recovery.nextAt == scoutClock + 16000 and not active.testWaypoint,
+        "losing the exact native proof returns to Hold and retains backoff")
+    -- Put the same failed route back among the candidates. A fresh search is
+    -- allowed, but the previously launched square sequence is still rejected.
+    scout.trail, scout.returnIndex = { alternative, origin }, 2
+    pulseAfter(16000)
+    pulseAfter(1)
+    pulseAfter(1)
+    check(begins == 2 and slices == 4 and scout.pause and not active.testWaypoint
+            and recovery.nextAt == scoutClock + 30000,
+        "the same path cannot relaunch and repeated checks saturate at thirty seconds")
+    check(expedition.sendRadioOrder(player, "expedition_decision", "hold_position"),
+        "the player's acknowledged Hold is accepted while auto-retry is waiting")
+    pulseAfter(30000)
+    local saved = expedition.export()
+    check(begins == 2 and scout.pause.playerHold and saved.scout.returnRouteHold,
+        "player Hold disables scheduled checks and is saved explicitly")
+    check(expedition.prepareReset() and expedition.reset() and expedition.restore(saved) and expedition.pulse(),
+        "an explicit generic Hold restores through the ordinary mission schema")
+    pulseAfter(30000)
+    local restored = expedition.current()
+    check(restored.scout.pause and restored.scout.pause.playerHold and begins == 2,
+        "reloading cannot restart an explicit player Hold")
+    check(expedition.prepareReset() and expedition.reset(), "generic-return fixture tears down")
+    scoutClock, reserve.x = clock, 23
+    U.position, U.gridSquare, U.isSquareFree, U.canSee = oldPosition, oldSquare, oldFree, oldSee
+    reserve.getCurrentSquare, SC.Navigation, SC.Senses, SC.Performance = oldCurrent, oldNav, oldSenses, oldPerformance
 end)()
 
 -- Schema 8 adds manual selection without replaying discovery on resume.

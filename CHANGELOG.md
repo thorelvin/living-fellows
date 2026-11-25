@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.85 - Camp work and expedition follow-up
+
+- Recheck Purdy window shots at impact using the authored 3D firing lane.
+- Skip repeat inventory scans for baited fishing rods and reuse load checks while planning sorting batches.
+- Keep progressing floor-sorting route surveys until they finish or hit the search limit.
+- Retry a stalled walking return when the crew can verify a different safe first leg.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.84 - Full-squad expedition recovery
 
 - Reuse inventory preparation during Search and keep the leader's carry check lightweight.

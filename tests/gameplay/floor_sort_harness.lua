@@ -175,6 +175,94 @@ SC.BaseWork = {
     end,
 }
 
+do
+    local markedTile, overflowTile, nearbyTile = square(14, 10), square(16, 10), square(11, 10)
+    local markedZone = { id = "test:marked", kind = "sorting_floor",
+        x1 = 14, x2 = 14, y1 = 10, y2 = 10, z = 0 }
+    local overflowZone = { id = "test:overflow", kind = "sorting_floor", lootOverflow = true,
+        x1 = 16, x2 = 16, y1 = 10, y2 = 10, z = 0 }
+    local oldZones, oldNow = base.zones, now
+    local utility, camp, navigation = SC.GameplayUtil, SC.BaseLife, SC.Navigation
+    base.zones = { markedZone, overflowZone }
+    squares["14:10:0"], squares["16:10:0"], squares["11:10:0"] = markedTile, overflowTile, nearbyTile
+    camp.isInside = function() return true end
+    utility.squareOccupyingObject = function() return nil end
+    utility.squareObjects = function() end
+    utility.directInteractionAccess = function(_, where) return where == nearbyTile end
+    camp.ensureLootOverflowFloor = function(where)
+        return { id = "test:nearby", x1 = where.x, x2 = where.x, y1 = where.y, y2 = where.y, z = where.z }
+    end
+
+    local markedKey, overflowKey = "loot_overflow_sorting_floor", "loot_overflow_camp_floor"
+    local calls, outcome, receipt, lastOwner = {}, {}, {}, nil
+    navigation.selectInteraction = function(_, owner, key, choices)
+        calls[#calls + 1], lastOwner = key, owner
+        owner.navigationChoice = owner.navigationChoice or { key = key }
+        if outcome[key] == "selected" then
+            receipt.ownerState = owner
+            return choices[1], "selected", receipt
+        end
+        return nil, outcome[key] or "pending"
+    end
+
+    local surveyState = {}
+    check(select(2, Floor.overflowDestination(actor, surveyState)) == "storage_route_pending",
+        "a pending marked floor keeps the item with its owner")
+    local markedSearch = surveyState.navigationChoice
+    now = now + 16000
+    check(select(2, Floor.overflowDestination(actor, surveyState)) == "storage_route_pending"
+        and #calls == 2 and calls[2] == markedKey and lastOwner == surveyState
+        and surveyState.navigationChoice == markedSearch,
+        "a progressing marked survey keeps its owner beyond the old wall deadline")
+    outcome[markedKey] = "selected"
+    local destination, _, route = Floor.overflowDestination(actor, surveyState)
+    check(destination.square == markedTile and destination.zoneId == markedZone.id and route == receipt
+        and receipt.ownerState == surveyState,
+        "the completed marked-floor survey supplies its exact standing-route receipt")
+
+    surveyState, calls, outcome = {}, {}, {}
+    Floor.overflowDestination(actor, surveyState)
+    outcome[markedKey] = "unknown"
+    check(select(2, Floor.overflowDestination(actor, surveyState)) == "storage_route_pending"
+        and calls[#calls] == overflowKey,
+        "a terminal marked survey advances to the camp overflow floor")
+    local overflowSearch = surveyState.navigationChoice
+    check(overflowSearch ~= nil and overflowSearch.key == overflowKey,
+        "the fallback search replaces the finished marked frontier")
+    outcome[overflowKey] = "selected"
+    destination, _, route = Floor.overflowDestination(actor, surveyState)
+    check(destination.square == overflowTile and route == receipt and #calls == 4
+        and calls[4] == overflowKey and receipt.ownerState == surveyState and lastOwner == surveyState,
+        "the overflow frontier survives the next decision without restarting the marked survey")
+
+    surveyState, calls, outcome = {}, {}, {}
+    Floor.overflowDestination(actor, surveyState)
+    markedSearch = surveyState.navigationChoice
+    local streamedTile = square(14, 10)
+    squares["14:10:0"] = streamedTile
+    Floor.overflowDestination(actor, surveyState)
+    check(surveyState.navigationChoice ~= markedSearch,
+        "a newly streamed destination invalidates the old frontier")
+    local reloadedSearch = surveyState.navigationChoice
+    actor.x = 11
+    Floor.overflowDestination(actor, surveyState)
+    check(surveyState.navigationChoice ~= reloadedSearch, "moving the worker invalidates the old frontier")
+    actor.x = 10
+
+    surveyState, calls, outcome = {}, {}, {}
+    Floor.overflowDestination(actor, surveyState)
+    now = now + 90000
+    destination, _, route = Floor.overflowDestination(actor, surveyState)
+    check(destination and destination.square == nearbyTile and route == nil and #calls == 1,
+        "the total deadline falls back to a directly reachable tile without restarting a search")
+
+    base.zones, now = oldZones, oldNow
+    squares["14:10:0"], squares["16:10:0"], squares["11:10:0"] = nil, nil, nil
+    camp.isInside, camp.ensureLootOverflowFloor = nil, nil
+    utility.squareOccupyingObject, utility.squareObjects, utility.directInteractionAccess = nil, nil, nil
+    navigation.selectInteraction = nil
+end
+
 local tool = item(101, false)
 addWorld(source, tool)
 local queued, job = Floor.audit(base)
@@ -879,6 +967,7 @@ SC.GameplayUtil.itemType=function(i) return i.kind or "Base.Test" end
 SC.GameplayUtil.itemWeight=function(i) return i.weight or .01 end
 SC.GameplayUtil.inventoryLoad=function() return #inventory.items*.01,50 end
 SC.GameplayUtil.carryLoad=function() return #inventory.items*.01,12 end
+SC.GameplayUtil.carryCapacity=function() return 12 end
 SC.GameplayUtil.move=function() return true end
 SC.NativeActions.visualStatus=function() return "completed" end
 SC.NativeActions.visualToken=nil

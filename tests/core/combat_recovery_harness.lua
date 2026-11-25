@@ -503,4 +503,90 @@ do
     check(not canLeave(), "a second nearby contact still gets a combat response")
     SC.GameplayUtil.loadedSquare = loadedSquare
 end
+do
+    local priorClock, priorLocal = getTimestampMs, getSpecificPlayer
+    local priorTypes, priorCommands = AttackType, SC.Commands
+    local priorFactions, priorPurdy = SC.Factions, SC.OddballPurdy
+    local priorUseWeapon, priorDoAttack = actor.getUseHandWeapon, actor.DoAttack
+    local clock, attempt, receipt, holdFire, protected, liveChecks = 6000, 11, 7, false, false, 0
+    local rifle = { __class = "HandWeapon", isRanged = function() return true end }
+    local otherRifle = { __class = "HandWeapon", isRanged = function() return true end }
+    function actor:getCompanionAttackAttemptSerial() return attempt end
+    function actor:getCompanionAttackReceiptSerial() return receipt end
+    function actor:getUseHandWeapon() return self.primary end
+    getTimestampMs = function() return clock end
+    getSpecificPlayer = function() return target end
+    AttackType = { SHOT = {} }
+    local commands = function() return { holdFire = holdFire } end
+    SC.Commands = { peek = commands, peekExisting = commands }
+    SC.Factions = { firearmTargetProtected = function() return protected end }
+    SC.OddballPurdy = { validateWindowCommit = function(owner, victim, shot)
+        liveChecks = liveChecks + 1
+        return owner == actor and victim == target and shot.groupId == "purdy_fixture" and shot.weapon == rifle
+    end }
+    local function arm()
+        actor:releaseCompanionStaleAttack()
+        actor.actionState, actor.primary, actor.recoilDelay = "idle", rifle, 0
+        actor.x, actor.y, actor.z = 0, 0, 1
+        target.x, target.y, target.z, target.health = 4, 0, 0, 5
+        local accepted, why = dispatch("attack_firearm", { purdyWindowShot = "purdy_fixture", weapon = rifle })
+        check(accepted, "authored firearm dispatch: " .. tostring(why))
+        attempt = attempt + 1
+    end
+    arm()
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "protect" and liveChecks == 1,
+        "exact next native aim and weapon reach the Purdy live check and retain native hit protection")
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "friendly_in_attack_lane" and liveChecks == 1,
+        "a second collision cannot reuse the authored cross-floor authorization")
+    arm()
+    holdFire = true
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "hold_fire", "live Hold Fire blocks the pending shot")
+    holdFire = false
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "friendly_in_attack_lane" and liveChecks == 1,
+        "Hold Fire denies and consumes a pending authored attack")
+    arm()
+    protected = true
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "friendly_attack_target" and liveChecks == 1,
+        "the current target protection vetoes an authored authorization")
+    protected = false
+    arm()
+    local replacement = { x = 4, y = 0, z = 0 }
+    local shot, authored = SC.NativeActions.consumePurdyWindowShot(actor, replacement)
+    local _, stillPending = SC.NativeActions.consumePurdyWindowShot(actor, target)
+    check(shot == nil and authored and not stillPending,
+        "a different native collision target consumes the ticket without granting it")
+    arm()
+    actor.primary = otherRifle
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "purdy_window_shot_invalid",
+        "an equipped item replacement invalidates the ticket")
+    arm()
+    actor.getUseHandWeapon = function() return otherRifle end
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "purdy_window_shot_invalid",
+        "a changed active native weapon also invalidates the ticket")
+    actor.getUseHandWeapon = function(owner) return owner.primary end
+    arm()
+    attempt = attempt + 1
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "purdy_window_shot_invalid",
+        "a different native attempt serial invalidates the ticket")
+    arm()
+    receipt = receipt + 1
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "purdy_window_shot_invalid",
+        "an intervening native receipt invalidates the ticket")
+    arm()
+    clock = clock + 4000
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "purdy_window_shot_invalid",
+        "an expired authorization cannot cross the floor")
+    arm()
+    SC.NativeActions.resetCombatEvents(actor)
+    check(SC.Combat.firearmCommitPolicy(actor, target) == "friendly_in_attack_lane",
+        "combat reset removes the actor's pending authored attack")
+    actor:releaseCompanionStaleAttack()
+    actor.DoAttack = function() return false end
+    local started = dispatch("attack_firearm", { purdyWindowShot = "purdy_fixture", weapon = rifle })
+    local _, lingering = SC.NativeActions.consumePurdyWindowShot(actor, target)
+    check(not started and not lingering, "a failed native launch leaves no shot authorization")
+    getTimestampMs, getSpecificPlayer = priorClock, priorLocal
+    AttackType, SC.Commands, SC.Factions, SC.OddballPurdy = priorTypes, priorCommands, priorFactions, priorPurdy
+    actor.getUseHandWeapon, actor.DoAttack = priorUseWeapon, priorDoAttack
+end
 SC_TEST_REPORT = "COMBAT_RECOVERY_KAHLUA_PASS checks=" .. checks

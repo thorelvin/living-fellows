@@ -263,10 +263,12 @@ do
     function cell:getGridSquare(x, y)
         local key = x .. ":" .. y
         if key == unloaded then return nil end
-        grid[key] = grid[key] or { x = x, y = y }
+        grid[key] = grid[key] or { x = x, y = y, z = 0,
+            getRoom = function(square) return square.room end }
         return grid[key]
     end
     local U = SC.GameplayUtil
+    U.gridSquare = function(x, y, z) return z == 0 and cell:getGridSquare(x, y) or nil end
     local now = 10000
     U.cell = function() return cell end
     U.nowMs = function() return now end
@@ -289,6 +291,22 @@ do
     local path
     verified, _, path = Route.verifyReturnEntry(distant, actor)
     check(verified.x == 22 and path[#path] == last, "a bounded loaded first leg can be verified")
+    check(Route.stalledReturnPathKey(actor, last, path) == "10:10:0>18:10:0>22:10:0",
+        "a generic return signs the complete exact exterior geometry")
+    unloaded = "18:10"
+    local invalidPath, invalidReason = Route.stalledReturnPathKey(actor, last, path)
+    check(not invalidPath and invalidReason == "return_entry_square_unloaded",
+        "a streamed-away interior node invalidates exact proof")
+    unloaded = nil
+    path[2].room = {}
+    invalidPath, invalidReason = Route.stalledReturnPathKey(actor, last, path)
+    check(not invalidPath and invalidReason == "return_entry_not_exterior",
+        "the recovery cannot cut back into a building")
+    path[2].room = nil
+    invalidPath, invalidReason = Route.stalledReturnPathKey(actor, last, path,
+        { points = {}, index = 1, avoidance = { x = 18, y = 10, radius = 2 } })
+    check(not invalidPath and invalidReason == "return_entry_crosses_hazard",
+        "a different path crossing a retained avoidance area remains unsafe")
     distant.recoveryEntry = verified
     check(Route.target(distant, actor) == verified, "the verified entry steers the first actual leg")
     local snapshot = { complete = true, valid = true, scanComplete = true,

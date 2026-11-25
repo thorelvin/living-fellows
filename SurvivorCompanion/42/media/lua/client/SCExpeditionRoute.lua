@@ -428,13 +428,12 @@ end
 
 -- The ordinary entry check may defer distant connectors until they stream in.
 -- An unattended resume requires a genuine loaded step toward the new route.
-function Route.verifyReturnEntry(route, actor)
+function Route.loadedReturnEntry(route, actor)
     local U = SC.GameplayUtil
     local x, y, z = U.position(actor)
     local cell = U.cell and U.cell()
     local source = actor and actor:getCurrentSquare()
-    if x == nil or y == nil or z ~= 0 or cell == nil or source == nil
-        or not SC.Navigation or not SC.Navigation.findPath then
+    if x == nil or y == nil or z ~= 0 or cell == nil or source == nil then
         return nil, "return_entry_unavailable"
     end
     local target = route.goal
@@ -451,12 +450,49 @@ function Route.verifyReturnEntry(route, actor)
     if destination == nil or not U.isSquareFree(destination) then
         return nil, "return_entry_unloaded_or_occupied"
     end
+    return entry, nil, source, destination
+end
+
+function Route.verifyReturnEntry(route, actor)
+    if not SC.Navigation or not SC.Navigation.findPath then
+        return nil, "return_entry_unavailable"
+    end
+    local entry, issue, source, destination = Route.loadedReturnEntry(route, actor)
+    if not entry then return nil, issue end
     local path = SC.Navigation.findPath(source, destination,
         { actor = actor, nodeBudget = 600 })
     if path == nil or #path < 2 or #path > 40 or path[1] ~= source
         or path[#path] ~= destination then return nil, "return_entry_unreachable" end
     if not Route.withinCorridor(route, path) then return nil, "return_entry_crosses_hazard" end
     return entry, nil, path
+end
+
+-- A paused crew needs a complete, different loaded leg. Square identities
+-- can change during streaming even when their coordinates are unchanged.
+function Route.stalledReturnPathKey(actor, destination, path, corridor)
+    local U = SC.GameplayUtil
+    local source = actor:getCurrentSquare()
+    if type(path) ~= "table" or #path < 2 or #path > 40 or path[1] ~= source
+        or path[#path] ~= destination or not U.isSquareFree(destination) then
+        return nil, "return_entry_unreachable"
+    end
+    local keys = {}
+    local outside = source:getRoom() == nil
+    for index, square in ipairs(path) do
+        local x, y, z = U.position(square)
+        if x == nil or z ~= 0 or U.gridSquare(x, y, z) ~= square then
+            return nil, "return_entry_square_unloaded"
+        end
+        local room = square:getRoom()
+        if outside and room ~= nil then return nil, "return_entry_not_exterior" end
+        if room == nil then outside = true end
+        keys[index] = x .. ":" .. y .. ":" .. z
+    end
+    if not outside then return nil, "return_entry_not_exterior" end
+    if corridor and not Route.withinCorridor(corridor, path) then
+        return nil, "return_entry_crosses_hazard"
+    end
+    return table.concat(keys, ">")
 end
 
 local function hasThreatOverflow(snapshot)

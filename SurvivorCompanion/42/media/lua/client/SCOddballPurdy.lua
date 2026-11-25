@@ -288,7 +288,7 @@ local function returnTucker(group, state)
 end
 
 local function memberPerch(group, actor)
-    local state = stateFor(group)
+    local state = group.oddball
     local member = memberFor(group, actor)
     local index = member and tonumber(member.key:match("^member%-(%d+)$"))
     return index and state and state.site
@@ -336,7 +336,7 @@ function Purdy.onSpawn(group, actor)
     return true, "purdy_perch_ready"
 end
 
-local function clearSightStep(from, to, dx, dy, dz)
+local function clearSightStep(from, to, dx, dy, dz, firing)
     -- The engine's LosUtil.lineClear calls this native edge test on each
     -- traversed square. Asking it directly also works for a non-local NPC,
     -- whose cached player visibility is unrelated to his firing lane.
@@ -356,11 +356,19 @@ local function clearSightStep(from, to, dx, dy, dz)
         if not checkedFrom or not checkedTo or blockedFrom or blockedTo then
             return false, false
         end
+        if firing then
+            local opening = U().call(from, "getWindowTo", to)
+                or U().call(to, "getWindowTo", from)
+            local open = U().call(opening, "IsOpen")
+            local smashed = U().call(opening, "isSmashed")
+            if open ~= true and smashed ~= true then return false, false end
+            if U().call(opening, "isBarricaded") ~= false then return false, false end
+        end
     end
     return true, window
 end
 
-local function upperWindowSight(actor, target)
+local function upperWindowSight(actor, target, firing)
     local ax, ay, az = U().position(actor)
     local tx, ty, tz = U().position(target)
     if ax == nil or tx == nil or az ~= 1 or tz ~= 0 then return false end
@@ -383,7 +391,7 @@ local function upperWindowSight(actor, target)
             local to = U().gridSquare(nx, ny, nz)
             if not from or not to then return false end
             local clear, window = clearSightStep(from, to,
-                nx - px, ny - py, nz - pz)
+                nx - px, ny - py, nz - pz, firing)
             if not clear then return false end
             if window and pz == az and nz == az then
                 crossedUpperWindow = true
@@ -404,44 +412,68 @@ function Purdy.canTalkThroughWindow(group, player)
     return false
 end
 
-local function friendlyShotBlocked(actor, target, group, player)
-    local allies = {}
-    for _, member in ipairs(group.members or {}) do
-        if member.actorId ~= U().idOf(actor) and member.alive ~= false then
-            local record = SC.Registry and SC.Registry.byId(member.actorId)
-            if record and record.actor then allies[#allies + 1] = record.actor end
-        end
-    end
+local function friendlyShotBlocked(actor, target, group, live)
     local ax, ay, az = U().position(actor)
     local tx, ty, tz = U().position(target)
     if ax == nil or tx == nil then return true end
-    if az == tz then
-        if not SC.Combat or type(SC.Combat.friendlyFireBlocked) ~= "function" then
-            return true
-        end
-        return SC.Combat.friendlyFireBlocked(actor, target, {
-            player = player, allies = allies, kind = "ranged" }) == true
-    end
-    -- The shared combat gate deliberately blocks every cross-floor shot.
-    -- Project the actual 3D sightline instead, with one floor equal to three
-    -- horizontal tiles. Any clan member in its 0.8-tile corridor vetoes fire.
+    -- Use the same 3D lane at dispatch and impact, with one floor equal to
+    -- three horizontal tiles.
     local dz = ((tz or 0) - (az or 0)) * 3
     local dx, dy = tx - ax, ty - ay
     local lengthSq = dx * dx + dy * dy + dz * dz
     if lengthSq < 0.01 then return true end
-    for _, ally in ipairs(allies) do
+    local function inLane(ally)
+        if ally == actor or ally == target or not U().isValidActor(ally) then return false end
+        if live and U().invalidateSpatial then U().invalidateSpatial(ally) end
         local x, y, z = U().position(ally)
-        if x ~= nil then
-            local vx, vy, vz = x - ax, y - ay, ((z or 0) - (az or 0)) * 3
-            local t = math.max(0, math.min(1,
-                (vx * dx + vy * dy + vz * dz) / lengthSq))
-            local ex, ey, ez = vx - t * dx, vy - t * dy, vz - t * dz
-            if ex * ex + ey * ey + ez * ez <= 0.8 * 0.8 then
-                return true
-            end
+        if x == nil then return false end
+        local vx, vy, vz = x - ax, y - ay, ((z or 0) - (az or 0)) * 3
+        local t = math.max(0, math.min(1,
+            (vx * dx + vy * dy + vz * dz) / lengthSq))
+        local ex, ey, ez = vx - t * dx, vy - t * dy, vz - t * dz
+        return ex * ex + ey * ey + ez * ez <= 0.8 * 0.8
+    end
+    for _, member in ipairs(group.members or {}) do
+        if member.alive ~= false then
+            local record = SC.Registry and SC.Registry.byId(member.actorId)
+            if record and not (record.runtime and record.runtime.inactive)
+                and inLane(record.actor) then return true end
+        end
+    end
+    if SC.Registry and SC.Registry.snapshot and SC.Combat and SC.Combat.firearmCandidateProtected then
+        for _, record in ipairs(SC.Registry.snapshot()) do
+            if not (record.runtime and record.runtime.inactive) and inLane(record.actor)
+                and SC.Combat.firearmCandidateProtected(actor, record.actor) then return true end
         end
     end
     return false
+end
+
+local function windowShotAllowed(actor, target, group, member, perch, weapon, live)
+    return group.standing == "Hostile" and group.oddball.tuckerReturned ~= true
+        and member.alive ~= false and member.away == nil and member.departed ~= true
+        and target ~= nil and weapon ~= nil and GUNS[member.key] == U().itemType(weapon)
+        and U().distance(actor, perch) <= 1.6
+        and U().distance(actor, target) <= (FIRE_RANGE[member.key] or 12)
+        and upperWindowSight(actor, target, true)
+        and not friendlyShotBlocked(actor, target, group, live)
+end
+
+function Purdy.validateWindowCommit(actor, target, shot)
+    if type(getSpecificPlayer) ~= "function" or getSpecificPlayer(0) ~= target
+        or not U().isValidActor(actor) then return false end
+    local group = SC.Factions and SC.Factions.group and SC.Factions.group(shot.groupId)
+    local oddball = group and group.oddball
+    if not oddball or oddball.id ~= ID then return false end
+    local registry = SC.Registry and SC.Registry.byId and SC.Registry.byId(U().idOf(actor))
+    if not registry or registry.actor ~= actor or (registry.runtime and registry.runtime.inactive) then return false end
+    if U().invalidateSpatial then
+        U().invalidateSpatial(actor)
+        U().invalidateSpatial(target)
+    end
+    local perch, member = memberPerch(group, actor)
+    return perch ~= nil and member ~= nil
+        and windowShotAllowed(actor, target, group, member, perch, shot.weapon, true)
 end
 
 function Purdy.pulse(group, player, current)
@@ -510,20 +542,15 @@ function Purdy.update(actor, player, runtime, intent, group)
         end
         return false, "purdy_perch_unloaded"
     end
-    if group.standing == "Hostile" and player
-        and U().distance(actor, player) <= (FIRE_RANGE[member.key] or 12)
-        and upperWindowSight(actor, player)
-        and not friendlyShotBlocked(actor, player, group, player) then
-        local weapon = select(1, U().call(actor, "getPrimaryHandItem"))
-        if weapon and U().itemType(weapon) == GUNS[member.key] then
-            local now = U().nowMs()
-            if now >= (tonumber(state.nextFireLineAt) or 0) then
-                state.nextFireLineAt = now + 20000
-                speak(group, "fire")
-            end
-            return U().move(actor, "walk", { action = "attack_firearm",
-                weapon = weapon, target = player, factionCombat = true })
+    local weapon = U().call(actor, "getPrimaryHandItem")
+    if windowShotAllowed(actor, player, group, member, perch, weapon) then
+        local now = U().nowMs()
+        if now >= (tonumber(state.nextFireLineAt) or 0) then
+            state.nextFireLineAt = now + 20000
+            speak(group, "fire")
         end
+        return U().move(actor, "walk", { action = "attack_firearm",
+            weapon = weapon, target = player, factionCombat = true, purdyWindowShot = group.id })
     end
     if player and U().distance(actor, player) <= 25 then
         return U().move(actor, "walk", { action = "face_alert",

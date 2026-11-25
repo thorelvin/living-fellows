@@ -82,10 +82,32 @@ function Floor.canDropOverflow(actor, zoneId, square)
         and U().directInteractionAccess(actor, square) == true
 end
 
+local OVERFLOW_SURVEY_MS = 90000
+
+local function sameOverflowTiles(old, present)
+    for id, tile in pairs(old) do
+        if present[id] ~= tile then return false end
+    end
+    for id in pairs(present) do
+        if old[id] == nil then return false end
+    end
+    return true
+end
+
+local function finishOverflowSurvey(state)
+    if state.overflowSurvey then
+        state.overflowSurvey, state.navigationChoice = nil, nil
+    end
+end
+
 function Floor.overflowDestination(actor, state)
     local base = SC.BaseLife.active()
-    if not base or SC.BaseLife.isInside(actor) ~= true then return nil end
-    local marked, fallback = {}, nil
+    local origin = U().squareOf(actor)
+    if not base or not origin or SC.BaseLife.isInside(actor) ~= true then
+        finishOverflowSurvey(state)
+        return nil
+    end
+    local marked, fallback, tiles = {}, nil, {}
     for _, zone in ipairs(base.zones or {}) do
         if zone.kind == "sorting_floor" then
             local best, distance
@@ -102,23 +124,50 @@ function Floor.overflowDestination(actor, state)
                 local pick = { id = zone.id, object = best, destination = { square = best, zoneId = zone.id } }
                 if zone.lootOverflow then fallback = pick
                 else marked[#marked + 1] = pick end
+                tiles[zone.id] = best
             end
         end
     end
-    local function reachable(choices, key)
+    local current = now()
+    local survey = state.overflowSurvey
+    local fallbackId = fallback and fallback.id or nil
+    if not survey or survey.actor ~= actor or survey.base ~= base or survey.origin ~= origin
+        or survey.item ~= state.item or survey.fallbackId ~= fallbackId
+        or not sameOverflowTiles(survey.tiles, tiles) then
+        survey = { actor = actor, base = base, origin = origin, item = state.item,
+            tiles = tiles, fallbackId = fallbackId, startedAt = current, phase = "marked" }
+        state.overflowSurvey = survey
+        state.navigationChoice = nil
+    end
+
+    local function selectFloor(choices, key)
         for _, row in ipairs(choices) do
             if U().directInteractionAccess(actor, row.object) == true then return row.destination end
         end
-        if #choices == 0 or not SC.Navigation or not SC.Navigation.selectInteraction then return nil end
-        local selected, why, receipt = SC.Navigation.selectInteraction(actor, state,
+        local navigation = SC.Navigation
+        if current - survey.startedAt >= OVERFLOW_SURVEY_MS or #choices == 0
+            or not navigation or not navigation.selectInteraction then return nil end
+        -- The transaction uses the logistics state to adopt this route.
+        local selected, reason, receipt = navigation.selectInteraction(actor, state,
             key, choices, { nodeBudget = 1600, retainRoute = true })
         if selected then return selected.destination, nil, receipt end
-        if why == "pending" and now() - state.overflowSurveyAt < 15000 then return nil, "storage_route_pending" end
+        -- The shared survey expires after 15 seconds without expansion or
+        -- geometry progress. A productive marked route keeps its frontier.
+        if reason == "pending" then return nil, "storage_route_pending" end
     end
-    state.overflowSurveyAt = state.overflowSurveyAt or now()
-    local destination, why, receipt = reachable(marked, "loot_overflow_sorting_floor")
-    if destination or why then return destination, why, receipt end
-    if fallback then return reachable({ fallback }, "loot_overflow_camp_floor") end
+
+    if survey.phase == "marked" then
+        local destination, why, receipt = selectFloor(marked, "loot_overflow_sorting_floor")
+        if destination then finishOverflowSurvey(state) return destination, nil, receipt end
+        if why then return nil, why end
+        survey.phase, state.navigationChoice = "overflow", nil
+    end
+    if survey.phase == "overflow" and fallback then
+        local destination, why, receipt = selectFloor({ fallback }, "loot_overflow_camp_floor")
+        if destination then finishOverflowSurvey(state) return destination, nil, receipt end
+        if why then return nil, why end
+    end
+    finishOverflowSurvey(state)
     -- The first worker chooses a reachable nearby tile. The camp owns that
     -- single square afterward, even when other workers approach it.
     local x, y, z = U().position(U().squareOf(actor))

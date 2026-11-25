@@ -17,7 +17,7 @@ $LuaFiles += @('SCNamespace.lua', 'SCCall.lua', 'SCStableValue.lua', 'SCTransact
 $LuaFiles += @('SCGameplayUtil.lua', 'SCBaseObjectRef.lua', 'SCTopology.lua', 'SCPathSearch.lua',
     'SCNavTraffic.lua', 'SCNavTraversal.lua', 'SCActionSupervisor.lua', 'SCLocomotion.lua',
     'SCPerformance.lua', 'SCWorkRoutes.lua', 'SCStairTransition.lua', 'SCNavigation.lua',
-    'SCBanter.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
+    'SCBanter.lua', 'SCLogistics.lua', 'SCFloorSort.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
 $LuaFiles += Join-Path $PSScriptRoot 'storage_route_yield_regression_harness.lua'
 Push-Location -LiteralPath $GameRoot
 try {

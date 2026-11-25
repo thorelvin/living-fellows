@@ -1580,13 +1580,16 @@ end
 -- it to refuse a short carry the inventory can physically hold. A character
 -- whose limit falls to 0 through injury still reports the physical scale, so
 -- callers never divide by zero.
-function U.carryLoad(actor)
-    local weight, physical, physicalRatio, inventory = U.inventoryLoad(actor)
+function U.carryCapacity(actor, physical)
     local limit, limitOk = U.call(actor, "getMaxWeight")
     limit = limitOk and tonumber(limit) or nil
-    if not limit or limit <= 0 then
-        return weight, physical, physicalRatio, inventory
-    end
+    return limit and limit > 0 and limit or physical
+end
+
+function U.carryLoad(actor)
+    local weight, physical, physicalRatio, inventory = U.inventoryLoad(actor)
+    local limit = U.carryCapacity(actor, physical)
+    if limit == physical then return weight, limit, physicalRatio, inventory end
     return weight, limit, weight / limit, inventory
 end
 

@@ -7011,6 +7011,44 @@ function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquar
     return true
 end
 
+-- The stalled return has already proved this exact path. Ordinary navigation
+-- owns the individual steps, but a lost proof must go back to the pause instead
+-- of replacing it with an unchecked engine route to the old waypoint.
+function Navigation._adoptStalledReturnRoute(actor, state, source, goal, intent, now)
+    local receipt = intent.stalledReturnReceipt
+    local expedition = SC.ExpeditionPrototype
+    if intent.action ~= "ordered_move" or not expedition or not expedition.stalledReturnReceiptFor
+        or expedition.stalledReturnReceiptFor(actor, goal) ~= receipt then
+        return false, "return_entry_owner_changed"
+    end
+    if receipt.used then
+        return state.path == receipt.path and state.pathGoalSquare == goal
+            and state.nativeLease == nil, "return_entry_proof_lost"
+    end
+    if state.nativeLease or state.pathSearch or now > receipt.expiresAt or source ~= receipt.source then
+        return false, "return_entry_proof_lost"
+    end
+    local route = SC.ExpeditionRoute
+    local _, reason = route.stalledReturnPathKey(actor, goal, receipt.path, receipt.corridor)
+    if reason then return false, reason end
+    local observed, observationReason = route.returnEntryObserved(
+        actor, receipt.path, intent.snapshot, now, receipt.threatLimit)
+    if not observed then return false, observationReason end
+    local valid, why = SC.WorkRoutes.validateReceiptPath(receipt.path, source, goal, {
+        actor = actor, blockedEdges = state.blockedEdges, blockedSquares = state.blockedSquares,
+        routeMemory = state.routeMemory, now = now, allowHazards = false, vegetationScale = 1,
+    })
+    if not valid then return false, why or "return_entry_edge_changed" end
+    receipt.used = true
+    state.path, state.pathGoalSquare, state.pathIndex = receipt.path, goal, 2
+    state.pathIsPartial, state.pathFailure, state.pathSearchHolding = nil, nil, nil
+    state.pathStealthAvoidance, state.pathEmergencyVegetation = intent.stealthAvoidance == true, false
+    state.pathReason, state.lastPlanDurationMs = "expedition_return_receipt", 0
+    state.lastProgressAt, state.nextRepathAt = now, now + (U().config("navigationRepathMs") or 900)
+    Navigation._resetRouteProjection(state)
+    return true
+end
+
 function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
     if state.path ~= nil or requestIntent.preferVerifiedPath ~= true
@@ -7390,12 +7428,23 @@ function Navigation.request(actor, target, movementMode, intent)
             or math.floor(ix) ~= math.floor(gx)
             or math.floor(iy) ~= math.floor(gy) then intercept = nil end
     end
-    local reachedGoal = utility.arrived(actor, intercept or goalSquare, {
-        targetKind = intercept and "world" or "square",
-        distance = tonumber(requestIntent.arrivalDistance)
-            or (intercept and 0.35)
-            or utility.config("navigationArrivalDistance") or 0.6,
-    })
+    -- A verified return leg is complete on its exact tile. The step cursor
+    -- consumes that final node on entry, before the actor may reach its centre.
+    local returnReceipt = requestIntent.stalledReturnReceipt
+    local reachedGoal
+    if returnReceipt then
+        reachedGoal = returnReceipt.used and sourceSquare == goalSquare
+            and utility.call(actor, "getCurrentSquare") == goalSquare
+            and SC.Navigation._adoptStalledReturnRoute(actor, state,
+                sourceSquare, goalSquare, requestIntent, now)
+    else
+        reachedGoal = utility.arrived(actor, intercept or goalSquare, {
+            targetKind = intercept and "world" or "square",
+            distance = tonumber(requestIntent.arrivalDistance)
+                or (intercept and 0.35)
+                or utility.config("navigationArrivalDistance") or 0.6,
+        })
+    end
     -- A centre-based radius can overlap an adjacent tile. Exact work positions
     -- (for example a dry fishing bank) must enter the effective goal tile too.
     if reachedGoal and requestIntent.requireSameSquare == true
@@ -7572,6 +7621,11 @@ function Navigation.request(actor, target, movementMode, intent)
             state.lockedRoomDetourRetryAt = now + 30000
         end
     end
+    if requestIntent.stalledReturnReceipt then
+        local adopted, why = SC.Navigation._adoptStalledReturnRoute(
+            actor, state, sourceSquare, goalSquare, requestIntent, now)
+        if not adopted then return false, why end
+    end
     SC.Navigation._breakRestartedNativeLease(actor, state, now)
     local failedMultiLevel = state.nativeLease ~= nil
         and state.nativeLease.affordance == "multi_level"
@@ -7604,22 +7658,24 @@ function Navigation.request(actor, target, movementMode, intent)
         SC.Navigation._clearNativeFailureStreak(state)
     end
 
-    local recovering, recoveryAccepted, recoveryStatus = recoverFromStuck(
-        actor,
-        state,
-        goalSquare,
-        movementMode,
-        requestIntent,
-        now
-    )
-    if recovering then
-        return recoveryAccepted == true, recoveryStatus or "recovering"
-    end
+    if not requestIntent.stalledReturnReceipt then
+        local recovering, recoveryAccepted, recoveryStatus = recoverFromStuck(
+            actor,
+            state,
+            goalSquare,
+            movementMode,
+            requestIntent,
+            now
+        )
+        if recovering then
+            return recoveryAccepted == true, recoveryStatus or "recovering"
+        end
 
-    local multiLevelHandled, multiLevelAccepted, multiLevelStatus =
-        SC.Navigation._requestMultiLevelPath(
-        actor, state, sourceSquare, goalSquare, requestIntent, now, service, token)
-    if multiLevelHandled then return multiLevelAccepted, multiLevelStatus end
+        local multiLevelHandled, multiLevelAccepted, multiLevelStatus =
+            SC.Navigation._requestMultiLevelPath(
+            actor, state, sourceSquare, goalSquare, requestIntent, now, service, token)
+        if multiLevelHandled then return multiLevelAccepted, multiLevelStatus end
+    end
 
     local snapshot = requestIntent.snapshot
     local currentThreats = type(snapshot) == "table" and type(snapshot.stealthThreats) == "table"
@@ -7672,6 +7728,9 @@ function Navigation.request(actor, target, movementMode, intent)
         state.nextRepathAt = 0
     end
 
+    if requestIntent.stalledReturnReceipt and state.path ~= requestIntent.stalledReturnReceipt.path then
+        return false, "return_entry_proof_lost"
+    end
     SC.Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
     if scavengeReceipt and not scavengeReceipt.used then
@@ -8164,6 +8223,7 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     if not nextSquare then
+        if requestIntent.stalledReturnReceipt then return false, "return_entry_proof_lost" end
         -- A partial route is a promise of more planning, not a destination.
         -- Walking to its end left the exhausted table in place, and the planning
         -- gate requires `not state.path`, so no new search could start and the

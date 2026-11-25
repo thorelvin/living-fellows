@@ -2239,10 +2239,22 @@ end
 -- Called inside the bridge-owned native firearm collision. The intended
 -- target is useful for a last lane check, but it is not a native hit receipt.
 function Combat.firearmCommitPolicy(actor, target)
+    local native = SC.NativeActions
+    local shot, authored
+    if native and native.consumePurdyWindowShot then
+        shot, authored = native.consumePurdyWindowShot(actor, target)
+    end
     local commands = SC.Commands and SC.Commands.peekExisting and SC.Commands.peekExisting(actor)
     if commands and commands.holdFire == true then return "hold_fire" end
     local utility = U()
     if target == nil or utility.isGoneTarget(target) then return "attack_target_unavailable" end
+    if authored then
+        if Combat.firearmCandidateProtected(actor, target) then return "friendly_attack_target" end
+        local purdy = SC.OddballPurdy
+        if not shot or not purdy or not purdy.validateWindowCommit
+            or not purdy.validateWindowCommit(actor, target, shot) then return "purdy_window_shot_invalid" end
+        return "protect"
+    end
     if utility.config("friendlyFire") == true then return "allow" end
     if Combat.firearmCandidateProtected(actor, target) then return "friendly_attack_target" end
     local player = type(getSpecificPlayer) == "function" and getSpecificPlayer(0)

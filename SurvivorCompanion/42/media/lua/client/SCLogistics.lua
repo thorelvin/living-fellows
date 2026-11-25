@@ -339,13 +339,18 @@ local function loadRatios(role, actor)
         U().config("logisticsHardLoadRatio") or 0.90
 end
 
-function Logistics.expeditionLoadFull(actor)
-    local weight, capacity = U().inventoryLoad(actor)
+function Logistics.physicalLoadLimit(actor)
+    local weight, capacity, _, inventory = U().inventoryLoad(actor)
     if type(weight) ~= "number" or type(capacity) ~= "number" or capacity <= 0 then
-        return false
+        return nil
     end
     local _, hard = loadRatios(Logistics.roleOf(actor), actor)
-    return weight >= capacity * hard
+    return weight, capacity * hard, inventory
+end
+
+function Logistics.expeditionLoadFull(actor)
+    local weight, limit = Logistics.physicalLoadLimit(actor)
+    return weight ~= nil and weight >= limit
 end
 
 -- Exact items a job owns until it delivers them: field-order harvest, wood
@@ -3699,6 +3704,7 @@ function Logistics.update(actor, player, runtime)
         local destination, routeReason, receipt, full = storageFor(actor, state.item,
             state.category, dedicatedOnly, state)
         storageFull = full
+        if not storageFull then state.overflowSurvey = nil end
         state.destination = destination
         state.interactionRouteReceipt = receipt
         if routeReason then

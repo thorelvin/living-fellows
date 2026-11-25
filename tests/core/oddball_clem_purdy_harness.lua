@@ -8,6 +8,10 @@ local groups, actors, squares = {}, {}, {}
 local spawnedBodies, transfers = 0, 0
 local visionOverrides, blockedWindowEdges, unloadedSquares = {}, {}, {}
 local windowCrossingsEnabled = true
+local window = { open = true }
+function window:IsOpen() return self.open end
+function window:isSmashed() return false end
+function window:isBarricaded() return false end
 
 local function check(name, value)
     if not value then error("ODDBALL_12_13_FAIL " .. name, 2) end
@@ -49,6 +53,12 @@ local function square(x, y, z)
         local otherKey = key(other.x, other.y, other.z)
         return blockedWindowEdges[selfKey .. "->" .. otherKey] == true
             or blockedWindowEdges[otherKey .. "->" .. selfKey] == true
+    end
+    function value:getWindowTo(other)
+        if self.z == 1 and other.z == 1 and math.min(self.y, other.y) == 0
+            and math.max(self.y, other.y) == 1 and math.min(self.x, other.x) <= 2 then
+            return window
+        end
     end
     squares[id] = value
     return value
@@ -99,7 +109,8 @@ SC.GameplayUtil = {
     call = function(object, method, ...)
         if not object or type(object[method]) ~= "function" then return nil, false end
         local okay, result = pcall(object[method], object, ...)
-        return okay and result or nil, okay
+        if okay then return result, true end
+        return nil, false
     end,
     idOf = function(value) return value and value.id end,
     position = function(value)
@@ -132,7 +143,7 @@ SC.GameplayUtil = {
     end,
     modData = function(value) value.data = value.data or {} return value.data end,
     stop = function(value) value.stopped = true return true end,
-    move = function(value, _, intent) value.lastAction = intent.action
+    move = function(value, _, intent) value.lastAction, value.lastIntent = intent.action, intent
         return true, intent.action end,
     gridSquare = function(x, y, z)
         if unloadedSquares[key(x, y, z)] then return nil end
@@ -150,7 +161,7 @@ SC.GameplayUtil = {
 SC.Registry = { byId = function(id)
     return actors[id] and { id = id, actor = actors[id] } or nil
 end }
-SC.Factions = { forceStanding = function(id, standing)
+SC.Factions = { group = function(id) return groups[id] end, forceStanding = function(id, standing)
     local group = groups[id]
     if not group then return false, "missing_group" end
     group.standing = standing
@@ -346,9 +357,24 @@ local handled = Purdy.update(son2, player, {},
     Purdy.intentFor(son2, player, {}, purdy), purdy)
 check("native_window_lane_fires_without_cached_actor_sight", handled == true
     and son2:CanSee(player) == false
-    and son2.lastAction == "attack_firearm")
+    and son2.lastAction == "attack_firearm"
+    and son2.lastIntent.purdyWindowShot == purdy.id)
+local priorPlayer = getSpecificPlayer
+getSpecificPlayer = function(index) if index == 0 then return player end end
+local shot = { groupId = purdy.id, weapon = son2.primary }
+check("commit_revalidates_clear_authored_window", Purdy.validateWindowCommit(son2, player, shot))
+window.open = false
+check("closed_window_blocks_pending_window_shot", not Purdy.validateWindowCommit(son2, player, shot))
+window.open = true
+purdy.standing = "Wary"
+check("reconciliation_blocks_pending_window_shot", not Purdy.validateWindowCommit(son2, player, shot))
+purdy.standing = "Hostile"
+son2.y = son2.y + 3
+check("leaving_perch_blocks_pending_window_shot", not Purdy.validateWindowCommit(son2, player, shot))
+son2.y = son2.y - 3
 local windowEdge = key(2, 1, 1) .. "->" .. key(2, 0, 1)
 blockedWindowEdges[windowEdge] = true
+check("barricade_blocks_pending_window_shot", not Purdy.validateWindowCommit(son2, player, shot))
 son2.lastAction = nil
 Purdy.update(son2, player, {}, Purdy.intentFor(son2, player, {}, purdy), purdy)
 check("barricaded_window_refuses_shot", son2.lastAction ~= "attack_firearm")
@@ -368,6 +394,7 @@ Purdy.update(son2, player, {}, Purdy.intentFor(son2, player, {}, purdy), purdy)
 check("no_upper_window_refuses_shot", son2.lastAction ~= "attack_firearm")
 windowCrossingsEnabled = true
 unloadedSquares[key(2, 0, 1)] = true
+check("unloaded_lane_blocks_pending_window_shot", not Purdy.validateWindowCommit(son2, player, shot))
 son2.lastAction = nil
 Purdy.update(son2, player, {}, Purdy.intentFor(son2, player, {}, purdy), purdy)
 check("unloaded_lane_refuses_shot", son2.lastAction ~= "attack_firearm")
@@ -378,11 +405,22 @@ pa.lastAction = nil
 Purdy.update(pa, player, {}, Purdy.intentFor(pa, player, {}, purdy), purdy)
 check("leader_has_clear_window_lane_without_ally",
     pa.lastAction == "attack_firearm")
+shot.weapon = pa.primary
+check("leader_commit_sees_clear_window", Purdy.validateWindowCommit(pa, player, shot))
 son1.alive = true
 son1.x, son1.y = 0.5, 0.5
+check("clanmate_moved_into_lane_blocks_pending_shot",
+    not Purdy.validateWindowCommit(pa, player, shot))
 pa.lastAction = nil
 Purdy.update(pa, player, {}, Purdy.intentFor(pa, player, {}, purdy), purdy)
 check("clanmate_in_upper_window_lane_blocks_shot",
     pa.lastAction ~= "attack_firearm")
+son1.alive = false
+local guest = actor("protected-guest", 0.5, 0.5, 1)
+SC.Registry.snapshot = function() return { { actor = guest } } end
+SC.Combat.firearmCandidateProtected = function(_, value) return value == guest end
+check("other_protected_actor_in_lane_blocks_pending_shot",
+    not Purdy.validateWindowCommit(pa, player, shot))
+getSpecificPlayer = priorPlayer
 
 print("ODDBALL_12_13_PASS " .. tostring(checks) .. " checks")

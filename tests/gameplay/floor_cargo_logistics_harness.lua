@@ -63,7 +63,7 @@ local zone = { id = "zone:intake", kind = "sorting_floor", x1 = 9, x2 = 9, y1 = 
 local job = { id = "job:115", type = "sort_floor", assignedId = actor.id,
     target = { zoneId = zone.id, floorCargo = { zoneId = zone.id, itemId = cargo.id, x = 9, y = 10, z = 0 } } }
 local base = { zones = { zone }, jobs = { job } }
-local storage = { id = "storage:tools" }
+local storage = { id = "storage:tools", category = "general" }
 local object = { x = 10, y = 10, z = 0 }
 local utility = {
     call = call, nowMs = function() return current end, config = function() return nil end,
@@ -82,6 +82,7 @@ local utility = {
     clamp = function(value, minimum, maximum) return math.max(minimum, math.min(maximum, value)) end,
     inventoryLoad = function() return 2, 50, .04, root end,
     carryLoad = function() return 2, 12 end,
+    carryCapacity = function() return 12 end,
     containerHasRoom = function() return true end,
     actorState = function(_, runtime) return runtime or {} end,
     directInteractionAccess = function() return true, { object }, "at_interaction_target" end,

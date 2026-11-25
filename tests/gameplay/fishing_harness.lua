@@ -256,16 +256,22 @@ getCell = listedCell
 getPlayerMiniMap = oldMiniMap
 getCell = oldCell
 
-local oldAudit, oldItemTag, oldItemType, oldFishing =
-    SC.Logistics.audit, util.itemHasTag, util.itemType, Fishing
+local oldAudit, oldItemTag, oldItemType, oldFishing, oldInventoryContains =
+    SC.Logistics.audit, util.itemHasTag, util.itemType, Fishing, util.inventoryContains
 local fishingRod = { data = {} }
 function fishingRod:getModData() return self.data end
 local bait = { kind = "bait" }
-local fisher = { primary = nil, auditItems = {} }
+local fisher = { primary = nil, bag = {}, auditItems = {} }
+local audits = 0
 function fisher:getPrimaryHandItem() return self.primary end
-function fisher:getInventory() return {} end
+function fisher:getInventory() return self.bag end
 SC.Logistics.audit = function(value)
+    audits = audits + 1
     return { items = value.auditItems }
+end
+util.inventoryContains = function(parent, item)
+    for _, value in ipairs(parent) do if value == item then return true end end
+    return false
 end
 util.itemHasTag = function(value, tag)
     return tag == "FISHING_ROD" and value == fishingRod
@@ -284,8 +290,35 @@ assert(not ready and missing == "fishing_bait_missing",
 fisher.auditItems = { { item = bait } }
 assert(angling.checkGear(fisher) == true,
     "fishing departure accepts a rod and carried bait")
-SC.Logistics.audit, util.itemHasTag, util.itemType, Fishing =
-    oldAudit, oldItemTag, oldItemType, oldFishing
+local coldAudits = audits
+fishingRod.data.fishing_Lure = true
+assert(angling.checkGear(fisher) == true and audits == coldAudits,
+    "an equipped baited rod skips the audit at departure")
+fisher.primary = nil
+fisher.bag = { fishingRod }
+angling._setStateForTests(fisher, { mode = "expedition", phase = "finding", rod = fishingRod })
+for _ = 1, 3 do
+    local _, visit = angling.update(fisher, "expedition")
+    assert(visit == "fishing_destination_missing" and audits == coldAudits,
+        "a cached owned baited rod skips audits on regular fishing updates")
+end
+fishingRod.data.fishing_Lure = nil
+fisher.auditItems = { { item = fishingRod }, { item = bait } }
+local _, rebait = angling.update(fisher, "expedition")
+assert(rebait == "fishing_destination_missing" and audits == coldAudits + 1,
+    "when the rod loses its bait, the update scans the carried items for a lure")
+fishingRod.data.fishing_Lure = true
+fisher.bag, fisher.auditItems = {}, {}
+local _, removed = angling.update(fisher, "expedition")
+assert(removed == "fishing_rod_missing" and audits == coldAudits + 2,
+    "a transferred baited rod loses its cached ownership and the scan reports it missing")
+fisher.auditItems = { { item = fishingRod, depth = 1 } }
+assert(angling.checkGear(fisher) == true and audits == coldAudits + 3,
+    "a cold preparation can still select a baited rod returned by the nested inventory scan")
+angling._setStateForTests(fisher, nil)
+SC.Logistics.audit, util.itemHasTag, util.itemType, Fishing, util.inventoryContains =
+    oldAudit, oldItemTag, oldItemType, oldFishing, oldInventoryContains
+print("FISHING_GEAR_AUDIT_PASS")
 
 squares = {}
 square(30, 30, false, false)

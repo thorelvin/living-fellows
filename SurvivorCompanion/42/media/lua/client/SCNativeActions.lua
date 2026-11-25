@@ -102,6 +102,7 @@ local pacingStates = setmetatable({}, { __mode = "k" })
 local forwardTurns = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
 local pendingCombat = setmetatable({}, { __mode = "k" })
+local pendingPurdyShots = setmetatable({}, { __mode = "k" })
 local pacingSequence = 0
 local cancelOwnedTimedAction
 local cancelSeatingRecord
@@ -4727,10 +4728,12 @@ end
 function actions.resetCombatEvents(actor)
     if actor ~= nil then
         pendingCombat[actor] = nil
+        pendingPurdyShots[actor] = nil
         invoke(actor, "setCompanionFloorTarget", nil)
         invoke(actor, "setCompanionFloorAttackInput", false, false)
     else
         pendingCombat = setmetatable({}, { __mode = "k" })
+        pendingPurdyShots = setmetatable({}, { __mode = "k" })
     end
 end
 
@@ -4741,6 +4744,7 @@ end
 function actions.releaseStaleAttack(actor)
     if actor == nil then return false, "invalid_actor" end
     pendingCombat[actor] = nil
+    pendingPurdyShots[actor] = nil
     local bridgeOk, bridgeReleased = invoke(actor, "releaseCompanionStaleAttack")
     local cleared, failure = invoke(actor, "clearHandToHandAttack")
     local releaseAttempted = bridgeOk and bridgeReleased == true or cleared == true
@@ -4848,6 +4852,7 @@ local function attack(actor, action, intent, provider)
     end
     local recovered, recoveryReason = actions.combatReadiness(actor, action)
     if not recovered then return false, recoveryReason end
+    pendingPurdyShots[actor] = nil
     local inRange, rangeReason = nativeAttackRange(actor, action, intent)
     if not inRange then return false, rangeReason end
     if action ~= "attack_firearm" and SC.Topology
@@ -4953,6 +4958,7 @@ local function attack(actor, action, intent, provider)
     -- these and fail() is no longer used.
     local restoreActionState, restoreAuthorization
     local function fail(reason)
+        pendingPurdyShots[actor] = nil
         invoke(actor, "setCompanionAimTarget", nil)
         invoke(actor, "setAimAtFloor", false)
         invoke(actor, "setCompanionFloorTarget", nil)
@@ -5091,6 +5097,21 @@ local function attack(actor, action, intent, provider)
             + (tonumber(actualY) or 0) * wantedY < 0.98 then
             return fail("native attack facing was not retained")
         end
+    end
+    if action == "attack_firearm" and intent.purdyWindowShot ~= nil then
+        local _, weapon = invoke(actor, "getPrimaryHandItem")
+        local _, nativeWeapon = invoke(actor, "getUseHandWeapon")
+        if type(intent.purdyWindowShot) ~= "string" or weapon == nil
+            or weapon ~= intent.weapon or weapon ~= nativeWeapon
+            or attemptSerial == nil or receiptSerial == nil then
+            return fail("purdy_window_shot_identity_unavailable")
+        end
+        -- The native collision claims the next attempt before calling Lua.
+        -- Keep the prior receipt as well so a different completed attack
+        -- cannot borrow this authorization.
+        pendingPurdyShots[actor] = { groupId = intent.purdyWindowShot, target = target,
+            weapon = weapon, attempt = attemptSerial + 1, receipt = receiptSerial,
+            expiresAt = nowMs() + 4000 }
     end
     local started, result = invoke(actor, "DoAttack", 0)
     local stateOk, attackStarted = invoke(actor, "isAttackStarted")
@@ -5875,6 +5896,23 @@ function actions.isAuthorizedFinalFirearmTarget(actor, target)
     return final ~= nil and final.target == target and final.outcome ~= "bleach"
 end
 
+-- Consume even a rejected authorization. This callback can only grant the
+-- single native attempt whose weapon, aim target and serials still match.
+function actions.consumePurdyWindowShot(actor, target)
+    local shot = pendingPurdyShots[actor]
+    if not shot then return nil, false end
+    pendingPurdyShots[actor] = nil
+    local _, attempt = invoke(actor, "getCompanionAttackAttemptSerial")
+    local _, receipt = invoke(actor, "getCompanionAttackReceiptSerial")
+    local _, weapon = invoke(actor, "getPrimaryHandItem")
+    local _, nativeWeapon = invoke(actor, "getUseHandWeapon")
+    if target ~= shot.target or weapon ~= shot.weapon or nativeWeapon ~= shot.weapon or nowMs() >= shot.expiresAt
+        or tonumber(attempt) ~= shot.attempt or tonumber(receipt) ~= shot.receipt then
+        return nil, true
+    end
+    return shot, true
+end
+
 function actions.releaseActor(actor)
     if actor == nil then return false end
     -- Cancellation gets one chance to restore borrowed inventory/visual state;
@@ -5893,6 +5931,7 @@ function actions.releaseActor(actor)
     pacingStates[actor] = nil
     resultHistory[actor] = nil
     pendingCombat[actor] = nil
+    pendingPurdyShots[actor] = nil
     if SC.NativeTraversalActions
         and type(SC.NativeTraversalActions.reset) == "function" then
         SC.NativeTraversalActions.reset(actor)

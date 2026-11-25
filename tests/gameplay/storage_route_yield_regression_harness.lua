@@ -50,6 +50,129 @@ SC.Topology.classifyEdge = function(_, from, to)
     return { traversable = not closed, reason = closed and "door_locked" or nil,
         cost = from.x ~= to.x and from.y ~= to.y and math.sqrt(2) or 1 }
 end
+-- A full shelf sends ordinary Logistics to a marked floor. Its floor survey
+-- must lend the proved path to the real drop transaction without replanning.
+do
+    local previousBase, previousMedicKit = SC.BaseLife, SC.MedicKit
+    local previousStatus, previousRoom = SC.Logistics.status, U.containerHasRoom
+    local previousTargets, previousClock = N.interactionTargets, SC_TEST_CLOCK
+    local worker = actor("overflow-worker")
+    local floorTile, endpoint = square(8, 0), square(7, 0)
+    local cabinetSquare = square(2, 2)
+    local cabinet, cargo = {}, {}
+    function cargo:getID() return 117 end
+    function cargo:getFullType() return "Base.DuctTape" end
+    local root = { items = { cargo } }
+    function root:contains(item) return item == cargo end
+    function worker:getInventory() return root end
+
+    local base = { id = "overflow-fixture", zones = { { id = "marked-floor",
+        kind = "sorting_floor", x1 = 8, x2 = 8, y1 = 0, y2 = 0, z = 0 } } }
+    local row = { id = "full-cabinet", category = "general" }
+    SC.BaseLife = {
+        active = function() return base end,
+        isInside = function() return true end,
+        storageRows = function(category) return category == "general" and { row } or {} end,
+        resolveContainer = function(storage)
+            if storage == row then return cabinet, cabinetSquare end
+        end,
+    }
+    SC.MedicKit = { busy = function() return false end }
+    SC.Logistics.status = function()
+        return { shouldUnload = true, inventory = root,
+            surplus = { item = cargo, category = "general", source = root } }
+    end
+    U.containerHasRoom = function(container)
+        check(container == cabinet, "ordinary logistics found the full camp cabinet")
+        return false, "destination_full"
+    end
+    N.interactionTargets = function(_, object)
+        check(object == floorTile, "real navigation surveys the marked floor instead of full storage")
+        return { endpoint }
+    end
+
+    local searches, search = 0, SC.PathSearch.new
+    SC.PathSearch.new = function(...)
+        searches = searches + 1
+        return search(...)
+    end
+    local seen, request = {}, N.requestAny
+    N.requestAny = function(worker, candidates, mode, intent)
+        seen.receipt, seen.owner, seen.token = intent.interactionRouteReceipt,
+            intent.interactionRouteOwner, intent.supervisorToken
+        seen.before = searches
+        seen.accepted, seen.reason = request(worker, candidates, mode, intent)
+        seen.after = searches
+        return seen.accepted, seen.reason
+    end
+    for _ = 1, 50 do
+        local accepted, reason = SC.Logistics.update(worker, nil, { snapshot = {} })
+        if seen.receipt then break end
+        check(accepted and reason == "storage_route_pending",
+            "real logistics keeps the exact cargo during a pending floor survey: " .. tostring(reason))
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+    end
+    check(seen.before and seen.before > 0 and seen.receipt and seen.token
+            and seen.token.owner == "logistics" and seen.token.action == "logistics_drop",
+        "ordinary logistics creates its floor transaction and route")
+    check(seen.receipt.used and seen.receipt.ownerState == seen.owner,
+        "ordinary movement consumes the surveyed route under its exact owner: "
+            .. tostring(seen.receipt.failure))
+    local state = N.peek(worker)
+    check(seen.accepted and state and state.pathReason == "interaction_route_receipt"
+            and state.path == seen.receipt.path and state.multiGoalSelected == endpoint,
+        "movement adopts the surveyed standing path: " .. tostring(seen.reason))
+    check(seen.before == seen.after and root:contains(cargo),
+        "approach avoids a second path search and retains the cargo")
+    N.cancel(worker, "floor_receipt_transaction_fixture")
+    SC.ActionSupervisor.cancel(worker, "floor_receipt_transaction_fixture", nil, true)
+    SC.BaseLife, SC.MedicKit = previousBase, previousMedicKit
+    SC.Logistics.status, U.containerHasRoom = previousStatus, previousRoom
+    N.interactionTargets, SC_TEST_CLOCK = previousTargets, previousClock
+    SC.PathSearch.new, N.requestAny = search, request
+end
+
+-- Native movement enters the final square before necessarily settling near
+-- its centre. A verified expedition entry is complete on the exact tile.
+do
+    local previousExpedition = SC.ExpeditionPrototype
+    local scout = actor("return-entry-worker", 5.98, 0.5)
+    local endpoint = square(6, 0)
+    local path = { square(4, 0), square(5, 0), endpoint }
+    local receipt = { used = true, path = path }
+    local navigation = N._stateForTests(scout)
+    navigation.goalSquare, navigation.goalAction = endpoint, "ordered_move"
+    navigation.path, navigation.pathGoalSquare, navigation.pathIndex = path, endpoint, 3
+    navigation.pathStealthAvoidance = false
+    local confirmed = false
+    SC.ExpeditionPrototype = { stalledReturnReceiptFor = function(actor, destination)
+        if confirmed and actor == scout and destination == endpoint then return receipt end
+    end }
+    local intent = { action = "ordered_move", arrivalDistance = 0.35, requireSameSquare = true,
+        stalledReturnReceipt = receipt }
+    confirmed = true
+    local accepted, status = N.request(scout, endpoint, "walk", intent)
+    check(accepted and status ~= "arrived" and navigation.path == path,
+        "a verified return keeps moving while still on the adjacent square: "
+            .. tostring(accepted) .. "/" .. tostring(status) .. "/" .. tostring(navigation.path == path))
+    scout.x, scout.y = 6.02, 0.02
+    confirmed = false
+    accepted, status = N.request(scout, endpoint, "walk", intent)
+    check(not accepted and status == "return_entry_owner_changed",
+        "a withdrawn receipt cannot complete just inside its old tile")
+    scout.x, scout.y = 6.5, 0.5
+    accepted, status = N.request(scout, endpoint, "walk", intent)
+    check(not accepted and status == "return_entry_owner_changed",
+        "a withdrawn receipt cannot complete via generic centre arrival")
+    scout.x, scout.y = 6.02, 0.02
+    confirmed = true
+    accepted, status = N.request(scout, endpoint, "walk", intent)
+    check(accepted and status == "arrived" and navigation.path == nil,
+        "an owned verified route completes at the edge of its exact loaded destination: " .. tostring(status))
+    N.cancel(scout, "return_entry_fixture")
+    SC.ExpeditionPrototype = previousExpedition
+end
+
 local worker = actor("route-worker")
 local owner, object = {}, { target = square(3, 0) }
 function object:getSquare() return self.target end

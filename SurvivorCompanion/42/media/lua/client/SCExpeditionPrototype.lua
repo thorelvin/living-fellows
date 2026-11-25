@@ -2539,8 +2539,11 @@ function Expedition.export()
             } or nil,
             trailReturn = mission.scout.trailReturn == true or nil,
             hordeDetours = mission.scout.hordeDetours,
-            -- A stalled-return hold is not saved: reloading rebuilds the
-            -- route, which is the recovery that hold is waiting for.
+            -- Reload rebuilds a technical hold. A player's explicit Hold
+            -- remains authoritative even while the native team is rebinding.
+            returnRouteHold = (mission.scout.returnRouteHold == true
+                or mission.scout.pause and mission.scout.pause.reason == "return_route_stuck"
+                    and mission.scout.pause.playerHold == true) and true or nil,
             pause = mission.scout.pause
                 and mission.scout.pause.reason ~= "return_route_stuck"
                 and copyPause(mission.scout.pause) or nil,
@@ -2908,6 +2911,8 @@ function Expedition.restore(saved)
             or (scout.pause ~= nil and (saved.schema ~= 5
                 or (scout.phase ~= "outbound" and scout.phase ~= "inbound")
                 or not validPause(scout.pause)))
+            or (scout.returnRouteHold ~= nil and (scout.returnRouteHold ~= true
+                or scout.phase ~= "inbound" or scout.pause ~= nil))
             or (scout.pushUntilHour ~= nil
                 and not validWorldHour(scout.pushUntilHour))
             or (scout.returnIndex ~= nil
@@ -2955,6 +2960,7 @@ function Expedition.restore(saved)
             trailReturn = scout.trailReturn == true,
             hordeDetours = scout.hordeDetours or 0,
             pause = copyPause(scout.pause),
+            returnRouteHold = scout.returnRouteHold,
             pushUntilHour = scout.pushUntilHour,
         }
     elseif scout ~= nil then
@@ -4131,7 +4137,10 @@ function Expedition.clearTestWaypoint(actor)
     mission.testWaypointArrived = false
     mission.testWaypointArrival = nil
     mission.cohesionHold = nil
-    if mission.scout then mission.scout.activeReturnLeg = nil end
+    if mission.scout then
+        mission.scout.activeReturnLeg = nil
+        mission.scout.stalledReturnReceipt = nil
+    end
     return true
 end
 
@@ -4302,12 +4311,12 @@ function Expedition.noteFishingBycatch(actor, item, source, reserve)
     search.fishingBycatch = totals
     local weight = util.itemWeight(item)
     local kept = false
+    local logistics = SC.Logistics
     if totals.kept < 2 and totals.weight + weight <= 0.500001
-        and type(reserve) == "number" and reserve > 0 and SC.Logistics then
-        local audit = SC.Logistics.audit(actor)
-        local inventory = actor:getInventory()
-        if audit and audit.capacity > 0
-            and audit.weight + weight + reserve <= audit.capacity * audit.hardRatio
+        and type(reserve) == "number" and reserve > 0 and logistics
+        and type(logistics.physicalLoadLimit) == "function" then
+        local load, limit, inventory = logistics.physicalLoadLimit(actor)
+        if load ~= nil and load + weight + reserve <= limit
             and util.containerHasRoom(inventory, actor, item) then
             util.addItem(inventory, item)
             kept = util.inventoryContains(inventory, item)
@@ -4488,6 +4497,8 @@ function Expedition.noteTestWaypointArrived(actor)
         mission.scout.legs = mission.scout.legs + 1
         mission.scout.lastStalledTarget = nil
         mission.scout.activeReturnLeg = nil
+        mission.scout.stalledReturnReceipt = nil
+        mission.scout.stalledReturnRecovery = nil
         mission.scout.replans = 0
         mission.scout.returnRecoveryCount = nil
         if mission.scout.phase == "outbound"
@@ -5020,15 +5031,18 @@ end
 local RETURN_RECOVERY_LIMIT = 4
 local function holdForReturnOrders(scout, reason)
     local leader = mission.leader.actor
-    if mission.testWaypoint ~= nil then
-        Expedition.clearTestWaypoint(leader)
+    if scout.pause and scout.pause.reason == "return_route_stuck" then
+        if mission.technicalIssue
+            and recoverableInboundReason(mission.technicalIssue.reason) then
+            mission.technicalIssue = nil
+        end
+        return
     end
-    local owner = SC.ActionSupervisor
-        and type(SC.ActionSupervisor.current) == "function"
-        and SC.ActionSupervisor.current(leader) or nil
-    if owner == nil and SC.Navigation
-        and type(SC.Navigation.cancel) == "function" then
-        SC.Navigation.cancel(leader, "expedition_return_stuck")
+    Expedition._clearRoadWaypoint(leader, "expedition_return_stuck")
+    local state = scout.stalledReturnRecovery
+    if state then
+        state.attempt = nil
+        state.nextAt = math.max(state.nextAt, SC.GameplayUtil.nowMs() + 4000)
     end
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
@@ -5049,6 +5063,7 @@ local function holdForReturnOrders(scout, reason)
                 .. " count=" .. tostring(scout.returnRecoveryCount))
     end
     transmitBlockRequest()
+    scout.pause.nextReportAt = SC.GameplayUtil.nowMs() + 30000
 end
 
 -- Recovery is bounded. After RETURN_RECOVERY_LIMIT fresh routes without
@@ -5060,6 +5075,7 @@ retryInboundRoute = function(scout, now, reason, fresh)
             scout.pause = nil
         end
         scout.returnRecoveryCount = 0
+        scout.stalledReturnRecovery = nil
         scout.walkingReturn = nil
         scout.descentRejected = nil
         if scout.travelBudget and scout.legs >= scout.travelBudget.limit then
@@ -5184,7 +5200,11 @@ startReturnFromSite = function(itinerary, reason)
         end
     end
     if itinerary.pause ~= nil then
-        itinerary.roadAvoidance = copyRoadAvoidance(itinerary.pause.hazard)
+        if itinerary.pause.reason == "return_route_stuck" then
+            if itinerary.pause.playerHold == true then return false, "holding_position" end
+        else
+            itinerary.roadAvoidance = copyRoadAvoidance(itinerary.pause.hazard)
+        end
         itinerary.pause = nil
     end
     if mission.testWaypoint ~= nil then
@@ -5540,6 +5560,196 @@ function Expedition._pulseBlockedReturn(scout, pause, now)
         SC.GameplayUtil.diagnostic("expedition-return-recheck", leader,
             "action=deferred mode=" .. pause.mode .. " reason=" .. tostring(issue)
                 .. " retry_ms=" .. tostring(state.nextAt - now))
+    end
+    return false
+end
+
+function Expedition._stalledReturnCandidates(scout, leader)
+    local U = SC.GameplayUtil
+    local rank = scout.returnIndex
+    if rank == nil then rank = reachedTrailReturnIndex(leader, scout.trail) end
+    local candidates, seen = {}, {}
+    local failed = scout.walkingReturn and scout.walkingReturn.failed or {}
+    for index = math.min(#scout.trail, (rank or 0) - 1), 1, -1 do
+        local point = scout.trail[index]
+        local distance = distanceToPoint(leader, point)
+        if point.z == 0 and distance >= 3 and distance <= 12 then
+            local key = point.x .. ":" .. point.y .. ":" .. point.z
+            if not seen[key] and not failed[key] then
+                seen[key] = true
+                local square = U.gridSquare(point.x, point.y, point.z)
+                if square and square:getRoom() == nil and U.isSquareFree(square) then
+                    candidates[#candidates + 1] = { point = point, square = square, distance = distance,
+                        trailIndex = index, key = key }
+                end
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        if a.distance == b.distance then return a.trailIndex < b.trailIndex end
+        return a.distance < b.distance
+    end)
+    for index = #candidates, 5, -1 do candidates[index] = nil end
+    return candidates
+end
+
+function Expedition._deferStalledReturn(state, now, reason)
+    state.attempt = nil
+    state.failures = math.min(state.failures + 1, 4)
+    local delay = math.min(30000, 4000 * 2 ^ state.failures)
+    state.nextAt = now + delay
+    if SC.GameplayUtil.diagnostic then
+        SC.GameplayUtil.diagnostic("expedition-return", mission.leader.actor,
+            "action=stuck_recheck reason=" .. reason .. " retry_ms=" .. delay)
+    end
+    return false
+end
+
+function Expedition.stalledReturnReceiptFor(actor, destination)
+    local scout = mission and mission.scout
+    local receipt = scout and scout.stalledReturnReceipt
+    if receipt and not mission.terminal and not mission.restoring and scout.phase == "inbound"
+        and not scout.pause and mission.leader.actor == actor and receipt.actor == actor
+        and receipt.destination == destination and mission.testWaypoint ~= nil then
+        local x, y, z = SC.GameplayUtil.position(destination)
+        local target = mission.testWaypoint
+        if target.x == x and target.y == y and target.z == z then return receipt end
+    end
+end
+
+function Expedition.rejectStalledReturnReceipt(actor, receipt, why)
+    if Expedition.stalledReturnReceiptFor(actor, receipt.destination) ~= receipt then return end
+    local scout = mission.scout
+    local state = scout.stalledReturnRecovery
+    local now = SC.GameplayUtil.nowMs()
+    if state then Expedition._deferStalledReturn(state, now, why or "receipt_rejected") end
+    holdForReturnOrders(scout, why or "return_entry_rejected")
+end
+
+function Expedition._stageStalledReturn(scout, state, candidate, path, signature, threatLimit, now)
+    local leader = mission.leader.actor
+    local point = candidate.point
+    local staged = Expedition.stageTestWaypoint(leader, point.x, point.y, point.z)
+    if staged ~= true then return false end
+    state.paths[signature] = true
+    state.attempt = nil
+    scout.stalledReturnReceipt = {
+        actor = leader, source = path[1], destination = candidate.square, path = path,
+        corridor = candidate.corridor, threatLimit = threatLimit, expiresAt = now + 1500,
+    }
+    scout.pause = nil
+    scout.roadRoute = candidate.road
+    if candidate.road then
+        candidate.road.recoveryEntry = copyPoint(point)
+        scout.road = SC.ExpeditionRoute.descriptor(candidate.road, "inbound")
+        scout.trailReturn = nil
+    else
+        scout.returnIndex = candidate.trailIndex
+        scout.trailReturn = scout.travelMode == "road" and true or nil
+    end
+    scout.legPlan, scout.firstPlanFailureAt, scout.lastPlanFailure = nil, nil, nil
+    scout.lastStalledTarget, scout.lastPlanAt, scout.returnRetryAt = nil, nil, nil
+    scout.lastProgressAt, scout.waypointStagedAt = now, now
+    scout.bestDistanceToWaypoint = distanceToPoint(leader, point)
+    scout.replans = 0
+    if SC.GameplayUtil.diagnostic then
+        SC.GameplayUtil.diagnostic("expedition-return", leader,
+            "action=stuck_resumed via=" .. (candidate.road and "road" or "breadcrumb")
+                .. " entry=" .. candidate.key)
+    end
+    return true
+end
+
+function Expedition._pulseStalledReturn(scout, pause, now)
+    if pause.playerHold == true or scout.phase ~= "inbound" or scout.kind == "home"
+        or (scout.travelMode ~= "road" and scout.travelMode ~= "straight")
+        or scout.vehicle and scout.vehicle.state ~= "abandoned"
+        or scout.travelBudget and scout.legs >= scout.travelBudget.limit then return false end
+    local leader, U = mission.leader.actor, SC.GameplayUtil
+    local source = leader:getCurrentSquare()
+    local _, _, z = U.position(source)
+    if z ~= 0 then return false end
+    local state = scout.stalledReturnRecovery
+    if not state then
+        state = { nextAt = now + 4000, failures = 0, paths = {} }
+        scout.stalledReturnRecovery = state
+    end
+    if now < state.nextAt then return false end
+    local route, nav = SC.ExpeditionRoute, SC.Navigation
+    if not nav or not nav.beginPathSearch or not nav.resumePathSearch then return false end
+    if not Expedition._canReplaceRoadWaypoint(leader, now) then
+        return Expedition._deferStalledReturn(state, now, "return_movement_owned")
+    end
+    local record = SC.Registry.byId(mission.leader.id)
+    local senses = SC.Senses
+    local snapshot = senses and senses.cached and senses.cached(leader, record and record.runtime)
+    if not route.returnObservation(leader, snapshot, now) then
+        return Expedition._deferStalledReturn(state, now, "return_entry_unobserved")
+    end
+    local attempt = state.attempt
+    if attempt and (attempt.source ~= source or now >= attempt.deadline) then
+        return Expedition._deferStalledReturn(state, now, "return_entry_proof_expired")
+    end
+    local avoidance = scout.roadAvoidance or scout.road and scout.road.avoidance
+    if not attempt then
+        attempt = { source = source, candidates = Expedition._stalledReturnCandidates(scout, leader),
+            index = 1, deadline = now + 12000 }
+        state.attempt = attempt
+    end
+    local candidate = attempt.candidates[attempt.index]
+    if not candidate and scout.travelMode == "road" and not attempt.triedRoad then
+        attempt.triedRoad = true
+        local fresh = route.plan(leader, scout.returnPoint, true, avoidance)
+        if fresh then
+            local point, _, _, square = route.loadedReturnEntry(fresh, leader)
+            if point and square:getRoom() == nil then
+                local key = point.x .. ":" .. point.y .. ":" .. point.z
+                local failed = scout.walkingReturn and scout.walkingReturn.failed
+                if not failed or not failed[key] then
+                    candidate = { point = point, square = square, corridor = fresh, road = fresh, key = key }
+                    attempt.candidates[attempt.index] = candidate
+                end
+            end
+        end
+    end
+    if not candidate then
+        return Expedition._deferStalledReturn(state, now, attempt.issue or "return_entry_no_alternative")
+    end
+    local perf = SC.Performance
+    local frame = perf and perf.frameId and perf.frameId()
+    if frame ~= nil and state.lastFrame == frame then return false end
+    local quota, claim = 24, nil
+    if perf and perf.claimUnits then quota, claim = perf.claimUnits("navigation", quota, false, true) end
+    if quota <= 0 then return false end
+    state.lastFrame = frame
+    candidate.corridor = candidate.corridor or (avoidance and { avoidance = avoidance, points = {},
+        index = 1, allowEscapeFromAvoidance = true })
+    if not attempt.job then
+        attempt.job = nav.beginPathSearch(source, candidate.square, snapshot, {
+            actor = leader, action = "ordered_move", nodeBudget = 600, alternatives = false,
+        })
+    end
+    local status, path, reason, _, _, used
+    if attempt.job then status, path, reason, _, _, used = nav.resumePathSearch(attempt.job, quota) end
+    if claim and perf.settleUnits then perf.settleUnits(claim, tonumber(used) or 0) end
+    if status == "pending" then return false end
+    attempt.job, attempt.index = nil, attempt.index + 1
+    if status == "complete" then
+        local signature, why = route.stalledReturnPathKey(leader, candidate.square, path, candidate.corridor)
+        if signature and not state.paths[signature] then
+            local living = 0
+            for _, record in ipairs(mission.roster) do if alive(record) then living = living + 1 end end
+            local threatLimit = math.max(2, living - 2)
+            local safe, seenReason = route.returnEntryObserved(leader, path, snapshot, now, threatLimit)
+            if safe and Expedition._stageStalledReturn(scout, state, candidate, path, signature, threatLimit, now) then
+                return true
+            end
+            attempt.issue = seenReason or "return_entry_stage_rejected"
+        else
+            attempt.issue = why or "return_entry_already_attempted"
+        end
+    else
+        attempt.issue = reason or "return_entry_unreachable"
     end
     return false
 end
@@ -5936,6 +6146,13 @@ local function pulseScout()
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
     if scout.kind == "home" and SC.HomeTrip.pulse(mission) then return end
     local now = SC.GameplayUtil.nowMs()
+    if scout.returnRouteHold == true then
+        local actor = mission.leader.actor
+        scout.pause = { mode = "holding", reason = "return_route_stuck",
+            hazard = { x = math.floor(actor:getX()), y = math.floor(actor:getY()), radius = 1 },
+            reported = false, playerHold = true }
+        scout.returnRouteHold = nil
+    end
     local workBlocked = pollWorkSafety(scout, now)
     if scout.fuel and (scout.fuel.cleanupRequested or scout.fuel.preparation) then
         if scout.fuel.emergency and scout.fuel.cleanupDeadline and now>=scout.fuel.cleanupDeadline then
@@ -6066,7 +6283,7 @@ local function pulseScout()
             -- Each arrival grants one fresh attempt (the player may have
             -- opened a door or cleared the stairs), never a loop while they
             -- simply stand there.
-            if playerNear and pause.playerNear ~= true then
+            if playerNear and pause.playerNear ~= true and pause.playerHold ~= true then
                 retryInboundRoute(scout, now, "player_arrived", true)
                 return
             end
@@ -6080,6 +6297,9 @@ local function pulseScout()
             and now >= (pause.nextShelterReportAt or 0) then
             pause.nextShelterReportAt = now + 30000
             transmitBlockRequest(true)
+        end
+        if pause.reason == "return_route_stuck" and Expedition._pulseStalledReturn(scout, pause, now) then
+            return
         end
         local walkingBlock = Expedition._isWalkingRoadPause(scout, pause)
         if walkingBlock and Expedition._pulseBlockedReturn(scout, pause, now) then return end

@@ -207,10 +207,15 @@ do
     weight.weight = 9
     check(Logistics.expeditionLoadFull(worker), "ordinary hard capacity rejects exactly at the boundary")
     role = "quartermaster"
+    local physicalWeight, limit, inventory = Logistics.physicalLoadLimit(worker)
+    check(physicalWeight == 9 and limit == 9.5 and inventory == worker.inventory,
+        "the role-aware physical load exposes the exact inventory for bycatch")
     check(not Logistics.expeditionLoadFull(worker), "quartermaster retains its higher capacity threshold")
     weight.weight = 9.5
     check(Logistics.expeditionLoadFull(worker), "quartermaster hard capacity rejects at its boundary")
     worker.modData.SC_AllowOverload = true
+    local _, overloadLimit = Logistics.physicalLoadLimit(worker)
+    check(overloadLimit == 12, "the physical load limit includes the actor's explicit overload setting")
     check(not Logistics.expeditionLoadFull(worker), "explicit overload overrides the role threshold")
     weight.weight = 12
     check(Logistics.expeditionLoadFull(worker), "explicit overload remains finite at its boundary")

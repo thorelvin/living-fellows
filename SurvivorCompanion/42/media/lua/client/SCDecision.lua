@@ -2136,16 +2136,24 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return false, "navigation_unavailable"
         end
+        local expedition = SC.ExpeditionPrototype
+        local returnReceipt = expedition and expedition.stalledReturnReceiptFor
+            and expedition.stalledReturnReceiptFor(actor, target)
+        local exactApproach = commands.expeditionHomeApproach == true or type(returnReceipt) == "table"
         local ok, status = SC.Navigation.request(actor, target, commandMoveMode(commands, player), {
             action = "ordered_move", snapshot = snapshot,
-            arrivalDistance = commands.expeditionHomeApproach and 0.35 or nil,
-            requireSameSquare = commands.expeditionHomeApproach == true,
+            arrivalDistance = exactApproach and 0.35 or nil,
+            requireSameSquare = exactApproach,
+            stalledReturnReceipt = returnReceipt,
             expeditionHomeApproach = commands.expeditionHomeApproach == true,
             doorBashAsLastResort = commands.doorBashAsLastResort == true,
             -- A follower in combat can request priority 80; the mission
             -- leader needs the right of way to get the whole team through.
             movementPriority = commands.expeditionTravelCombat and 90 or nil,
         })
+        if not ok and returnReceipt then
+            expedition.rejectStalledReturnReceipt(actor, returnReceipt, status)
+        end
         if ok and not commands.expeditionCampRally and navigationArrived(actor, target, status) then
             if SC.ExpeditionPrototype
                 and SC.ExpeditionPrototype.testWaypointFor(actor) then

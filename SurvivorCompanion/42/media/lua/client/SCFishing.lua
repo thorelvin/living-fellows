@@ -578,7 +578,6 @@ local function siteFor(actor, state, mode, request, snapshot)
 end
 
 local function gear(actor, state)
-    local audit = SC.Logistics and SC.Logistics.audit(actor)
     local rod, lure
     local equipped = actor:getPrimaryHandItem()
     local inventory = actor:getInventory()
@@ -591,6 +590,7 @@ local function gear(actor, state)
         rod = equipped
         if equipped:getModData().fishing_Lure then return equipped, nil end
     end
+    local audit = SC.Logistics and SC.Logistics.audit(actor)
     for _, entry in ipairs(audit and audit.items or {}) do
         local item = entry.item
         if item and U().itemHasTag(item, "FISHING_ROD") then

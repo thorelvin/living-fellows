@@ -1445,12 +1445,18 @@ local function batchClear(job,cargo)
         touchWorkOwnership()
     end
 end
-local function batchLimit(actor,item,projected)
-    if not U().inventoryLoad or not U().carryLoad then return false end
-    local weight,capacity=U().inventoryLoad(actor)
-    local _,carry=U().carryLoad(actor)
-    capacity=math.min(tonumber(capacity) or 0,tonumber(carry) or capacity or 0)
-    return capacity>0 and (projected or weight)+U().itemWeight(item)<=math.max(0,capacity-1)
+local function batchLoad(actor)
+    local utility = U()
+    if not utility.inventoryLoad or not utility.carryCapacity then return 0, 0 end
+    local weight, physical = utility.inventoryLoad(actor)
+    return weight, math.min(physical, utility.carryCapacity(actor, physical))
+end
+local function batchFits(item, weight, capacity)
+    return capacity > 0 and weight + U().itemWeight(item) <= math.max(0, capacity - 1)
+end
+local function batchLimit(actor, item)
+    local weight, capacity = batchLoad(actor)
+    return batchFits(item, weight, capacity)
 end
 local function batchCompatible(first,item)
     -- InventoryItem.CanStack() is a constant-false stub in 42.21.0. Compare
@@ -1466,10 +1472,12 @@ end
 local function batchCandidates(actor,job,source,container,destination,first)
     local result={first}
     local seen={[tonumber(itemNativeId(first))]=true}
-    if not U().inventoryLoad or type(destination.id)~="string" then return result end
+    if type(destination.id)~="string" then return result end
+    local weight, capacity = batchLoad(actor)
+    if capacity <= 0 then return result end
+    weight = weight + U().itemWeight(first)
     local available=SC.BaseLife.availableCountExact or SC.BaseLife.availableCount
     local maximum=available and math.min(20,math.max(1,math.floor(tonumber(available(source,U().itemType(first))) or 0))) or 1
-    local weight=select(1,U().inventoryLoad(actor))+U().itemWeight(first)
     local items=SC.BaseWork.sortSourceItems(container)
     U().each(items,80,function(item)
         if #result>=maximum then return false end
@@ -1479,7 +1487,7 @@ local function batchCandidates(actor,job,source,container,destination,first)
             and not (SC.PersonalItems and SC.PersonalItems.isProtected(item,actor,"base_haul"))
             and not Transport.foreignProtected(item,actor)
             and tonumber(itemNativeId(item))~=nil and not seen[tonumber(itemNativeId(item))]
-            and itemData(item) and batchLimit(actor,item,weight) then
+            and itemData(item) and batchFits(item, weight, capacity) then
             for _,row in ipairs(SC.BaseWork.sortDestinations(job,actor,item,source)) do
                 if row.destination==destination then
                     result[#result+1]=item;weight=weight+U().itemWeight(item)
