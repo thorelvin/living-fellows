@@ -1328,7 +1328,7 @@ local valueData = {
     baseAlertShakeRadius = 30,
     baseAlertShakeDelayMs = 4000,
     baseAlertShakeDeadlineMs = 30000,
-    baseOperationsAuditIntervalMs = 5000,
+    baseOperationsAuditIntervalMs = 10000,
     baseOperationsStorageItemBudget = 160,
 
     -- Continuous farming uses the same bounded outside-work band as lumber.

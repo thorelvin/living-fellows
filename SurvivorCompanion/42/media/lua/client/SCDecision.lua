@@ -212,11 +212,14 @@ local function commandMoveMode(commands, player)
     return requested == "copy" and "walk" or requested
 end
 
-local function medicalAssessment(actor, runtime, maxAgeMs)
+local function medicalAssessment(actor, runtime, maxAgeMs, quietPersonal)
     local medical = SC.Medical
-    local assess = medical and (medical.assessCached or medical.assess)
+    local personal = quietPersonal ~= nil and medical and medical.assessPersonal
+    local assess = personal or medical and (medical.assessCached or medical.assess)
     if type(assess) == "function" then
-        local ok, assessment = pcall(assess, actor, runtime, maxAgeMs)
+        local ageOrQuiet = maxAgeMs
+        if personal then ageOrQuiet = quietPersonal end
+        local ok, assessment = pcall(assess, actor, runtime, ageOrQuiet)
         if ok and type(assessment) == "table" then return assessment end
     end
     return {
@@ -677,13 +680,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         or assessment.needsProcedure == true
         or SC.Medical and type(SC.Medical.careNeed) == "function"
             and SC.Medical.careNeed(actor, assessment) ~= nil
+    local quietCare = SC.Medical and (SC.Medical.quietCareAvailable or SC.Medical.canReplaceDirtyBandage)
     if careDue and not bleeding and threatCount == 0 and immediate == 0
         and snapshot.humanThreat == nil
         and (commands.order ~= "follow" or isLeaderSettled())
-        and SC.Medical and type(SC.Medical.canReplaceDirtyBandage) == "function" then
-        local available=SC.Medical.canReplaceDirtyBandage(actor)==true
+        and type(quietCare) == "function" then
+        local available=quietCare(actor,assessment)==true
         if not available and type(SC.Medical.preferredStitchHelper)=="function" then
-            available=SC.Medical.preferredStitchHelper(actor,snapshot,player)~=nil
+            available=SC.Medical.preferredStitchHelper(actor,snapshot,player,assessment)~=nil
         end
         if available then add("medical", 60, false, { mode = "wound_care" }) end
     end
@@ -2356,7 +2360,7 @@ local function profiledDecisionPhase(name, actor, callback, ...)
     return SC.Call.unpack(values, 2, values.n)
 end
 
-local function delegate(candidate, actor, player, rootRuntime, commands, snapshot, state)
+local function delegate(candidate, actor, player, rootRuntime, commands, snapshot, state, assessment)
     -- Base hauling and an authored scene may each own a real corpse drag.
     -- Any other subsystem, including a fallback after stalled base work, gets
     -- an actor that has put the body down. Combat is left out: a re-check of
@@ -2414,7 +2418,9 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         end)
     elseif candidate.kind == "downtime" then
         if not SC.Downtime or type(SC.Downtime.update) ~= "function" then return false, "downtime_unavailable" end
-        return callSubsystem("downtime", actor, function() return SC.Downtime.update(actor, player, rootRuntime) end)
+        return callSubsystem("downtime", actor, function()
+            return SC.Downtime.update(actor, player, rootRuntime, nil, nil, nil, assessment)
+        end)
     elseif candidate.kind == "needs" then
         if not SC.Needs or type(SC.Needs.update) ~= "function" then return false, "needs_unavailable" end
         if SC.Autonomy and type(SC.Autonomy.pauseForNeeds) == "function" then
@@ -3640,7 +3646,11 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if SC.Combat and SC.Combat.forecastStairs then SC.Combat.forecastStairs(actor, player, snapshot) end
     state.stairReset = rootRuntime.stairCombat and rootRuntime.stairCombat.recovery
         and current < rootRuntime.stairCombat.recovery.expires or false
-    local assessment = medicalAssessment(actor, rootRuntime, 100)
+    local quietMedical = snapshot.valid == true and (tonumber(snapshot.threatCount) or 0) == 0
+        and (tonumber(snapshot.immediateCount) or 0) == 0
+        and (tonumber(snapshot.closeThreatCount) or 0) == 0 and snapshot.humanThreat == nil
+        and (not snapshot.player or (tonumber(snapshot.player.danger) or 0) == 0)
+    local assessment = medicalAssessment(actor, rootRuntime, 100, quietMedical)
     local needs
     if SC.Needs and type(SC.Needs.assess) == "function" then
         local ok, value = pcall(SC.Needs.assess, actor, rootRuntime)
@@ -4153,7 +4163,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         and type(SC.Navigation.requestSerial) == "function"
         and SC.Navigation.requestSerial(actor) or 0
     local handled, reason = profiledDecisionPhase("delegate", actor, delegate,
-        selected, actor, player, rootRuntime, commands, snapshot, state)
+        selected, actor, player, rootRuntime, commands, snapshot, state, assessment)
     if handled then state.safetyHoldSince, state.safetyHoldLastAt = nil, nil end
     if not handled and deferredToUrgentWork(reason) then
         -- Urgent work owns the actor for this pulse. Yield it intact: leave the
@@ -4183,7 +4193,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                     and SC.Navigation.requestSerial(actor) or 0
                 local fallbackHandled, fallbackReason = profiledDecisionPhase(
                     "delegate", actor, delegate, fallback, actor, player,
-                    rootRuntime, commands, snapshot, state)
+                    rootRuntime, commands, snapshot, state, assessment)
                 if fallbackHandled then
                     handled, reason, selected = true, fallbackReason, fallback
                     navigationSerial = fallbackNavigationSerial

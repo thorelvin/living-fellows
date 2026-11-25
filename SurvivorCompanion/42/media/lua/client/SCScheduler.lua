@@ -113,10 +113,19 @@ function scheduler.register(name, interval, priority, callback, options)
         return false, "scheduler max delay must be at least one millisecond"
     end
     if maxDelayMs then maxDelayMs = math.floor(maxDelayMs) end
+    local initialDelayMs = tonumber(options.initialDelayMs)
+    if options.initialDelayMs ~= nil and (not initialDelayMs or initialDelayMs < 1
+        or initialDelayMs > interval) then
+        return false, "scheduler initial delay must fit within its interval"
+    end
+    initialDelayMs = math.floor(initialDelayMs or interval)
+    local enabled = options.enabled ~= false
+    if existing and options.enabled == nil then enabled = existing.enabled end
     local unchanged = existing ~= nil and existing.interval == math.floor(interval)
         and existing.priority == priority and existing.callback == callback
         and existing.lane == lane
         and existing.maxDelayMs == maxDelayMs
+        and existing.initialDelayMs == initialDelayMs
         and existing.continuations == (options.continuations == true)
         and existing.fixedInterval == (options.fixedInterval == true)
     local keepSchedule = existing ~= nil
@@ -125,9 +134,11 @@ function scheduler.register(name, interval, priority, callback, options)
         name = name,
         metricName = "scheduler." .. name,
         interval = math.floor(interval),
+        initialDelayMs = initialDelayMs,
         priority = priority,
         callback = callback,
-        nextDue = keepSchedule and existing.nextDue or nil,
+        nextDue = enabled and keepSchedule and existing.nextDue or nil,
+        enabled = enabled,
         runs = existing and existing.runs or 0,
         lane = lane,
         maxDelayMs = maxDelayMs,
@@ -137,6 +148,19 @@ function scheduler.register(name, interval, priority, callback, options)
             and existing.reportFailure == true or options.reportFailure == true,
     }
     rebuildOrder()
+    return true
+end
+
+-- Visibility changes discard missed deadlines. Waking a task creates a new
+-- scheduling turn without running the callback inside the UI event.
+function scheduler.setEnabled(name, enabled)
+    local task = tasksByName[name]
+    if task == nil then return false end
+    enabled = enabled == true
+    if task.enabled ~= enabled then
+        task.enabled = enabled
+        task.nextDue = enabled and nowMs() or nil
+    end
     return true
 end
 
@@ -190,51 +214,57 @@ function scheduler.tick()
     local runnable = runnableBuffer
     for index = #runnable, 1, -1 do runnable[index] = nil end
     for _, task in ipairs(ordered) do
-        if task.nextDue == nil then
-            task.nextDue = current + task.interval
-        elseif current >= task.nextDue then
-            runnable[#runnable + 1] = task
+        if task.enabled then
+            if task.nextDue == nil then
+                task.nextDue = current + task.initialDelayMs
+            elseif current >= task.nextDue then
+                runnable[#runnable + 1] = task
+            end
         end
     end
     runnableSortNow = current
     table.sort(runnable, runnableBefore)
 
-    for runnableIndex, task in ipairs(runnable) do
-        local elapsed = preciseNowMs() - startedPrecise
-        if elapsed >= budget then
-            stats.deferredFrames = stats.deferredFrames + 1
-            deferred = true
-            break
-        end
-        local callbackStarted = preciseNowMs()
-        local ok, result, detail, pending = SC.Diagnostics.guard(task.name, nil,
-            task.callback, current, budget - elapsed)
-        local continuing = ok and task.continuations and pending == true
-        local callbackElapsed = math.max(0, preciseNowMs() - callbackStarted)
-        if SC.Performance and type(SC.Performance.record) == "function" then
-            SC.Performance.record(task.metricName, nil, callbackElapsed)
-        end
-        task.runs = task.runs + 1
-        stats.callbacks = stats.callbacks + 1
-        if not ok then
-            if detail == "circuit_skip" then
-                stats.circuitSkips = stats.circuitSkips + 1
-            else
-                stats.exceptions = stats.exceptions + 1
+    for _, task in ipairs(runnable) do
+        if task.enabled then
+            local elapsed = preciseNowMs() - startedPrecise
+            if elapsed >= budget then
+                stats.deferredFrames = stats.deferredFrames + 1
+                deferred = true
+                break
             end
-        elseif task.reportFailure and result == false and not continuing then
-            stats.reportedFailures = stats.reportedFailures + 1
-            SC.Diagnostics.report(task.name, nil,
-                "scheduled callback reported failure", detail)
+            local callbackStarted = preciseNowMs()
+            local ok, result, detail, pending = SC.Diagnostics.guard(task.name, nil,
+                task.callback, current, budget - elapsed)
+            local continuing = ok and task.continuations and pending == true
+            local callbackElapsed = math.max(0, preciseNowMs() - callbackStarted)
+            if SC.Performance and type(SC.Performance.record) == "function" then
+                SC.Performance.record(task.metricName, nil, callbackElapsed)
+            end
+            task.runs = task.runs + 1
+            stats.callbacks = stats.callbacks + 1
+            if not ok then
+                if detail == "circuit_skip" then
+                    stats.circuitSkips = stats.circuitSkips + 1
+                else
+                    stats.exceptions = stats.exceptions + 1
+                end
+            elseif task.reportFailure and result == false and not continuing then
+                stats.reportedFailures = stats.reportedFailures + 1
+                SC.Diagnostics.report(task.name, nil,
+                    "scheduled callback reported failure", detail)
+            end
+            current = nowMs()
+            local scale = not task.fixedInterval and SC.Performance
+                and type(SC.Performance.intervalScale) == "function"
+                and SC.Performance.intervalScale(task.lane) or 1
+            -- Resumable audits explicitly opt in. A pending callback gets a new
+            -- fair scheduling turn next frame; completed phases are not replayed.
+            if task.enabled then
+                task.nextDue = current + (continuing and 1
+                    or math.max(1, math.floor(task.interval * scale)))
+            end
         end
-        current = nowMs()
-        local scale = not task.fixedInterval and SC.Performance
-            and type(SC.Performance.intervalScale) == "function"
-            and SC.Performance.intervalScale(task.lane) or 1
-        -- Resumable audits explicitly opt in. A pending callback gets a new
-        -- fair scheduling turn next frame; completed phases are not replayed.
-        task.nextDue = current + (continuing and 1
-            or math.max(1, math.floor(task.interval * scale)))
     end
     stats.lastFrameMs = math.max(0, preciseNowMs() - startedPrecise)
     if stats.lastFrameMs > budget then stats.overBudgetFrames = stats.overBudgetFrames + 1 end
@@ -275,6 +305,7 @@ function scheduler.getStats()
             lane = task.lane,
             interval = task.interval,
             fixedInterval = task.fixedInterval == true,
+            enabled = task.enabled,
             runs = task.runs,
             nextDue = task.nextDue,
         }

@@ -1261,6 +1261,18 @@ function U.containedInventory(item)
 end
 
 function U.touchInventoryIndex(container)
+    if container then
+        local base, encounter, medical = SC.BaseLife, SC.Encounter, SC.Medical
+        if base and type(base.noteStockContainerChanged) == "function" then
+            pcall(base.noteStockContainerChanged, container)
+        end
+        if encounter and type(encounter.noteScavengeContainerChanged) == "function" then
+            pcall(encounter.noteScavengeContainerChanged, container)
+        end
+        if medical and type(medical.noteInventoryChanged) == "function" then
+            pcall(medical.noteInventoryChanged, container)
+        end
+    end
     local index = SC.InventoryIndex
     if index and type(index.touchContainer) == "function" then
         return index.touchContainer(container)

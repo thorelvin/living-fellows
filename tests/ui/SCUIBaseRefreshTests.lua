@@ -14,6 +14,30 @@ local roster = { items = { { item = row, text = row.name } }, selected = 1 }
 function roster:getYScroll() return -64 end
 local root = setmetatable({ roster = roster, selectedId = row.id, selectedTab = "base" },
     { __index = BasePolicyFixture.classes.SCUIRoot })
+do
+    local savedInstance, savedScheduler = UI.instance, SC.Scheduler
+    local admissions = {}
+    root.collapsed = false
+    function root:isVisible() return self.visible == true end
+    UI.instance = root
+    SC.Scheduler = { setEnabled = function(name, enabled)
+        assert(name == "ui-refresh")
+        admissions[#admissions + 1] = enabled
+    end }
+    root:setVisible(true)
+    UI._scheduledRefreshJob = { root = root, index = 2 }
+    root:setVisible(false)
+    assert(admissions[1] == true and admissions[2] == false
+        and UI._scheduledRefreshJob == nil,
+        "hiding the roster suspends its scheduler task and discards the unfinished slice")
+    root.collapsed = true
+    root:setVisible(true)
+    assert(admissions[3] == false, "a collapsed roster stays suspended")
+    root.collapsed = false
+    root:setVisible(true)
+    assert(admissions[4] == true, "an expanded roster resumes its scheduler task")
+    UI.instance, SC.Scheduler = savedInstance, savedScheduler
+end
 local rebuilds, refreshes = 0, 0
 root.detail = { tab = "base" }
 function root.detail:rebuild(preserveScroll)

@@ -4,10 +4,30 @@ local SC=SurvivorCompanion
 SC.MedicalSupplies=SC.MedicalSupplies or {}
 local S=SC.MedicalSupplies
 local states=setmetatable({},{__mode="k"})
+local ADVISORY_MS=2000
 local function U() return SC.GameplayUtil end
 local function v(o,m,...) return select(1,U().call(o,m,...)) end
 local function now() return U().nowMs() end
 local function D() return SC.MedicalMedicines end
+local function count(metric)
+    if SC.Performance and SC.Performance.count then SC.Performance.count(metric) end
+end
+local function stockRevision()
+    local stock,storage=SC.BaseLife.stockRevision,SC.BaseLife.storageRevision
+    return stock and stock() or 0,storage and storage() or 0
+end
+local function workRevision()
+    local getter=SC.BaseLife.workConsistencyRevision
+    return getter and getter() or 0
+end
+local function stateFor(helper,base)
+    local state=states[helper]
+    if not state or state.base~=base then
+        state={base=base,advisory=setmetatable({},{__mode="k"})}
+        states[helper]=state
+    end
+    return state
+end
 local function available(actor,item)
     if not item or v(item,"isFavorite")==true then return false end
     if SC.PersonalItems and SC.PersonalItems.isProtected(item,actor,"medical_consume") then return false end
@@ -51,7 +71,7 @@ local function eligible(actor,row,item)
 end
 local function newScan(actor,base)
     return {base=base,rows=rowsFor(actor),row=1,index=0,observations={},antibiotics={},
-        antibioticCount=0,reagent=nil,antibioticsUnknown=false,reagentUnknown=false}
+        antibioticCount=0,reagent=nil,antibioticsUnknown=false,reagentUnknown=false,startedAt=now()}
 end
 local function sourceValid(actor,entry)
     return entry and SC.BaseLife.resolveContainer(entry.storage)==entry.source
@@ -59,7 +79,7 @@ local function sourceValid(actor,entry)
         and eligible(actor,entry.storage,entry.item)
 end
 local function cacheValid(actor,cache)
-    if not cache or now()-cache.at>5000 then return false end
+    if not cache or now()<cache.at or now()-cache.at>5000 then return false end
     local current=rowsFor(actor)
     if #current~=#cache.rows then return false end
     for index,row in ipairs(current) do if row~=cache.rows[index] then return false end end
@@ -76,8 +96,12 @@ local function cacheValid(actor,cache)
     return true
 end
 local function observe(actor,base)
-    local state=states[actor]
-    if not state or state.base~=base then state={base=base};states[actor]=state end
+    local state=stateFor(actor,base)
+    local revision,structure=stockRevision()
+    if state.stockRevision~=revision or state.storageRevision~=structure then
+        state.stockRevision,state.storageRevision=revision,structure
+        state.cache,state.scan=nil,nil
+    end
     if not cacheValid(actor,state.cache) then state.cache=nil end
     if not state.scan and (not state.cache or now()-state.cache.at>=1000) then state.scan=newScan(actor,base) end
     local scan=state.scan
@@ -174,6 +198,42 @@ local function resident(actor,base)
     return row and row.baseId==base.id and row.duty==true and command and command.recruited==true
         and SC.BaseLife.isInside(actor)==true
 end
+local function campResidents(base)
+    local result={}
+    for _,id in ipairs(SC.BaseLife.dutyResidentIds()) do
+        local actor=U().resolveActor(id)
+        if resident(actor,base) then
+            result[#result+1]={actor=actor,role=SC.BaseLife.resident(id).role}
+        end
+    end
+    return result
+end
+local function allied(helper,patient)
+    return not SC.Factions or not SC.Factions.areAlliesBetween
+        or SC.Factions.areAlliesBetween(helper,patient)==true
+end
+local function indexVersion(actor)
+    return SC.InventoryIndex and SC.InventoryIndex.version and SC.InventoryIndex.version(actor) or 0
+end
+local function matchesAdvisory(entry,helper,patient,residents,current)
+    local revision,structure=stockRevision()
+    if not entry or current<entry.at or current>=entry.expiresAt
+        or entry.stockRevision~=revision or entry.storageRevision~=structure or entry.workRevision~=workRevision()
+        or entry.bodyRevision~=SC.Medical.bodyRevision() or #entry.residents~=#residents then return false end
+    for index,row in ipairs(residents) do
+        local saved=entry.residents[index]
+        if row.actor~=saved.actor or row.role~=saved.role
+            or entry.scarce and allied(helper,row.actor)~=saved.allied then return false end
+    end
+    if entry.scarce and allied(helper,patient)~=entry.patientAllied then return false end
+    for actor,saved in pairs(entry.carriers) do
+        if saved.inventory~=U().inventory(actor) or saved.version~=indexVersion(actor) then return false end
+    end
+    for source,version in pairs(entry.containers) do
+        if SC.Medical.inventoryVersion(source)~=version then return false end
+    end
+    return true
+end
 function S.context(helper,patient,input)
     local base=SC.BaseLife and SC.BaseLife.active()
     local result={helper=helper,observedAt=now(),camp=false}
@@ -184,43 +244,63 @@ function S.context(helper,patient,input)
     end
     helper=helper or patient
     result.camp,result.baseId=true,base.id
+    local stage=input and input.stage
+    local state=stage=="advisory" and SC.Medical and SC.Medical.bodyRevision and stateFor(helper,base) or nil
+    local residents=campResidents(base)
+    local advisory=state and state.advisory[patient]
+    if advisory and advisory.sourceCache==state.cache
+        and matchesAdvisory(advisory,helper,patient,residents,result.observedAt) then
+        count("medical.stock-advisory.hit")
+        local cached={}
+        for key,value in pairs(advisory.result) do cached[key]=value end
+        return cached
+    end
+    if state then
+        state.advisory[patient]=nil
+        count("medical.stock-advisory.evaluate")
+    end
     local cache
-    if input and input.stage=="commit" then cache=observeCommit(helper,base)
+    if stage=="commit" or stage=="prepare" then cache=observeCommit(helper,base)
     else cache=observe(helper,base) end
+    if state and cache and result.observedAt-cache.startedAt>=ADVISORY_MS then cache=nil end
     local count=cache and cache.antibioticCount or 0
     local disinfectant=cache and cache.reagent~=nil or false
     local seen,unknownAntibiotics,unknownReagent={},false,false
     local carriers={helper,patient}
-    for _,id in ipairs(SC.BaseLife.dutyResidentIds()) do
-        local actor=U().resolveActor(id)
-        local row=SC.BaseLife.resident(id)
-        if row and row.role=="medic" and resident(actor,base) then carriers[#carriers+1]=actor end
+    for _,row in ipairs(residents) do
+        if row.role=="medic" then carriers[#carriers+1]=row.actor end
+    end
+    local inventorySources,carrierEvidence={},{}
+    local function observeContainer(source)
+        if state then inventorySources[source]=SC.Medical.inventoryVersion(source) end
     end
     for _,actor in ipairs(carriers) do
         if actor and not seen[actor] then
             seen[actor]=true
-            local carried=D().carriedDoses(actor,"take_antibiotics")
+            local carried=D().carriedDoses(actor,"take_antibiotics",state and observeContainer or nil)
             if carried==nil then unknownAntibiotics=true else count=math.min(2,count+carried) end
             local reagent=D().disinfectantCarried(actor)
             if reagent==nil then unknownReagent=true elseif reagent then disinfectant=true end
+            if state then carrierEvidence[actor]={inventory=U().inventory(actor),version=indexVersion(actor)} end
         end
     end
     if count>=2 or cache and not cache.antibioticsUnknown and not unknownAntibiotics then result.antibioticDoses=count end
     if disinfectant then result.disinfectantAvailable=true
     elseif cache and not cache.reagentUnknown and not unknownReagent then result.disinfectantAvailable=false end
     result.stockKnown=result.antibioticDoses~=nil and result.disinfectantAvailable~=nil
-    if result.antibioticDoses~=nil and result.antibioticDoses<2 and result.disinfectantAvailable~=nil then
+    local scarce=result.antibioticDoses~=nil and result.antibioticDoses<2
+        and result.disinfectantAvailable~=nil
+    local rankingComplete=true
+    if scarce then
         local best,bestId,unknown
         local patients,seenPatients={patient},{}
-        for _,id in ipairs(SC.BaseLife.dutyResidentIds()) do
-            local actor=U().resolveActor(id)
-            if actor then patients[#patients+1]=actor end
+        for _,row in ipairs(residents) do
+            row.allied=allied(helper,row.actor)
+            if row.allied then patients[#patients+1]=row.actor end
         end
         for _,actor in ipairs(patients) do
             local id=U().idOf(actor)
-            if not seenPatients[id] and (actor==patient or resident(actor,base))
-                and (not SC.Factions or not SC.Factions.areAlliesBetween
-                or SC.Factions.areAlliesBetween(helper,actor)==true) then
+            if not seenPatients[id] and (actor~=patient or allied(helper,patient)) then
                 seenPatients[id]=true
                 local assessment=SC.Medical.assess(actor)
                 local candidateContext={helper=helper,disinfectantAvailable=result.disinfectantAvailable}
@@ -231,11 +311,26 @@ function S.context(helper,patient,input)
                 end
             end
         end
-        if not unknown then result.worstInfectionPatientId=bestId end
+        rankingComplete=not unknown
+        if rankingComplete then result.worstInfectionPatientId=bestId end
+    end
+    if state and cache and not state.scan and result.stockKnown and rankingComplete
+        and not cache.antibioticsUnknown and not cache.reagentUnknown
+        and not unknownAntibiotics and not unknownReagent then
+        result.observedAt=cache.startedAt
+        local revision,structure=stockRevision()
+        state.advisory[patient]={at=result.observedAt,result=result,sourceCache=cache,
+            expiresAt=result.observedAt+SC.Medical.advisoryAge(patient,"camp-stock:"..tostring(U().idOf(helper)),ADVISORY_MS,200),
+            residents=residents,scarce=scarce,
+            patientAllied=scarce and allied(helper,patient),stockRevision=revision,storageRevision=structure,
+            workRevision=workRevision(),bodyRevision=SC.Medical.bodyRevision(),
+            carriers=carrierEvidence,containers=inventorySources}
     end
     return result
 end
 function S.reset(actor)
-    if actor then states[actor]=nil else states=setmetatable({},{__mode="k"}) end
+    if not actor then states=setmetatable({},{__mode="k"});return end
+    states[actor]=nil
+    for _,state in pairs(states) do state.advisory[actor]=nil end
 end
 return S

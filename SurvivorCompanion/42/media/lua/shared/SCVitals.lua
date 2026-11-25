@@ -389,31 +389,40 @@ function vitals.apply(actor, saved)
 end
 
 function vitals.summary(actor)
-    local snapshot, reason = vitals.capture(actor)
-    if snapshot == nil then
-        return nil, reason
-    end
+    if actor == nil then return nil, "actor is required" end
+    local body = invoke(actor, "getBodyDamage", nil)
+    if body == nil then return nil, "native body damage is unavailable" end
+    local health = finite(invoke(body, "getOverallBodyHealth", 100), 100)
+    local infected = invoke(body, "isInfected", false) == true
+    local apparentInfection = finite(invoke(body, "getApparentInfectionLevel", 0), 0)
     local wounds = 0
     local bleeding = 0
     local bites = 0
-    for _, part in ipairs(snapshot.parts) do
-        if part.bitten or part.scratched or part.cut or part.deepWound or part.burnTime > 0 then
-            wounds = wounds + 1
-        end
-        if part.bleeding then
-            bleeding = bleeding + 1
-        end
-        if part.bitten then
-            bites = bites + 1
+    local parts = invoke(body, "getBodyParts", nil)
+    if parts ~= nil and type(parts.size) == "function" and type(parts.get) == "function" then
+        local count = math.min(32, SC.NativeList.size(parts))
+        for index = 0, count - 1 do
+            local part = SC.NativeList.get(parts, index)
+            if part ~= nil then
+                local bitten = invoke(part, "bitten", false) == true
+                if bitten then bites = bites + 1 end
+                if invoke(part, "bleeding", false) == true then bleeding = bleeding + 1 end
+                if bitten or invoke(part, "scratched", false) == true
+                    or invoke(part, "isCut", false) == true
+                    or invoke(part, "isDeepWounded", false) == true
+                    or finite(invoke(part, "getBurnTime", 0), 0) > 0 then
+                    wounds = wounds + 1
+                end
+            end
         end
     end
     return {
-        health = snapshot.overallHealth,
+        health = health,
         wounds = wounds,
         bleeding = bleeding,
         bites = bites,
-        knox = snapshot.infected,
-        apparentInfection = snapshot.apparentInfection,
+        knox = infected,
+        apparentInfection = apparentInfection,
     }
 end
 

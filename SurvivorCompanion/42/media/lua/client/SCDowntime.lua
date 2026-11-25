@@ -963,15 +963,16 @@ local function repairActivity(actor, items)
     return SC.NativeCareActions and SC.NativeCareActions.repairCandidate(actor, items)
 end
 
-local function dirtyBandageActivity(actor)
+local function dirtyBandageActivity(actor, assessment)
     if not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
-    local assessment = (SC.Medical.assessCached or SC.Medical.assess)(actor)
+    assessment = assessment or (SC.Medical.assessCached or SC.Medical.assess)(actor)
     -- Change a soiled dressing, or dress a wound that stopped bleeding undressed.
     if assessment and ((tonumber(assessment.dirtyBandages) or 0) > 0
         or (tonumber(assessment.openWounds) or 0) > 0 or assessment.needsMaintenance == true
         or assessment.needsProcedure == true) then
-        if type(SC.Medical.canReplaceDirtyBandage) == "function" then
-            local available = SC.Medical.canReplaceDirtyBandage(actor)
+        local availableCare = SC.Medical.quietCareAvailable or SC.Medical.canReplaceDirtyBandage
+        if type(availableCare) == "function" then
+            local available = availableCare(actor, assessment)
             if available ~= true then return nil end
         end
         return {
@@ -4002,7 +4003,7 @@ local function speakLeaderCheckIn(actor, activity, current)
     return true, "leader_check_in"
 end
 
-local function candidates(actor, commands, state, current, desiredKind, requestedSquare)
+local function candidates(actor, commands, state, current, desiredKind, requestedSquare, assessment)
     local utility = U()
     commands = type(commands) == "table" and commands or {}
     -- Base workers probe sleep before claiming another job. A bed-only query
@@ -4032,7 +4033,7 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
     end
     local activity
     if ambient or desiredKind == "replace_bandage" then
-        activity = dirtyBandageActivity(actor)
+        activity = dirtyBandageActivity(actor, assessment)
         if activity then filtered[#filtered + 1] = activity end
     end
     if ambient or washing then
@@ -5691,7 +5692,7 @@ local function leaveCampParking(actor, commands, state)
     return true, reason or "leaving_camp_parking"
 end
 
-function Downtime.update(actor, player, runtime, desiredKind, requestedSquare, recoveryEndurance)
+function Downtime.update(actor, player, runtime, desiredKind, requestedSquare, recoveryEndurance, assessment)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local rootRuntime = utility.actorState(actor, runtime)
@@ -6281,7 +6282,7 @@ function Downtime.update(actor, player, runtime, desiredKind, requestedSquare, r
         }, commands, current)
     end
     local choices, searchStatus = candidates(actor, commands, state, current,
-        desiredKind, requestedSquare)
+        desiredKind, requestedSquare, assessment)
     if searchStatus == "searching" then
         if not state.idleStopped then utility.stop(actor) state.idleStopped = true end
         state.nextEvaluationAt = current

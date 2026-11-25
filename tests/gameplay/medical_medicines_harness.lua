@@ -11,6 +11,30 @@ local function pain(options)
     local actor=F.actor(nil,{pills})
     return actor,pills
 end
+do
+    local active,inside,provider=SC.BaseLife.active,SC.BaseLife.isInside,SC.MedicKit.medicineContext
+    local calls=0
+    SC.BaseLife.active=function() return {} end
+    SC.BaseLife.isInside=function() return true end
+    SC.MedicKit.medicineContext=function(_,_,context)
+        calls=calls+1
+        check(context.stage=="advisory","medicine discovery labels the stock observation advisory")
+        return {stockKnown=true,antibioticDoses=2,disinfectantAvailable=false}
+    end
+    local subject=F.actor(nil,{})
+    subject.moodles[MoodleType.PAIN]=0
+    check(not D.need(subject,{wounds={}}) and not D.need(subject,{knoxInfected=true,wounds={}})
+        and not D.need(subject,{wounds={{infected=false}}}) and calls==0,
+        "healthy, Knox-only and uninfected wounds do not scan camp medicine stock")
+    local infected={wounds={{infected=true,index=0,woundInfectionLevel=8}}}
+    subject.moodles[MoodleType.PAIN]=2
+    check(D.need(subject,infected).kind=="take_painkillers" and calls==0,
+        "whole-body pain relief keeps priority and needs no antibiotic stock scan")
+    subject.moodles[MoodleType.PAIN]=0
+    check(D.need(subject,infected).kind=="take_antibiotics" and calls==1,
+        "a locally infected wound proceeds to the stock policy")
+    SC.BaseLife.active,SC.BaseLife.isInside,SC.MedicKit.medicineContext=active,inside,provider
+end
 local actor,pills=pain()
 local need=M.careNeed(actor)
 check(need and need.kind=="take_painkillers" and need.wholeBody and need.woundIndex==nil,

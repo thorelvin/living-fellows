@@ -13,6 +13,7 @@ local states = setmetatable({}, { __mode = "k" })
 local containerReservations = setmetatable({}, { __mode = "k" })
 local corpseContainers = setmetatable({}, { __mode = "k" })
 local failedContainers = setmetatable({}, { __mode = "k" })
+local scavengeRetries = setmetatable({}, { __mode = "k" })
 local supplyCacheGeneration = 0
 local stopScavengeMovement
 local cleanupScavengeTarget
@@ -261,6 +262,30 @@ local function containerFlags(container)
     return data
 end
 
+local function hasScavengeRetries()
+    for _ in pairs(scavengeRetries) do return true end
+    return false
+end
+
+function Encounter.noteScavengeObjectAdded(object)
+    if not object or not hasScavengeRetries() then return end
+    Encounter.noteScavengeContainerChanged(Loot.primary(object))
+end
+
+function Encounter.noteScavengeContainerChanged(container)
+    if not container or not hasScavengeRetries() then return end
+    local utility = U()
+    local square = utility.call(container, "getSourceGrid")
+        or utility.squareOf(containerOwner(container))
+    local x, y, z = utility.position(square)
+    if not x or not y or z == nil then return end
+    for actor, retry in pairs(scavengeRetries) do
+        if retry.z == z and (retry.x - x)^2 + (retry.y - y)^2 <= (retry.radius + 1)^2 then
+            scavengeRetries[actor] = nil
+        end
+    end
+end
+
 function Encounter.markPlayerOpened(containerOrObject)
     local utility = U()
     if not containerOrObject then return false end
@@ -271,6 +296,7 @@ function Encounter.markPlayerOpened(containerOrObject)
     end
     local flags = containerFlags(container)
     if not flags then return false end
+    if flags.SC_PlayerOpened ~= true then Encounter.noteScavengeContainerChanged(container) end
     flags.SC_PlayerOpened = true
     flags.SC_PlayerOpenedAt = now()
     return true
@@ -1655,7 +1681,19 @@ local function inSelectedSite(siteId, square)
     return places.siteContainsPoint(siteId, x, y, z)
 end
 
-local function candidateContainers(actor, player, state, allowCorpses, current, commands)
+local function searchRadius(utility, allowCorpses, player, commands)
+    local radius = math.floor(math.min(math.max(utility.config("scavengeRadius") or 14,
+        allowCorpses and (utility.config("corpseLootRadius") or 10) or 0), 18))
+    if player and commands.recruited == true and commands.order == "follow" then
+        local localRadius = math.max(3, tonumber(utility.config(
+            "scavengeFormationSearchRadius")) or 6)
+        radius = math.floor(math.min(radius,
+            math.max(localRadius, (tonumber(commands.followDistance) or 3) + 1.5)))
+    end
+    return radius
+end
+
+local function candidateContainers(actor, player, state, allowCorpses, current, commands, retry)
     local utility = U()
     local ax, ay, az = utility.position(actor)
     if not ax then return {}, true end
@@ -1676,15 +1714,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         end
         return {}, true, 1, 1
     end
-    local radius = math.floor(math.min(math.max(utility.config("scavengeRadius") or 14,
-        allowCorpses and (utility.config("corpseLootRadius") or 10) or 0), 18))
-    if player and type(commands) == "table" and commands.recruited == true
-        and commands.order == "follow" then
-        local localRadius = math.max(3, tonumber(utility.config(
-            "scavengeFormationSearchRadius")) or 6)
-        radius = math.floor(math.min(radius,
-            math.max(localRadius, (tonumber(commands.followDistance) or 3) + 1.5)))
-    end
+    local radius = searchRadius(utility, allowCorpses, player, commands)
     local budget = math.max(utility.config("scavengeSquareBudget") or 100,
         allowCorpses and (utility.config("corpseLootSquareBudget") or 80) or 0)
     local siteRadius = math.max(2, math.min(8,
@@ -1694,8 +1724,10 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             radius, budget, site, siteRadius) then
         job = newContainerSearch(actor, state, allowCorpses, current,
             radius, budget, site, siteRadius)
+        job.emptyProof = retry
         state.containerSearch = job
     end
+    if job.emptyProof ~= retry then job.emptyProof = nil end
     if job.siteColumns and #job.candidates > 0 then
         local candidates = job.candidates
         job.candidates = {}
@@ -1730,13 +1762,22 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         local square = siteNear and utility.gridSquare(
             scanX, scanY, scanZ)
             or nil
-        if square and siteNear and inSelectedSite(siteId, square)
+        if job.emptyProof and not square then job.emptyProof = nil end
+        local accessible = square and siteNear and inSelectedSite(siteId, square)
             and (commands.scavengeMissionId == nil
                 or not expeditionSourceOnCooldown(state, square, current))
             and (commands.scavengeMissionId ~= nil or not player
                 or utility.distanceSq(player, square) <= radius * radius)
-            and not behindLockedDoor(actor, square, current) then
+        if accessible and behindLockedDoor(actor, square, current) then
+            accessible = false
+            job.emptyProof = nil
+        end
+        if accessible then
             local function addContainer(container)
+                -- A real container can become available after a reservation,
+                -- access restriction or visit cooldown. An empty pass proves
+                -- absence only when these checks never hide a container.
+                if container then job.emptyProof = nil end
                 if container and not job.seenContainers[container]
                     and not containerOnCooldown(container, current)
                     and memoryAllows(state, container, current) then
@@ -1754,6 +1795,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
                     if storage.withdrawals ~= false and storage.category ~= "memorial"
                         and type(baseLife.resolveContainer) == "function" then
                         local ok, container, object = pcall(baseLife.resolveContainer, storage)
+                        if not ok or not container then job.emptyProof = nil end
                         local owner = ok and container and (object or containerOwner(container))
                         -- Loot opens one visit per furniture object and applies
                         -- the marked policy to each exact compartment it reads.
@@ -1761,16 +1803,25 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
                     end
                 end
             else
-                utility.squareObjects(square, function(object)
-                    addContainer(Loot.primary(object))
-                end, 40)
+                local function inspectObject(object)
+                    local container, readable = Loot.primary(object)
+                    if readable == false then job.emptyProof = nil end
+                    addContainer(container)
+                end
+                if job.emptyProof then
+                    if not Loot.inspectSquareObjects(square, "getObjects", 40, inspectObject) then
+                        job.emptyProof = nil
+                    end
+                else
+                    utility.squareObjects(square, inspectObject, 40)
+                end
             end
             if allowCorpses then
-                utility.squareStaticMovingObjects(square, function(object)
+                local function inspectCorpse(object)
                     if isZombieCorpse(object) then
+                        job.emptyProof = nil
                         local container = Loot.primary(object)
-                local ok = container ~= nil
-                        if ok and container and not job.seenContainers[container]
+                        if container and not job.seenContainers[container]
                             and not containerOnCooldown(container, current)
                             and memoryAllows(state, container, current) then
                             job.seenContainers[container] = true
@@ -1778,7 +1829,14 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
                             job.candidates[#job.candidates + 1] = container
                         end
                     end
-                end, 16)
+                end
+                if job.emptyProof then
+                    if not Loot.inspectSquareObjects(square, "getStaticMovingObjects", 16, inspectCorpse) then
+                        job.emptyProof = nil
+                    end
+                else
+                    utility.squareStaticMovingObjects(square, inspectCorpse, 16)
+                end
             end
         end
     end
@@ -1801,7 +1859,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     local candidates = job.candidates
     job.candidates = {}
     if not job.siteColumns or #candidates == 0 then state.containerSearch = nil end
-    return candidates, true, job.total, job.total, job.siteColumns ~= nil
+    return candidates, true, job.total, job.total, job.siteColumns ~= nil, job.emptyProof
 end
 
 local function safeForScavenging(snapshot, commands)
@@ -2221,7 +2279,7 @@ local function beginTask(actor, state, container, item, category, owner, utility
     return task
 end
 
-local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time)
+local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time, retry)
     local selection = state.selectionJob
     if selection and (selection.commandSerial ~= (tonumber(commands.commandSerial) or 0)
         or selection.prioritizeMeleeWeapon ~= (commands.prioritizeMeleeWeapon == true)
@@ -2249,8 +2307,8 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         or state.openContainer == commands.scavengeTargetContainer) then return nil, "searching" end
 
     if not selection then
-        local candidates, complete, progress, total, sitePassComplete = candidateContainers(
-            actor, player, state, allowCorpses, time, commands)
+        local candidates, complete, progress, total, sitePassComplete, emptyProof = candidateContainers(
+            actor, player, state, allowCorpses, time, commands, retry)
         if not complete then
             state.lastStatus = {
                 phase = "search", reason = "searching_containers",
@@ -2268,6 +2326,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             scavengeMissionId = commands.scavengeMissionId,
             scavengeTargetContainer = commands.scavengeTargetContainer,
             sitePassComplete = sitePassComplete,
+            emptyProof = emptyProof,
         }
         state.selectionJob = selection
     end
@@ -2348,7 +2407,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             SC.ExpeditionPrototype.noteSearchWorkerFailure(actor,
                 commands.scavengeMissionId, "nothing_needed")
         end
-        return nil, "nothing_needed"
+        return nil, "nothing_needed", selection.emptyProof
     end
     return beginTask(actor, state, selection.bestContainer, selection.bestItem,
         selection.bestCategory, selection.bestOwner, selection.bestScore,
@@ -2524,6 +2583,44 @@ local function commitTask(actor, state, task, commands, audit, time)
     return true, "looted"
 end
 
+-- Keep the context while discovery is sliced, so a known local mutation can
+-- invalidate the negative proof even before the last slice finishes.
+local function opportunisticRetry(actor, player, state, commands, neutralOverride, allowCorpses, time)
+    local utility = U()
+    if player == nil or neutralOverride or commands.recruited ~= true or commands.order ~= "follow"
+        or commands.scavengeTargetContainer or commands.scavengeRequestedCategory
+        or commands.scavengeMissionId or commands.scavengeSite or commands.prioritizeMeleeWeapon
+        or state.task or state.pendingVisualCancel or state.haul or state.openContainer then
+        scavengeRetries[actor] = nil
+        return nil
+    end
+    local actorSquare, leaderSquare = utility.squareOf(actor), utility.squareOf(player)
+    local x, y, z = utility.position(actorSquare)
+    if not x or not y or z == nil or not leaderSquare then
+        scavengeRetries[actor] = nil
+        return nil
+    end
+    local inventory = SC.InventoryIndex
+    local revision = inventory and inventory.version and inventory.version(actor)
+    local base = SC.BaseLife
+    local storageRevision = base and base.storageRevision and base.storageRevision()
+    local radius = searchRadius(utility, allowCorpses, player, commands)
+    local retry = scavengeRetries[actor]
+    if not retry or retry.startedAt > time or retry.actorSquare ~= actorSquare
+        or retry.leader ~= player or retry.leaderSquare ~= leaderSquare
+        or retry.serial ~= commands.commandSerial or retry.revision ~= revision
+        or retry.storageRevision ~= storageRevision
+        or retry.radius ~= radius or retry.allowCorpses ~= allowCorpses then
+        retry = {
+            startedAt = time, x = x, y = y, z = z, radius = radius, allowCorpses = allowCorpses,
+            actorSquare = actorSquare, leader = player, leaderSquare = leaderSquare,
+            serial = commands.commandSerial, revision = revision, storageRevision = storageRevision,
+        }
+        scavengeRetries[actor] = retry
+    end
+    return retry
+end
+
 function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local utility = U()
     local rootRuntime = utility.actorState(actor, runtime)
@@ -2539,6 +2636,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         finishHaul(actor, state, commands, time, true)
     end
     if (not commands.scavenge and not neutralOverride) or not safeForScavenging(snapshot, commands) then
+        scavengeRetries[actor] = nil
         finishHaul(actor, state, commands, time, true)
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
@@ -2551,6 +2649,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local mustRejoin, formationReason = Encounter.formationRejoinRequired(
         actor, player, commands)
     if mustRejoin == true then
+        scavengeRetries[actor] = nil
         finishHaul(actor, state, commands, time, false)
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
@@ -2563,6 +2662,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local radius = utility.config("scavengeRadius") or 14
     if player and not neutralOverride and commands.scavengeMissionId == nil
         and utility.distanceSq(actor, player) > radius * radius then
+        scavengeRetries[actor] = nil
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = "outside_scavenge_radius", phase = "cancelled",
@@ -2570,6 +2670,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             time = time, status = state.task ~= nil,
         })
         return false, "outside_scavenge_radius"
+    end
+
+    local allowCorpses = safeForCorpseLoot(actor, snapshot, state, time)
+    local retry = opportunisticRetry(actor, player, state, commands, neutralOverride, allowCorpses, time)
+    if retry and retry.expires and time < retry.expires then
+        if SC.Performance and type(SC.Performance.count) == "function" then
+            SC.Performance.count("scavenge.retry.skipped")
+        end
+        return false, "nothing_needed"
     end
 
     local audit = SC.Logistics and type(SC.Logistics.status) == "function"
@@ -2594,7 +2703,6 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         })
         return false, "loadout_needs_unloading"
     end
-    local allowCorpses = safeForCorpseLoot(actor, snapshot, state, time)
     local selectionPlayer = player
     -- A remote Search is bounded by its selected site, not by the leader's
     -- current tile. Followers may search different rooms of that site.
@@ -2639,10 +2747,10 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, "command_changed"
     end
     if not task then
-        local selectionReason
-        task, selectionReason = selectTask(
+        local selectionReason, emptyProof
+        task, selectionReason, emptyProof = selectTask(
             actor, selectionPlayer, state, commands,
-            needs, audit, allowCorpses, time)
+            needs, audit, allowCorpses, time, retry)
         if not task then
             if selectionReason == "searching" then
                 local scan = state.containerSearch or state.selectionJob
@@ -2652,9 +2760,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
                 end
                 return true, "searching_for_supplies"
             end
+            if retry and emptyProof == retry and scavengeRetries[actor] == retry then
+                retry.expires = time + 3000
+            else
+                scavengeRetries[actor] = nil
+            end
             finishHaul(actor, state, commands, time, false)
             return false, selectionReason or "nothing_needed"
         end
+        scavengeRetries[actor] = nil
     end
 
     if not reserveContainer(task.container, actor, time) then
@@ -3403,6 +3517,7 @@ function Encounter.status(actor)
 end
 
 function Encounter.cancelScavenge(actor, reason)
+    if actor then scavengeRetries[actor] = nil end
     local state = actor and states[actor] or nil
     if not state then return true, reason or "no_scavenge_task" end
     local ordinaryEnd = reason == "formation_leader_moving" or reason == "formation_leash_exceeded"
@@ -3451,6 +3566,7 @@ end
 
 function Encounter.reset(actor)
     if actor then
+        scavengeRetries[actor] = nil
         local state = states[actor]
         if state and state.task then
             resetScavengeTarget(actor, state, {
@@ -3467,6 +3583,7 @@ function Encounter.reset(actor)
         nextPartyLootAt = 0
         supplyCacheGeneration=supplyCacheGeneration+1
         states = setmetatable({}, { __mode = "k" })
+        scavengeRetries = setmetatable({}, { __mode = "k" })
         containerReservations = setmetatable({}, { __mode = "k" })
         corpseContainers = setmetatable({}, { __mode = "k" })
         failedContainers = setmetatable({}, { __mode = "k" })

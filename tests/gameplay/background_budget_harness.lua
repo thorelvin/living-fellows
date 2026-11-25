@@ -56,7 +56,16 @@ B.resolveContainer = function(storage) return storage.container end
 local published = B.auditOperations(true)
 check(published and published.stock[1].count == 5, "initial complete count published")
 for index = 6, 10 do contents[index] = item(index) end
-clock = clock + 10000
+local starts = counters.base_operations_started
+clock = clock + 5000
+local quiet, _, quietPending = B.auditOperations(false, allowance(4))
+check(not quietPending and quiet.stock[1].count == 5 and counters.base_operations_started == starts,
+    "unaudited external change waits beyond the previous five-second fallback")
+clock = clock + 4999
+quiet, _, quietPending = B.auditOperations(false, allowance(4))
+check(not quietPending and quiet.stock[1].count == 5 and counters.base_operations_started == starts,
+    "unchanged revision reuses the full report through 9999 ms")
+clock = clock + 1
 local old, reason, pending = B.auditOperations(false, allowance(3))
 check(pending == true and old.stock[1].count == 5,
     "exhausted item scan keeps prior published count")
@@ -99,6 +108,72 @@ B.reset()
 B.create({ x = 20, y = 20, z = 0 }, "Replacement camp")
 current = finish(function(budget) return B.auditOperations(false, budget) end, 4)
 check(current.stock[1].count == 0, "base reset discards old pending inventory cursor")
+
+do
+    local camp = B.active()
+    local food, medical = inventory({item(101)}), inventory({})
+    local foodRow = {id = "tracked-food", category = "food", x = camp.core.x, y = camp.core.y,
+        z = camp.core.z, container = food}
+    camp.storages = {foodRow, {id = "tracked-medicine", category = "medical", container = medical}}
+    for index = 1, 9 do medical.items[index] = item(index) end
+    local prior = B.auditOperations(true)
+    local revision, starts = B.stockRevision(), counters.base_operations_started
+    local unrelated = inventory({})
+    check(U.addItem(unrelated, item(102)) ~= nil and B.stockRevision() == revision,
+        "adding to an unrelated container does not dirty the camp report")
+    check(U.transferItemVerified(unrelated, medical, unrelated.items[1]) == true
+        and U.addItem(medical, item(103)) ~= nil and B.stockRevision() == revision + 2,
+        "a verified transfer and a second addition notify the same tracked stock without a timer")
+    local old, waiting, pending = B.auditOperations(false)
+    check(old.stock[3].count == 9 and waiting == "base_operations_pending" and pending
+        and counters.base_operations_started == starts,
+        "a read after a known change serves the old report without starting a scan itself")
+    local _, _, refreshing = B.auditOperations(false, allowance(4))
+    check(refreshing and counters.base_operations_started == starts + 1,
+        "two stock mutations coalesce into one early bounded refresh")
+    U.addItem(food, item(104))
+    local first = finish(function(budget) return B.auditOperations(false, budget) end, 5)
+    check(first.stock[1].count == 1 and first.stock[3].count == 11,
+        "stock notification does not restart an already counted prefix")
+    local corrected = finish(function(budget) return B.auditOperations(false, budget) end, 5)
+    check(corrected.stock[1].count == 2 and corrected.stock[3].count == 11
+        and prior.stock[1].count == 1 and prior.stock[3].count == 9
+        and counters.base_operations_started == starts + 2,
+        "one follow-up publishes the in-flight change and leaves prior snapshots unchanged")
+    local stockVersion, storageVersion = B.stockRevision(), B.storageRevision()
+    check(U.transferItemVerified(unrelated, medical, medical.items[#medical.items]) and B.stockRevision() == stockVersion,
+        "a verified already-moved item does not trigger refresh")
+    check(B.setReserve(foodRow.id, nil, 1) and B.storageRevision() == storageVersion + 1
+        and B.stockRevision() == stockVersion, "reserve changes invalidate access hints without recounting total stock")
+    local encounter, medicalSystem, index = SC.Encounter, SC.Medical, SC.InventoryIndex
+    local notified
+    SC.Encounter = {noteScavengeContainerChanged = function() error("advisory observer failed") end}
+    SC.Medical = {noteInventoryChanged = function(container) notified = container end}
+    SC.InventoryIndex = {touchContainer = function(container) return container == medical end}
+    check(U.touchInventoryIndex(medical) and notified == medical and B.stockRevision() == stockVersion + 1,
+        "the shared hook preserves index results and other notifications if one observer fails")
+    SC.Encounter, SC.Medical, SC.InventoryIndex = encounter, medicalSystem, index
+    U.addItem(medical, item(105))
+    _, _, refreshing = B.auditOperations(false, allowance(5))
+    starts = counters.base_operations_started
+    check(refreshing and B.setStorageCategory(foodRow.id, "water"), "recategorization interrupts a pending draft")
+    old, waiting, pending = B.auditOperations(false)
+    check(pending and old.stock[1].count == 2 and old.stock[2].count == 0,
+        "structural changes keep the last complete same-camp report visible")
+    corrected = finish(function(budget) return B.auditOperations(false, budget) end, 5)
+    check(corrected.stock[1].count == 0 and corrected.stock[2].count == 2 and corrected.stock[3].count == 12
+        and counters.base_operations_started == starts + 1,
+        "a fresh draft publishes the new category without retaining its old count")
+    check(B.removeStorage(foodRow.id), "remove the marked stock source")
+    stockVersion = B.stockRevision()
+    U.addItem(food, item(106))
+    check(B.stockRevision() == stockVersion, "removed endpoints no longer dirty camp stock")
+    corrected = finish(function(budget) return B.auditOperations(false, budget) end, 5)
+    check(corrected.stock[2].count == 0, "removing a marker publishes its missing stock immediately")
+    B.reset()
+    B.create({ x = 20, y = 20, z = 0 }, "New replacement camp")
+    check(B.auditOperations(false) == nil, "a new camp never exposes the previous stock report")
+end
 
 -- Real userdata follows the native-list branch. Its contents can disappear
 -- between two bounded calls just as an ItemContainer's Java ArrayList does

@@ -167,7 +167,14 @@ check(cached and B.auditOperations(false), "the camp can publish staffing derive
 f.registry[dead]=nil
 revision=B.workConsistencyRevision()
 retire()
-check(B.auditOperations(false)==nil, "retirement immediately invalidates the published operations cache")
+local previousReport, pendingReason, pending = B.auditOperations(false)
+check(B.resident(dead)==nil and pending and pendingReason=="base_operations_pending"
+    and previousReport and previousReport.stock[1].target==cached.stock[1].target,
+    "retirement updates the live roster and leaves the last complete report visible while pending")
+local refreshed, _, stillPending = B.auditOperations(false, function() return 1 end)
+check(refreshed and not stillPending and refreshed.stock[1].target<previousReport.stock[1].target
+    and previousReport.stock[1].target==cached.stock[1].target,
+    "the next maintenance turn publishes the smaller staffing target without mutating the previous report")
 check(B.workConsistencyRevision()==revision+1, "a roster-only death changes the work revision once")
 do
     camp()

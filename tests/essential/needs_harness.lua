@@ -280,6 +280,50 @@ SC.Medical.noteNativeDamage(damaged, "HUNGRY", 1.5)
 SC.Medical.noteNativeDamage(second, "THIRST", 4)
 SC.Medical.noteNativeDamage(player, "POISON", 100)
 SC.GameplayUtil = util
+do
+    local medical,oldClock=SC.Medical,f.clock
+    local assess,hash=medical.assess,util.stableHash
+    local scans,otherScans=0,0
+    local part=f.bodyPart({isBleeding=false})
+    damaged.body=f.bodyDamage(99.8,{part})
+    util.stableHash=function(key)
+        if key==damaged.id..":personal-assessment" then return 0 end
+        if key==second.id..":personal-assessment" then return 100 end
+        return hash(key)
+    end
+    medical.assess=function(subject,...)
+        if subject==damaged then scans=scans+1 end
+        if subject==second then otherScans=otherScans+1 end
+        return assess(subject,...)
+    end
+    local function observe(quiet) return medical.assessPersonal(damaged,{},quiet) end
+    observe(true)
+    medical.assessPersonal(second,{},true)
+    f.clock=oldClock+110
+    observe(true)
+    f.clock=oldClock+160
+    observe(true)
+    medical.assessPersonal(second,{},true)
+    check(scans==1 and otherScans==2,"quiet actors with different phases renew on different pulses")
+    f.clock=oldClock+220
+    observe(true)
+    check(scans==1,"stable personal wound facts survive successive 110 ms decisions")
+    observe(false)
+    check(scans==2,"danger switches immediately to the 100 ms personal facts age")
+    damaged.body.health=99.7
+    observe(true)
+    check(scans==3,"a fractional health change invalidates stable facts inside the same integer bucket")
+    part.isBleeding=true
+    f.clock=oldClock+470
+    check(not observe(true).needsBandage and scans==3,"an unreported same-health wound is bounded by the stable age")
+    f.clock=oldClock+471
+    check(observe(true).needsBandage and scans==4,"stable facts never survive beyond 250 ms")
+    part.isBleeding=false
+    medical.noteNativeDamage(damaged,"SICK",0.01)
+    check(not observe(true).needsBandage and scans==5,"native damage invalidation applies immediately at unchanged health")
+    medical.assess,f.clock,util.stableHash=assess,oldClock,hash
+    medical.invalidate(damaged)
+end
 local summary = SC.Medical.deathSummary(damaged)
 check(string.find(summary, "HUNGRY:3/2", 1, true) and not string.find(summary, "THIRST:", 1, true)
     and not string.find(summary, "POISON:", 1, true), "death records only the intended companion's native damage")

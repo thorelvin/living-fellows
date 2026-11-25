@@ -40,11 +40,41 @@ end
 -- No content read: safe during blind world discovery. All compartments share
 -- one physical owner and visit, including an object with only a secondary bin.
 function Loot.primary(owner, fallback)
-    local container = select(1, U().call(owner, "getContainer"))
-    if container then return container end
-    local count = tonumber((U().call(owner, "getContainerCount")))
-    if count and count > 0 then return select(1, U().call(owner, "getContainerByIndex", 0)) end
-    return fallback
+    local utility = U()
+    local container, opened = utility.call(owner, "getContainer")
+    if container then return container, true end
+    local rawCount, counted = utility.call(owner, "getContainerCount")
+    local count = tonumber(rawCount)
+    if count and count > 0 then
+        local first, read = utility.call(owner, "getContainerByIndex", 0)
+        return first, read and first ~= nil
+    end
+    return fallback, opened and (counted and count == 0
+        or not utility.hasMethod(owner, "getContainerCount"))
+end
+
+-- A bounded negative result can only be reused when its native list was read
+-- in full. Continue visiting readable entries even if one slot fails.
+function Loot.inspectSquareObjects(square, method, limit, visit)
+    local utility = U()
+    local objects, readable = utility.call(square, method)
+    if not readable or objects == nil then return false end
+    local rawCount, counted = utility.call(objects, "size")
+    local count = counted and tonumber(rawCount) or nil
+    if count == nil and type(objects) == "table" and not utility.hasMethod(objects, "size") then
+        count = #objects
+    end
+    if count == nil then return false end
+    local complete = count <= limit
+    for index = 0, math.min(count, limit) - 1 do
+        local object, found = SC.NativeList.get(objects, index)
+        if found and object ~= nil then
+            visit(object)
+        else
+            complete = false
+        end
+    end
+    return complete
 end
 
 local function get(items, index)

@@ -5660,6 +5660,16 @@ end
 
 local SCUIRoot = ISPanel:derive("SCUIRoot")
 
+function SCUIRoot:setVisible(visible)
+    ISPanel.setVisible(self, visible)
+    if UI.instance ~= self then return end
+    local enabled = self:isVisible() and self.collapsed == false
+    if not enabled then UI._scheduledRefreshJob = nil end
+    if SC.Scheduler and type(SC.Scheduler.setEnabled) == "function" then
+        SC.Scheduler.setEnabled("ui-refresh", enabled)
+    end
+end
+
 -- Private playtest builds record the UI hit area when a sustained right-click
 -- does not put the local player into aim. This keeps an intermittent input
 -- blocker observable after it clears, without changing mouse ownership.
@@ -6702,6 +6712,7 @@ function UI.close()
     UI.restoreInventory()
     if SC.UIHomeTrip and UI.instance.detail then SC.UIHomeTrip.clearFooter(UI.instance.detail) end
     UI.instance:saveSettings()
+    UI.instance:setVisible(false)
     UI.instance:removeFromUIManager()
     UI.instance = nil
     if UI.launcher then

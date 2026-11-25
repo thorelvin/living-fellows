@@ -174,6 +174,18 @@ assert(closed == true and closedReason == "restored")
 assert(stayBegins == 3 and stayEnds == 3,
     "closing the vanilla pane releases the temporary Stay hold")
 
+do
+    local SC = SurvivorCompanion
+    local savedUI = SC.UI
+    SC.UI = { isOpen = function() return false end }
+    assert(Bridge.openInventory(actor, player) == true)
+    lootPage.visible = false
+    Bridge.refreshNearbyInventory(player)
+    assert(Bridge.borrowedInventory(lootPage) == nil and stayBegins == stayEnds,
+        "a closed LF panel still releases a world-context inventory hold on the loot poll")
+    SC.UI = savedUI
+end
+
 player.distance = 5
 local tooFar, tooFarReason, limit = Bridge.openInventory(actor, player)
 assert(tooFar == false)

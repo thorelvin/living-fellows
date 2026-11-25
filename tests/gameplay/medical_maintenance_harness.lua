@@ -47,6 +47,52 @@ end
 local function count(inv,kind)
     local amount=0;for _,item in ipairs(inv.items) do if item:getFullType()==kind then amount=amount+1 end end;return amount
 end
+do
+    local bodyPart=part({scratchTime=9,isBandaged=true,dirty=true,bandageLife=0,bandageType="Base.Bandage"})
+    local bag=F.item("Base.FirstAidKit","Container")
+    local nested=F.inventory({F.item("Base.Junk","Item")})
+    function bag:getInventory() return nested end
+    function nested:getContainingItem() return bag end
+    local subject=actor(bodyPart,{bag})
+    local U=SC.GameplayUtil
+    local clock,inventoryItems,assess,hash=F.clock,U.inventoryItems,M.assess,U.stableHash
+    local reads,bodyReads=0,0
+    local initial=assess(subject)
+    U.stableHash=function(key)
+        if key:find(":quiet-supply",1,true) then return 0 end
+        return hash(key)
+    end
+    U.inventoryItems=function(inventory,...)
+        if inventory==subject.inventory or inventory==nested then reads=reads+1 end
+        return inventoryItems(inventory,...)
+    end
+    M.assess=function(character,...)
+        if character==subject then bodyReads=bodyReads+1 end
+        return assess(character,...)
+    end
+    check(not M.quietCareAvailable(subject,initial) and bodyReads==0 and reads>0,
+        "quiet supply discovery uses its caller's assessment and searches the actual bag")
+    local firstReads=reads
+    F.clock=clock+999
+    check(not M.quietCareAvailable(subject,initial) and reads==firstReads,
+        "a missing quiet dressing skips the duplicate inventory search for one second")
+    local bandage=F.item("Base.Bandage","Medical")
+    U.addItem(nested,bandage)
+    check(M.quietCareAvailable(subject,initial) and reads>firstReads and bodyReads==0,
+        "a notified nested dressing appears immediately without another body assessment")
+    nested:Remove(bandage)
+    check(not M.quietCareAvailable(subject,initial),"positive supply readiness is not cached")
+    nested:AddItem(bandage)
+    check(not M.quietCareAvailable(subject,initial),"an unreported native inventory edit keeps only bounded advice")
+    F.clock=clock+1999
+    check(M.quietCareAvailable(subject,initial),"the expiry sees an unreported addition on the next quiet probe")
+    nested:Remove(bandage)
+    check(not M.quietCareAvailable(subject,initial),"an empty nested inventory can record a new miss")
+    nested:AddItem(bandage)
+    check(M.replaceDirtyBandage(subject) and not nested:contains(bandage) and bodyReads>0,
+        "actual treatment bypasses the negative and uses the exact fresh inventory and wound")
+    U.inventoryItems,M.assess,F.clock,U.stableHash=inventoryItems,assess,clock,hash
+end
 local healed=actor(part({isBandaged=true,dirty=true,bandageLife=0,bandageType='Base.Bandage'}))
 local assessment=M.assess(healed)
 check(assessment.woundCount==0 and #assessment.wounds==1 and assessment.wounds[1].healed,'healed dirty covering remains a display row, not an active injury')

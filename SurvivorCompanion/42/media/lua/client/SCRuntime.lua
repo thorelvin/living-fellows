@@ -1344,12 +1344,23 @@ local function registerTasks()
         { "persistence", SC.Config.get("persistencePulseIntervalMs"), 9,
             savePulseTask, "background", true, true },
     }
+    -- Start these scans on different frames without adding delay to the first
+    -- run or changing the time between later runs and continuations.
+    local startupAdvanceMs = {
+        ["nearby-inventory"] = 30,
+        ["computer-services"] = 110,
+        ["base-maintenance"] = 190,
+    }
     for _, definition in ipairs(definitions) do
+        local advance = startupAdvanceMs[definition[1]]
         local called, ok, reason = pcall(SC.Scheduler.register, definition[1],
             definition[2], definition[3], definition[4], {
                 lane = definition[5], reportFailure = definition[6] == true,
                 fixedInterval = definition[7] == true,
                 maxDelayMs = definition[8],
+                initialDelayMs = advance and math.max(1, definition[2] - advance) or nil,
+                enabled = definition[1] ~= "ui-refresh"
+                    or (SC.UI ~= nil and type(SC.UI.isOpen) == "function" and SC.UI.isOpen()),
                 continuations = definition[1] == "factions"
                     or definition[1] == "base-maintenance" or definition[1] == "persistence",
             })

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.81 - Routine scan cadence
+
+- Check camp antibiotic supplies when a companion has a locally infected wound. Reuse quiet-care checks while keeping current wound and item checks for treatment.
+- Refresh the camp stock report after known stock changes and check again periodically. Quiet body checks and the live vitals summary read fewer native details.
+- Suspend panel refreshes while hidden and pause repeated empty opportunistic loot searches. Nearby inventory buttons and active transfers keep their existing behavior.
+- Spread routine scan starts across frames while keeping urgent checks and active work responsive.
+- Native bridge protocol `42.22-isocompanion-36`.
+
 ## 0.27.80 - Camp and inventory frame time
 
 - Reuse medical-kit checks, surplus-item searches, and leader movement checks within each companion decision. Keep hostility and line of sight current.

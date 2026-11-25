@@ -632,7 +632,10 @@ local function onTerminalSquareLoaded(square)
         if not ok then SC.Diagnostics.report("terminal-load",nil,"radio restore failed",reason) end
     end
 end
-local function onTerminalObjectAdded(object)
+local function onObjectAdded(object)
+    if SC.Encounter and type(SC.Encounter.noteScavengeObjectAdded) == "function" then
+        pcall(SC.Encounter.noteScavengeObjectAdded, object)
+    end
     if SC.TerminalHardware then
         local ok,reason=pcall(SC.TerminalHardware.observeObject,object)
         if not ok then SC.Diagnostics.report("terminal-place",nil,"radio restore failed",reason) end
@@ -652,7 +655,7 @@ local lifecycleDefinitions = {
     { event = function() return Events and Events.LoadGridsquare end,
         callback = onTerminalSquareLoaded, name = "LoadGridsquare" },
     { event = function() return Events and Events.OnObjectAdded end,
-        callback = onTerminalObjectAdded, name = "OnObjectAdded" },
+        callback = onObjectAdded, name = "OnObjectAdded" },
 }
 
 -- A failed install rollback is not an installed bootstrap. Keep the exact

@@ -68,6 +68,78 @@ end
 
 do
     SC.Scheduler.reset(true)
+    local uiRuns, criticalRuns = 0, 0
+    SC.Scheduler.register("ui-refresh", 50, 20, function() uiRuns = uiRuns + 1 end,
+        { lane = "background", fixedInterval = true, maxDelayMs = 1, enabled = false })
+    SC.Scheduler.register("panel-guard-test", 1, 100, function()
+        criticalRuns = criticalRuns + 1
+    end)
+    for _ = 1, 60 do
+        clock = clock + 1000
+        SC.Scheduler.tick()
+    end
+    check(uiRuns == 0 and criticalRuns == 59, "a hidden panel never enters runnable scheduling")
+    SC.Scheduler.setEnabled("ui-refresh", true)
+    SC.Scheduler.tick()
+    check(uiRuns == 1, "reopening schedules one immediate slice without replaying missed slices")
+    SC.Scheduler.tick()
+    check(uiRuns == 1, "a visible panel keeps its fifty millisecond cadence")
+    clock = clock + 50
+    SC.Scheduler.tick()
+    check(uiRuns == 2, "the next visible slice runs on its original cadence")
+    SC.Scheduler.setEnabled("ui-refresh", false)
+    clock = clock + 50
+    SC.Scheduler.tick()
+    check(uiRuns == 2, "suspending again discards the previous deadline")
+end
+
+do
+    local function replay(staggered)
+        SC.Scheduler.reset(true)
+        local origin, runs = clock, {}
+        for _, row in ipairs({
+            { name = "nearby-inventory", interval = 250, delay = 220 },
+            { name = "computer-services", interval = 1000, delay = 890 },
+            { name = "base-maintenance", interval = 2000, delay = 1810 },
+        }) do
+            local name = row.name
+            local samples = {}
+            runs[name] = samples
+            SC.Scheduler.register(name, row.interval, 20, function()
+                samples[#samples + 1] = clock - origin
+            end, { initialDelayMs = staggered and row.delay or nil })
+        end
+        for frame = 0, 240 do
+            clock = origin + math.floor(frame * 1000 / 60)
+            SC.Scheduler.tick()
+        end
+        return runs
+    end
+    local aligned = replay(false)
+    check(aligned["nearby-inventory"][8] == aligned["computer-services"][2]
+            and aligned["computer-services"][2] == aligned["base-maintenance"][1],
+        "without a first phase the three periodic requests align")
+    local staggered = replay(true)
+    for name, samples in pairs(staggered) do
+        for other, otherSamples in pairs(staggered) do
+            if name ~= other then
+                for _, time in ipairs(samples) do
+                    for _, otherTime in ipairs(otherSamples) do
+                        check(math.abs(time - otherTime) >= 30,
+                            "startup phases separate periodic checks by at least 30 ms at 60 FPS")
+                    end
+                end
+            end
+        end
+    end
+    check(staggered["nearby-inventory"][2] - staggered["nearby-inventory"][1] == 250
+            and staggered["computer-services"][2] - staggered["computer-services"][1] == 1000
+            and staggered["base-maintenance"][2] - staggered["base-maintenance"][1] == 2000,
+        "startup phases leave all later intervals unchanged")
+end
+
+do
+    SC.Scheduler.reset(true)
     SC.Diagnostics.reset()
     SC.Diagnostics.disable("skip-task", nil, "fixture circuit")
     SC.Scheduler.register("skip-task", 1, 80, function() error("must not run") end,

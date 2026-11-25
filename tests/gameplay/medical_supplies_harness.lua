@@ -143,5 +143,55 @@ for _,mode in ipairs({"size","entry"}) do
     local context=K.medicineContext(helper,patient,{stage="commit"})
     check(not context.stockKnown,"unreadable stored "..mode.." cannot prove medicine or disinfectant absence")
 end
+do
+    local dose=F.item("Base.Antibiotics")
+    local helper,patient,worst,source,row=setup({dose})
+    local utility=SC.GameplayUtil
+    local clock,carriedDoses,hash=T.clock,D.carriedDoses,utility.stableHash
+    utility.stableHash=function(key)
+        if key:find(":camp%-stock:",1) then return 0 end
+        return hash(key)
+    end
+    local reads=0
+    D.carriedDoses=function(...)
+        reads=reads+1
+        return carriedDoses(...)
+    end
+    local function advise()
+        return S.context(helper,patient,{stage="advisory"})
+    end
+    local cold=advise()
+    local before=reads
+    check(cold.stockKnown and cold.worstInfectionPatientId==worst.id and before>0,
+        "a complete cold advisory verifies carriers and the scarce-dose winner")
+    T.clock=clock+1999
+    local warm=advise()
+    check(warm.observedAt==cold.observedAt and warm.worstInfectionPatientId==worst.id and reads==before,
+        "complete advisory stock and eligibility avoid repeated carrier searches inside two seconds")
+    T.clock=clock+2000
+    check(advise().observedAt>cold.observedAt and reads>before,
+        "advisory freshness expires at two seconds from stock observation")
+    before=reads
+    check(B.setReserve(row.id,"Base.Antibiotics",1) and advise().antibioticDoses==0 and reads>before,
+        "a revised reserve invalidates complete stock advice immediately")
+    B.setReserve(row.id,"Base.Antibiotics",0)
+    check(advise().antibioticDoses==1,"cleared reserve is visible on the next advisory")
+    local kit=C.item("Base.FirstAidKit")
+    kit.nestedInventory=T.inventory({})
+    function kit.nestedInventory:getContainingItem() return kit end
+    helper.inventory:AddItem(kit)
+    SC.InventoryIndex.touch(helper)
+    check(advise().antibioticDoses==1,"a newly carried empty kit preserves existing stock")
+    local added=F.item("Base.Antibiotics")
+    SC.GameplayUtil.addItem(kit.nestedInventory,added)
+    check(advise().antibioticDoses==2,"a notified nested inventory change invalidates advice")
+    local junk=C.item("Base.Junk")
+    source:Remove(dose)
+    source:AddItem(junk)
+    check(S.context(helper,patient,{stage="prepare"}).antibioticDoses==1
+        and S.context(helper,patient,{stage="commit"}).antibioticDoses==1,
+        "prepare and commit both see unreported same-count changes during a warm advisory")
+    D.carriedDoses,T.clock,utility.stableHash=carriedDoses,clock,hash
+end
 SC_TEST_REPORT="MEDICAL_SUPPLIES_PASS checks="..checks
 print(SC_TEST_REPORT)

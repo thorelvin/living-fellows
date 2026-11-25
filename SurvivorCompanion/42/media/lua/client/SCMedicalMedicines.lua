@@ -162,7 +162,7 @@ local function stock(actor,item,kind)
     if kind=="take_painkillers" then entry.uses=doses else entry.present=true end
     return entry
 end
-function M.carriedDoses(actor,kind)
+function M.carriedDoses(actor,kind,observeContainer)
     if kind=="painkillers" or kind=="Base.Pills" then kind="take_painkillers" end
     if kind=="antibiotics" or kind=="Base.Antibiotics" then kind="take_antibiotics" end
     local inventory=U().inventory(actor)
@@ -172,6 +172,7 @@ function M.carriedDoses(actor,kind)
     for _,container in ipairs(containers) do sources[#sources+1]=container;seen[container]=true end
     local expected=0
     for _,source in ipairs(sources) do
+        if observeContainer then observeContainer(source) end
         local list,known=call(source,"getItems")
         if not known or not list then return nil end
         local count,read=call(list,"size")
@@ -390,23 +391,38 @@ local function policy(patient,kind,assessment,context,helper)
     end
     return true,nil,state,native,current
 end
+local function withStage(context,stage)
+    local result={}
+    for key,value in pairs(context or {}) do result[key]=value end
+    result.stage=stage
+    return result
+end
 function M.need(patient,assessment,context)
     if not patient or isPlayer(patient) then return nil end
+    assessment=assessment or {}
     context=type(context)=="table" and context or {}
     local pending=M.pending(patient)
     if pending and not pending.terminalQuarantine then
         return {kind=pending.kind,key=M.key(patient,pending.kind),wholeBody=true,rank=0,visitEligible=true,pending=true}
     end
-    for _,kind in ipairs({"take_painkillers","take_antibiotics"}) do
-        if policy(patient,kind,assessment or {},context,context.helper or patient) then
-            return {kind=kind,key=M.key(patient,kind),wholeBody=true,rank=kind=="take_painkillers" and 11 or 12,visitEligible=true}
+    local helper=context.helper or patient
+    if policy(patient,"take_painkillers",assessment,context,helper) then
+        return {kind="take_painkillers",key=M.key(patient,"take_painkillers"),wholeBody=true,rank=11,visitEligible=true}
+    end
+    for _,wound in ipairs(assessment.wounds or {}) do
+        if wound.infected==true then
+            local selection=context.stage and context or withStage(context,"advisory")
+            if policy(patient,"take_antibiotics",assessment,selection,helper) then
+                return {kind="take_antibiotics",key=M.key(patient,"take_antibiotics"),wholeBody=true,rank=12,visitEligible=true}
+            end
+            return nil
         end
     end
 end
 function M.prepare(helper,patient,need,context)
     if not need or not kinds[need.kind] then return nil,"medical_need_changed" end
     context=type(context)=="table" and context or {}
-    local okay,reason=policy(patient,need.kind,SC.Medical.assess(patient),context,helper)
+    local okay,reason=policy(patient,need.kind,SC.Medical.assess(patient),withStage(context,"prepare"),helper)
     if not okay then return nil,reason end
     if not needsIdle(helper) or not needsIdle(patient) then return nil,"medical_needs_active" end
     for _,item in ipairs(U().inventoryItemsDeep(U().inventory(helper),400,16)) do

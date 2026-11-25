@@ -253,9 +253,14 @@ function Bridge.installTransferHook()
         if not transferHookActive then return result end
         local repaired, repairReason = pcall(function()
             local owner = Bridge.ownerOfContainer(source)
-            if owner and item and destination and source ~= destination
+            if item and source and destination and source ~= destination
                 and leftSource(item, result, source, destination) then
-                releaseTransferredEquipment(owner, item)
+                local utility = SC.GameplayUtil
+                if utility and type(utility.touchInventoryIndex) == "function" then
+                    pcall(utility.touchInventoryIndex, source)
+                    pcall(utility.touchInventoryIndex, destination)
+                end
+                if owner then releaseTransferredEquipment(owner, item) end
             end
             local receiver = Bridge.ownerOfContainer(destination)
             if receiver and receiver ~= owner and source ~= destination then
@@ -387,7 +392,13 @@ end
 -- Companions can enter or leave arm's reach while the player stands still.
 function Bridge.refreshNearbyInventory(player)
     local playerNum = tonumber((safeMethod(player, "getPlayerNum")))
-    if playerNum ~= 0 or type(getPlayerLoot) ~= "function" then return end
+    if playerNum ~= 0 then return end
+    -- The world context menu can borrow a companion inventory without opening
+    -- the LF panel. Its Stay token still needs to be released on pane changes.
+    if ownedLootPane and (not SC.UI or type(SC.UI.isOpen) ~= "function" or not SC.UI.isOpen()) then
+        Bridge.maintainInventory()
+    end
+    if type(getPlayerLoot) ~= "function" then return end
     local ok, page = pcall(getPlayerLoot, playerNum)
     if not ok or type(page) ~= "table"
         or type(page.refreshBackpacks) ~= "function" then return end

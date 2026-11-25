@@ -11,7 +11,35 @@ SC.Medical = SC.Medical or {}
 local Medical = SC.Medical
 local nativeDamage = setmetatable({}, { __mode = "k" })
 local healthSamples = setmetatable({}, { __mode = "k" })
+-- Kahlua does not reliably collect weak-key tables. Release entries explicitly.
+local assessmentCache = {}
+local inventoryVersions = setmetatable({}, { __mode = "k" })
+local bodyRevision = 0
+local quietSupplyMisses = setmetatable({}, { __mode = "k" })
+local QUIET_SUPPLY_MISS_MS = 1000
 local noteHealthAssessment
+
+function Medical.inventoryVersion(container)
+    if container == nil then return nil end
+    local version = inventoryVersions[container] or 0
+    inventoryVersions[container] = version
+    return version
+end
+
+function Medical.noteInventoryChanged(container)
+    local version = inventoryVersions[container]
+    if version ~= nil then inventoryVersions[container] = version + 1 end
+end
+
+function Medical.bodyRevision() return bodyRevision end
+
+-- Quiet observations can renew early by actor and routine without extending
+-- the time any caller can rely on an old observation.
+function Medical.advisoryAge(actor,lane,maximum,spread)
+    local utility=SC.GameplayUtil
+    local key=tostring(utility.idOf(actor))..":"..lane
+    return maximum-math.abs(utility.stableHash(key))%(spread+1)
+end
 
 local function ownedRecord(actor)
     local registry = SC.Registry
@@ -25,6 +53,9 @@ end
 function Medical.noteNativeDamage(actor, reason, amount)
     if not ownedRecord(actor) or type(reason) ~= "string" or type(amount) ~= "number"
         or amount ~= amount or amount <= 0 or amount == math.huge then return end
+    assessmentCache[actor] = nil
+    quietSupplyMisses[actor] = nil
+    bodyRevision = bodyRevision + 1
     local events = nativeDamage[actor]
     if not events then events = {}; nativeDamage[actor] = events end
     reason = string.sub(reason, 1, 48)
@@ -45,8 +76,6 @@ local rescueRouteRetry = setmetatable({}, { __mode = "k" })
 -- player's timed action ends or stops refreshing the hold.
 local receivingCare = setmetatable({}, { __mode = "k" })
 local helpRequestedAt = setmetatable({}, { __mode = "k" })
--- Kahlua does not reliably collect weak-key tables. Release entries explicitly.
-local assessmentCache = {}
 -- Decision scoring asks whether a helper carries a splint once per injured
 -- ally on every pass; one recursive inventory scan serves them all briefly.
 -- Treatment itself always searches afresh before taking the item.
@@ -428,6 +457,8 @@ end
 function Medical.invalidate(character)
     if character ~= nil then
         assessmentCache[character] = nil
+        quietSupplyMisses[character] = nil
+        bodyRevision = bodyRevision + 1
         splintPresence[character] = nil
         treatReadiness[character] = nil
         for _, byPatient in pairs(treatReadiness) do byPatient[character] = nil end
@@ -436,7 +467,7 @@ end
 
 -- Decision and presentation reads only. Treatment and its verification use
 -- Medical.assess so both sides of a body mutation are read fresh.
-function Medical.assessCached(character, runtime, maxAgeMs)
+function Medical.assessCached(character, runtime, maxAgeMs, allowStable)
     if character == nil then return Medical.assess(character, runtime) end
     local utility = U()
     local health, body = currentHealth(character)
@@ -446,11 +477,20 @@ function Medical.assessCached(character, runtime, maxAgeMs)
     local bucket = math.floor(health)
     local infected = body and booleanMethod(body, { "IsInfected", "isInfected" }) or false
     local entry = assessmentCache[character]
+    local stable = allowStable and entry and entry.body == body and body ~= nil
+        and entry.health == health and entry.assessment.alive and health > 0
+        and not entry.assessment.critical and not entry.assessment.downed
+        and not infected and type(entry.assessment.wounds) == "table" and #entry.assessment.wounds == 0
+    if stable then
+        entry.stableAge=entry.stableAge or Medical.advisoryAge(character,"personal-assessment",250,100)
+        maxAge=math.max(maxAge,entry.stableAge)
+    end
     if entry == nil or entry.body ~= body or entry.bucket ~= bucket
+        or allowStable and entry.health ~= health
         or entry.assessment.knoxInfected ~= infected
         or now < entry.at or now - entry.at > maxAge then
         entry = { assessment = Medical.assess(character), body = body,
-            bucket = bucket, at = now }
+            health = health, bucket = bucket, at = now }
         assessmentCache[character] = entry
     end
     local result = {}
@@ -468,6 +508,14 @@ function Medical.assessCached(character, runtime, maxAgeMs)
         result.terminalKnox = result.infectionLevel >= 99.5
     end
     return result
+end
+
+function Medical.assessPersonal(character, runtime, quiet)
+    local stable = quiet and character ~= nil and not treatmentState[character]
+        and not receivingCare[character] and not downed[character]
+        and not (type(runtime) == "table" and runtime.downed == true)
+        and (not Medical.treatmentHolder or Medical.treatmentHolder(character) == nil)
+    return Medical.assessCached(character, runtime, 100, stable)
 end
 
 function Medical.isLivingPatient(character, assessment)
@@ -578,17 +626,19 @@ end
 -- carrying supplies. This descends into nested containers up to a depth/item
 -- budget, detects container cycles, and returns the item together with its ACTUAL
 -- source container so consumption and rollback operate where the bandage lives.
-local function findBandage(character, allowDirty, wound)
+local function findBandage(character, allowDirty, wound, observeContainer)
     local utility = U()
     local rootInventory = utility.inventory(character)
     local maxDepth = tonumber(utility.config("medicalBandageSearchDepth")) or 3
     local maxItems = tonumber(utility.config("medicalBandageSearchLimit")) or 400
     local best, bestRank, bestContainer
     local scanned = 0
-    local seen = {}
+    local seen, complete = {}, rootInventory ~= nil
     local function scan(inventory, depth)
-        if inventory == nil or seen[inventory] or depth > maxDepth or bestRank == 1 then return end
+        if inventory == nil or seen[inventory] or bestRank == 1 then return end
+        if depth > maxDepth then complete = false; return end
         seen[inventory] = true
+        if observeContainer then observeContainer(inventory) end
         for _, item in ipairs(utility.inventoryItems(inventory, maxItems)) do
             if bestRank == 1 or scanned >= maxItems then return end
             scanned = scanned + 1
@@ -609,7 +659,7 @@ local function findBandage(character, allowDirty, wound)
         end
     end
     scan(rootInventory, 1)
-    return best, bestContainer or rootInventory
+    return best, bestContainer or rootInventory, complete and scanned < maxItems
 end
 Medical._bandageRankForTests = bandageRank
 Medical.dressingRank = bandageRank
@@ -1976,16 +2026,40 @@ function Medical.electiveSafe(helper,patient,runtime,campVisit)
     return true
 end
 
-local function treatmentCapability(helper,patient,options)
+local quietWoundFields={"part","index","scratched","cut","bitten","deepWound","burned",
+    "infected","lodged","stitched","seriousAfterProcedure"}
+local function inventoryIndexVersion(actor)
+    return SC.InventoryIndex and SC.InventoryIndex.version and SC.InventoryIndex.version(actor) or 0
+end
+local function sameQuietSupplyMiss(miss,actor,assessment,need,current)
+    if not miss or current<miss.at or current>=miss.expiresAt
+        or miss.body~=assessment.bodyDamage or miss.key~=need.key or miss.rank~=need.rank
+        or miss.inventory~=U().inventory(actor) or miss.version~=inventoryIndexVersion(actor) then return false end
+    for _,key in ipairs(quietWoundFields) do
+        if need.wound[key]~=miss.wound[key] then return false end
+    end
+    for container,version in pairs(miss.containers) do
+        if Medical.inventoryVersion(container)~=version then return false end
+    end
+    return true
+end
+local function countProbe(name)
+    if SC.Performance and SC.Performance.count then SC.Performance.count(name) end
+end
+
+local function treatmentCapability(helper,patient,options,assessment,exactStock,quietAdvice)
     options=type(options)=="table" and options or {}
-    local assessment=Medical.assess(patient)
+    assessment=assessment or Medical.assess(patient)
     local P=SC.MedicalProcedures
     local pending=SC.MedicalMaintenance and SC.MedicalMaintenance.pending(patient)
     if not Medical.isLivingPatient(patient,assessment) and not (pending and not pending.redress) then return nil,"invalid_patient" end
     local context={}
     for key,value in pairs(options.supplyContext or options) do context[key]=value end
     context.helper=helper
+    local previousStage=context.stage
+    if exactStock then context.stage="prepare" end
     local need=Medical.selectCareNeed(patient,assessment,context)
+    context.stage=previousStage
     if not need then return nil,assessment.needsSplint and "no_splint" or "no_treatable_wound" end
     if options.careKind and options.careKind~=need.kind or options.woundIndex~=nil and options.woundIndex~=need.woundIndex
         or options.careKey and options.careKey~=need.key then return nil,"medical_need_changed" end
@@ -2054,10 +2128,39 @@ local function treatmentCapability(helper,patient,options)
     end
     local urgent=need.rank==1
     common.dirtyOnly=need.kind=="replace_bandage"
-    common.bandage,common.inventory=findBandage(helper,urgent,wound)
+    local quiet=quietAdvice and helper==patient and not urgent and wound~=nil
+        and not assessment.critical and not assessment.downed
+        and (need.kind=="bandage" or need.kind=="replace_bandage")
+    local current=quiet and U().nowMs()
+    local cached=quiet and quietSupplyMisses[helper]
+    if cached and sameQuietSupplyMiss(cached,helper,assessment,need,current) then
+        countProbe("medical.quiet-supply.hit")
+        return nil,cached.reason
+    end
+    local containers=quiet and {}
+    local observeContainer=quiet and function(container)
+        containers[container]=Medical.inventoryVersion(container)
+    end or nil
+    if quiet then
+        quietSupplyMisses[helper]=nil
+        countProbe("medical.quiet-supply.search")
+    end
+    local complete
+    common.bandage,common.inventory,complete=findBandage(helper,urgent,wound,observeContainer)
     if not common.bandage then
         local clothing,source,candidate,reason=emergencyClothing(helper)
-        if not clothing then common.available=false;return common,common.dirtyOnly and "no_clean_bandage" or reason or "no_bandage" end
+        if not clothing then
+            common.available=false
+            local failure=common.dirtyOnly and "no_clean_bandage" or reason or "no_bandage"
+            if quiet and complete and (reason=="no_expendable_clothing" or reason=="no_cutting_tool") then
+                quietSupplyMisses[helper]={at=current,
+                    expiresAt=current+Medical.advisoryAge(helper,"quiet-supply",QUIET_SUPPLY_MISS_MS,200),
+                    body=assessment.bodyDamage,key=need.key,
+                    rank=need.rank,wound=wound,inventory=U().inventory(helper),
+                    version=inventoryIndexVersion(helper),containers=containers,reason=failure}
+            end
+            return common,failure
+        end
         common.inventory,common.emergencyCandidate=source,candidate
     end
     common.visualAction=options.visualAction
@@ -2186,13 +2289,22 @@ function Medical.sameCareGroup(helper, patient)
     return expedition.isMember(helper) == expedition.isMember(patient)
 end
 
-function Medical.canReplaceDirtyBandage(actor)
+function Medical.canReplaceDirtyBandage(actor,assessment)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local capability, reason = treatmentCapability(actor, actor, {
         dirtyOnly = true, visualAction = "replace_bandage",
-    })
+    },assessment)
     return capability ~= nil and capability.available == true,
         reason or (capability and "ready" or "no_treatable_wound"), capability
+end
+
+function Medical.quietCareAvailable(actor,assessment)
+    if not U().isValidActor(actor) then return false,"invalid_actor" end
+    local capability,reason=treatmentCapability(actor,actor,{
+        dirtyOnly=true,visualAction="replace_bandage",
+    },assessment,false,true)
+    return capability~=nil and capability.available==true,
+        reason or (capability and "ready" or "no_treatable_wound")
 end
 
 -- patient -> { helper, untilAt }. Session-only; a lapsed lease is simply
@@ -2528,7 +2640,7 @@ function Medical.treat(helper, patient, runtime, options)
         return false, "rescue_route_cooldown"
     end
     options = type(options) == "table" and options or {}
-    local capability, capabilityReason = treatmentCapability(helper, patient, options)
+    local capability, capabilityReason = treatmentCapability(helper, patient, options, nil, true)
     if not capability then return false, capabilityReason or "no_treatable_wound" end
     local rootRuntime = utility.actorState(helper, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
@@ -2832,10 +2944,10 @@ function Medical.isCompanionCareHeld(patient,runtime,assessment,current)
     return true
 end
 
-function Medical.preferredStitchHelper(patient,snapshot,player)
+function Medical.preferredStitchHelper(patient,snapshot,player,assessment)
     if SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active()
         and SC.BaseLife.isInside and SC.BaseLife.isInside(patient) then return nil end
-    local need=Medical.careNeed(patient)
+    local need=Medical.careNeed(patient,assessment)
     if not need or need.kind~="stitch_wound" or need.pending then return nil end
     local patientLevel=U().perkLevel(patient,"Doctor",0)
     local best,bestLevel,bestDistance
@@ -3083,6 +3195,9 @@ function Medical.reset(actor)
     else
         nativeDamage, healthSamples = setmetatable({}, { __mode = "k" }), setmetatable({}, { __mode = "k" })
         assessmentCache = {}
+        quietSupplyMisses = setmetatable({}, { __mode = "k" })
+        inventoryVersions = setmetatable({}, { __mode = "k" })
+        bodyRevision = bodyRevision + 1
         treatReadiness = setmetatable({}, { __mode = "k" })
         for subject in pairs(receivingCare) do receivingCare[subject] = nil end
         for subject in pairs(helpRequestedAt) do helpRequestedAt[subject] = nil end

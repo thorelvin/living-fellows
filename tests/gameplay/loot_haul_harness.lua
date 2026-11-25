@@ -602,5 +602,78 @@ do
         "camp looting moves the original from the marked compartment only")
 end
 
+do
+    local follower = f.actor("follow-search", 34, 40, {})
+    local leader = f.actor("follow-search-leader", 35, 40, {})
+    local commands = { recruited = true, scavenge = true, order = "follow", commandSerial = 1 }
+    commandViews[follower] = commands
+    f.registry[follower.id] = follower
+    local originalRecord = SC.Performance.record
+    local scans, scores = 0, 0
+    SC.Performance.record = function(metric, ...)
+        if metric == "scavenge.scan" then scans = scans + 1 end
+        if metric == "scavenge.score" then scores = scores + 1 end
+        return originalRecord(metric, ...)
+    end
+    local function pulse(milliseconds)
+        f.clock = f.clock + milliseconds
+        return SC.Encounter.tryScavenge(follower, leader, safe)
+    end
+    local handled, reason = pulse(1000)
+    check(not handled and reason == "nothing_needed" and scans == 1 and scores == 1,
+        "a completed empty Follow scan records a reusable negative result")
+    pulse(1000)
+    pulse(1000)
+    check(scans == 1 and scores == 1, "the next two safe Follow pulses do zero discovery or scoring")
+    pulse(1000)
+    check(scans == 2 and scores == 2, "Follow searches again at the three-second deadline")
+    commands.commandSerial = 2
+    pulse(1000)
+    check(scans == 3, "an order change bypasses the negative result")
+    local originalSquare = leader.square
+    leader.square = f.cell:getGridSquare(35, 41, 0)
+    pulse(1000)
+    check(scans == 4, "moving the leader to a different square wakes the Follow search")
+    leader.square = originalSquare
+    pulse(1000)
+    local beforeInventory = scans
+    SC.InventoryIndex.touch(follower)
+    pulse(1000)
+    check(scans == beforeInventory + 1, "a known inventory revision clears the repeated-empty result")
+    local beforeChange = scans
+    local distant = f.containerObject(f.cell:getGridSquare(54, 52, 0), nails(1))
+    SC.Encounter.noteScavengeContainerChanged(distant)
+    pulse(1000)
+    check(scans == beforeChange, "a distant container change does not wake a local search")
+    local near, cabinet = f.containerObject(follower.square, nails(1))
+    SC.Encounter.noteScavengeObjectAdded(cabinet)
+    pulse(1000)
+    check(scans == beforeChange + 1 and SC.Encounter.peek(follower).task.container == near,
+        "a new nearby container wakes Follow before its wait expires")
+    SC.Encounter.reset(follower)
+
+    follower = f.actor("follow-unreadable-search", 43, 39, {})
+    leader = f.actor("follow-unreadable-leader", 44, 39, {})
+    commandViews[follower] = commands
+    local unreadableSquare = follower.square
+    local readObjects = unreadableSquare.getObjects
+    unreadableSquare.getObjects = function() error("world object list unavailable") end
+    local beforeUnreadable = scans
+    pulse(1000)
+    pulse(1000)
+    check(scans == beforeUnreadable + 2,
+        "an unreadable square never becomes an empty result that can be reused")
+    unreadableSquare.getObjects = readObjects
+    pulse(1000)
+    local beforeSkip = scans
+    pulse(1000)
+    check(scans == beforeSkip, "a fully readable retry can use the normal wait")
+    commands.prioritizeMeleeWeapon = true
+    pulse(1000)
+    check(scans == beforeSkip + 1, "weapon-priority searches still inspect the world immediately")
+    SC.Encounter.reset(follower)
+    SC.Performance.record = originalRecord
+end
+
 U.move, SC.Dialogue.say = originalMove, originalDialogue
 SC_TEST_REPORT = "LOOT_HAUL_PASS checks=" .. f.checks()

@@ -276,8 +276,7 @@ function residentAudit.reset(residents)
 end
 
 local draftZone
-local operationsCache
-local operationsScan
+local operations = { stockRevision = 0, storageRevision = 0 }
 local autonomousTreeScan
 local autonomousBodyScan
 local autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil
@@ -293,6 +292,56 @@ local WORKLOAD_POLICIES = { essential = true, balanced = true, continuous = true
 local defaultStockTargets = {
     food = 3, water = 2, medical = 1, construction = 2, ammunition = 6,
 }
+
+function operations.stockCategory(storage)
+    local category = storage.category == "fresh_food" and "food" or storage.category
+    if defaultStockTargets[category] ~= nil then return category end
+end
+
+function operations.trackContainer(storage, container)
+    local prior = operations.containers[storage]
+    if prior == container then return end
+    if prior and operations.storages[prior] == storage then operations.storages[prior] = nil end
+    operations.containers[storage] = container
+    if container then operations.storages[container] = storage end
+end
+
+function operations.structureChanged()
+    operations.stockRevision = operations.stockRevision + 1
+    operations.scan = nil
+end
+
+function operations.storageChanged()
+    operations.storageRevision = operations.storageRevision + 1
+    operations.structureChanged()
+end
+
+function operations.reset(base)
+    operations.storageChanged()
+    operations.cache = nil
+    operations.rows = setmetatable({}, { __mode = "k" })
+    operations.containers = setmetatable({}, { __mode = "kv" })
+    operations.storages = setmetatable({}, { __mode = "kv" })
+    for _, storage in ipairs(base and base.storages or {}) do
+        operations.rows[storage] = true
+    end
+end
+
+-- Record only matched native endpoints. The timeout still covers changes
+-- made outside Living Fellows and containers that have yet to be resolved.
+function BaseLife.noteStockContainerChanged(container)
+    if not operations.storages[container] then return false end
+    operations.stockRevision = operations.stockRevision + 1
+    return true
+end
+
+function BaseLife.stockRevision()
+    return operations.stockRevision
+end
+
+function BaseLife.storageRevision()
+    return operations.storageRevision
+end
 
 local function U()
     return SC.GameplayUtil
@@ -1534,8 +1583,12 @@ function BaseLife.create(square, name)
     local state = ensure()
     local base = activeBase()
     if base then
+        local prior = base.core
         base.core = point
         base.name = cleanText(name, base.name, 48)
+        if not prior or prior.x ~= point.x or prior.y ~= point.y or prior.z ~= point.z then
+            operations.storageChanged()
+        end
         return true, base
     end
     local id = nextId("nextBaseSerial", "base:")
@@ -1548,6 +1601,7 @@ function BaseLife.create(square, name)
         x2 = point.x + radius, y2 = point.y + radius, z = point.z, createdAt = now(),
     })
     state.bases[id], state.activeBaseId = base, id
+    operations.reset(base)
     autoFloorScan, autoFloorLinks = nil, {}
     return true, base
 end
@@ -1654,6 +1708,7 @@ function BaseLife.finishZone(square, name)
         return false, "zone_outside_base_area"
     end
     base.zones[#base.zones + 1] = zone
+    operations.storageChanged()
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(zone) end
     if zone.kind == "area" then
         base.autoFloorDisabled[tostring(zone.z)] = nil
@@ -1887,6 +1942,7 @@ function BaseLife.markRoom(square, kind)
     if plan.addArea then append("area", areaGroup) end
     append(kind, group)
     base.zones = zones
+    operations.storageChanged()
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(room.point) end
     if plan.addArea or kind == "area" then
         base.autoFloorDisabled[tostring(room.point.z)] = nil
@@ -2008,6 +2064,7 @@ function BaseLife.removeZone(id)
     else
         table.remove(base.zones, index)
     end
+    operations.storageChanged()
     if zone.kind == "area" then
         if zone.autoStair == true then
             base.autoFloorDisabled[tostring(zone.z)] = true
@@ -2219,9 +2276,9 @@ local function storageEndpoint(object, category, requestedContainer)
             local kind = storageType(select(1, U().call(container, "getType")))
             local current = select(1, U().call(object, "getContainerByIndex", compartment.index))
             if kind and current == container then
-                return { index = compartment.index, kind = kind, primary = container == primary }
+                return { index = compartment.index, kind = kind, primary = container == primary, container = container }
             end
-            if container == primary then return { primary = true } end
+            if container == primary then return { primary = true, container = container } end
         end
     end
     return nil, "storage_compartment_unavailable"
@@ -2266,6 +2323,8 @@ function BaseLife.registerStorage(object, category, container)
         references.copy(descriptor, storage)
         storage.category = category
         storage.containerIndex, storage.containerType = endpoint.index, endpoint.kind
+        operations.trackContainer(storage, operations.stockCategory(storage) and endpoint.container or nil)
+        operations.storageChanged()
         if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
         return true, storage
     end
@@ -2277,6 +2336,9 @@ function BaseLife.registerStorage(object, category, container)
     descriptor.withdrawals, descriptor.deposits, descriptor.createdAt = true, true, now()
     storage = normalizeStorage(descriptor)
     base.storages[#base.storages + 1] = storage
+    operations.rows[storage] = true
+    operations.trackContainer(storage, operations.stockCategory(storage) and endpoint.container or nil)
+    operations.storageChanged()
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
 end
@@ -2319,6 +2381,9 @@ function BaseLife.removeStorage(id)
         end
     end
     local removed = table.remove(base.storages, index)
+    operations.rows[removed] = nil
+    operations.trackContainer(removed, nil)
+    operations.storageChanged()
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(removed) end
     return true
 end
@@ -2328,11 +2393,16 @@ function BaseLife.setReserve(id, itemType, amount)
     local storage = base and findById(base.storages, id) or nil
     if not storage then return false, "unknown_storage" end
     amount = integer(amount, 0, 0, 9999)
+    local changed
     if itemType == nil or itemType == "" or itemType == "*" then
+        changed = storage.reserve ~= amount
         storage.reserve = amount
     else
-        storage.reserves[cleanText(itemType, "", 96)] = amount
+        local key = cleanText(itemType, "", 96)
+        changed = storage.reserves[key] ~= amount
+        storage.reserves[key] = amount
     end
+    if changed then operations.storageRevision = operations.storageRevision + 1 end
     return true, storage
 end
 
@@ -2347,6 +2417,7 @@ function BaseLife.setStorageCategory(id, category)
         return false,"storage_outside_base"
     end
     local wasFluid, fluid = storage.category == "milk", category == "milk"
+    local container
     if wasFluid or fluid then
         local object, reason = BaseLife.resolveObject(storage)
         if not object then return false, reason end
@@ -2356,11 +2427,15 @@ function BaseLife.setStorageCategory(id, category)
             return false, "storage_compartment_marked"
         end
         storage.containerIndex, storage.containerType = endpoint.index, endpoint.kind
+        container = endpoint.container
     else
-        local container, _, reason = BaseLife.resolveContainer(storage)
+        local _, reason
+        container, _, reason = BaseLife.resolveContainer(storage)
         if not container then return false, reason or "object_has_no_container" end
     end
     storage.category = category
+    operations.trackContainer(storage, operations.stockCategory(storage) and container or nil)
+    operations.storageChanged()
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
 end
@@ -2526,7 +2601,10 @@ end
 function BaseLife.setBlueprintsVisible(value)
     local base = activeBase()
     if not base then return false, "base_missing" end
-    base.settings.blueprints = value == true
+    if base.settings.blueprints ~= (value == true) then
+        base.settings.blueprints = value == true
+        operations.structureChanged()
+    end
     return true, base.settings.blueprints
 end
 
@@ -2537,16 +2615,23 @@ end
 
 function BaseLife.resolveContainer(storage)
     if storage and storage.category=="milk" then return nil,nil,"fluid_storage" end
+    local tracked = storage and operations.rows[storage] and operations.stockCategory(storage)
     local object, reason = BaseLife.resolveObject(storage)
-    if not object then return nil, nil, reason end
+    if not object then
+        if tracked then operations.trackContainer(storage, nil) end
+        return nil, nil, reason
+    end
     if storage.containerIndex ~= nil then
         local container = select(1, U().call(object, "getContainerByIndex", storage.containerIndex))
         if not container or select(1, U().call(container, "getType")) ~= storage.containerType then
+            if tracked then operations.trackContainer(storage, nil) end
             return nil, object, "storage_compartment_unavailable"
         end
+        if tracked then operations.trackContainer(storage, container) end
         return container, object
     end
     local container = select(1, U().call(object, "getContainer"))
+    if tracked then operations.trackContainer(storage, container) end
     return container, object, not container and "object_has_no_container" or nil
 end
 
@@ -4817,7 +4902,7 @@ function BaseLife.forgetGoneResident(id)
     end
     state.residents[id] = nil
     residentAudit.remove(id)
-    operationsCache, operationsScan = nil, nil
+    operations.structureChanged()
     bumpWorkConsistencyRevision()
     return true
 end
@@ -5466,7 +5551,8 @@ function BaseLife.abandon()
         if zone.kind == "farm" then farmZones[#farmZones + 1] = zone.id end
     end
     state.bases[base.id], state.activeBaseId = nil, nil
-    draftZone, operationsCache = nil, nil
+    draftZone = nil
+    operations.reset()
     if SC.FarmWork and type(SC.FarmWork.zoneRemoved) == "function" then
         for _, id in ipairs(farmZones) do pcall(SC.FarmWork.zoneRemoved, id) end
     end
@@ -5707,10 +5793,13 @@ function BaseLife.assign(actorId, role, duty)
         local okay, reason = cancelChefJobsFor(actorId)
         if okay ~= true then return false, reason end
     end
+    local changed = resident.baseId ~= base.id or resident.role ~= role
+        or duty ~= nil and resident.duty ~= (duty == true)
     resident.baseId, resident.role = base.id, role
     if duty ~= nil then resident.duty = duty == true end
     ensure().residents[actorId] = resident
     residentAudit.add(actorId)
+    if changed then operations.structureChanged() end
     return true, resident
 end
 
@@ -5767,9 +5856,12 @@ function BaseLife.applyResidentAssignment(plan)
         local okay, reason = cancelChefJobsFor(plan.actorId)
         if okay ~= true then return false, reason end
     end
+    local changed = resident.baseId ~= plan.baseId or resident.role ~= plan.role
+        or resident.duty ~= (plan.duty == true)
     resident.baseId, resident.role, resident.duty = plan.baseId, plan.role, plan.duty == true
     ensure().residents[plan.actorId] = resident
     residentAudit.add(plan.actorId)
+    if changed then operations.structureChanged() end
     return true, resident
 end
 
@@ -5777,15 +5869,21 @@ function BaseLife.restoreResident(actorId, snapshot)
     if type(actorId) ~= "string" or type(snapshot) ~= "table" then
         return false, "invalid_resident_snapshot"
     end
+    local residents = ensure().residents
+    local prior = residents[actorId]
     if snapshot.present ~= true then
-        ensure().residents[actorId] = nil
+        residents[actorId] = nil
         residentAudit.remove(actorId)
+        if prior then operations.structureChanged() end
         return true
     end
     local copied, reason = stableCopy(snapshot.value, 4, { count = 64 })
     if copied == nil then return false, reason or "resident_restore_failed" end
-    ensure().residents[actorId] = copied
+    residents[actorId] = copied
     residentAudit.add(actorId)
+    if not prior or prior.baseId ~= copied.baseId or prior.role ~= copied.role or prior.duty ~= copied.duty then
+        operations.structureChanged()
+    end
     return true
 end
 
@@ -5823,7 +5921,10 @@ function BaseLife.setDuty(actorId, enabled)
             pcall(SC.WorkTransport.yieldActor, actorId, "left_base_duty")
         end
     end
-    resident.duty = enabled == true
+    if resident.duty ~= (enabled == true) then
+        resident.duty = enabled == true
+        operations.structureChanged()
+    end
     return true, resident
 end
 
@@ -5839,6 +5940,10 @@ function BaseLife.setRestriction(actorId, value, owner, observedRecord)
     state.restrictionOwners = state.restrictionOwners or {}
     if owner and state.restrictionOwners[actorId] ~= nil
         and state.restrictionOwners[actorId] ~= owner then return false, "restriction_owned_elsewhere" end
+    if state.restrictions[actorId] ~= value then
+        local resident = state.residents[actorId]
+        if resident and resident.baseId == state.activeBaseId then operations.storageChanged() end
+    end
     state.restrictions[actorId] = value
     state.restrictionOwners[actorId] = value ~= nil and owner or nil
     if SC.Registry and type(SC.Registry.byId) == "function"
@@ -5861,6 +5966,7 @@ end
 function BaseLife.setPolicy(key, value)
     local base = activeBase()
     if not base then return false, "base_missing" end
+    local prior = base.settings[key]
     if key == "defense" then
         if not DEFENSE_POLICIES[value] then return false, "invalid_defense_policy" end
         base.settings.defense = value
@@ -5875,7 +5981,7 @@ function BaseLife.setPolicy(key, value)
     else
         return false, "invalid_base_policy"
     end
-    operationsCache = nil
+    if prior ~= value then operations.structureChanged() end
     BaseLife.noteHistory("policy_changed", { policy = key, value = tostring(value) })
     return true, value
 end
@@ -5922,33 +6028,41 @@ end
 -- an independent copy of the last complete report.
 function BaseLife.auditOperations(force, remainingBudget, includeReport)
     local base, current = activeBase(), now()
-    if not base then operationsCache, operationsScan = nil, nil return nil, "base_missing" end
-    local interval = U() and U().config("baseOperationsAuditIntervalMs") or 5000
-    if force ~= true and operationsCache and operationsCache.baseId == base.id
-        and current - (operationsCache.auditedAt or 0) < interval then
+    if not base then return nil, "base_missing" end
+    local interval = U() and U().config("baseOperationsAuditIntervalMs") or 10000
+    local cache = operations.cache
+    if force ~= true and not operations.scan and cache and cache.baseId == base.id
+        and operations.cacheRevision == operations.stockRevision
+        and current - cache.auditedAt < interval then
         if includeReport == false then return nil, nil, false end
-        local published, reason = stableCopy(operationsCache, 5, { count = 512 })
+        local published, reason = stableCopy(cache, 5, { count = 512 })
         return published, reason, false
     end
-    local scan = operationsScan
+    local function pending()
+        if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_yield") end
+        local published = operations.cache
+        local cached = includeReport ~= false and published and published.baseId == base.id
+            and stableCopy(published, 5, { count = 512 }) or nil
+        return cached, "base_operations_pending", true
+    end
+    -- A summary read may ask before the maintenance scheduler gets its turn.
+    -- Only the budget owner (or a forced audit) creates and advances a scan.
+    if force ~= true and type(remainingBudget) ~= "function" then return pending() end
+    local scan = operations.scan
     if force == true and type(remainingBudget) ~= "function"
         or not scan or scan.base ~= base or scan.document ~= document then
         scan = { base = base, document = document, residentIndex = 1, storageIndex = 1,
-            residents = 0, roles = {}, counts = {}, stores = {}, unloaded = 0, ids = {} }
+            residents = 0, roles = {}, counts = {}, stores = {}, unloaded = 0, ids = {},
+            revision = operations.stockRevision }
         for id in pairs(ensure().residents) do scan.ids[#scan.ids + 1] = id end
-        operationsScan = scan
+        operations.scan = scan
+        if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_started") end
     end
     local function available()
         -- Summary/UI reads consume only a completely published audit. The
         -- background maintenance owner advances the pending scan.
         if type(remainingBudget) == "function" then return (tonumber(remainingBudget()) or 0) > 0 end
         return force == true
-    end
-    local function pending()
-        if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_yield") end
-        local cached = includeReport ~= false and operationsCache and operationsCache.baseId == base.id
-            and stableCopy(operationsCache, 5, { count = 512 }) or nil
-        return cached, "base_operations_pending", true
     end
     while scan.residentIndex <= #scan.ids do
         if not available() then return pending() end
@@ -5963,14 +6077,14 @@ function BaseLife.auditOperations(force, remainingBudget, includeReport)
     while scan.storageIndex <= #(base.storages or {}) do
         if not available() then return pending() end
         local storage = base.storages[scan.storageIndex]
-        local category = storage.category
-        local stockCategory = category == "fresh_food" and "food" or category
-        if defaultStockTargets[stockCategory] ~= nil then
+        local stockCategory = operations.stockCategory(storage)
+        if stockCategory then
             -- Native container lists can be emptied or replaced when their
             -- chunks unload between budget slices. Re-resolve once per slice,
             -- before reading a retained cursor; never retain an unloaded
             -- prefix as current stock or bounds-check every native list get.
             local container = BaseLife.resolveContainer(storage)
+            operations.trackContainer(storage, container)
             if scan.storage ~= storage or scan.container ~= container then
                 scan.storage, scan.container = storage, container
                 scan.itemIndex, scan.itemCount, scan.itemSize = 0, 0, nil
@@ -6004,7 +6118,7 @@ function BaseLife.auditOperations(force, remainingBudget, includeReport)
         end
         scan.storageIndex, scan.storage, scan.container, scan.items = scan.storageIndex + 1, nil, nil, nil
     end
-    if not available() then return pending() end
+    if operations.scan ~= scan or not available() then return pending() end
     local residents, roles, counts, stores, unloaded = scan.residents, scan.roles,
         scan.counts, scan.stores, scan.unloaded
     local stockRows, alerts, readiness, metrics = {}, {}, 0, 0
@@ -6061,17 +6175,20 @@ function BaseLife.auditOperations(force, remainingBudget, includeReport)
         end
     end
     local _, selectedGuard, guardCandidates = BaseLife.guardStatus(nil, current)
-    operationsCache = {
+    operations.cache = {
         baseId = base.id, auditedAt = current,
         readiness = metrics > 0 and math.floor((readiness / metrics) * 100 + 0.5) or 0,
         stock = stockRows, coverage = coverage, alerts = alerts, zones = zones,
         unloadedStores = unloaded, activeGuard = selectedGuard,
         guardCandidates = guardCandidates, policies = stableCopy(base.settings, 3, { count = 64 }),
     }
-    operationsScan = nil
+    -- A transfer during this pass schedules a follow-up without replaying the
+    -- counted prefix or losing the notification at publication.
+    operations.cacheRevision = scan.revision
+    operations.scan = nil
     if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_complete") end
     if includeReport == false then return nil, nil, false end
-    local published, reason = stableCopy(operationsCache, 5, { count = 512 })
+    local published, reason = stableCopy(operations.cache, 5, { count = 512 })
     return published, reason, false
 end
 
@@ -6872,7 +6989,8 @@ end
 function BaseLife.restore(source)
     local priorRestrictions = document and document.restrictions
     if source == nil then
-        document, draftZone, operationsCache = emptyDocument(), nil, nil
+        document, draftZone = emptyDocument(), nil
+        operations.reset()
         residentAudit.reset(document.residents)
         autonomousTreeScan, autonomousBodyScan = nil, nil
         autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
@@ -6891,7 +7009,8 @@ function BaseLife.restore(source)
     end
     document = candidate
     residentAudit.reset(document.residents)
-    draftZone, operationsCache = nil, nil
+    draftZone = nil
+    operations.reset(activeBase())
     autonomousTreeScan, autonomousBodyScan = nil, nil
     autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil
     autonomousWorkerCursor, autonomousRetryAt = 0, {}
@@ -6902,7 +7021,8 @@ function BaseLife.restore(source)
 end
 
 function BaseLife.reset()
-    document, draftZone, operationsCache = emptyDocument(), nil, nil
+    document, draftZone = emptyDocument(), nil
+    operations.reset()
     residentAudit.reset(document.residents)
     autonomousTreeScan, autonomousBodyScan = nil, nil
     autonomousBodyUrgencyBaseId, autonomousBodyUrgencyUntil = nil, nil

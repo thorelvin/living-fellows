@@ -63,4 +63,31 @@ for _,name in ipairs({"FATIGUE","ENDURANCE"}) do
     replacement=actor(0,1) replacement.stats.throw=name
     check(not SC.Vitals.apply(replacement,afterSleep),"native "..name.." setter failure propagates to the restore transaction")
 end
+do
+    local subject=actor(0.2,0.7)
+    local body=subject:getBodyDamage()
+    body.health,body.infected=77,true
+    function body:getApparentInfectionLevel() return 21 end
+    local byIndex={
+        [0]={bitten=function() return true end,scratched=function() return true end,
+            bandaged=function() return true end,bleeding=function() return true end},
+        [1]={getBurnTime=function() return 0.1 end},
+        [2]={getBurnTime=function() return math.huge end},
+        [31]={isDeepWounded=function() return true end},
+        [32]={bitten=function() return true end},
+    }
+    function body:getBodyParts() return {size=function() return 33 end,get=function(_,index) return byIndex[index] end} end
+    local capture,full,statReads=SC.Vitals.capture,0,0
+    local stats=subject.getStats
+    function subject:getStats(...) statReads=statReads+1;return stats(self,...) end
+    SC.Vitals.capture=function(...) full=full+1;return capture(...) end
+    local summary=SC.Vitals.summary(subject)
+    check(summary.health==77 and summary.knox and summary.apparentInfection==21
+        and summary.bites==1 and summary.bleeding==1 and summary.wounds==3,
+        "runtime summary preserves raw bandaged bleeding, wound counting, finite defaults and the native part cap")
+    check(full==0 and statReads==0,"runtime summary bypasses the full save capture and unrelated need getters")
+    local empty,reason=SC.Vitals.summary({})
+    check(empty==nil and reason=="native body damage is unavailable","summary keeps the unavailable-body result")
+    SC.Vitals.capture=capture
+end
 SC_TEST_REPORT="VITALS_NEEDS_PERSISTENCE_PASS checks="..checks
