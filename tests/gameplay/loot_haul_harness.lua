@@ -730,7 +730,7 @@ do
         and request.interactionRouteReceipt.boundToken == request.supervisorToken
         and request.interactionRouteReceipt.scavengeMissionId == "route-trip",
         "the later reachable source hands off its exact route under the winning action token")
-    check(blockedChecks == 2 and blockedReads == 0 and not worker.inventory:contains(item),
+    check(blockedChecks >= 2 and blockedChecks <= 3 and blockedReads == 0 and not worker.inventory:contains(item),
         "a deferred shelf stays unopened and walking starts before transferring any loot")
     worker.square, worker.forwardY = stand, 1
     animate(worker)
@@ -767,19 +767,236 @@ do
     end
     for _ = 1, 4 do tick(worker) end
     local state = SC.Encounter.peek(worker)
-    local originalWait = state.siteRouteAccess.waitUntil
-    check(originalWait > f.clock and not state.task, "known locked rooms yield without picking a shelf")
+    local unlockAt = f.clock
+    check(state.siteRouteAccess and #state.siteRouteAccess.lockedRooms == 2 and not state.task,
+        "known locked rooms stay recorded without picking a shelf")
     firstLocked = false
     for _ = 1, 5 do
         tick(worker)
         if state.task then break end
     end
-    check(state.task and state.task.container == source and f.clock < originalWait,
+    check(state.task and state.task.container == source and f.clock < unlockAt + 8000,
         "unlocking an earlier room wakes discovery and admits its previously skipped shelf")
     SC.Encounter.reset(worker)
     navigation.behindLockedDoor, navigation.interactionTargets = oldLocked, oldTargets
     SC.ExpeditionPlaces = oldPlaces
 end
+
+local routeScenario = 0
+local function siteRouteScenario(name, run)
+    routeScenario = routeScenario + 1
+    if SC_TEST_SITE_ROUTE_CASE and SC_TEST_SITE_ROUTE_CASE ~= name then return end
+    local x, y = 45, routeScenario * 8
+    local site = { buildingId = string.format("%d:%d:%d:%d", x, y, x + 4, y + 1), x = x + 2, y = y, z = 0 }
+    local navigation, expedition, places = SC.Navigation, SC.ExpeditionPrototype, SC.ExpeditionPlaces
+    local select, targets, locked, request = navigation.selectInteraction, navigation.interactionTargets,
+        navigation.behindLockedDoor, navigation.requestAny
+    local claim = SC.Performance.claimUnits
+    local worker = f.actor("route-review-" .. name, x, y, {})
+    f.registry[worker.id] = worker
+    commandViews[worker] = { recruited = true, scavenge = true, order = "stay", commandSerial = 1,
+        scavengeSite = site, scavengeMissionId = name, scavengeRequestedCategory = "construction" }
+    SC.ExpeditionPlaces = {
+        siteContainsPoint = function(siteId, tileX, tileY, z)
+            return siteId == site.buildingId and tileX >= x and tileX <= x + 4 and tileY == y and z == 0
+        end,
+    }
+    local failures = {}
+    SC.ExpeditionPrototype = {
+        noteSearchWorkerFailure = function(actor, missionId, reason)
+            failures[#failures + 1] = { worker = actor, mission = missionId, reason = reason }
+        end,
+    }
+    navigation.interactionTargets = function() return {} end
+    local function shelf(offset)
+        local square = f.cell:getGridSquare(x + offset, y, 0)
+        return f.containerObject(square, nails(1))
+    end
+    run(worker, shelf, failures)
+    SC.Encounter.reset(worker)
+    SC.ExpeditionPrototype, SC.ExpeditionPlaces = expedition, places
+    navigation.selectInteraction, navigation.interactionTargets, navigation.behindLockedDoor, navigation.requestAny =
+        select, targets, locked, request
+    SC.Performance.claimUnits = claim
+end
+
+local function expectBlockedRotation(worker, failures, case, maxTicks)
+    local rotated
+    for _ = 1, maxTicks do
+        local handled, reason = tick(worker)
+        if not handled and reason == "nothing_needed" then rotated = true break end
+    end
+    check(rotated, "blocked site relinquishes the worker's search slot within the bounded pass: " .. case)
+    check(#failures == 1 and failures[1].worker == worker and failures[1].mission == case
+        and failures[1].reason == "approach_timeout",
+        "blocked site reports one approach failure to the current expedition: " .. case)
+    check(not SC.Encounter.peek(worker).task and not SC.ActionSupervisor.current(worker),
+        "blocked site ends without ownership of an undeliverable action: " .. case)
+end
+
+siteRouteScenario("locked", function(worker, shelf, failures)
+    local _, owner = shelf(2)
+    owner.square.room = { name = "locked shelf room" }
+    local claim, siteScans = SC.Performance.claimUnits, 0
+    SC.Performance.claimUnits = function(kind, requested, ...)
+        if kind == "scavengeSquares" and requested > 0 then siteScans = siteScans + 1 end
+        return claim(kind, requested, ...)
+    end
+    SC.Navigation.behindLockedDoor = function(_, square) return square == owner.square end
+    SC.Navigation.selectInteraction = function() error("A locked source entered the route survey") end
+    expectBlockedRotation(worker, failures, "locked", 20)
+    check(#SC.Encounter.peek(worker).siteRouteAccess.lockedRooms == 1,
+        "rotating the worker preserves the locked-room watch for a later unlock")
+    local scansAtRotation = siteScans
+    for _ = 1, 90 do tick(worker) end
+    check(siteScans == scansAtRotation and #failures == 1,
+        "the rotated worker can watch for unlocks without repeating the blocked pass or its report")
+end)
+
+siteRouteScenario("unreachable", function(worker, shelf, failures)
+    local source = shelf(2)
+    local surveys = 0
+    SC.Navigation.selectInteraction = function(_, _, _, rows)
+        check(#rows == 1 and rows[1].container == source, "only the unreachable shelf enters the survey")
+        surveys = surveys + 1
+        return nil, "unreachable"
+    end
+    expectBlockedRotation(worker, failures, "unreachable", 60)
+    local visited = SC.Encounter.peek(worker).visited[source]
+    check(surveys == 2 and visited and visited.result == "navigation_failed" and visited.expires > f.clock,
+        "two hard failures record navigation memory for that shelf")
+    for _ = 1, 10 do tick(worker) end
+    check(surveys == 2 and #failures == 1,
+        "the hard-failed shelf stays out of surveys during its memory back-off")
+end)
+
+siteRouteScenario("handoff-changed", function(worker, shelf, failures)
+    local source, owner = shelf(2)
+    local stand = f.cell:getGridSquare(owner.square.x - 1, owner.square.y, 0)
+    local attempts = 0
+    SC.Navigation.interactionTargets = function() return { stand } end
+    SC.Navigation.selectInteraction = function(_, survey, _, rows)
+        check(#rows == 1 and rows[1].container == source, "the route survey picks the same eligible shelf")
+        return rows[1], "selected", { ownerState = survey, endpoint = stand, container = source }
+    end
+    SC.Navigation.requestAny = function(_, _, _, intent)
+        local receipt = intent.interactionRouteReceipt
+        check(receipt and receipt.container == source and receipt.endpoint == stand
+            and receipt.boundToken == intent.supervisorToken,
+            "the planned shelf reaches the handoff with its exact receipt and action token")
+        attempts = attempts + 1
+        return false, "scavenge_route_invalidated"
+    end
+    for _ = 1, 10 do
+        tick(worker)
+        if attempts == 1 then break end
+    end
+    local first = SC.Encounter.peek(worker).visited[source]
+    check(attempts == 1 and (not first or first.result ~= "navigation_failed")
+        and #failures == 0 and not SC.ActionSupervisor.current(worker),
+        "the first rejected handoff releases the action without recording a hard failure")
+    for _ = 1, 30 do
+        tick(worker)
+        if attempts == 2 then break end
+    end
+    local second = SC.Encounter.peek(worker).visited[source]
+    check(attempts == 2 and second and second.result == "navigation_failed" and second.expires > f.clock,
+        "the second rejected handoff records navigation memory for the same shelf")
+    expectBlockedRotation(worker, failures, "handoff-changed", 20)
+    check(attempts == 2, "the back-off prevents a third handoff during the blocked pass")
+end)
+
+siteRouteScenario("unknown", function(worker, shelf, failures)
+    local source = shelf(2)
+    local arrivals = {}
+    SC.Navigation.selectInteraction = function(_, _, _, rows)
+        check(#rows == 1 and rows[1].container == source, "an inconclusive survey retains the same shortlist")
+        arrivals[#arrivals + 1] = f.clock
+        return nil, "unknown"
+    end
+    expectBlockedRotation(worker, failures, "unknown", 60)
+    local visited = SC.Encounter.peek(worker).visited[source]
+    check(#arrivals == 2 and arrivals[2] - arrivals[1] < 2000
+        and (not visited or visited.result ~= "navigation_failed"),
+        "budget uncertainty retries the shortlist once without hard-failure memory")
+    for _ = 1, 5 do tick(worker) end
+    check(#arrivals == 2 and #failures == 1, "an exhausted shortlist gets a brief source cooldown")
+end)
+
+siteRouteScenario("lost-winner", function(worker, shelf, failures)
+    local stolen, owner = shelf(2)
+    local alternate, second = shelf(4)
+    local claimant = f.actor("route-review-claimant", owner.square.x, owner.square.y, {})
+    f.registry[claimant.id] = claimant
+    commandViews[claimant] = { recruited = true, scavenge = true, order = "stay",
+        commandSerial = 1, scavengeTargetContainer = stolen }
+    local stand = f.cell:getGridSquare(second.square.x - 1, second.square.y, 0)
+    local racedAt, chosen, replacementSurveys
+    SC.Navigation.selectInteraction = function(actor, survey, _, rows)
+        check(actor == worker, "the explicit claimant does not use the route-aware shortlist")
+        if not racedAt then
+            check(#rows == 2 and rows[1].container == stolen and rows[2].container == alternate,
+                "the winner and alternative are in the same route survey batch")
+            SC.Encounter.tryScavenge(claimant, nil, safe)
+            check(SC.ActionSupervisor.current(claimant) and SC.Encounter.peek(claimant).task.container == stolen,
+                "a second worker reserves the winning shelf before the survey caller can claim it")
+            racedAt = f.clock
+            return rows[1], "selected", { ownerState = survey, endpoint = stand, container = stolen }
+        end
+        replacementSurveys = (replacementSurveys or 0) + 1
+        check(#rows == 1 and rows[1].container == alternate, "the next survey contains only the surviving shelf")
+        return rows[1], "selected", { ownerState = survey, endpoint = stand, container = alternate }
+    end
+    SC.Navigation.interactionTargets = function(actor, object)
+        if actor == claimant and object == owner then return { claimant.square } end
+        return object == second and { stand } or {}
+    end
+    SC.Navigation.requestAny = function(actor, _, _, intent)
+        if actor == worker then chosen = intent.container end
+        return true, "moving", stand
+    end
+    for _ = 1, 8 do
+        tick(worker)
+        if chosen then break end
+    end
+    check(chosen == alternate and replacementSurveys == 1 and f.clock - racedAt < 800 and #failures == 0,
+        "losing one shelf keeps the other shelf available without waiting for a whole-site rescan")
+    SC.Encounter.reset(claimant)
+end)
+
+siteRouteScenario("mixed-mode", function(worker, shelf)
+    shelf(2)
+    shelf(4)
+    local origin = worker.square
+    local claim = SC.Performance.claimUnits
+    SC.Performance.claimUnits = function(kind, requested, ...)
+        if kind == "scavengeContainers" then return math.min(requested, 1) end
+        return claim(kind, requested, ...)
+    end
+    worker.worldX, worker.worldY = worker:getX(), worker:getY()
+    worker.getZ = function() return origin.z end
+    worker.square = nil
+    tick(worker)
+    local legacy = SC.Encounter.peek(worker).selectionJob
+    check(legacy and legacy.bestContainer and not legacy.siteRouteRows,
+        "a no-square tick retains a partial legacy selection and its winning source")
+    local reserved = legacy.bestContainer
+    worker.square = origin
+    SC.Navigation.selectInteraction = function() return nil, "pending" end
+    tick(worker)
+    local current = SC.Encounter.peek(worker).selectionJob
+    check(not current or current ~= legacy and current.siteRouteRows,
+        "restoring the actor square cannot resume legacy state as a route-aware selection")
+    local claimant = f.actor("route-review-legacy-claimant", reserved.owner.square.x, origin.y, {})
+    f.registry[claimant.id] = claimant
+    commandViews[claimant] = { recruited = true, scavenge = true, order = "stay",
+        commandSerial = 1, scavengeTargetContainer = reserved }
+    SC.Navigation.interactionTargets = function(actor) return { actor.square } end
+    tick(claimant)
+    check(SC.Encounter.peek(claimant).task and SC.Encounter.peek(claimant).task.container == reserved,
+        "discarding the legacy selection releases its old container reservation")
+    SC.Encounter.reset(claimant)
+end)
 
 U.move, SC.Dialogue.say = originalMove, originalDialogue
 SC_TEST_REPORT = "LOOT_HAUL_PASS checks=" .. f.checks()

@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.83 - Expedition search recovery
+
+- Give blocked site searches a bounded pass and reconsider an entrance when it becomes accessible.
+- Retain other viable shelves when the selected shelf becomes unavailable, and discard stale selection state when switching search modes.
+- Verify the locked-container and item removal checks against the pinned Build 42.22.2 runtime.
+- Native bridge protocol `42.22-isocompanion-36`.
+
 ## 0.27.82 - Expedition scavenging routes
 
 - Choose expedition loot sources using verified approaches so companions can move on from an unreachable shelf.

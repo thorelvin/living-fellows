@@ -16,10 +16,20 @@ local Lines = SC.WorkVoiceLines
 -- ---------------------------------------------------------------------------
 
 Lines.POOLS = {
+    ["voice.job.start.dressings"] = {
+        common = {
+            "I'll wash the used bandages.",
+            "Time to clean another batch of dressings.",
+            "We're running low on clean bandages. I'll get these washed.",
+            "Leave the used dressings with me. I'm doing a wash.",
+        },
+    },
     ["voice.job.done.dressings"] = {
         common = {
             "That's the bandages clean. Don't bleed on them.",
             "Clean dressings are back on the shelf.",
+            "Another batch of clean dressings ready.",
+            "Bandages washed. We've got clean spares again.",
         },
     },
     ["voice.expedition.drive_out"] = {

@@ -48,6 +48,7 @@ SC_TEST_PLAYER = {
     end,
 }
 function getPlayer() return SC_TEST_PLAYER end
+function getSpecificPlayer(index) if index == 0 then return SC_TEST_PLAYER end end
 
 SC_TEST_COUNTS = {
     actorDispose = 0,
@@ -128,6 +129,7 @@ SC.Transaction = SC.Transaction or {}
 SC.Registry = {
     records = function() return {} end,
     byId = function() return nil end,
+    idOf = function() return nil end,
     reset = function() return true end,
 }
 SC.Vitals = { summary = function() return {} end }

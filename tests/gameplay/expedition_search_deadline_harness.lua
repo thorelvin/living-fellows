@@ -70,6 +70,7 @@ SC.GameplayUtil = {
         for _, value in ipairs(list) do if value == item then return true end end return false
     end,
     itemType = function(item) return item.type end, itemName = function(item) return item.type end,
+    itemWeight = function(item) return item.weight or 0 end,
     sameSquare = function(a, b) return distance(a, b) < 0.01 end,
     stop = function() return true end, move = function() return true end,
     transferItemVerified = function() error("discovery must not transfer cargo") end,

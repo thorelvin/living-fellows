@@ -27,6 +27,12 @@ public final class SCItemContainerContractTest {
         Method hasRoomFor = container.getMethod("hasRoomFor", character, item);
         require(hasRoomFor.getReturnType() == boolean.class,
                 "ItemContainer.hasRoomFor(IsoGameCharacter, InventoryItem) return contract changed");
+        Method isLockedToCharacter = container.getMethod("isLockedToCharacter", character);
+        require(isLockedToCharacter.getReturnType() == boolean.class,
+                "ItemContainer.isLockedToCharacter(IsoGameCharacter) return contract changed");
+        Method isRemoveItemAllowed = container.getMethod("isRemoveItemAllowed", item);
+        require(isRemoveItemAllowed.getReturnType() == boolean.class,
+                "ItemContainer.isRemoveItemAllowed(InventoryItem) return contract changed");
         require(java.util.List.class.isAssignableFrom(container.getMethod("getSomeTypeRecurse", String.class, int.class).getReturnType()),
                 "Quantity-limited recursive material selection is unavailable");
         require(item.isAssignableFrom(container.getMethod("getContainingItem").getReturnType()),
@@ -43,6 +49,8 @@ public final class SCItemContainerContractTest {
                 + create.getReturnType().getName()
                 + " add=" + add.getReturnType().getName()
                 + " remove=" + remove.getReturnType().getName()
-                + " hasRoomFor=" + hasRoomFor.getReturnType().getName());
+                + " hasRoomFor=" + hasRoomFor.getReturnType().getName()
+                + " isLockedToCharacter=" + isLockedToCharacter.getReturnType().getName()
+                + " isRemoveItemAllowed=" + isRemoveItemAllowed.getReturnType().getName());
     }
 }

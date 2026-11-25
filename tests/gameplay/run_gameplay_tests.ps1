@@ -102,6 +102,9 @@ try {
                 if ([IO.Path]::GetFileName($scenario) -eq 'combat_harness.lua') {
                     Join-Path $ClientRoot 'SCPZOptimizerAdapter.lua'
                 }
+                if ([IO.Path]::GetFileName($scenario) -eq 'chef_harness.lua') {
+                    Join-Path $ClientRoot 'SCBaseFuel.lua'
+                }
                 $scenario
             }
             $scenarioList = Join-Path $BuildRoot 'gameplay.groups'
