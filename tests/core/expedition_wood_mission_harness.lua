@@ -84,6 +84,37 @@ check(active.scout.wood.preparation and departures == 0 and active.scout.turnHom
     "accepted mission pauses for automatic gear preparation with a bounded default trip time")
 check(E.woodPreparationFor(leader) and E.woodPreparationFor(follower) == nil,
     "only the leader owns predeparture tool-fetch actions")
+do
+    local canSee, cargoCounts, oldSummary = SC.GameplayUtil.canSee, W.cargoCounts, SC.ExpeditionIntegration.summary
+    local exact, exactReads, inventoryReads = { carried = 3, stored = 2 }, 0, 0
+    active.integration = {}
+    SC.GameplayUtil.canSee = function() return true end
+    SC.ExpeditionIntegration.summary = function(record)
+        assert(record == active.integration)
+        exactReads = exactReads + 1
+        return exact
+    end
+    W.cargoCounts = function()
+        inventoryReads = inventoryReads + 1
+        return { carried = 4 }
+    end
+    local view = E.describeForPlayer(player)
+    check(view.woodProgress.carried == 3 and view.woodProgress.stored == 2 and view.delivery == exact
+        and exactReads == 1 and inventoryReads == 0,
+        "the visible wood view uses one exact report without scanning companion inventories, got "
+            .. exactReads .. " summaries and " .. inventoryReads .. " inventory scans")
+    exact = nil
+    view = E.describeForPlayer(player)
+    check(view.woodProgress.carried == 4 and view.woodProgress.stored == 0 and view.delivery == nil
+        and exactReads == 2 and inventoryReads == 1,
+        "a missing exact report falls back to the visible inventory count")
+    SC.GameplayUtil.canSee = function() return false end
+    view = E.describeForPlayer(player)
+    check(view.woodProgress == nil and view.delivery == nil and exactReads == 2 and inventoryReads == 1,
+        "the remote view does no cargo inspection without visible crew")
+    active.integration = nil
+    SC.GameplayUtil.canSee, W.cargoCounts, SC.ExpeditionIntegration.summary = canSee, cargoCounts, oldSummary
+end
 -- Crowbar fallback is confined to the selected Search building. Cancelling an
 -- unrelated crew member cannot stop the worker's native action.
 do

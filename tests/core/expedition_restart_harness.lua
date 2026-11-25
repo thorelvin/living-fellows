@@ -3446,6 +3446,7 @@ end
     SC.ExpeditionIntegration.refresh = function() end
     local primaryOwns, danger, expireDuringSave = false, false, false
     local flushed, saves, releasings, checkpoint = 0, 0, 0
+    local pending, currentDocument
     local settled = {}
     SC.ExpeditionIntegration.settle = function(row) return settled[row.tripId] == true end
     SC.Senses.cached = function()
@@ -3467,12 +3468,28 @@ end
         if expireDuringSave then primaryOwns = false end
         return true
     end
-    SC.Persistence = { save = function(viewer)
-        check(viewer == player and slot1 == reserve, "save runs before crew release")
-        checkpoint = expedition.export()
-        saves = saves + 1
-        return true
-    end }
+    SC.Persistence = {
+        isScheduledSavePending = function(job) return job ~= nil and pending == job end,
+        requestScheduledSave = function(viewer, completed)
+            check(viewer == player and slot1 == reserve, "save is queued before crew release")
+            pending = { complete = completed }
+            saves = saves + 1
+            return true, "requested", pending
+        end,
+        refreshCampReturnCheckpoint = function(document, tripId, slotId)
+            if document ~= currentDocument or slotId ~= 2 then return false end
+            checkpoint = expedition.export()
+            return checkpoint.integration.tripId == tripId
+        end,
+        save = function() error("camp handoff must not capture the world synchronously") end,
+    }
+    local function completeSave(x, replaced)
+        local job = pending
+        pending = nil
+        local document = { companions = { delta = { position = { x = x, y = 25, z = 0 } } } }
+        currentDocument = not replaced and document or {}
+        job.complete(document)
+    end
     local full = {}
     for index = 1, 32 do
         full[index] = { version = 1, tripId = "flow-pending-" .. index, requested = 1,
@@ -3519,13 +3536,29 @@ end
     check(saves == 0 and #expedition.export().deliveries == 32,
         "a full delivery queue keeps every exact receipt and the active crew")
     settled["flow-pending-7"] = true
+    refused("return_delivery_save_wait")
+    refused("return_delivery_save_wait")
+    check(saves == 1 and flushed == 0, "in-flight save is reused without flushing or releasing")
+    pending = nil
+    refused("return_delivery_save_wait")
+    check(saves == 2, "a cancelled capture is replaced")
+    completeSave(30)
+    check(flushed == 0 and slot1 == reserve, "capture outside the camp cannot release the crew")
+    refused("return_delivery_save_wait")
+    completeSave(25, true)
+    check(flushed == 0 and slot1 == reserve, "a superseded document cannot release the crew")
+    refused("return_delivery_save_wait")
     expireDuringSave = true
-    refused("return_camp_primary_map_wait")
+    completeSave(25)
+    check(active.returnHandoff == "return_camp_primary_map_wait" and slot1 == reserve,
+        "map ownership is still checked after the flush")
     check(checkpoint.integration.tripId == active.radioSession and #checkpoint.deliveries == 31
         and checkpoint.repeatPlan.placeId == "65:25:68:28",
         "the active save holds the new receipt exactly once before UI destruction")
     expireDuringSave, primaryOwns = false, true
-    check(expedition.finishAtPlayer(player, active.returnCamp) and slot1 == nil,
+    refused("return_delivery_save_wait")
+    completeSave(25)
+    check(slot1 == nil,
         "the same distant upstairs player can release a safe, primary-owned arrival")
     local idle = expedition.export()
     check(#idle.deliveries == 32 and idle.deliveries[32].tripId == active.radioSession

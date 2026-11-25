@@ -3418,6 +3418,8 @@ function Expedition.describeForPlayer(viewer)
             visible = visible,
         }
     end
+    local delivery = visibleMembers > 0 and mission.integration and SC.ExpeditionIntegration
+        and SC.ExpeditionIntegration.summary(mission.integration) or nil
     local progress, woodProgress
     local resource = itinerary and (itinerary.search or itinerary.wood)
     if resource then
@@ -3444,14 +3446,14 @@ function Expedition.describeForPlayer(viewer)
         if itinerary.wood and progress then
             local carried, stored = 0, 0
             if progress.source == "visible" then
-                local visibleIds = {}
-                for _, row in ipairs(members) do if row.visible then visibleIds[row.id] = true end end
-                local counts = SC.ExpeditionWood.cargoCounts(resource, mission.roster, visibleIds)
-                carried = counts.carried
-                if mission.integration and SC.ExpeditionIntegration then
-                    local summary = SC.ExpeditionIntegration.summary(mission.integration)
-                    carried, stored = summary.carried or carried, summary.stored or 0
+                if delivery and delivery.carried ~= nil then
+                    carried = delivery.carried
+                else
+                    local visibleIds = {}
+                    for _, row in ipairs(members) do if row.visible then visibleIds[row.id] = true end end
+                    carried = SC.ExpeditionWood.cargoCounts(resource, mission.roster, visibleIds).carried
                 end
+                stored = delivery and delivery.stored or 0
             else
                 carried, stored = mission.lastProgressReport.carried, mission.lastProgressReport.stored
             end
@@ -3513,9 +3515,7 @@ function Expedition.describeForPlayer(viewer)
         members = members,
         supplyProgress = progress,
         woodProgress = woodProgress,
-        delivery = visibleMembers > 0 and mission.integration
-            and SC.ExpeditionIntegration
-            and SC.ExpeditionIntegration.summary(mission.integration) or nil,
+        delivery = delivery,
         helpRequest = viewer ~= nil
             and type(getSpecificPlayer) == "function"
             and getSpecificPlayer(0) == viewer
@@ -7022,7 +7022,7 @@ end
 
 -- The player has physically met the team. Release only slot 1's chunk map;
 -- the primary player's map must already cover the leader and all survivors.
-function Expedition.finishAtPlayer(player, camp)
+function Expedition.finishAtPlayer(player, camp, checkpoint)
     if mission and mission.scout and mission.scout.kind=="home" and mission.scout.home.radioHold then
         return false,"home_radio_holding"
     end
@@ -7107,6 +7107,21 @@ function Expedition.finishAtPlayer(player, camp)
     if mission.integration and not deliveryCanQueue(mission.integration, mission.returnCamp ~= nil) then
         return false, "return_delivery_queue_full"
     end
+    if camp and checkpoint == nil then
+        local persist = SC.Persistence
+        if not persist.isScheduledSavePending(mission.campSaveJob) then
+            local returning = mission
+            local started, _, job = persist.requestScheduledSave(player, function(document)
+                if mission ~= returning then return end
+                mission.campSaveJob = nil
+                local finished, reason = Expedition.finishAtPlayer(player, camp, document)
+                if not finished then mission.returnHandoff = reason end
+            end)
+            mission.campSaveJob = job
+            if started then SC.ExpeditionIntegration.refresh(mission.integration) end
+        end
+        return false, "return_delivery_save_wait"
+    end
     local px, py, pz = player:getX(), player:getY(), player:getZ()
     -- A member must have finished any stair transition, but the player may be
     -- standing on a staircase: either floor it connects counts as theirs.
@@ -7123,6 +7138,12 @@ function Expedition.finishAtPlayer(player, camp)
         and tonumber(SC.GameplayUtil.config
             and SC.GameplayUtil.config("ambientDialogueDistance")) or 10
     for _, record in ipairs(mission.roster) do
+        if camp and alive(record) and (mission.survivors == nil or mission.survivors[record.id]) then
+            local saved = checkpoint.companions[record.id]
+            if not saved or saved.vehicle or not Expedition._atMarkedArrival(saved.position, camp) then
+                return false, "return_delivery_save_wait"
+            end
+        end
         if not alive(record) or (mission.survivors ~= nil
             and mission.survivors[record.id] ~= true) then
             intactRoster = false
@@ -7175,7 +7196,7 @@ function Expedition.finishAtPlayer(player, camp)
         }
     end
     if pendingDebrief and mission.integration and (pendingDebrief.kind ~= "scout" or mission.integration.kind == "scout") then
-        SC.ExpeditionIntegration.refresh(mission.integration)
+        if not camp then SC.ExpeditionIntegration.refresh(mission.integration) end
         pendingDebrief.integration = SC.ExpeditionIntegration.copy(
             mission.integration)
         pendingDebrief.returnedIds = {}
@@ -7201,10 +7222,8 @@ function Expedition.finishAtPlayer(player, camp)
     if camp then
         -- Keep the trip as the sole owner while its exact receipt is flushed.
         -- The idle delivery queue takes over only after native release.
-        local persist = SC.Persistence
-        local saved, accepted = pcall(persist and persist.save, player)
         local flushed, written
-        if saved and accepted == true then
+        if SC.Persistence.refreshCampReturnCheckpoint(checkpoint, mission.radioSession, slotSqlId) then
             flushed, written = pcall(SCSplitScreenProbe.flushGlobalModDataForWorldExit)
         end
         if not flushed or written ~= true then

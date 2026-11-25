@@ -611,10 +611,24 @@ getTimestampMs = function()
     stagedClock = stagedClock + 0.2
     return stagedClock
 end
-local requested, requestReason = SC.Persistence.requestScheduledSave(stagedPlayer)
+local onCompleteCount, completedDocument = 0, nil
+local expeditionOwner = SC.ExpeditionPrototype
+local activeReceipt = { radioSession = "camp-checkpoint", slotSqlId = 2,
+    integration = { tripId = "camp-checkpoint", member = "early" } }
+SC.ExpeditionPrototype = { export = function() return activeReceipt end }
+local requested, requestReason, saveJob = SC.Persistence.requestScheduledSave(stagedPlayer, function(document)
+    onCompleteCount = onCompleteCount + 1
+    if SC.Persistence.refreshCampReturnCheckpoint(document, "camp-checkpoint", 2) then
+        completedDocument = document
+    end
+end)
 check(requested == true and requestReason == "requested"
-        and stagedStore.document.sentinel == "prior-complete",
+        and stagedStore.document.sentinel == "prior-complete"
+        and SC.Persistence.isScheduledSavePending(saveJob),
     "scheduled save request leaves the prior atomic document assigned")
+check(SC.Persistence.requestScheduledSave(stagedPlayer, function() end) == false
+        and SC.Persistence.requestScheduledSave(stagedPlayer) == true,
+    "a second callback cannot claim the in-progress job")
 local stagedStatus, stagedOutgoing
 local stagedYielded = false
 for _ = 1, 10000 do
@@ -623,6 +637,9 @@ for _ = 1, 10000 do
         stagedYielded = true
         check(stagedStore.document.sentinel == "prior-complete",
             "yielded save pulse never publishes partial staging")
+        if saveJob.phase == "final" or saveJob.phase == "commit" then
+            activeReceipt.integration.member = "current"
+        end
     else break end
 end
 check(stagedYielded and stagedStatus == "complete"
@@ -630,6 +647,15 @@ check(stagedYielded and stagedStatus == "complete"
         and stagedStore.document == stagedOutgoing
         and stagedStore.document.sentinel == nil,
     "scheduled save completes through bounded pulses and commits once")
+check(completedDocument == stagedOutgoing and onCompleteCount == 1
+        and not SC.Persistence.isScheduledSavePending(saveJob)
+        and completedDocument.expedition.integration.member == "current"
+        and completedDocument.viewSlot.slotSqlId == 2,
+    "the single completion runs after publication and records current camp ownership")
+check(not SC.Persistence.refreshCampReturnCheckpoint({}, "camp-checkpoint", 2)
+        and not SC.Persistence.refreshCampReturnCheckpoint(stagedOutgoing, "old-checkpoint", 2),
+    "unpublished documents and stale trips cannot become a camp checkpoint")
+SC.ExpeditionPrototype = expeditionOwner
 
 do
     check(SC.Persistence.reset() == true, "inventory churn fixture starts cleanly")
@@ -728,11 +754,13 @@ check(stableWorkRequested == true and workExports > 0
     "unchanged work-ledger revision still permits one atomic scheduled commit")
 SC.BaseLife = realBaseLife
 
-check(SC.Persistence.requestScheduledSave(stagedPlayer) == true,
+check(SC.Persistence.requestScheduledSave(stagedPlayer, function()
+    onCompleteCount = onCompleteCount + 1
+end) == true,
     "a second scheduled save can enter staging")
 local synchronous, synchronousDocument = SC.Persistence.save(stagedPlayer)
 check(synchronous == true and type(synchronousDocument) == "table"
-        and SC.Persistence.pulse() == "idle",
+        and SC.Persistence.pulse() == "idle" and onCompleteCount == 1,
     "synchronous OnSave-style capture cancels staging and commits a fresh document")
 getTimestampMs = priorTimestamp
 

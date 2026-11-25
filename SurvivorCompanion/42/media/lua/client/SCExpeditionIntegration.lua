@@ -356,7 +356,19 @@ local function scan(container, wanted, result, holder, member, kind,
     end
 end
 
-local function locations(record)
+local function trunkFor(record, lookup)
+    if lookup and lookup.trunkChecked then return lookup.trunk, lookup.car end
+    local car = record.carId and SC.Vehicle
+        and SC.Vehicle.loadedBySqlId(record.carId)
+    local _, trunk
+    if car and type(SC.Vehicle.cargoPart) == "function" then _, trunk = SC.Vehicle.cargoPart(car) end
+    if lookup then
+        lookup.trunk, lookup.car, lookup.trunkChecked = trunk, car, true
+    end
+    return trunk, car
+end
+
+local function locations(record, lookup)
     local now = U().nowMs()
     local cached = locationCache[record]
     if cached and now - cached.at >= 0 and now - cached.at < 750 then
@@ -374,10 +386,7 @@ local function locations(record)
                 0, {}, { left = 2048 })
         end
     end
-    local car = record.carId and SC.Vehicle
-        and SC.Vehicle.loadedBySqlId(record.carId)
-    local _, trunk
-    if car and type(SC.Vehicle.cargoPart) == "function" then _, trunk = SC.Vehicle.cargoPart(car) end
+    local trunk, car = trunkFor(record, lookup)
     if trunk then
         scan(trunk, wanted, result, car, nil, "trunk",
             0, {}, { left = 2048 })
@@ -402,19 +411,14 @@ local function sourceWithin(source, root)
     return false
 end
 
-local function locate(record, row, rescanned)
-    local entry = locations(record)[row.id]
+local function locate(record, row, rescanned, lookup)
+    local entry = locations(record, lookup)[row.id]
     if record.kind=="home" and entry and call(entry.item,"getID")~=row.nativeId then return nil end
     if entry and U().inventoryContains(entry.source, entry.item)
         and call(entry.item, "getContainer") == entry.source then
         local root
         if entry.kind == "trunk" then
-            local car = record.carId and SC.Vehicle
-                and SC.Vehicle.loadedBySqlId(record.carId)
-            if car and type(SC.Vehicle.cargoPart) == "function" then
-                local ignored
-                ignored, root = SC.Vehicle.cargoPart(car)
-            end
+            root = trunkFor(record, lookup)
         else
             root = entry.holder and U().inventory(entry.holder)
         end
@@ -427,7 +431,7 @@ local function locate(record, row, rescanned)
         -- A player can rearrange a bag inside the cache window. A mismatched
         -- source invalidates the snapshot; it never proves the item is absent.
         locationCache[record] = nil
-        return locate(record, row, true)
+        return locate(record, row, true, lookup)
     end
     return nil
 end
@@ -759,6 +763,8 @@ end
 function Integration.summary(record)
     if record and record.kind=="fuel" then return SC.ExpeditionFuel.deliverySummary(record) end
     if not Integration.valid(record) then return nil end
+    -- One live trunk lookup per report. Each receipt still checks its exact source.
+    local lookup = record.carId and {} or nil
     local result = { version = record.version, kind = record.kind, tripId = record.tripId,
         carId = record.carId, trunkPending = 0, trunkUnverified = 0,
         requested = record.requested, collected = #record.items,
@@ -772,7 +778,7 @@ function Integration.summary(record)
         elseif row.released then result.released = result.released + 1
         else
             result.pending = result.pending + 1
-            local item, _, _, _, kind = locate(record, row)
+            local item, _, _, _, kind = locate(record, row, false, lookup)
             if item then
                 result.carried = result.carried + 1
                 if kind == "trunk" then result.trunkPending = result.trunkPending + 1 end
@@ -1339,9 +1345,12 @@ function Integration.retry(record, receiptId)
 end
 
 local function memberFor(record, actor)
+    local members = type(record) == "table" and record.members
+    if type(members) ~= "table" or #members > 4 then return nil end
     local id = U().idOf(actor)
-    for _, member in ipairs(record.members) do
-        if member.id == id then return member end
+    if id == nil then return nil end
+    for _, member in ipairs(members) do
+        if type(member) == "table" and member.id == id then return member end
     end
     return nil
 end
@@ -1599,11 +1608,14 @@ local function restock(actor, member, record, state)
 end
 
 function Integration.wants(record, actor, includeRecovery)
-    if record and record.kind=="fuel" then
+    -- Each camp actor polls pending deliveries. Only crew need full receipt validation.
+    if not actor then return false end
+    local member = memberFor(record, actor)
+    if not member then return false end
+    if record.kind=="fuel" then
         if SC.ExpeditionFuel.deliveryPending(record) then return SC.ExpeditionFuel.deliveryWants(record,actor) end
     end
-    if not Integration.valid(record) or not actor or U().isDead(actor)
-        or not memberFor(record, actor) then return false end
+    if U().isDead(actor) or not Integration.valid(record) then return false end
     local base = SC.BaseLife and SC.BaseLife.active()
     if base and record.baseId == nil then record.baseId = base.id end
     if not base or record.baseId ~= base.id then return false end
@@ -1612,7 +1624,6 @@ function Integration.wants(record, actor, includeRecovery)
         and not woodDeliveryReach(record, actor) and not homeDeliveryReach(record, actor) then
         return false
     end
-    local member = memberFor(record, actor)
     local command = SC.Commands and SC.Commands.peek(actor)
     if command and tonumber(command.commandSerial) ~= member.commandSerial
         and command.order ~= "base_duty" then

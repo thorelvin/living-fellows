@@ -1454,7 +1454,7 @@ end
 local function furnitureKind(object)
     local utility = U()
     local name, nameOk = utility.call(object, "getName")
-    local objectName = nameOk and name or nil
+    local namedBed = isNamedBed(nameOk and name or nil)
     local sprite, spriteOk = utility.call(object, "getSprite")
     if spriteOk and sprite then
         local spriteName, spriteNameOk = utility.call(sprite, "getName")
@@ -1476,40 +1476,29 @@ local function furnitureKind(object)
             if bedType == nil then
                 bedType = select(1, utility.call(properties, "Val", "BedType"))
             end
-            if (isNamedBed(objectName) or isNamedBed(customNameOk and customName or nil)
+            namedBed = namedBed or isNamedBed(customNameOk and customName or nil)
                 or isNamedBed(groupNameOk and groupName or nil)
-                or string.find(loweredSprite, "furniture_bedding", 1, true))
-                -- Mattress entry uses ISGetOnBedAction and the sprite grid,
-                -- not chair positions. Bunk, twin, oak and light wood beds have
-                -- zero seating positions but a valid native bed entry. A name
-                -- and a grid alone also fit the gallery's brick art "Bed", so
-                -- a seatless bed must carry the BedType native sleep reads.
-                -- Geometry/access validation below rejects blocked beds.
-                and ((bedType ~= nil
-                        and select(1, utility.call(sprite, "getSpriteGrid")) ~= nil)
-                    or seatingPositionCount(object) > 0) then
+                or string.find(loweredSprite, "furniture_bedding", 1, true) ~= nil
+            -- A native mattress can have zero seating positions. Check its
+            -- grid and BedType before falling back to the seating catalogue.
+            if namedBed and bedType ~= nil
+                and select(1, utility.call(sprite, "getSpriteGrid")) ~= nil then
                 return "rest_bed"
             end
-            -- Build 42's pathToSitOnFurniture and ISRestAction both use
-            -- SeatingManager as the authoritative contract. Names, IsChair and
-            -- BedType describe many decorative/non-enterable tiles and caused
-            -- companions to spend twelve seconds trying to sit in open air.
-            if seatingPositionCount(object) > 0 then return "sit" end
         end
     end
-    if isNamedBed(objectName) and seatingPositionCount(object) > 0 then
-        return "rest_bed"
-    end
-    if seatingPositionCount(object) > 0 then return "sit" end
-    return nil
+    -- Native seating positions distinguish real seats from decorative tiles.
+    if seatingPositionCount(object) <= 0 then return nil end
+    return namedBed and "rest_bed" or "sit"
 end
 
-function Downtime.sleepPriority(object)
+function Downtime.sleepPriority(object, knownKind)
     if SC.BedGeometry and type(SC.BedGeometry.sleepPriority) == "function" then
         local rank = SC.BedGeometry.sleepPriority(object)
         if rank ~= nil then return rank end
     end
-    return furnitureKind(object) == "rest_bed" and 1 or nil
+    if knownKind == nil then knownKind = furnitureKind(object) end
+    return knownKind == "rest_bed" and 1 or nil
 end
 
 local function sameFurnitureContext(actorSquare, candidateSquare)
@@ -1638,22 +1627,20 @@ local function linkedFloorFurniture(actor, state, current, seatOnly, tired,
                             local selected, kind
                             utility.squareObjects(square, function(object)
                                 local value = furnitureKind(object)
-                                local rank = Downtime.sleepPriority(object)
+                                local rank = tired and Downtime.sleepPriority(object, value or false)
                                 if tired and seatOnly ~= true and rank and rank > 1
                                     and campFloorRoute(actor, square) then
                                     Downtime._noteSleepBackup(actor, state, current, object, square, rank)
                                 end
                                 if tired and seatOnly ~= true and rank == 3 and tier == 3 then value = "rest_bed" end
-                                local occupied = select(1, utility.call(object,
-                                    "isFurnitureOccupied", actor))
                                 if value and (value ~= "rest_bed" or (rank or 1) == tier)
                                     and (seatOnly ~= true or value == "sit")
                                     and (seatOnly ~= "rest_bed"
                                         or value == "rest_bed")
                                     and (value ~= "rest_bed" or tired)
-                                    and occupied ~= true
                                     and not reservationHeldByOther(object, actor, current)
                                     and not furnitureCooling(state, object, current)
+                                    and select(1, utility.call(object, "isFurnitureOccupied", actor)) ~= true
                                     and campFloorRoute(actor, square) then
                                     local reached, targets = freeFurnitureAccess(
                                         actor, object)
@@ -1763,13 +1750,12 @@ local function campBedActivity(actor, state, current, zoneKind, tier)
                 and not campFloorRoute(actor, square)) then return nil end
         local selected
         utility.squareObjects(square, function(object)
-            local occupied = select(1, utility.call(object,
-                "isFurnitureOccupied", actor))
-            local rank = Downtime.sleepPriority(object)
-            if (furnitureKind(object) == "rest_bed" or rank == 3)
-                and occupied ~= true
+            local value = furnitureKind(object)
+            local rank = Downtime.sleepPriority(object, value or false)
+            if (value == "rest_bed" or rank == 3)
                 and not reservationHeldByOther(object, actor, current)
-                and not furnitureCooling(state, object, current) then
+                and not furnitureCooling(state, object, current)
+                and select(1, utility.call(object, "isFurnitureOccupied", actor)) ~= true then
                 local reached, targets = freeFurnitureAccess(actor, object)
                 if reached or #targets > 0 then
                     if (rank or 1) > 1 then
@@ -1889,20 +1875,19 @@ local function seatActivityAtTier(actor, state, current, seatOnly, tier)
                     if sameFurnitureContext(actorSquare, square) then
                         utility.squareObjects(square, function(object)
                             local value = furnitureKind(object)
-                            local rank = Downtime.sleepPriority(object)
+                            local rank = tired and Downtime.sleepPriority(object, value or false)
                             if tired and seatOnly ~= true and rank and rank > 1 then
                                 Downtime._noteSleepBackup(actor, state, current, object, square, rank)
                             end
                             if tired and seatOnly ~= true and rank == 3 and tier == 3 then value = "rest_bed" end
-                            local occupied, occupiedOk = utility.call(
-                                object, "isFurnitureOccupied", actor)
                             if value and (value ~= "rest_bed" or (rank or 1) == tier)
                                 and (seatOnly ~= true or value == "sit")
                                 and (seatOnly ~= "rest_bed" or value == "rest_bed")
                                 and (value ~= "rest_bed" or tired)
-                                and not (occupiedOk and occupied == true)
                                 and not reservationHeldByOther(object, actor, current)
                                 and not furnitureCooling(state, object, current) then
+                                local occupied, occupiedOk = utility.call(object, "isFurnitureOccupied", actor)
+                                if occupiedOk and occupied == true then return true end
                                 local reached, targets = freeFurnitureAccess(actor, object)
                                 if not reached and #targets == 0 then return true end
                                 found, kind = object, value
@@ -3426,16 +3411,16 @@ function Respect.finish(actor, activity, now)
 end
 
 local function carriedItems(actor)
-    local utility = U()
-    local items = utility.inventoryItems(utility.inventory(actor), 100)
     if SC.Logistics and type(SC.Logistics.audit) == "function" then
         local ok, audit = pcall(SC.Logistics.audit, actor)
         if ok and type(audit) == "table" and type(audit.items) == "table" then
-            items = {}
+            local items = {}
             for _, record in ipairs(audit.items) do items[#items + 1] = record.item end
+            return items
         end
     end
-    return items
+    local utility = U()
+    return utility.inventoryItems(utility.inventory(actor), 100)
 end
 
 -- A quiet lookout needs a clear indoor standing square. A kitchen counter in
@@ -4031,26 +4016,52 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
         local visit = leaderCheckInActivity(actor, commands, state, current)
         return visit and { visit } or {}
     end
-    local items = carriedItems(actor)
+    local ambient = desiredKind == nil
+    local washing = desiredKind == "wash_bandage" or desiredKind == "wash_self"
+        or desiredKind == "wash_equipment"
+    local repairing = (ambient or desiredKind == "repair")
+        and not ambientCooling(state, "repair", current)
+    local reading = ambient or desiredKind == "read" or desiredKind == "sit"
+    local crafting = ambient or desiredKind == "craft_supply"
+    -- A specific chore only needs the probes that can produce its candidate.
+    local items = (ambient or washing or repairing or reading or crafting) and carriedItems(actor)
     local filtered = {}
-    if desiredKind == nil then
+    if ambient then
         local visit = leaderCheckInActivity(actor, commands, state, current)
         if visit then filtered[#filtered + 1] = visit end
     end
-    local activity = dirtyBandageActivity(actor)
-    if activity then filtered[#filtered + 1] = activity end
-    activity = washActivity(actor, items, state, current)
-    if activity then filtered[#filtered + 1] = activity end
-    activity = showerActivity(actor, state, current)
-    if activity then filtered[#filtered + 1] = activity end
+    local activity
+    if ambient or desiredKind == "replace_bandage" then
+        activity = dirtyBandageActivity(actor)
+        if activity then filtered[#filtered + 1] = activity end
+    end
+    if ambient or washing then
+        activity = washActivity(actor, items, state, current)
+        if activity then filtered[#filtered + 1] = activity end
+    end
+    if ambient or desiredKind == "shower" then
+        activity = showerActivity(actor, state, current)
+        if activity then filtered[#filtered + 1] = activity end
+    end
     -- Older saves may retain a manual idle/craft setting. Quiet activity is
     -- now chosen by the companion's scored candidates, not that old setting.
-    activity = not ambientCooling(state, "repair", current) and repairActivity(actor, items)
-    if activity then filtered[#filtered + 1] = activity end
-    activity = availableReadActivity(actor, items)
-    if activity then filtered[#filtered + 1] = activity end
-    activity = craftActivity(actor, items)
-    if activity then filtered[#filtered + 1] = activity end
+    if repairing then
+        activity = repairActivity(actor, items)
+        if activity then filtered[#filtered + 1] = activity end
+    end
+    if reading then
+        -- Sitting can prepare for a carried book. A shelf loan needs an approach.
+        if desiredKind == "sit" then
+            activity = readActivity(actor, items)
+        else
+            activity = availableReadActivity(actor, items)
+        end
+        if activity then filtered[#filtered + 1] = activity end
+    end
+    if crafting then
+        activity = craftActivity(actor, items)
+        if activity then filtered[#filtered + 1] = activity end
+    end
     if (desiredKind == nil or desiredKind == "computer_use")
         and not ambientCooling(state, "computer_use", current)
         and SC.ComputerUse and (desiredKind ~= nil
@@ -4161,9 +4172,10 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
         local ok, writing = pcall(SC.Diary.writeActivity, actor, current)
         if ok and type(writing) == "table" then filtered[#filtered + 1] = writing end
     end
-    do
-        local furniture = seatActivity(actor, state, current,
-            desiredKind == "rest_bed" and "rest_bed" or nil)
+    local furniture
+    if ambient or desiredKind == "sit" then
+        local furnitureStatus
+        furniture, furnitureStatus = seatActivity(actor, state, current)
         local seatedTask, seatedTaskScore
         for _, candidate in ipairs(filtered) do
             if candidate.kind == "read" or candidate.kind == "write_diary" then
@@ -4178,15 +4190,13 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
             or television and television.kind == "sit" and television or furniture
         if seatedTask ~= nil and seatedTask.borrowedFrom == nil
             and seatingStatus(actor) == "standing"
-            and (rest == nil or rest.kind ~= "rest_bed")
-            and (desiredKind == nil or desiredKind == "sit"
-                or desiredKind == "read" or desiredKind == "write_diary") then
+            and (rest == nil or rest.kind ~= "rest_bed") then
             -- Sit first, then the normal next downtime pass starts Read/Write
             -- without getting up. A selected bed keeps priority for sleep;
             -- a book must not erase it from an explicit rest_bed probe either.
-            -- A chair/sofa/stool is selected specifically for desk-like activity.
+            -- Only a pending bed survey might have skipped the chair scan.
             local readingSeat = furniture and furniture.kind == "sit" and furniture
-                or seatActivity(actor, state, current, true)
+                or furnitureStatus == "searching" and seatActivity(actor, state, current, true)
             if readingSeat then
                 readingSeat.score = math.max(tonumber(readingSeat.score) or 0,
                     (seatedTaskScore or 0) + 1)
@@ -4195,8 +4205,9 @@ local function candidates(actor, commands, state, current, desiredKind, requeste
             end
         end
         if rest and not rest.powerNight then filtered[#filtered + 1] = rest end
-        local floorRest = floorRestActivity(actor,
-            furniture ~= nil and desiredKind ~= "rest_floor", commands.order == "follow")
+    end
+    if ambient or desiredKind == "rest_floor" then
+        local floorRest = floorRestActivity(actor, furniture ~= nil, commands.order == "follow")
         if floorRest then filtered[#filtered + 1] = floorRest end
     end
     if desiredKind ~= nil then

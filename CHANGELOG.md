@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.78 - Camp and expedition performance
+
+- Stage the camp return save across updates. The crew transfers to camp after the exact delivery record reaches disk.
+- Reuse the trunk lookup within each cargo report and skip unrelated activity checks for companions assigned a specific camp job.
+- Reuse completed furniture searches when companions look for a place to read.
+- Native bridge protocol `42.22-isocompanion-36`.
+
 ## 0.27.77 - Expedition flow
 
 - Crews approach separate assigned doors where possible. Reachable zombies

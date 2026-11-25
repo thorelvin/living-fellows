@@ -1878,12 +1878,12 @@ local function scheduledDocument(current)
     }
 end
 
-function persistence.requestScheduledSave(player)
+function persistence.requestScheduledSave(player, onComplete)
     if remoteArrival then return false, "remote_arrival_save_pending" end
     local keyReady, keyReason = driverKeySaveReady()
     if not keyReady then return false, keyReason end
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
-    if scheduledSave ~= nil then return true, "already_pending" end
+    if scheduledSave ~= nil then return onComplete == nil, "already_pending" end
     if current < scheduledSaveRetryAt then return false, "retry_delayed" end
     local store, reason = worldData()
     if store == nil or saveBlockedReason ~= nil then
@@ -1895,6 +1895,7 @@ function persistence.requestScheduledSave(player)
     -- credited back in pulse(), including against that cap.
     scheduledSave = {
         player = player, store = store, priorDocument = store.document,
+        onComplete = onComplete,
         startedAt = current, lastPulseAt = current,
         deadline = current + deadlineMs,
         hardDeadline = current + math.max(deadlineMs, hardDeadlineMs),
@@ -1903,7 +1904,31 @@ function persistence.requestScheduledSave(player)
         actorAttempts = {}, actorProofs = {}, restartAttempts = 0,
         document = scheduledDocument(current),
     }
-    return true, "requested"
+    return true, "requested", scheduledSave
+end
+
+function persistence.isScheduledSavePending(job)
+    return job ~= nil and job == scheduledSave
+end
+
+function persistence.hasScheduledCheckpoint()
+    return scheduledSave ~= nil and scheduledSave.onComplete ~= nil
+end
+
+-- The camp callback runs in the publication pulse, after the inventory
+-- ownership barrier and before another game update can change the trip.
+function persistence.refreshCampReturnCheckpoint(document, tripId, slotSqlId)
+    if document == nil or document ~= lastDocument or quarantined.subsystems.expedition then return false end
+    local definition = subsystemDefinition("expedition")
+    local source, _, ready = scheduledSubsystemSource(definition)
+    if not ready or type(source) ~= "table" or source.radioSession ~= tripId
+        or source.slotSqlId ~= slotSqlId or not source.integration
+        or source.integration.tripId ~= tripId then return false end
+    local copy, reason = stableCopy(source, definition.depth, definition.entries, "$.expedition")
+    if reason ~= nil then return false end
+    document.expedition = copy
+    document.viewSlot = { schema = 1, slotSqlId = slotSqlId }
+    return true
 end
 
 local function beginScheduledCopy(job, source, depth, entries, path, assign)
@@ -2359,6 +2384,12 @@ function persistence.pulse()
             local ok, reason, changedRecord = commitScheduled(job, job.outgoing)
             if ok then
                 scheduledSave, scheduledSaveRetryAt = nil, 0
+                if job.onComplete then
+                    local called, issue = pcall(job.onComplete, job.outgoing)
+                    if not called then
+                        SC.Diagnostics.report("persistence", nil, "scheduled save callback failed", issue)
+                    end
+                end
                 return "complete", job.outgoing
             end
             if changedRecord == nil then

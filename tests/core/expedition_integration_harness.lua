@@ -34,6 +34,24 @@ check(status.requested == 2 and status.collected == 2
     and status.broughtBack == 2 and status.stored == 0
     and status.items[1].reason == nil,
     "returned counts precede verified storage")
+do
+    local invalid = I.copy(record)
+    invalid.items[1].id = ""
+    local validate, validations = I.valid, 0
+    I.valid = function(value)
+        validations = validations + 1
+        return validate(value)
+    end
+    check(not I.wants(record, { id = "nonmember" }) and validations == 0,
+        "an unassigned camp actor skips receipt validation, got " .. validations .. " validations")
+    check(I.wants(record, b) and validations == 1,
+        "an assigned carrier still validates the ledger and claims work")
+    check(not I.wants(invalid, b) and validations == 2,
+        "an assigned carrier still rejects a damaged receipt")
+    check(not I.wants({ members = { false } }, b) and validations == 2,
+        "an unreadable roster cannot offer cargo work")
+    I.valid = validate
+end
 check(select(2, I.update(record, a)) == "receipt_taken_from_bag"
     and bagItem.container == a.inventory,
     "nested bag item is staged by identity")
@@ -230,6 +248,43 @@ check(select(2, I.update(stalledDelivery, a))
     and I.summary(stalledDelivery).stored == 1,
     "a second matching shelf receives cargo after the first route stalls")
 SC.BaseWork.depositToStorage = originalDeposit
+
+do
+    local trunkItems, acquisitions = {}, {}
+    for index = 1, 8 do
+        local item = T.item("report-cargo:" .. index, "food")
+        trunkItems[index] = item
+        acquisitions[index] = { id = item.id, itemType = item.fullType, memberId = "b" }
+    end
+    local originalCar = T.car
+    T.car = { id = 76, trunk = T.container(trunkItems) }
+    local report = I.create({ radioSession = "trip:trunk-report", homeBaseId = "camp:1",
+        roster = mission.roster, restockBaseDuty = false,
+        scout = { vehicle = { sqlId = 76 }, search = {
+            request = { category = "useful", quantity = #acquisitions },
+            acquisitions = acquisitions } } })
+    local loadedBySqlId, cargoPart = SC.Vehicle.loadedBySqlId, SC.Vehicle.cargoPart
+    local lookups, trunkReads = 0, 0
+    SC.Vehicle.loadedBySqlId = function(sqlId)
+        lookups = lookups + 1
+        return loadedBySqlId(sqlId)
+    end
+    SC.Vehicle.cargoPart = function(car)
+        trunkReads = trunkReads + 1
+        return cargoPart(car)
+    end
+    local reportStatus = I.summary(report)
+    check(reportStatus.trunkPending == 8 and lookups == 1 and trunkReads == 1,
+        "one live vehicle and trunk lookup covers eight cargo receipts, got "
+            .. lookups .. " vehicle and " .. trunkReads .. " trunk lookups")
+    T.car = nil
+    reportStatus = I.summary(report)
+    check(reportStatus.trunkPending == 0 and reportStatus.unknown == 8
+        and lookups == 2 and trunkReads == 1,
+        "the next report resolves the trunk again and recognizes that the car streamed out")
+    SC.Vehicle.loadedBySqlId, SC.Vehicle.cargoPart = loadedBySqlId, cargoPart
+    T.car = originalCar
+end
 
 local cargo = T.item("cargo", "food")
 T.car = { id = 77, locked = true, trunk = T.container({ cargo }) }

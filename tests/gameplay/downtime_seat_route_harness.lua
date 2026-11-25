@@ -188,4 +188,138 @@ do
     routes[sleeper] = nil
     U.gridSquare, U.squareObjects, U.instanceOf = priorGrid, priorObjects, priorInstance
 end
+
+do
+    local oldBase, oldCare, oldLogistics, oldWash = SC.BaseLife, SC.NativeCareActions,
+        SC.Logistics, SC.BandageWash
+    local oldGrid, oldSameFloor, oldSort = U.gridSquare, U.sameFloor, U.sortByScoreDescending
+    local oldInventoryItems = U.inventoryItems
+    local inventoryScans, washScans, furnitureScans, libraryScans, craftScans = 0, 0, 0, 0, 0
+    local rootScans, auditedItems = 0, {}
+    local reader = SC_READING_ACTOR("seat:chore_probes", { SC_READING_BOOK("RootInventory") })
+    local book = SC_READING_BOOK("ChoreProbe")
+    local shelf = { x = reader.x, y = reader.y + 1, z = reader.z }
+    local source = SC_READING_INVENTORY({ book })
+    SC.BaseLife = {
+        isInside = function() return true end,
+        storageRows = function()
+            libraryScans = libraryScans + 1
+            return { { id = "shelf" } }
+        end,
+        resolveContainer = function() return source, shelf end,
+    }
+    SC.Logistics = { audit = function()
+        inventoryScans = inventoryScans + 1
+        return { items = auditedItems }
+    end }
+    SC.NativeCareActions = {
+        repairCandidate = function() return { kind = "repair", score = 43 } end,
+        craftCandidate = function()
+            craftScans = craftScans + 1
+            return { kind = "craft_supply", score = 41 }
+        end,
+    }
+    SC.BandageWash = { inventoryEntries = function()
+        washScans = washScans + 1
+        return {}
+    end }
+    U.inventoryItems = function(inventory, limit)
+        if inventory == reader.inventory then rootScans = rootScans + 1 end
+        return oldInventoryItems(inventory, limit)
+    end
+    U.gridSquare = function() furnitureScans = furnitureScans + 1 end
+    U.sameFloor = function(a, b) return a.z == b.z end
+    U.sortByScoreDescending = function(rows)
+        table.sort(rows, function(a, b) return a.score > b.score end)
+    end
+    local available, kind = D.canPerform(reader, "repair")
+    check(available and kind == "repair" and inventoryScans == 1,
+        "an explicit repair still uses carried inventory and returns its own candidate")
+    check(washScans == 0 and furnitureScans == 0 and libraryScans == 0 and craftScans == 0,
+        "probing repairs skips unrelated washing, seats, library storage and crafting")
+    available, kind = D.canPerform(reader, "read")
+    check(available and kind == "read" and libraryScans > 0,
+        "explicit reading still falls back to an eligible camp library loan")
+    check(washScans == 0 and furnitureScans == 0 and craftScans == 0,
+        "explicit reading skips the unrelated chores and chair survey")
+    local previousLibraryScans = libraryScans
+    auditedItems = { { item = SC_READING_BOOK("NestedInventory") } }
+    available, kind = D.canPerform(reader, "read")
+    check(available and kind == "read" and rootScans == 0 and libraryScans == previousLibraryScans,
+        "a nested audit result supplies carried books without a second inventory enumeration")
+    auditedItems = nil
+    available, kind = D.canPerform(reader, "read")
+    check(available and kind == "read" and rootScans == 1 and libraryScans == previousLibraryScans,
+        "a missing audit item list still falls back to the actor's direct inventory")
+    SC.BaseLife, SC.NativeCareActions, SC.Logistics, SC.BandageWash = oldBase, oldCare,
+        oldLogistics, oldWash
+    U.gridSquare, U.sameFloor, U.sortByScoreDescending = oldGrid, oldSameFloor, oldSort
+    U.inventoryItems = oldInventoryItems
+end
+
+do
+    local furnitureKind = D._furnitureForTests()
+    local oldManager, oldBase = SeatingManager, SC.BaseLife
+    local oldGrid, oldObjects, oldStat = U.gridSquare, U.squareObjects, U.characterStatValue
+    local oldConfig, oldMoodle, oldSort = U.config, U.moodleLevel, U.sortByScoreDescending
+    local capacityChecks, occupiedChecks, tiles = 0, 0, 0
+    SeatingManager = { getInstance = function()
+        return { getTilePositionCount = function(_, object)
+            capacityChecks = capacityChecks + 1
+            return object.seats or 0
+        end }
+    end }
+    local square = { x = 10.5, y = 10.5, z = 0, getRoom = function() return nil end }
+    local decoration = { getName = function() return "Decorative Bed" end,
+        getSprite = function() return { getProperties = function() return {} end } end,
+        isFurnitureOccupied = function() occupiedChecks = occupiedChecks + 1 end }
+    check(furnitureKind(decoration) == nil and capacityChecks == 1,
+        "decorative furniture needs one native seating query to rule it out")
+    local mattress = { getName = function() return "Twin Bed" end,
+        getSprite = function()
+            return { getSpriteGrid = function() return {} end,
+                getProperties = function()
+                    return { get = function(_, key) if key == "BedType" then return "goodBed" end end }
+                end }
+        end }
+    check(furnitureKind(mattress) == "rest_bed" and capacityChecks == 1,
+        "a bed with native mattress metadata does not consult chair seating capacity")
+
+    local chair = { square = square, useSquare = square, seats = 1 }
+    local reader = SC_READING_ACTOR("seat:single_chair_survey", { SC_READING_BOOK("Survey") })
+    reader.square = square
+    U.config = function(key)
+        if key == "downtimeFurnitureSquareBudget" then return 16 end
+        return oldConfig(key)
+    end
+    U.gridSquare = function(x, y)
+        tiles = tiles + 1
+        if x == reader.x and y == reader.y then return square end
+        return { getRoom = square.getRoom }
+    end
+    U.squareObjects = function(_, visit) visit(decoration) end
+    U.moodleLevel = function(_, _, fallback) return fallback end
+    U.sortByScoreDescending = function(rows)
+        table.sort(rows, function(a, b) return a.score > b.score end)
+    end
+    local available = D.canPerform(reader, "sit")
+    check(not available and tiles == 16 and occupiedChecks == 0,
+        "a reader with no chair scans once and skips occupancy on decoration")
+
+    local base = { zones = { { kind = "rest", x1 = 100, x2 = 120, y1 = 100, y2 = 120, z = 0 } } }
+    SC.BaseLife = { active = function() return base end, isInside = function() return true end }
+    U.characterStatValue = function(_, stat, fallback)
+        return stat == "FATIGUE" and 0.70 or oldStat(reader, stat, fallback)
+    end
+    U.squareObjects = function(tile, visit) visit(tile == square and chair or decoration) end
+    tiles = 0
+    local kind
+    available, kind = D.canPerform(reader, "sit")
+    check(available and kind == "sit" and tiles == 321 and occupiedChecks == 0,
+        "a pending marked-bed survey still lets a reader look for an eligible chair")
+
+    SeatingManager, SC.BaseLife = oldManager, oldBase
+    U.gridSquare, U.squareObjects, U.characterStatValue = oldGrid, oldObjects, oldStat
+    U.config, U.moodleLevel, U.sortByScoreDescending = oldConfig, oldMoodle, oldSort
+end
 SC_TEST_REPORT = "DOWNTIME_SEAT_ROUTE_PASS checks="..checks

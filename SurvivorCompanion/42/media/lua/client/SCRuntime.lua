@@ -1098,7 +1098,11 @@ local function savePulseTask()
         SC.Diagnostics.report("persistence", nil,
             "scheduled save pulse reported failure", reason)
     end
-    return status ~= "failed", reason
+    -- Camp is waiting on this checkpoint. Give its short capture slices the
+    -- next available scheduler turn without speeding up ordinary autosaves.
+    local waitingForCamp = status == "yielded" and reason ~= "inventory_settling"
+        and SC.Persistence.hasScheduledCheckpoint()
+    return status ~= "failed", reason, waitingForCamp
 end
 
 local function spawnCompletionTask(current)
@@ -1347,7 +1351,7 @@ local function registerTasks()
                 fixedInterval = definition[7] == true,
                 maxDelayMs = definition[8],
                 continuations = definition[1] == "factions"
-                    or definition[1] == "base-maintenance",
+                    or definition[1] == "base-maintenance" or definition[1] == "persistence",
             })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)
