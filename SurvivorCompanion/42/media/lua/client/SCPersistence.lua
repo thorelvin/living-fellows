@@ -3238,7 +3238,9 @@ local function applyRadioState(item, saved)
             return false, "saved radio preset is invalid"
         end
     end
-    if not invoke(data, "setIsTurnedOn", false)
+    -- Inventory radios can have no world square during restore. The live
+    -- toggle checks grid power even when switching the device off.
+    if not invoke(data, "setTurnedOnRaw", false)
         or not invoke(data, "setHasBattery", saved.hasBattery)
         or not invoke(data, "setPower", power)
         or not invoke(presets, "clearPresets") then
@@ -3251,7 +3253,7 @@ local function applyRadioState(item, saved)
     end
     if not invoke(data, "setChannel", channel)
         or not invoke(data, "setDeviceVolume", volume)
-        or not invoke(data, "setIsTurnedOn", saved.on) then
+        or not invoke(data, "setTurnedOnRaw", saved.on) then
         return false, "native radio settings could not be restored"
     end
     local batteryOk, battery = invoke(data, "getHasBattery")

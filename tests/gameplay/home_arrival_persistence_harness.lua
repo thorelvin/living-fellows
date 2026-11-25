@@ -195,6 +195,106 @@ ignoreSet=false exact.preserveNativeIds=nil
 assert(P._applyInventoryForTests(inventoryActor,exact,"sc-legacy") and items[1]:getID()==999,"generic legacy restore retains factory IDs")
 exact.preserveNativeIds=true exact.roots[1].nativeId=nil
 assert(not P._applyInventoryForTests(inventoryActor,exact,"sc-exact"),"missing exact identity is rejected before restore")
+
+do
+    local previousFactory = instanceItem
+    local livePowerCalls = 0
+    local function itemList()
+        local contents = {}
+        local list = { size = function() return #contents end,
+            get = function(_, index) return contents[index + 1] end }
+        return list, contents
+    end
+    local function newInventory()
+        local list, contents = itemList()
+        return {
+            getItems = function() return list end,
+            AddItem = function(self, kind)
+                local item = instanceItem(kind)
+                item.container = self
+                contents[#contents + 1] = item
+                return item
+            end,
+        }
+    end
+    local function radioData(portable)
+        local data = { on = true }
+        local minimum, maximum = portable and 88000 or 200, portable and 108000 or 1000000
+        local list, entries = itemList()
+        entries[1] = { name = "Factory preset", frequency = 90000 }
+        local presets = {}
+        function presets:getMaxPresets() return 8 end
+        function presets:getPresets() return list end
+        function presets:clearPresets()
+            for index = #entries, 1, -1 do entries[index] = nil end
+        end
+        function presets:addPreset(name, frequency)
+            entries[#entries + 1] = { name = name, frequency = frequency }
+        end
+        function data:getDevicePresets() return presets end
+        function data:setIsTurnedOn(value)
+            livePowerCalls = livePowerCalls + 1
+            if not portable then error("an inventory television inside a bag has no native world square") end
+            self.on = value
+        end
+        function data:setTurnedOnRaw(value) self.on = value end
+        function data:getIsTurnedOn() return self.on end
+        function data:setHasBattery(value) self.battery = value end
+        function data:getHasBattery() return self.battery end
+        function data:setPower(value) self.power = value end
+        function data:getPower() return self.power end
+        function data:setChannel(value)
+            assert(not self.on, "interactive tuning should run with the device off")
+            if value >= minimum and value <= maximum then self.channel = value end
+        end
+        function data:setChannelRaw(value) self.channel = value end
+        function data:getChannel() return self.channel end
+        function data:setDeviceVolume(value) self.volume = value end
+        data.setDeviceVolumeRaw = data.setDeviceVolume
+        function data:getDeviceVolume() return self.volume end
+        return data
+    end
+    instanceItem = function(kind)
+        if kind == "Base.Bag_Schoolbag" then
+            local nested = newInventory()
+            return { getInventory = function() return nested end }
+        end
+        assert(kind == "Base.TvBlack" or kind == "Base.RadioBlack")
+        local device = radioData(kind == "Base.RadioBlack")
+        return { __class = "Radio", getDeviceData = function() return device end,
+            getSquare = function() return nil end }
+    end
+    local root = newInventory()
+    local actor = { getInventory = function() return root end }
+    local function savedRadio(id, kind, on, battery, power, channel, volume)
+        return { id = id, type = kind, children = {}, weaponParts = {},
+            radio = { on = on, hasBattery = battery, power = power, channel = channel,
+                volume = volume, presets = { { name = id, frequency = channel } } } }
+    end
+    local off = savedRadio("off", "Base.TvBlack", false, false, 0, 200, 0.25)
+    local on = savedRadio("on", "Base.RadioBlack", true, true, 0.5, 101200, 0.75)
+    local restored, context = P._applyInventoryForTests(actor, {
+        schema = 2, complete = true, count = 3,
+        roots = { { id = "bag", type = "Base.Bag_Schoolbag", children = { off, on }, weaponParts = {} } },
+    }, "sc-nested-radio")
+    instanceItem = previousFactory
+    assert(restored, "nested radio restore must succeed without a world square: " .. tostring(context))
+    assert(livePowerCalls == 0, "restoring saved state must not invoke the live power switch")
+    local nested = context.byId.bag:getInventory():getItems()
+    assert(root:getItems():size() == 1 and nested:size() == 2, "radio restore preserves bag ownership")
+    for index, saved in ipairs({ off, on }) do
+        local item = nested:get(index - 1)
+        assert(item == context.byId[saved.id] and item:getSquare() == nil)
+        local data, expected = item:getDeviceData(), saved.radio
+        assert(data:getIsTurnedOn() == expected.on and data:getHasBattery() == expected.hasBattery
+            and data:getPower() == expected.power and data:getChannel() == expected.channel
+            and data:getDeviceVolume() == expected.volume, "all saved radio settings survive nested restore")
+        local presets = data:getDevicePresets():getPresets()
+        assert(presets:size() == 1 and presets:get(0).name == saved.id
+            and presets:get(0).frequency == expected.channel, "saved preset replaces the factory preset")
+    end
+end
+
 assert(P.reset())
 do
     actors={makeActor("sc-dead-arrival-1",200),makeActor("sc-dead-arrival-2",201)}

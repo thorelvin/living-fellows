@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.27.86 - Radio restore on game load
+
+- Restore companion radio and TV power state without requiring a placed device or powered world tile.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.85 - Camp work and expedition follow-up
 
 - Recheck Purdy window shots at impact using the authored 3D firing lane.
