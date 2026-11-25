@@ -2209,6 +2209,15 @@ function Combat.friendlyFireBlocked(actor, target, context)
     for _, friendly in ipairs(type(context.allies) == "table" and context.allies or {}) do
         if blocks(friendly) then return true, friendly end
     end
+    if context.liveFirearm and SC.Registry and type(SC.Registry.snapshot) == "function" then
+        for _, record in ipairs(SC.Registry.snapshot()) do
+            local friendly = record.actor
+            if blocks(friendly) and not (record.runtime and record.runtime.inactive)
+                and not utility.isDead(friendly) and Combat.firearmCandidateProtected(actor, friendly) then
+                return true, friendly
+            end
+        end
+    end
     local snapshot = context.snapshot
     if snapshot then
         local protected = type(snapshot.protectedActors) == "table"
@@ -2225,6 +2234,33 @@ function Combat.friendlyFireBlocked(actor, target, context)
         end
     end
     return false
+end
+
+-- Called inside the bridge-owned native firearm collision. The intended
+-- target is useful for a last lane check, but it is not a native hit receipt.
+function Combat.firearmCommitPolicy(actor, target)
+    local commands = SC.Commands and SC.Commands.peekExisting and SC.Commands.peekExisting(actor)
+    if commands and commands.holdFire == true then return "hold_fire" end
+    local utility = U()
+    if target == nil or utility.isGoneTarget(target) then return "attack_target_unavailable" end
+    if utility.config("friendlyFire") == true then return "allow" end
+    if Combat.firearmCandidateProtected(actor, target) then return "friendly_attack_target" end
+    local player = type(getSpecificPlayer) == "function" and getSpecificPlayer(0)
+    if Combat.friendlyFireBlocked(actor, target, { player = player, kind = "ranged", liveFirearm = true }) then
+        return "friendly_in_attack_lane"
+    end
+    return "protect"
+end
+
+function Combat.firearmCandidateProtected(actor, candidate)
+    local utility = U()
+    -- Named/friendly external humans can share ordinary zombie native types.
+    if utility.instanceOf(candidate, "IsoAnimal")
+        or utility.instanceOf(candidate, "IsoZombie") and not utility.isExternalHuman(candidate) then return false end
+    if SC.NativeActions and SC.NativeActions.isAuthorizedFinalFirearmTarget
+        and SC.NativeActions.isAuthorizedFinalFirearmTarget(actor, candidate) then return false end
+    if not SC.Factions or type(SC.Factions.firearmTargetProtected) ~= "function" then return true end
+    return SC.Factions.firearmTargetProtected(actor, candidate)
 end
 
 local function lineBlockedByFriendly(actor, target, player, snapshot, kind)

@@ -34,6 +34,92 @@ public final class SCIsoCompanionControlTest {
         if (!value) throw new AssertionError(message);
     }
 
+    private static void testFirearmProtection(SCNativeCompanion shooter, SCNativeCompanion ally,
+            SCNativeCompanion hostile, IsoPlayer player) throws Exception {
+        Class<?> manager = Class.forName("zombie.Lua.LuaManager");
+        var env = (se.krka.kahlua.vm.KahluaTable)manager.getField("env").get(null);
+        Object oldSc = env.rawget("SurvivorCompanion");
+        var scope = SCNativeCompanion.class.getDeclaredField("bridgeFirearmProtection");
+        scope.setAccessible(true);
+        var hits = shooter.getHitInfoList();
+        var allyHit = new zombie.network.fields.hit.HitInfo().init(ally, 1, 1, 0, 0, 0);
+        var localHit = new zombie.network.fields.hit.HitInfo().init(player, 1, 2, 0, 0, 0);
+        var hostileHit = new zombie.network.fields.hit.HitInfo().init(hostile, 1, 3, 0, 0, 0);
+        var nonCharacterHit = new zombie.network.fields.hit.HitInfo();
+        try {
+            env.rawset("SC_FIREARM_TEST_SHOOTER", shooter);
+            env.rawset("SC_FIREARM_TEST_ALLY", ally);
+            env.rawset("SC_FIREARM_TEST_PLAYER", player);
+            String code = """
+                    local state = { decision = "protect", count = 0 }
+                    SC_FIREARM_TEST_STATE = state
+                    SurvivorCompanion = { Combat = {
+                        firearmCommitPolicy = function(actor, target)
+                            assert(actor == SC_FIREARM_TEST_SHOOTER and target == SC_FIREARM_TEST_PLAYER)
+                            return state.decision
+                        end,
+                        firearmCandidateProtected = function(actor, target)
+                            assert(actor == SC_FIREARM_TEST_SHOOTER)
+                            state.count = state.count + 1
+                            if state.unreadable then return nil end
+                            return target == SC_FIREARM_TEST_ALLY or target == SC_FIREARM_TEST_PLAYER
+                        end,
+                    } }
+                    """;
+            Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
+                    .getMethod("loadstring", String.class, String.class, se.krka.kahlua.vm.KahluaTable.class)
+                    .invoke(null, code, "firearm-protection-native-contract.lua", env);
+            Object thread = manager.getField("thread").get(null);
+            thread.getClass().getMethod("call", Object.class, Object[].class)
+                    .invoke(thread, closure, (Object)new Object[0]);
+            var state = (se.krka.kahlua.vm.KahluaTable)env.rawget("SC_FIREARM_TEST_STATE");
+            var sc = (se.krka.kahlua.vm.KahluaTable)env.rawget("SurvivorCompanion");
+            var combat = (se.krka.kahlua.vm.KahluaTable)sc.rawget("Combat");
+            var protectedShot = SCCompanionFirearmProtection.begin(shooter, player);
+            require(protectedShot.allowed(), "valid protected firearm policy rejected the shot");
+            hits.addAll(List.of(hostileHit, allyHit, nonCharacterHit, localHit));
+            scope.set(shooter, protectedShot);
+            require(shooter.getHitInfoList() == hits && hits.size() == 4
+                            && ((Number)state.rawget("count")).intValue() == 0,
+                    "a spectator/native builder getter removed hits before final collision resolution");
+            protectedShot.filter(hits);
+            protectedShot.filter(hits);
+            require(hits.equals(List.of(hostileHit, nonCharacterHit)) && protectedShot.removed == 2
+                            && ((Number)state.rawget("count")).intValue() == 4,
+                    "resolved hits did not preserve native order or filtered the same target twice");
+
+            state.rawset("decision", "allow");
+            var explicitFriendlyFire = SCCompanionFirearmProtection.begin(shooter, player);
+            hits.add(new zombie.network.fields.hit.HitInfo().init(ally, 1, 1, 0, 0, 0));
+            explicitFriendlyFire.filter(hits);
+            require(explicitFriendlyFire.allowed() && explicitFriendlyFire.removed == 0 && hits.size() == 3,
+                    "explicit Friendly Fire did not preserve the native candidates");
+
+            state.rawset("decision", "hold_fire");
+            var blockedShot = SCCompanionFirearmProtection.begin(shooter, player);
+            require(!blockedShot.allowed() && "hold_fire".equals(blockedShot.decision),
+                    "Hold Fire at animation impact authorized a shot");
+
+            state.rawset("decision", "protect");
+            state.rawset("unreadable", Boolean.TRUE);
+            var uncertainShot = SCCompanionFirearmProtection.begin(shooter, player);
+            uncertainShot.filter(hits);
+            require(hits.equals(List.of(nonCharacterHit)) && uncertainShot.removed == 2,
+                    "unreadable protected-candidate policy admitted a wound");
+            combat.rawset("firearmCandidateProtected", null);
+            require(!SCCompanionFirearmProtection.begin(shooter, player).allowed(),
+                    "an absent collision policy authorized a protected shot");
+        } finally {
+            scope.set(shooter, null);
+            hits.clear();
+            env.rawset("SurvivorCompanion", oldSc);
+            for (String key : List.of("SC_FIREARM_TEST_SHOOTER", "SC_FIREARM_TEST_ALLY",
+                    "SC_FIREARM_TEST_PLAYER", "SC_FIREARM_TEST_STATE")) env.rawset(key, null);
+        }
+        System.out.println("FIREARM_PROTECTION_NATIVE_CONTRACT_PASS direction=true pooling=true"
+                + " order=true scoped_getter=true explicit_setting=true hold_fire=true missing_policy=true");
+    }
+
     private static void testGunshotSound(SCNativeCompanion actor) throws Exception {
         var gun = new HandWeapon("Base", "Sound control", "SoundControl", "Base.SoundControl");
         var type = HandWeapon.class;
@@ -2179,6 +2265,8 @@ public final class SCIsoCompanionControlTest {
         Object membershipDescriptor = companionDescriptor(false, "Membership");
         Object membershipActor = SCBridge.constructCompanion((SurvivorDesc) membershipDescriptor,
                 (IsoCell) cell, 0, 0, 0);
+        testFirearmProtection((SCNativeCompanion)actor, (SCNativeCompanion)secondActor,
+                (SCNativeCompanion)membershipActor, (IsoPlayer)localPlayer);
         membershipActor.getClass().getMethod("setCurrentSquare", squareClass)
                 .invoke(membershipActor, square);
         membershipActor.getClass().getMethod("setSquare", squareClass)

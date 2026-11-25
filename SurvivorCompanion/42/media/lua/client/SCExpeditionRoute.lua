@@ -255,6 +255,10 @@ function Route.target(route, actor, snapshot)
         or type(route.index) ~= "number" then return nil end
     local x, y = SC.GameplayUtil.position(actor)
     if x == nil or y == nil then return nil end
+    if route.recoveryEntry then
+        if distance(x, y, route.recoveryEntry) > 2 then return route.recoveryEntry end
+        route.recoveryEntry = nil
+    end
     local square = actor.getCurrentSquare and actor:getCurrentSquare() or nil
     local inside = square ~= nil and square.getRoom
         and square:getRoom() ~= nil
@@ -420,6 +424,156 @@ function Route.verifyEntry(route, actor)
         end
     end
     return true
+end
+
+-- The ordinary entry check may defer distant connectors until they stream in.
+-- An unattended resume requires a genuine loaded step toward the new route.
+function Route.verifyReturnEntry(route, actor)
+    local U = SC.GameplayUtil
+    local x, y, z = U.position(actor)
+    local cell = U.cell and U.cell()
+    local source = actor and actor:getCurrentSquare()
+    if x == nil or y == nil or z ~= 0 or cell == nil or source == nil
+        or not SC.Navigation or not SC.Navigation.findPath then
+        return nil, "return_entry_unavailable"
+    end
+    local target = route.goal
+    for _, point in ipairs(route.points) do
+        if distance(x, y, point) > 4 then target = point break end
+    end
+    if target == nil or distance(x, y, target) <= 2 then
+        return nil, "return_entry_no_progress"
+    end
+    local fraction = math.min(1, 12 / distance(x, y, target))
+    local entry = { x = math.floor(x + (target.x - x) * fraction + 0.5),
+        y = math.floor(y + (target.y - y) * fraction + 0.5), z = 0 }
+    local destination = cell:getGridSquare(entry.x, entry.y, entry.z)
+    if destination == nil or not U.isSquareFree(destination) then
+        return nil, "return_entry_unloaded_or_occupied"
+    end
+    local path = SC.Navigation.findPath(source, destination,
+        { actor = actor, nodeBudget = 600 })
+    if path == nil or #path < 2 or #path > 40 or path[1] ~= source
+        or path[#path] ~= destination then return nil, "return_entry_unreachable" end
+    if not Route.withinCorridor(route, path) then return nil, "return_entry_crosses_hazard" end
+    return entry, nil, path
+end
+
+local function hasThreatOverflow(snapshot)
+    -- SCThreatSet returns counts, including zero, while older callers may
+    -- supply booleans. Lua considers zero truthy.
+    local threat, immediate = snapshot.threatOverflow, snapshot.immediateOverflow
+    return threat == true or immediate == true
+        or type(threat) == "number" and threat > 0
+        or type(immediate) == "number" and immediate > 0
+end
+
+function Route.returnObservation(actor, snapshot, now)
+    local origin = snapshot and snapshot.origin
+    local native = snapshot and snapshot.nativeDiscovery
+    if origin == nil or origin.square ~= actor:getCurrentSquare() or origin.z ~= 0
+        or type(origin.x) ~= "number" or type(origin.y) ~= "number"
+        or type(snapshot.radius) ~= "number" or type(snapshot.time) ~= "number"
+        or snapshot.time > now or now - snapshot.time > 1500
+        or snapshot.valid ~= true or snapshot.scanComplete ~= true
+        or snapshot.scanDiscoveryComplete ~= true or snapshot.scanVisualComplete ~= true
+        or hasThreatOverflow(snapshot)
+        or snapshot.humanThreat ~= nil or #(snapshot.stairIncoming or {}) > 0
+        or type(snapshot.threats) ~= "table" or (tonumber(snapshot.immediateCount) or 0) > 0
+        or type(native) == "table" and (native.complete ~= true or native.freshComplete ~= true) then
+        return nil
+    end
+    return origin
+end
+
+function Route.returnEntryObserved(actor, path, snapshot, now, threatLimit)
+    local origin = Route.returnObservation(actor, snapshot, now)
+    local U = SC.GameplayUtil
+    if origin == nil or not U.canSee then return false, "return_entry_unobserved" end
+    local nodes = {}
+    for _, square in ipairs(path) do
+        local x, y, z = U.position(square)
+        if x == nil or y == nil or z ~= 0 or (x - origin.x)^2 + (y - origin.y)^2 > snapshot.radius^2
+            or (square ~= origin.square and not U.canSee(actor, square)) then
+            return false, "return_entry_unobserved"
+        end
+        nodes[#nodes + 1] = { x = x, y = y }
+    end
+    local near = 0
+    for _, threat in ipairs(snapshot.threats) do
+        if threat.visible == true and threat.obstructed ~= true
+            and type(threat.x) == "number" and type(threat.y) == "number" then
+            for index = 2, #nodes do
+                if segmentDistance(threat.x, threat.y, nodes[index - 1], nodes[index]) <= 6 then
+                    near = near + 1
+                    if near > threatLimit then return false, "return_entry_horde" end
+                    break
+                end
+            end
+        end
+    end
+    return true
+end
+
+-- Check a bounded number of squares per beat. Senses supplies complete
+-- discovery and contact checks. Loaded, unobstructed squares prove its
+-- negative evidence covers this hazard and the intended first leg.
+function Route.observeReturnClearance(actor, hazard, path, cursor, snapshot)
+    local U = SC.GameplayUtil
+    local senses = SC.Senses
+    local cell = U.cell and U.cell()
+    local source = actor and actor:getCurrentSquare()
+    if cell == nil or source == nil or path[1] ~= source or not senses or not senses.isCompleteObservation
+        or not senses.isCompleteObservation(snapshot, 1500)
+        or hasThreatOverflow(snapshot)
+        or (tonumber(snapshot.immediateCount) or 0) > 0
+        or #(snapshot.threats or {}) > 0 or #(snapshot.heardThreats or {}) > 0
+        or snapshot.lastKnownDanger ~= nil or snapshot.lastHeardDanger ~= nil or snapshot.humanThreat ~= nil then
+        return "unobserved"
+    end
+    local origin = snapshot.origin
+    local range = tonumber(snapshot.radius)
+    local radius = hazard.radius + 2
+    if not origin or origin.square ~= source or origin.z ~= 0 or not range
+        or type(snapshot.time) ~= "number" or type(origin.x) ~= "number" or type(origin.y) ~= "number"
+        or not U.canSee or distance(origin.x, origin.y, hazard) + radius > range then
+        return "unobserved"
+    end
+    local minX, maxX = math.floor(hazard.x - radius), math.ceil(hazard.x + radius)
+    local minY, maxY = math.floor(hazard.y - radius), math.ceil(hazard.y + radius)
+    local now = U.nowMs()
+    if cursor and (cursor.source ~= source or now - cursor.startedAt > 1500) then
+        return "unobserved"
+    end
+    if cursor == nil then
+        cursor = { source = source, startedAt = now, x = minX, y = minY, index = 1 }
+    end
+    local performance = SC.Performance
+    local limit = performance and performance.claimUnits
+        and performance.claimUnits("perception", 24, false) or 24
+    for _ = 1, limit do
+        if cursor.x <= maxX then
+            local x, y = cursor.x, cursor.y
+            cursor.y = cursor.y + 1
+            if cursor.y > maxY then cursor.x, cursor.y = cursor.x + 1, minY end
+            if distance(x, y, hazard) <= radius then
+                local square = cell:getGridSquare(x, y, 0)
+                if square == nil or (square ~= source and not U.canSee(actor, square)) then
+                    return "unobserved"
+                end
+            end
+        else
+            local square = path[cursor.index]
+            if square == nil then return "clear", nil, snapshot.time end
+            local x, y, z = U.position(square)
+            if x == nil or y == nil or z ~= 0
+                or (x - origin.x)^2 + (y - origin.y)^2 > range^2
+                or cell:getGridSquare(x, y, z) ~= square
+                or (square ~= source and not U.canSee(actor, square)) then return "unobserved" end
+            cursor.index = cursor.index + 1
+        end
+    end
+    return "pending", cursor
 end
 
 function Route.withinCorridor(route, path)

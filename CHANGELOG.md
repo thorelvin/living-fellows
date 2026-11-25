@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.84 - Full-squad expedition recovery
+
+- Reuse inventory preparation during Search and keep the leader's carry check lightweight.
+- Protect companion allies when native firearm shots resolve.
+- Recheck a blocked walking return when the crew can verify a safe route.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.83 - Expedition search recovery
 
 - Give blocked site searches a bounded pass and reconsider an entrance when it becomes accessible.

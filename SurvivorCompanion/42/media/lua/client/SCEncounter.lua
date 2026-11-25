@@ -1691,6 +1691,12 @@ local function inSelectedSite(siteId, square)
     return places.siteContainsPoint(siteId, x, y, z)
 end
 
+local function countSiteSearch(stage)
+    if SC.Performance and type(SC.Performance.count) == "function" then
+        SC.Performance.count("scavenge.site." .. stage)
+    end
+end
+
 local function searchRadius(utility, allowCorpses, player, commands)
     local radius = math.floor(math.min(math.max(utility.config("scavengeRadius") or 14,
         allowCorpses and (utility.config("corpseLootRadius") or 10) or 0), 18))
@@ -1732,8 +1738,10 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     local job = state.containerSearch
     if containerSearchInvalid(job, actor, allowCorpses,
             radius, budget, site, siteRadius) then
+        if siteId ~= nil and job then countSiteSearch("discovery.restarted") end
         job = newContainerSearch(actor, state, allowCorpses, current,
             radius, budget, site, siteRadius)
+        if job.siteColumns then countSiteSearch("discovery.started") end
         job.emptyProof = retry
         state.containerSearch = job
     end
@@ -1749,7 +1757,9 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     if SC.Performance and type(SC.Performance.claimUnits) == "function" then
         granted = SC.Performance.claimUnits("scavengeSquares", requested, false)
     end
-    local startedAt, processed = utility.nowMs(), 0
+    if job.siteColumns and requested > 0 and granted == 0 then countSiteSearch("discovery.quota_wait") end
+    local clock = SC.Performance and SC.Performance.preciseNowMs or utility.nowMs
+    local startedAt, processed = clock(), 0
     local storages = storageIndex()
     while processed < granted and job.index <= job.total do
         local offsetIndex = math.floor((job.index - 1) / #job.scanFloors) + 1
@@ -1854,7 +1864,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     local complete = job.index > job.total
     if SC.Performance and type(SC.Performance.record) == "function" then
         SC.Performance.record("scavenge.scan", utility.idOf(actor),
-            utility.nowMs() - startedAt, processed, false)
+            clock() - startedAt, processed, false)
     end
     if not complete then
         if SC.Performance and type(SC.Performance.markYield) == "function" then
@@ -1870,6 +1880,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     local candidates = job.candidates
     job.candidates = {}
     if not job.siteColumns or #candidates == 0 then state.containerSearch = nil end
+    if job.siteColumns and processed > 0 then countSiteSearch("discovery.completed") end
     return candidates, true, job.total, job.total, job.siteColumns ~= nil, job.emptyProof
 end
 
@@ -2334,6 +2345,7 @@ function Encounter._siteRouteContext(actor, state, commands, time)
         .. ":" .. tostring(commands.scavengeRequestedCategory) .. ":" .. tostring(commands.commandSerial)
     if not access or access.key ~= key or access.floor ~= floor then
         if access then
+            countSiteSearch("discovery.site_changed")
             clearSearchFields(actor, state, true)
             state.containerSearch = nil
         end
@@ -2364,6 +2376,7 @@ function Encounter._siteRouteContext(actor, state, commands, time)
             access.lockedCursor = index - 1
             wakeSiteRouteAccess(state, access)
             access.crossFloor = {}
+            countSiteSearch("discovery.access_changed")
             clearSearchFields(actor, state, true)
             state.containerSearch = nil
         end
@@ -2372,15 +2385,20 @@ function Encounter._siteRouteContext(actor, state, commands, time)
 end
 
 local function siteRouteEligible(actor, state, access, container, owner, storages, time)
-    if containerOnCooldown(container, time) or not memoryAllows(state, container, time) then return nil end
+    if containerOnCooldown(container, time) or not memoryAllows(state, container, time) then
+        return nil, "cooldown"
+    end
     local reservation = pruneReservation(container, time)
-    if reservation and reservation.actor ~= actor then return nil end
+    if reservation and reservation.actor ~= actor then return nil, "reserved" end
     local square = U().squareOf(owner)
-    if not square or owner ~= containerOwner(container) or not inSelectedSite(access.siteId, square)
-        or not Encounter.mayTakeFrom(container, storages, insideBase(square)) then return nil end
+    if not square or owner ~= containerOwner(container) then
+        return nil, "source_changed"
+    end
+    if not inSelectedSite(access.siteId, square) then return nil, "outside_site" end
+    if not Encounter.mayTakeFrom(container, storages, insideBase(square)) then return nil, "storage_denied" end
     if behindLockedDoor(actor, square, time) then
         rememberSiteLock(access, square)
-        return nil
+        return nil, "locked_room"
     end
     return square
 end
@@ -2459,6 +2477,7 @@ local function startSiteRouteTask(actor, state, commands, audit, time, context, 
     access.deferred[row.container], access.retrySources[row.container] = nil, nil
     access.crossFloor[row.container] = nil
     state.selectionJob = nil
+    countSiteSearch("task.started")
     traceSiteRoute(actor, "selected", square, receipt and receipt.endpoint or row.contact and U().squareOf(actor),
         receipt and "verified_route" or row.contact and "direct_contact" or "cross_floor")
     return task
@@ -2506,6 +2525,7 @@ function Encounter._selectSiteRoute(actor, state, commands, audit, time, snapsho
             state.lastStatus = { phase = "search", reason = "checking_container_access", expires = time + 1000 }
             return nil, "searching"
         end
+        countSiteSearch("survey." .. (cause or "no_result"))
         if row and cause == "selected" then
             if receipt or siteRouteContact(actor, row.object, snapshot) then
                 if not receipt then row.contact = true end
@@ -2560,6 +2580,7 @@ function Encounter._selectSiteRoute(actor, state, commands, audit, time, snapsho
     state.selectionJob = nil
     if not selection.sitePassComplete or access.waitUntil then return nil, "searching" end
     local reason = (access.blocked or #access.lockedRooms > 0) and "approach_timeout" or "nothing_needed"
+    countSiteSearch("pass." .. reason)
     access.completedUntil = time + 30000
     state.lastStatus = reason == "approach_timeout"
         and { phase = "failed", reason = reason, expires = time + 8000 } or nil
@@ -2663,7 +2684,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             if not deferred or time >= deferred then
                 access.deferred[container] = nil
                 local owner = containerOwner(container)
-                local square = siteRouteEligible(actor, state, access, container, owner, context.storages, time)
+                local square, rejected = siteRouteEligible(actor, state, access, container, owner, context.storages, time)
                 if square and not corpseContainers[container] then
                     local score = Encounter.blindContainerScore(actor, container, owner, commands, needs)
                     if score > 0 then
@@ -2674,10 +2695,16 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
                             row.sameRoom = U().call(square, "getRoom") == access.room
                             row.contact = U().distanceSq(origin, square) <= 2 and siteRouteContact(actor, owner, snapshot)
                             selection.siteRouteRows[#selection.siteRouteRows + 1] = row
+                            countSiteSearch("candidate.same_floor")
                         else
                             access.crossFloor[container] = row
+                            countSiteSearch("candidate.cross_floor")
                         end
+                    else
+                        countSiteSearch("candidate.rejected_score")
                     end
+                else
+                    countSiteSearch("candidate.rejected_" .. (rejected or "corpse"))
                 end
             end
         elseif reserveContainer(container, actor, time) then
@@ -2870,8 +2897,9 @@ local function commitTask(actor, state, task, commands, audit, time)
                             sourceX = sourceX and math.floor(sourceX), sourceY = sourceY and math.floor(sourceY), sourceZ = sourceZ and math.floor(sourceZ),
                             sourceObjectIndex = sourceObjectIndex,
                             missionId = requested and task.scavengeMissionId or nil }
-                        if requested and SC.ExpeditionPrototype and SC.ExpeditionPrototype.noteVerifiedSearchLoot then
-                            SC.ExpeditionPrototype.noteVerifiedSearchLoot(actor, state.lastLoot)
+                        if requested and SC.ExpeditionPrototype and SC.ExpeditionPrototype.noteVerifiedSearchLoot
+                            and SC.ExpeditionPrototype.noteVerifiedSearchLoot(actor, state.lastLoot) then
+                            countSiteSearch("transfer.verified")
                         end
                         noteHaul(actor, state, row, task, current, time)
                         after[#after + 1] = row.item
@@ -3022,17 +3050,31 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, "nothing_needed"
     end
 
-    local audit = SC.Logistics and type(SC.Logistics.status) == "function"
-        and SC.Logistics.status(actor) or nil
+    local performance = commands.scavengeMissionId and SC.Performance
+    local clock = performance and type(performance.record) == "function" and performance.preciseNowMs
+    local inventoryStarted = clock and clock()
+    local logistics = SC.Logistics
+    local expeditionAudit = commands.scavengeMissionId and logistics and logistics.expeditionLootAudit
+    local audit
+    if expeditionAudit then
+        audit = expeditionAudit(actor, state, commands.scavengeMissionId)
+    elseif logistics and type(logistics.status) == "function" then
+        audit = logistics.status(actor)
+    end
     if neutralOverride and actorNeedsMeleeWeapon(actor, audit) then
         local view = {}
         for key, value in pairs(commands) do view[key] = value end
         view.prioritizeMeleeWeapon = true
         commands = view
     end
-    if SC.Logistics and SC.Logistics.lootAudit then
-        audit = SC.Logistics.lootAudit(actor, state)
-        if not audit then return true, "inventory_scan_pending" end
+    if not expeditionAudit and logistics and logistics.lootAudit then
+        audit = logistics.lootAudit(actor, state, audit)
+    end
+    if clock then
+        performance.record("scavenge.site.inventory", utility.idOf(actor), clock() - inventoryStarted, 1, not audit)
+    end
+    if not audit and (expeditionAudit or logistics and logistics.lootAudit) then
+        return true, "inventory_scan_pending"
     end
     local needs = currentNeeds(actor, commands)
     if needsUnloading then

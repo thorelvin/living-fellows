@@ -340,6 +340,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile int bridgeAttackCollisionHitCount;
     private volatile zombie.iso.IsoMovingObject bridgeAttackCollisionTarget;
     private volatile boolean bridgeAttackCollisionTargetHit;
+    private SCCompanionFirearmProtection.Shot bridgeFirearmProtection;
     // CB-09. The completed-hit serial above advances only when the native
     // collision returns normally. A reflective throw used to leave no trace at
     // all, so Lua saw a timeout even though the call may already have damaged
@@ -1628,12 +1629,13 @@ public final class SCNativeCompanion extends IsoPlayer {
                     Boolean.TRUE.equals(get(SwipeStatePlayer.ATTACKED)))) return false;
             Object weapon = GET_USE_HAND_WEAPON.invoke(this);
             if (weapon == null) return false;
+            boolean aimedFirearm = WEAPON_IS_AIMED_FIREARM != null
+                    && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon));
             // Vehicle ranged animations use the same SwipeState collision
             // event, whose vanilla handler also excludes non-local actors.
             // Keep seated melee excluded; authorized passenger firearm shots
             // still need this one native collision to spend ammo and fire.
-            if (getVehicle() != null && (WEAPON_IS_AIMED_FIREARM == null
-                    || !Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon)))) return false;
+            if (getVehicle() != null && !aimedFirearm) return false;
             // The AttackType that gates CombatManager's stance filter is carried
             // by the swing's AttackCollisionCheck anim event (its parameter is the
             // enum id, e.g. "MeleeSwing"), not by the actor's getAttackType()
@@ -1678,12 +1680,17 @@ public final class SCNativeCompanion extends IsoPlayer {
             // one target, and must not be replayed by a second animation layer.
             set(SwipeStatePlayer.ATTACKED, true);
             bridgeAttackAttemptSerial++;
+            SCCompanionFirearmProtection.Shot protection = aimedFirearm && SCBridge.isCompanion(this)
+                    ? SCCompanionFirearmProtection.begin(this, collisionTarget) : null;
+            if (protection != null && !protection.allowed()) {
+                publishAttackReceipt("blocked", protection.decision);
+                return false;
+            }
             Object[] ballisticInput = null, ballisticScratch = null;
             SCFirearmShot.Snapshot shotBefore = captureCompanionShot(weapon);
             boolean weaponImpact = usesCompanionWeaponImpact();
             try {
-                if (WEAPON_IS_AIMED_FIREARM != null
-                        && Boolean.TRUE.equals(WEAPON_IS_AIMED_FIREARM.invoke(weapon))) {
+                if (aimedFirearm) {
                     ballisticInput = selectCompanionBallisticReticle();
                     selectCompanionPhysicsReticle(ballisticInput);
                     ballisticScratch = selectCompanionBallisticScratch(combatManager, weapon);
@@ -1692,8 +1699,12 @@ public final class SCNativeCompanion extends IsoPlayer {
                 // Vanilla reads this actor's penalties but wiggles the global
                 // MoodlesUI singleton. Keep an exhausted NPC's feedback on its
                 // own view (or offscreen), without changing anyone's Stats.
+                SCCompanionFirearmProtection.Shot previousProtection = bridgeFirearmProtection;
+                bridgeFirearmProtection = protection != null && protection.protects != null ? protection : null;
                 try (var feedback = SCCompanionMoodleFeedback.open(this)) {
                     ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+                } finally {
+                    bridgeFirearmProtection = previousProtection;
                 }
             } finally {
                 try {
@@ -1716,7 +1727,8 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeAttackCollisionTarget = collisionTarget;
             bridgeAttackCollisionHitCount = hitCount;
             bridgeAttackCollisionTargetHit = targetHit;
-            publishAttackReceipt("completed", "");
+            publishAttackReceipt("completed", protection != null && protection.removed > 0
+                    ? "protected_firearm_hits:" + protection.removed : "");
             return true;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             // Fail closed on damage -- never replay the call to obtain a clean
@@ -2593,7 +2605,10 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     @Override
     public ArrayList<HitInfo> getHitInfoList() {
-        return SCStayWithMeProtection.filter(super.getHitInfoList());
+        ArrayList<HitInfo> hits = SCStayWithMeProtection.filter(super.getHitInfoList());
+        SCCompanionFirearmProtection.Shot protection = bridgeFirearmProtection;
+        if (protection != null && SCCompanionFirearmProtection.readsResolvedHits()) protection.filter(hits);
+        return hits;
     }
 
     /**

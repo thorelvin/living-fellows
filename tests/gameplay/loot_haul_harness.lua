@@ -61,6 +61,165 @@ local function complete(actor)
     check(handled and why == "looted", "completed native visual commits its batch: " .. tostring(why))
 end
 
+do
+    local worker = fixture(nails(1))
+    local Logistics, index = SC.Logistics, SC.InventoryIndex
+    local nativeAudit, calls = Logistics.audit, 0
+    Logistics.audit = function(...)
+        calls = calls + 1
+        return nativeAudit(...)
+    end
+    local prepared = Logistics.status(worker)
+    check(prepared.inventoryComplete and calls == 1, "status prepares a complete loot audit")
+    tick(worker)
+    check(calls == 1, "first Scavenge decision reuses a complete prepared audit")
+
+    local added = nails(1)[1]
+    worker.inventory:AddItem(added)
+    index.touch(worker)
+    local fresh = Logistics.status(worker)
+    check(fresh ~= prepared and fresh.items[1].item == added and calls == 2,
+        "an inventory revision replaces the cached status before its time limit")
+    local swapped = f.item("Base.Bandage", "Medical", { weight = .05 })
+    worker.inventory:Remove(added)
+    worker.inventory:AddItem(swapped)
+    index.touch(worker)
+    local loot = Logistics.lootAudit(worker, {}, fresh)
+    check(loot.items[1].item == swapped and calls == 3,
+        "a same-weight change invalidates an already prepared audit through its revision")
+    fresh = Logistics.status(worker)
+    swapped.weight = .1
+    loot = Logistics.lootAudit(worker, {}, fresh)
+    check(loot.weight == .1 and calls == 5,
+        "a native weight change without an index event also invalidates the prepared audit")
+    fresh = Logistics.status(worker)
+    worker.modData.SC_AllowOverload = true
+    loot = Logistics.lootAudit(worker, {}, fresh)
+    check(loot.hardRatio == 1.2 and calls == 7,
+        "the prepared audit cannot retain a changed load policy")
+    Logistics.audit = nativeAudit
+    SC.Encounter.reset(worker)
+
+    local scanWorker = f.actor("expedition-loot-revision", -44, -33, { inventory = f.inventory(nails(81)) })
+    local old = scanWorker.inventory.items[1]
+    local oldLimit = SC.Config._values.logisticsInventoryItemBudget
+    SC.Config._values.logisticsInventoryItemBudget = 4
+    local work = {}
+    check(Logistics.lootAudit(scanWorker, work) == nil, "large inventory audit yields its first slice")
+    local replacement = f.item("Base.Bandage", "Medical", { weight = .05 })
+    scanWorker.inventory:Remove(old)
+    scanWorker.inventory:AddItem(replacement)
+    index.touch(scanWorker)
+    check(Logistics.lootAudit(scanWorker, work) == nil, "inventory revision restarts a partial loot audit")
+    loot = Logistics.lootAudit(scanWorker, work)
+    check(loot and #loot.items == 81 and loot.items[1].item ~= old and loot.items[81].item == replacement,
+        "completed revision-safe audit contains the exact live replacement")
+    SC.Config._values.logisticsInventoryItemBudget = oldLimit
+end
+
+do
+    local worker = fixture(nails(1))
+    local item = nails(1)[1]
+    worker.inventory:AddItem(item)
+    worker.inventory.capacity = 20
+    local Logistics, index = SC.Logistics, SC.InventoryIndex
+    local audit, status, roleOf = Logistics.audit, Logistics.status, Logistics.roleOf
+    local calls, statusCalls, role = 0, 0, "generalist"
+    Logistics.audit = function(...)
+        calls = calls + 1
+        return audit(...)
+    end
+    Logistics.status = function(...)
+        statusCalls = statusCalls + 1
+        return status(...)
+    end
+    Logistics.roleOf = function() return role end
+    local work = {}
+    local function read(mission)
+        local operation = Logistics.expeditionLootAudit
+        return operation and operation(worker, work, mission)
+    end
+    local first = read("first-trip")
+    check(first and first.items[1].item == item and first.capacity == 20 and statusCalls == 0,
+        "expedition prepares the load and exact loot inventory without base management")
+    check(read("first-trip") == first and calls == 1,
+        "a stable expedition decision reuses the exact inventory classification")
+
+    local replacement = f.item("Base.Bandage", "Medical", { weight = .05 })
+    worker.inventory:Remove(item)
+    worker.inventory:AddItem(replacement)
+    index.touch(worker)
+    check(read("first-trip").items[1].item == replacement and calls == 2,
+        "same-weight inventory revision invalidates the expedition cache")
+    replacement.weight = .1
+    check(read("first-trip").weight == .1 and calls == 3,
+        "physical weight invalidates it with no inventory event")
+    worker.inventory.capacity = 19
+    check(read("first-trip").capacity == 19 and calls == 4,
+        "physical capacity also invalidates it without an event")
+    role = "quartermaster"
+    check(read("first-trip").hardRatio == .95 and calls == 5,
+        "role changes refresh the expedition policy")
+    worker.modData.SC_AllowOverload = true
+    check(read("first-trip").hardRatio == 1.2 and calls == 6,
+        "an explicit overload change refreshes the same work immediately")
+    worker.inventory = f.inventory({ item })
+    check(read("first-trip").items[1].item == item and calls == 7,
+        "replacing the native inventory refreshes the exact records")
+    check(read("second-trip") and calls == 8,
+        "reusing worker state for a different mission requires fresh evidence")
+
+    worker.inventory:Remove(item)
+    replacement.weight = item.weight
+    worker.inventory:AddItem(replacement)
+    check(read("second-trip").items[1].item == item and calls == 8,
+        "unreported same-weight mutations are bounded by the refresh interval")
+    f.clock = f.clock + 500
+    check(read("second-trip").items[1].item == replacement and calls == 9,
+        "the bounded refresh catches silent same-weight mutations")
+
+    commandViews[worker].scavengeMissionId = "third-trip"
+    tick(worker)
+    check(statusCalls == 0 and calls == 10,
+        "the production Search entry point bypasses general logistics status")
+    tick(worker)
+    check(statusCalls == 0 and calls == 10,
+        "the production Search entry point reuses its site classification")
+    Logistics.audit, Logistics.status, Logistics.roleOf = audit, status, roleOf
+    SC.Encounter.reset(worker)
+end
+
+do
+    local weight = f.item("Base.Nails", "Material", { weight = 8.99 })
+    local worker = f.actor("expedition-capacity", -43, -33, { inventory = f.inventory({ weight }) })
+    worker.inventory.capacity = 10
+    local Logistics = SC.Logistics
+    local roleOf = Logistics.roleOf
+    local role = "generalist"
+    Logistics.roleOf = function() return role end
+    local reads = 0
+    local getItems = worker.inventory.getItems
+    worker.inventory.getItems = function(self)
+        reads = reads + 1
+        return getItems(self)
+    end
+    check(not Logistics.expeditionLoadFull(worker), "ordinary hard capacity admits just below its boundary")
+    weight.weight = 9
+    check(Logistics.expeditionLoadFull(worker), "ordinary hard capacity rejects exactly at the boundary")
+    role = "quartermaster"
+    check(not Logistics.expeditionLoadFull(worker), "quartermaster retains its higher capacity threshold")
+    weight.weight = 9.5
+    check(Logistics.expeditionLoadFull(worker), "quartermaster hard capacity rejects at its boundary")
+    worker.modData.SC_AllowOverload = true
+    check(not Logistics.expeditionLoadFull(worker), "explicit overload overrides the role threshold")
+    weight.weight = 12
+    check(Logistics.expeditionLoadFull(worker), "explicit overload remains finite at its boundary")
+    worker.inventory.capacity = 0
+    check(not Logistics.expeditionLoadFull(worker) and reads == 0,
+        "capacity check handles unknown load limit and never enumerates native items")
+    Logistics.roleOf = roleOf
+end
+
 local actor, source, owner = fixture(nails(5))
 local task = animate(actor)
 check(#task.takeList == 5 and #actor.inventory.items == 0 and durations[actor] == 300,

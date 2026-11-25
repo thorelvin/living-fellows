@@ -256,4 +256,79 @@ nativeStatus = "READY"
 local resumed = Route.plan(actor, { x = 100, y = 10, z = 0 }, true)
 check(resumed ~= nil,
     "an already saved road mission may safely replan after restart")
+
+do
+    local grid, hidden, unloaded = {}, nil, nil
+    local cell = {}
+    function cell:getGridSquare(x, y)
+        local key = x .. ":" .. y
+        if key == unloaded then return nil end
+        grid[key] = grid[key] or { x = x, y = y }
+        return grid[key]
+    end
+    local U = SC.GameplayUtil
+    local now = 10000
+    U.cell = function() return cell end
+    U.nowMs = function() return now end
+    U.canSee = function(_, square) return square ~= hidden end
+    SC.Senses = { isCompleteObservation = function(snapshot)
+        return snapshot and snapshot.complete and now - snapshot.time <= 1500
+    end }
+    actor.x, actor.y = 10, 10
+    local first, last = cell:getGridSquare(10, 10), cell:getGridSquare(22, 10)
+    actor.getCurrentSquare = function() return first end
+    SC.Navigation.findPath = function(start, finish)
+        return { start, cell:getGridSquare(18, 10), finish }
+    end
+    local distant = { points = { { x = 80, y = 10, z = 0 } }, index = 1 }
+    unloaded = "22:10"
+    local verified, issue = Route.verifyReturnEntry(distant, actor)
+    check(verified == nil and issue == "return_entry_unloaded_or_occupied",
+        "a far road anchor cannot supply an unchecked local return leg")
+    unloaded = nil
+    local path
+    verified, _, path = Route.verifyReturnEntry(distant, actor)
+    check(verified.x == 22 and path[#path] == last, "a bounded loaded first leg can be verified")
+    distant.recoveryEntry = verified
+    check(Route.target(distant, actor) == verified, "the verified entry steers the first actual leg")
+    local snapshot = { complete = true, valid = true, scanComplete = true,
+        scanDiscoveryComplete = true, scanVisualComplete = true, time = now, radius = 24,
+        threatOverflow = 0, immediateOverflow = 0,
+        threats = {}, origin = { x = 10, y = 10, z = 0, square = first } }
+    check(Route.returnEntryObserved(actor, path, snapshot, now, 2) == true,
+        "SCThreatSet numeric zero overflow admits a fresh seen entry")
+    snapshot.immediateOverflow = 1
+    check(not Route.returnEntryObserved(actor, path, snapshot, now, 2),
+        "SCThreatSet positive immediate overflow defers a return entry")
+    snapshot.immediateOverflow = 0
+    snapshot.threatOverflow = 2
+    check(not Route.returnEntryObserved(actor, path, snapshot, now, 2),
+        "SCThreatSet positive threat overflow defers a return entry")
+    snapshot.threatOverflow = 0
+    check(not Route.returnEntryObserved(actor, path, snapshot, now + 1501, 2), "stale sight cannot resume travel")
+    snapshot.threats = { { x = 17, y = 11, visible = true },
+        { x = 18, y = 11, visible = true }, { x = 19, y = 11, visible = true } }
+    local open, block = Route.returnEntryObserved(actor, path, snapshot, now, 2)
+    check(not open and block == "return_entry_horde", "contacts are tested against actual first geometry")
+    snapshot.threats = {}
+    local hazard = { x = 14, y = 14, radius = 4 }
+    local function observe()
+        local cursor, status
+        for _ = 1, 15 do
+            status, cursor = Route.observeReturnClearance(actor, hazard, path, cursor, snapshot)
+            if status ~= "pending" then return status end
+        end
+        return status
+    end
+    check(observe() == "clear", "SCThreatSet numeric zero overflow admits full old-hazard and path observation")
+    snapshot.threatOverflow = 2
+    check(observe() == "unobserved", "SCThreatSet positive threat overflow cannot retire the old hazard")
+    snapshot.threatOverflow, snapshot.immediateOverflow = 0, 1
+    check(observe() == "unobserved", "SCThreatSet positive immediate overflow cannot retire the old hazard")
+    snapshot.immediateOverflow = 0
+    hidden = cell:getGridSquare(14, 14)
+    check(observe() == "unobserved", "one occluded tile keeps the hazard in force")
+    hidden, unloaded = nil, "14:14"
+    check(observe() == "unobserved", "one unloaded tile keeps the hazard in force")
+end
 print("EXPEDITION_ROUTE_PASS checks=" .. tostring(checks))

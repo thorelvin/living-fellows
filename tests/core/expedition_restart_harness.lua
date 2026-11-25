@@ -2042,6 +2042,69 @@ local unsafeReturn, unsafeReason = expedition.sendRadioOrder(player,
 check(unsafeReturn == false and unsafeReason == "NO_SAFE_ROAD_DETOUR"
         and trailMission.scout.pause ~= nil,
     "an acknowledged return order keeps shelter intent when no safe return exists")
+local recoveryProbeSave = (function()
+    local scout = trailMission.scout
+    local pause = scout.pause
+    local saved = expedition.export()
+    local plan, snapshot = SC.ExpeditionRoute.plan, SC.Senses.cached
+    local observation = SC.ExpeditionRoute.returnObservation
+    local supervisor = SC.ActionSupervisor
+    local attempts = 0
+    SC.ExpeditionRoute.plan = function(...)
+        attempts = attempts + 1
+        return plan(...)
+    end
+    pause.recovery = nil
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock) and attempts == 0,
+        "a blocked return waits for its staggered recheck")
+    SC.Senses.cached = function() return nil end
+    scoutClock = pause.recovery.nextAt
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock) and attempts == 0,
+        "missing sight keeps the hazard without running the road planner")
+    SC.ActionSupervisor = { current = function() return { action = "medical" } end }
+    scoutClock = pause.recovery.nextAt
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock) and attempts == 0,
+        "an active medical owner blocks route work")
+    SC.ActionSupervisor = supervisor
+    SC.Senses.cached = function() return { usable = true } end
+    SC.ExpeditionRoute.returnObservation = function(_, view) return view and view.usable end
+    scoutClock = pause.recovery.nextAt
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock) and attempts == 1
+            and pause.recovery.nextAt - scoutClock >= 4000,
+        "a failed retained-hazard route backs off without clearing the pause")
+    local lookup = SC.ExpeditionPlaces.nearestLoadedShelter
+    local knownShelters = 0
+    SC.ExpeditionPlaces.nearestLoadedShelter = function(_, _, excluded)
+        knownShelters = knownShelters + 1
+        if knownShelters == 1 then return { x = 140, y = 20, z = 0, buildingId = "one" } end
+        check(excluded.one and excluded["140:20:0"], "failed shelter is excluded from the second lookup")
+        return { x = 145, y = 22, z = 0, buildingId = "two" }
+    end
+    pause.shelterTarget, pause.shelterAttempt = nil, nil
+    check(expedition._seekRecoveryShelter(scout, pause, scoutClock)
+            and pause.shelterTarget.x == 140,
+        "the first shelter is staged while the road remains blocked")
+    scoutClock = scoutClock + 30001
+    check(not expedition._seekRecoveryShelter(scout, pause, scoutClock) and pause.shelterTarget == nil,
+        "a no-progress shelter attempt is abandoned")
+    scoutClock = scoutClock + 2001
+    check(expedition._seekRecoveryShelter(scout, pause, scoutClock)
+            and pause.shelterTarget.x == 145,
+        "a second viable shelter is tried")
+    scoutClock = scoutClock + 30001
+    check(not expedition._seekRecoveryShelter(scout, pause, scoutClock)
+            and pause.mode == "holding" and knownShelters == 2,
+        "the squad holds after two stalled shelter attempts")
+    local held = expedition.sendRadioOrder(player, "expedition_decision", "hold_position")
+    check(held and pause.playerHold and expedition.export().scout.pause.playerHold,
+        "only exact radio Hold sets the durable operator hold")
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock + 30000) and attempts == 1,
+        "the operator hold takes priority over automatic recovery")
+    SC.ExpeditionPlaces.nearestLoadedShelter = lookup
+    SC.Senses.cached, SC.ExpeditionRoute.plan = snapshot, plan
+    SC.ExpeditionRoute.returnObservation = observation
+    return saved
+end)()
 local pushed = expedition.sendRadioOrder(player,
     "expedition_decision", "push_on")
 check(pushed == true and trailMission.scout.pause == nil
@@ -2052,6 +2115,75 @@ reserve.x = player.x + 3
 check(expedition.finishAtPlayer(player) == true,
     "the trail-horde probe releases its native leader")
 SC.ExpeditionRoute.plan = successfulRoadPlan
+;(function()
+    local route = SC.ExpeditionRoute
+    local snapshot, observation, verify, entryObserved = SC.Senses.cached,
+        route.returnObservation, route.verifyReturnEntry, route.returnEntryObserved
+    local navigation, cancel = SC.Navigation.status, SC.Navigation.cancel
+    recoveryProbeSave.scout.pause.mode = "holding"
+    recoveryProbeSave.scout.pause.playerHold = false
+    recoveryProbeSave.scout.pause.reported = false
+    reserve.x = 125
+    check(expedition.restore(recoveryProbeSave) and expedition.pulse(),
+        "a no-receipt saved walking block restores for autonomous rechecks")
+    local scout = expedition.current().scout
+    local pause = scout.pause
+    local cancelled = 0
+    SC.Navigation.status = function() return { active = true, action = "ordered_move", target = "131:20:0" } end
+    SC.Navigation.cancel = function() cancelled = cancelled + 1 end
+    check(expedition.stageTestWaypoint(reserve, 131, 20, 0), "a prior shelter waypoint is staged")
+    SC.Senses.cached = function() return { usable = true } end
+    route.returnObservation = function(_, view) return view and view.usable end
+    route.verifyReturnEntry = function() return { x = 136, y = 20, z = 0 }, nil, {} end
+    route.returnEntryObserved = function() return true end
+    expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    scoutClock = pause.recovery.nextAt
+    check(expedition._pulseBlockedReturn(scout, pause, scoutClock)
+            and scout.pause == nil and scout.roadRoute.recoveryEntry.x == 136
+            and scout.road.avoidance.x == pause.hazard.x and cancelled == 1,
+        "fresh verified detour resumes with the hazard retained and cancels only its owned waypoint")
+    local plan, observe, complete = route.plan, route.observeReturnClearance, SC.Senses.isCompleteObservation
+    SC.Navigation.status = function() return { active = false } end
+    scout.pause, pause.recovery = pause, nil
+    route.plan = function(actor, goal, continuing, avoidance)
+        if avoidance then return nil, "NO_SAFE_ROAD_DETOUR" end
+        return plan(actor, goal, continuing)
+    end
+    SC.Senses.cached = function() return { origin = { z = 0 }, radius = 24, time = scoutClock } end
+    SC.Senses.isCompleteObservation = function() return true end
+    route.returnObservation = function(_, view) return view.origin end
+    local result, observedAt = "clear", scoutClock
+    route.observeReturnClearance = function() return result, nil, observedAt end
+    expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    scoutClock = pause.recovery.nextAt
+    expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    scoutClock = pause.recovery.nextAt
+    expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    scoutClock = scoutClock + 2501
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock) and scout.pause == pause,
+        "a single repeated observation cannot retire the saved hazard")
+    result, observedAt = "unobserved", scoutClock
+    scoutClock = pause.recovery.nextAt
+    check(not expedition._pulseBlockedReturn(scout, pause, scoutClock) and pause.recovery.clearSince == nil,
+        "an observation gap starts the clearance window over")
+    result = "clear"
+    scoutClock = pause.recovery.nextAt
+    expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    scoutClock = pause.recovery.nextAt
+    observedAt = scoutClock
+    expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    scoutClock = scoutClock + 2501
+    observedAt = scoutClock
+    check(expedition._pulseBlockedReturn(scout, pause, scoutClock)
+            and scout.pause == nil and scout.road.avoidance == nil,
+        "only sustained distinct clear evidence admits the freshly verified unavoided leg")
+    route.plan, route.observeReturnClearance, SC.Senses.isCompleteObservation = plan, observe, complete
+    SC.Senses.cached, route.returnObservation = snapshot, observation
+    route.verifyReturnEntry, route.returnEntryObserved = verify, entryObserved
+    SC.Navigation.status, SC.Navigation.cancel = navigation, cancel
+    reserve.x = player.x + 3
+    check(expedition.finishAtPlayer(player), "the recovered walking squad can hand back control")
+end)()
 ;(function()
     local send, fishing = SCSplitScreenProbe.sendTestRadioWithLeaderText, SC.Fishing
     local transmissions, contacts, acknowledged = 0, false, false

@@ -184,6 +184,23 @@ do
     assert(E.prepareReset() and E.reset() and not E.current(), "cancellation releases the mission during discovery")
 end
 do
+    local mission = begin(60, true, false)
+    local audit, full, checks = SC.Logistics.audit, false, 0
+    SC.Logistics.audit = function() error("Search capacity pulse must not enumerate inventory") end
+    SC.Logistics.expeditionLoadFull = function(carrier)
+        assert(carrier == actor, "Search reads the active leader's load")
+        checks = checks + 1
+        return full
+    end
+    beat()
+    assert(checks == 1 and mission.scout.phase == "searching", "room for supplies keeps the mission searching")
+    full = true
+    beat()
+    assert(checks == 2 and mission.scout.search.endReason == "capacity_full",
+        "the lightweight load check triggers the existing capacity return")
+    SC.Logistics.audit, SC.Logistics.expeditionLoadFull = audit, nil
+end
+do
     local mission=begin(60,false,false)
     mission.scout.phase="inbound"
     assert(E.stageTestWaypoint(actor,112,100,0),"stage a real return waypoint")

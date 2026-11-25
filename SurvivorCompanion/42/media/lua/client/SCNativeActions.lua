@@ -5870,6 +5870,11 @@ function actions.resetFinal(actor)
     return true, "final_action_reset"
 end
 
+function actions.isAuthorizedFinalFirearmTarget(actor, target)
+    local final = activeFinal[actor]
+    return final ~= nil and final.target == target and final.outcome ~= "bleach"
+end
+
 function actions.releaseActor(actor)
     if actor == nil then return false end
     -- Cancellation gets one chance to restore borrowed inventory/visual state;

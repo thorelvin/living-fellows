@@ -363,6 +363,51 @@ local wide = SC.Combat.friendlyFireBlocked(front, foe, lane)
 bar.getMinAngle = nil
 check(wide and SC.Combat.friendlyFireBlocked(front, foe, lane),
     "F03 wide or unknown native melee arcs retain the conservative rear protection")
+do
+    local shooter = fighter("firearm-shooter", -7, -7, 0)
+    local ally, allyRuntime = fighter("firearm-ally", -5, -5, 0)
+    local zombie = f.zombie(-1, -7)
+    local commands = { combatDoctrine = "weapons_free" }
+    local oldRead, oldRoster, oldConfig = SC.Commands.peekExisting, SC.Registry.snapshot, U.config
+    local oldGetPlayer = getSpecificPlayer
+    getSpecificPlayer = function(index) if index == 0 then return f.player end end
+    SC.Commands.peekExisting = function(actor) if actor == shooter then return commands end end
+    SC.Registry.snapshot = SC.Registry.records
+    U.config = function(key) if key == "friendlyFire" then return false end return oldConfig(key) end
+    check(SC.Combat.firearmCommitPolicy(shooter, zombie) == "protect"
+        and SC.Combat.firearmCandidateProtected(shooter, ally)
+        and not SC.Combat.firearmCandidateProtected(shooter, zombie),
+        "F04 a clear intended lane can fire while the actual off-axis ally is protected")
+    ally.getY = function() return -7 end
+    check(SC.Combat.firearmCommitPolicy(shooter, zombie) == "friendly_in_attack_lane",
+        "F05 a live roster member crossing the lane during the animation blocks commit")
+    allyRuntime.inactive = true
+    check(SC.Combat.firearmCommitPolicy(shooter, zombie) == "protect",
+        "F06 inactive structural roster membership cannot indefinitely hold fire")
+    commands.holdFire = true
+    check(SC.Combat.firearmCommitPolicy(shooter, zombie) == "hold_fire",
+        "F07 live Hold Fire wins even under Weapons Free")
+    commands.holdFire = false
+    U.config = function(key) if key == "friendlyFire" then return true end return oldConfig(key) end
+    check(SC.Combat.firearmCommitPolicy(shooter, zombie) == "allow",
+        "F08 explicit Friendly Fire is the opt-in to stock collision candidates")
+    U.config = oldConfig
+    check(SC.Combat.firearmCommitPolicy(shooter, ally) == "friendly_attack_target",
+        "F09 a protected selected target cannot slip through the segment's endpoint exclusion")
+    commands.care = { playerHostile = true, playerFightToDeath = true }
+    check(not SC.Factions.firearmTargetProtected(shooter, f.player, f.player)
+        and SC.Factions.firearmTargetProtected(shooter, ally, f.player),
+        "F10 directed hostility authorizes the player target while still protecting a party ally")
+    local oldHealth = U.nativeHealth
+    U.nativeHealth = function(actor) if actor == f.player then return 1 end return oldHealth(actor) end
+    commands.care.playerFightToDeath = false
+    check(SC.Factions.firearmTargetProtected(shooter, f.player, f.player)
+        and commands.care.playerHostile and commands.care.playerCeasefire == nil,
+        "F11 impact observes ceasefire health without mutating commands")
+    U.nativeHealth = oldHealth
+    SC.Commands.peekExisting, SC.Registry.snapshot, getSpecificPlayer = oldRead, oldRoster, oldGetPlayer
+    f.registry[shooter.id], f.registry[ally.id] = nil, nil
+end
 local human = f.actor("stair-human", 4, 2, { z = 0 })
 human.getZ = function() return 0.6 end
 local humanState = {}

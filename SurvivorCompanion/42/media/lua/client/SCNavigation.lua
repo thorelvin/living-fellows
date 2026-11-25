@@ -8829,9 +8829,19 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     if survey and survey.identity == identity and survey.choiceKey == choiceKey
         and now >= (survey.expiresAt or 0) and not survey.winnerId
         and not survey.failedReason then
-        -- Expiry ends an unfinished attempt. Restarting it here can hold a
-        -- storage job forever without a physical action or a failure receipt.
-        return Navigation._expireInteractionSurvey(survey, now, "survey_deadline")
+        local hardLimit = survey.startedAt + 12000
+        local idleLimit = survey.progressAt + 3000
+        local advancing = expeditionScavenge and survey.job and origin == survey.origin
+            and ((survey.lastProgressSerial or 0) > 0 or (survey.lastExpanded or 0) > 0)
+        -- A live proof can need several small time slices under load. Keep
+        -- that frontier while it advances from the same origin, within one
+        -- absolute attempt window. Stalled and other surveys still expire.
+        if advancing and now < hardLimit and now < idleLimit then
+            survey.expiresAt = math.min(hardLimit, idleLimit)
+            SC.WorkRoutes.count("scavenge.interaction-survey.extended")
+        else
+            return Navigation._expireInteractionSurvey(survey, now, "survey_deadline")
+        end
     end
     if survey and (survey.identity ~= identity or survey.choiceKey ~= choiceKey
         or now >= (survey.expiresAt or 0)

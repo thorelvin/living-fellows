@@ -145,7 +145,7 @@ local function surveySearch(runtime, key, mover)
 end
 local performance, resume = SC.Performance, N.resumePathSearch
 local deadline, grant, calls, charged, frame = 0, 0, 0, 0, 1
-SC.Performance = setmetatable({
+local surveyPerformance = setmetatable({
     frameId = function() return frame end,
     remainingBudgetMs = function() return deadline end,
     claimUnits = function(kind, requested, urgent, tracked)
@@ -159,6 +159,7 @@ SC.Performance = setmetatable({
         charged = charged + used
     end,
 }, { __index = performance })
+SC.Performance = surveyPerformance
 N.resumePathSearch = function(job, quota)
     calls = calls + 1
     check(quota == grant and job.pathOptions.sliceBudgetMs == math.max(1, deadline),
@@ -205,6 +206,55 @@ SC.Performance, N.resumePathSearch = performance, resume
 check(result == searchChoices[1] and searchReceipt and searchReceipt.container == compartment
     and searchReceipt.expeditionScavenge == true and charged > 0,
     "the bounded survey retains the chosen exact compartment and route")
+
+do
+    local startedAt = SC_TEST_CLOCK
+    local slowOwner, cappedOwner, stalledOwner, movedOwner = {}, {}, {}, {}
+    local resumes, finishAt = 0, 5
+    SC.Performance, grant = surveyPerformance, 1
+    N.resumePathSearch = function(job)
+        resumes = resumes + 1
+        job.progressSerial = resumes
+        if resumes == finishAt then
+            return "complete", { job.startSquare, square(1, 0), square(2, 0), job.goalSquare },
+                nil, resumes, nil, 1
+        end
+        return "pending", nil, "searching", resumes, nil, 1
+    end
+    local function at(runtime, key, elapsed)
+        SC_TEST_CLOCK, frame = startedAt + elapsed, frame + 1
+        return surveySearch(runtime, key)
+    end
+    for index = 0, 3 do
+        local winner, outcome = at(slowOwner, "slow-search", index * 1000)
+        check(not winner and outcome == "pending", "progress keeps the same loaded Search frontier past three seconds")
+    end
+    local winner, outcome, proof = at(slowOwner, "slow-search", 4000)
+    check(winner == searchChoices[1] and outcome == "selected" and proof and proof.container == compartment,
+        "a busy but progressing Search obtains the exact route receipt")
+
+    resumes, finishAt = 0, nil
+    for index = 0, 11 do
+        local _, outcome = at(cappedOwner, "bounded-slow-search", index * 1000)
+        check(outcome == "pending", "live progress admits no more than the bounded Search window")
+    end
+    local _, cap = at(cappedOwner, "bounded-slow-search", 12000)
+    check(cap == "unknown" and resumes == 12, "an indeterminate Search ends even with continuous progress")
+
+    resumes = 0
+    at(stalledOwner, "stalled-search", 0)
+    local _, stalled = at(stalledOwner, "stalled-search", 3001)
+    check(stalled == "unknown" and resumes == 1, "a stalled started Search keeps the three-second idle bound")
+
+    resumes = 0
+    at(movedOwner, "moved-search", 0)
+    at(movedOwner, "moved-search", 2000)
+    searchWorker.x = searchWorker.x + 1
+    local _, moved = at(movedOwner, "moved-search", 3000)
+    check(moved == "unknown" and resumes == 2, "changing the origin cannot extend an old Search frontier")
+    searchWorker.x = searchWorker.x - 1
+    SC_TEST_CLOCK, SC.Performance, N.resumePathSearch = startedAt, performance, resume
+end
 
 local searchToken = { actor = searchWorker, owner = "encounter", action = "scavenge",
     current = true, phase = "approaching", serial = 9 }

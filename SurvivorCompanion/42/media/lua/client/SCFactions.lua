@@ -2580,16 +2580,19 @@ local function isPlayerPartyMember(subject, player)
     return record ~= nil and record.recruited == true and record.factionId == nil
 end
 
-function Factions.playerConflictHostile(companion, player)
+function Factions.playerConflictHostile(companion, player, observeOnly)
     if companion == nil or player == nil or companion == player then return false end
     local record = recordForSubject(companion)
     if not record or record.recruited ~= true or record.factionId ~= nil
         or not SC.Commands then return false end
-    local state = SC.Commands.peek(companion)
+    local readCommands = SC.Commands.peek
+    if observeOnly then readCommands = SC.Commands.peekExisting end
+    local state = readCommands and readCommands(companion)
     if not state or type(state.care) ~= "table"
         or state.care.playerHostile ~= true then return false end
     if state.care.playerFightToDeath == true
         or U().nativeHealth(player) > PLAYER_CONFLICT_STOP_HEALTH then return true end
+    if observeOnly then return false end
     state.care.playerHostile = false
     state.care.playerCeasefire = true
     if SC.Relationship then
@@ -2603,7 +2606,7 @@ function Factions.playerConflictHostile(companion, player)
     return false
 end
 
-local function allegianceFacts(source, target, player)
+local function allegianceFacts(source, target, player, observeOnly)
     -- SWM owns these people even when another compatibility mod temporarily
     -- annotates their zombie bodies. Never infer hostility from those fields.
     if U().isStayWithMeNpc(source) or U().isStayWithMeNpc(target) then
@@ -2613,9 +2616,9 @@ local function allegianceFacts(source, target, player)
     local sourceParty = isPlayerPartyMember(source, player)
     local targetParty = isPlayerPartyMember(target, player)
     local playerConflictHostile = (source == player and targetParty
-        and Factions.playerConflictHostile(target, player))
+        and Factions.playerConflictHostile(target, player, observeOnly))
         or (target == player and sourceParty
-            and Factions.playerConflictHostile(source, player)) or false
+            and Factions.playerConflictHostile(source, player, observeOnly)) or false
     local externalHostile = false
     if SC.BanditsAdapter and target ~= nil and U().isBanditsNpc(target) then
         externalHostile = SC.BanditsAdapter.relationship(target, source) == "hostile"
@@ -2661,6 +2664,13 @@ end
 function Factions.isProtectedBetween(source, target, player)
     player = player or localPlayer()
     return SC.Allegiance.isProtected(allegianceFacts(source, target, player))
+end
+
+-- The native hit loop must never settle a conflict or stop an actor while
+-- deciding which targets this already committed collision can damage.
+function Factions.firearmTargetProtected(source, target, player)
+    player = player or localPlayer()
+    return SC.Allegiance.isProtected(allegianceFacts(source, target, player, true))
 end
 
 local function visibleHumanCandidate(observer, candidate, maximumDistance)

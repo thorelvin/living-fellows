@@ -16,6 +16,11 @@ local function U()
     return SC.GameplayUtil
 end
 
+local function inventoryRevision(actor)
+    local index = SC.InventoryIndex
+    return index and index.version and index.version(actor)
+end
+
 local function nestedInventory(item)
     local nested, ok = U().call(item, "getItemContainer")
     if ok and nested then return nested, true end
@@ -332,6 +337,15 @@ local function loadRatios(role, actor)
     end
     return U().config("logisticsSoftLoadRatio") or 0.72,
         U().config("logisticsHardLoadRatio") or 0.90
+end
+
+function Logistics.expeditionLoadFull(actor)
+    local weight, capacity = U().inventoryLoad(actor)
+    if type(weight) ~= "number" or type(capacity) ~= "number" or capacity <= 0 then
+        return false
+    end
+    local _, hard = loadRatios(Logistics.roleOf(actor), actor)
+    return weight >= capacity * hard
 end
 
 -- Exact items a job owns until it delivers them: field-order harvest, wood
@@ -1491,7 +1505,9 @@ end
 function Logistics.status(actor)
     local state = states[actor]
     local current = U().nowMs()
-    if state and state.audit and current - (state.auditAt or 0) < 500 then
+    local revision = inventoryRevision(actor)
+    if state and state.audit and state.auditRevision == revision
+        and current - (state.auditAt or 0) < 500 then
         return state.audit
     end
     local audit = Logistics.audit(actor)
@@ -1653,7 +1669,7 @@ function Logistics.status(actor)
     audit.overloaded = audit.capacity > 0 and audit.ratio > audit.hardRatio
     state = state or {}
     states[actor] = state
-    state.audit, state.auditAt = audit, current
+    state.audit, state.auditAt, state.auditRevision = audit, current, revision
     return audit
 end
 
@@ -1696,24 +1712,79 @@ end
 -- Scavenging has its own admission context. Fetching supplies for jobs still
 -- uses canTake's existing targets and overload rules.
 function Logistics.lootAudit(actor, work, prepared)
+    local state = states[actor]
+    local revision = inventoryRevision(actor)
+    -- A prepared status can span decisions. Reuse it only while the native
+    -- inventory, revision and effective load policy still match.
+    if prepared and state and state.audit == prepared then
+        local weight, capacity, _, inventory = U().inventoryLoad(actor)
+        local role = Logistics.roleOf(actor)
+        local soft, hard = loadRatios(role, actor)
+        if revision ~= state.auditRevision or weight ~= prepared.weight
+            or capacity ~= prepared.capacity or inventory ~= prepared.inventory
+            or role ~= prepared.role or soft ~= prepared.softRatio or hard ~= prepared.hardRatio then
+            state.auditAt = -math.huge
+            prepared = nil
+        end
+    end
     local audit = prepared or Logistics.audit(actor)
     if audit.inventoryComplete then return audit end
     work.lootInventory = work.lootInventory or {}
     local preparation = work.lootInventory
     local data = preparation.auditData
-    local version = SC.InventoryIndex and SC.InventoryIndex.version and SC.InventoryIndex.version(actor)
-    if data then
-        local changed = preparation.weightProof ~= audit.weight or preparation.versionProof ~= version
+    local changed = preparation.inventoryProof ~= audit.inventory
+        or preparation.weightProof ~= audit.weight or preparation.versionProof ~= revision
+    if data and not changed then
         for _, node in ipairs(data.queue) do
             local list = select(1, U().call(node.container, "getItems"))
             if list == nil or U().listSize(list) ~= node.size
                 or node.bag and not U().inventoryContains(node.parent, node.bag) then changed = true break end
         end
-        if changed then preparation.auditData, preparation.inventoryScan = nil, nil end
     end
+    if changed then preparation.auditData, preparation.inventoryScan = nil, nil end
     local result = Preparation.inventory(actor, preparation)
-    if result then preparation.weightProof, preparation.versionProof = result.weight, version end
+    preparation.inventoryProof = audit.inventory
+    preparation.weightProof = result and result.weight or audit.weight
+    preparation.versionProof = revision
     return result
+end
+
+-- Expedition decisions need the carried items and physical load policy.
+-- Camp storage, equipment changes and surplus management have their own owner.
+function Logistics.expeditionLootAudit(actor, work, missionId)
+    local utility = U()
+    local current, revision = utility.nowMs(), inventoryRevision(actor)
+    local weight, capacity, _, inventory = utility.inventoryLoad(actor)
+    local role = Logistics.roleOf(actor)
+    local soft, hard = loadRatios(role, actor)
+    local proof = work.expeditionLootInventory
+    if not proof or proof.actor ~= actor or proof.missionId ~= missionId
+        or proof.revision ~= revision or proof.inventory ~= inventory
+        or proof.weight ~= weight or proof.capacity ~= capacity or proof.role ~= role
+        or proof.soft ~= soft or proof.hard ~= hard or current < proof.startedAt
+        or proof.auditAt and current - proof.auditAt >= 500 then
+        proof = { actor = actor, missionId = missionId, revision = revision, inventory = inventory,
+            weight = weight, capacity = capacity, role = role, soft = soft, hard = hard,
+            startedAt = current }
+        work.expeditionLootInventory = proof
+    end
+    if proof.audit then return proof.audit end
+
+    local performance = SC.Performance
+    local clock = performance and type(performance.record) == "function" and performance.preciseNowMs
+    local started = clock and clock()
+    local audit = proof.partialAudit or Logistics.audit(actor)
+    if not audit.inventoryComplete then
+        proof.partialAudit = audit
+        audit = Logistics.lootAudit(actor, proof, audit)
+    end
+    if audit then
+        proof.audit, proof.auditAt, proof.partialAudit, proof.lootInventory = audit, current, nil, nil
+    end
+    if clock then
+        performance.record("scavenge.site.inventory.audit", utility.idOf(actor), clock() - started, 1, not audit)
+    end
+    return audit
 end
 
 function Logistics.lootProjection(actor, audit)

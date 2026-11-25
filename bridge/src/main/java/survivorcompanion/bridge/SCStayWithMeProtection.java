@@ -89,7 +89,7 @@ final class SCStayWithMeProtection {
         return hits;
     }
 
-    private static void recycle(HitInfo hit) {
+    static void recycle(HitInfo hit) {
         if (PoolAccess.release == null) return;
         try {
             PoolAccess.release.invoke(PoolAccess.pool.get(PoolAccess.instance.invoke(null)), hit);

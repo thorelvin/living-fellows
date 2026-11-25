@@ -135,7 +135,7 @@ for _,case in ipairs({
         local oldParts=patient.body.getBodyParts
         patient.body.getBodyParts=function(self) fallbackReads=fallbackReads+1;return oldParts(self) end
         if mode==1 then
-            SCBridge={getProtocol=function() return '42.22-isocompanion-36' end,
+            SCBridge={getProtocol=function() return '42.22-isocompanion-37' end,
                 fillBodyFacts=function(character,out)
                     out.health,out.infected,out.apparentInfection=100,false,0
                     out.infectionTime,out.infectionDuration,out.count=-1,-1,1
