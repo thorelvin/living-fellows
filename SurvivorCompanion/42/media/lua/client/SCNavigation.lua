@@ -6905,11 +6905,47 @@ end
 -- loop remains the sole owner of movement, portals, recovery, and progress.
 -- Keep route preparation outside request() to stay within Kahlua's upvalue
 -- limit for that already large function.
+function Navigation._pendingScavengeReceipt(intent)
+    local receipt = type(intent) == "table" and intent.interactionRouteReceipt or nil
+    if type(receipt) == "table" and receipt.expeditionScavenge == true and not receipt.used
+        and intent.action == "move_to_scavenge" and intent.scavengeMissionId ~= nil then
+        return receipt
+    end
+    return nil
+end
+
+function Navigation._rejectScavengeReceipt(receipt, reason)
+    if not receipt.invalidated then
+        receipt.invalidated, receipt.failure = true, reason
+        SC.WorkRoutes.count("scavenge.interaction-route.rejected")
+    end
+    return false, "scavenge_route_invalidated"
+end
+
+function Navigation._interactionRouteRequested(intent, receipt, token)
+    if receipt.expeditionScavenge ~= true then
+        return SC.WorkRoutes.storageRouteRequested(intent)
+    end
+    return intent.action == "move_to_scavenge" and intent.scavengeMissionId ~= nil
+        and intent.container ~= nil and intent.object ~= nil
+        and intent.scavengeMissionId == receipt.scavengeMissionId
+        and intent.container == receipt.container and intent.object == receipt.object
+        and token ~= nil and token == receipt.boundToken and token == intent.supervisorToken
+        and token.owner == "encounter" and token.action == "scavenge" and token.terminalAt == nil
+        and intent.requireSameSquare == true and intent.workCampOnly ~= true
+        and intent.stealthAvoidance ~= true and intent.urgent ~= true and intent.emergency ~= true
+        and intent.survivalCritical ~= true and intent.draggingBody ~= true
+        and intent.movingTarget ~= true and intent.followRecovery ~= true and intent.player == nil
+end
+
 function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquare, intent, now)
     local receipt = intent.interactionRouteReceipt
     if type(receipt) ~= "table" or receipt.used or receipt.invalidated
         or state.path ~= nil or state.pathSearch ~= nil or state.nativeLease ~= nil then return false end
     local function reject(reason)
+        if receipt.expeditionScavenge == true then
+            return Navigation._rejectScavengeReceipt(receipt, reason)
+        end
         receipt.invalidated, receipt.failure = true, reason
         return false
     end
@@ -6917,7 +6953,7 @@ function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquar
     local data, known = utility.call(actor, "getModData")
     local serial = known and type(data) == "table" and (tonumber(data.SC_CommandSerial) or 0) or nil
     local _, token = supervisedToken(intent)
-    if not SC.WorkRoutes.storageRouteRequested(intent)
+    if not Navigation._interactionRouteRequested(intent, receipt, token)
         or actor ~= receipt.actor or receipt.ownerState ~= intent.interactionRouteOwner
         or receipt.object ~= intent.object or receipt.commandSerial ~= serial
         or now > (tonumber(receipt.expiresAt) or 0)
@@ -6929,6 +6965,18 @@ function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquar
     end
     if token and (token.actor ~= actor or token.terminalAt ~= nil) then
         return reject("receipt_token_changed")
+    end
+    if receipt.expeditionScavenge == true then
+        if utility.squareOf(receipt.object) ~= receipt.objectSquare then
+            return reject("receipt_object_moved")
+        end
+        local direct = false
+        for _, square in ipairs(Navigation.interactionTargets(actor, receipt.object, {
+            snapshot = intent.snapshot, requireDirectAccess = true, avoidDoorThreshold = true,
+        })) do
+            if square == receipt.endpoint then direct = true break end
+        end
+        if not direct then return reject("receipt_contact_changed") end
     end
     local candidates = intent.goalCandidates
     if type(candidates) == "table" then
@@ -6956,6 +7004,9 @@ function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquar
     state.pathReason, state.lastPlanDurationMs = "interaction_route_receipt", 0
     state.lastProgressAt, state.nextRepathAt = now, now + (utility.config("navigationRepathMs") or 900)
     SC.WorkRoutes.count("navigation.interaction-route.reused")
+    if receipt.expeditionScavenge == true then
+        SC.WorkRoutes.count("scavenge.interaction-route.reused")
+    end
     Navigation._resetRouteProjection(state)
     return true
 end
@@ -7194,6 +7245,19 @@ function Navigation.request(actor, target, movementMode, intent)
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local sourceSquare = utility.squareOf(actor)
     local requestedGoalSquare = targetSquare(target)
+    local scavengeReceipt = SC.Navigation._pendingScavengeReceipt(intent)
+    if scavengeReceipt then
+        local _, token = supervisedToken(intent)
+        if scavengeReceipt.invalidated or not SC.Navigation._interactionRouteRequested(intent, scavengeReceipt, token)
+            or scavengeReceipt.actor ~= actor or scavengeReceipt.ownerState ~= intent.interactionRouteOwner
+            or utility.nowMs() > (tonumber(scavengeReceipt.expiresAt) or 0) then
+            return SC.Navigation._rejectScavengeReceipt(scavengeReceipt, "receipt_owner_changed")
+        end
+        if not sameSquare(sourceSquare, scavengeReceipt.source)
+            or not sameSquare(requestedGoalSquare, scavengeReceipt.endpoint) then
+            return SC.Navigation._rejectScavengeReceipt(scavengeReceipt, "receipt_endpoint_changed")
+        end
+    end
     if not sourceSquare then return false, "invalid_source" end
     if SC.BaseLife and SC.BaseLife.restriction
         and SC.BaseLife.restriction(utility.idOf(actor)) == "watch"
@@ -7610,6 +7674,10 @@ function Navigation.request(actor, target, movementMode, intent)
 
     SC.Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
+    if scavengeReceipt and not scavengeReceipt.used then
+        -- The selector can try the next source without a second plan to this one.
+        return SC.Navigation._rejectScavengeReceipt(scavengeReceipt, "receipt_not_adopted")
+    end
     SC.Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
     if not state.path and now >= (state.nextRepathAt or 0) then
@@ -8713,6 +8781,8 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
         return nil, "invalid_actor"
     end
     options = type(options) == "table" and options or {}
+    local expeditionScavenge = options.expeditionScavenge == true
+    local performance = expeditionScavenge and SC.Performance or nil
     local origin = utility.squareOf(actor)
     local ox, oy, oz = utility.position(origin)
     if ox == nil then return nil, "invalid_source" end
@@ -8752,6 +8822,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     end
     table.sort(signature)
     local identity = tostring(choiceKey or "interaction")
+        .. (expeditionScavenge and ":expedition-scavenge" or "")
         .. ":" .. table.concat(signature, "|")
     local now = utility.nowMs()
     local survey = ownerState.navigationChoice
@@ -8764,6 +8835,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     end
     if survey and (survey.identity ~= identity or survey.choiceKey ~= choiceKey
         or now >= (survey.expiresAt or 0)
+        or expeditionScavenge and survey.winnerId and origin ~= survey.origin
         or survey.winnerId and ((ox - survey.originX) ^ 2
             + (oy - survey.originY) ^ 2 > 16)) then
         survey, ownerState.navigationChoice = nil, nil
@@ -8780,7 +8852,7 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
             identity = identity, choiceKey = choiceKey, origin = origin,
             originX = ox, originY = oy, batch = 1,
             startedAt = now, progressAt = now,
-            expiresAt = now + 90000, order = {},
+            expiresAt = now + (expeditionScavenge and 3000 or 90000), order = {},
         }
         for index, entry in ipairs(rows) do survey.order[entry.id] = index end
         ownerState.navigationChoice = survey
@@ -8795,13 +8867,15 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
     -- A survey from a substantially different position must not keep routing
     -- toward a choice that was optimal before the actor moved.
     if (survey.job or survey.bestId)
-        and ((ox - survey.originX) ^ 2 + (oy - survey.originY) ^ 2 > 4) then
+        and (expeditionScavenge and origin ~= survey.origin
+            or (ox - survey.originX) ^ 2 + (oy - survey.originY) ^ 2 > 4) then
         survey.job, survey.batch = nil, 1
         survey.bestId, survey.bestCost, survey.bestTier = nil, nil, nil
         survey.bestCanBound, survey.hadUnknown = nil, nil
+        survey.bestReceipt = nil
         survey.origin, survey.originX, survey.originY = origin, ox, oy
     end
-    local maximum = math.max(1, math.min(12,
+    local maximum = math.max(1, math.min(expeditionScavenge and 4 or 12,
         math.floor(tonumber(options.maxChoices) or 8)))
     local function bestSettled(nextRow)
         return survey.bestId and (not nextRow or nextRow.tier > survey.bestTier
@@ -8816,9 +8890,9 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
         return nil, "no_candidates"
     end
     while true do
+        local first = survey.batch
+        local row = rows[first]
         if not survey.job then
-            local first = survey.batch
-            local row = rows[first]
             -- A reachable choice in the first Euclidean batch may require a
             -- long walk around a wall. Search later batches in the same tier
             -- while their straight-line lower bound can still beat it.
@@ -8834,6 +8908,29 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                 survey.expiresAt = now + (survey.hadUnknown and 2000 or 5000)
                 return nil, survey.failedReason
             end
+        end
+        local quota = math.max(8, math.min(96, math.floor(tonumber(options.nodeQuota) or 48)))
+        local claim, searchStarted
+        if performance then
+            -- Decision work can use the scheduler's wall budget before Search
+            -- gets a turn. Allow one quota-backed survey slice across the crew
+            -- per frame. The actor scheduler already staggers their turns.
+            local frame = type(performance.frameId) == "function" and performance.frameId() or nil
+            if frame ~= nil and frame == Navigation._lastScavengeSurveyFrame then return nil, "pending" end
+            if type(performance.claimUnits) == "function" then
+                quota, claim = performance.claimUnits("navigation", quota, false, true)
+            end
+            if quota <= 0 then
+                if type(performance.markYield) == "function" then
+                    performance.markYield("scavenge.interaction-survey", utility.idOf(actor), 0)
+                end
+                return nil, "pending"
+            end
+            Navigation._lastScavengeSurveyFrame = frame
+            searchStarted = type(performance.preciseNowMs) == "function"
+                and performance.preciseNowMs() or now
+        end
+        if not survey.job then
             local goals, owners = {}, {}
             local last = math.min(#rows, first + maximum - 1)
             local tier = row.tier
@@ -8842,7 +8939,8 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                 if entry.tier ~= tier then last = index - 1 break end
                 local targets = Navigation.interactionTargets(actor, entry.object, {
                     requireDirectAccess = options.requireDirectAccess ~= false,
-                    maximum = math.max(1, math.min(4,
+                    snapshot = expeditionScavenge and options.snapshot or nil,
+                    maximum = math.max(1, math.min(expeditionScavenge and 8 or 4,
                         math.floor(tonumber(options.targetsPerChoice) or 4))),
                     avoidDoorThreshold = true,
                 })
@@ -8858,9 +8956,15 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
             if #goals > 0 then
                 survey.owners = owners
                 survey.progressAt, survey.lastProgressSerial, survey.lastExpanded = now, 0, 0
+                local navigationState = expeditionScavenge and states[actor] or nil
                 survey.job = Navigation.beginPathSearch(survey.origin, goals[1],
                     options.snapshot, {
                         actor = actor, goalSquares = goals,
+                        action = expeditionScavenge and "move_to_scavenge" or nil,
+                        blockedEdges = navigationState and navigationState.blockedEdges,
+                        blockedSquares = navigationState and navigationState.blockedSquares,
+                        routeMemory = navigationState and navigationState.routeMemory,
+                        now = expeditionScavenge and now or nil,
                         nodeBudget = math.max(300, math.min(2400,
                             math.floor(tonumber(options.nodeBudget) or 1200))),
                         alternatives = false,
@@ -8873,17 +8977,39 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                                 })
                             end or nil,
                     })
+                if expeditionScavenge then
+                    SC.WorkRoutes.count("scavenge.interaction-survey.started")
+                end
             end
         end
         if survey.job then
-            local status, path, reason, expanded, _, used = Navigation.resumePathSearch(survey.job,
-                math.max(8, math.min(96,
-                    math.floor(tonumber(options.nodeQuota) or 48))))
+            if performance and type(performance.remainingBudgetMs) == "function" then
+                local remainingTime = performance.remainingBudgetMs()
+                if remainingTime ~= nil then
+                    -- A one-millisecond slice can advance a short local proof
+                    -- even after the frame's soft wall-time budget has elapsed.
+                    survey.job.pathOptions.sliceBudgetMs = math.max(1, remainingTime)
+                    if remainingTime < 1 then SC.WorkRoutes.count("scavenge.interaction-survey.micro-slices") end
+                else
+                    survey.job.pathOptions.sliceBudgetMs = nil
+                end
+            end
+            local status, path, reason, expanded, _, used = Navigation.resumePathSearch(survey.job, quota)
             local serial = tonumber(survey.job.progressSerial) or 0
+            local progressed = false
             if serial > (survey.lastProgressSerial or 0)
                 or (tonumber(expanded) or 0) > (survey.lastExpanded or 0)
                 or (tonumber(used) or 0) > 0 then
-                survey.progressAt = now
+                progressed, survey.progressAt = true, now
+            end
+            if claim and type(performance.settleUnits) == "function" then
+                performance.settleUnits(claim, math.max(tonumber(used) or 0, progressed and 1 or 0))
+            end
+            if performance and type(performance.record) == "function" then
+                local finished = type(performance.preciseNowMs) == "function"
+                    and performance.preciseNowMs() or utility.nowMs()
+                performance.record("scavenge.interaction-survey", utility.idOf(actor),
+                    finished - searchStarted, used or 0, status == "pending")
             end
             survey.lastProgressSerial = serial
             survey.lastExpanded = tonumber(expanded) or 0
@@ -8920,14 +9046,22 @@ function Navigation.selectInteraction(actor, ownerState, choiceKey, choices, opt
                             choiceKey = choiceKey, choiceId = winner.id,
                             commandSerial = serial, source = path[1], endpoint = endpoint,
                             path = copy, expiresAt = now + 5000,
+                            expeditionScavenge = expeditionScavenge or nil,
+                            container = expeditionScavenge and winner.choice.container or nil,
+                            objectSquare = expeditionScavenge and winner.square or nil,
                         } or nil
                     else survey.bestReceipt = nil end
                 end
                 if bestSettled(rows[survey.batch]) then return returnBest() end
             end
-            if reason == "budget" or reason == "partial" then
+            if reason == "budget" or reason == "partial"
+                or expeditionScavenge and completedJob.failure
+                    and completedJob.failure.nativeFallbackAllowed == true then
                 survey.hadUnknown = true
             end
+        elseif claim and type(performance.settleUnits) == "function" then
+            -- Checking the offered geometry did work even when it yielded no goals.
+            performance.settleUnits(claim, 1)
         end
         -- Never start a second batch in the same decision tick. This keeps
         -- many workers from multiplying the frame's route-search cost.
@@ -8988,6 +9122,12 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     if traversalHandled then return traversalAccepted, traversalReason end
     local service, token = supervisedToken(intent)
     local now = utility.nowMs()
+    local scavengeReceipt = Navigation._pendingScavengeReceipt(intent)
+    if scavengeReceipt and (scavengeReceipt.invalidated
+        or not Navigation._interactionRouteRequested(intent, scavengeReceipt, token)
+        or now > (tonumber(scavengeReceipt.expiresAt) or 0)) then
+        return Navigation._rejectScavengeReceipt(scavengeReceipt, "receipt_owner_changed")
+    end
     local valid, seen = {}, {}
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
         local square = utility.squareOf(candidate) or candidate
@@ -9000,7 +9140,12 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             valid[#valid + 1] = square
         end
     end
-    if #valid == 0 then return false, "no_interaction_targets" end
+    if #valid == 0 then
+        if scavengeReceipt then
+            return Navigation._rejectScavengeReceipt(scavengeReceipt, "receipt_candidate_changed")
+        end
+        return false, "no_interaction_targets"
+    end
     -- Keep the candidate-set identity stable when another companion briefly
     -- occupies one of the standing tiles. The preference may change, but that
     -- must not discard a search already winding around a wall to this object.
@@ -9112,6 +9257,21 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         end
     elseif state.nativeLease and state.multiGoalKey ~= key and not keep then
         clearMovementTransients(actor, state)
+    end
+
+    if scavengeReceipt then
+        for _, square in ipairs(valid) do
+            if sameSquare(square, scavengeReceipt.endpoint)
+                and not state.multiGoalFailures[squareKey(square)] then
+                intent.multiGoalFallback, intent.goalCandidates = true, valid
+                state.multiGoalKey, state.multiGoalSelected = key, square
+                local accepted, reason = Navigation.request(actor, square,
+                    movementMode or "walk", intent)
+                if not accepted then state.multiGoalSelected = nil end
+                return accepted, reason, accepted and square or nil
+            end
+        end
+        return Navigation._rejectScavengeReceipt(scavengeReceipt, "receipt_candidate_changed")
     end
 
     if intent.preferVerifiedPath ~= true

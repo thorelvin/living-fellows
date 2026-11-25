@@ -1672,6 +1672,16 @@ local function behindLockedDoor(actor, square, current)
     return ok and blocked == true
 end
 
+local function rememberSiteLock(access, square)
+    if access then
+        local room = U().call(square, "getRoom") or square
+        if not access.lockedSeen[room] then
+            access.lockedSeen[room] = true
+            access.lockedRooms[#access.lockedRooms + 1] = { room = room, square = square }
+        end
+    end
+end
+
 local function inSelectedSite(siteId, square)
     if siteId == nil then return true end
     local places = SC.ExpeditionPlaces
@@ -1771,6 +1781,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         if accessible and behindLockedDoor(actor, square, current) then
             accessible = false
             job.emptyProof = nil
+            rememberSiteLock(state.siteRouteAccess, square)
         end
         if accessible then
             local function addContainer(container)
@@ -1906,14 +1917,17 @@ local function clearTaskFields(state)
     state.lootPhase = nil
 end
 
-local function clearSearchFields(actor, state)
+local function clearSearchFields(actor, state, keepSiteSearch)
     local selection = state and state.selectionJob or nil
     if selection and selection.bestContainer then
         releaseContainer(selection.bestContainer, actor)
     end
     if state then
         state.selectionJob = nil
-        state.containerSearch = nil
+        if not keepSiteSearch then
+            state.containerSearch = nil
+            state.siteRouteAccess = nil
+        end
     end
 end
 
@@ -1936,7 +1950,7 @@ cleanupScavengeTarget = function(actor, state, options)
     end
     if container then releaseContainer(container, actor) end
     state.visit, state.lootInventory, state.visitSettled = nil, nil, nil
-    clearSearchFields(actor, state)
+    clearSearchFields(actor, state, options.keepSiteSearch)
     if task and options.status ~= false then
         state.lastStatus = {
             phase = options.phase or "cancelled",
@@ -1968,6 +1982,11 @@ cleanupScavengeTarget = function(actor, state, options)
                 .. " targetSquare=" .. tostring(task.containerX and math.floor(task.containerX) or "?")
                 .. ":" .. tostring(task.containerY and math.floor(task.containerY) or "?")
                 .. ":" .. tostring(task.containerZ and math.floor(task.containerZ) or "?"))
+            if task.routeAware and options.reason == "approach_timeout" then
+                print("[SurvivorCompanion/scavenge-route] actor=" .. tostring(U().idOf(actor))
+                    .. " action=approach_timeout standSquare="
+                    .. tostring(task.lastStandingSquare or "?"))
+            end
         end
     end
     clearTaskFields(state)
@@ -2233,10 +2252,14 @@ local function beginTask(actor, state, container, item, category, owner, utility
                 item = task.itemType,
             },
             onCancel = function(cancelActor, cancelReason)
+                local keepSiteSearch = task.routeAware and (cancelReason == "scavenge_route_invalidated"
+                    or cancelReason == "nothing_needed")
                 cleanupScavengeTarget(cancelActor, state, {
                     cancelVisual = true, stopMovement = true,
                     reason = cancelReason or "scavenge_cancelled",
-                    phase = "cancelled", memoryResult = Encounter._cancelMemoryResult(cancelReason),
+                    phase = "cancelled", memoryResult = cancelReason ~= "scavenge_route_invalidated"
+                        and Encounter._cancelMemoryResult(cancelReason) or nil,
+                    keepSiteSearch = keepSiteSearch,
                     time = now(), fromSupervisor = true,
                 })
                 return true, cancelReason
@@ -2279,7 +2302,211 @@ local function beginTask(actor, state, container, item, category, owner, utility
     return task
 end
 
-local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time, retry)
+function Encounter._siteRouteContext(actor, state, commands, time)
+    local siteId = commands.scavengeSite and commands.scavengeSite.buildingId
+    if commands.scavengeMissionId == nil or siteId == nil or commands.scavengeTargetContainer ~= nil
+        or not SC.Navigation or type(SC.Navigation.selectInteraction) ~= "function"
+        or type(SC.Navigation.interactionTargets) ~= "function" then
+        return nil
+    end
+    local square = U().squareOf(actor)
+    local room = U().call(square, "getRoom")
+    local _, _, floor = U().position(square)
+    if floor == nil then return nil end
+    local access = state.siteRouteAccess
+    local key = tostring(commands.scavengeMissionId) .. ":" .. tostring(siteId)
+        .. ":" .. tostring(commands.scavengeRequestedCategory) .. ":" .. tostring(commands.commandSerial)
+    if not access or access.key ~= key or access.floor ~= floor then
+        if access then state.containerSearch, state.selectionJob = nil, nil end
+        access = { key = key, siteId = siteId, deferred = {}, crossFloor = {}, lockedRooms = {}, lockedSeen = {},
+            floor = floor, room = room }
+        state.siteRouteAccess = access
+    elseif access.room ~= room then
+        local scan = state.containerSearch
+        if scan and scan.siteColumns then
+            for container in pairs(access.deferred) do scan.candidates[#scan.candidates + 1] = container end
+        end
+        access.room, access.deferred, access.waitUntil = room, {}, nil
+    end
+    -- Only probe one remembered room per decision. A real access change
+    -- invalidates discovery as well as the route survey, since its old cursor
+    -- may already have passed the newly accessible shelves.
+    local count = #access.lockedRooms
+    if count > 0 then
+        local index = (access.lockedCursor or 0) % count + 1
+        local locked = access.lockedRooms[index]
+        access.lockedCursor = index
+        if not behindLockedDoor(actor, locked.square, time) then
+            access.lockedSeen[locked.room] = nil
+            access.lockedRooms[index] = access.lockedRooms[count]
+            access.lockedRooms[count] = nil
+            access.lockedCursor = index - 1
+            access.deferred, access.crossFloor, access.waitUntil = {}, {}, nil
+            state.containerSearch, state.selectionJob = nil, nil
+        end
+    end
+    return access, square
+end
+
+local function siteRouteEligible(actor, state, access, container, owner, storages, time)
+    if containerOnCooldown(container, time) or not memoryAllows(state, container, time) then return nil end
+    local reservation = pruneReservation(container, time)
+    if reservation and reservation.actor ~= actor then return nil end
+    local square = U().squareOf(owner)
+    if not square or owner ~= containerOwner(container) or not inSelectedSite(access.siteId, square)
+        or not Encounter.mayTakeFrom(container, storages, insideBase(square)) then return nil end
+    if behindLockedDoor(actor, square, time) then
+        rememberSiteLock(access, square)
+        return nil
+    end
+    return square
+end
+
+local function siteRouteContact(actor, owner, snapshot)
+    if U().sameSquare(actor, U().squareOf(owner)) then return true end
+    for _, stand in ipairs(SC.Navigation.interactionTargets(actor, owner, {
+        snapshot = snapshot, requireDirectAccess = true, avoidDoorThreshold = true,
+    })) do
+        if U().sameSquare(actor, stand) then return true end
+    end
+    return false
+end
+
+local function traceSiteRoute(actor, action, source, stand, detail)
+    print("[SurvivorCompanion/scavenge-route] actor=" .. tostring(U().idOf(actor))
+        .. " action=" .. action .. " actorSquare=" .. tostring(U().squareKey(U().squareOf(actor)))
+        .. " targetSquare=" .. tostring(source and U().squareKey(source) or "?")
+        .. " standSquare=" .. tostring(stand and U().squareKey(stand) or "?")
+        .. " detail=" .. tostring(detail or "-"))
+end
+
+function Encounter._retireSiteRoute(actor, state, task, time)
+    local access = state.siteRouteAccess
+    if access then access.deferred[task.container] = time + 8000 end
+    traceSiteRoute(actor, "invalidated", U().squareOf(task.owner),
+        task.interactionRoute and task.interactionRoute.endpoint, "handoff_changed")
+    local cancelled, why = resetScavengeTarget(actor, state, {
+        reason = "scavenge_route_invalidated", phase = "cancelled",
+        stopMovement = true, keepSiteSearch = true, time = time,
+    })
+    return true, cancelled == false and why or "searching_for_supplies"
+end
+
+local function startSiteRouteTask(actor, state, commands, audit, time, context, selection, row, receipt)
+    local access = selection.siteRouteAccess
+    local square = siteRouteEligible(actor, state, access, row.container, row.object, context.storages, time)
+    if not square or not reserveContainer(row.container, actor, time) then return nil end
+    local task, reason = beginTask(actor, state, row.container, Encounter.UNOPENED, nil,
+        row.object, row.score, commands, audit, time)
+    if not task then return nil, reason end
+    task.routeAware = true
+    if receipt and task.supervisorToken then
+        receipt.scavengeMissionId = task.scavengeMissionId
+        receipt.boundToken = task.supervisorToken
+        task.interactionRoute = receipt
+    end
+    local scan = state.containerSearch
+    if scan and scan.siteColumns then
+        for _, other in ipairs(selection.siteRouteRows) do
+            if other ~= row and access.deferred[other.container] == nil then
+                scan.candidates[#scan.candidates + 1] = other.container
+            end
+        end
+    end
+    access.crossFloor[row.container] = nil
+    state.selectionJob = nil
+    traceSiteRoute(actor, "selected", square, receipt and receipt.endpoint or row.contact and U().squareOf(actor),
+        receipt and "verified_route" or row.contact and "direct_contact" or "cross_floor")
+    return task
+end
+
+function Encounter._selectSiteRoute(actor, state, commands, audit, time, snapshot, context, selection)
+    local access = selection.siteRouteAccess
+    local rows = selection.siteRouteRows
+    if selection.routeIndex == nil then
+        table.sort(rows, function(a, b)
+            if a.contact ~= b.contact then return a.contact end
+            if a.sameRoom ~= b.sameRoom then return a.sameRoom end
+            if a.score ~= b.score then return a.score > b.score end
+            return a.id < b.id
+        end)
+        selection.routeIndex = 1
+    end
+    if not selection.routeBatch then
+        local batch = {}
+        while selection.routeIndex <= #rows and #batch < 4 do
+            local row = rows[selection.routeIndex]
+            selection.routeIndex = selection.routeIndex + 1
+            if siteRouteEligible(actor, state, access, row.container, row.object, context.storages, time) then
+                if row.contact and siteRouteContact(actor, row.object, snapshot) then
+                    local task, reason = startSiteRouteTask(actor, state, commands, audit, time, context, selection, row)
+                    if task or reason then return task, reason end
+                end
+                batch[#batch + 1] = row
+            end
+        end
+        if #batch > 0 then
+            selection.routeBatch, selection.routeSurvey = batch, {}
+        end
+    end
+    local batch = selection.routeBatch
+    if batch then
+        local row, cause, receipt = SC.Navigation.selectInteraction(actor, selection.routeSurvey,
+            access.key, batch, {
+                snapshot = snapshot, expeditionScavenge = true, requireDirectAccess = true,
+                maxChoices = 4, targetsPerChoice = 8, nodeBudget = 300, nodeQuota = 24, retainRoute = true,
+            })
+        if cause == "pending" then
+            state.lastStatus = { phase = "search", reason = "checking_container_access", expires = time + 1000 }
+            return nil, "searching"
+        end
+        if row and cause == "selected" and (receipt or siteRouteContact(actor, row.object, snapshot)) then
+            if not receipt then row.contact = true end
+            local task, reason = startSiteRouteTask(actor, state, commands, audit, time, context, selection, row, receipt)
+            if task or reason then return task, reason end
+            cause = "source_changed"
+        end
+        for _, deferred in ipairs(batch) do
+            access.deferred[deferred.container] = time + 8000
+            traceSiteRoute(actor, "deferred", U().squareOf(deferred.object), nil, cause)
+        end
+        selection.routeBatch, selection.routeSurvey = nil, nil
+        return nil, "searching"
+    end
+    if selection.sitePassComplete then
+        local best
+        for container, row in pairs(access.crossFloor) do
+            if not siteRouteEligible(actor, state, access, container, row.object, context.storages, time) then
+                access.crossFloor[container] = nil
+            elseif not best or row.score > best.score
+                or row.score == best.score and row.id < best.id then
+                best = row
+            end
+        end
+        if best then
+            local task, reason = startSiteRouteTask(actor, state, commands, audit, time, context, selection, best)
+            if task or reason then return task, reason end
+            access.crossFloor[best.container] = nil
+        end
+        local retryAt = #access.lockedRooms > 0 and time + 8000 or nil
+        for container, expires in pairs(access.deferred) do
+            retryAt = math.min(retryAt or expires, expires)
+            if expires <= time then access.deferred[container] = nil end
+        end
+        if retryAt then
+            access.waitUntil = math.max(time + 1000, retryAt)
+            state.lastStatus = { phase = "search", reason = "checking_container_access", expires = access.waitUntil }
+        end
+    end
+    state.selectionJob = nil
+    if not selection.sitePassComplete or access.waitUntil then return nil, "searching" end
+    if SC.ExpeditionPrototype and type(SC.ExpeditionPrototype.noteSearchWorkerFailure) == "function" then
+        SC.ExpeditionPrototype.noteSearchWorkerFailure(actor, commands.scavengeMissionId, "nothing_needed")
+    end
+    return nil, "nothing_needed"
+end
+
+local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time, retry, snapshot)
     local selection = state.selectionJob
     if selection and (selection.commandSerial ~= (tonumber(commands.commandSerial) or 0)
         or selection.prioritizeMeleeWeapon ~= (commands.prioritizeMeleeWeapon == true)
@@ -2306,6 +2533,12 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     if openComplete == false and (commands.scavengeTargetContainer == nil
         or state.openContainer == commands.scavengeTargetContainer) then return nil, "searching" end
 
+    local access, origin = Encounter._siteRouteContext(actor, state, commands, time)
+    selection = state.selectionJob
+    if access and access.waitUntil then
+        if time < access.waitUntil then return nil, "searching" end
+        access.waitUntil = nil
+    end
     if not selection then
         local candidates, complete, progress, total, sitePassComplete, emptyProof = candidateContainers(
             actor, player, state, allowCorpses, time, commands, retry)
@@ -2327,6 +2560,8 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             scavengeTargetContainer = commands.scavengeTargetContainer,
             sitePassComplete = sitePassComplete,
             emptyProof = emptyProof,
+            siteRouteAccess = access,
+            siteRouteRows = access and {} or nil,
         }
         state.selectionJob = selection
     end
@@ -2342,7 +2577,29 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         local container = selection.candidates[selection.index]
         selection.index = selection.index + 1
         processed = processed + 1
-        if reserveContainer(container, actor, time) then
+        if access then
+            local deferred = access.deferred[container]
+            if not deferred or time >= deferred then
+                access.deferred[container] = nil
+                local owner = containerOwner(container)
+                local square = siteRouteEligible(actor, state, access, container, owner, context.storages, time)
+                if square and not corpseContainers[container] then
+                    local score = Encounter.blindContainerScore(actor, container, owner, commands, needs)
+                    if score > 0 then
+                        local _, _, floor = U().position(square)
+                        local row = { id = tostring(container), object = owner, container = container,
+                            score = score, tier = 1 }
+                        if floor == access.floor then
+                            row.sameRoom = U().call(square, "getRoom") == access.room
+                            row.contact = U().distanceSq(origin, square) <= 2 and siteRouteContact(actor, owner, snapshot)
+                            selection.siteRouteRows[#selection.siteRouteRows + 1] = row
+                        else
+                            access.crossFloor[container] = row
+                        end
+                    end
+                end
+            end
+        elseif reserveContainer(container, actor, time) then
             local score, item, category, owner, complete
             owner = containerOwner(container)
             complete = true
@@ -2393,6 +2650,9 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             expires = time + 1000,
         }
         return nil, "searching"
+    end
+    if access then
+        return Encounter._selectSiteRoute(actor, state, commands, audit, time, snapshot, context, selection)
     end
     state.selectionJob = nil
     if state.containerSearch and state.containerSearch.siteColumns then
@@ -2750,7 +3010,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         local selectionReason, emptyProof
         task, selectionReason, emptyProof = selectTask(
             actor, selectionPlayer, state, commands,
-            needs, audit, allowCorpses, time, retry)
+            needs, audit, allowCorpses, time, retry, snapshot)
         if not task then
             if selectionReason == "searching" then
                 local scan = state.containerSearch or state.selectionJob
@@ -2799,6 +3059,10 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         snapshot = snapshot, requireDirectAccess = true,
         avoidDoorThreshold = true,
     })
+    local receipt = task.interactionRoute
+    if #targets == 0 and receipt and not receipt.used then
+        return Encounter._retireSiteRoute(actor, state, task, time)
+    end
     if #targets == 0 then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = true,
@@ -2832,7 +3096,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             return false, "approach_timeout"
         end
         setTaskPhase(actor, state, task, "approach", "approaching_container")
-        local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
+        local ok, status, stand = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_scavenge", container = task.container,
             -- Keep object identity for route invalidation. RequestAny selects
             -- a contact square; Navigation.request owns movement to it.
@@ -2848,7 +3112,14 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             -- its ordinary movement owner through the whole container approach.
             preferVerifiedPath = task.scavengeMissionId ~= nil,
             supervisorToken = task.supervisorToken,
+            scavengeMissionId = task.scavengeMissionId,
+            interactionRouteReceipt = receipt,
+            interactionRouteOwner = receipt and receipt.ownerState,
         })
+        if status == "scavenge_route_invalidated" then
+            return Encounter._retireSiteRoute(actor, state, task, time)
+        end
+        if task.routeAware and stand then task.lastStandingSquare = utility.squareKey(stand) end
         task.lastNavigationStatus = status
         local service = supervisor()
         if service and task.supervisorToken and type(service.progress) == "function" then
@@ -2911,7 +3182,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             end
             state.openContainer, state.visit = nil, nil
             resetScavengeTarget(actor, state, { reason = why, phase = "cancelled",
-                memoryResult = why == "nothing_needed" and "nothing_needed" or "left_items", time = time })
+                memoryResult = why == "nothing_needed" and "nothing_needed" or "left_items",
+                keepSiteSearch = task.routeAware and why == "nothing_needed", time = time })
             if why == "loadout_too_heavy" then finishHaul(actor, state, commands, time, false) end
             return false, why
         end

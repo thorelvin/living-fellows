@@ -2816,6 +2816,27 @@ local function candidateDue(actor, candidate, current)
     return U().isDue(actor, "decision_" .. candidate.kind, candidateInterval(candidate), current)
 end
 
+function Decision._siteRouteDue(actor, candidate, commands, current)
+    if candidate.kind ~= "scavenge" and candidate.kind ~= "encounter" then return false end
+    local siteId = commands.scavengeSite and commands.scavengeSite.buildingId
+    local encounter = SC.Encounter
+    if commands.scavenge ~= true or commands.scavengeMissionId == nil or siteId == nil
+        or commands.scavengeTargetContainer ~= nil or commands.order == "regroup" or commands.order == "retreat"
+        or not encounter or type(encounter.peek) ~= "function" then return false end
+    local state = encounter.peek(actor)
+    local selection = state and not state.task and state.selectionJob or nil
+    local access = selection and selection.siteRouteAccess
+    local survey = selection and selection.routeBatch and selection.routeSurvey
+        and selection.routeSurvey.navigationChoice
+    if not survey or survey.winnerId or survey.failedReason or not access or access.siteId ~= siteId
+        or selection.scavengeMissionId ~= commands.scavengeMissionId
+        or selection.scavengeRequestedCategory ~= commands.scavengeRequestedCategory
+        or selection.commandSerial ~= (tonumber(commands.commandSerial) or 0) then return false end
+    -- An existing proof gets more of the normal decision beats while discovery,
+    -- new shortlists and inventory transfers keep their existing cadence.
+    return U().isDue(actor, "decision_site_route", 125, current)
+end
+
 -- speechOnly: the companion is busy with an owned activity or a pause, so the
 -- silent hand signal (which moves and holds it) is not available. When that
 -- signal would have been the right warning, a busy companion stays quiet
@@ -4007,7 +4028,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return false, "no_candidate"
     end
 
-    if not candidateDue(actor, selected, current) then
+    if not candidateDue(actor, selected, current)
+        and not SC.Decision._siteRouteDue(actor, selected, commands, current) then
         -- Work discovery/transfer stays on its normal one-second cadence.
         -- While the same Scavenge task is approaching a container, Navigation
         -- owns the retained route and refreshes native movement input on every

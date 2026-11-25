@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.82 - Expedition scavenging routes
+
+- Choose expedition loot sources using verified approaches so companions can move on from an unreachable shelf.
+- Keep the path to the selected shelf and use an accessible closed door when the route calls for it.
+- Native bridge protocol `42.22-isocompanion-36`.
+
 ## 0.27.81 - Routine scan cadence
 
 - Check camp antibiotic supplies when a companion has a locally infected wound. Reuse quiet-care checks while keeping current wound and item checks for treatment.

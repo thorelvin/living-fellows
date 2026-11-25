@@ -191,6 +191,71 @@ for _, row in ipairs(rows) do
     check(handled == true and delegated == row[2], row[1] .. " reaches its controller: " .. tostring(reason))
 end
 
+do
+    modules()
+    local oldCommands, isDue = SC.Commands, SC.GameplayUtil.isDue
+    local searcher = person("building-search-cadence", 0)
+    local commands, runtime = order("stay"), { snapshot = quiet() }
+    commands.scavenge, commands.scavengeMissionId = true, "site-trip"
+    commands.scavengeSite = { buildingId = "house" }
+    commands.scavengeRequestedCategory = "medicine"
+    SC.Commands = { effective = function() return commands end }
+    SC.ExpeditionPrototype.isMember = function() return false end
+    local encounter, survey = { haul = { count = 1 } }, {}
+    local selection = { routeBatch = { {} }, routeSurvey = { navigationChoice = survey },
+        siteRouteAccess = { siteId = "house" }, scavengeMissionId = "site-trip",
+        scavengeRequestedCategory = "medicine", commandSerial = 1 }
+    local start, dispatches, fastChecks = clock, 0, 0
+    SC.Encounter.peek = function(value) return value == searcher and encounter or nil end
+    SC.Encounter.update = function()
+        dispatches = dispatches + 1
+        encounter.selectionJob = selection
+        return true, "checking_container_access"
+    end
+    SC.GameplayUtil.isDue = function(_, slot, interval, current)
+        if slot == "decision_scavenge" then
+            check(interval == 1000, "ordinary scavenging keeps its existing decision cadence")
+            return (current - start) % 1000 == 0
+        end
+        if slot == "decision_site_route" then
+            check(interval == 125, "a pending site survey uses its own staggered decision slot")
+            fastChecks = fastChecks + 1
+            return (current - start) % 125 == 0
+        end
+        return true
+    end
+    local function tickSearch(offset)
+        clock = start + offset
+        return D.update(searcher, player, runtime, clock)
+    end
+    check(tickSearch(0) and dispatches == 1 and fastChecks == 0,
+        "the normal pulse starts the survey without touching the continuation slot")
+    check(not tickSearch(60) and dispatches == 1 and fastChecks == 1,
+        "a pending survey waits for its staggered turn")
+    check(tickSearch(125) and dispatches == 2 and fastChecks == 2,
+        "a due survey resumes through normal decision dispatch even while carrying earlier loot")
+    selection.scavengeMissionId = "old-trip"
+    check(not tickSearch(250) and dispatches == 2 and fastChecks == 2,
+        "a stale expedition's survey never uses the fast slot")
+    selection.scavengeMissionId = commands.scavengeMissionId
+    encounter.task = { phase = "animate" }
+    check(not tickSearch(375) and dispatches == 2 and fastChecks == 2,
+        "an active loot task cannot reuse survey cadence for inventory work")
+    encounter.task = nil
+    survey.winnerId = "shelf"
+    check(not tickSearch(500) and dispatches == 2 and fastChecks == 2,
+        "a finished survey cannot use the fast slot for the next shortlist")
+    survey.winnerId = nil
+    runtime.snapshot.threatCount, runtime.snapshot.immediateCount = 1, 1
+    check(tickSearch(625) and delegated == "combat" and dispatches == 2 and fastChecks == 2,
+        "combat keeps decision priority over any survey continuation")
+    runtime.snapshot = quiet()
+    survey.winnerId = "shelf"
+    check(tickSearch(1000) and dispatches == 3 and fastChecks == 2,
+        "the original one-second dispatch still runs after continuations")
+    SC.Commands, SC.GameplayUtil.isDue = oldCommands, isDue
+end
+
 -- Assigned priority work beats optional packing/shelving. Actual overload,
 -- urgent needs and combat keep their established precedence.
 local alarmScores = { respond = 70, stand_to = 64, shake = 66, watch = 66 }

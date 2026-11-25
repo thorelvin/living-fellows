@@ -675,5 +675,111 @@ do
     SC.Performance.record = originalRecord
 end
 
+do
+    local navigation, oldPlaces = SC.Navigation, SC.ExpeditionPlaces
+    local oldSelect, oldTargets, oldRequest = navigation.selectInteraction, navigation.interactionTargets,
+        navigation.requestAny
+    local oldClaim = SC.Performance.claimUnits
+    local worker = f.actor("site-search-route", 45, 50, {})
+    f.registry[worker.id] = worker
+    local site = { buildingId = "45:50:53:54", x = 49, y = 52, z = 0 }
+    SC.ExpeditionPlaces = {
+        siteContainsPoint = function(id, x, y, z)
+            return id == site.buildingId and x >= 45 and x <= 53 and y >= 50 and y <= 54 and z == 0
+        end,
+    }
+    commandViews[worker] = { recruited = true, scavenge = true, order = "stay", commandSerial = 1,
+        scavengeSite = site, scavengeMissionId = "route-trip", scavengeRequestedCategory = "construction" }
+    local blocked = f.containerObject(f.cell:getGridSquare(46, 50, 0), nails(1))
+    local item = nails(1)[1]
+    local reachable, cabinet = f.containerObject(f.cell:getGridSquare(51, 53, 0), { item })
+    local stand = f.cell:getGridSquare(51, 52, 0)
+    local blockedChecks, blockedReads, request = 0, 0, nil
+    local getItems = blocked.getItems
+    function blocked:getItems()
+        blockedReads = blockedReads + 1
+        return getItems(self)
+    end
+    SC.Performance.claimUnits = function(kind, requested, ...)
+        if kind == "scavengeSquares" then return math.min(requested, 2) end
+        return oldClaim(kind, requested, ...)
+    end
+    navigation.interactionTargets = function(_, object)
+        return object == cabinet and { stand } or {}
+    end
+    navigation.selectInteraction = function(_, survey, _, rows, options)
+        check(options.expeditionScavenge and options.maxChoices == 4 and options.nodeQuota == 24,
+            "site candidates use the bounded route survey")
+        check(not SC.ActionSupervisor.current(worker), "a route survey starts before reserving an action")
+        if rows[1].container == blocked then
+            blockedChecks = blockedChecks + 1
+            return nil, blockedChecks == 1 and "pending" or "unknown"
+        end
+        check(rows[1].container == reachable, "selection advances to a later site scan batch")
+        return rows[1], "selected", { ownerState = survey, endpoint = stand, container = reachable }
+    end
+    navigation.requestAny = function(_, _, _, intent)
+        request = intent
+        return true, "moving", stand
+    end
+    for _ = 1, 45 do
+        tick(worker)
+        if request then break end
+    end
+    check(request and request.container == reachable and request.interactionRouteReceipt.container == reachable
+        and request.interactionRouteReceipt.boundToken == request.supervisorToken
+        and request.interactionRouteReceipt.scavengeMissionId == "route-trip",
+        "the later reachable source hands off its exact route under the winning action token")
+    check(blockedChecks == 2 and blockedReads == 0 and not worker.inventory:contains(item),
+        "a deferred shelf stays unopened and walking starts before transferring any loot")
+    worker.square, worker.forwardY = stand, 1
+    animate(worker)
+    complete(worker)
+    check(worker.inventory:contains(item), "only the reached shelf transfers its exact item")
+    SC.Encounter.reset(worker)
+    navigation.selectInteraction, navigation.interactionTargets, navigation.requestAny = oldSelect, oldTargets, oldRequest
+    SC.ExpeditionPlaces, SC.Performance.claimUnits = oldPlaces, oldClaim
+end
+
+do
+    local navigation, oldPlaces = SC.Navigation, SC.ExpeditionPlaces
+    local oldLocked, oldTargets = navigation.behindLockedDoor, navigation.interactionTargets
+    local worker = f.actor("site-search-unlock", 44, 45, {})
+    f.registry[worker.id] = worker
+    local site = { buildingId = "44:45:48:47", x = 46, y = 46, z = 0 }
+    SC.ExpeditionPlaces = {
+        siteContainsPoint = function(id, x, y, z)
+            return id == site.buildingId and x >= 44 and x <= 48 and y >= 45 and y <= 47 and z == 0
+        end,
+    }
+    commandViews[worker] = { recruited = true, scavenge = true, order = "stay", commandSerial = 1,
+        scavengeSite = site, scavengeMissionId = "unlock-trip", scavengeRequestedCategory = "construction" }
+    local first, second = f.cell:getGridSquare(45, 45, 0), f.cell:getGridSquare(47, 45, 0)
+    first.room, second.room = { name = "first" }, { name = "second" }
+    local source, shelf = f.containerObject(first, nails(1))
+    f.containerObject(second, nails(1))
+    local firstLocked = true
+    navigation.behindLockedDoor = function(_, square)
+        return square == second or square == first and firstLocked
+    end
+    navigation.interactionTargets = function(_, object)
+        return object == shelf and { worker.square } or {}
+    end
+    for _ = 1, 4 do tick(worker) end
+    local state = SC.Encounter.peek(worker)
+    local originalWait = state.siteRouteAccess.waitUntil
+    check(originalWait > f.clock and not state.task, "known locked rooms yield without picking a shelf")
+    firstLocked = false
+    for _ = 1, 5 do
+        tick(worker)
+        if state.task then break end
+    end
+    check(state.task and state.task.container == source and f.clock < originalWait,
+        "unlocking an earlier room wakes discovery and admits its previously skipped shelf")
+    SC.Encounter.reset(worker)
+    navigation.behindLockedDoor, navigation.interactionTargets = oldLocked, oldTargets
+    SC.ExpeditionPlaces = oldPlaces
+end
+
 U.move, SC.Dialogue.say = originalMove, originalDialogue
 SC_TEST_REPORT = "LOOT_HAUL_PASS checks=" .. f.checks()

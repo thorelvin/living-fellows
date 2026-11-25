@@ -135,6 +135,122 @@ SC.BaseLife = { admitsWork = function() return false end }
 reject(function(_, value) value.workCampOnly = true end,
     "changed camp admission rejects the route prefix")
 SC.BaseLife = base
+
+local searchWorker, searchOwner, compartment = actor("building-search"), {}, {}
+local searchChoices = { { id = "station-shelf", object = object, container = compartment, tier = 1 } }
+local searchOptions = { expeditionScavenge = true, maxChoices = 4, targetsPerChoice = 8,
+    nodeBudget = 300, nodeQuota = 24, retainRoute = true }
+local function surveySearch(runtime, key, mover)
+    return N.selectInteraction(mover or searchWorker, runtime, key, searchChoices, searchOptions)
+end
+local performance, resume = SC.Performance, N.resumePathSearch
+local deadline, grant, calls, charged, frame = 0, 0, 0, 0, 1
+SC.Performance = setmetatable({
+    frameId = function() return frame end,
+    remainingBudgetMs = function() return deadline end,
+    claimUnits = function(kind, requested, urgent, tracked)
+        check(kind == "navigation" and requested == 24 and not urgent and tracked,
+            "the building survey shares the ordinary navigation expansion budget")
+        return grant, grant > 0 and "search-claim" or nil
+    end,
+    settleUnits = function(claim, used)
+        check(claim == "search-claim" and used > 0 and used <= grant,
+            "the search settles only its consumed capacity")
+        charged = charged + used
+    end,
+}, { __index = performance })
+N.resumePathSearch = function(job, quota)
+    calls = calls + 1
+    check(quota == grant and job.pathOptions.sliceBudgetMs == math.max(1, deadline),
+        "each resume uses the granted nodes and current frame time")
+    return resume(job, quota)
+end
+before = searches
+local result, why = surveySearch(searchOwner, "police-search")
+check(not result and why == "pending" and searches == before,
+    "a spent frame with no navigation quota starts no search")
+deadline = 1.25
+result, why = surveySearch(searchOwner, "police-search")
+check(not result and why == "pending" and calls == 0,
+    "zero available navigation nodes do not resume the search")
+local pendingOwner, time = {}, SC_TEST_CLOCK
+result, why = surveySearch(pendingOwner, "elapsed-search")
+check(not result and why == "pending", "an exhausted quota still retains a pending survey")
+SC_TEST_CLOCK = time + 3001
+result, why = surveySearch(pendingOwner, "elapsed-search")
+check(not result and why == "unknown" and calls == 0,
+    "three seconds of waiting defer the source without claiming a route is unreachable")
+SC_TEST_CLOCK = time
+deadline, grant = 0, 1
+result, why = surveySearch(searchOwner, "police-search")
+check(not result and why == "pending" and calls == 1 and charged == 1,
+    "a busy frame still advances one timed survey slice from the shared navigation quota")
+local secondSearchWorker, secondSearchOwner = actor("building-search-peer"), {}
+result, why = surveySearch(secondSearchOwner, "peer-search", secondSearchWorker)
+check(not result and why == "pending" and calls == 1 and secondSearchOwner.navigationChoice.job == nil,
+    "a second searcher waits once the frame's survey slice is granted")
+frame = frame + 1
+result, why = surveySearch(secondSearchOwner, "peer-search", secondSearchWorker)
+check(not result and why == "pending" and calls == 2 and charged == 2,
+    "a different searcher can use a tracked slice on the next busy frame")
+local searchReceipt
+deadline = 1.25
+grant = 24
+for _ = 1, 30 do
+    frame = frame + 1
+    result, why, searchReceipt = surveySearch(searchOwner, "police-search")
+    if result then break end
+end
+SC.Performance, N.resumePathSearch = performance, resume
+check(result == searchChoices[1] and searchReceipt and searchReceipt.container == compartment
+    and searchReceipt.expeditionScavenge == true and charged > 0,
+    "the bounded survey retains the chosen exact compartment and route")
+
+local searchToken = { actor = searchWorker, owner = "encounter", action = "scavenge",
+    current = true, phase = "approaching", serial = 9 }
+SC.ActionSupervisor = {
+    isCurrent = function(value) return value.current == true end,
+    movementPermission = function() return true end,
+}
+searchReceipt.scavengeMissionId, searchReceipt.boundToken = "police", searchToken
+local function searchIntent(proof)
+    return { action = "move_to_scavenge", object = object, container = compartment,
+        scavengeMissionId = "police", supervisorToken = searchToken,
+        requireSameSquare = true, preferVerifiedPath = true,
+        interactionRouteReceipt = proof, interactionRouteOwner = searchOwner }
+end
+local function rejectSearch(change, candidates, why)
+    local proof = {}
+    for key, value in pairs(searchReceipt) do proof[key] = value end
+    local request = searchIntent(proof)
+    change(proof, request)
+    local beforeSearch = searches
+    local moved, reason = N.requestAny(searchWorker, candidates, "walk", request)
+    check(not moved and reason == "scavenge_route_invalidated" and proof.invalidated
+        and searches == beforeSearch, why)
+end
+local contact = { object.target }
+rejectSearch(function() end, { square(3, 1) }, "Search drops a receipt for a missing standing tile")
+rejectSearch(function(_, request) request.scavengeMissionId = "other" end, contact,
+    "a different mission cannot use the proof or start a new plan")
+rejectSearch(function(_, request) request.container = {} end, contact,
+    "another compartment on the same object requires its own proof")
+rejectSearch(function(proof) proof.expiresAt = SC_TEST_CLOCK - 1 end, contact,
+    "an expired Search receipt does not trigger a duplicate plan")
+blocked = true
+rejectSearch(function() end, contact, "a new locked prefix rejects the receipt before a new plan")
+blocked = false
+N.cancel(searchWorker, "scavenge_fixture_reset")
+before = searches
+accepted = N.requestAny(searchWorker, { square(2, 1), object.target }, "walk", searchIntent(searchReceipt))
+actual = N.peek(searchWorker)
+check(accepted and actual.pathReason == "interaction_route_receipt" and searchReceipt.used
+    and actual.multiGoalSelected == object.target and searches == before,
+    "the Search consumes its proof once and starts movement toward the proved endpoint")
+check(R.key(searchWorker, object.target, searchIntent(searchReceipt)) == nil,
+    "the Search proof leaves the shared camp route cache untouched")
+N.cancel(searchWorker, "scavenge_fixture_reset")
+SC.ActionSupervisor = supervisor
 SC.ActionSupervisor = supervisor
 
 -- Candidate-set caching learns a different endpoint than the nearest tile.
