@@ -170,6 +170,27 @@ retire()
 check(B.auditOperations(false)==nil, "retirement immediately invalidates the published operations cache")
 check(B.workConsistencyRevision()==revision+1, "a roster-only death changes the work revision once")
 do
+    camp()
+    local second = "sc-sort-second-resident"
+    f.registry[second] = f.actor(second, 2, 3, {})
+    check(B.assign(second, "generalist", true), "register a second available sorter")
+    local blocked = enqueue("sort", alive, { stockBatch = { owner = alive,
+        ids = { 80 }, sourceId = "storage:1", destinationId = "storage:2", phase = "deposit" } })
+    blocked.state, blocked.blocker, blocked.attempts, blocked.retryAt =
+        "blocked", "haul_cargo_owner_unknown", 1, 0
+    local fresh = enqueue("sort", nil)
+    check(B.restore(B.export()), "round-trip the legacy blocked receipt before scheduling")
+    blocked, fresh = B.job(blocked.id), B.job(fresh.id)
+    check(blocked.target.stockBatch.ids[1] == 80 and B.jobParked(blocked)
+            and not B.jobAutoRetry(blocked) and not B.claimJob(alive),
+        "a blocked receipt stays parked after reload and cannot be assigned as new work")
+    check(B.claimJob(second) == fresh, "another available resident can claim fresh sorting")
+    check(B.retryJob(blocked.id) and B.claimJob(alive) == blocked
+            and blocked.target.stockBatch.ids[1] == 80,
+        "explicit Retry reopens the original exact receipt without inventing an identity")
+    f.registry[second] = nil
+end
+do
     local oldBase, oldNav, util = SC.BaseLife, SC.Navigation, SC.GameplayUtil
     local oldGrid, oldLoaded, oldFree, oldSame =
         util.gridSquare, util.loadedSquare, util.isSquareFree, util.sameSquare

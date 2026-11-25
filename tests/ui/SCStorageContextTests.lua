@@ -35,6 +35,12 @@ SC.BaseLife = {
     constructionAt = function() return {} end,
     storageRows = function() return rows end,
     resolveObject = function(row) return row == storage and resolved or nil end,
+    resolveContainer = function(row)
+        if row == storage and resolved then return resolved:getContainer(), resolved end
+    end,
+    storageCompartments = function(object)
+        return { { container = object:getContainer(), index = 0 } }
+    end,
     removeStorage = function(id)
         removed[#removed + 1] = id
         if blocked then return false, "work_order_uses_storage" end
@@ -110,4 +116,98 @@ check(find(menuFor(marked), "UI_SC_Base_UnmarkStorage") == nil, "removed storage
 rows, resolved = { storage }, nil
 check(find(menuFor(marked), "UI_SC_Base_UnmarkStorage") == nil,
     "unresolved or ambiguous persistent identity cannot unmark a different clicked object")
-SC_TEST_REPORT = "Storage world-menu removal: " .. checks .. " checks passed"
+
+local direct = find(menuFor(other), "UI_SC_Base_MarkStorage")
+local directTools = direct and find(direct.submenu, "UI_SC_Base_Storage_tools")
+check(directTools and directTools.param2.container == other:getContainer(),
+    "a one-compartment crate keeps direct category selection")
+
+local appliance = container()
+function appliance:getContainer() return nil end
+function appliance:getContainerCount() return 2 end
+local fridge = { getType = function() return "fridge" end }
+local freezer = { getType = function() return "freezer" end }
+local labels = { IGUI_ContainerTitle_fridge = "Fridge", IGUI_ContainerTitle_freezer = "Freezer" }
+getTextOrNull = function(key) return labels[key] end
+local fixtureText = SC.UI.text
+SC.UI.text = function(key, first, second)
+    if key == "UI_SC_Base_StorageCompartmentNumbered" then
+        return first .. " (" .. second .. ")"
+    end
+    return fixtureText(key, first, second)
+end
+local registrations = {}
+rows = {}
+SC.BaseLife.storageCompartments = function(object)
+    if object ~= appliance then return {} end
+    return { { container = fridge, index = 0 }, { container = freezer, index = 1 } }
+end
+SC.BaseLife.registerStorage = function(object, category, selected)
+    local row = { id = "storage:" .. tostring(#rows + 1), category = category }
+    rows[#rows + 1] = row
+    registrations[row.id] = { object = object, container = selected, category = category }
+    return true, row
+end
+SC.BaseLife.resolveContainer = function(row)
+    local data = registrations[row.id]
+    if data then return data.container, data.object end
+end
+SC.BaseLife.resolveObject = function(row)
+    return registrations[row.id] and registrations[row.id].object or nil
+end
+local function exactRemove(id)
+    removed[#removed + 1] = id
+    for index, row in ipairs(rows) do
+        if row.id == id then table.remove(rows, index) return true end
+    end
+    return false, "unknown_storage"
+end
+SC.BaseLife.removeStorage = exactRemove
+
+local choices = find(menuFor(appliance), "UI_SC_Base_MarkStorage")
+check(choices and #choices.submenu.options == 2,
+    "a multi-compartment appliance with no primary getter still exposes both compartments")
+local fridgeMenu = find(choices.submenu, "Fridge")
+local freezerMenu = find(choices.submenu, "Freezer")
+check(fridgeMenu and freezerMenu, "the world menu uses native fridge and freezer titles")
+select(find(fridgeMenu.submenu, "UI_SC_Base_Storage_fresh_food"))
+select(find(freezerMenu.submenu, "UI_SC_Base_Storage_food"))
+local fridgeMark, freezerMark = rows[1], rows[2]
+check(registrations[fridgeMark.id].container == fridge and fridgeMark.category == "fresh_food"
+    and registrations[freezerMark.id].container == freezer and freezerMark.category == "food",
+    "both category callbacks carry the exact native compartment and its chosen category")
+
+function fridge:getCustomName() return "Food drawer" end
+function freezer:getCustomName() return "Food drawer" end
+local options = menuFor(appliance)
+choices = find(options, "UI_SC_Base_MarkStorage")
+check(find(choices.submenu, "Food drawer (1)") and find(choices.submenu, "Food drawer (2)"),
+    "duplicate custom names display the original native compartment numbers")
+local unmark = find(options, "UI_SC_Base_UnmarkStorage")
+local exactFreezer = unmark and find(unmark.submenu, "Food drawer (2)")
+check(exactFreezer ~= nil, "the freezer has an independent unmark option")
+select(exactFreezer)
+pending.execute()
+check(#rows == 1 and rows[1] == fridgeMark and removed[#removed] == freezerMark.id,
+    "unmarking the freezer preserves the sibling marking")
+unmark = find(menuFor(appliance), "UI_SC_Base_UnmarkStorage")
+check(unmark and not find(unmark.submenu, "Food drawer (2)"),
+    "an unmarked compartment never inherits its sibling's unmark action")
+
+local barrel = container()
+function barrel:getContainer() return nil end
+SC.FarmStorage = { canMarkMilk = function(object) return object == barrel end }
+choices = find(menuFor(barrel), "UI_SC_Base_MarkStorage")
+local milk = choices and find(choices.submenu, "UI_SC_Base_Storage_milk")
+check(milk and #choices.submenu.options == 1, "a fluid barrel keeps direct Milk-only marking")
+select(milk)
+local milkRow = rows[2]
+check(milkRow.category == "milk" and registrations[milkRow.id].container == nil,
+    "Milk marking does not supply an item compartment")
+local removeMilk = find(menuFor(barrel), "UI_SC_Base_UnmarkStorage")
+check(removeMilk and not removeMilk.submenu, "fluid storage keeps direct Unmark storage")
+select(removeMilk)
+pending.execute()
+check(removed[#removed] == milkRow.id and #rows == 1 and rows[1] == fridgeMark,
+    "unmarking fluid storage deletes its exact registration only")
+SC_TEST_REPORT = "Storage world-menu compartments and removal: " .. checks .. " checks passed"

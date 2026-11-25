@@ -93,11 +93,12 @@ local sq=f.cell:getGridSquare(3,3,0)
 local source,object=f.containerObject(f.cell:getGridSquare(2,3,0),{})
 local storage={id="ropes",category="crafting"}
 local base={jobs={},zones={{id="yard",kind="log_yard",x1=3,y1=3,x2=3,y2=3,z=0}}}
+local activeBase, shelfLoaded = base, true
 local serial=0
-SC.BaseLife={active=function() return base end,isOutdoorSquare=function() return true end,
+SC.BaseLife={active=function() return activeBase end,isOutdoorSquare=function() return true end,
     zoneValid=function() return true end,withinWorkReach=function() return true end,
     storage=function(id) return id==storage.id and storage end,
-    resolveContainer=function(s) return s==storage and source end,
+    resolveContainer=function(s) return s==storage and shelfLoaded and source or nil end,
     storageRows=function(category) return category=="crafting" and {storage} or {} end,
     availableCountExact=function(_,kind)
         local n=0 for _,item in ipairs(source.items) do if item.itemType==kind then n=n+1 end end return n
@@ -212,7 +213,34 @@ local enough,missing,shortage=advance(job)
 check(not enough and shortage and missing=="log_yard_rope_missing","one rope is a conclusive shortage")
 check(#source.items==1 and not job.target.stage and not job.assignedId,
     "a shortage returns its single borrowed rope and releases preparation ownership")
-job.state="cancelled"; rope(nil,source)
+job.state="blocked"
+local nextTile={id="next-stack",type="stack_logs",state="pending",target={x=4,y=3,z=0}}
+check(not Yard.canClaim(nextTile,actor.id),"a worker who just proved a shortage skips other stacks")
+check(Yard.canClaim(nextTile,"other-worker"),"another worker may have their own rope")
+nextTile.target.stage="preparing"
+check(Yard.canClaim(nextTile,actor.id),"an already staged receipt is never held by the shortage")
+nextTile.target.stage=nil
+activeBase={jobs={}}
+check(Yard.canClaim(nextTile,actor.id),"a shortage belongs to the camp where the worker searched")
+activeBase=base
+Yard.retrySupplies()
+check(Yard.canClaim(nextTile,actor.id),"manual retry clears the camp supply hold")
+job.state="cancelled"
+loose(); job=queue(); advance(job); job.state="blocked"
+check(not Yard.canClaim(nextTile,actor.id),"a second confirmed shortage can rearm the hold")
+rope(nil,source)
+SC_TEST_CLOCK=SC_TEST_CLOCK+30000
+check(Yard.canClaim(nextTile,actor.id),"new stock is considered after the short check interval")
+job.state="cancelled"
+shelfLoaded=false
+loose(); job=queue()
+local enough,missing,shortage=advance(job)
+check(not enough and shortage and missing=="base_storage_unloaded",
+    "an unavailable permitted rack cannot prove that rope is missing")
+job.state="blocked"
+check(Yard.canClaim(nextTile,actor.id),"an unreadable rack does not create a shortage hold")
+shelfLoaded=true
+job.state="cancelled"
 -- An output created before a native exception must never cause an automatic replay.
 loose(); job=queue(); advance(job); failAfterOutput=true
 action=ISTimedActionQueue.getTimedActionQueue(actor).current

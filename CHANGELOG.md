@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.79 - Camp job recovery
+
+- Floor sorting checks whether marked storage is available and waits without repeatedly assigning a worker when the same item still has nowhere to go.
+- Preserve exact item identities in saved shelf-sorting batches. A batch whose owner cannot be verified waits for review while other companions can sort.
+- Give workers time between checks for missing rope across different log stacks. Camp jobs explain missing rope, unavailable storage, and cleaning supply weight.
+- Mark separate chambers on the same appliance or cabinet. Workers use the selected chamber's rules and respect native locks and item restrictions.
+- Native bridge protocol `42.22-isocompanion-36`.
+
 ## 0.27.78 - Camp and expedition performance
 
 - Stage the camp return save across updates. The crew transfers to camp after the exact delivery record reaches disk.

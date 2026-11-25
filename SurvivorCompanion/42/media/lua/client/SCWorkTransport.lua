@@ -527,6 +527,10 @@ function Transport.transferVerified(source, destination, item, actor)
         return false, sourceOwned == nil and "source_ownership_unknown"
             or "source_owner_pointer_conflict"
     end
+    if U().canRemoveFromContainer then
+        local allowed, reason = U().canRemoveFromContainer(source, actor, item)
+        if not allowed then return false, reason end
+    end
     local room, roomReason = capacity(destination, actor, item)
     if not room then return false, roomReason end
     local moved, reason, details = U().transferItemVerified(source, destination, item)
@@ -1395,6 +1399,14 @@ end
 -- The saved job target is the receipt; there is no new service or save schema.
 local Batch={} SC.SortBatch=Batch
 local BATCH_MARKER="LF_SortBatchJob"
+local blockedBatchScans = setmetatable({}, { __mode = "k" })
+
+function Batch.waitingForOwner(job)
+    return type(job) == "table" and job.type == "sort" and job.state == "blocked"
+        and job.blocker == "haul_cargo_owner_unknown" and type(job.target) == "table"
+        and type(job.target.stockBatch) == "table"
+end
+
 function Batch.releaseGone(job)
     local saved=job and job.target and job.target.stockBatch
     if not saved or not SC.BaseWork or type(SC.BaseWork.workerUnregistered)~="function"
@@ -1403,6 +1415,7 @@ function Batch.releaseGone(job)
     -- affinity; a dormant or unloaded worker must keep its recovery receipt.
     job.target.stockBatch=nil
     if job.assignedId==saved.owner then job.assignedId=nil end
+    touchWorkOwnership()
     return true
 end
 function Batch.protected(item,actor)
@@ -1423,11 +1436,13 @@ local function batchRemove(cargo,item)
     local fields=itemData(item)
     if fields and fields[BATCH_MARKER]==cargo.jobId then fields[BATCH_MARKER]=nil end
     cargo.item=cargo.items[1]
+    touchWorkOwnership()
 end
 local function batchClear(job,cargo)
     if job and job.target and job.target.stockBatch==cargo.batch then
         job.target.stockBatch=nil
         if cargo.batch.assigned and job.assignedId==cargo.batch.owner then job.assignedId=nil end
+        touchWorkOwnership()
     end
 end
 local function batchLimit(actor,item,projected)
@@ -1521,7 +1536,10 @@ local function batchRestore(actor,state,job,saved,forRelease)
         while budget>0 and scan.index<size do
             local item=U().listGet(items,scan.index);scan.index=scan.index+1;budget=budget-1
             local id=item and tonumber(itemNativeId(item))
-            if wanted[id] then scan.found[id]=item end
+            if wanted[id] then
+                local fields = itemData(item)
+                if fields and fields[BATCH_MARKER] == job.id then scan.found[id] = item end
+            end
             if #scan.containers<7 then
                 local bag=select(1,U().call(item,"getInventory")) or select(1,U().call(item,"getItemContainer"))
                 if bag and not scan.seen[bag] then scan.seen[bag]=true;scan.containers[#scan.containers+1]=bag end
@@ -1539,13 +1557,24 @@ local function batchRestore(actor,state,job,saved,forRelease)
     cargo.item=cargo.items[1];state[scanKey]=nil
     return cargo
 end
-function Batch.savedForActor(actor)
+local function savedBatchJob(owner)
+    if type(owner) ~= "string" then return nil end
     local base=SC.BaseLife.active()
     for index,job in ipairs(base and base.jobs or {}) do
         if index>256 then break end
         local saved=job.target and job.target.stockBatch
-        if saved and saved.owner==U().idOf(actor) then return job end
+        if type(saved) == "table" and saved.owner == owner then return job end
     end
+end
+function Batch.savedForActor(actor)
+    return savedBatchJob(U().idOf(actor))
+end
+
+-- A cold restore has only the job's exact native IDs for carried cargo.
+function Batch.pendingInventory(owner)
+    local job = savedBatchJob(owner)
+    local saved = job and job.target.stockBatch
+    return saved ~= nil and type(saved.ids) == "table" and #saved.ids > 0
 end
 function Batch.storageInUse(storageId)
     local base=SC.BaseLife.active()
@@ -1636,6 +1665,20 @@ function Transport.retainBaseCargo(actor, cargo, job, reason)
     return true, "base_cargo_retained"
 end
 
+-- An explicit cancellation can retire the blocked claim without touching
+-- cargo whose current owner cannot be proven. Keep the search separate from
+-- the worker's live state, which may already belong to another kind of job.
+function Batch.cancelUnknown(actor, job)
+    if not Batch.waitingForOwner(job) then return false, "haul_cargo_owner_unknown" end
+    local saved = job.target.stockBatch
+    local scan = blockedBatchScans[saved] or {}
+    blockedBatchScans[saved] = scan
+    local cargo, reason = batchRestore(actor, scan, job, saved, true)
+    if reason ~= "haul_cargo_search_pending" then blockedBatchScans[saved] = nil end
+    if not cargo then return false, reason end
+    return Transport.retainBaseCargo(actor, cargo, job, "haul_cargo_owner_unknown")
+end
+
 function Batch.update(actor,state,job)
     local cargo=state.cargo
     if cargo and cargo.batch and cargo.jobId~=job.id then
@@ -1653,6 +1696,7 @@ function Batch.update(actor,state,job)
         if why=="haul_scan_pending" then return true,why,false end
         if not source then return false,why,true end
         if tonumber(itemNativeId(first))==nil then return false,"haul_item_identity_missing",true end
+        if not itemData(first) then return false, "haul_cargo_marker_unavailable", true end
         local items=batchCandidates(actor,job,source,container,destination,first)
         local saved={owner=U().idOf(actor),sourceId=source.id,destinationId=destination.id,
             ids={},phase="take",assigned=job.assignedId==nil}
@@ -1664,6 +1708,7 @@ function Batch.update(actor,state,job)
             saved.ids[#saved.ids+1]=tonumber(itemNativeId(item))
             local fields=itemData(item);if fields then fields[BATCH_MARKER]=job.id end
         end
+        touchWorkOwnership()
     end
     local saved=cargo.batch
     if saved.phase=="take" then
@@ -1695,6 +1740,7 @@ function Batch.update(actor,state,job)
             else primary=false end
         end
         saved.phase="deposit";state.visualAt=nil
+        touchWorkOwnership()
     end
     -- A save/event callback can occur after the native move but before its
     -- Lua receipt is cleared. Recognize that destination without moving twice.
@@ -1728,7 +1774,10 @@ function Batch.update(actor,state,job)
         return false,okay and "haul_destinations_full" or why,true
     end
     local destination,container=rows[1].destination,rows[1].container
-    if saved.destinationId~=destination.id then state.visualAt=nil;saved.destinationId=destination.id end
+    if saved.destinationId~=destination.id then
+        state.visualAt=nil;saved.destinationId=destination.id
+        touchWorkOwnership()
+    end
     local first=true
     for i=#cargo.items,1,-1 do
         local item=cargo.items[i]

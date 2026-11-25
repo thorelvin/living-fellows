@@ -1456,6 +1456,22 @@ do
     ordinary=SC.Persistence.captureRecord(other)
     check(ordinary and ordinary.inventory.preserveNativeIds==nil and not hasNative(ordinary.inventory.roots),
         "Fuel identity scope does not leak to unrelated companions")
+    local priorSort = SC.SortBatch
+    SC.ExpeditionPrototype.pendingFuelInventory = nil
+    SC.SortBatch = { pendingInventory = function(id) return id == exact.id end }
+    local sortingSnapshot = SC.Persistence.captureRecord(SC.Registry.byId(exact.id))
+    check(sortingSnapshot and sortingSnapshot.inventory.preserveNativeIds == true
+            and nativeMap(sortingSnapshot.inventory.roots)[expectedCargoId] == restoredKnife:getFullType(),
+        "a carried shelf receipt retains its exact inventory ID through ordinary capture")
+    ordinary = SC.Persistence.captureRecord(other)
+    check(ordinary and ordinary.inventory.preserveNativeIds == nil and not hasNative(ordinary.inventory.roots),
+        "shelf cargo identity capture is scoped to the worker owning that receipt")
+    SC.Commands.reset(restored)
+    SC.Registry.unregister(restored)
+    restored, reason = SC.Persistence.restoreAt(sortingSnapshot, square)
+    check(restored and findType(restored.inventory, "Base.HuntingKnife"):getID() == expectedCargoId,
+        "a reloaded sorter holds the original native identity: " .. tostring(reason))
+    SC.SortBatch = priorSort
     SC.Commands.reset(otherActor)
     SC.Registry.unregister(otherActor)
     SC.ExpeditionPrototype,instanceItem=priorExpedition,priorInstance

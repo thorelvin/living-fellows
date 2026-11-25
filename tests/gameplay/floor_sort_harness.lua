@@ -221,11 +221,28 @@ local _, reason, terminal = Floor.update(actor, state, job)
 check(reason == "floor_storage_missing" and terminal == true
     and waiting.worldItem ~= nil and waiting.modData.LF_FloorSortJob == nil,
     "blocked job reports missing storage without taking item")
-table.remove(base.jobs, 1)
-destinationEnabled = true
+job.state, job.blocker = "blocked", reason
 now = now + 31000
-remove({ items = source.worldItems }, waiting.worldItem)
-waiting.worldItem = nil
+check(not Floor.retryReady(actor, job) and job.retryAt > now and job.assignedId == nil
+    and waiting.worldItem ~= nil and waiting.modData.LF_FloorSortJob == nil,
+    "an unchanged storage wait stays queued without reacquiring a worker or cargo")
+now = now + 31000
+squares["10:10:0"] = nil
+check(not Floor.retryReady(actor, job) and job.blocker == "floor_source_unloaded"
+    and job.retryAt > now and waiting.worldItem ~= nil,
+    "an unloaded source remains queued and records its current prerequisite")
+squares["10:10:0"] = source
+destinationEnabled = true
+now = job.retryAt
+check(Floor.retryReady(actor, job) and waiting.worldItem ~= nil and job.assignedId == nil,
+    "a loaded source with space is eligible without claiming the exact item")
+state = {}
+check(select(2, Floor.update(actor, state, job)) == "floor_pickup_animation"
+    and select(2, Floor.update(actor, state, job)) == "floor_item_carried"
+    and select(2, Floor.update(actor, state, job)) == "floor_item_stored"
+    and contains(storage, waiting) and waiting.modData.LF_FloorSortJob == nil,
+    "the resumed job starts at the verified item and completes its physical transfer")
+table.remove(base.jobs, 1)
 
 local borrowed = item(104, false)
 addWorld(source, borrowed)

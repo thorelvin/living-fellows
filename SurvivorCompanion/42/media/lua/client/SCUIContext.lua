@@ -885,6 +885,7 @@ local function findTarget(worldObjects, player)
             dismantleTarget = object
         end
         if not containerTarget and (safeMethod(object, "getContainer") ~= nil
+            or (tonumber(safeMethod(object, "getContainerCount")) or 0) > 0
             or SC.FarmStorage and SC.FarmStorage.canMarkMilk(object))
             and safeMethod(object, "getObjectIndex") ~= nil then
             containerTarget = object
@@ -965,7 +966,7 @@ local function baseAction(target, action, payload, player)
             SC.Commands.leaveAbandonedBase(player)
         end
     elseif action == "storage" then
-        ok, result = SC.BaseLife.registerStorage(payload.object, payload.category)
+        ok, result = SC.BaseLife.registerStorage(payload.object, payload.category, payload.container)
     elseif action == "storage_remove" then
         ok, result = SC.BaseLife.removeStorage(payload.id)
     elseif action == "clean" then
@@ -1196,15 +1197,23 @@ local function removeZoneFromContext(_, zone, player)
     end
 end
 
-local function storageForObject(object)
-    if not object or not SC.BaseLife
-        or type(SC.BaseLife.storageRows) ~= "function"
-        or type(SC.BaseLife.resolveObject) ~= "function" then return nil end
+local function storagesForObject(object)
+    if not object or not SC.BaseLife or type(SC.BaseLife.storageRows) ~= "function" then return end
+    local marked, milk
     for _, storage in ipairs(SC.BaseLife.storageRows()) do
-        -- Coordinates and a mutable object index can refer to another
-        -- container. Only the registered object's identity may offer removal.
-        if SC.BaseLife.resolveObject(storage) == object then return storage end
+        if storage.category == "milk" and type(SC.BaseLife.resolveObject) == "function" then
+            if SC.BaseLife.resolveObject(storage) == object then milk = storage end
+        elseif type(SC.BaseLife.resolveContainer) == "function" then
+            -- Coordinates, object indices and sibling compartments cannot
+            -- stand in for the native container on this exact clicked object.
+            local container, owner = SC.BaseLife.resolveContainer(storage)
+            if container and owner == object then
+                marked = marked or {}
+                marked[container] = storage
+            end
+        end
     end
+    return marked, milk
 end
 
 local function removeStorageFromContext(_, storage, player)
@@ -1214,6 +1223,79 @@ local function removeStorageFromContext(_, storage, player)
     end
     if SC.UI and type(SC.UI.confirmBaseAction) == "function" then
         SC.UI.confirmBaseAction(text("UI_SC_Base_RemoveStorageConfirm"), execute)
+    end
+end
+
+local function compartmentNames(compartments)
+    local names, count = {}, {}
+    for row, descriptor in ipairs(compartments) do
+        local container = descriptor.container
+        local name = safeMethod(container, "getCustomName")
+        local kind, display = safeMethod(container, "getType"), safeMethod(container, "getDisplayType")
+        if not name or name == "" then
+            name = type(getTextOrNull) == "function" and (kind and getTextOrNull("IGUI_ContainerTitle_" .. kind)
+                or display and getTextOrNull("IGUI_ContainerTitle_" .. display)) or display or kind
+        end
+        if not name or name == "" then name = text("UI_SC_Base_StorageCompartment", descriptor.index + 1) end
+        names[row], count[name] = name, (count[name] or 0) + 1
+    end
+    for row, name in ipairs(names) do
+        if count[name] > 1 then
+            names[row] = text("UI_SC_Base_StorageCompartmentNumbered", name, compartments[row].index + 1)
+        end
+    end
+    return names
+end
+
+local function addStorageCategories(menu, object, container, inside, player)
+    for _, category in ipairs({ "food", "fresh_food", "water", "medical", "tools", "construction",
+        "crafting", "literature", "weapons", "ammunition", "clothing", "valuables", "general", "output",
+        "memorial", "farming", "manure" }) do
+        if inside or category == "manure" then
+            menu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction, "storage",
+                { object = object, category = category, container = container }, player)
+        end
+    end
+end
+
+local function addStorageMenu(menu, object, square, inside, marked, milk, player)
+    if not object then return end
+    local compartments = SC.BaseLife.storageCompartments and SC.BaseLife.storageCompartments(object) or {}
+    local multiple = #compartments > 1
+    local names = (multiple or marked and milk) and compartmentNames(compartments)
+    local near = inside or SC.BaseLife.withinWorkReach and SC.BaseLife.withinWorkReach(square)
+    local canMarkMilk = near and SC.FarmStorage and SC.FarmStorage.canMarkMilk(object)
+    if near and (#compartments > 0 or canMarkMilk) then
+        local targetMenu = Menus.group(menu, "camp.storage", text("UI_SC_Base_MarkStorage"))
+        for row, descriptor in ipairs(compartments) do
+            local categories = multiple and Menus.group(targetMenu,
+                "camp.storage.compartment." .. descriptor.index, names[row]) or targetMenu
+            addStorageCategories(categories, object, descriptor.container, inside, player)
+        end
+        if canMarkMilk then
+            targetMenu:addOption(text("UI_SC_Base_Storage_milk"), nil, baseAction,
+                "storage", { object = object, category = "milk" }, player)
+        end
+    end
+    if marked and (multiple or milk) then
+        local targetMenu = Menus.group(menu, "camp.storage.unmark", text("UI_SC_Base_UnmarkStorage"))
+        for row, descriptor in ipairs(compartments) do
+            local storage = marked[descriptor.container]
+            if storage then
+                Menus.action(targetMenu, "camp.storage.unmark." .. descriptor.index, names[row],
+                    nil, removeStorageFromContext, storage, player)
+            end
+        end
+        if milk then
+            Menus.action(targetMenu, "camp.storage.unmark.milk", text("UI_SC_Base_Storage_milk"),
+                nil, removeStorageFromContext, milk, player)
+        end
+    elseif marked or milk then
+        local storage = marked and compartments[1] and marked[compartments[1].container] or milk
+        if storage then
+            Menus.action(menu, "camp.storage.unmark", text("UI_SC_Base_UnmarkStorage"), nil,
+                removeStorageFromContext, storage, player)
+        end
     end
 end
 
@@ -1294,11 +1376,8 @@ local function addCleanStainOption(context, square, player)
     end
 end
 
-local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)
+local function addBaseMenu(context, square, containerTarget, barricadeTarget, player, marked, milk)
     if not square or not SC.BaseLife then return false end
-    local storage = storageForObject(containerTarget)
-    if not baseMenuRelevant(square) and not storage
-        and not (containerTarget and SC.BaseLife.withinWorkReach and SC.BaseLife.withinWorkReach(square)) then return false end
     -- These are already inside Living Fellows. A second Camp wrapper makes
     -- storage marking needlessly deep, especially with native cascading menus.
     local menu = context
@@ -1437,23 +1516,7 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         end
     end
     menu:addOption(text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext, player)
-    if containerTarget and (inside or SC.BaseLife.withinWorkReach and SC.BaseLife.withinWorkReach(square)) then
-        local storageMenu = Menus.group(menu, "camp.storage", text("UI_SC_Base_MarkStorage"))
-        for _, category in ipairs({ "food", "fresh_food", "water", "medical", "tools", "construction",
-            "crafting", "literature", "weapons", "ammunition", "clothing", "valuables", "general", "output",
-            "memorial", "farming", "milk", "manure" }) do
-            if category=="milk" and SC.FarmStorage and SC.FarmStorage.canMarkMilk(containerTarget)
-                or category~="milk" and safeMethod(containerTarget,"getContainer")~=nil
-                    and (inside or category=="manure") then
-                storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
-                    "storage", { object = containerTarget, category = category }, player)
-            end
-        end
-    end
-    if storage then
-        Menus.action(menu, "camp.storage.unmark", text("UI_SC_Base_UnmarkStorage"), nil,
-            removeStorageFromContext, storage, player)
-    end
+    addStorageMenu(menu, containerTarget, square, inside, marked, milk, player)
     return true
 end
 
@@ -2241,7 +2304,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local sealedDoorGroup = SC.Oddballs
         and type(SC.Oddballs.sealedDoorGroup) == "function"
         and SC.Oddballs.sealedDoorGroup(door, player) or nil
-    local baseRelevant = baseMenuRelevant(clickSquare) or storageForObject(containerTarget) ~= nil
+    local marked, milk = storagesForObject(containerTarget)
+    local baseRelevant = baseMenuRelevant(clickSquare) or marked ~= nil or milk ~= nil
         or containerTarget and SC.BaseLife and SC.BaseLife.active() and SC.BaseLife.withinWorkReach
             and SC.BaseLife.withinWorkReach(clickSquare)
     local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
@@ -2411,7 +2475,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if #oddballs > 0 then
         addOddballConversations(Menus.group(rootMenu, "strange_folk", text("UI_SC_Context_StrangeFolk")), oddballs, player)
     end
-    if baseRelevant then addBaseMenu(rootMenu, clickSquare, containerTarget, barricadeTarget, player) end
+    if baseRelevant then addBaseMenu(rootMenu, clickSquare, containerTarget, barricadeTarget, player, marked, milk) end
     -- Prioritize the clicked container inside LF without moving storage
     -- commands above the game's own main-menu options.
     for _, key in ipairs({ "camp.storage.unmark", "camp.storage" }) do

@@ -280,6 +280,71 @@ do
     end
 end
 
+-- An old saved receipt can outlive the item's original ID. Keep it parked,
+-- allow separate shelf work, and retire it only on an explicit cancellation.
+do
+    reset(0)
+    local methods, priorRegistry = SC.BaseLife, SC.Registry
+    local active, roster, create = methods.active, methods.summary, methods.enqueueJob
+    local resolve, categories = SC.GameplayUtil.resolveActor, methods.STORAGE_CATEGORIES
+    local camp = { jobs = { job }, storages = { from, to } }
+    methods.active = function() return camp end
+    methods.summary = function() return { residentRows = {
+        { id = actor.id, duty = true }, { id = competing.id, duty = true },
+    } } end
+    methods.enqueueJob = function(spec)
+        local queued = { id = "job:702", type = spec.type, target = {}, state = "pending" }
+        camp.jobs[#camp.jobs+1] = queued
+        return true, queued
+    end
+    methods.STORAGE_CATEGORIES = { general = true, valuables = true }
+    SC.Registry = { byId = function(id)
+        return { actor = id == actor.id and actor or competing }
+    end }
+    SC.GameplayUtil.resolveActor = function(id) return id == actor.id and actor or competing end
+    for _ = 1, 520 do add(root, item("Base.Paperclip")) end
+    local carried, missing, replacement, available = item(), item(), item(), item()
+    replacement.id = missing.id
+    carried.data.LF_SortBatchJob = job.id
+    add(root, carried)
+    add(root, replacement)
+    add(source, available)
+    job.assignedId = actor.id
+    job.target.stockBatch = { owner = actor.id, sourceId = from.id, destinationId = to.id,
+        ids = { carried.id, missing.id }, phase = "deposit", assigned = true }
+    for _ = 1, 8 do
+        local _, why = update()
+        if why == "haul_cargo_owner_unknown" then break end
+    end
+    check(SC.SortBatch.waitingForOwner(job) and SC.SortBatch.pendingInventory(actor.id)
+            and not SC.SortBatch.pendingInventory(competing.id) and #job.target.stockBatch.ids == 2
+            and #dest.items == 0 and transfers == 0,
+        "an unresolved cold receipt parks and is never rebound to an unmarked replacement")
+    for _ = 1, 10 do
+        local _, why = SC.BaseWork.auditMaintenance(nil, function() return 100 end)
+        if #camp.jobs == 2 or why == "sorting_already_queued" then break end
+    end
+    check(#camp.jobs == 2 and camp.jobs[2].type == "sort" and SC.SortBatch.protected(carried),
+        "a parked exact receipt keeps its protection while the other resident can sort different stock")
+    local cancelled, pending
+    for _ = 1, 8 do
+        local why
+        cancelled, why = SC.BaseWork.cancelJob(job.id, nil, "base_job_cancelled")
+        if cancelled then break end
+        check(why == "haul_cargo_search_pending", "manual cancellation yields its bounded identity search")
+        pending = true
+    end
+    check(cancelled and pending and not job.target.stockBatch and #job.target.releasedHaul.ids == 2
+            and not SC.SortBatch.pendingInventory(actor.id) and transfers == 0,
+        "manual cancellation retires the stale record with no item move")
+    check(carried.owner == root and carried.data.LF_BaseReturnOwner == actor.id
+            and replacement.owner == root and not replacement.data.LF_BaseReturnOwner
+            and missing.owner == nil and available.owner == source,
+        "only the verified carried original becomes return stock and all real owners are preserved")
+    methods.active, methods.summary, methods.enqueueJob = active, roster, create
+    methods.STORAGE_CATEGORIES, SC.GameplayUtil.resolveActor, SC.Registry = categories, resolve, priorRegistry
+end
+
 -- Leave a real carried receipt, then reload the production BaseWork module.
 local function checkpoint()
     job.target=SC.StableValue.copyStrict(job.target,{maxDepth=3,maxEntries=96})

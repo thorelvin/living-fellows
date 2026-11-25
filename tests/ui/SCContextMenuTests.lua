@@ -476,12 +476,15 @@ check(group(generatorMenu, "generator") and find(generatorMenu, "UI_SC_Base_Refu
     "clicked-generator work stays in its relevant Living Fellows group")
 
 local storage = { id = "storage:context", category = "general" }
+local inventory = {}
 local container = { getSquare = function() return groundSquare end,
-    getContainer = function() return {} end, getObjectIndex = function() return 4 end }
+    getContainer = function() return inventory end, getObjectIndex = function() return 4 end }
 SC.BaseLife = { active = function() return {} end, isInside = function() return true end,
     zoneDraft = function() return nil end, constructionAt = function() return {} end,
     storageRows = function() return { storage } end,
-    resolveObject = function() return container end }
+    resolveObject = function() return container end,
+    resolveContainer = function() return inventory, container end,
+    storageCompartments = function() return { { container = inventory, index = 0 } } end }
 SC.BaseVisuals = { status = function() return { enabled = false } end }
 SC.BaseWatch = { isRemote = function() return false end }
 local campMenu = fill({ container })

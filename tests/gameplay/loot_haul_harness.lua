@@ -577,5 +577,30 @@ end
 campOverflow(true)
 campOverflow(false)
 
+do
+    local item = nails(1)[1]
+    local worker, unmarked, cabinet = fixture(nails(1))
+    local marked = f.inventory({ item })
+    marked.owner = cabinet
+    function marked:getType() return "freezer" end
+    function marked:getParent() return self.owner end
+    function cabinet:getObjectIndex() return 0 end
+    function cabinet:getContainerCount() return 2 end
+    function cabinet:getContainerByIndex(index)
+        if index == 0 then return unmarked end
+        if index == 1 then return marked end
+    end
+    base.reset()
+    check(base.create(worker.square, "Exact storage scan"), "create a camp for independent compartments")
+    check(base.registerStorage(cabinet, "construction", marked), "mark the second compartment alone")
+    commandViews[worker].scavengeTargetContainer = nil
+    local picked = animate(worker)
+    check(#picked.takeList == 1 and picked.takeList[1].root == marked
+        and picked.takeList[1].item == item, "camp discovery starts from the marked compartment")
+    complete(worker)
+    check(worker.inventory:contains(item) and #unmarked.items == 1 and #marked.items == 0,
+        "camp looting moves the original from the marked compartment only")
+end
+
 U.move, SC.Dialogue.say = originalMove, originalDialogue
 SC_TEST_REPORT = "LOOT_HAUL_PASS checks=" .. f.checks()

@@ -408,6 +408,12 @@ function UI.baseFailureReason(reason, knownOnly)
         floor_storage_unavailable = "work_storage_unavailable",
         base_storage_unloaded = "work_storage_unavailable",
         base_storage_changed = "work_storage_unavailable",
+        storage_access_unavailable = "work_storage_unavailable",
+        source_storage_locked = "work_storage_locked",
+        destination_storage_locked = "work_storage_locked",
+        source_item_rejected = "work_storage_cannot_remove_item",
+        storage_compartment_marked = "storage_compartment_marked",
+        storage_compartment_unavailable = "storage_compartment_unavailable",
         base_storage_withdrawals_disabled = "work_supplies_unavailable",
         floor_trash_pile_missing = "work_trash_missing",
         floor_trash_pile_unavailable = "work_trash_unavailable",
@@ -524,6 +530,10 @@ end
 
 function UI.baseJobBlocker(job, zones)
     local reason = job.blocker or "blocked"
+    if reason == "log_yard_rope_missing" or reason == "cleaning_carry_capacity_low"
+        or reason == "floor_storage_unavailable" then
+        return UI.text("UI_SC_Base_Reason_" .. reason)
+    end
     if reason == "farm_water_plot_unreachable" and type(job.target) == "table" then
         local target = job.target
         for _, zone in ipairs(zones or {}) do
@@ -4461,9 +4471,16 @@ function SCUIDetail:buildBase(panel, row)
                             record and SC.FarmStorage.manureCount(record) or UI.text("UI_SC_State_unavailable"))
                         or milk and UI.text("UI_SC_Base_MilkIncompatible") or UI.text("UI_SC_State_unavailable"))
                 end
-                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                    UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
-                        storage.x, storage.y, storage.z, storage.reserve or 0))
+                local line = UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
+                    storage.x, storage.y, storage.z, storage.reserve or 0)
+                if type(storage.containerIndex) == "number" and type(storage.containerType) == "string" then
+                    local kind = type(getTextOrNull) == "function"
+                        and getTextOrNull("IGUI_ContainerTitle_" .. storage.containerType)
+                        or UI.humanize(storage.containerType)
+                    line = UI.text("UI_SC_Base_StorageWithCompartment", line,
+                        UI.text("UI_SC_Base_StorageCompartmentNumbered", kind, storage.containerIndex + 1))
+                end
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message", line)
                 y = self:addBaseManagementAction(panel, y,
                     UI.text("UI_SC_Base_Visual_FocusStorage",
                         UI.text("UI_SC_Base_Storage_" .. storage.category)),

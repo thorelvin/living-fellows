@@ -294,6 +294,10 @@ end
 
 -- Registered base storage by tile, so a scan can recognise marked storage
 -- without resolving every row for every container it passes.
+local function storageTileKey(x, y, z)
+    return math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(tonumber(z) or 0)
+end
+
 local function storageIndex()
     local index = { count = 0 }
     local baseLife = SC.BaseLife
@@ -301,8 +305,7 @@ local function storageIndex()
     for _, storage in ipairs(baseLife.storageRows()) do
         local x, y = tonumber(storage.x), tonumber(storage.y)
         if x and y then
-            local key = math.floor(x) .. ":" .. math.floor(y) .. ":"
-                .. math.floor(tonumber(storage.z) or 0)
+            local key = storageTileKey(x, y, storage.z)
             index[key] = index[key] or {}
             index[key][#index[key] + 1] = storage
             index.count = index.count + 1
@@ -321,14 +324,11 @@ local function registeredStorage(container, index)
     -- IsoObject.getX() to read.
     local x, y, z = U().position(U().squareOf(containerOwner(container)))
     if x == nil then return nil end
-    local rows = index[math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z or 0)]
-    local sameOwner
+    local rows = index[storageTileKey(x, y, z)]
     for _, storage in ipairs(rows or {}) do
         local ok, resolved = pcall(baseLife.resolveContainer, storage)
         if ok and resolved == container then return storage end
-        if ok and resolved and containerOwner(resolved) == containerOwner(container) then sameOwner = storage end
     end
-    return sameOwner
 end
 
 local function insideBase(value)
@@ -826,6 +826,10 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     local destination = utility.inventory(actor)
     if SC.Logistics and type(SC.Logistics.preferredLootDestination) == "function" then
         destination = SC.Logistics.preferredLootDestination(actor, supply.item) or destination
+    end
+    if utility.canRemoveFromContainer then
+        local allowed, reason = utility.canRemoveFromContainer(supply.container, actor, supply.item)
+        if not allowed then return rejectSupply(reason) end
     end
     if type(options.beforeTransfer) == "function" then
         local okay, accepted = pcall(options.beforeTransfer, supply.item, supply.container, destination)
@@ -1732,21 +1736,35 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             and (commands.scavengeMissionId ~= nil or not player
                 or utility.distanceSq(player, square) <= radius * radius)
             and not behindLockedDoor(actor, square, current) then
-            local squareInside = insideBase(square)
-            utility.squareObjects(square, function(object)
-                local container = Loot.primary(object)
-                local ok = container ~= nil
-                if ok and container and not job.seenContainers[container]
+            local function addContainer(container)
+                if container and not job.seenContainers[container]
                     and not containerOnCooldown(container, current)
-                    and memoryAllows(state, container, current)
-                    and Encounter.baseStorageAccess(container, storages, squareInside)
-                        ~= "player" then
+                    and memoryAllows(state, container, current) then
                     -- SC_CompanionVisited is informational. A prior companion
                     -- taking one item must not hide the remaining contents.
                     job.seenContainers[container] = true
                     job.candidates[#job.candidates + 1] = container
+                    return true
                 end
-            end, 40)
+            end
+            if insideBase(square) then
+                local baseLife = SC.BaseLife
+                local owners = {}
+                for _, storage in ipairs(storages[storageTileKey(scanX, scanY, scanZ)] or {}) do
+                    if storage.withdrawals ~= false and storage.category ~= "memorial"
+                        and type(baseLife.resolveContainer) == "function" then
+                        local ok, container, object = pcall(baseLife.resolveContainer, storage)
+                        local owner = ok and container and (object or containerOwner(container))
+                        -- Loot opens one visit per furniture object and applies
+                        -- the marked policy to each exact compartment it reads.
+                        if owner and not owners[owner] and addContainer(container) then owners[owner] = true end
+                    end
+                end
+            else
+                utility.squareObjects(square, function(object)
+                    addContainer(Loot.primary(object))
+                end, 40)
+            end
             if allowCorpses then
                 utility.squareStaticMovingObjects(square, function(object)
                     if isZombieCorpse(object) then
@@ -2339,6 +2357,10 @@ end
 
 function Encounter._transferLoot(actor, row, choice, pendingVisuals)
     local utility, drop = U(), choice.drop
+    if utility.canRemoveFromContainer then
+        local allowed, reason = utility.canRemoveFromContainer(row.source, actor, row.item, row.root)
+        if not allowed then return false, reason end
+    end
     if not drop then return utility.transferItemVerified(row.source, choice.destination, row.item, pendingVisuals) end
     local square = utility.squareOf(actor)
     if not square or not utility.isSquareFree(square) then return false, "loot_swap_no_drop_square" end

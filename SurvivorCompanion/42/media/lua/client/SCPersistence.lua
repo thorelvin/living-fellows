@@ -1343,6 +1343,12 @@ function persistence.captureRecord(record, vehicleState, options)
         if not called or type(owned)~="boolean" then return nil,"Milk delivery inventory ownership is unavailable" end
         context.preserveNativeIds=owned
     end
+    local sort = SC.SortBatch
+    if not context.preserveNativeIds and sort and type(sort.pendingInventory) == "function" then
+        local called, owned = pcall(sort.pendingInventory, record.id)
+        if not called or type(owned) ~= "boolean" then return nil, "Sort inventory ownership is unavailable" end
+        context.preserveNativeIds = owned
+    end
     local possessions, possessionsReason = capturePossessions(actor, state.possessions, record.id, context)
     if possessions == nil then return nil, possessionsReason end
     local downtime = type(state.downtime) == "table" and state.downtime or {}

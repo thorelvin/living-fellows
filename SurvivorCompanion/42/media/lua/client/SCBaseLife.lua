@@ -206,7 +206,7 @@ local function transientJobDelay(job, reason)
         or reason == "cleaning_cleaner_missing" or reason == "cleaning_water_or_bucket_missing"
         or reason == "cleaning_water_source_changed" or reason == "cleaning_water_unreachable"
         or reason == "cleaning_supply_changed" or reason == "cleaning_carry_capacity_low"
-        or reason == "cleaning_transfer_no_progress") then return 180000 end
+        or reason == "cleaning_transfer_no_progress" or reason == "base_storage_unloaded") then return 180000 end
     if reason == "work_side_blocked" then return 180000 end
     if reason == "work_side_busy" then return 15000 end
     local upkeepDelay = BaseLife.upkeepSupplyRetryMs(job, reason)
@@ -214,7 +214,8 @@ local function transientJobDelay(job, reason)
     if reason == "destination_full" or reason == "haul_destinations_full"
         or reason == "car_unload_storage_full_or_missing" then return 30000 end
     if job.type == "stack_logs" and (reason == "log_yard_rope_missing"
-        or reason == "log_yard_rope_moved" or reason == "log_yard_unloaded") then return 180000 end
+        or reason == "log_yard_rope_moved" or reason == "log_yard_unloaded"
+        or reason == "base_storage_unloaded") then return 180000 end
     if job.type == "farm" then return TRANSIENT_FARM_BLOCKERS[reason] end
     if job.type == "sort" or job.type == "sort_floor" then
         return TRANSIENT_SORT_BLOCKERS[reason]
@@ -463,11 +464,25 @@ local function normalizeZone(source)
     }
 end
 
+local function storageIndex(value)
+    local index = finite(value, nil)
+    if index and index >= 0 and index <= 2147483647 and index == math.floor(index) then return index end
+end
+
+local function storageType(value)
+    return type(value) == "string" and #value > 0 and #value <= 96
+        and not string.find(value, "[%c]") and value or nil
+end
+
 local function normalizeStorage(source)
     if type(source) ~= "table" or not validId(source.id, "storage:")
         or not BaseLife.STORAGE_CATEGORIES[source.category] then return nil end
     local reference = R() and R().normalize(source) or nil
     if not reference then return nil end
+    local compartment, containerType = storageIndex(source.containerIndex), storageType(source.containerType)
+    if source.containerIndex ~= nil or source.containerType ~= nil then
+        if compartment == nil or containerType == nil or source.category == "milk" then return nil end
+    end
     local reserves = {}
     local count = 0
     for itemType, amount in pairs(type(source.reserves) == "table" and source.reserves or {}) do
@@ -480,6 +495,7 @@ local function normalizeStorage(source)
         id = source.id, x = reference.x, y = reference.y, z = reference.z,
         objectIndex = reference.objectIndex, category = source.category,
         objectId = reference.objectId, objectSignature = reference.objectSignature,
+        containerIndex = compartment, containerType = containerType,
         reserve = integer(source.reserve, 0, 0, 9999), reserves = reserves,
         withdrawals = source.withdrawals ~= false, deposits = source.deposits ~= false,
         createdAt = math.max(0, finite(source.createdAt, 0)),
@@ -2167,7 +2183,66 @@ function BaseLife.describeObject(object, createIdentity)
     return references.describe(object, objectReferenceContext(createIdentity == true))
 end
 
-function BaseLife.registerStorage(object, category)
+-- Vanilla exposes each fixed furniture compartment through its zero-based
+-- container index. Single-container adapters can still use their exact primary.
+function BaseLife.storageCompartments(object)
+    local compartments, seen = {}, {}
+    local count, indexed = U().call(object, "getContainerCount")
+    count = storageIndex(count)
+    if indexed then
+        for index = 0, (count or 0) - 1 do
+            local container = select(1, U().call(object, "getContainerByIndex", index))
+            if container and not seen[container] then
+                seen[container] = true
+                compartments[#compartments + 1] = { container = container, index = index }
+            end
+        end
+    else
+        local primary = select(1, U().call(object, "getContainer"))
+        if primary then compartments[1] = { container = primary, index = 0 } end
+    end
+    return compartments
+end
+
+local function storageEndpoint(object, category, requestedContainer)
+    if category == "milk" then
+        if requestedContainer ~= nil or not SC.FarmStorage or not SC.FarmStorage.canMarkMilk(object) then
+            return nil, "milk_storage_incompatible"
+        end
+        return { fluid = true }
+    end
+    local primary = select(1, U().call(object, "getContainer"))
+    local container = requestedContainer or primary
+    if not container then return nil, "object_has_no_container" end
+    for _, compartment in ipairs(BaseLife.storageCompartments(object)) do
+        if compartment.container == container then
+            local kind = storageType(select(1, U().call(container, "getType")))
+            local current = select(1, U().call(object, "getContainerByIndex", compartment.index))
+            if kind and current == container then
+                return { index = compartment.index, kind = kind, primary = container == primary }
+            end
+            if container == primary then return { primary = true } end
+        end
+    end
+    return nil, "storage_compartment_unavailable"
+end
+
+local function storageForEndpoint(base, descriptor, endpoint)
+    for _, storage in ipairs(base.storages) do
+        local sameObject = storage.objectId ~= nil and storage.objectId == descriptor.objectId
+            or storage.objectId == nil and storage.x == descriptor.x and storage.y == descriptor.y
+                and storage.z == descriptor.z and storage.objectIndex == descriptor.objectIndex
+        if sameObject then
+            if endpoint.fluid and storage.category == "milk" then return storage end
+            if not endpoint.fluid and storage.category ~= "milk"
+                and (storage.containerIndex == nil and endpoint.primary
+                    or storage.containerIndex ~= nil and storage.containerIndex == endpoint.index
+                        and storage.containerType == endpoint.kind) then return storage end
+        end
+    end
+end
+
+function BaseLife.registerStorage(object, category, container)
     if not BaseLife.STORAGE_CATEGORIES[category] then return false, "invalid_storage_category" end
     local base = activeBase()
     local references = R()
@@ -2184,29 +2259,23 @@ function BaseLife.registerStorage(object, category)
         return false, not base and "base_missing"
             or descriptorReason or "storage_outside_base"
     end
-    local container, ok = U().call(object, "getContainer")
-    if category=="milk" then
-        if not SC.FarmStorage.canMarkMilk(object) then return false,"milk_storage_incompatible" end
-    elseif not ok or not container then return false, "object_has_no_container" end
-    for _, storage in ipairs(base.storages) do
-        if storage.objectId == descriptor.objectId
-            or (storage.objectId == nil and storage.x == descriptor.x
-                and storage.y == descriptor.y and storage.z == descriptor.z
-                and storage.objectIndex == descriptor.objectIndex) then
-            storage.x, storage.y, storage.z = descriptor.x, descriptor.y, descriptor.z
-            storage.objectIndex, storage.objectId = descriptor.objectIndex, descriptor.objectId
-            storage.objectSignature = descriptor.objectSignature
-            storage.category = category
-            if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
-            return true, storage
-        end
+    local endpoint, reason = storageEndpoint(object, category, container)
+    if not endpoint then return false, reason end
+    local storage = storageForEndpoint(base, descriptor, endpoint)
+    if storage then
+        references.copy(descriptor, storage)
+        storage.category = category
+        storage.containerIndex, storage.containerType = endpoint.index, endpoint.kind
+        if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
+        return true, storage
     end
     local maximum = U().config("baseMaxStorages") or 32
     if #base.storages >= maximum then return false, "storage_limit" end
     descriptor.id = nextId("nextStorageSerial", "storage:")
     descriptor.category, descriptor.reserve, descriptor.reserves = category, 0, {}
+    descriptor.containerIndex, descriptor.containerType = endpoint.index, endpoint.kind
     descriptor.withdrawals, descriptor.deposits, descriptor.createdAt = true, true, now()
-    local storage = normalizeStorage(descriptor)
+    storage = normalizeStorage(descriptor)
     base.storages[#base.storages + 1] = storage
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
@@ -2274,13 +2343,23 @@ function BaseLife.setStorageCategory(id, category)
     local base = activeBase()
     local storage = base and findById(base.storages, id) or nil
     if not storage then return false, "unknown_storage" end
-    local object=BaseLife.resolveObject(storage)
     if category~="milk" and category~="manure" and not BaseLife.isInside(storage) then
         return false,"storage_outside_base"
     end
-    if category=="milk" then
-        if not SC.FarmStorage.canMarkMilk(object) then return false,"milk_storage_incompatible" end
-    elseif not select(1,U().call(object,"getContainer")) then return false,"object_has_no_container" end
+    local wasFluid, fluid = storage.category == "milk", category == "milk"
+    if wasFluid or fluid then
+        local object, reason = BaseLife.resolveObject(storage)
+        if not object then return false, reason end
+        local endpoint, endpointReason = storageEndpoint(object, category)
+        if not endpoint then return false, endpointReason end
+        if wasFluid ~= fluid and storageForEndpoint(base, storage, endpoint) then
+            return false, "storage_compartment_marked"
+        end
+        storage.containerIndex, storage.containerType = endpoint.index, endpoint.kind
+    else
+        local container, _, reason = BaseLife.resolveContainer(storage)
+        if not container then return false, reason or "object_has_no_container" end
+    end
     storage.category = category
     if BaseLife.noteWorkAccessChanged then BaseLife.noteWorkAccessChanged(storage) end
     return true, storage
@@ -2421,6 +2500,7 @@ function BaseLife.visualRows()
     for _, storage in ipairs(base.storages or {}) do
         local row = {
             id = storage.id, category = storage.category,
+            containerIndex = storage.containerIndex, containerType = storage.containerType,
         }
         local references = R()
         if references then references.copy(storage, row) end
@@ -2459,9 +2539,15 @@ function BaseLife.resolveContainer(storage)
     if storage and storage.category=="milk" then return nil,nil,"fluid_storage" end
     local object, reason = BaseLife.resolveObject(storage)
     if not object then return nil, nil, reason end
-    local container, ok = U().call(object, "getContainer")
-    return ok and container or nil, object,
-        (not ok) and "object_has_no_container" or nil
+    if storage.containerIndex ~= nil then
+        local container = select(1, U().call(object, "getContainerByIndex", storage.containerIndex))
+        if not container or select(1, U().call(container, "getType")) ~= storage.containerType then
+            return nil, object, "storage_compartment_unavailable"
+        end
+        return container, object
+    end
+    local container = select(1, U().call(object, "getContainer"))
+    return container, object, not container and "object_has_no_container" or nil
 end
 
 function BaseLife.resolveFluidContainer(storage)
@@ -4903,7 +4989,10 @@ local function jobScore(actorId, job, settlementId)
     if job.id == settlementId then score = score + 500 end
     if job.assignedId == actorId then score = score + 100 end
     if job.assignedId ~= nil and job.assignedId ~= actorId then return -math.huge end
-    if job.type == "stack_logs" and SC.LogYard and not SC.LogYard.canClaim(job) then
+    if job.type == "sort" and not (job.target and job.target.stockBatch)
+        and SC.SortBatch and SC.SortBatch.pendingInventory
+        and SC.SortBatch.pendingInventory(actorId) then return -math.huge end
+    if job.type == "stack_logs" and SC.LogYard and not SC.LogYard.canClaim(job, actorId) then
         return -math.huge
     end
     local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId) or nil
@@ -5031,8 +5120,10 @@ function BaseLife.claimJob(actorId, accept)
                 SC.LogYard.releaseUnstackAffinity(U().resolveActor(job.assignedId), job)
             end
             local score = jobScore(actorId, job, settlement and settlement.id)
-            if bestScore == nil or score > bestScore
-                or (score == bestScore and tostring(job.id) < tostring(best.id)) then
+            if score > -math.huge and (bestScore == nil or score > bestScore
+                or (score == bestScore and tostring(job.id) < tostring(best.id)))
+                and (job.type ~= "sort_floor" or job.state ~= "blocked" or not SC.FloorSort
+                    or not SC.FloorSort.retryReady or SC.FloorSort.retryReady(actor, job)) then
                 best, bestScore = job, score
             end
         end
@@ -5396,6 +5487,9 @@ function BaseLife.retryJob(id)
         return BaseLife.retryProductionOrder(job.target.orderId)
     end
     if job.state ~= "blocked" then return false, "job_not_blocked" end
+    if job.type == "stack_logs" and SC.LogYard and SC.LogYard.retrySupplies then
+        SC.LogYard.retrySupplies()
+    end
     job.state, job.retryAt, job.blocker = "pending", 0, nil
     job.attempts, job.haulScanChanges, job.updatedAt = 0, 0, now()
     if type(job.navigationRecovery) == "table" then
@@ -5416,7 +5510,8 @@ function BaseLife.jobParked(job)
     return type(job) == "table" and job.state == "blocked"
         and not orderOwnedJob(job)
         and not transientJobDelay(job, job.blocker)
-        and ((job.blocker == "haul_scan_changed" and (tonumber(job.haulScanChanges) or 0) >= 3)
+        and ((SC.SortBatch and SC.SortBatch.waitingForOwner and SC.SortBatch.waitingForOwner(job))
+            or (job.blocker == "haul_scan_changed" and (tonumber(job.haulScanChanges) or 0) >= 3)
             or (tonumber(job.attempts) or 0) >= (tonumber(U().config("baseJobParkAfterFailures")) or 6))
 end
 
@@ -6101,6 +6196,7 @@ function BaseLife.summary()
                 reserves = stableCopy(storage.reserves, 2, { count = 64 }),
                 x = storage.x, y = storage.y, z = storage.z,
                 objectIndex = storage.objectIndex, objectId = storage.objectId,
+                containerIndex = storage.containerIndex, containerType = storage.containerType,
                 deposits = storage.deposits ~= false,
                 withdrawals = storage.withdrawals ~= false,
             }

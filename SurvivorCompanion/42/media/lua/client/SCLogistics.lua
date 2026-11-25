@@ -2401,6 +2401,11 @@ local function executeTransaction(actor, state)
     if not validStorage then
         return terminalTransaction(actor, state, false, storageReason)
     end
+    if U().canRemoveFromContainer then
+        local removable, removalReason = U().canRemoveFromContainer(
+            transaction.source, actor, transaction.item)
+        if not removable then return terminalTransaction(actor, state, false, removalReason) end
+    end
     local room, capacityReason = U().containerHasRoom(
         transaction.destination, actor, transaction.item)
     if room ~= true then

@@ -2,7 +2,8 @@
 -- Full native catalogue, real destination selectors and optional physical sort.
 -- Only disposable LF fixture actors receive work; zombie navigation is untouched.
 require "SCStorageCategoryCases"
-local SC, s = SurvivorCompanion, { phase='menu', index=0, count=0, errors=0, skipped=0, checks=0, cases=0, roles=0, routes=0, refused=0 }
+local SC, s = SurvivorCompanion, { phase='menu', index=0, count=0, errors=0, skipped=0,
+    checks=0, cases=0, roles=0, routes=0, refused=0, modItems=0 }
 local function field(v) return tostring(v == nil and '' or v):gsub('[\t\r\n]', ' ') end
 local function write(name, value)
     local w=assert(getFileWriter(name,true,false));w:write(value);w:close()
@@ -18,7 +19,7 @@ local function finish(okay,reason)
     if s.done then return end;s.done=true
     if s.writer then s.writer:close();s.writer=nil end
     local text='result='..(okay and 'PASS' or 'FAIL')..'\nphase='..s.phase..'\nreason='..field(reason)
-        ..'\nitems='..s.count..'\nskipped='..s.skipped..'\nerrors='..s.errors..'\nreviewed_cases='..s.cases
+        ..'\nitems='..s.count..'\nmod_items='..s.modItems..'\nskipped='..s.skipped..'\nerrors='..s.errors..'\nreviewed_cases='..s.cases
         ..'\nloadout_roles='..s.roles..'\nrouted_items='..s.routes..'\ncapacity_refusals='..s.refused..'\nphysical_items='..tostring(s.physicalCount or 0)
         ..'\nchecks='..s.checks..'\nmax_tick_gap_ms='..tostring(s.maxGap or 0)..'\nlast_work='..field(s.work)..'\n'
     write('pzo-storage-audit-result.txt',text);print('SC_PZO_STORAGE_AUDIT '..text)
@@ -126,6 +127,11 @@ local function step()
             local okay,row=pcall(function()
                 local item=instanceItem(kind)
                 if not item then s.skipped=s.skipped+1;return kind..'\t\t\t\t\t\t\tno_native_instance\n' end
+                if kind=='LivingFellows.LarchKeyCard' then
+                    -- The LF quest card was added after the pinned vanilla role list.
+                    s.modItems=s.modItems+1
+                    return kind..'\t\t\t\t\t\t\tliving_fellows_item\n'
+                end
                 local wanted,certain=SC.BaseWork.classifyItem(item)
                 local role=SC.Logistics.itemCategory(item)
                 check(s.baseline[kind]~=nil,'baseline role exists for '..kind)
@@ -139,8 +145,9 @@ local function step()
                 local routes,category,why=SC.BaseWork.floorDestinations(s.primary,item)
                 local destination=SC.BaseWork.destinationForCarItem(s.primary,item)
                 if #routes==0 then
-                    check(category==wanted and why=='floor_storage_full'
-                        and not s.stores[wanted].container:hasRoomFor(s.primary,item),
+                    local canStore, admission=SC.GameplayUtil.containerHasRoom(s.stores[wanted].container,s.primary,item)
+                    local expected=admission=='destination_full' and 'floor_storage_full' or 'floor_storage_unavailable'
+                    check(category==wanted and why==expected and not canStore,
                         'an unroutable item retains native capacity refusal: '..kind)
                     check(destination==nil,'a rejected item cannot escape through an unrelated car fallback: '..kind)
                     s.refused=s.refused+1

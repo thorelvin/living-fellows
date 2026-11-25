@@ -1790,36 +1790,51 @@ end
 
 local function destinationHasRoom(container, actor, item)
     if SC.WorkTransport and type(SC.WorkTransport.hasRoom) == "function" then
-        local ok, room = pcall(SC.WorkTransport.hasRoom, container, actor, item)
-        if ok then return room == true end
+        local ok, room, reason = pcall(SC.WorkTransport.hasRoom, container, actor, item)
+        if ok then return room == true, reason end
+    end
+    if type(U().containerHasRoom) == "function" then
+        return U().containerHasRoom(container, actor, item)
     end
     local room, roomOk = U().call(container, "hasRoomFor", actor, item)
-    return roomOk and room == true
+    if roomOk and room == true then return true end
+    return false, "capacity_unavailable"
 end
 
 -- Every registered destination that can actually take this exact item now.
 -- A full store is not a destination; choosing one would strand the cargo.
+local function storageDestinations(category, item, actor, sourceId)
+    local rows = {}
+    local marked, unknown = false, false
+    if U().itemType(item) == "Base.Log" and category == "construction" and SC.LogYard then
+        local yard = SC.LogYard.select and SC.LogYard.select(actor)
+        if yard then rows[#rows + 1] = { destination = yard, container = yard.square }
+        elseif SC.LogYard.hasZone and SC.LogYard.hasZone() then unknown = true end
+    end
+    for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
+        if destination.id ~= sourceId then
+            marked = true
+            local container = SC.BaseLife.resolveContainer(destination)
+            local room, reason
+            if container then room, reason = destinationHasRoom(container, actor, item) end
+            if room then
+                rows[#rows + 1] = { destination = destination, container = container }
+            elseif reason ~= "destination_full" then
+                unknown = true
+            end
+        end
+    end
+    return rows, unknown and "floor_storage_unavailable"
+        or marked and "floor_storage_full" or "floor_storage_missing"
+end
+
 local function destinationsFor(job, item, actor, sourceId)
     local category = type(job.target) == "table" and job.target.destinationCategory
         or classifyItem(item)
     if category == "food" or category == "fresh_food" then
         category = SC.BaseLife.foodDepositCategory(item)
     end
-    local rows = {}
-    if U().itemType(item) == "Base.Log" and category == "construction"
-        and SC.LogYard and SC.LogYard.select then
-        local yard = SC.LogYard.select(actor)
-        if yard then rows[#rows + 1] = { destination = yard, container = yard.square } end
-    end
-    for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
-        if destination.id ~= sourceId then
-            local container = SC.BaseLife.resolveContainer(destination)
-            if container and destinationHasRoom(container, actor, item) then
-                rows[#rows + 1] = { destination = destination, container = container }
-            end
-        end
-    end
-    return rows
+    return (storageDestinations(category, item, actor, sourceId))
 end
 
 -- Floor intake follows the ordinary camp sorter's exact category and capacity
@@ -1831,16 +1846,9 @@ function BaseWork.floorDestinations(actor, item)
     if category == "food" or category == "fresh_food" then
         category = SC.BaseLife.foodDepositCategory(item)
     end
-    local rows = destinationsFor({ type = "sort",
-        target = { destinationCategory = category } }, item, actor, nil)
+    local rows, reason = storageDestinations(category, item, actor)
     if #rows > 0 then return rows, category end
-    if U().itemType(item) == "Base.Log" and category == "construction"
-        and SC.LogYard and SC.LogYard.hasZone and SC.LogYard.hasZone() then
-        return {}, category, "floor_storage_unavailable"
-    end
-    local marked = SC.BaseLife.depositStorageRows(category)
-    return {}, category, #marked > 0 and "floor_storage_full"
-        or "floor_storage_missing"
+    return rows, category, reason
 end
 
 function BaseWork.destinationForCarItem(actor, item)
@@ -3280,7 +3288,12 @@ local function auditSorting(base, remainingBudget, scan)
         local queued, result = SC.FloorSort.audit(base)
         if queued then return queued, result end
     end
-    if openJob(base, "sort") then return false, "sorting_already_queued" end
+    for _, job in ipairs(base.jobs or {}) do
+        if job.type == "sort" and job.state ~= "completed" and job.state ~= "cancelled"
+            and not (SC.SortBatch and SC.SortBatch.waitingForOwner(job)) then
+            return false, "sorting_already_queued"
+        end
+    end
     if #SC.BaseLife.storageRows(nil, true) == 0 then
         return false, "sorting_source_missing"
     end
@@ -3304,7 +3317,8 @@ local function auditSorting(base, remainingBudget, scan)
     while scan.index <= #scan.rows do
         if not maintenanceBudget(remainingBudget) then return false, "sorting_audit_pending", true end
         local resident = scan.rows[scan.index]
-        if resident.duty == true then
+        if resident.duty == true
+            and not (SC.SortBatch and SC.SortBatch.pendingInventory(resident.id)) then
             local record = SC.Registry and SC.Registry.byId
                 and SC.Registry.byId(resident.id) or nil
             if record and record.actor then
@@ -3766,10 +3780,22 @@ function BaseWork.cancelJob(jobId, ownerId, reason)
     end
     if unloadJob and unloadJob.target and unloadJob.target.stockBatch and SC.SortBatch then
         if SC.SortBatch.releaseGone(unloadJob) then return true,"sort_worker_gone" end
-        local worker=unloadJob.target.stockBatch.owner
+        local batch = unloadJob.target.stockBatch
+        local worker=batch.owner
         local actor=worker and U().resolveActor(worker)
         if not actor then return false,"haul_cargo_owner_unknown" end
-        local state=stateFor(actor);state.jobId=state.jobId or jobId
+        local state=stateFor(actor)
+        if reason == "base_job_cancelled" and SC.SortBatch.waitingForOwner(unloadJob) then
+            local released, why = SC.SortBatch.cancelUnknown(actor, unloadJob)
+            if released then
+                if state.cargo and state.cargo.batch == batch then
+                    state.cargo, state.transfer = nil, nil
+                end
+                if state.jobId == jobId then state.jobId = nil end
+            end
+            return released, why
+        end
+        state.jobId=state.jobId or jobId
         local restored,why=SC.SortBatch.restoreState(actor,state,unloadJob)
         if not restored then return false,why end
         ownerId=worker

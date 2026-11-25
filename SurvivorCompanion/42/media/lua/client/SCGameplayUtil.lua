@@ -1470,12 +1470,38 @@ function U.itemWeight(item)
     return value
 end
 
+local function storageRule(container, method, expected, blocker, ...)
+    local value, called = U.call(container, method, ...)
+    if called and type(value) == "boolean" then
+        if value == expected then return true end
+        return false, blocker
+    end
+    -- Synthetic inventory models have no native lock or removal hook.
+    if type(container) == "table" and container[method] == nil then return true end
+    return false, "storage_access_unavailable"
+end
+
+function U.canRemoveFromContainer(container, actor, item, outer)
+    if outer and outer ~= container then
+        local unlocked, reason = storageRule(outer, "isLockedToCharacter", false,
+            "source_storage_locked", actor)
+        if not unlocked then return false, reason end
+    end
+    local unlocked, reason = storageRule(container, "isLockedToCharacter", false,
+        "source_storage_locked", actor)
+    if not unlocked then return false, reason end
+    return storageRule(container, "isRemoveItemAllowed", true, "source_item_rejected", item)
+end
+
 -- Native container admission includes traits, item filters, nesting and seat
 -- rules. Keep its answer authoritative; only diagnose a refusal afterward.
 function U.containerHasRoom(container, actor, item)
     if container == nil or actor == nil or item == nil then
         return false, "capacity_context_missing"
     end
+    local unlocked, lockReason = storageRule(container, "isLockedToCharacter", false,
+        "destination_storage_locked", actor)
+    if not unlocked then return false, lockReason end
     local allowed, called = U.call(container, "hasRoomFor", actor, item)
     if not called or type(allowed) ~= "boolean" then
         return false, "capacity_unavailable"

@@ -25,6 +25,13 @@ assert(UI.baseFailureReason("path_blocked:blocked_static", true) == "UI_SC_Base_
     "path details do not leak through a compound blocker code")
 assert(UI.baseFailureReason("floor_pickup_unverified", true) == "UI_SC_Base_Reason_work_item_unconfirmed",
     "unconfirmed item ownership stays distinct from an interrupted pickup")
+for reason, key in pairs({ source_storage_locked = "work_storage_locked",
+    destination_storage_locked = "work_storage_locked", source_item_rejected = "work_storage_cannot_remove_item",
+    storage_access_unavailable = "work_storage_unavailable",
+    storage_compartment_unavailable = "storage_compartment_unavailable" }) do
+    assert(UI.baseFailureReason(reason, true) == "UI_SC_Base_Reason_" .. key,
+        "a storage restriction has a clear explanation: " .. reason)
+end
 -- Since 0.27.4 an unknown code never reaches the player as humanized
 -- diagnostics; the general menu says the cause is unknown instead.
 assert(UI.baseFailureReason("future_native_callback_failed", true) == nil
@@ -44,6 +51,11 @@ assert(UI.baseJobBlocker(waterJob, zones) == "UI_SC_Base_WaterPlotBlocked",
     "the stalled work line identifies the exact plot using the marked garden")
 assert(UI.baseJobBlocker(waterJob, {}) == "UI_SC_Base_Reason_farm_water_plot_unreachable",
     "a removed garden still has a player-facing explanation")
+for _, reason in ipairs({ "log_yard_rope_missing", "cleaning_carry_capacity_low",
+    "floor_storage_unavailable" }) do
+    assert(UI.baseJobBlocker({ blocker = reason }) == "UI_SC_Base_Reason_" .. reason,
+        "blocked camp work describes its exact requirement: " .. reason)
+end
 UI.text = function(key) return key end
 local detail = fixture.classes.SCUIDetail:new(0, 0, 200, 300, {})
 local panel = ISPanel:new(0, 0, 200, 300)
@@ -303,22 +315,40 @@ UI.booleanText = function(value) return value and "On" or "Off" end
 SurvivorCompanion.BaseLife.summary = function()
     return { configured = true, rows = baseRows, jobs = { blocked = 3 },
         zoneRows = unnamedZones,
-        storageRows = { { id = "supplies", category = "tools", x = 10, y = 10, z = 0 } } }
+        storageRows = {
+            { id = "fridge", category = "fresh_food", x = 10, y = 10, z = 0,
+                containerIndex = 0, containerType = "fridge" },
+            { id = "freezer", category = "fresh_food", x = 10, y = 10, z = 0,
+                containerIndex = 1, containerType = "freezer" },
+        } }
 end
 SurvivorCompanion.BaseLife.canRemoveZone = function() return true end
 SurvivorCompanion.BaseLife.resident = function() return { role = "generalist", duty = true } end
+local nativeTextOrNull = getTextOrNull
+getTextOrNull = function(key)
+    local titles = { IGUI_ContainerTitle_fridge = "Fridge", IGUI_ContainerTitle_freezer = "Freezer" }
+    return titles[key]
+end
 selected:buildBase(ISPanel:new(0, 0, 360, 300), { id = "resident", name = "Alice", order = "base_duty" })
+getTextOrNull = nativeTextOrNull
 local roleIndex, firstAction, firstSection, lastSection
+local compartments = {}
 for index, event in ipairs(events) do
     if event.kind == "selector" and event.key == "set_base_role" then roleIndex = index end
     if event.kind == "action" or event.kind == "selector" or event.kind == "record" then firstAction = firstAction or index end
     if event.kind == "section" then firstSection = firstSection or index lastSection = index end
+    if event.kind == "information" and type(event.text) == "string" then
+        local name, number = event.text:match("UI_SC_Base_StorageCompartmentNumbered:([^,]+),(%d+)")
+        if name then compartments[name] = tonumber(number) end
+    end
 end
 assert(roleIndex and firstAction == roleIndex and events[firstSection].key == "UI_SC_Base_Section_Selected",
     "selected companion job selector is first, immediately after More navigation")
 assert(events[lastSection].key == "UI_SC_Base_Section_Storages"
     and events[#events].key == "remove_storage",
     "storage management is literally last after maintenance, abandon and crisis groups")
+assert(compartments.Fridge == 1 and compartments.Freezer == 2,
+    "Camp identifies distinct compartments even when their coordinates and storage categories match")
 for zoneId, readable in pairs({
     [unnamedZones[1].id] = "Parking area (10, 20, 0)",
     [unnamedZones[2].id] = "Outdoor log yard (30, 40, 0)",

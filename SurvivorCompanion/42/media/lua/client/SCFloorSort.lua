@@ -391,6 +391,42 @@ local function destination(actor, item, job)
     return nil, category, "floor_storage_unavailable"
 end
 
+local storageWait = {
+    floor_storage_full = true, floor_storage_unavailable = true,
+    floor_storage_missing = true, floor_source_unloaded = true,
+    floor_trash_pile_missing = true, floor_trash_pile_unavailable = true,
+}
+
+-- Recheck a blocked intake without taking a worker off another job. The
+-- floor cursor and item cooldowns keep the probe bounded across retries.
+function Floor.retryReady(actor, job)
+    local target = job and job.target
+    if not actor or not target or target.floorCargo or job.state ~= "blocked"
+        or not storageWait[job.blocker] then return true end
+    local zone = zoneById(target.zoneId, "sorting_floor")
+    if not zone then return true end
+    local current = now()
+    if (job.retryAt or 0) > current then return false end
+    for _ = 1, 2 do
+        local selected, scanReason = nextItem(zone, actor)
+        if not selected then
+            if scanReason == "floor_empty" then return true end
+            if storageWait[scanReason] then job.blocker = scanReason end
+            job.retryAt = current + (scanReason == "floor_scan_pending" and 1000 or 5000)
+            return false
+        end
+        local chosen, category, why = destination(actor, selected.item, job)
+        if chosen then
+            scans[zone.id].objectIndex = selected.sourceIndex
+            return true
+        end
+        if storageWait[why] then job.blocker, target.floorCategory = why, category end
+        deferItem(zone, selected.item, why)
+    end
+    job.retryAt = current + 1000
+    return false
+end
+
 local function containerItems(container)
     local list = call(container, "getItems")
         or type(container) == "table" and container.items or nil

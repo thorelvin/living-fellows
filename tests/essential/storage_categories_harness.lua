@@ -124,6 +124,28 @@ check(#destinations == 0 and category == 'tools' and why == 'floor_storage_full'
 check(SC.BaseWork.destinationForCarItem(actor, capacityItem) == storages.general,
     'car unloading retains its explicit unsorted-intake fallback')
 containers.tools.capacity = limit
+local resolveContainer = SC.BaseLife.resolveContainer
+SC.BaseLife.resolveContainer = function(row)
+    if row == storages.tools then return nil, nil, 'base_storage_unloaded' end
+    return resolveContainer(row)
+end
+destinations, category, why = SC.BaseWork.floorDestinations(actor, capacityItem)
+check(#destinations == 0 and category == 'tools' and why == 'floor_storage_unavailable',
+    'an unloaded marked shelf cannot prove that storage is full')
+SC.BaseLife.resolveContainer = resolveContainer
+local hasRoom = containers.tools.hasRoomFor
+containers.tools.hasRoomFor = function() return false end
+destinations, category, why = SC.BaseWork.floorDestinations(actor, capacityItem)
+check(#destinations == 0 and category == 'tools' and why == 'floor_storage_unavailable',
+    'a shelf that rejects the item despite available space is not full')
+containers.tools.hasRoomFor = function() return nil end
+destinations, category, why = SC.BaseWork.floorDestinations(actor, capacityItem)
+check(#destinations == 0 and category == 'tools' and why == 'floor_storage_unavailable',
+    'an unreadable capacity result is not a verified full shelf')
+containers.tools.hasRoomFor = hasRoom
+destinations, category, why = SC.BaseWork.floorDestinations(actor, capacityItem)
+check(#destinations == 1 and destinations[1].destination == storages.tools and why == nil,
+    'the same marked destination is used as soon as it accepts the item')
 storages.tools.deposits = false
 destinations, category, why = SC.BaseWork.floorDestinations(actor, capacityItem)
 check(#destinations == 0 and category == 'tools' and why == 'floor_storage_missing',
@@ -153,5 +175,81 @@ for _ = 1, 80 do
     if reason ~= 'haul_scan_pending' then break end
     f.clock = f.clock + 100
 end
+do
+    local fridge, object = f.containerObject(f.makeSquare(28, 22, 0), {}, { containerType = 'fridge' })
+    function object:getObjectIndex() return 0 end
+    local freezer = f.inventory({})
+    function freezer:getType() return 'freezer' end
+    function freezer:getParent() return object end
+    local marked, legacy = SC.BaseLife.registerStorage(object, 'fresh_food')
+    check(marked and legacy.containerIndex == nil and SC.BaseLife.resolveContainer(legacy) == fridge,
+        'legacy primary storage keeps working before indexed registration')
+    SC.BaseLife.setReserve(legacy.id, '*', 2)
+    object.compartments = { fridge, freezer }
+    function object:getContainerCount() return #self.compartments end
+    function object:getContainerByIndex(index) return self.compartments[index + 1] end
+    local options = SC.BaseLife.storageCompartments(object)
+    check(#options == 2 and options[1].container == fridge and options[1].index == 0
+        and options[2].container == freezer and options[2].index == 1,
+        'one furniture object exposes both exact native compartments')
+    check(SC.Encounter.baseStorageAccess(fridge, nil, true) == 'shared'
+        and SC.Encounter.baseStorageAccess(freezer, nil, true) == 'player',
+        'an unmarked sibling cannot inherit a legacy primary withdrawal permission')
+    legacy.withdrawals = false
+    local remarked, primary = SC.BaseLife.registerStorage(object, 'fresh_food', fridge)
+    check(remarked and primary == legacy and primary.reserve == 2 and primary.withdrawals == false
+        and primary.containerIndex == 0 and primary.containerType == 'fridge',
+        're-marking the primary migrates the existing ID, reserve and permissions')
+    local added, secondary = SC.BaseLife.registerStorage(object, 'food', freezer)
+    check(added and secondary.id ~= primary.id and secondary.containerIndex == 1
+        and secondary.containerType == 'freezer' and SC.BaseLife.resolveContainer(secondary) == freezer,
+        'freezer is a separate storage row that resolves the exact second compartment')
+    local access, storage = SC.Encounter.baseStorageAccess(freezer, nil, true)
+    check(access == 'shared' and storage == secondary and SC.Encounter.baseStorageAccess(fridge, nil, true) == 'player',
+        'separately marked siblings use their own withdrawal permissions')
+    check(not SC.BaseLife.registerStorage(object, 'water', containers.water),
+        'a stale or foreign compartment cannot retarget a furniture mark')
+    check(SC.BaseLife.setStorageCategory(secondary.id, 'fresh_food')
+        and SC.BaseLife.resolveContainer(secondary) == freezer,
+        'recategorizing a second compartment retains its exact inventory')
+    local item = f.item('Base.Apple', 'Food')
+    actor.inventory:AddItem(item)
+    check(not SC.BaseWork.restoreDepositToStorage(actor, secondary, fridge, item)
+        and actor.inventory:contains(item), 'a transfer cannot redirect to an adjacent compartment')
+    check(SC.BaseWork.restoreDepositToStorage(actor, secondary, freezer, item)
+        and freezer:contains(item) and not fridge:contains(item),
+        'a registered freezer accepts the exact deposit and leaves the fridge alone')
+
+    local canMarkMilk = SC.FarmStorage.canMarkMilk
+    SC.FarmStorage.canMarkMilk = function(candidate) return candidate == object end
+    local fluid = {}
+    function object:getFluidContainer() return fluid end
+    local fluidMarked, milk = SC.BaseLife.registerStorage(object, 'milk')
+    check(fluidMarked and milk.id ~= primary.id and milk.id ~= secondary.id
+        and SC.BaseLife.resolveContainer(milk) == nil and SC.BaseLife.resolveFluidContainer(milk) == fluid,
+        'the fluid endpoint remains separate from the native item compartments')
+    local converted, conversionReason = SC.BaseLife.setStorageCategory(milk.id, 'water')
+    check(not converted and conversionReason == 'storage_compartment_marked' and milk.category == 'milk',
+        'fluid recategorization cannot create two rows for the same primary compartment')
+    SC.FarmStorage.canMarkMilk = canMarkMilk
+
+    local snapshot = SC.BaseLife.export()
+    check(SC.BaseLife.restore(snapshot), 'the camp document reloads with exact compartment markers')
+    local restored = SC.BaseLife.storage(secondary.id)
+    check(restored and restored.containerIndex == 1 and restored.containerType == 'freezer'
+        and SC.BaseLife.resolveContainer(restored) == freezer
+        and SC.BaseLife.resolveContainer(SC.BaseLife.storage(primary.id)) == fridge,
+        'round-trip restoration still resolves both exact compartments')
+    object.compartments[2] = containers.water
+    local unavailable, _, reason = SC.BaseLife.resolveContainer(restored)
+    check(not unavailable and reason == 'storage_compartment_unavailable'
+        and not SC.BaseLife.setStorageCategory(restored.id, 'water'),
+        'a changed compartment type is unavailable rather than silently resolving a replacement')
+    object.compartments[2] = nil
+    check(SC.BaseLife.resolveContainer(restored) == nil
+        and SC.BaseLife.resolveContainer(SC.BaseLife.storage(primary.id)) == fridge,
+        'a missing second compartment cannot redirect to the primary')
+end
+
 SC_TEST_REPORT = 'STORAGE_CATEGORIES_PASS cases=' .. #cases .. ' checks=' .. checks
 print(SC_TEST_REPORT)

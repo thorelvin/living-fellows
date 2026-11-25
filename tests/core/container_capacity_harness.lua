@@ -74,4 +74,41 @@ check(select(2, U.containerHasRoom(invalid, actor, item)) == "capacity_unavailab
 check(SurvivorCompanion.WorkTransport.hasRoom(unknown, actor, item) == false
     and select(2, SurvivorCompanion.WorkTransport.hasRoom(unknown, actor, item)) == "capacity_unavailable",
     "work transport propagates unavailable reason")
+
+local source = { items = { item }, locked = true, removable = true }
+local shelf = { items = {}, locked = false }
+item.owner = source
+function item:getContainer() return self.owner end
+function source:getItems() return self.items end
+function shelf:getItems() return self.items end
+function source:isLockedToCharacter(who) return who == actor and self.locked end
+function shelf:isLockedToCharacter(who) return who == actor and self.locked end
+function source:isRemoveItemAllowed(what) return what == item and self.removable end
+function source:Remove(what)
+    check(what == item, "withdrawal removes the original item")
+    self.items = {}
+    item.owner = nil
+end
+function shelf:hasRoomFor() return true end
+function shelf:AddItem(what)
+    self.items[1], what.owner = what, self
+    return what
+end
+local transfer = SurvivorCompanion.WorkTransport.transferVerified
+check(select(2, transfer(source, shelf, item, actor)) == "source_storage_locked"
+    and item.owner == source and #shelf.items == 0, "locked stock stays with the source")
+source.locked, source.removable = false, false
+check(select(2, transfer(source, shelf, item, actor)) == "source_item_rejected"
+    and item.owner == source, "the source's independent removal rule is respected")
+source.removable, shelf.locked = true, true
+check(select(2, U.containerHasRoom(shelf, actor, item)) == "destination_storage_locked"
+    and select(2, transfer(source, shelf, item, actor)) == "destination_storage_locked"
+    and item.owner == source, "a locked destination is unavailable even with capacity")
+check(select(2, U.canRemoveFromContainer(source, actor, item, shelf)) == "source_storage_locked",
+    "a nested source inherits its outer storage lock")
+shelf.locked = false
+check(transfer(source, shelf, item, actor) and item.owner == shelf and shelf.items[1] == item,
+    "unlocked, allowed storage receives the exact original item")
+check(transfer(source, shelf, item, actor) and #shelf.items == 1,
+    "retry after a confirmed transfer does not create a duplicate")
 print("CONTAINER_CAPACITY_PASS checks=" .. checks)

@@ -614,13 +614,23 @@ local function ropeFor(actor, receipt)
     return stored, false, not stored and (carriedPending or sourcePending) == true
 end
 local bundleStates = setmetatable({}, { __mode = "k" })
+local ropeShortages = setmetatable({}, { __mode = "k" })
+local ROPE_RECHECK_MS = 30000
 local auditCursor = 0
 
 -- Two workers must not each borrow the last single rope and wait forever for
 -- the other one. Stack preparation/crafting is one bounded job at a time;
 -- ordinary hauling, chopping and other camp work remain independent.
-function Yard.canClaim(job)
+function Yard.canClaim(job, actorId)
     local base = SC.BaseLife.active()
+    local shortages = base and ropeShortages[base]
+    -- A worker who just searched the same stock can do other work until the
+    -- next check. Other workers may have rope in their own bags.
+    local target = job.target
+    local retryAt = shortages and actorId and shortages[actorId]
+    if retryAt and not target.stage and not target.logs
+        and not target.attempted and #(target.ropes or {}) == 0
+        and U().nowMs() < retryAt then return false end
     for _, other in ipairs(base and base.jobs or {}) do
         if other ~= job and other.type == "stack_logs"
             and other.state ~= "completed" and other.state ~= "cancelled"
@@ -630,6 +640,11 @@ function Yard.canClaim(job)
     return true
 end
 
+function Yard.retrySupplies()
+    local base = SC.BaseLife.active()
+    if base then ropeShortages[base] = nil end
+end
+
 -- Retain the cursor between work ticks. At most 64 items in four containers
 -- are inspected per tick; an unfinished search is never a rope shortage.
 local function nextRope(actor, job, state)
@@ -637,12 +652,16 @@ local function nextRope(actor, job, state)
     if not scan then
         scan = { rows = {}, c = 1, i = 0 }
         local root, seen = U().inventory(actor), {}
-        scan.rows[1], seen[root] = { container = root }, true
-        for _, item in ipairs(U().inventoryItemsDeep(root, 128, 12)) do
-            local bag = select(1, U().call(item, "getItemContainer"))
-            if bag and not seen[bag] then
-                scan.rows[#scan.rows + 1], seen[bag] = { container = bag }, true
+        if root then
+            scan.rows[1], seen[root] = { container = root }, true
+            for _, item in ipairs(U().inventoryItemsDeep(root, 128, 12)) do
+                local bag = select(1, U().call(item, "getItemContainer"))
+                if bag and not seen[bag] then
+                    scan.rows[#scan.rows + 1], seen[bag] = { container = bag }, true
+                end
             end
+        else
+            scan.unavailable = true
         end
         for _, category in ipairs({ "crafting", "general", "tools", "construction" }) do
             for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
@@ -659,6 +678,7 @@ local function nextRope(actor, job, state)
         if row.sourceId then storage, container = sourceFor(row)
         else container = row.container end
         local items = container and select(1, U().call(container, "getItems"))
+        if not items and (container or storage) then scan.unavailable = true end
         local count = (items and U().listSize(items)) or 0
         while scan.i < count and budget > 0 do
             local item = U().listGet(items, scan.i)
@@ -679,7 +699,7 @@ local function nextRope(actor, job, state)
     end
     if scan.c <= #scan.rows then return nil, "log_yard_rope_search_pending" end
     state.ropeScan = nil
-    return nil, "log_yard_rope_missing"
+    return nil, scan.unavailable and "base_storage_unloaded" or "log_yard_rope_missing"
 end
 
 local function pinnedLogs(job, square)
@@ -809,12 +829,20 @@ function Yard.update(actor, baseState, job)
     if #target.ropes < 2 then
         local receipt, itemOrReason = nextRope(actor, job, state)
         if not receipt then
-            if itemOrReason == "log_yard_rope_missing" then
-                local returned, why = Yard.cancel(actor, job)
-                if returned ~= true then return true, why end
+            if itemOrReason == "log_yard_rope_search_pending" then
+                return true, itemOrReason
             end
-            return itemOrReason ~= "log_yard_rope_missing", itemOrReason,
-                itemOrReason == "log_yard_rope_missing"
+            local returned, why = Yard.cancel(actor, job)
+            if returned ~= true then return true, why end
+            if itemOrReason == "log_yard_rope_missing" then
+                local base, actorId = SC.BaseLife.active(), U().idOf(actor)
+                if base and actorId then
+                    local shortages = ropeShortages[base] or {}
+                    ropeShortages[base] = shortages
+                    shortages[actorId] = U().nowMs() + ROPE_RECHECK_MS
+                end
+            end
+            return false, itemOrReason, true
         end
         target.ropes[#target.ropes + 1] = receipt
         return true, "log_yard_fetching_rope"
