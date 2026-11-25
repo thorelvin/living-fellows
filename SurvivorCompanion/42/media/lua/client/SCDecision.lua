@@ -551,6 +551,11 @@ end
 local function evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
     local candidates = {}
     local downtimeAdded = false
+    local settled
+    local function isLeaderSettled()
+        if settled == nil then settled = leaderSettled(actor, player, current) end
+        return settled
+    end
     local function add(kind, score, emergency, detail)
         score = adjustedDecisionScore(actor, snapshot, commands, kind, score, emergency, detail)
         -- Stable decision identity (review 2.4): `kind` is the category used for
@@ -674,7 +679,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             and SC.Medical.careNeed(actor, assessment) ~= nil
     if careDue and not bleeding and threatCount == 0 and immediate == 0
         and snapshot.humanThreat == nil
-        and (commands.order ~= "follow" or leaderSettled(actor, player, current))
+        and (commands.order ~= "follow" or isLeaderSettled())
         and SC.Medical and type(SC.Medical.canReplaceDirtyBandage) == "function" then
         local available=SC.Medical.canReplaceDirtyBandage(actor)==true
         if not available and type(SC.Medical.preferredStitchHelper)=="function" then
@@ -704,7 +709,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         and SC.Needs and type(SC.Needs.refillDue) == "function" then
         local home = SC.BaseLife and SC.BaseLife.isInside(actor) == true
         local following = commands.order == "follow"
-        if (not following or leaderSettled(actor, player, current))
+        if (not following or isLeaderSettled())
             and routineNeeds and SC.Needs.refillDue(actor, current) then
             add("water_refill", 59, false,
                 { mode = home and "home" or "nearby" })
@@ -790,7 +795,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             and not (voluntary and bleeding)
             and not (voluntary and commands.expeditionMoving)
             and not (voluntary and commands.order == "follow"
-                and not leaderSettled(actor, player, current)) then
+                and not isLeaderSettled()) then
             add(intent.kind, tonumber(intent.priority), false, intent)
         end
     end
@@ -832,7 +837,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             or load.fieldReturnCargo == true or load.giftPending == true
             or load.weaponReady == true
             or not (commands.recruited and commands.order == "follow")
-            or leaderSettled(actor, player, current)) then
+            or isLeaderSettled()) then
             -- Overload beats routine follow/work, but never urgent medicine,
             -- needs, retreat, or combat survival.
             add("logistics", load.fieldReturnCleanup and 94
@@ -898,7 +903,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             elseif commands.expeditionMoving then
                 add("follow", 82, false)
             elseif close and snapshot.indoors == true and not bleeding
-                and leaderSettled(actor, player, current) then
+                and isLeaderSettled() then
                 add("downtime", 52, false)
                 add("follow", 22, false)
             else
@@ -999,7 +1004,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             and U().sameFloor(actor, player)
             and U().distance(actor, player) <= math.max(3,
                 (tonumber(commands.followDistance) or 3) + 1.5)
-            and leaderSettled(actor, player, current)
+            and isLeaderSettled()
         if commands.scavenge and followLootAllowed
             and (threatCount == 0 or lootBesideUnreachable)
             and not bleeding
@@ -1018,7 +1023,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             elseif commands.order == "follow" and player then
                 local close = U().distance(actor, player)
                     <= math.max(3, (commands.followDistance or 3) + 1.5)
-                if close and leaderSettled(actor, player, current) then
+                if close and isLeaderSettled() then
                     -- Opportunistic looting beats a no-op formation hold once the
                     -- leader has settled, but never pulls a follower off a moving
                     -- or just-stopped leader.

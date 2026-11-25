@@ -2676,33 +2676,32 @@ function Factions.hostileTargetFor(actor, player)
     if actor == nil then return nil end
     player = player or localPlayer()
     local sourceAffiliation = Factions.affiliation(actor)
-    local candidates, seen = {}, setmetatable({}, { __mode = "k" })
-    local function addCandidate(candidate)
-        if candidate ~= nil and candidate ~= actor and not seen[candidate] then
-            seen[candidate] = true
-            candidates[#candidates + 1] = candidate
-        end
-    end
-    if sourceAffiliation or Factions.playerConflictHostile(actor, player) then
-        addCandidate(player)
-    end
-    if (sourceAffiliation or isPlayerPartyMember(actor, player)) and SC.Registry
-        and type(SC.Registry.living) == "function" then
-        -- Registry.living() deliberately returns live actors, not registry
-        -- records. Let the shared hostility predicate resolve each actor's
-        -- record/affiliation instead of reaching through a non-existent .actor
-        -- field. Considering all live actors also keeps hostile households in
-        -- the same contract as bandit camps.
-        for _, candidate in ipairs(SC.Registry.living() or {}) do
-            addCandidate(candidate)
-        end
-    end
+    local includePlayer = sourceAffiliation or Factions.playerConflictHostile(actor, player)
+    local registry = SC.Registry
+    local records = (sourceAffiliation or isPlayerPartyMember(actor, player))
+        and registry and type(registry.snapshot) == "function" and registry.snapshot() or nil
     local best
-    for _, candidate in ipairs(candidates) do
-        if Factions.isHostileBetween(actor, candidate, player) then
+    local function consider(candidate)
+        if candidate and candidate ~= actor and Factions.isHostileBetween(actor, candidate, player) then
             local row = visibleHumanCandidate(actor, candidate,
                 tonumber(SC.Config.get("banditFactionAwarenessRadius")) or 24)
             if row and (not best or row.distance < best.distance) then best = row end
+        end
+    end
+    if includePlayer then consider(player) end
+    -- Share ordered membership but admit live actors anew for every observer.
+    if records then
+        for _, record in ipairs(records) do
+            local candidate = record.actor
+            if candidate and candidate ~= actor and (candidate ~= player or not includePlayer)
+                and not (type(record.runtime) == "table" and record.runtime.inactive == true) then
+                local alive = true
+                if type(candidate.isDead) == "function" then
+                    local ok, dead = pcall(candidate.isDead, candidate)
+                    alive = ok and dead ~= true
+                end
+                if alive then consider(candidate) end
+            end
         end
     end
     return best

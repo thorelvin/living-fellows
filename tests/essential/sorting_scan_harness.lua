@@ -179,6 +179,54 @@ for _=1,12 do
 end
 f.check(fullWhy=="haul_destinations_full","a changing sweep preserves the actionable full-storage blocker")
 SC.Performance = originalPerformance
+
+do
+    local classified, destinationSearches, destinationResolves = 0, 0, 0
+    local money = f.item("Base.Money", "Item", { weight = .01 })
+    local isValuableItem = base.isValuableItem
+    base.isValuableItem = function(item)
+        if item == money then classified = classified + 1 end
+        return isValuableItem(item)
+    end
+    local source = { id = "storage:wrong-tools", category = "tools", withdrawals = true,
+        container = f.containerObject(actor.square, { money }) }
+    local destinationContainer = destination.container
+    base.storageRows = function() return { source } end
+    base.depositStorageRows = function(category)
+        if category ~= "valuables" then return {} end
+        destinationSearches = destinationSearches + 1
+        return { destination }
+    end
+    base.resolveContainer = function(row)
+        if row == destination then destinationResolves = destinationResolves + 1 end
+        return row.container, row.container and row.container.owner
+    end
+    local job = { type = "sort" }
+    local function expectScan(result, to, item)
+        classified, destinationSearches, destinationResolves = 0, 0, 0
+        local from, _, target, _, candidate, reason = SC.BaseWork.sortTransfer(job, actor)
+        f.check(reason == result and from == (item and source or nil) and target == to and candidate == item,
+            "sorting preserves the exact result for this storage state, got " .. tostring(reason))
+        f.check(classified == 1, "wrong-shelf item classifies once, got " .. classified)
+        f.check(destinationSearches == 1 and destinationResolves == 1,
+            "wrong-shelf item probes its destination once even when unavailable, got "
+                .. destinationSearches .. " searches and " .. destinationResolves .. " resolutions")
+    end
+    expectScan("haul_destinations_full")
+    destination.container = nil
+    expectScan("no_sortable_supply")
+    destination.container = source.container
+    expectScan("haul_destinations_full")
+    destination.container, destinationContainer.capacity = destinationContainer, 10
+    source.reserve = 1
+    expectScan("no_sortable_supply")
+    source.reserve = 0
+    expectScan(nil, destination, money)
+    f.check(source.container.items[1] == money and #destinationContainer.items == 0,
+        "combining candidate probes leaves both inventories untouched until transfer preflight")
+    base.isValuableItem = isValuableItem
+end
+
 for key, value in pairs(saved) do base[key] = value end
 if not base.active() then base.create(actor.square,"Sorting retry camp") end
 local queued,retryJob=base.enqueueJob({type="sort",priority=2})

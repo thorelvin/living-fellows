@@ -642,8 +642,13 @@ modules()
 do
     local commands = order("follow")
     commands.scavenge = true
+    SC.Needs.refillDue = function() return true end
     local oldMoving = player.isMoving
-    function player:isMoving() return true end
+    local moving, samples = true, 0
+    function player:isMoving()
+        samples = samples + 1
+        return moving
+    end
     local candidates = D._evaluateForTests(actor, player, quiet(), commands,
         healthy(), {}, {}, clock)
     local scavenging = false
@@ -652,16 +657,21 @@ do
     end
     check(not scavenging,
         "a blocked Follow cannot fall back to a fresh loot search while the leader moves")
-    player.isMoving = oldMoving
+    check(samples == 1, "moving leader is sampled once even when several follow actions are evaluated")
+    moving = false
     clock = clock + 1
     D._evaluateForTests(actor, player, quiet(), commands, healthy(), {}, {}, clock)
+    samples = 0
     clock = clock + 1
     candidates = D._evaluateForTests(actor, player, quiet(), commands, healthy(), {}, {}, clock)
-    scavenging = false
+    local refill = false
     for _, candidate in ipairs(candidates) do
         if candidate.kind == "scavenge" then scavenging = true end
+        if candidate.kind == "water_refill" then refill = true end
     end
-    check(scavenging, "opportunistic looting remains available beside a settled leader")
+    check(scavenging and refill, "looting and refilling remain available beside a settled leader")
+    check(samples == 1, "settled leader is sampled once and refreshed on each decision")
+    player.isMoving = oldMoving
 end
 -- Active missions own cargo; even overload or an old field-return cleanup
 -- cannot replace their route with a home-storage search.

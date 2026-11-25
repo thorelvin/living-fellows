@@ -251,5 +251,44 @@ do
         'a missing second compartment cannot redirect to the primary')
 end
 
+do
+    local ref, calls = SC.BaseObjectRef, {}
+    local targetData = { [ref.OBJECT_ID_KEY] = "object:identical-storage" }
+    local otherData = { [ref.OBJECT_ID_KEY] = "object:different-storage" }
+    local target = {
+        x = 30, y = 40, z = 0,
+        getObjectIndex = function() return 0 end,
+        getModData = function() return targetData end,
+        getObjectName = function() return "IsoObject" end,
+        getSprite = function() return { getName = function() return "fixtures_storage_01_0" end } end,
+        getContainer = function() return { getType = function() return "crate" end } end,
+    }
+    local other = { getModData = function() return otherData end }
+    local another = { getModData = function() return {} end }
+    local square = { target, other, another }
+    local context = { utility = {
+        call = function(object, method)
+            calls[method] = (calls[method] or 0) + 1
+            return object[method](object), true
+        end,
+        gridSquare = function() return square end,
+        squareObjects = function(objects, visit)
+            for _, object in ipairs(objects) do visit(object) end
+        end,
+    } }
+    local marked = ref.describe(target, context)
+    check(marked and marked.objectSignature == "IsoObject|fixtures_storage_01_0|crate"
+        and calls.getModData == 1 and calls.getName == 1 and calls.getType == 1,
+        "describing a native object reads its identity, sprite name and container type once")
+    calls = {}
+    check(ref.resolve(marked, context) == target and calls.getModData == #square,
+        "a unique persistent identity reads each square object's mod data once")
+    calls = {}
+    otherData[ref.OBJECT_ID_KEY] = targetData[ref.OBJECT_ID_KEY]
+    local found, reason = ref.resolve(marked, context)
+    check(not found and reason == "ambiguous_object_identity" and calls.getModData == #square,
+        "a matching first object never hides another object with the same persistent ID")
+end
+
 SC_TEST_REPORT = 'STORAGE_CATEGORIES_PASS cases=' .. #cases .. ' checks=' .. checks
 print(SC_TEST_REPORT)

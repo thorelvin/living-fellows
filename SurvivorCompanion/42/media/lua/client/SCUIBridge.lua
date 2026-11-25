@@ -29,6 +29,7 @@ local originalQueuedTransfer, queuedTransferWrapper
 local transferHookActive = false
 local inventoryMenuInstalled = false
 local nearbySignatures = setmetatable({}, { __mode = "k" })
+local activeNearbyPoll
 local lastWeaponThanksAt = setmetatable({}, { __mode = "k" })
 
 function Bridge.invalidateNearbyInventoryLabels()
@@ -309,6 +310,7 @@ end
 function Bridge.removeTransferHook()
     transferOwners = setmetatable({}, { __mode = "kv" })
     nearbySignatures = setmetatable({}, { __mode = "k" })
+    activeNearbyPoll = nil
     lastWeaponThanksAt = setmetatable({}, { __mode = "k" })
     transferHookActive = false
     if originalQueuedTransfer ~= nil and type(ISInventoryTransferAction) == "table"
@@ -370,6 +372,17 @@ function Bridge.nearbyInventories(player)
     return result, table.concat(ids, "|")
 end
 
+-- Only an ordered refresh on the same page and player can consume the poll.
+-- A vanilla rebuild or a duplicate callback gets a fresh lookup.
+function Bridge.nearbyInventoriesForRefresh(page, player)
+    local poll = activeNearbyPoll
+    if poll and poll.page == page and poll.player == player and not poll.used then
+        poll.used = true
+        return poll.rows
+    end
+    return Bridge.nearbyInventories(player)
+end
+
 -- The vanilla pane only rebuilds when the player turns or changes squares.
 -- Companions can enter or leave arm's reach while the player stands still.
 function Bridge.refreshNearbyInventory(player)
@@ -381,10 +394,25 @@ function Bridge.refreshNearbyInventory(player)
     local visible = safeMethod(page, "getIsVisible")
     if visible == nil then visible = safeMethod(page, "isVisible") end
     if visible == false then return end
-    local _, signature = Bridge.nearbyInventories(player)
-    if nearbySignatures[page] ~= signature then
-        nearbySignatures[page] = signature
-        page:refreshBackpacks()
+    local rows, signature = Bridge.nearbyInventories(player)
+    local previousSignature = nearbySignatures[page]
+    if previousSignature == signature then return end
+    nearbySignatures[page] = signature
+
+    local previousPoll = activeNearbyPoll
+    local poll = { page = page, player = player, rows = rows }
+    activeNearbyPoll = poll
+    local rebuilt, reason = pcall(page.refreshBackpacks, page)
+    if activeNearbyPoll == poll then activeNearbyPoll = previousPoll end
+    -- Vanilla may fail or another mod may return without finishing its events.
+    if SC.Runtime and type(SC.Runtime.clearInventoryRefresh) == "function" then
+        SC.Runtime.clearInventoryRefresh(page)
+    end
+    if not rebuilt then
+        if nearbySignatures[page] == signature then
+            nearbySignatures[page] = previousSignature
+        end
+        error(reason, 0)
     end
 end
 

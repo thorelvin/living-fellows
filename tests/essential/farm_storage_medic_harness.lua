@@ -138,6 +138,48 @@ check(K.needsWork(a,audit),"a medic with too few dressings requests replenishmen
 bandage.protected=true
 check(K.view(a,audit).dressings==0,"protected dressings cannot satisfy usable medical stock")
 bandage.protected=false
+
+do
+    local logistics = SC.Logistics
+    local view, selectSurplus = K.view, logistics.selectSurplus
+    local views, unfiltered, filtered = 0, 0, 0
+    K.view = function(...)
+        views = views + 1
+        return view(...)
+    end
+    logistics.selectSurplus = function(subject, inspected, skip)
+        if skip then filtered = filtered + 1 else unfiltered = unfiltered + 1 end
+        return selectSurplus(subject, inspected, skip)
+    end
+    local protectedCargo = f.item("Base.ProtectedAuditWeight", "Item", { weight = 55 })
+    protectedCargo.protected = true
+    a.inventory:AddItem(protectedCargo)
+    a.modData.LF_FieldReturnCleanup, a.modData.LF_LootReturnPending = {}, true
+    local status = logistics.status(a)
+    check(status.medicKitDue and status.medicKit.kit == kit and status.medicKit.dressings == 1,
+        "a cold audit preserves exact kit contents and schedules replenishment")
+    check(views == 1, "a cold logistics audit builds one medic-kit view")
+    check(status.gearRatio > status.softRatio and status.carryGearRatio > status.softRatio
+        and not status.surplus and status.cleanupDone and status.lootCleanupDone,
+        "overweight protected inventory remains carried and both return passes settle")
+    check(unfiltered == 1 and filtered == 2,
+        "both overload checks and return completion reuse one empty unfiltered search")
+    check(logistics.status(a) == status and views == 1 and unfiltered == 1 and filtered == 2,
+        "a warm audit does not repeat inventory searches")
+    a.modData.LF_FieldReturnCleanup, a.modData.LF_LootReturnPending = nil, nil
+    a.inventory:Remove(protectedCargo)
+    K.view, logistics.selectSurplus = view, selectSurplus
+
+    local spare = f.item("Base.AuditSpare", "Item", { weight = 20 })
+    local weak = f.actor("camp-strength-audit", 2, 2, { inventory = f.inventory({ spare }) })
+    function weak:getMaxWeight() return 10 end
+    status = logistics.status(weak)
+    check(status.gearRatio <= status.softRatio and status.carryGearRatio > status.softRatio
+        and status.surplus and status.surplus.item == spare
+        and status.surplus.proactive and status.surplus.shelveOnly,
+        "Strength-only overload still shelves the exact surplus without proposing a drop")
+end
+
 local modded=f.item("Other.FieldMedicalCase","Container",{})
 function modded:getInventory() return inventory end
 function modded:getScriptItem() return {medical=true} end

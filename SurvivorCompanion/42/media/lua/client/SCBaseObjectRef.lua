@@ -65,11 +65,10 @@ function BaseObjectRef.signature(object, context)
     if not utility or not object then return nil end
     local objectName, objectNameOk = utility.call(object, "getObjectName")
     local sprite, spriteOk = utility.call(object, "getSprite")
-    local spriteName, spriteNameOk = spriteOk and utility.call(sprite, "getName") or nil, false
+    local spriteName, spriteNameOk
     if spriteOk then spriteName, spriteNameOk = utility.call(sprite, "getName") end
     local container, containerOk = utility.call(object, "getContainer")
-    local containerType, containerTypeOk = containerOk
-        and utility.call(container, "getType") or nil, false
+    local containerType, containerTypeOk
     if containerOk then containerType, containerTypeOk = utility.call(container, "getType") end
     return cleanText(table.concat({
         objectNameOk and tostring(objectName) or "",
@@ -80,7 +79,7 @@ end
 
 function BaseObjectRef.identity(object, context, create)
     local utility = utilityFor(context)
-    local modData, ok = utility and utility.call(object, "getModData") or nil, false
+    local modData, ok
     if utility then modData, ok = utility.call(object, "getModData") end
     if not ok or type(modData) ~= "table" then
         return nil, "object_mod_data_unavailable"

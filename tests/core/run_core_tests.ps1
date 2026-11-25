@@ -720,12 +720,15 @@ try {
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
             (Join-Path $TestRoot 'runtime_hook_fixture.lua'),
-            (Join-Path $Client 'SCRuntime.lua'),
+            (Join-Path $Client 'SCRuntime.lua')
+        )
+        $runtimeRefreshFiles = $runtimeHookFiles + @(
+            (Join-Path $Client 'SCUIBridge.lua'),
             (Join-Path $TestRoot 'runtime_hook_harness.lua')
         )
-        Add-ScJvmStep 'runtime-hook' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $runtimeHookFiles 'Runtime container-hook ownership harness failed.'
+        Add-ScJvmStep 'runtime-hook' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $runtimeRefreshFiles 'Runtime container-hook ownership harness failed.'
 
-        $runtimeTransactionFiles = @($runtimeHookFiles | Select-Object -SkipLast 1)
+        $runtimeTransactionFiles = @($runtimeHookFiles)
         $runtimeTransactionFiles += Join-Path $TestRoot 'runtime_transaction_harness.lua'
         Add-ScJvmStep 'runtime-transaction' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $runtimeTransactionFiles 'Runtime startup/teardown transaction harness failed.'
 

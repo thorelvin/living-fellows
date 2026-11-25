@@ -1778,12 +1778,15 @@ end
 -- hammer in Tools, a shotgun shell in Ammunition or a pill in Medical stays.
 local STAGING_CATEGORIES = { general = true, output = true }
 
-local function belongsIn(item, category)
-    if STAGING_CATEGORIES[category] then return false end
-    local wanted, certain = classifyItem(item)
-    if wanted == "food" or wanted == "fresh_food" then
-        wanted = SC.BaseLife.foodDepositCategory(item)
+local function sortCategory(item, category)
+    if category == "food" or category == "fresh_food" then
+        return SC.BaseLife.foodDepositCategory(item)
     end
+    return category
+end
+
+local function belongsIn(item, category, wanted, certain)
+    if STAGING_CATEGORIES[category] then return false end
     if not certain or wanted == category then return true end
     return (category == "tools" or category == "weapons") and isHandTool(item)
 end
@@ -1803,20 +1806,23 @@ end
 
 -- Every registered destination that can actually take this exact item now.
 -- A full store is not a destination; choosing one would strand the cargo.
-local function storageDestinations(category, item, actor, sourceId)
+local function storageDestinations(category, item, actor, sourceId, itemType)
     local rows = {}
-    local marked, unknown = false, false
-    if U().itemType(item) == "Base.Log" and category == "construction" and SC.LogYard then
+    local marked, unknown, hasMatchingStorage = false, false, false
+    if category == "construction" and SC.LogYard and (itemType or U().itemType(item)) == "Base.Log" then
         local yard = SC.LogYard.select and SC.LogYard.select(actor)
         if yard then rows[#rows + 1] = { destination = yard, container = yard.square }
-        elseif SC.LogYard.hasZone and SC.LogYard.hasZone() then unknown = true end
+        elseif SC.LogYard.hasZone and SC.LogYard.hasZone() then unknown, hasMatchingStorage = true, true end
     end
     for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
         if destination.id ~= sourceId then
             marked = true
             local container = SC.BaseLife.resolveContainer(destination)
             local room, reason
-            if container then room, reason = destinationHasRoom(container, actor, item) end
+            if container then
+                hasMatchingStorage = true
+                room, reason = destinationHasRoom(container, actor, item)
+            end
             if room then
                 rows[#rows + 1] = { destination = destination, container = container }
             elseif reason ~= "destination_full" then
@@ -1825,16 +1831,13 @@ local function storageDestinations(category, item, actor, sourceId)
         end
     end
     return rows, unknown and "floor_storage_unavailable"
-        or marked and "floor_storage_full" or "floor_storage_missing"
+        or marked and "floor_storage_full" or "floor_storage_missing", hasMatchingStorage
 end
 
 local function destinationsFor(job, item, actor, sourceId)
     local category = type(job.target) == "table" and job.target.destinationCategory
         or classifyItem(item)
-    if category == "food" or category == "fresh_food" then
-        category = SC.BaseLife.foodDepositCategory(item)
-    end
-    return (storageDestinations(category, item, actor, sourceId))
+    return (storageDestinations(sortCategory(item, category), item, actor, sourceId))
 end
 
 -- Floor intake follows the ordinary camp sorter's exact category and capacity
@@ -1874,6 +1877,7 @@ end
 local function findTransfer(job, actor)
     local sourceCategory = (type(job.target) == "table" and job.target.sourceCategory)
         or "general"
+    local requestedCategory = type(job.target) == "table" and job.target.destinationCategory
     if job.type == "sort" then sourceCategory = nil end
     local scan = transferScans[job]
     if not scan or scan.actor ~= actor or scan.sourceCategory ~= sourceCategory then
@@ -1979,35 +1983,28 @@ local function findTransfer(job, actor)
                     if not BaseWork.choreReserved(item)
                         and not (SC.PersonalItems and SC.PersonalItems.isProtected
                         and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
-                        local needsSorting = job.type ~= "sort"
-                            or not belongsIn(item, source.category)
-                        local rows = needsSorting and destinationsFor(job, item, actor, source.id)
-                            or {}
-                        for index=#rows,1,-1 do
-                            if rows[index].container==container then table.remove(rows,index) end
+                        local wanted, certain
+                        if job.type == "sort" and not STAGING_CATEGORIES[source.category] then
+                            wanted, certain = classifyItem(item)
+                            wanted = sortCategory(item, wanted)
                         end
-                        if #rows > 0 and sourceItemAvailable(source, itemType) then
-                            -- The audit also calls this selector. Leave its selected
-                            -- window ready for the worker's first execution tick.
-                            storageItemCursors[container] = scanStart
-                            transferScans[job] = nil
-                            return done(source, container, rows[1].destination, rows[1].container, item)
-                        elseif needsSorting and #rows == 0
-                            and sourceItemAvailable(source, itemType) then
-                            local category = type(job.target) == "table"
-                                and job.target.destinationCategory or classifyItem(item)
-                            if category == "food" or category == "fresh_food" then
-                                category = SC.BaseLife.foodDepositCategory(item)
+                        if job.type ~= "sort" or not belongsIn(item, source.category, wanted, certain) then
+                            local category = requestedCategory and sortCategory(item, requestedCategory)
+                                or wanted or sortCategory(item, classifyItem(item))
+                            -- The same probe also records whether a shelf or yard was
+                            -- present. A failed fit needs no second classification or lookup.
+                            local rows, _, matched = storageDestinations(category, item, actor, source.id, itemType)
+                            for index = #rows, 1, -1 do
+                                if rows[index].container == container then table.remove(rows, index) end
                             end
-                            if itemType == "Base.Log" and category == "construction"
-                                and SC.LogYard and SC.LogYard.hasZone
-                                and SC.LogYard.hasZone() then scan.matchingStoreFull = true end
-                            for _, destination in ipairs(SC.BaseLife.depositStorageRows(category)) do
-                                if destination.id ~= source.id
-                                    and SC.BaseLife.resolveContainer(destination) then
-                                    scan.matchingStoreFull = true
-                                    break
+                            if (#rows > 0 or matched) and sourceItemAvailable(source, itemType) then
+                                if #rows > 0 then
+                                    -- Leave the audit's selected window ready for execution.
+                                    storageItemCursors[container] = scanStart
+                                    transferScans[job] = nil
+                                    return done(source, container, rows[1].destination, rows[1].container, item)
                                 end
+                                scan.matchingStoreFull = true
                             end
                         end
                     end
@@ -3297,20 +3294,17 @@ local function auditSorting(base, remainingBudget, scan)
     if #SC.BaseLife.storageRows(nil, true) == 0 then
         return false, "sorting_source_missing"
     end
-    scan.categories = scan.categories or {}
-    if scan.categoryIndex == nil then
-        for category in pairs(SC.BaseLife.STORAGE_CATEGORIES) do scan.categories[#scan.categories + 1] = category end
-        scan.categoryIndex, scan.destinations = 1, 0
-    end
-    while scan.categoryIndex <= #scan.categories do
+    if scan.hasDestination == nil then
         if not maintenanceBudget(remainingBudget) then return false, "sorting_audit_pending", true end
-        local category = scan.categories[scan.categoryIndex]
-        scan.categoryIndex = scan.categoryIndex + 1
-        if category ~= "general" and #SC.BaseLife.depositStorageRows(category) > 0 then
-            scan.destinations = scan.destinations + 1
+        scan.hasDestination = false
+        for _, storage in ipairs(SC.BaseLife.depositStorageRows()) do
+            if storage.category ~= "general" and SC.BaseLife.STORAGE_CATEGORIES[storage.category] then
+                scan.hasDestination = true
+                break
+            end
         end
     end
-    if scan.destinations == 0 then return false, "sorted_storage_missing" end
+    if not scan.hasDestination then return false, "sorted_storage_missing" end
     local actionable = false
     scan.rows = scan.rows or maintenanceResidents()
     scan.index = scan.index or 1
@@ -3572,7 +3566,7 @@ function BaseWork.auditMaintenance(player, remainingBudget)
     end
     if type(SC.BaseLife.auditOperations) == "function" then
         local _, _, pending = SC.BaseLife.auditOperations(false,
-            remainingBudget or function() return math.huge end)
+            remainingBudget or function() return math.huge end, false)
         if pending then return scan.queued == true, "base_operations_pending", true end
     end
     maintenanceAudit = nil

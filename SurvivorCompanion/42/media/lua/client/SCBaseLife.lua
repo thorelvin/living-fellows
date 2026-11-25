@@ -5918,12 +5918,15 @@ local function hasZone(base, kind)
     return false
 end
 
-function BaseLife.auditOperations(force, remainingBudget)
+-- The maintenance owner only needs the continuation status. UI readers get
+-- an independent copy of the last complete report.
+function BaseLife.auditOperations(force, remainingBudget, includeReport)
     local base, current = activeBase(), now()
     if not base then operationsCache, operationsScan = nil, nil return nil, "base_missing" end
     local interval = U() and U().config("baseOperationsAuditIntervalMs") or 5000
     if force ~= true and operationsCache and operationsCache.baseId == base.id
         and current - (operationsCache.auditedAt or 0) < interval then
+        if includeReport == false then return nil, nil, false end
         local published, reason = stableCopy(operationsCache, 5, { count = 512 })
         return published, reason, false
     end
@@ -5943,7 +5946,7 @@ function BaseLife.auditOperations(force, remainingBudget)
     end
     local function pending()
         if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_yield") end
-        local cached = operationsCache and operationsCache.baseId == base.id
+        local cached = includeReport ~= false and operationsCache and operationsCache.baseId == base.id
             and stableCopy(operationsCache, 5, { count = 512 }) or nil
         return cached, "base_operations_pending", true
     end
@@ -6067,6 +6070,7 @@ function BaseLife.auditOperations(force, remainingBudget)
     }
     operationsScan = nil
     if SC.Performance and SC.Performance.count then SC.Performance.count("base_operations_complete") end
+    if includeReport == false then return nil, nil, false end
     local published, reason = stableCopy(operationsCache, 5, { count = 512 })
     return published, reason, false
 end

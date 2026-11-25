@@ -67,6 +67,32 @@ check(uiPending and ui.stock[1].count == 5 and counters.base_operations_item == 
 local current = finish(function(budget) return B.auditOperations(false, budget) end, 4)
 check(current.stock[1].count == 10 and (counters.base_operations_item or 0) == 15,
     "resumed container counts each item once and publishes atomically")
+do
+    local originalCopy, reportCopies = SC.StableValue.copyStrict, 0
+    SC.StableValue.copyStrict = function(value, options)
+        if type(value) == "table" and value.baseId == base.id and value.stock then
+            reportCopies = reportCopies + 1
+        end
+        return originalCopy(value, options)
+    end
+    local cached, cachedReason, cachedPending = B.auditOperations(false, allowance(4), false)
+    check(cached == nil and cachedReason == nil and not cachedPending and reportCopies == 0,
+        "background cache hit skips the unused operations report copy")
+    contents[11] = item(11)
+    clock = clock + 10000
+    local report, waiting, backgroundPending = B.auditOperations(false, allowance(3), false)
+    check(report == nil and waiting == "base_operations_pending" and backgroundPending and reportCopies == 0,
+        "a yielding background refresh skips copying the prior report")
+    local completed = finish(function(budget) return B.auditOperations(false, budget, false) end, 4)
+    check(completed == nil and reportCopies == 0, "a completed background refresh skips the report copy")
+    local publicRead = B.auditOperations(false)
+    check(publicRead.stock[1].count == 11 and reportCopies == 1,
+        "a public read still sees the newly published complete count")
+    publicRead.stock[1].count = 0
+    check(B.auditOperations(false).stock[1].count == 11 and reportCopies == 2,
+        "a caller can still modify its own report without altering the published count")
+    SC.StableValue.copyStrict = originalCopy
+end
 clock = clock + 10000
 B.auditOperations(false, allowance(2))
 B.reset()
@@ -227,12 +253,13 @@ check(#FW.export().news == 1, "completed event is not duplicated by the next pul
 
 -- Maintenance advances a family only once; urgent bounded job recovery still
 -- gets called while operations count storage across subsequent frames.
-local recoveryCalls, farmCalls, operationCalls = 0, 0, 0
+local recoveryCalls, farmCalls, operationCalls, operationReportReads = 0, 0, 0, 0
 local maintenanceBase = { id = "maintenance", settings = {}, maintenanceTargets = {} }
 SC.BaseLife = { active = function() return maintenanceBase end,
     auditJobRecovery = function() recoveryCalls = recoveryCalls + 1 return false end,
-    auditOperations = function()
+    auditOperations = function(_, _, includeReport)
         operationCalls = operationCalls + 1
+        if includeReport ~= false then operationReportReads = operationReportReads + 1 end
         return nil, "operations", operationCalls < 3
     end }
 SC.FarmWork = { audit = function() farmCalls = farmCalls + 1 return true, "farm_queued" end }
@@ -244,9 +271,28 @@ maintenanceBase.settings = { autoMaintenance = true, workload = "essential", rou
 maintenanceBase.zones = { { kind = "area", x1 = 0, x2 = 20, y1 = 0, y2 = 20, z = 0 } }
 SC.BaseLife.dutyResidentIds = function() return {} end
 U.gridSquare = function() return { haveStains = function() return false end } end
--- Medical, disabled sorting and disabled routines finish before the cleaning
--- phase; that phase retains its 96-tile quota instead of renewing it forever.
-for index = 1, 3 do finish(function(budget) return W.auditMaintenance({}, budget) end, 3) end
+-- Medical, sorting, and disabled routines finish before cleaning.
+local function maintenance(budget) return W.auditMaintenance({}, budget) end
+finish(maintenance, 3)
+local depositSearches = 0
+local markers = { { category = "general" }, { category = "misspelled" }, { category = "tools" } }
+maintenanceBase.settings.workload = "balanced"
+SC.BaseLife.STORAGE_CATEGORIES = B.STORAGE_CATEGORIES
+SC.BaseLife.storageRows = function() return markers end
+SC.BaseLife.depositStorageRows = function(category)
+    depositSearches = depositSearches + 1
+    if not category then return markers end
+    for _, marker in ipairs(markers) do
+        if marker.category == category then return { marker } end
+    end
+    return {}
+end
+local _, sortReason = finish(maintenance, 3)
+check(sortReason == "no_sortable_supply" and depositSearches == 1,
+    "maintenance finds a valid sorted marker with one registry pass")
+check(operationReportReads == 0, "maintenance requests only background report progress")
+finish(maintenance, 3)
+-- Cleaning retains its 96-tile quota instead of renewing it forever.
 local beforeCleaning = counters.base_maintenance_phase_5 or 0
 finish(function(budget) return W.auditMaintenance({}, budget) end, 3)
 check((counters.base_maintenance_phase_5 or 0) == beforeCleaning + 1,

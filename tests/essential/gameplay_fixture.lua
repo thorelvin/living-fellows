@@ -936,6 +936,20 @@ SurvivorCompanion.Registry = {
     isValidId = function(id)
         return type(id) == "string" and #id >= 3 and #id <= 96
     end,
+    snapshot = function()
+        local ids, result = {}, {}
+        for id in pairs(registry) do ids[#ids + 1] = id end
+        table.sort(ids)
+        for _, id in ipairs(ids) do
+            local value = registry[id]
+            if value.actor ~= nil or type(value.isDead) ~= "function" then
+                result[#result + 1] = value
+            else
+                result[#result + 1] = { id = id, actor = value, runtime = value.runtime }
+            end
+        end
+        return result
+    end,
     living = function()
         local result = {}
         -- Match production SCRegistry.living(): callers receive active, living

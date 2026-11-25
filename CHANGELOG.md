@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.80 - Camp and inventory frame time
+
+- Reuse medical-kit checks, surplus-item searches, and leader movement checks within each companion decision. Keep hostility and line of sight current.
+- Reduce repeated sorting, storage resolution, and camp maintenance work while checking availability and ownership when workers actually move items.
+- Scan for nearby companion inventories once per loot-pane rebuild, including refreshes triggered by a companion entering or leaving reach.
+- Native bridge protocol `42.22-isocompanion-36`.
+
 ## 0.27.79 - Camp job recovery
 
 - Floor sorting checks whether marked storage is available and waits without repeatedly assigning a worker when the same item still has nowhere to go.

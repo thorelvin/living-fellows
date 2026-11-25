@@ -148,11 +148,11 @@ local function atCamp(actor)
     return SC.BaseLife and SC.BaseLife.active() and SC.BaseLife.isInside(actor)==true
         and v(actor,"getVehicle")==nil
 end
-function K.needsWork(actor,audit)
+function K.needsWork(actor,audit,facts)
     local state=states[actor]
     if state and state.work then return true end
     if not atCamp(actor) or audit.inventoryComplete==false then return false end
-    local facts=K.view(actor,audit)
+    facts=facts or K.view(actor,audit)
     if not role(actor) then
         if state and (state.retryAt or 0)>now() then return false end
         return facts.kit and loan(facts.kit) and loan(facts.kit).actorId==U().idOf(actor) or false

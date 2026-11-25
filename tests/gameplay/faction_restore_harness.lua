@@ -402,4 +402,76 @@ end
 SurvivorCompanion.__testFactionRestoreTransactions()
 SurvivorCompanion.__testFactionRestoreTransactions = nil
 
+do
+    local SC = SurvivorCompanion
+    local factions, utility, api = SC.Factions, SC.GameplayUtil, SC.Registry
+    local observer = actor("roster-observer-a", 2, 2)
+    local other = actor("roster-observer-b", 2, 2)
+    local first = actor("roster-target-a", 3, 2, { recruited = false })
+    local second = actor("roster-target-b", 1, 2, { recruited = false })
+    local closer = actor("roster-target-c", 2, 2, { recruited = false })
+    local added = { observer, other, first, second, closer }
+    for _, candidate in ipairs(added) do
+        registry[candidate.id] = { id = candidate.id, actor = candidate, runtime = {},
+            recruited = candidate == observer or candidate == other }
+    end
+    local closerState = registry[closer.id].runtime
+    closerState.inactive = true
+    local care = SC.Commands.peek(observer).care
+    care.playerHostile = true
+
+    local living, snapshot = api.living, api.snapshot
+    local originalHostile, canSee = factions.isHostileBetween, utility.canSee
+    local structuralRoster, livingReads, reads = nil, 0, 0
+    api.living = function()
+        livingReads = livingReads + 1
+        return living()
+    end
+    api.snapshot = function()
+        reads = reads + 1
+        structuralRoster = structuralRoster or snapshot()
+        return structuralRoster
+    end
+    local considered = {}
+    factions.isHostileBetween = function(_, candidate)
+        if candidate == player or candidate == first or candidate == second or candidate == closer then
+            considered[#considered + 1] = candidate
+        end
+        return candidate == first or candidate == second or candidate == closer
+    end
+    utility.canSee = function(source, candidate) return source ~= other or candidate ~= first end
+
+    local target = factions.hostileTargetFor(observer, player)
+    check(livingReads == 0 and reads == 1,
+        "faction targeting uses structural membership without rebuilding a living roster")
+    check(target and target.actor == first and considered[1] == player and considered[2] == first
+        and considered[3] == second and considered[4] == nil,
+        "player is considered first, then live registry order breaks equal-distance ties")
+    target = factions.hostileTargetFor(other, player)
+    check(target and target.actor == second and reads == 2,
+        "another observer uses the same membership but tests its own line of sight")
+    closerState.inactive = nil
+    target = factions.hostileTargetFor(observer, player)
+    check(target and target.actor == closer, "activation is visible on unchanged structural membership")
+    closer.dead = true
+    target = factions.hostileTargetFor(observer, player)
+    check(target and target.actor == first, "native death removes a target between observations")
+    closer.dead, closer.body.health = false, 0
+    target = factions.hostileTargetFor(observer, player)
+    check(target and target.actor == first, "zero native health still rules out a target before LOS")
+    local previousReads = reads
+    check(factions.hostileTargetFor(first, player) == nil and reads == previousReads,
+        "an unaligned unrecruited actor never sweeps the roster")
+
+    factions.isHostileBetween, utility.canSee = originalHostile, canSee
+    local health = player.body.health
+    player.body.health = 20
+    factions.hostileTargetFor(observer, player)
+    check(care.playerCeasefire == true and care.playerHostile == false,
+        "retaliation still records a ceasefire at the player's health threshold")
+    player.body.health = health
+    api.living, api.snapshot = living, snapshot
+    for _, candidate in ipairs(added) do registry[candidate.id] = nil end
+end
+
 print("SUBJECT_PASS checks=" .. tostring(f.checks()))

@@ -1528,38 +1528,42 @@ end
 -- purpose. Adding the button in the "buttonsAdded" phase puts the companion
 -- in the list before the selection is resolved, so the pane keeps it, the
 -- button is clickable, and drag-and-drop behaves like any other container.
-local selectedBeforeContainerRefresh = setmetatable({}, { __mode = "k" })
+local containerRefreshes = setmetatable({}, { __mode = "k" })
+
+function runtime.clearInventoryRefresh(page)
+    if type(page) == "table" then containerRefreshes[page] = nil end
+end
+
+local function addCompanionContainer(page, bridge, container, actor, icon)
+    for _, button in ipairs(page.backpacks or {}) do
+        if button.inventory == container then return end
+    end
+    local label = type(bridge.borrowedInventoryLabel) == "function"
+        and bridge.borrowedInventoryLabel(actor) or "Companion"
+    page:addContainerButton(container, icon, label, label)
+end
+
 local function refreshInventoryContainers(page, phase)
     if SC.TerminalDrawers then SC.TerminalDrawers.refresh(page,phase) end
-    if type(page) ~= "table" or page.onCharacter == true then return end
-    if tonumber(page.player) ~= nil and tonumber(page.player) ~= 0 then return end
-    local bridge = SC.UIBridge
-    if type(bridge) ~= "table" or type(bridge.borrowedInventory) ~= "function" then return end
-    local container, actor = bridge.borrowedInventory(page)
-    local nearby = {}
-    if type(bridge.nearbyInventories) == "function" then
-        local primary
-        if type(getSpecificPlayer) == "function" then
-            primary = getSpecificPlayer(0)
-        elseif type(getPlayer) == "function" then
-            primary = getPlayer()
-        end
-        nearby = bridge.nearbyInventories(primary)
+    if phase ~= "begin" and phase ~= "buttonsAdded" and phase ~= "end" then return end
+    if type(page) ~= "table" then return end
+    local state = containerRefreshes[page]
+    containerRefreshes[page] = nil
+    if page.onCharacter == true
+        or (tonumber(page.player) ~= nil and tonumber(page.player) ~= 0) then
+        return
     end
-    local selected = page.inventoryPane and page.inventoryPane.inventory or nil
-    local selectedIsCompanion = selected ~= nil and selected == container
-    if not selectedIsCompanion then
-        for _, row in ipairs(nearby) do
-            if row.container == selected then selectedIsCompanion = true; break end
-        end
-    end
+
     if phase == "begin" then
-        selectedBeforeContainerRefresh[page] = selectedIsCompanion and selected or nil
+        -- Capture the selection before vanilla changes it. Classify it against
+        -- the same companion rows used to build the buttons later in the refresh.
+        containerRefreshes[page] = {
+            selected = page.inventoryPane and page.inventoryPane.inventory,
+        }
         return
     end
     if phase == "end" then
-        selected = selectedBeforeContainerRefresh[page]
-        selectedBeforeContainerRefresh[page] = nil
+        local selected = state and state.retained
         if selected == nil or page.inventoryPane == nil
             or page.inventoryPane.inventory == selected
             or type(page.setNewContainer) ~= "function" then return end
@@ -1575,7 +1579,28 @@ local function refreshInventoryContainers(page, phase)
         end
         return
     end
-    if phase ~= "buttonsAdded" or type(page.addContainerButton) ~= "function" then return end
+    if type(page.addContainerButton) ~= "function" then return end
+    local bridge = SC.UIBridge
+    if type(bridge) ~= "table" or type(bridge.borrowedInventory) ~= "function" then return end
+    local container, actor = bridge.borrowedInventory(page)
+    local selected = state and state.selected
+    local selectedIsCompanion = selected ~= nil and selected == container
+    local nearby
+    if type(bridge.nearbyInventories) == "function" then
+        local primary
+        if type(getSpecificPlayer) == "function" then
+            primary = getSpecificPlayer(0)
+        elseif type(getPlayer) == "function" then
+            primary = getPlayer()
+        end
+        if state and not state.retained
+            and type(bridge.nearbyInventoriesForRefresh) == "function" then
+            nearby = bridge.nearbyInventoriesForRefresh(page, primary)
+        else
+            nearby = bridge.nearbyInventories(primary)
+        end
+    end
+    if not container and (not nearby or #nearby == 0) then return end
     -- A companion's root inventory normally has the same type as a corpse,
     -- which makes vanilla choose its dead-person icon. Pass the stock schoolbag
     -- texture explicitly; addContainerButton accepts it as a Texture and keeps
@@ -1585,17 +1610,17 @@ local function refreshInventoryContainers(page, phase)
         local found, texture = pcall(getTexture, "Item_Backpack_Black")
         if found then icon = texture end
     end
-    if container then nearby[#nearby + 1] = { container = container, actor = actor } end
-    for _, row in ipairs(nearby) do
-        local exists = false
-        for _, button in ipairs(page.backpacks or {}) do
-            if button.inventory == row.container then exists = true; break end
+    if nearby then
+        for _, row in ipairs(nearby) do
+            if selected ~= nil and selected == row.container then selectedIsCompanion = true end
+            addCompanionContainer(page, bridge, row.container, row.actor, icon)
         end
-        if not exists then
-            local label = type(bridge.borrowedInventoryLabel) == "function"
-                and bridge.borrowedInventoryLabel(row.actor) or "Companion"
-            page:addContainerButton(row.container, icon, label, label)
-        end
+    end
+    if container then addCompanionContainer(page, bridge, container, actor, icon) end
+    if selectedIsCompanion then
+        state.retained = selected
+        state.selected = nil
+        containerRefreshes[page] = state
     end
 end
 
@@ -1604,6 +1629,7 @@ end
 local function safeRefreshInventoryContainers(page, phase)
     local ok, reason = pcall(refreshInventoryContainers, page, phase)
     if not ok then
+        runtime.clearInventoryRefresh(page)
         SC.Diagnostics.report("container-hook", nil,
             "companion container refresh failed", reason)
     end
@@ -1700,6 +1726,7 @@ local function removeRefreshHook()
         safeRefreshInventoryContainers)
     if not ok then return false, tostring(reason) end
     refreshHookInstalled = false
+    containerRefreshes = setmetatable({}, { __mode = "k" })
     return true
 end
 

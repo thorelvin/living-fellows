@@ -1529,8 +1529,8 @@ function Logistics.status(actor)
         if not usable and audit.giftWeapon == true then audit.weaponReady = true end
         if state then state.nextWeaponAt = current + 1500 end
     end
-    audit.medicKit=SC.MedicKit.view(actor,audit)
-    audit.medicKitDue=SC.MedicKit.needsWork(actor,audit)
+    audit.medicKit = SC.MedicKit.view(actor, audit)
+    audit.medicKitDue = SC.MedicKit.needsWork(actor, audit, audit.medicKit)
     audit.packMove = selectPackMove(actor, audit)
     -- A move that just failed cools down instead of being proposed again.
     if audit.bagUpgrade and moveMemory.cooling(actor, "wear", audit.bagUpgrade.item, current) then
@@ -1572,6 +1572,14 @@ function Logistics.status(actor)
         return audit.lootReturnWaiting or moveMemory.cooling(actor, "deposit", item, current)
             or moveMemory.cooling(actor, "drop", item, current)
     end or nil
+    local checkedUnfiltered, unfilteredSurplus = false, nil
+    local function selectUnfilteredSurplus()
+        if not checkedUnfiltered then
+            unfilteredSurplus = Logistics.selectSurplus(actor, audit)
+            checkedUnfiltered = true
+        end
+        return unfilteredSurplus
+    end
     local surplus = selectKeptHarvest(actor, audit, skip)
     -- A failed haul hand-back must not keep a Follow order at camp. Resume
     -- shelving only when the carrier is deliberately put back on base duty.
@@ -1593,14 +1601,14 @@ function Logistics.status(actor)
     end
     if not surplus and audit.capacity > 0
         and (audit.gearRatio or audit.ratio) > audit.softRatio then
-        surplus = Logistics.selectSurplus(actor, audit)
+        surplus = selectUnfilteredSurplus()
     end
     -- Above the Strength limit's unload share, a companion at camp puts its
     -- surplus into marked storage so it does not walk around under Heavy
     -- Load. This is shelving only: without storage the item stays carried.
     if not surplus and not audit.lootReturnWaiting and atCamp and (audit.carryCapacity or 0) > 0
         and (audit.carryGearRatio or 0) > audit.softRatio then
-        surplus = Logistics.selectSurplus(actor, audit)
+        surplus = selectUnfilteredSurplus()
         if surplus then surplus.proactive, surplus.shelveOnly = true, true end
     end
     if not surplus and not audit.lootReturnWaiting then
@@ -1616,16 +1624,21 @@ function Logistics.status(actor)
     end
     -- Loot delivery: a cooling/full destination is pending cargo, never
     -- completed cleanup. It keeps its saved obligation and three-minute retry.
-    local unfiltered = audit.lootReturnCleanup
-        and audit.inventoryComplete and Logistics.selectSurplus(actor, audit,
-            not audit.fieldReturnCleanup and function(item)
+    local remainingLoot
+    if audit.lootReturnCleanup and audit.inventoryComplete then
+        if audit.fieldReturnCleanup then
+            remainingLoot = selectUnfilteredSurplus()
+        else
+            remainingLoot = Logistics.selectSurplus(actor, audit, function(item)
                 return not usefulSupplyCategories[Logistics.itemCategory(item)]
-            end or nil) or nil
+            end)
+        end
+    end
     -- Field return stays one pass: an item whose storage is full or missing
     -- cools down and stays with its carrier, and the pass still finishes.
     -- Holding it open forever left send-home trips unable to settle.
     audit.cleanupDone = audit.fieldReturnCleanup and audit.inventoryComplete and surplus == nil
-    audit.lootCleanupDone = audit.lootReturnCleanup and audit.inventoryComplete and unfiltered == nil
+    audit.lootCleanupDone = audit.lootReturnCleanup and audit.inventoryComplete and remainingLoot == nil
     if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
         or moveMemory.cooling(actor, "drop", surplus.item, current)) then
         surplus = nil

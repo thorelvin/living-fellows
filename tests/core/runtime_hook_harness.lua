@@ -278,11 +278,131 @@ SC.Runtime.reset(true)
     check(#brokenPage.backpacks == 1,
         "a failing companion-container hook does not escape into the inventory window")
 
+    -- Exercise the real bridge through the event order used by refreshBackpacks.
     SC.UIBridge = savedBridge
+    local bridge = SC.UIBridge
+    local nearbyInventories = bridge.nearbyInventories
+    local registrySnapshot = SC.Registry.snapshot
+    local getLoot = getPlayerLoot
+    local savedTransferAction = ISTransferAction
+    local savedDrawers = SC.TerminalDrawers
+    local savedHome = SC.HomeTrip
+    local primary = getPlayer()
+    local function squareAt(x)
+        return { getX = function() return x end, getY = function() return 10 end,
+            getZ = function() return 0 end }
+    end
+    local playerSquare, nextToPlayer, farFromPlayer = squareAt(10), squareAt(11), squareAt(14)
+    primary.getPlayerNum = function() return 0 end
+    primary.getSquare = function() return playerSquare end
+    companion.getSquare = function() return withinOneTile and nextToPlayer or farFromPlayer end
+    companion.getInventory = function() return companionInventory end
+    SC.Registry.snapshot = function()
+        return { { actor = companion, id = "nearby-companion", recruited = true } }
+    end
+    ISTransferAction = { transferItem = function() return "vanilla transfer" end }
+    withinOneTile = true
+    local scans, rebuilds, drawerPhases = 0, 0, {}
+    bridge.nearbyInventories = function(player)
+        scans = scans + 1
+        return nearbyInventories(player)
+    end
+    SC.TerminalDrawers = {
+        refresh = function(_, phase) drawerPhases[#drawerPhases + 1] = phase end,
+        locked = function(inventory) return inventory == otherInventory end,
+    }
+    local nativePage = lootPage()
+    nativePage.player = 0
+    nativePage.inventoryPane = { inventory = companionInventory }
+    nativePage.setNewContainer = ISInventoryPage.setNewContainer
+    nativePage.getIsVisible = function(self) return not self.hidden end
+    getPlayerLoot = function() return nativePage end
+    function nativePage:refreshBackpacks()
+        rebuilds = rebuilds + 1
+        self.backpacks = {}
+        SC_RUNTIME_FIXTURE.fireRefresh(self, "begin")
+        SC_RUNTIME_FIXTURE.fireRefresh(self, "beforeFloor")
+        self:addContainerButton(otherInventory)
+        SC_RUNTIME_FIXTURE.fireRefresh(self, "buttonsAdded")
+        self.inventoryPane.inventory = otherInventory
+        if self.failBeforeEnd then error("native rebuild failure") end
+        SC_RUNTIME_FIXTURE.fireRefresh(self, "end")
+    end
+
+    nativePage:refreshBackpacks()
+    check(scans == 1 and nativePage.inventoryPane.inventory == companionInventory,
+        "an ordered native rebuild scans once and retains the selected companion")
+    check(table.concat(drawerPhases, ",") == "begin,beforeFloor,buttonsAdded,end",
+        "every native refresh phase still goes to the terminal drawers")
+    nativePage:setNewContainer(otherInventory)
+    check(nativePage.inventoryPane.inventory == companionInventory,
+        "native container selection still refuses locked terminal drawers")
+    check(select(1, bridge.transferHookState()) == true,
+        "showing a nearby inventory still installs the native transfer hook")
+    SC.HomeTrip = { inventoryContainerFrozen = function(inventory)
+        return inventory == companionInventory
+    end }
+    local blocked = ISTransferAction.transferItem({}, primary, {}, otherInventory, companionInventory)
+    local allowed = ISTransferAction.transferItem({}, primary, {}, otherInventory, {})
+    check(blocked == nil and allowed == "vanilla transfer",
+        "native transfer still checks handover ownership when the item moves")
+    SC.HomeTrip = savedHome
+
+    bridge.refreshNearbyInventory(primary)
+    check(scans == 2 and rebuilds == 2 and #nativePage.backpacks == 2,
+        "a poll-triggered rebuild reuses the scan that detected the change")
+    bridge.refreshNearbyInventory(primary)
+    check(scans == 3 and rebuilds == 2,
+        "a steady poll still checks distance without rebuilding the pane")
+    nativePage.hidden = true
+    bridge.refreshNearbyInventory(primary)
+    check(scans == 3 and rebuilds == 2, "a hidden pane does no nearby scan")
+    nativePage.hidden = false
+
+    nativePage.failBeforeEnd = true
+    bridge.invalidateNearbyInventoryLabels()
+    local rebuilt = pcall(bridge.refreshNearbyInventory, primary)
+    check(not rebuilt and scans == 4 and rebuilds == 3,
+        "a throwing native poll rebuild keeps its error and scans once")
+    SC_RUNTIME_FIXTURE.fireRefresh(nativePage, "end")
+    check(nativePage.inventoryPane.inventory == otherInventory,
+        "an end callback after a failed rebuild cannot restore a stale selection")
+    nativePage.failBeforeEnd = false
+    bridge.refreshNearbyInventory(primary)
+    check(scans == 5 and rebuilds == 4, "an unchanged poll retries a failed rebuild")
+
+    withinOneTile = false
+    nativePage.backpacks = { { inventory = otherInventory } }
+    SC_RUNTIME_FIXTURE.fireRefresh(nativePage, "buttonsAdded")
+    check(scans == 6 and #nativePage.backpacks == 1,
+        "out-of-order buttonsAdded scans current proximity outside the poll")
+    nativePage:refreshBackpacks()
+    check(scans == 7 and #nativePage.backpacks == 1,
+        "a later direct rebuild still uses current proximity")
+    bridge.refreshNearbyInventory(primary)
+    check(scans == 8 and rebuilds == 6 and #nativePage.backpacks == 1,
+        "the stationary player loses the inventory button when the companion leaves")
+
+    local secondary = lootPage()
+    secondary.player = 1
+    SC_RUNTIME_FIXTURE.fireRefresh(secondary, "begin")
+    SC_RUNTIME_FIXTURE.fireRefresh(secondary, "buttonsAdded")
+    SC_RUNTIME_FIXTURE.fireRefresh(secondary, "end")
+    check(scans == 8 and #secondary.backpacks == 1,
+        "a second player's loot page never scans for the primary player")
+
+    bridge.removeTransferHook()
+    bridge.nearbyInventories = nearbyInventories
+    SC.Registry.snapshot = registrySnapshot
+    getPlayerLoot = getLoot
+    ISTransferAction = savedTransferAction
+    SC.TerminalDrawers = savedDrawers
+    primary.getPlayerNum, primary.getSquare = nil, nil
     getTexture = savedGetTexture
     SC.Runtime.reset(true)
     check(SC_RUNTIME_FIXTURE.refreshCount() == 0,
         "resetting the runtime gives the inventory-refresh event back")
 end)()
 
-print("RUNTIME_HOOK_KAHLUA_PASS checks=" .. tostring(checks))
+SC_TEST_REPORT = "RUNTIME_HOOK_KAHLUA_PASS checks=" .. tostring(checks)
+print(SC_TEST_REPORT)
