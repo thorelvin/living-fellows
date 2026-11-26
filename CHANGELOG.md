@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.90 - Bounded expedition site approaches
+
+- Advance loaded exterior approach surveys across frames with the resumable companion route planner.
+- Count confirmed approach failures toward the return timer and pause the timer during a survey.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.89 - Scavenging loot scoring
 
 - Reuse item classification, admission, and equipment upgrade scores during scavenging selection.

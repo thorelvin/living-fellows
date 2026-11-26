@@ -172,6 +172,125 @@ check(alternateFace ~= nil and alternateFace.x == 19
         and alternateFace.y == 23,
     "a reachable fourth face square survives three blocked window approaches")
 SurvivorCompanion.Navigation.findPath = firstPath
+do
+    local SC = SurvivorCompanion
+    local nav, perf, getSquare = SC.Navigation, SC.Performance, fixture.cell.getGridSquare
+    local geometryReads, edgeReads, resumes, polls = 0, 0, 0, 0
+    local sharedQuota, quotaClaims = 0, 0
+    SC.Performance = {
+        frameId = function() return polls end,
+        claimUnits = function(kind, quota)
+            check(kind == "navigation" and quota <= 48,
+                "site searches use the shared navigation work budget")
+            quotaClaims = quotaClaims + 1
+            return math.min(sharedQuota, quota)
+        end,
+    }
+    local squares = {}
+    fixture.cell.getGridSquare = function(self, x, y, z)
+        geometryReads = geometryReads + 1
+        local key = tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)
+        if not squares[key] then squares[key] = getSquare(self, x, y, z) end
+        return squares[key]
+    end
+    local function square(x, y)
+        return fixture.cell:getGridSquare(x, y, 0)
+    end
+    local origin = square(7, 25)
+    local walker = { getCurrentSquare = function() return origin end }
+    local firstSearchAt, rejectedEdge, preferClosedCenter = nil, false, true
+    local starts, completed, movedOriginResumes = {}, {}, 0
+    SC.Navigation = {
+        findPath = function() error("a sliced survey must not use the synchronous planner") end,
+        beginPathSearch = function(from, to, _, options)
+            check(from == origin and options.nodeBudget == 1800 and options.actor == walker,
+                "the native path search retains its source, actor and per-candidate cap")
+            firstSearchAt = firstSearchAt or polls
+            local job = { from = from, to = to, slices = 0 }
+            starts[#starts + 1] = job
+            return job
+        end,
+        resumePathSearch = function(job, quota)
+            resumes = resumes + 1
+            if job.from ~= origin then movedOriginResumes = movedOriginResumes + 1 end
+            if quota <= 0 then return "pending", nil, nil, 0, nil, 0 end
+            check(quota <= 48, "a path resume has the bounded node quota")
+            job.slices = job.slices + 1
+            if job.slices == 1 then return "pending", nil, nil, quota, nil, quota end
+            local path = { job.from }
+            for x = job.from:getX() + 1, job.to:getX() - 1 do
+                path[#path + 1] = square(x, job.from:getY())
+            end
+            path[#path + 1] = job.to
+            completed[job.to] = true
+            return "complete", path, nil, 1, nil, 1
+        end,
+        _adjacentStepForWorkRoutes = function(from, to)
+            local dx, dy = math.abs(to:getX() - from:getX()), math.abs(to:getY() - from:getY())
+            return dx <= 1 and dy <= 1 and dx + dy > 0
+        end,
+        _passableEdgeForWorkRoutes = function(from, to)
+            edgeReads = edgeReads + 1
+            if preferClosedCenter and completed[to] and to:getX() == 19 and to:getY() == 25 then
+                rejectedEdge = true
+                return false, nil, "door_locked"
+            end
+            return true
+        end,
+    }
+    check(type(Places.pollLoadedSiteApproach) == "function",
+        "the loaded site survey exposes a resumable poll")
+    local function poll(survey)
+        geometryReads, edgeReads, resumes, polls = 0, 0, 0, polls + 1
+        local selected, why, status = Places.pollLoadedSiteApproach(nearby[1].id, walker, survey)
+        -- The mock path builder uses the same square cache. Account for its
+        -- reads on resume separately from the geometry and proof budgets.
+        check((resumes > 0 or geometryReads <= 24) and edgeReads <= 8 and resumes <= 1,
+            "one poll bounds footprint discovery, path resumes and live edge checks")
+        return selected, why, status
+    end
+    local survey = {}
+    local selected, why, status = poll(survey)
+    local firstReads = geometryReads
+    selected, why, status = Places.pollLoadedSiteApproach(nearby[1].id, walker, survey)
+    check(status == "pending" and geometryReads == firstReads and resumes == 0 and edgeReads == 0,
+        "a second call on the same performance frame does no survey work")
+    repeat
+        selected, why, status = poll(survey)
+    until quotaClaims > 0 or status ~= "pending" or polls >= 16
+    check(status == "pending" and quotaClaims == 1 and #starts == 0,
+        "zero shared navigation quota leaves the pending candidate unstarted")
+
+    sharedQuota = 48
+    repeat
+        selected, why, status = poll(survey)
+    until status ~= "pending" or polls >= 64
+    check(status == "complete" and why == nil and selected and selected.x == 19
+            and selected.y == 24 and selected.pathNodes == 13 and selected.side == "west"
+            and selected.scope == "loaded_exterior_only",
+        "a changed edge on the first path selects the exact next ranked exterior")
+    check(firstSearchAt >= 3 and rejectedEdge and #starts == 2
+            and starts[1].slices == 2 and starts[2].slices == 2
+            and starts[1].to:getX() == 19 and starts[1].to:getY() == 25,
+        "footprint discovery yields and a late locked edge rejects the previously found path")
+
+    local firstOwnerCount = #starts
+    survey, polls, preferClosedCenter = {}, 0, false
+    repeat
+        selected, why, status = poll(survey)
+    until #starts > firstOwnerCount or status ~= "pending" or polls >= 16
+    check(status == "pending" and starts[firstOwnerCount + 1].from == origin,
+        "the original route retains a pending frontier")
+    origin = square(8, 25)
+    repeat
+        selected, why, status = poll(survey)
+    until status ~= "pending" or polls >= 64
+    check(status == "complete" and selected and selected.x == 19 and selected.y == 25
+            and selected.pathNodes == 12 and movedOriginResumes == 0
+            and starts[#starts].from == origin,
+        "moving the scout discards the old search and proves a route from the new square")
+    SC.Navigation, SC.Performance, fixture.cell.getGridSquare = nav, perf, getSquare
+end
 local originalPosition = SurvivorCompanion.GameplayUtil.position
 local originalShelterSquare = fixture.cell.getGridSquare
 local originalShelterPath = SurvivorCompanion.Navigation.findPath

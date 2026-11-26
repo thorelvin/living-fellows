@@ -1261,6 +1261,68 @@ check(expedition.finishAtPlayer(player) == true
         and expedition.lastDebrief().site.id == place.id,
     "the read-only debrief names the same selected site")
 do
+    local places = SC.ExpeditionPlaces
+    local oldPoll, oldReady = places.pollLoadedSiteApproach, siteArrivalReady
+    local mode, retained, polls = "pending", nil, 0
+    places.pollLoadedSiteApproach = function(siteId, actor, survey)
+        polls = polls + 1
+        check(siteId == place.id and actor == reserve and type(survey) == "table",
+            "the scout polls the selected site's runtime survey")
+        if retained then
+            check(retained == survey, "a pending survey retains its frontier across pulses")
+        end
+        if mode == "pending" then
+            retained = survey
+            survey.fixtureFrontier = true
+            return nil, "approach_survey_pending", "pending"
+        end
+        retained = nil
+        return nil, "approach_no_loaded_path", "failed"
+    end
+    siteArrivalReady = false
+    reserve.x, reserve.y = 23, 20
+    local started, active = expedition.startAtPlace(
+        { { id = "delta", actor = reserve } }, place.id, "scout",
+        { turnHomeAfterHours = 1 })
+    check(started, "the resumable site approach fixture starts")
+    reserve.x, reserve.y = 78, 20
+    expedition.pulse()
+    check(active.scout.phase == "outbound" and active.scout.siteApproachFailureAt == nil,
+        "a pending loaded-site survey does not start the failure timer")
+    scoutClock = scoutClock + 31000
+    expedition.pulse()
+    check(polls == 2 and active.scout.phase == "outbound"
+            and active.scout.siteApproachFailureAt == nil
+            and expedition.export().scout.siteApproachSurvey == nil,
+        "pending work survives the deadline and retains its frontier only in memory")
+
+    mode = "failed"
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    check(active.scout.siteApproachFailureAt == scoutClock and active.scout.phase == "outbound",
+        "a completed no-path result starts the failure timer")
+    mode = "pending"
+    scoutClock = scoutClock + 3000
+    expedition.pulse()
+    scoutClock = scoutClock + 31000
+    expedition.pulse()
+    check(active.scout.phase == "outbound" and retained ~= nil,
+        "a pending retry cannot expire an already started failure timer")
+    mode = "failed"
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    check(active.scout.phase == "outbound"
+            and scoutClock - active.scout.siteApproachFailureAt == 3000,
+        "confirmed failure time excludes the pending retry")
+    scoutClock = scoutClock + 27000
+    expedition.pulse()
+    check(active.scout.phase == "inbound" and active.scout.endReason == "site_unreachable",
+        "completed failures trigger the existing return after thirty confirmed seconds")
+    reserve.x, reserve.y = 23, 20
+    check(expedition.finishAtPlayer(player), "the failed site approach can finish at camp")
+    places.pollLoadedSiteApproach, siteArrivalReady = oldPoll, oldReady
+end
+do
 local formerFishing = SC.Fishing
 local fishingReady = false
 local gearAttempts, gearCancels = 0, 0

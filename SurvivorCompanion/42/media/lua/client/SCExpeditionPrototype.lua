@@ -2212,7 +2212,8 @@ function Expedition.startAtPlace(records, placeId, kind, options)
     end
     if selected == nil then return false, reason or "place_no_longer_selectable" end
     if type(lookup.plannedApproach) ~= "function"
-        or type(lookup.loadedSiteApproach) ~= "function" then
+        or (type(lookup.pollLoadedSiteApproach) ~= "function"
+            and type(lookup.loadedSiteApproach) ~= "function") then
         return false, "place_approach_unavailable"
     end
     local approach, approachReason = lookup.plannedApproach(
@@ -5281,6 +5282,7 @@ startReturnFromSite = function(itinerary, reason)
         itinerary.endReason = reason
     end
     itinerary.phase = "inbound"
+    itinerary.siteApproachSurvey, itinerary.siteApproachPendingAt = nil, nil
     itinerary.walkingReturn = nil
     itinerary.replans = 0
     itinerary.firstPlanFailureAt = nil
@@ -6273,6 +6275,61 @@ local function nextWoodSite(scout)
     return false
 end
 
+function Expedition._releaseSiteApproachSurvey(scout, now)
+    local pendingAt = scout.siteApproachPendingAt
+    if pendingAt and scout.siteApproachFailureAt then
+        -- Time spent checking a live route does not count as confirmed failure.
+        scout.siteApproachFailureAt = scout.siteApproachFailureAt + math.max(0, now - pendingAt)
+    end
+    scout.siteApproachSurvey, scout.siteApproachPendingAt = nil, nil
+end
+
+function Expedition._pulseSiteApproach(scout, actor, now)
+    local siteDistance = distanceToPoint(actor, scout.destination)
+    if siteDistance > 18 then
+        if scout.siteApproachSurvey then Expedition._releaseSiteApproachSurvey(scout, now) end
+        return false
+    end
+    if scout.siteApproachSurvey or now >= (scout.nextSiteCheckAt or 0) then
+        local places = SC.ExpeditionPlaces
+        local approach, reason, status
+        if places and type(places.pollLoadedSiteApproach) == "function" then
+            scout.siteApproachSurvey = scout.siteApproachSurvey or {}
+            approach, reason, status = places.pollLoadedSiteApproach(scout.site.id, actor, scout.siteApproachSurvey)
+            if status == "pending" then
+                scout.siteApproachPendingAt = scout.siteApproachPendingAt or now
+                return siteDistance <= 4
+            end
+        elseif places and type(places.loadedSiteApproach) == "function" then
+            approach, reason = places.loadedSiteApproach(scout.site.id, actor)
+        else
+            reason = "place_approach_unavailable"
+        end
+        Expedition._releaseSiteApproachSurvey(scout, now)
+        scout.nextSiteCheckAt = now + 3000
+        if approach then
+            scout.destination = { x = approach.x, y = approach.y, z = approach.z }
+            if scout.roadRoute then
+                scout.roadRoute.goal = copyPoint(scout.destination)
+                scout.road.goal = copyPoint(scout.destination)
+            end
+            scout.siteApproachConfirmed = true
+            scout.siteApproachFailureAt = nil
+            scout.lastPlanFailure, scout.firstPlanFailureAt = nil, nil
+            return false
+        end
+        scout.lastPlanFailure = reason or "approach_no_loaded_path"
+        scout.siteApproachFailureAt = scout.siteApproachFailureAt or now
+    end
+    if siteDistance <= 4 then
+        if scout.siteApproachFailureAt and now - scout.siteApproachFailureAt >= 30000 then
+            startReturnFromSite(scout, "site_unreachable")
+        end
+        return true
+    end
+    return false
+end
+
 local function pulseScout()
     local scout = mission and mission.scout
     if scout == nil or mission.restoring or not alive(mission.leader) then return end
@@ -6932,45 +6989,8 @@ local function pulseScout()
         end
     end
     if scout.phase == "outbound" and scout.site ~= nil
-        and scout.siteApproachConfirmed ~= true then
-        local siteDistance = distanceToPoint(mission.leader.actor,
-            scout.destination)
-        if siteDistance <= 18 and now >= (scout.nextSiteCheckAt or 0) then
-            scout.nextSiteCheckAt = now + 3000
-            local places = SC.ExpeditionPlaces
-            local approach, approachReason
-            if places and type(places.loadedSiteApproach) == "function" then
-                approach, approachReason = places.loadedSiteApproach(
-                    scout.site.id, mission.leader.actor)
-            else
-                approachReason = "place_approach_unavailable"
-            end
-            if approach ~= nil then
-                scout.destination = { x = approach.x, y = approach.y,
-                    z = approach.z }
-                if scout.roadRoute then
-                    scout.roadRoute.goal = copyPoint(scout.destination)
-                    scout.road.goal = copyPoint(scout.destination)
-                end
-                scout.siteApproachConfirmed = true
-                scout.siteApproachFailureAt = nil
-                scout.lastPlanFailure = nil
-                scout.firstPlanFailureAt = nil
-            else
-                scout.lastPlanFailure = approachReason
-                    or "approach_no_loaded_path"
-                scout.siteApproachFailureAt = scout.siteApproachFailureAt
-                    or now
-            end
-        end
-        if siteDistance <= 4 and scout.siteApproachConfirmed ~= true then
-            if scout.siteApproachFailureAt ~= nil
-                and now - scout.siteApproachFailureAt >= 30000 then
-                startReturnFromSite(scout, "site_unreachable")
-            end
-            return
-        end
-    end
+        and scout.siteApproachConfirmed ~= true
+        and Expedition._pulseSiteApproach(scout, mission.leader.actor, now) then return end
     if scout.phase == "observing" then
         scout.observingSince = scout.observingSince or now
         local elapsed = now - scout.observingSince

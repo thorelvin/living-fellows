@@ -189,24 +189,24 @@ function Places.nearby(x, y, radius, limit, deferStreets)
     return result
 end
 
+local function pathRoomProgress(square, sourceRoom, sourceBuilding, outside)
+    local room, roomOk = call(square, "getRoom")
+    if not roomOk then return nil end
+    if room == nil then return true end
+    if outside then return nil end
+    if room ~= sourceRoom then
+        local building, known = call(room, "getBuilding")
+        if sourceBuilding == nil or not known or building ~= sourceBuilding then return nil end
+    end
+    return false
+end
+
 local function isOutsidePath(path, sourceRoom)
     local outside = sourceRoom == nil
-    local sourceBuilding, buildingOk
-    if sourceRoom ~= nil then
-        sourceBuilding, buildingOk = call(sourceRoom, "getBuilding")
-    end
+    local sourceBuilding = call(sourceRoom, "getBuilding")
     for _, square in ipairs(path) do
-        local room, roomOk = call(square, "getRoom")
-        if not roomOk then return false end
-        if room == nil then
-            outside = true
-        elseif outside then
-            return false
-        elseif room ~= sourceRoom then
-            local building, known = call(room, "getBuilding")
-            if not buildingOk or sourceBuilding == nil or not known
-                or building ~= sourceBuilding then return false end
-        end
+        outside = pathRoomProgress(square, sourceRoom, sourceBuilding, outside)
+        if outside == nil then return false end
     end
     return outside
 end
@@ -552,8 +552,7 @@ function Places.plannedApproach(place, actor)
     return best
 end
 
-local function addCandidate(candidates, grid, cell, place, x, y, side,
-        sourceX, sourceY)
+local function outdoorCandidateSquare(grid, cell, place, x, y, side)
     if x < 0 or y < 0 or x > 30000 or y > 30000 then return end
     local square, loaded = call(cell, "getGridSquare", x, y, 0)
     if not loaded or square == nil then return end
@@ -566,22 +565,21 @@ local function addCandidate(candidates, grid, cell, place, x, y, side,
     if side == "north" then insideY = y + 1 end
     if side == "south" then insideY = y - 1 end
     if not matchingBuildingAt(grid, place, insideX, insideY) then return end
-    local dx, dy = sourceX - x, sourceY - y
+    return square
+end
+
+local function addCandidate(survey, x, y, side)
+    local square = outdoorCandidateSquare(survey.grid, survey.cell, survey.place, x, y, side)
+    if square == nil then return end
+    local dx, dy = survey.sourceX - x, survey.sourceY - y
+    local candidates = survey.sides[side]
     candidates[#candidates + 1] = {
         x = x, y = y, z = 0, square = square, side = side,
         distanceSq = dx * dx + dy * dy,
     }
 end
 
--- A path to an outdoor square beside the building is a site approach, not
--- proof that a door opens or that interior containers can be reached.
--- Recheck when the leader streams the site; barriers can change en route.
-function Places.loadedApproach(place, actor)
-    local bounds = validBounds(place)
-    if bounds == nil then return nil, "invalid_place_reference" end
-    if place.groundFloor ~= true then
-        return nil, "place_without_ground_floor"
-    end
+local function readApproachInputs(actor)
     local source, sourceOk = call(actor, "getCurrentSquare")
     local sourceX, xOk = call(source, "getX")
     local sourceY, yOk = call(source, "getY")
@@ -594,35 +592,61 @@ function Places.loadedApproach(place, actor)
     local grid, gridOk = call(world, "getMetaGrid")
     local cell, cellOk = call(world, "getCell")
     if not gridOk or not cellOk or grid == nil or cell == nil
-        or SC.Navigation == nil or type(SC.Navigation.findPath) ~= "function"
         or SC.GameplayUtil == nil
         or type(SC.GameplayUtil.isSquareFree) ~= "function" then
         return nil, "approach_world_unavailable"
     end
-    local sides = { west = {}, east = {}, north = {}, south = {} }
-    for y = bounds.y, bounds.y2 do
-        addCandidate(sides.west, grid, cell, place, bounds.x - 1, y,
-            "west", sourceX, sourceY)
-        addCandidate(sides.east, grid, cell, place, bounds.x2 + 1, y,
-            "east", sourceX, sourceY)
+    return { actor = actor, source = source, sourceRoom = sourceRoom,
+        sourceX = sourceX, sourceY = sourceY, grid = grid, cell = cell }
+end
+
+local function startApproachSurvey(survey, place, bounds)
+    survey.place, survey.bounds = place, bounds
+    survey.sides = { west = {}, east = {}, north = {}, south = {} }
+    survey.boundaryIndex, survey.candidateIndex = 0, 1
+    survey.verticalCount = (bounds.y2 - bounds.y + 1) * 2
+    survey.boundaryCount = survey.verticalCount + (bounds.x2 - bounds.x + 1) * 2
+    return survey
+end
+
+local function scanApproachBoundary(survey, budget, expired)
+    local bounds = survey.bounds
+    local before = survey.boundaryIndex
+    local finish = math.min(survey.boundaryCount, before + budget)
+    for index = before, finish - 1 do
+        if index > before and expired and expired() then break end
+        if index < survey.verticalCount then
+            local y = bounds.y + math.floor(index / 2)
+            if index % 2 == 0 then
+                addCandidate(survey, bounds.x - 1, y, "west")
+            else
+                addCandidate(survey, bounds.x2 + 1, y, "east")
+            end
+        else
+            local column = index - survey.verticalCount
+            local x = bounds.x + math.floor(column / 2)
+            if column % 2 == 0 then
+                addCandidate(survey, x, bounds.y - 1, "north")
+            else
+                addCandidate(survey, x, bounds.y2 + 1, "south")
+            end
+        end
+        survey.boundaryIndex = index + 1
     end
-    for x = bounds.x, bounds.x2 do
-        addCandidate(sides.north, grid, cell, place, x, bounds.y - 1,
-            "north", sourceX, sourceY)
-        addCandidate(sides.south, grid, cell, place, x, bounds.y2 + 1,
-            "south", sourceX, sourceY)
-    end
+    return survey.boundaryIndex - before
+end
+
+local function approachCandidateLess(a, b)
+    if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+end
+
+local function orderedApproachCandidates(sides)
     local candidates = {}
     local sideOrder = { "west", "east", "north", "south" }
     for _, side in ipairs(sideOrder) do
-        local items = sides[side]
-        table.sort(items, function(a, b)
-            if a.distanceSq ~= b.distanceSq then
-                return a.distanceSq < b.distanceSq
-            end
-            if a.x ~= b.x then return a.x < b.x end
-            return a.y < b.y
-        end)
+        table.sort(sides[side], approachCandidateLess)
     end
     -- Try more than the three closest squares on each face. A boarded window
     -- or dense vegetation can block those while another part of the same
@@ -633,29 +657,41 @@ function Places.loadedApproach(place, actor)
             if candidate then candidates[#candidates + 1] = candidate end
         end
     end
+    table.sort(candidates, approachCandidateLess)
+    return candidates
+end
+
+local function approachResult(survey, candidate, path)
+    return { x = candidate.x, y = candidate.y, z = 0,
+        buildingId = survey.place.id, side = candidate.side,
+        pathNodes = #path, scope = "loaded_exterior_only" }
+end
+
+-- This verifies a loaded exterior stand. The entry survey separately checks
+-- the door or window from an exact outside stand to an interior landing.
+function Places.loadedApproach(place, actor)
+    local bounds = validBounds(place)
+    if bounds == nil then return nil, "invalid_place_reference" end
+    if place.groundFloor ~= true then return nil, "place_without_ground_floor" end
+    local survey, reason = readApproachInputs(actor)
+    if survey == nil then return nil, reason end
+    local nav = SC.Navigation
+    if not nav or type(nav.findPath) ~= "function" then return nil, "approach_world_unavailable" end
+    startApproachSurvey(survey, place, bounds)
+    scanApproachBoundary(survey, survey.boundaryCount)
+    local candidates = orderedApproachCandidates(survey.sides)
     if #candidates == 0 then return nil, "approach_exterior_unavailable" end
-    table.sort(candidates, function(a, b)
-        if a.distanceSq ~= b.distanceSq then
-            return a.distanceSq < b.distanceSq
-        end
-        if a.x ~= b.x then return a.x < b.x end
-        return a.y < b.y
-    end)
     for _, candidate in ipairs(candidates) do
         local path
-        if candidate.x == sourceX and candidate.y == sourceY then
-            path = { source }
+        if candidate.x == survey.sourceX and candidate.y == survey.sourceY then
+            path = { survey.source }
         else
-            path = SC.Navigation.findPath(source, candidate.square,
+            path = nav.findPath(survey.source, candidate.square,
                 { actor = actor, nodeBudget = 1800 })
         end
         if path ~= nil and #path >= 1 and #path <= 180
-            and isOutsidePath(path, sourceRoom) then
-            return {
-                x = candidate.x, y = candidate.y, z = 0,
-                buildingId = place.id, side = candidate.side,
-                pathNodes = #path, scope = "loaded_exterior_only",
-            }
+            and isOutsidePath(path, survey.sourceRoom) then
+            return approachResult(survey, candidate, path)
         end
     end
     return nil, "approach_no_loaded_path"
@@ -668,6 +704,153 @@ function Places.loadedSiteApproach(siteId, actor)
     if place == nil then return nil, "invalid_place_reference" end
     place.groundFloor = true
     return Places.loadedApproach(place, actor)
+end
+
+local function currentApproachSquare(cell, square)
+    local x = call(square, "getX")
+    local y = call(square, "getY")
+    local z = call(square, "getZ")
+    return coordinate(x) and coordinate(y) and type(z) == "number"
+        and call(cell, "getGridSquare", x, y, z) == square
+end
+
+local function sameApproachInputs(survey, siteId, current)
+    return survey and survey.place.id == siteId and survey.actor == current.actor
+        and survey.source == current.source and survey.sourceRoom == current.sourceRoom
+        and survey.sourceX == current.sourceX and survey.sourceY == current.sourceY
+        and survey.grid == current.grid and survey.cell == current.cell
+end
+
+local function candidateStillValid(survey, candidate)
+    return outdoorCandidateSquare(survey.grid, survey.cell, survey.place,
+        candidate.x, candidate.y, candidate.side) == candidate.square
+end
+
+local function advanceApproachCandidate(survey)
+    survey.job, survey.proof = nil, nil
+    survey.candidateIndex = survey.candidateIndex + 1
+    if survey.candidates[survey.candidateIndex] == nil then
+        return nil, "approach_no_loaded_path", "failed"
+    end
+    return nil, "approach_search_pending", "pending"
+end
+
+local function verifyApproachPath(survey, candidate, nav, expired)
+    local proof = survey.proof
+    local first = proof.index
+    local finish = math.min(#proof.path, first + 6)
+    local options = { actor = survey.actor, allowHazards = false }
+    local function passable(previous, square)
+        return nav._adjacentStepForWorkRoutes(previous, square)
+            and nav._passableEdgeForWorkRoutes(previous, square, 1, options) == true
+    end
+    for index = first, finish do
+        if index > first and expired() then break end
+        local square = proof.path[index]
+        if not currentApproachSquare(survey.cell, square) then return false end
+        proof.outside = pathRoomProgress(square, survey.sourceRoom, proof.sourceBuilding, proof.outside)
+        if proof.outside == nil then return false end
+        if index > 1 and not passable(proof.path[index - 1], square) then return false end
+        proof.index = index + 1
+    end
+    if proof.index <= #proof.path then return nil end
+    -- The handoff is an exterior point, and Navigation proves its own route
+    -- from there. Refresh the start edge while publishing this survey result.
+    local nextSquare = proof.path[2]
+    return proof.outside and currentApproachSquare(survey.cell, nextSquare)
+        and pathRoomProgress(nextSquare, survey.sourceRoom, proof.sourceBuilding,
+            survey.sourceRoom == nil) ~= nil
+        and passable(survey.source, nextSquare)
+        and candidateStillValid(survey, candidate)
+end
+
+local function pollApproachSurvey(survey, nav, perf, expired)
+    if survey.candidates == nil then
+        local tested = scanApproachBoundary(survey, 16, expired)
+        if survey.boundaryIndex >= survey.boundaryCount then
+            survey.candidates = orderedApproachCandidates(survey.sides)
+            survey.sides = nil
+            if #survey.candidates == 0 then return nil, "approach_exterior_unavailable", "failed", tested end
+        end
+        return nil, "approach_boundary_pending", "pending", tested
+    end
+    local candidate = survey.candidates[survey.candidateIndex]
+    if not candidateStillValid(survey, candidate) then return advanceApproachCandidate(survey) end
+    if survey.proof then
+        local valid = verifyApproachPath(survey, candidate, nav, expired)
+        if valid == nil then return nil, "approach_proof_pending", "pending" end
+        if valid then return approachResult(survey, candidate, survey.proof.path), nil, "complete" end
+        return advanceApproachCandidate(survey)
+    end
+
+    if survey.source == candidate.square then
+        return approachResult(survey, candidate, { survey.source }), nil, "complete"
+    end
+    local quota, claim = 48, nil
+    if perf and type(perf.claimUnits) == "function" then
+        quota, claim = perf.claimUnits("navigation", quota, false, true)
+    end
+    if quota <= 0 then return nil, "approach_search_pending", "pending" end
+    if survey.job == nil then
+        survey.job = nav.beginPathSearch(survey.source, candidate.square, nil,
+            { actor = survey.actor, nodeBudget = 1800, alternatives = false, sliceBudgetMs = 1 })
+    end
+    local status, path, reason, expanded, report, used
+    if survey.job then
+        status, path, reason, expanded, report, used = nav.resumePathSearch(survey.job, quota)
+    end
+    used = tonumber(used) or 0
+    if claim and type(perf.settleUnits) == "function" then perf.settleUnits(claim, used) end
+    if status == "pending" then return nil, "approach_search_pending", "pending", used end
+    if status == "complete" and reason == nil and type(path) == "table" and #path >= 2 and #path <= 180
+        and path[1] == survey.source and path[#path] == candidate.square then
+        survey.job = nil
+        survey.proof = { path = path, index = 1, outside = survey.sourceRoom == nil,
+            sourceBuilding = call(survey.sourceRoom, "getBuilding") }
+        return nil, "approach_proof_pending", "pending", used
+    end
+    local approach, why, nextStatus = advanceApproachCandidate(survey)
+    return approach, why, nextStatus, used
+end
+
+-- A scout owns this transient survey until it confirms an exterior stand or
+-- reaches a terminal result. A pending slice does not establish obstruction.
+function Places.pollLoadedSiteApproach(siteId, actor, state)
+    if type(state) ~= "table" then return nil, "approach_state_unavailable", "failed" end
+    local nav, perf = SC.Navigation, SC.Performance
+    if not nav or type(nav.beginPathSearch) ~= "function" or type(nav.resumePathSearch) ~= "function"
+        or type(nav._adjacentStepForWorkRoutes) ~= "function"
+        or type(nav._passableEdgeForWorkRoutes) ~= "function" then
+        state.survey = nil
+        return nil, "approach_world_unavailable", "failed"
+    end
+    local frame = perf and type(perf.frameId) == "function" and perf.frameId() or nil
+    if frame ~= nil and state.lastFrame == frame then return nil, "approach_frame_pending", "pending" end
+    state.lastFrame = frame
+    local clock = perf and perf.preciseNowMs
+    local began = type(clock) == "function" and clock() or nil
+    local function expired()
+        return began ~= nil and clock() - began >= 1
+    end
+    local current, reason = readApproachInputs(actor)
+    if current == nil or not currentApproachSquare(current.cell, current.source) then
+        state.survey = nil
+        return nil, reason or "approach_source_unavailable", "failed"
+    end
+    if not sameApproachInputs(state.survey, siteId, current) then
+        local place = savedSite(siteId)
+        if not place then
+            state.survey = nil
+            return nil, "invalid_place_reference", "failed"
+        end
+        state.survey = startApproachSurvey(current, place, place.bounds)
+    end
+    local approach, why, status, units = pollApproachSurvey(state.survey, nav, perf, expired)
+    if status ~= "pending" then state.survey = nil end
+    if began ~= nil and type(perf.record) == "function" then
+        perf.record("expedition.site-approach", nil, clock() - began, units or 0, status == "pending")
+    end
+    return approach, why, status
 end
 
 -- Emergency refuge must be an actual reachable interior square. A map house
