@@ -41,7 +41,13 @@ if ($Scope -ne 'Metadata') { $tests += @(
     'tests\source\test_content_references.py',
     'tests\source\test_persona_audit.py',
     'tests\source\test_terminal_lock_assets.py',
-    'tests\source\test_no_playtest_output.py'
+    'tests\source\test_no_playtest_output.py',
+    # Source-only contracts that used to run only inside on-demand suites.
+    'tests\core\test_core_static.py',
+    'tests\core\voice_action_labels_test.py',
+    'tests\gameplay\test_gameplay_static.py',
+    'tests\ui\test_ui_contract.py',
+    'tests\live\test_live_harness_static.py'
 ) }
 foreach ($test in $tests) {
     & $Python (Join-Path $ProjectRoot $test)

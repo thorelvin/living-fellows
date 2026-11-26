@@ -50,7 +50,8 @@ compilation. Release and live timings are separate from the routine target.
 ## Source CI and release validation
 
 `scripts/Test-Source.ps1` needs Python and PowerShell, not a game installation.
-It validates script syntax, release identity and packaged content references.
+It validates script syntax, release identity, packaged content references and
+the source-only subsystem contracts.
 It reports `SOURCE_TEST_PASS` with native/game/installer coverage explicitly
 false. Build uses its metadata subset; Interface uses its content subset.
 
@@ -61,25 +62,32 @@ check selection. Builders reuse normal/debug compilation only through a
 per-run receipt whose payload, compiler and runtime hashes still match.
 Standalone builder commands perform their own validation when used separately.
 
-## Focused regressions and live acceptance
+## Extended scenarios and focused runs
 
-Use these deeper suites when changing the corresponding feature, rather than
-adding them back to every routine run:
+Every Lua scenario has one definition: a group in `tests/essential/<Domain>.ps1`.
+Groups marked `Extended = $true` are the deeper subject suites that used to
+live in separate on-demand runners (about 190 groups: native/core,
+persistence, gameplay subjects, home trips, terminal variations, Strange Folk,
+taxi, adapters). Routine runs skip them; `-Release` always runs them, so they
+cannot drift between releases. With `-Release` or `-Extended`, Build also runs
+the installed animation, item-container and LuaManager contracts and the stock
+outfit check, the domains run ten more native tests, and Interface runs the
+live-probe static suite.
 
-| Area | On-demand command |
+| Purpose | Command |
 |---|---|
-| Native/core and persistence | `tests/core/run_core_tests.ps1 -SkipSharedSourceChecks -Jobs 1` |
-| Extended gameplay subjects | `tests/gameplay/run_gameplay_tests.ps1` |
-| Home trips | `tests/gameplay/run_gameplay_tests.ps1 -HomeTripOnly` |
-| Terminal and interface variations | `tests/ui/run_ui_tests.ps1` |
-| Installer failure boundaries | `tests/core/test_installer.ps1 -Jobs 1` |
-| Bandits / A-Life interoperability | `tests/gameplay/run_bandits_adapter_tests.ps1` / `run_alife_adapter_tests.ps1` |
-| Distinct Strange Folk mechanics | `tests/core/run_oddball_encounter_tests.ps1 -Jobs 1` |
-| Live acceptance tools: syntax/load only | `tests/live/run_live_harness_static.ps1` |
+| One domain with its extended groups | `scripts/Test-Project.ps1 -Check Cargo -Extended` |
+| Selected groups by name (wildcards) | `scripts/Run-TestGroups.ps1 -Name '*taxi*','*convoy*'` |
+| List groups without running them | `scripts/Run-TestGroups.ps1 -Name '*home*' -List` |
+| All installer failure boundaries | `tests/core/test_installer.ps1 -Jobs 1` |
+| Installed Bandits / A-Life source contracts | `tests/gameplay/run_bandits_adapter_tests.ps1` / `run_alife_adapter_tests.ps1` |
+| Live acceptance tools: syntax/load and probe regressions | `tests/live/run_live_harness_static.ps1` |
+| Stay With Me compatibility with mutation controls | `scripts/Test-StayWithMe.ps1` |
 
-The core command rebuilds the bridge unless `-SkipNativeBridge` is supplied
-after a matching fresh build. Existing specialist suites remain beside their
-fixtures; deleted overlap is available in Git history, not an archive tree.
+Source-only static contracts (core data, action labels, gameplay contracts, UI
+contract, live harness) run in `scripts/Test-Source.ps1`, so Source CI checks
+them on every push. To add a scenario, add a group to the matching domain file;
+mark it `Extended` when it is too slow or specialised for every routine run.
 
 For engine-sensitive changes, also run a short matching-build cloned-save
 acceptance: two companions versus three zombies for combat, one relevant

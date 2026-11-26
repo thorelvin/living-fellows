@@ -6,28 +6,17 @@ param(
     [switch]$RequireALifeSource
 )
 $ErrorActionPreference = 'Stop'
+# The adapter, hardening and fast-path regressions are Extended groups in the
+# release gate (tests\essential). This script keeps only the contract against
+# the installed third-party mod, which the gate cannot assume is present.
 $taskRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $taskOut = Join-Path $taskRoot ('build\alife-adapter-tests\kahlua-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $taskOut -Force | Out-Null
 $taskJavac = & (Join-Path $taskRoot 'scripts\Resolve-TestJavac.ps1')
 & $taskJavac -d $taskOut (Join-Path $PSScriptRoot 'KahluaTestRunner.java')
 if ($LASTEXITCODE -ne 0) { throw 'A-Life test runner compilation failed' }
-$taskFiles = @(
-    (Join-Path $PSScriptRoot 'alife_adapter_fixture.lua'),
-    (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCALifeAdapter.lua'),
-    (Join-Path $PSScriptRoot 'alife_adapter_harness.lua')
-)
 Push-Location -LiteralPath $GameRoot
 try {
-    & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskFiles
-    if ($LASTEXITCODE -ne 0) { throw 'A-Life adapter regression failed' }
-    $taskHardeningFiles = @(
-        (Join-Path $PSScriptRoot 'alife_adapter_fixture.lua'),
-        (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCALifeAdapter.lua'),
-        (Join-Path $PSScriptRoot 'alife_hardening_harness.lua')
-    )
-    & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskHardeningFiles
-    if ($LASTEXITCODE -ne 0) { throw 'A-Life hardening regression failed' }
     if (Test-Path -LiteralPath $ALifeRoot) {
         $taskLua = Join-Path $ALifeRoot 'media\lua'
         $taskSourceFiles = @(

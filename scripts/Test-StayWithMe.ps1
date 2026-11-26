@@ -98,7 +98,8 @@ $nativeClass = 'survivorcompanion.bridge.SCStayWithMeProtectionTest'
 Require-SwmRun @('-cp', "$fixtures;$native", $nativeClass) 'native-positive'
 foreach ($mutation in @(
     @{ Label='native-filter-negative'; File='SCNativeCompanion.java';
-        Needle='return SCStayWithMeProtection.filter(super.getHitInfoList());'; Replacement='return super.getHitInfoList();';
+        Needle='ArrayList<HitInfo> hits = SCStayWithMeProtection.filter(super.getHitInfoList());';
+        Replacement='ArrayList<HitInfo> hits = super.getHitInfoList();';
         Expected='SWM native hits removed' },
     @{ Label='native-api-negative'; File='SCStayWithMeProtection.java';
         Needle='Object owns = adapter.rawget("owns");'; Replacement='Object owns = null;';

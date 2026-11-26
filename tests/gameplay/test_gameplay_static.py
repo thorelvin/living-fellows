@@ -266,7 +266,8 @@ def main() -> int:
 
     gameplay_util = sources["SCGameplayUtil.lua"]
     config_source = (SHARED / "SCConfig.lua").read_text(encoding="utf-8")
-    gameplay_runner = (PROJECT / "tests" / "gameplay" / "run_gameplay_tests.ps1").read_text(
+    # The shared gameplay load order every gameplay gate group starts from.
+    gameplay_runner = (PROJECT / "tests" / "essential" / "Gameplay.ps1").read_text(
         encoding="utf-8")
     require('pcall(require, "SCConfig")' in gameplay_util
             and "local fallbackValues" not in gameplay_util,
@@ -1023,8 +1024,10 @@ def main() -> int:
     require("putShort" in diary_item and "MAX_ENTRY_BYTES = 1600" in diary_item
             and "Item.MAX_TOTAL_BYTES" in diary_item,
             "diary entries must stay individually bounded under the 16-bit ModData string save")
-    require("diary_harness.lua" in gameplay_runner,
-            "the private diary Kahlua harness is not part of the gameplay gate")
+    gate_groups = "".join(path.read_text(encoding="utf-8")
+                          for path in (PROJECT / "tests" / "essential").glob("*.ps1"))
+    require("'diary_harness.lua'" in gate_groups,
+            "the private diary Kahlua harness is not part of the release gate")
 
     # Incomplete observation is never proof of absence, and an action
     # stopping is never proof of completion.

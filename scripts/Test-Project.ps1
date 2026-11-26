@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: MIT
-<# Five production checks. Specialist regressions remain explicit on-demand runs. #>
+<# Five production checks. Groups and native tests marked Extended (the former
+   on-demand suites) also run with -Release or -Extended; routine runs skip them. #>
 [CmdletBinding()]
 param(
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
     [ValidateSet('Build', 'Lifecycle', 'Behaviour', 'Cargo', 'Interface')]
     [string[]]$Check = @('Build', 'Lifecycle', 'Behaviour', 'Cargo', 'Interface'),
     [switch]$Release,
+    # Run the Extended groups and native tests without -Release's packaging
+    # and installer cases (for example with a focused -Check).
+    [switch]$Extended,
     [switch]$Serial,
     [ValidateRange(0, 1)][int]$Jobs = 1
 )
@@ -25,6 +29,7 @@ $Client = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
 . (Join-Path $Essential 'Gameplay.ps1')
 $script:ScTestJvmStarts = 0
 $prepared = $false
+$privatePayload = $false
 $compilation = $null
 $tools = Join-Path ([IO.Path]::GetTempPath()) ('sc-essential-' + [guid]::NewGuid().ToString('N'))
 $logs = Join-Path $ProjectRoot ('build\test-results\' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
@@ -44,9 +49,25 @@ $native = @{
     Cargo = @('SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest')
     Interface = @('SCTerminalLogoRendererTest', 'SCBugReportDraftTest')
 }
+$runExtended = $Release -or $Extended
+$nativeExtended = @{
+    Build = @('SCAnimationContractTest', 'SCItemContainerContractTest', 'SCKahluaExposureTest')
+    Lifecycle = @('SCDeferredMainThreadQueueTest', 'SCViewpointCompatibilityTest')
+    Behaviour = @()
+    Cargo = @('SCStreetLookupTest', 'SCFishingMapTest', 'SCRoadRouterTest')
+    Interface = @('SCSpeechNameplateLiftTest', 'SCConstructionHideTest')
+}
+if ($runExtended) {
+    foreach ($domain in @($nativeExtended.Keys)) {
+        $native[$domain] = @($native[$domain]) + @($nativeExtended[$domain])
+    }
+}
 $stubTests = @('SCBootstrapLifecycleTest', 'SCCompanionFatigueTest', 'SCCompanionComfortTest',
-    'SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest', 'SCTerminalLogoRendererTest')
-$plainTests = @('SCNativeApiSignatureTest', 'SCBridgeLuaNumberContractTest')
+    'SCMovementClearanceTest', 'SCCompanionDrivingTest', 'SCRoadFollowerTest', 'SCIntersectionTurnsTest', 'SCTerminalLogoRendererTest',
+    'SCDeferredMainThreadQueueTest', 'SCViewpointCompatibilityTest', 'SCStreetLookupTest', 'SCFishingMapTest',
+    'SCRoadRouterTest', 'SCSpeechNameplateLiftTest', 'SCConstructionHideTest')
+$plainTests = @('SCNativeApiSignatureTest', 'SCBridgeLuaNumberContractTest',
+    'SCAnimationContractTest', 'SCItemContainerContractTest')
 
 function Invoke-EssentialScript([string]$Label, [string]$Path, [string[]]$ScriptArgs = @()) {
     Invoke-ScTestCommand -FilePath $hostPath -Arguments (
@@ -84,13 +105,20 @@ function Invoke-EssentialNative([string]$Domain) {
                 '-DturnCheck=all', "-DturnFixturePath=$fixture") + $arguments
         }
         if ($name -eq 'SCBootstrapLifecycleTest') { $arguments += @('--agent-jar', $nativeJar) }
+        if ($name -eq 'SCAnimationContractTest') { $arguments += @($GameRoot) }
         Invoke-ScTestCommand -FilePath $java -Arguments $arguments `
             -LogPath (Join-Path $logs "$Domain-$name.log") -WorkingDirectory $GameRoot
     }
 }
 function Invoke-EssentialLua([string]$Domain) {
-    $groups = @(. (Join-Path $Essential "$Domain.ps1"))
+    $groups = @(. (Join-Path $Essential "$Domain.ps1") | Where-Object { $runExtended -or -not $_.Extended })
     if ($groups.Count -eq 0) { throw "$Domain has no production scenario groups." }
+    if ($runExtended -and -not $script:privatePayload) {
+        # One Extended group loads the private playtest payload's manual-spawn provider.
+        Invoke-EssentialScript 'private-payload' (Join-Path $PSScriptRoot 'New-PrivatePlaytestPayload.ps1') @(
+            '-ProjectRoot', $ProjectRoot)
+        $script:privatePayload = $true
+    }
     $lines = foreach ($group in $groups) {
         if (-not $group.Name -or -not $group.Files) { throw "Invalid $Domain source group." }
         "--group $($group.Name)"
@@ -128,6 +156,18 @@ function Invoke-EssentialBuild {
     }
     $script:compilation = @{ Key = $inputKey; Normal = $true; Debug = $true }
     Invoke-EssentialNative 'Build'
+    if ($runExtended) {
+        # Companions dress from these stock outfits; both sexes must define them.
+        [xml]$clothing = Get-Content -LiteralPath (Join-Path $GameRoot 'media\clothing\clothing.xml') -Raw -Encoding utf8
+        $female = @($clothing.outfitManager.m_FemaleOutfits | ForEach-Object { [string]$_.m_Name })
+        $male = @($clothing.outfitManager.m_MaleOutfits | ForEach-Object { [string]$_.m_Name })
+        foreach ($outfit in @('Generic01', 'Generic02', 'Generic03', 'Generic04', 'Generic05',
+                'Grunge', 'Hobbyist', 'Backpacker', 'Camper', 'Evacuee')) {
+            if ($female -notcontains $outfit -or $male -notcontains $outfit) {
+                throw "Required stock companion outfit is not available for both sexes: $outfit"
+            }
+        }
+    }
     if ($Release) {
         Invoke-EssentialScript 'installer' (Join-Path $Core 'test_installer.ps1') @(
             '-ProjectRoot', $ProjectRoot, '-Essential', '-Jobs', '1', '-PrebuiltBridgeJar', $nativeJar)
@@ -152,7 +192,8 @@ $env:JDK_JAVA_OPTIONS = $env:JAVA_TOOL_OPTIONS
 $env:SC_TEST_JOBS = '1'
 try {
     try { $currentProcess.PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal } catch { }
-    Write-Output 'Essential checks: serial, Java heap 256 MB, two processors; live game not launched.'
+    Write-Output ('Essential checks: serial, Java heap 256 MB, two processors; live game not launched; extended scenarios {0}.' -f
+        $(if ($runExtended) { 'included' } else { 'skipped' }))
     foreach ($name in $order) {
         if ($selected -notcontains $name) { $results += @{ Check = $name; Status = 'not run'; Seconds = 0 }; continue }
         $step = [Diagnostics.Stopwatch]::StartNew()
@@ -162,6 +203,11 @@ try {
             else {
                 if ($name -eq 'Interface') {
                     Invoke-EssentialScript 'content' (Join-Path $PSScriptRoot 'Test-Source.ps1') @('-Scope', 'Content')
+                    if ($runExtended) {
+                        # Live probes: Kahlua compilation, fixture regressions, static contracts.
+                        Invoke-EssentialScript 'live-static' (Join-Path $ProjectRoot 'tests\live\run_live_harness_static.ps1') @(
+                            '-GameRoot', $GameRoot)
+                    }
                 }
                 Invoke-EssentialNative $name
                 Invoke-EssentialLua $name
@@ -191,7 +237,7 @@ try {
     }
     Remove-Item -LiteralPath $tools -Recurse -Force
 }
-$summary = @{ Profile = $(if ($Release) { 'release' } else { 'routine' }); Checks = $results;
+$summary = @{ Profile = $(if ($Release) { 'release' } elseif ($Extended) { 'extended' } else { 'routine' }); Checks = $results;
     Seconds = $timer.Elapsed.TotalSeconds; DirectJvmStarts = $script:ScTestJvmStarts; Live = 'not run' }
 $summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $logs 'summary.json') -Encoding utf8
 Write-Output ("Elapsed {0:N1}s; direct JVM launches {1}; evidence {2}" -f $timer.Elapsed.TotalSeconds, $script:ScTestJvmStarts, $logs)
