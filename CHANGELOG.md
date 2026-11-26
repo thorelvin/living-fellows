@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.88 - Navigation and clothing diagnostics
+
+- Reuse navigation helpers to restore room for new declarations in the debug compiler, and share the path state update for verified routes.
+- Skip clothing trace scoring and classification when the trace is disabled or its reporter is unavailable.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.87 - Expedition entry and horde hold recovery
 
 - Survey verified alternate entrances when the first approach is locked.

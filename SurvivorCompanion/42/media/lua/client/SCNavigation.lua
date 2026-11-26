@@ -704,14 +704,6 @@ end
 
 Navigation._routeMemoryAdjustmentForTests = routeMemoryAdjustment
 
-local function reserve(object, actor, now)
-    return V().reserve(object, actor, now)
-end
-
-local function release(object, actor)
-    return V().release(object, actor)
-end
-
 local function squareHasStairs(square)
     if SC.Topology and type(SC.Topology.squareHasStairs) == "function" then
         return SC.Topology.squareHasStairs(square)
@@ -1493,10 +1485,6 @@ local function neighbors(square, goal, rotation, cardinalOnly)
     return result, keys
 end
 
-local function reconstruct(nodes, goalKey)
-    return P().reconstruct(nodes, goalKey)
-end
-
 local function stealthAvoidanceRequested(actor, movementMode, intent)
     if type(intent) == "table" then
         if intent.urgent == true or intent.ignoreStealthAvoidance == true then return false end
@@ -1606,22 +1594,6 @@ local function refreshStealthOverlay(overlay, now)
     return true
 end
 
--- Binary min-heap for the A* open set (review 3.3), replacing the O(N) lowest-f
--- linear scan + O(N) table.remove that made each expansion O(N) and the search
--- O(N^2). Entries are { key, f, h, familiarity, seq } and are ordered by f,
--- then h, then successful route-memory familiarity, then a stable insertion
--- sequence. Familiarity never changes the primary path cost.
--- Improvements push a fresh entry that reuses the node's original seq and leave the
--- superseded entry in place (lazy deletion); the popper drops any entry whose
--- priority no longer matches its node, or whose node is already closed.
-local function heapPush(heap, entry)
-    return P().heapPush(heap, entry)
-end
-
-local function heapPop(heap)
-    return P().heapPop(heap)
-end
-
 -- A flat ceiling assumes a route costs about one expansion per tile, which is
 -- true in the open and false in woodland: most neighbours there are trees, so
 -- the frontier snakes and a goal ten tiles away can cost hundreds of nodes.
@@ -1706,13 +1678,9 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
     return P().new(startSquare, goalSquare, options, adapter)
 end
 
-local function resumeBoundedPathJob(job, expansionQuota, slice)
-    return P().resume(job, expansionQuota, slice)
-end
-
 local function boundedPath(startSquare, goalSquare, options)
     local job = newBoundedPathJob(startSquare, goalSquare, options)
-    local status, path, reason, expanded = resumeBoundedPathJob(job, job.nodeBudget or 1)
+    local status, path, reason, expanded = P().resume(job, job.nodeBudget or 1)
     if status == "pending" then return nil, "budget", expanded end
     return path, reason, expanded
 end
@@ -2245,7 +2213,7 @@ local function boundedOutdoorPath(startSquare, vegetationScale, actor)
     local clipped = false
 
     while #open > 0 and expanded < nodeBudget do
-        local entry = heapPop(open)
+        local entry = P().heapPop(open)
         local bestKey = entry and entry.key or nil
         local current = bestKey and nodes[bestKey] or nil
         -- Dijkstra is still the right search for "nearest outdoor square"; use the
@@ -2253,7 +2221,7 @@ local function boundedOutdoorPath(startSquare, vegetationScale, actor)
         -- instead of repeatedly linearly scanning and removing from the open list.
         if current and not closed[bestKey] and entry.f == current.g then
             if bestKey ~= startKey and squareIsOutdoor(current.square) then
-                return reconstruct(nodes, bestKey), nil, expanded
+                return P().reconstruct(nodes, bestKey), nil, expanded
             end
             closed[bestKey] = true
             expanded = expanded + 1
@@ -2281,7 +2249,7 @@ local function boundedOutdoorPath(startSquare, vegetationScale, actor)
                                 square = otherSquare, g = tentative, f = tentative,
                                 h = 0, parent = bestKey, seq = seq,
                             }
-                            heapPush(open, {
+                            P().heapPush(open, {
                                 key = otherKey, f = tentative, h = 0, seq = seq,
                             })
                         end
@@ -3054,7 +3022,7 @@ local function resumeRouteSearchSlice(job, expansionQuota)
                 + (job.search and job.search.expanded or 0), nil, totalUsed
         end
         transitions = transitions + 1
-        local status, path, reason, expanded, used = resumeBoundedPathJob(job.search, remaining, slice)
+        local status, path, reason, expanded, used = P().resume(job.search, remaining, slice)
         used = math.max(0, tonumber(used) or 0)
         totalUsed = totalUsed + used
         remaining = remaining - used
@@ -3280,18 +3248,10 @@ end
 
 Navigation._threatArrivalMsForTests = threatArrivalMs
 
-local function doorGeometry(entry, value)
-    return V().doorGeometry(entry, value)
-end
-
 local function actorClearOfDoorway(actor, entry)
-    local progress = doorGeometry(entry, actor)
+    local progress = V().doorGeometry(entry, actor)
     return progress ~= nil
         and progress >= (U().config("doorClearanceDistance") or 0.38)
-end
-
-local function occupiesDoorway(value, entry)
-    return V().occupiesDoorway(value, entry)
 end
 
 local trafficContext
@@ -3472,8 +3432,8 @@ Navigation._handleFenceForRequest = handleFence
 
 trafficContext = {
     record = recordMovement,
-    doorGeometry = doorGeometry,
-    occupiesDoorway = occupiesDoorway,
+    doorGeometry = function(entry, value) return V().doorGeometry(entry, value) end,
+    occupiesDoorway = function(value, entry) return V().occupiesDoorway(value, entry) end,
     sameSquare = sameSquare,
     differentFloor = differentFloor,
     squareHasStairs = squareHasStairs,
@@ -3523,23 +3483,9 @@ local function releaseChoke(state, actor)
 end
 Navigation._releaseChokeForRequest = releaseChoke
 
-local function extendChoke(state, actor, untilAt)
-    return T().extendChoke(state, actor, untilAt)
-end
-
-local movementPriority
-
 local function reserveChokeCorridor(sourceSquare, nextSquare, afterSquare, actor, state, intent, now)
     return T().reserveChoke(
         sourceSquare, nextSquare, afterSquare, actor, state, intent, now, trafficContext)
-end
-
-movementPriority = function(intent)
-    return T().priority(intent)
-end
-
-local function releaseStep(state, actor)
-    return T().releaseStep(state, actor)
 end
 
 local function reserveStep(square, actor, state, intent, now)
@@ -3547,7 +3493,7 @@ local function reserveStep(square, actor, state, intent, now)
 end
 
 local function hasRightOfWay(actor, intent, blocker)
-    local ownPriority = movementPriority(intent)
+    local ownPriority = SC.NavTraffic.priority(intent)
     local otherState = blocker and states[blocker] or nil
     local otherPriority = otherState and tonumber(otherState.trafficPriority) or 10
     if ownPriority ~= otherPriority then return ownPriority > otherPriority end
@@ -4174,9 +4120,9 @@ local function clearMovementTransients(actor, state)
         and type(SC.NativeActions.stopDirect) == "function" then
         pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
     end
-    if state.pendingInteraction then release(state.pendingInteraction.object, actor) end
+    if state.pendingInteraction then V().release(state.pendingInteraction.object, actor) end
     state.pendingInteraction = nil
-    releaseStep(state, actor)
+    SC.NavTraffic.releaseStep(state, actor)
     releaseChoke(state, actor)
     state.yieldSince = nil
     state.yieldBlocker = nil
@@ -4744,7 +4690,7 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
         end
     end
     if not selected then return false end
-    releaseStep(state, actor)
+    SC.NavTraffic.releaseStep(state, actor)
     state.pathIndex = selected
     resetRouteProjection(state)
     state.routeReuseCount = (state.routeReuseCount or 0) + 1
@@ -4779,7 +4725,7 @@ function Navigation._joinCompletedSearchPath(actor, state, sourceSquare,
                 routeMemory = state.routeMemory, now = now,
                 allowOccupiedGoal = state.pathIndex == #state.path,
             }))) then return true end
-    releaseStep(state, actor)
+    SC.NavTraffic.releaseStep(state, actor)
     state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
     state.pathIndex, state.nextRepathAt = 1, 0
     context.pathSearchReason = "path_deviation"
@@ -4854,7 +4800,7 @@ local function correctRouteProjection(actor, state, sourceSquare, context, now)
     if (state.crossTrackSince and now - state.crossTrackSince >= unstableMs)
         or (state.reverseProgressSince and now - state.reverseProgressSince >= unstableMs) then
         local reason = state.crossTrackSince and "cross_track" or "reverse_progress"
-        releaseStep(state, actor)
+        SC.NavTraffic.releaseStep(state, actor)
         state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
         state.pathIndex, state.nextRepathAt = 1, 0
         state.routeRestartCount = (state.routeRestartCount or 0) + 1
@@ -4888,8 +4834,13 @@ end
 
 -- Test seams (heap A*, review 3.3): the open-set min-heap must drain in exact
 -- (f, h, seq) order so the search keeps producing the same paths as the old scan.
-Navigation._heapPushForTests = heapPush
-Navigation._heapPopForTests = heapPop
+function Navigation._heapPushForTests(heap, entry)
+    return P().heapPush(heap, entry)
+end
+
+function Navigation._heapPopForTests(heap)
+    return P().heapPop(heap)
+end
 
 -- Test seams (stealth danger overlay, review 3.5): a long search's overlay prunes
 -- dead/departed threats on a throttled cadence instead of scoring a frozen snapshot.
@@ -5643,7 +5594,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
             -- A follower may still hold a cached player-track route across
             -- this edge. Drop it now so the next request searches around the
             -- newly blacklisted door rather than retrying the same crossing.
-            releaseStep(state, actor)
+            SC.NavTraffic.releaseStep(state, actor)
             state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
             state.pathIndex, state.nextRepathAt = 1, 0
             state.pathReason, state.pathFailure = "native_locked_door", nil
@@ -5688,7 +5639,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         lease.wasPending = true
         lease.expires = math.max(tonumber(lease.expires) or 0,
             (tonumber(lease.startedAt) or now) + pendingGrace)
-        extendChoke(state, actor, lease.expires)
+        SC.NavTraffic.extendChoke(state, actor, lease.expires)
         lease.lastActiveAt = now
         return "active", "native_path_pending"
     elseif lease.wasPending == true then
@@ -5718,7 +5669,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     local noProgressFor = now - (tonumber(lease.positionProgressAt) or lease.startedAt)
     if now <= lease.expires and noProgressFor <= stallMs
         and (actorState ~= nil or telemetry.active == true) then
-        extendChoke(state, actor, lease.expires)
+        SC.NavTraffic.extendChoke(state, actor, lease.expires)
         lease.lastActiveAt = now
         local status = actorState and "native_animation_" .. tostring(actorState)
             or telemetry.turningToObstacle and "native_turning_to_obstacle"
@@ -6576,7 +6527,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     if treeAwayX ~= nil then
         forwardX, forwardY = treeAwayX, treeAwayY
     elseif nearbyDoor then
-        local _, _, doorX, doorY = doorGeometry(nearbyDoor, actor)
+        local _, _, doorX, doorY = V().doorGeometry(nearbyDoor, actor)
         forwardX, forwardY = doorX, doorY
     else
         local gx, gy = utility.position(goalSquare)
@@ -6644,7 +6595,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                     nil, nil, failedFrom, failedTo)
                 return true, true, "recovering_" .. tostring(blocker.type)
             end
-            releaseStep(state, actor)
+            SC.NavTraffic.releaseStep(state, actor)
         end
     end
     local actorDistance = utility.distance(actor, goalSquare)
@@ -6731,7 +6682,7 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
         local check = down and "canClimbDownSheetRope" or "canClimbSheetRope"
         local climbable, checked = utility.call(actor, check, sourceSquare)
         if checked and climbable == true then
-            releaseStep(state, actor)
+            SC.NavTraffic.releaseStep(state, actor)
             releaseChoke(state, actor)
             state.path = nil
             state.pathGoalSquare = nil
@@ -6763,7 +6714,7 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     -- oriented multi-tile stair geometry. The bounded Lua planner deliberately
     -- stays two-dimensional here: synthetic z edges selected false landings and
     -- caused approach/replan loops at basements, upper floors and attics.
-    releaseStep(state, actor)
+    SC.NavTraffic.releaseStep(state, actor)
     releaseChoke(state, actor)
     state.path = nil
     state.pathGoalSquare = nil
@@ -6938,6 +6889,14 @@ function Navigation._interactionRouteRequested(intent, receipt, token)
         and intent.movingTarget ~= true and intent.followRecovery ~= true and intent.player == nil
 end
 
+function Navigation._installVerifiedReceiptPath(state, path, goal, now, reason, stealthAvoidance)
+    state.path, state.pathGoalSquare, state.pathIndex = path, goal, 2
+    state.pathIsPartial, state.pathFailure, state.pathSearchHolding = nil, nil, nil
+    state.pathStealthAvoidance, state.pathEmergencyVegetation = stealthAvoidance, false
+    state.pathReason, state.lastPlanDurationMs = reason, 0
+    state.lastProgressAt, state.nextRepathAt = now, now + (U().config("navigationRepathMs") or 900)
+end
+
 function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquare, intent, now)
     local receipt = intent.interactionRouteReceipt
     if type(receipt) ~= "table" or receipt.used or receipt.invalidated
@@ -6998,11 +6957,8 @@ function Navigation._adoptInteractionRoute(actor, state, sourceSquare, goalSquar
         receipt.path, sourceSquare, goalSquare, options)
     if not valid then return reject(reason or "receipt_edge_changed") end
     receipt.used, receipt.boundToken = true, token
-    state.path, state.pathGoalSquare, state.pathIndex = receipt.path, goalSquare, 2
-    state.pathIsPartial, state.pathFailure, state.pathSearchHolding = nil, nil, nil
-    state.pathStealthAvoidance, state.pathEmergencyVegetation = false, false
-    state.pathReason, state.lastPlanDurationMs = "interaction_route_receipt", 0
-    state.lastProgressAt, state.nextRepathAt = now, now + (utility.config("navigationRepathMs") or 900)
+    Navigation._installVerifiedReceiptPath(state, receipt.path, goalSquare, now,
+        "interaction_route_receipt", false)
     SC.WorkRoutes.count("navigation.interaction-route.reused")
     if receipt.expeditionScavenge == true then
         SC.WorkRoutes.count("scavenge.interaction-route.reused")
@@ -7040,11 +6996,8 @@ function Navigation._adoptStalledReturnRoute(actor, state, source, goal, intent,
     })
     if not valid then return false, why or "return_entry_edge_changed" end
     receipt.used = true
-    state.path, state.pathGoalSquare, state.pathIndex = receipt.path, goal, 2
-    state.pathIsPartial, state.pathFailure, state.pathSearchHolding = nil, nil, nil
-    state.pathStealthAvoidance, state.pathEmergencyVegetation = intent.stealthAvoidance == true, false
-    state.pathReason, state.lastPlanDurationMs = "expedition_return_receipt", 0
-    state.lastProgressAt, state.nextRepathAt = now, now + (U().config("navigationRepathMs") or 900)
+    Navigation._installVerifiedReceiptPath(state, receipt.path, goal, now,
+        "expedition_return_receipt", intent.stealthAvoidance == true)
     Navigation._resetRouteProjection(state)
     return true
 end
@@ -7365,7 +7318,7 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
     SC.Navigation._markActorPassageForRequest(actor, state, now)
-    state.trafficPriority = movementPriority(intent)
+    state.trafficPriority = SC.NavTraffic.priority(intent)
     state.trafficAction = type(intent) == "table" and intent.action or "move"
     sweepBlockedEdges(state, now)
     observeSquare(state, sourceSquare)
@@ -8181,7 +8134,7 @@ function Navigation.request(actor, target, movementMode, intent)
             -- A native local detour can move the actor off the Lua path while
             -- clearing a collision capsule. Discard that stale edge instead of
             -- issuing a non-adjacent manual step through world geometry.
-            releaseStep(state, actor)
+            SC.NavTraffic.releaseStep(state, actor)
             state.path = nil
             state.pathGoalSquare = nil
             state.pathSearch = nil
@@ -8198,7 +8151,7 @@ function Navigation.request(actor, target, movementMode, intent)
         local stillPassable, changedReason = SC.WorkRoutes.validateNext(
             actor, state, sourceSquare, nextSquare, goalSquare, requestIntent, now)
         if stillPassable ~= true then
-            releaseStep(state, actor)
+            SC.NavTraffic.releaseStep(state, actor)
             SC.Navigation._releaseChokeForRequest(state, actor)
             state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
             state.pathIndex, state.nextRepathAt = 1, 0
@@ -8708,7 +8661,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 or "native_edge", false,
             isMovingTargetIntent(requestIntent), requestIntent.nativeAffordance,
             actor, requestIntent)
-        extendChoke(state, actor, state.nativeLease and state.nativeLease.expires)
+        SC.NavTraffic.extendChoke(state, actor, state.nativeLease and state.nativeLease.expires)
     end
     return true, "moving"
 end
@@ -9641,14 +9594,14 @@ function Navigation.interact(actor, object, action, options)
         local nextAllowed = curtainTimes[object] or 0
         if now < nextAllowed then return false, "curtain_cooldown" end
         if objectOpen(object) == desiredOpen then return true, "already_set" end
-        if not reserve(object, actor, now) then return false, "reserved" end
+        if not V().reserve(object, actor, now) then return false, "reserved" end
         local result, toggled = utility.call(object, "ToggleDoor", actor)
         if not toggled or result == false or objectOpen(object) ~= desiredOpen then
-            release(object, actor)
+            V().release(object, actor)
             return false, "curtain_failed"
         end
         curtainTimes[object] = now + (utility.config("curtainCooldownMs") or 6000)
-        release(object, actor)
+        V().release(object, actor)
         return true, "done"
     end
     local accepted = utility.move(actor, options and options.mode or "walk", {

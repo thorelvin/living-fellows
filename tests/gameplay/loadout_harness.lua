@@ -278,6 +278,60 @@ local function testSparePadFit()
 end
 testSparePadFit()
 
+local function testClothingTraceGuard()
+    local sc = SurvivorCompanion
+    local oldTrace = rawget(sc.Config.values, "logisticsClothingTrace")
+    local oldDiagnostics, score = sc.Diagnostics, sc.Logistics.clothingScore
+    for _, mode in ipairs({ "off", "on", "reporter_unavailable" }) do
+        local worn = item("Test.TraceWorn", "Clothing", { bodyLocation = "Torso1" })
+        local spare = item("Test.TraceLoose", "Clothing", { bodyLocation = "Torso1" })
+        local upgrade = item("Test.TraceUpgrade", "Clothing", { bodyLocation = "Head" })
+        local uncategorised = item("Test.TraceUncategorised", "Food")
+        local fellow = actor("sc-clothing-trace-" .. mode, 11, 5,
+            { inventory = inventory({ worn, spare, upgrade, uncategorised }) })
+        registry[fellow.id] = fellow
+        fellow:setWornItem("Torso1", worn)
+        worn:getModData().SC_ManualWearFor = fellow.id
+
+        local garmentScores, clothingProbes = 0, 0
+        function uncategorised:IsClothing()
+            clothingProbes = clothingProbes + 1
+            return true
+        end
+        sc.Logistics.clothingScore = function(garment)
+            if garment == spare then garmentScores = garmentScores + 1 end
+            return score(garment)
+        end
+        local messages = {}
+        sc.Diagnostics = { report = function(system, id, message)
+            if system == "logistics-clothing" and id == fellow.id then messages[#messages + 1] = message end
+        end }
+        if mode == "reporter_unavailable" then sc.Diagnostics.report = nil end
+        sc.Config.values.logisticsClothingTrace = mode ~= "off"
+
+        local result = sc.Logistics.status(fellow)
+        local expectedCalls = mode == "on" and 1 or 0
+        check(garmentScores == expectedCalls and clothingProbes == expectedCalls,
+            "clothing diagnostics score and classify only with a callable enabled trace: " .. mode)
+        check(result.clothingUpgrade and result.clothingUpgrade.item == upgrade
+                and fellow:getWornItem("Torso1") == worn and fellow.inventory:contains(spare),
+            "clothing tracing preserves the selected upgrade and manually equipped item: " .. mode)
+        if mode == "on" then
+            check(#messages == 2 and messages[1] == "item=Test.TraceLoose outcome=refused location=Torso1"
+                    .. " score=" .. tostring(score(spare)) .. " difference=0 current=Test.TraceWorn"
+                    and messages[2] == "item=Test.TraceUncategorised outcome=not_categorised_clothing category=food",
+                "enabled clothing trace retains both diagnostic payloads")
+        else
+            check(#messages == 0, "inactive clothing trace emits no diagnostic: " .. mode)
+        end
+        sc.Logistics.reset(fellow)
+        registry[fellow.id], fellow.dead = nil, true
+    end
+    sc.Config.values.logisticsClothingTrace = oldTrace
+    sc.Diagnostics, sc.Logistics.clothingScore = oldDiagnostics, score
+end
+testClothingTraceGuard()
+
 function SurvivorCompanion.__testPreparationPacking()
     local sc, originalClock = SurvivorCompanion, f.clock
     local safe = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 } }

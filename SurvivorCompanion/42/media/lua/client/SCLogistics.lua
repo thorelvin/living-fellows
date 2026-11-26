@@ -1116,16 +1116,16 @@ end
 -- cosmetic or broken garment, a non-comparable wearable already in the slot, or
 -- simply too small an improvement -- and they were indistinguishable from
 -- outside. Report the decision so the next one is answerable.
-local function reportClothingDecision(actor, item, outcome, detail)
-    if SC.Diagnostics == nil or type(SC.Diagnostics.report) ~= "function" then return end
-    if U().config("logisticsClothingTrace") ~= true then return end
-    pcall(SC.Diagnostics.report, "logistics-clothing", U().idOf(actor),
+local function reportClothingDecision(report, actor, item, outcome, detail)
+    pcall(report, "logistics-clothing", U().idOf(actor),
         "item=" .. tostring(U().itemType(item))
         .. " outcome=" .. tostring(outcome) .. " " .. tostring(detail or ""))
 end
 
 local function selectOwnedClothingUpgrade(actor, audit)
     local best
+    local report = type(SC.Diagnostics) == "table" and SC.Diagnostics.report
+    local trace = type(report) == "function" and U().config("logisticsClothingTrace") == true
     for _, record in ipairs(audit.items) do
         -- Favourite is a disposal guard, not a veto against wearing a gift.
         -- Personal keepsakes remain outside autonomous loadout choices.
@@ -1139,18 +1139,18 @@ local function selectOwnedClothingUpgrade(actor, audit)
                 or (difference == best.difference and best.extraType and not extraType)) then
                 best = { item = record.item, source = record.source, current = current,
                     location = location, difference = difference, extraType = extraType }
-            elseif not accepted then
-                reportClothingDecision(actor, record.item, "refused",
+            elseif trace and not accepted then
+                reportClothingDecision(report, actor, record.item, "refused",
                     "location=" .. tostring(location)
                     .. " score=" .. tostring(Logistics.clothingScore(record.item))
                     .. " difference=" .. tostring(difference)
                     .. " current=" .. tostring(current and U().itemType(current) or "none"))
             end
-        elseif record.category ~= "clothing" and isClothingItem(record.item) then
+        elseif trace and record.category ~= "clothing" and isClothingItem(record.item) then
             -- A wearable that the category pass did not call clothing: this is
             -- the shape the kneepad report would take if classification is the
             -- problem rather than the score.
-            reportClothingDecision(actor, record.item, "not_categorised_clothing",
+            reportClothingDecision(report, actor, record.item, "not_categorised_clothing",
                 "category=" .. tostring(record.category))
         end
     end
