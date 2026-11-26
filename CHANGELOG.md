@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.94 - One test definition and a missing status label
+
+- Show "heading for shelter" for a companion walking to shelter during a Handover. The companion panel had no status text for it.
+- Remove two camp-argument voice pools that nothing could speak since camp arguments became scenes.
+- Define every Lua test scenario once, in the release checks. The roughly 190 scenarios of the former on-demand suites are Extended groups that every release run includes; routine runs skip them. Ten native tests and the live-probe static suite join release runs, and five source-only contracts join Source CI.
+- Replace the 68 per-suite runner scripts with `scripts/Run-TestGroups.ps1` for focused runs, remove four Java tests of code that no longer exists, and repair the stale checks the move uncovered.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.93 - Taxi turnaround and gun shop siege
 
 - Let a car that ends a cramped turnaround facing along its road but beside it, nose to a kerb corner, turn in a few slow moves to face its lane and drive on. Markus's radio fare no longer turns a short ride into a long loop round the block.
