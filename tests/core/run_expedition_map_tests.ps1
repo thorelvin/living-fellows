@@ -29,6 +29,7 @@ try {
    (Join-Path $PSScriptRoot 'core_fixture.lua'),(Join-Path $client 'SCViewSession.lua'),
    (Join-Path $client 'SCExpeditionRoute.lua'),(Join-Path $client 'SCStairTransition.lua'),
    (Join-Path $client 'SCExpeditionCar.lua'),(Join-Path $client 'SCExpeditionTargets.lua'),
+   (Join-Path $shared 'SCForceEntryState.lua'),(Join-Path $client 'SCForceEntry.lua'),
    (Join-Path $client 'SCExpeditionPrototype.lua'),(Join-Path $PSScriptRoot 'expedition_restart_harness.lua')
   )
   & (Join-Path $GameRoot 'jre64\bin\java.exe') -cp "$scratch;$(Join-Path $GameRoot 'projectzomboid.jar')" KahluaTestRunner @restartFiles
@@ -36,7 +37,9 @@ try {
   $woodFiles=@(
    (Join-Path $PSScriptRoot 'core_fixture.lua'),(Join-Path $client 'SCExpeditionRoute.lua'),
    (Join-Path $client 'SCExpeditionForests.lua'),(Join-Path $client 'SCExpeditionWood.lua'),
-   (Join-Path $client 'SCExpeditionTargets.lua'),(Join-Path $client 'SCExpeditionPrototype.lua'),
+   (Join-Path $client 'SCExpeditionTargets.lua'),(Join-Path $client 'SCExpeditionFuel.lua'),
+   (Join-Path $shared 'SCForceEntryState.lua'),(Join-Path $client 'SCForceEntry.lua'),
+   (Join-Path $client 'SCExpeditionPrototype.lua'),
    (Join-Path $PSScriptRoot 'expedition_wood_mission_harness.lua')
   )
   & (Join-Path $GameRoot 'jre64\bin\java.exe') -cp "$scratch;$(Join-Path $GameRoot 'projectzomboid.jar')" KahluaTestRunner @woodFiles

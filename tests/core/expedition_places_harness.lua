@@ -282,6 +282,9 @@ do
     check(status == "pending" and starts[firstOwnerCount + 1].from == origin,
         "the original route retains a pending frontier")
     origin = square(8, 25)
+    selected, why, status = poll(survey)
+    check(status == "pending" and why ~= "approach_boundary_pending",
+        "a one-tile move keeps the discovered exterior candidates: " .. tostring(why))
     repeat
         selected, why, status = poll(survey)
     until status ~= "pending" or polls >= 64
@@ -289,6 +292,27 @@ do
             and selected.pathNodes == 12 and movedOriginResumes == 0
             and starts[#starts].from == origin,
         "moving the scout discards the old search and proves a route from the new square")
+
+    survey = {}
+    repeat
+        selected, why, status = poll(survey)
+    until why == "approach_search_pending" or status ~= "pending" or polls >= 200
+    local nearOrigin = origin
+    origin = square(8, 35)
+    selected, why, status = poll(survey)
+    check(status == "pending" and why == "approach_boundary_pending",
+        "moving beyond the survey radius discovers the exterior again: " .. tostring(why))
+    origin = nearOrigin
+    local pollLimit = Places._surveyPollLimit
+    Places._surveyPollLimit = 2
+    survey = {}
+    poll(survey)
+    poll(survey)
+    selected, why, status = poll(survey)
+    check(status == "failed" and why == "approach_survey_exhausted" and selected == nil
+            and survey.survey == nil and survey.polls == nil,
+        "a site survey that cannot answer within its slice limit ends")
+    Places._surveyPollLimit = pollLimit
     SC.Navigation, SC.Performance, fixture.cell.getGridSquare = nav, perf, getSquare
 end
 local originalPosition = SurvivorCompanion.GameplayUtil.position
@@ -465,14 +489,31 @@ do
             and corridorReads > 0 and unsafeAdmissions == 0 and staleStarts == 0,
         "the exact safe alternate indoor square can win while the nearest house remains blocked")
 
+    local nearbyCalls, nearbyLookup = 0, Places.nearby
+    Places.nearby = function(...)
+        nearbyCalls = nearbyCalls + 1
+        return nearbyLookup(...)
+    end
     state, starts = {}, {}
     pollUntil(state, function() return #starts > 0 end)
+    nearbyCalls = 0
     origin = square(96, 25)
     result, why, phase = pollUntil(state)
     check(phase == "complete" and result and result.buildingId == alternateId
             and staleStarts == 0 and staleResumes == 0
             and starts[1].from ~= origin and starts[#starts].from == origin,
         "moving the leader discards stale shelter paths and proves a route from the new square")
+    check(nearbyCalls == 0, "a one-tile move keeps the discovered houses and their candidates")
+
+    state, starts = {}, {}
+    pollUntil(state, function() return #starts > 0 end)
+    nearbyCalls = 0
+    origin = square(86, 25)
+    result, why, phase = poll(state)
+    check(phase == "pending" and nearbyCalls == 1 and why == "shelter_discovery_pending",
+        "moving beyond the survey radius looks for houses again")
+    origin = square(96, 25)
+    Places.nearby = nearbyLookup
 
     state, starts = {}, {}
     pollUntil(state, function() return #starts > 0 end)
@@ -496,6 +537,17 @@ do
     result, why, phase = pollUntil(state)
     check(phase == "failed" and result == nil,
         "an entrance that locks after search completion fails live path proof")
+
+    local pollLimit = Places._surveyPollLimit
+    Places._surveyPollLimit = 2
+    state = {}
+    poll(state)
+    poll(state)
+    result, why, phase = poll(state)
+    check(phase == "failed" and why == "shelter_survey_exhausted" and result == nil
+            and state.survey == nil and state.polls == nil,
+        "a shelter survey that cannot answer within its slice limit ends")
+    Places._surveyPollLimit = pollLimit
 
     table.remove(fixture.buildings)
     SC.Navigation, SC.Performance = nav, perf

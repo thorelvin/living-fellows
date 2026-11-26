@@ -313,6 +313,35 @@ do
     end
     joinBlocked = false
 
+    -- The leader starts inside the hazard ring and the proof leads outward.
+    -- A brief off-route step that still moves away keeps the same route.
+    begin("shelter-join-escape")
+    receipt.hazard = { x = -1, y = 0, radius = 1 }
+    receipt.shelterPause.hazard = receipt.hazard
+    local escapeAccepted, escapeStatus = approach()
+    check(escapeAccepted and receipt.used and N.peek(scout).path == path,
+        "a proof that escapes from inside the hazard is admitted: " .. tostring(escapeStatus))
+    scout.x, scout.y = 1.95, 1.02
+    scout.lastMove = nil
+    accepted, status = approach()
+    check(accepted and scout.lastMove and scout.lastMove.nextSquare == threshold
+            and N.peek(scout).path == path and searches == 0,
+        "an outward off-route step inside the hazard rejoins the proved route: " .. tostring(status))
+    N.cancel(scout, "shelter_receipt_fixture")
+
+    -- The step rule shared by the survey, adoption and rejoin.
+    local route, ring = SC.ExpeditionRoute, { x = 0, y = 0, radius = 2 }
+    check(route.escapeStepAllowed(nil, nil, nil, nil, nil, 9, 9)
+            and route.escapeStepAllowed(ring, 6, 0, 5, 0, 5, 1)
+            and route.escapeStepAllowed(ring, 3, 0, 3, 0, 3, 1)
+            and route.escapeStepAllowed(ring, 3, 0, 3, 1, 4, 1),
+        "steps outside the ring, or outward from an origin inside it, are allowed")
+    check(not route.escapeStepAllowed(ring, 3, 0, 3, 0, 1, 0)
+            and not route.escapeStepAllowed(ring, 3, 0, 5, 0, 4, 0)
+            and not route.escapeStepAllowed(ring, 6, 0, 5, 0, 4, 0)
+            and not route.escapeStepAllowed(ring, 3, 0, 3, 0, nil, nil),
+        "moving closer than the origin, re-entering, or entering from outside is refused")
+
     local bend, refuge = square(9, 5), square(10, 6)
     function refuge:getRoom() return room end
     path = { square(8, 4), square(9, 4), bend, square(10, 5), refuge }

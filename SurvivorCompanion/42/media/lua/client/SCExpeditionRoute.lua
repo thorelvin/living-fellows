@@ -612,6 +612,39 @@ function Route.observeReturnClearance(actor, hazard, path, cursor, snapshot)
     return "pending", cursor
 end
 
+-- One step of a route that may begin inside an avoidance circle. A step that
+-- ends outside the circle is always allowed. A route that began outside never
+-- enters it, a route never re-enters after leaving, and a route that began
+-- inside may not move materially closer than its origin. The shelter survey
+-- proves every edge with this rule, so every later check must use it too.
+function Route.escapeStepAllowed(avoidance, originX, originY, fromX, fromY, toX, toY)
+    if avoidance == nil then return true end
+    if toX == nil or toY == nil then return false end
+    local radius = avoidance.radius + 2
+    local gap = distance(toX, toY, avoidance)
+    if gap > radius then return true end
+    if originX == nil or originY == nil or fromX == nil or fromY == nil then return false end
+    local originGap = distance(originX, originY, avoidance)
+    if originGap > radius or distance(fromX, fromY, avoidance) > radius then return false end
+    return gap >= originGap - 1
+end
+
+-- Every edge of a square path under the step rule. The origin is the square
+-- the route was proved from; it defaults to the path's first square.
+function Route.escapeRouteAllowed(avoidance, path, origin)
+    if avoidance == nil then return true end
+    if type(path) ~= "table" or path[1] == nil then return false end
+    local position = SC.GameplayUtil.position
+    local ox, oy = position(origin or path[1])
+    local fx, fy = position(path[1])
+    for index = 2, #path do
+        local tx, ty = position(path[index])
+        if not Route.escapeStepAllowed(avoidance, ox, oy, fx, fy, tx, ty) then return false end
+        fx, fy = tx, ty
+    end
+    return true
+end
+
 function Route.withinCorridor(route, path)
     if type(route) ~= "table" or type(path) ~= "table" then return false end
     local index, points = route.index, route.points

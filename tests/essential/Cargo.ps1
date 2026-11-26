@@ -209,3 +209,30 @@
     (Join-Path $Client 'SCTaxiFares.lua'),
     (Join-Path $Core 'taxi_fare_recovery_fixture.lua'),
     (Join-Path $Essential 'taxi_recovery_harness.lua')) }
+# Storage route yielding and the proved shelter route handed to Navigation.
+@{ Name = 'storage-route-yield-and-shelter-handoff'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCStableValue.lua'),
+    (Join-Path $Shared 'SCTransaction.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Shared 'SCConfig.lua'),
+    (Join-Path $Client 'SCGameplayUtil.lua'),
+    (Join-Path $Client 'SCBaseObjectRef.lua'),
+    (Join-Path $Client 'SCTopology.lua'),
+    (Join-Path $Client 'SCPathSearch.lua'),
+    (Join-Path $Client 'SCNavTraffic.lua'),
+    (Join-Path $Client 'SCNavTraversal.lua'),
+    (Join-Path $Client 'SCActionSupervisor.lua'),
+    (Join-Path $Client 'SCLocomotion.lua'),
+    (Join-Path $Client 'SCPerformance.lua'),
+    (Join-Path $Client 'SCWorkRoutes.lua'),
+    (Join-Path $Client 'SCStairTransition.lua'),
+    (Join-Path $Client 'SCExpeditionRoute.lua'),
+    (Join-Path $Client 'SCNavigation.lua'),
+    (Join-Path $Client 'SCBanter.lua'),
+    (Join-Path $Client 'SCLogistics.lua'),
+    (Join-Path $Client 'SCFloorSort.lua'),
+    (Join-Path $Gameplay 'storage_route_yield_regression_harness.lua')
+) }

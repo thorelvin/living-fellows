@@ -17,8 +17,22 @@
     (Join-Path $Shared 'SCNativeList.lua'),
     (Join-Path $Shared 'SCConfig.lua'),
     (Join-Path $Core 'expedition_places_fixture.lua'),
+    (Join-Path $Client 'SCExpeditionRoute.lua'),
     (Join-Path $Client 'SCExpeditionPlaces.lua'),
     (Join-Path $Core 'expedition_places_harness.lua')
+) }
+# Site surveys, shelter proofs and their bounded retries across a restart.
+@{ Name = 'expedition-restart'; Files = @(
+    (Join-Path $Core 'core_fixture.lua'),
+    (Join-Path $Client 'SCViewSession.lua'),
+    (Join-Path $Client 'SCExpeditionRoute.lua'),
+    (Join-Path $Client 'SCStairTransition.lua'),
+    (Join-Path $Client 'SCExpeditionCar.lua'),
+    (Join-Path $Client 'SCExpeditionTargets.lua'),
+    (Join-Path $Shared 'SCForceEntryState.lua'),
+    (Join-Path $Client 'SCForceEntry.lua'),
+    (Join-Path $Client 'SCExpeditionPrototype.lua'),
+    (Join-Path $Core 'expedition_restart_harness.lua')
 ) }
 
 @{ Name = 'handover-recovery'; Files = @(

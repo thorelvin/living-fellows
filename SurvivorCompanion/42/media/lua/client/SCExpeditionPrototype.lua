@@ -5738,7 +5738,7 @@ function Expedition.rejectStalledReturnReceipt(actor, receipt, why)
     local state = scout.stalledReturnRecovery
     local now = SC.GameplayUtil.nowMs()
     if receipt.shelterPause then
-        Expedition._failRecoveryShelter(scout, receipt.shelterPause, now, why or "shelter_route_unavailable")
+        Expedition._retryRecoveryShelter(scout, receipt.shelterPause, now, why or "shelter_route_unavailable")
         return
     end
     if receipt.hordePause then
@@ -5895,7 +5895,8 @@ end
 function Expedition._failRecoveryShelter(scout, pause, now, reason)
     local leader = mission.leader.actor
     local recovery = pause.shelterAttempt
-    pause.shelterSurvey = nil
+    pause.shelterSurvey, pause.shelterRetries, pause.shelterRetryAt = nil, nil, nil
+    Expedition._dropShelterProof(scout, pause)
     if not Expedition._isWalkingRoadPause(scout, pause) or not recovery then
         Expedition._clearRoadWaypoint(leader, "expedition_shelter_unreachable")
         pause.shelterTarget = nil
@@ -5917,6 +5918,40 @@ function Expedition._failRecoveryShelter(scout, pause, now, reason)
             "action=" .. pause.mode .. " reason=" .. reason
                 .. " attempts=" .. tostring(recovery.attempts))
     end
+end
+
+function Expedition._dropShelterProof(scout, pause)
+    local proof = scout.stalledReturnReceipt
+    if proof and proof.shelterPause == pause then scout.stalledReturnReceipt = nil end
+end
+
+-- A refused hand-off is not proof that the house is unreachable: the proof
+-- can age during a fight, a shove can leave the leader off the route, or a
+-- waypoint can be refused while a follower stands up. Survey again from where
+-- the leader stands, after a short wait, at most this many times per house.
+Expedition._shelterRetryLimit = 3
+function Expedition._retryRecoveryShelter(scout, pause, now, reason)
+    local retries = (tonumber(pause.shelterRetries) or 0) + 1
+    if retries > Expedition._shelterRetryLimit then
+        Expedition._failRecoveryShelter(scout, pause, now, reason)
+        return false
+    end
+    local leader = mission.leader.actor
+    local recovery = pause.shelterAttempt
+    -- Staging counted this house as an attempt; staging it again counts again.
+    if recovery and pause.shelterTarget then recovery.attempts = math.max(0, recovery.attempts - 1) end
+    Expedition._clearRoadWaypoint(leader, "expedition_shelter_reverify")
+    Expedition._dropShelterProof(scout, pause)
+    pause.shelterTarget, pause.shelterSurvey = nil, nil
+    pause.shelterRetries, pause.shelterRetryAt = retries, now + 1000
+    if recovery then
+        recovery.nextAt, recovery.bestDistance, recovery.lastProgressAt = now + 1000, nil, nil
+    end
+    if SC.GameplayUtil.diagnostic then
+        SC.GameplayUtil.diagnostic("expedition-shelter-retry", leader,
+            "reason=" .. tostring(reason) .. " retry=" .. retries)
+    end
+    return true
 end
 
 function Expedition._pollRecoveryShelter(pause, leader, excluded)
@@ -5972,9 +6007,12 @@ function Expedition._seekRecoveryShelter(scout, pause, now)
             Expedition._failRecoveryShelter(scout, pause, now, reason or "shelter_unavailable")
             return false
         end
-        if not Expedition._stageRecoveryShelter(scout, pause, leader, shelter, now) then return false end
-        recovery.attempts = recovery.attempts + 1
         recovery.buildingId = shelter.buildingId
+        if not Expedition._stageRecoveryShelter(scout, pause, leader, shelter, now) then
+            Expedition._retryRecoveryShelter(scout, pause, now, "shelter_stage_failed")
+            return false
+        end
+        recovery.attempts = recovery.attempts + 1
         if SC.GameplayUtil.diagnostic then
             SC.GameplayUtil.diagnostic("expedition-shelter-target", leader,
                 "action=seek_shelter target=" .. shelter.x .. ":" .. shelter.y .. ":" .. shelter.z
@@ -6318,9 +6356,13 @@ local function nextWoodSite(scout)
     return false
 end
 
-function Expedition._releaseSiteApproachSurvey(scout, now)
+function Expedition._releaseSiteApproachSurvey(scout, now, exhausted)
     local pendingAt = scout.siteApproachPendingAt
-    if pendingAt and scout.siteApproachFailureAt then
+    if pendingAt and exhausted then
+        -- A survey that used all its slices without an answer is failure
+        -- time. Otherwise a leader who never stands still never gives up.
+        scout.siteApproachFailureAt = math.min(scout.siteApproachFailureAt or pendingAt, pendingAt)
+    elseif pendingAt and scout.siteApproachFailureAt then
         -- Time spent checking a live route does not count as confirmed failure.
         scout.siteApproachFailureAt = scout.siteApproachFailureAt + math.max(0, now - pendingAt)
     end
@@ -6348,7 +6390,7 @@ function Expedition._pulseSiteApproach(scout, actor, now)
         else
             reason = "place_approach_unavailable"
         end
-        Expedition._releaseSiteApproachSurvey(scout, now)
+        Expedition._releaseSiteApproachSurvey(scout, now, reason == "approach_survey_exhausted")
         scout.nextSiteCheckAt = now + 3000
         if approach then
             scout.destination = { x = approach.x, y = approach.y, z = approach.z }
@@ -6539,6 +6581,7 @@ local function pulseScout()
             if not Expedition._seekRecoveryShelter(scout, pause, now) then return end
         elseif pause.mode == "seeking_shelter" then
             if pause.shelterTarget == nil then
+                if now < (pause.shelterRetryAt or 0) then return end
                 local shelter, _, status = Expedition._pollRecoveryShelter(pause, mission.leader.actor)
                 if status == "pending" then return end
                 if shelter == nil then
@@ -6550,7 +6593,10 @@ local function pulseScout()
                     end
                     return
                 end
-                if not Expedition._stageRecoveryShelter(scout, pause, mission.leader.actor, shelter, now) then return end
+                if not Expedition._stageRecoveryShelter(scout, pause, mission.leader.actor, shelter, now) then
+                    Expedition._retryRecoveryShelter(scout, pause, now, "shelter_stage_failed")
+                    return
+                end
                 if type(SC.GameplayUtil.diagnostic) == "function" then
                     SC.GameplayUtil.diagnostic("expedition-road",
                         mission.leader.actor,

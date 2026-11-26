@@ -7001,8 +7001,8 @@ function Navigation._adoptStalledReturnRoute(actor, state, source, goal, intent,
     if shelter then
         local room = U().call(goal, "getRoom")
         if room == nil or not U().isSquareFree(goal) then return false, "shelter_destination_changed" end
-        if receipt.hazard and not route.withinCorridor({ points = {}, index = 1,
-            avoidance = receipt.hazard, allowEscapeFromAvoidance = true }, receipt.path) then
+        -- The survey proved each edge with this step rule; check the same rule.
+        if not route.escapeRouteAllowed(receipt.hazard, receipt.path) then
             return false, "shelter_route_crosses_hazard"
         end
     else
@@ -8204,13 +8204,18 @@ function Navigation.request(actor, target, movementMode, intent)
             end
             if sourceSquare ~= state.path[state.pathIndex - 1] then
                 -- A diagonal walk can briefly touch the neighboring tile.
-                -- Rejoin only over open ground outside the hazard.
+                -- Rejoin only over open ground, under the step rule the route
+                -- was proved with: a leader escaping from inside the hazard
+                -- may rejoin while still inside it, never moving back in.
                 local _, edge = barrierBetween(sourceSquare, nextSquare)
                 if edge ~= "open" and edge ~= "diagonal" then return false, "shelter_route_changed" end
                 local path = { sourceSquare, nextSquare }
-                local hazard = returnReceipt.hazard
-                if hazard and not SC.ExpeditionRoute.withinCorridor({ points = {}, index = 1,
-                    avoidance = hazard }, path) then return false, "shelter_route_crosses_hazard" end
+                -- Judge the drift off the route as well as the step back.
+                if not SC.ExpeditionRoute.escapeRouteAllowed(returnReceipt.hazard,
+                    { state.path[state.pathIndex - 1] or sourceSquare, sourceSquare, nextSquare },
+                    state.path[1]) then
+                    return false, "shelter_route_crosses_hazard"
+                end
                 local valid, reason = SC.WorkRoutes.validateReceiptPath(path, sourceSquare, nextSquare, {
                     actor = actor, blockedEdges = state.blockedEdges, blockedSquares = state.blockedSquares,
                     routeMemory = state.routeMemory, now = now, allowHazards = false, vegetationScale = 1,

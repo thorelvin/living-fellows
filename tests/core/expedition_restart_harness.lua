@@ -1323,6 +1323,36 @@ do
     places.pollLoadedSiteApproach, siteArrivalReady = oldPoll, oldReady
 end
 do
+    local places = SC.ExpeditionPlaces
+    local oldPoll, oldReady = places.pollLoadedSiteApproach, siteArrivalReady
+    local mode, polls = "pending", 0
+    places.pollLoadedSiteApproach = function()
+        polls = polls + 1
+        if mode == "pending" then return nil, "approach_search_pending", "pending" end
+        return nil, "approach_survey_exhausted", "failed"
+    end
+    siteArrivalReady = false
+    reserve.x, reserve.y = 23, 20
+    local started, active = expedition.startAtPlace(
+        { { id = "delta", actor = reserve } }, place.id, "scout",
+        { turnHomeAfterHours = 1 })
+    check(started, "the exhausted site survey fixture starts")
+    reserve.x, reserve.y = 78, 20
+    expedition.pulse()
+    check(polls == 1 and active.scout.siteApproachPendingAt ~= nil
+            and active.scout.siteApproachFailureAt == nil,
+        "the scout starts a site survey that has not answered yet")
+    mode = "exhausted"
+    scoutClock = scoutClock + 31000
+    expedition.pulse()
+    check(polls == 2 and active.scout.phase == "inbound"
+            and active.scout.endReason == "site_unreachable",
+        "a survey that used its whole slice budget is failure time, so the scout turns home")
+    reserve.x, reserve.y = 23, 20
+    check(expedition.finishAtPlayer(player), "the exhausted site approach can finish at camp")
+    places.pollLoadedSiteApproach, siteArrivalReady = oldPoll, oldReady
+end
+do
 local formerFishing = SC.Fishing
 local fishingReady = false
 local gearAttempts, gearCancels = 0, 0
@@ -2083,9 +2113,10 @@ do
     local survey, polls, roadPlans, routeReady = nil, 0, 0, false
     local destination = squareFor(126, 20)
     local route = { reserve:getCurrentSquare(), squareFor(125, 21), squareFor(126, 21), destination }
-    local alternate = false
+    local alternate, alternatePolls = false, 0
     places.pollNearestLoadedShelter = function(leader, hazard, excluded, state)
         if alternate then
+            alternatePolls = alternatePolls + 1
             check(excluded["verified-house"] and excluded["126:20:0"] and state ~= survey,
                 "the stalled proved shelter starts a fresh survey with its building and tile excluded")
             return { x = 127, y = 20, z = 0, buildingId = "alternate-house",
@@ -2167,6 +2198,57 @@ do
     expedition.pulse()
     check(pause.shelterTarget and pause.shelterTarget.x == 127 and attempt.attempts == 2,
         "the next proved shelter is staged after the stalled attempt")
+
+    -- A refused hand-off re-surveys from where the leader stands. Three
+    -- refusals per house are retried before one counts against the house.
+    local alternateDestination = squareFor(127, 20)
+    local function alternateProof()
+        return expedition.stalledReturnReceiptFor(reserve, alternateDestination)
+    end
+    check(alternateProof() and alternateProof().shelterPause == pause,
+        "the alternate shelter owns a fresh proof")
+    expedition.rejectStalledReturnReceipt(reserve, alternateProof(), "return_entry_proof_lost")
+    check(pause.mode == "seeking_shelter" and pause.shelterTarget == nil and attempt.attempts == 1
+            and not attempt.excluded["alternate-house"] and pause.shelterRetries == 1
+            and expedition.testWaypointFor(reserve) == nil and alternateProof() == nil,
+        "a refused shelter proof is surveyed again instead of excluding the house")
+    local surveysBefore = alternatePolls
+    scoutClock = scoutClock + 500
+    expedition.pulse()
+    check(alternatePolls == surveysBefore and pause.shelterTarget == nil,
+        "the re-survey waits a moment after a refusal")
+    local formerDowntime = SC.Downtime
+    SC.Downtime = {
+        peek = function() return { active = true } end,
+        cancel = function() return false, "fixture_busy" end,
+    }
+    scoutClock = scoutClock + 600
+    expedition.pulse()
+    SC.Downtime = formerDowntime
+    check(alternatePolls == surveysBefore + 1 and pause.shelterTarget == nil
+            and attempt.attempts == 1 and pause.shelterRetries == 2
+            and not attempt.excluded["alternate-house"],
+        "a refused shelter waypoint is retried after a pause instead of every frame")
+    scoutClock = scoutClock + 500
+    expedition.pulse()
+    check(alternatePolls == surveysBefore + 1 and pause.shelterTarget == nil,
+        "a refused waypoint also waits before the next survey")
+    scoutClock = scoutClock + 600
+    expedition.pulse()
+    check(pause.shelterTarget and pause.shelterTarget.x == 127 and attempt.attempts == 2
+            and alternateProof(),
+        "the re-surveyed house is staged again")
+    expedition.rejectStalledReturnReceipt(reserve, alternateProof(), "shelter_route_changed")
+    check(pause.shelterRetries == 3 and attempt.attempts == 1 and pause.mode == "seeking_shelter",
+        "a third refusal is still retried")
+    scoutClock = scoutClock + 1001
+    expedition.pulse()
+    check(pause.shelterTarget and alternateProof(), "the house is staged for its last retry")
+    expedition.rejectStalledReturnReceipt(reserve, alternateProof(), "shelter_route_changed")
+    check(pause.mode == "holding" and attempt.excluded["alternate-house"]
+            and attempt.excluded["127:20:0"] and pause.shelterRetries == nil
+            and expedition.testWaypointFor(reserve) == nil,
+        "after three retries the refusal counts against the house")
     SC.Navigation.peek = previousPeek
     places.pollNearestLoadedShelter, SC.ExpeditionRoute.plan = previousPoll, previousPlan
 end
@@ -2278,6 +2360,34 @@ local recoveryProbeSave = (function()
     check(not expedition._seekRecoveryShelter(scout, pause, scoutClock)
             and pause.mode == "holding" and knownShelters == 2,
         "the squad holds after two stalled shelter attempts")
+    -- Outside a walking return there is no house list to exclude from, so a
+    -- refusal is surveyed again after a wait, and the fourth one holds.
+    local places, formerPoll = SC.ExpeditionPlaces, SC.ExpeditionPlaces.pollNearestLoadedShelter
+    local loosePolls = 0
+    places.pollNearestLoadedShelter = function()
+        loosePolls = loosePolls + 1
+        return nil, "shelter_search_pending", "pending"
+    end
+    local loose = { mode = "seeking_shelter", reason = "fixture_blocked", reported = true,
+        hazard = { x = 120, y = 20, radius = 2 }, shelterTarget = { x = 150, y = 20, z = 0 } }
+    scout.pause = loose
+    check(expedition._retryRecoveryShelter(scout, loose, scoutClock, "fixture_refused")
+            and loose.mode == "seeking_shelter" and loose.shelterTarget == nil
+            and loose.shelterRetryAt == scoutClock + 1000,
+        "a refused shelter outside a walking return is surveyed again")
+    expedition.pulse()
+    check(loosePolls == 0, "the re-survey waits for its retry time")
+    scoutClock = scoutClock + 1001
+    expedition.pulse()
+    check(loosePolls == 1 and loose.mode == "seeking_shelter",
+        "the shelter is surveyed again after the wait")
+    expedition._retryRecoveryShelter(scout, loose, scoutClock, "fixture_refused")
+    expedition._retryRecoveryShelter(scout, loose, scoutClock, "fixture_refused")
+    check(not expedition._retryRecoveryShelter(scout, loose, scoutClock, "fixture_refused")
+            and loose.mode == "holding" and loose.shelterRetries == nil,
+        "the fourth refusal outside a walking return holds the squad")
+    scout.pause = pause
+    places.pollNearestLoadedShelter = formerPoll
     local held = expedition.sendRadioOrder(player, "expedition_decision", "hold_position")
     check(held and pause.playerHold and expedition.export().scout.pause.playerHold,
         "only exact radio Hold sets the durable operator hold")

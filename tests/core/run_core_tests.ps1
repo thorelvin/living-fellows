@@ -465,6 +465,7 @@ try {
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $TestRoot 'expedition_places_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionRoute.lua'),
             (Join-Path $Client 'SCExpeditionPlaces.lua'),
             (Join-Path $TestRoot 'expedition_places_harness.lua')
         )

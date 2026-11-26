@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.27.92 - Shelter and site survey recovery
+
+- Let a leader escaping from inside a horde's danger zone rejoin its checked shelter route after a brief stumble, while still refusing any step back toward the horde.
+- Check the shelter route with the same step rule in the survey, when movement takes it over, and on every rejoin.
+- Survey again from where the leader stands when a checked shelter route or waypoint is refused, up to three times per house, instead of ruling the house out at once. Crews outside a walking return also retry before they hold.
+- Keep discovered site entrances and shelter houses when the leader takes a few steps, and restart only the route check from where the leader now stands.
+- End site and shelter surveys that cannot answer within about a minute of work. A site survey that runs out counts toward the thirty-second give-up timer.
+- Run the expedition restart and shelter route hand-off harnesses in the release checks, and repair the expedition map test runner.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.91 - Emergency shelter search
 
 - Spread blocked-return shelter surveys across frames so nearby residences get turns on the shared planner.

@@ -7,6 +7,12 @@ SC.ExpeditionPlaces = SC.ExpeditionPlaces or {}
 local Places = SC.ExpeditionPlaces
 local NativeList = SC.NativeList
 
+-- Resumable site and shelter surveys: at most this many slices per survey
+-- (one per frame, about a minute at 60 fps), and a leader may move this many
+-- tiles from where a survey began before its discovered candidates are redone.
+Places._surveyPollLimit = 3600
+Places._surveyMoveRadius = 8
+
 local function call(object, method, ...)
     if object == nil or SC.Call == nil then return nil, false end
     local called, value = SC.Call.method(object, method, ...)
@@ -606,6 +612,8 @@ local function startApproachSurvey(survey, place, bounds)
     survey.boundaryIndex, survey.candidateIndex = 0, 1
     survey.verticalCount = (bounds.y2 - bounds.y + 1) * 2
     survey.boundaryCount = survey.verticalCount + (bounds.x2 - bounds.x + 1) * 2
+    survey.originX, survey.originY = survey.sourceX, survey.sourceY
+    survey.originZ = call(survey.source, "getZ")
     return survey
 end
 
@@ -721,6 +729,28 @@ local function sameApproachInputs(survey, siteId, current)
         and survey.grid == current.grid and survey.cell == current.cell
 end
 
+-- A slice can cover only a few tiles of walking, so a survey that restarted on
+-- every step never finished for a moving leader. Discovered candidates do not
+-- depend on the leader's square. Keep them across a short move on the same
+-- floor and room, and start only the square-specific search and proof again.
+local function moveSurveySource(survey, current)
+    local dx, dy = current.sourceX - survey.originX, current.sourceY - survey.originY
+    if survey.actor ~= current.actor or survey.sourceRoom ~= current.sourceRoom
+        or survey.grid ~= current.grid or survey.cell ~= current.cell
+        or dx * dx + dy * dy > Places._surveyMoveRadius ^ 2
+        or call(current.source, "getZ") ~= survey.originZ then return false end
+    survey.source, survey.sourceX, survey.sourceY = current.source, current.sourceX, current.sourceY
+    survey.proof = nil
+    return true
+end
+
+-- Each survey answers within a bounded number of slices, even when the leader
+-- keeps moving or the shared quota stays empty. The caller owns `state`.
+local function surveyExhausted(state)
+    state.polls = (tonumber(state.polls) or 0) + 1
+    return state.polls > Places._surveyPollLimit
+end
+
 local function candidateStillValid(survey, candidate)
     return outdoorCandidateSquare(survey.grid, survey.cell, survey.place,
         candidate.x, candidate.y, candidate.side) == candidate.square
@@ -821,12 +851,16 @@ function Places.pollLoadedSiteApproach(siteId, actor, state)
     if not nav or type(nav.beginPathSearch) ~= "function" or type(nav.resumePathSearch) ~= "function"
         or type(nav._adjacentStepForWorkRoutes) ~= "function"
         or type(nav._passableEdgeForWorkRoutes) ~= "function" then
-        state.survey = nil
+        state.survey, state.polls = nil, nil
         return nil, "approach_world_unavailable", "failed"
     end
     local frame = perf and type(perf.frameId) == "function" and perf.frameId() or nil
     if frame ~= nil and state.lastFrame == frame then return nil, "approach_frame_pending", "pending" end
     state.lastFrame = frame
+    if surveyExhausted(state) then
+        state.survey, state.polls = nil, nil
+        return nil, "approach_survey_exhausted", "failed"
+    end
     local clock = perf and perf.preciseNowMs
     local began = type(clock) == "function" and clock() or nil
     local function expired()
@@ -834,19 +868,24 @@ function Places.pollLoadedSiteApproach(siteId, actor, state)
     end
     local current, reason = readApproachInputs(actor)
     if current == nil or not currentApproachSquare(current.cell, current.source) then
-        state.survey = nil
+        state.survey, state.polls = nil, nil
         return nil, reason or "approach_source_unavailable", "failed"
     end
-    if not sameApproachInputs(state.survey, siteId, current) then
-        local place = savedSite(siteId)
-        if not place then
-            state.survey = nil
-            return nil, "invalid_place_reference", "failed"
+    local survey = state.survey
+    if not sameApproachInputs(survey, siteId, current) then
+        if survey and survey.place.id == siteId and moveSurveySource(survey, current) then
+            survey.job = nil
+        else
+            local place = savedSite(siteId)
+            if not place then
+                state.survey, state.polls = nil, nil
+                return nil, "invalid_place_reference", "failed"
+            end
+            state.survey = startApproachSurvey(current, place, place.bounds)
         end
-        state.survey = startApproachSurvey(current, place, place.bounds)
     end
     local approach, why, status, units = pollApproachSurvey(state.survey, nav, perf, expired)
-    if status ~= "pending" then state.survey = nil end
+    if status ~= "pending" then state.survey, state.polls = nil, nil end
     if began ~= nil and type(perf.record) == "function" then
         perf.record("expedition.site-approach", nil, clock() - began, units or 0, status == "pending")
     end
@@ -922,8 +961,11 @@ local function sameShelterExclusions(snapshot, excluded)
     return true
 end
 
-local function sameShelterSurvey(survey, current, hazard, excluded)
-    if not survey or survey.actor ~= current.actor or survey.source ~= current.source
+-- Keeps a survey for the same leader, hazard and exclusions. After a short
+-- move the discovered houses and indoor candidates stay; every path search
+-- and proof belongs to the old square and starts again from the new one.
+local function resumeShelterSurvey(survey, current, hazard, excluded)
+    if not survey or survey.actor ~= current.actor
         or survey.sourceRoom ~= current.sourceRoom or survey.cell ~= current.cell
         or survey.grid ~= current.grid then return false end
     local marker = survey.hazard
@@ -931,7 +973,11 @@ local function sameShelterSurvey(survey, current, hazard, excluded)
         if not marker or not hazard or marker.x ~= hazard.x or marker.y ~= hazard.y
             or marker.radius ~= hazard.radius then return false end
     end
-    return sameShelterExclusions(survey.excluded, excluded)
+    if not sameShelterExclusions(survey.excluded, excluded) then return false end
+    if survey.source == current.source then return true end
+    if not moveSurveySource(survey, current) then return false end
+    for _, house in ipairs(survey.houses) do house.job = nil end
+    return true
 end
 
 local function shelterOutsideHazard(hazard, x, y, clearance)
@@ -975,6 +1021,8 @@ local function beginShelterSurvey(current, hazard, excluded)
     end
     if #current.houses == 0 then return nil, "shelter_no_loaded_path" end
     current.discoveryIndex, current.searchIndex, current.discoveryTurn = 1, 1, true
+    current.originX, current.originY = current.sourceX, current.sourceY
+    current.originZ = call(current.source, "getZ")
     return current
 end
 
@@ -1010,14 +1058,10 @@ end
 local function shelterCorridorEdge(survey, previous, square)
     local hazard = survey.hazard
     if not hazard then return true end
+    -- Navigation re-checks the adopted route and any rejoin with this rule.
     local x, y = SC.GameplayUtil.position(square)
-    if x == nil or y == nil then return false end
-    if shelterOutsideHazard(hazard, x, y, 2) then return true end
-    if shelterOutsideHazard(hazard, survey.sourceX, survey.sourceY, 2) then return false end
     local px, py = SC.GameplayUtil.position(previous)
-    if px == nil or py == nil or shelterOutsideHazard(hazard, px, py, 2) then return false end
-    local originDistance = math.sqrt((survey.sourceX - hazard.x)^2 + (survey.sourceY - hazard.y)^2)
-    return math.sqrt((x - hazard.x)^2 + (y - hazard.y)^2) >= originDistance - 1
+    return SC.ExpeditionRoute.escapeStepAllowed(hazard, survey.sourceX, survey.sourceY, px, py, x, y)
 end
 
 local function shelterResult(house, candidate, path)
@@ -1131,12 +1175,14 @@ function Places.pollNearestLoadedShelter(actor, hazard, excluded, state)
     if not nav or type(nav.beginPathSearch) ~= "function" or type(nav.resumePathSearch) ~= "function"
         or type(nav._adjacentStepForWorkRoutes) ~= "function"
         or type(nav._passableEdgeForWorkRoutes) ~= "function"
+        or type(SC.ExpeditionRoute) ~= "table"
+        or type(SC.ExpeditionRoute.escapeStepAllowed) ~= "function"
         or (hazard ~= nil and (type(hazard) ~= "table" or type(hazard.x) ~= "number"
             or type(hazard.y) ~= "number" or type(hazard.radius) ~= "number"
             or hazard.x ~= hazard.x or hazard.y ~= hazard.y or hazard.radius ~= hazard.radius
             or hazard.x < 0 or hazard.x > 30000 or hazard.y < 0 or hazard.y > 30000
             or hazard.radius < 0 or hazard.radius > 32)) then
-        state.survey = nil
+        state.survey, state.polls = nil, nil
         return nil, "shelter_area_unavailable", "failed"
     end
     local frame = perf and type(perf.frameId) == "function" and perf.frameId() or nil
@@ -1147,16 +1193,18 @@ function Places.pollNearestLoadedShelter(actor, hazard, excluded, state)
     local function expired() return began ~= nil and clock() - began >= 1 end
     local current = readApproachInputs(actor)
     local shelter, reason, status, units
-    if not current or not currentApproachSquare(current.cell, current.source) then
+    if surveyExhausted(state) then
+        reason, status = "shelter_survey_exhausted", "failed"
+    elseif not current or not currentApproachSquare(current.cell, current.source) then
         reason, status = "shelter_area_unavailable", "failed"
-    elseif sameShelterSurvey(state.survey, current, hazard, excluded) then
+    elseif resumeShelterSurvey(state.survey, current, hazard, excluded) then
         shelter, reason, status, units = pollShelterSurvey(state.survey, nav, perf, expired)
     else
         state.survey, reason = beginShelterSurvey(current, hazard, excluded)
         status = state.survey and "pending" or "failed"
         if state.survey then reason = "shelter_discovery_pending" end
     end
-    if status ~= "pending" then state.survey = nil end
+    if status ~= "pending" then state.survey, state.polls = nil, nil end
     if began ~= nil and type(perf.record) == "function" then
         perf.record("expedition.shelter-survey", nil, clock() - began, units or 0, status == "pending")
     end
