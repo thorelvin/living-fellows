@@ -835,6 +835,7 @@ local doingLabels = {
     guard_combat_step = "making room to swing",
     hand_signal = "signaling the team",
     hide_indoors = "staying out of sight",
+    handover_shelter = "heading for shelter",
     idle = "keeping watch",
     investigate_sound = "checking a noise",
     missing_tool = "asking for a tool",

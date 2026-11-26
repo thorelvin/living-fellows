@@ -909,12 +909,9 @@ def main() -> int:
             + "; ".join(falsy_middle[:5]))
 
     # A door already recorded as locked must not be handed back to the engine
-    # pathfinder, which does not consult the blacklist the Lua planner uses.
-    require('local knownLockedRoom = SC.Navigation.behindLockedDoor(actor, goalSquare, now)'
-            in sources["SCNavigation.lua"]
-            and 'return false, "path_blocked:door_locked"' in sources["SCNavigation.lua"]
-            and 'local allowNative = not knownLockedRoom' in sources["SCNavigation.lua"],
-            "the native fallback no longer routes into a known locked room")
+    # pathfinder. That is behaviour, so navigation_liveness_harness checks it
+    # in the release gate ("a known locked room still refuses native
+    # pathing"); a source pin here failed on rewording while the guard held.
 
     # A zombie chewing on somebody is not "already handled" because the person
     # it is chewing on has claimed it. Ownership must never block urgent defence.
@@ -1082,7 +1079,10 @@ def main() -> int:
 
     require(sources["SCSenses.lua"].count("SC.StairCombat.incoming(actor, state, now)") == 2
             and "SC.StairCombat.observe(actor" in sources["SCCombat.lua"]
-            and "SC.StairCombat.recovery(actor" in sources["SCCombat.lua"]
+            # Combat reaches the landing recovery through resetGoal, which
+            # opens it (Stair.recovery) and picks the guard-line goal.
+            and "SC.StairCombat.resetGoal(actor" in sources["SCCombat.lua"]
+            and "local recovery = Stair.recovery(actor" in (CLIENT / "SCStairCombat.lua").read_text(encoding="utf-8")
             and "SC.Combat.forecastStairs(actor" in sources["SCDecision.lua"]
             and "function Post.stairInset" in guard_post
             and "SC.GuardPost.combatView(actor, player, state.guardPost, snapshot)" in sources["SCCombat.lua"],

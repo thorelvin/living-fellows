@@ -34,6 +34,8 @@ U.text = function(_, fallback) return fallback end
 U.say = function() return true end
 U.isALifeNpc = function() return false end
 U.isALifeHostileToParty = function() return false end
+-- Factions.allegianceFacts asks first whether either side is a Stay With Me NPC.
+U.isStayWithMeNpc = function() return false end
 SC.Allegiance = { isHostile = function() return false end }
 SC.Registry.byId = function(id) return id == actor.id and record or nil end
 SC.Registry.isValidId = function(id) return type(id) == "string" and #id > 1 end

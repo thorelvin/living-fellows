@@ -2777,22 +2777,6 @@ local pools = {
         caring = { "I am trying not to take this out on anyone.", "I can't keep carrying everyone else's fear too." },
         practical = { "That run was a mess. We need to learn from it.", "We are wasting energy making the same mistakes." },
     },
-    ["stress.argument.open"] = { common = {
-        "We need to talk about the last run. You took a risk with all of us.",
-        "You left the exit exposed back there. I am not letting that slide.",
-        "That run nearly got us killed, and everyone is acting like it was nothing.",
-        "Someone needs to say it: that plan fell apart the moment we went inside.",
-        "I followed your call back there. I need to know you understand what it cost us.",
-        "We survived, but that does not make the choices we made good ones.",
-    } },
-    ["stress.argument.reply"] = { common = {
-        "I was there too. You don't get to put all of that on me.",
-        "We made the best call we had. Shouting will not change it.",
-        "Back off. I am not your punching bag.",
-        "You think I don't replay it in my head? I did what I could.",
-        "Say what you need to say, but do not pretend you had every answer.",
-        "We can fix the plan. We cannot fix this by tearing into each other.",
-    } },
     ["stress.withdraw"] = { common = {
         "I need to be alone for a while.", "Do not follow me. I need some quiet.",
         "I can't do another argument right now.", "Give me a little space to clear my head.",

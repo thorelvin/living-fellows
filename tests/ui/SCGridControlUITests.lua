@@ -82,8 +82,14 @@ local services=w:menuOptions()
 check(#services==5 and services[4].label=="Computer upgrades",
     "outside fitted radio and grid fit within five shortcuts without an expedition entry")
 w.menuPage="home_services_more"
-check(#w:menuOptions()==2 and w:menuOptions()[1].label=="Computer upgrades",
-    "outside overflow offers upgrades and back without an expedition station")
+-- Since 0.27.49 the overflow page carries every non-device service, starting
+-- with Building services, because Power Night can push it off the first page.
+local more=w:menuOptions()
+local labels={}
+for _,option in ipairs(more) do labels[option.label]=true end
+check(more[1].label=="Building services" and labels["Computer upgrades"]
+        and more[#more].label=="Back to services" and not labels["Expedition station"],
+    "outside overflow offers the services and upgrades, then back, without an expedition station")
 SC.TerminalRadioUI=oldRadioUI
 w:close()
 player.x,player.y=11000.5,10000.5
@@ -101,8 +107,12 @@ services=w:menuOptions()
 check(#services==5 and services[4].label=="More services",
     "camp fitted radio and grid keep local services within five shortcuts")
 w.menuPage="home_services_more"
-check(#w:menuOptions()==3 and w:menuOptions()[2].label=="Expedition station",
-    "camp overflow retains upgrades and expedition station")
+more=w:menuOptions()
+labels={}
+for _,option in ipairs(more) do labels[option.label]=true end
+check(more[1].label=="Building services" and labels["Computer upgrades"]
+        and labels["Expedition station"] and more[#more].label=="Back to services",
+    "camp overflow retains services, upgrades and the expedition station")
 SC.BaseLife.active,SC.TerminalRadioUI=oldActive,oldRadioUI
 w.menuPage=nil
 UI.open(w) w.gridPage="sites" UI.update(w,T.now+2000)
