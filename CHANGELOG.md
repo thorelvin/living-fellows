@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.93 - Taxi turnaround and gun shop siege
+
+- Let a car that ends a cramped turnaround facing along its road but beside it, nose to a kerb corner, turn in a few slow moves to face its lane and drive on. Markus's radio fare no longer turns a short ride into a long loop round the block.
+- Retry the same road once when a car is blocked right where its trip starts, instead of steering the whole route away from its own position.
+- Have Bob cover his open shop door from a few steps back when the dead come at it, so he sees them and fights instead of waiting behind the counter while they stand outside.
+- Run the gun shop encounter harness in the release checks, and repair five live probes that had fallen behind the game and the mod.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.92 - Shelter and site survey recovery
 
 - Let a leader escaping from inside a horde's danger zone rejoin its checked shelter route after a brief stumble, while still refusing any step back toward the horde.
