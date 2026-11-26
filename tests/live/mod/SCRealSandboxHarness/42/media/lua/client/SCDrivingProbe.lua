@@ -2239,8 +2239,11 @@ local function teamStep(H, SC, current, check, result, setPhase, test)
         test.returnRequested = true
     end
     if trip and state == "home_wait" then
+        -- Production verified the bay, exit room included, before anyone got
+        -- out. Once the crew stands on those exit tiles, re-testing them only
+        -- measures the crew's own feet: check the stopped car is in the area.
         local parked, reason = SC.ExpeditionCar.fitsParking(
-            car, test.parking, trip.seats)
+            car, test.parking, {})
         local allOnFoot = true
         for _, member in ipairs(test.team) do
             local seated = SC.Vehicle.isNativeSeated(member.actor)

@@ -1048,27 +1048,15 @@ function Probe.step(H, current, check, result, setPhase)
                 -- native pose is settled. Production scans 35–90 tiles away.
                 local waiting = waitingSquare(SC, site, 35, 42)
                     or waitingSquare(SC, site)
-                local distance = waiting and U.distance(waiting, bedSquare)
-                local unseen = waiting and move(H.player, waiting)
-                    and call(U.squareOf(H.player), "getRoom") == nil
-                    and call(bedSquare, "isCanSee", 0) ~= true
-                    and U.canSee(H.player, bedSquare) ~= true
-                if not check("arthur_normal_arrival_unseen",
-                    unseen == true,
-                    "player_to_bed=" .. tostring(distance)
-                        .. " room=" .. roomName(U.squareOf(H.player))) then
+                -- teleportTo moves the player on the next update on 42.22;
+                -- the square read in this frame is still the old room.
+                if not check("arthur_waiting_square_reached_by_move",
+                    waiting ~= nil and move(H.player, waiting),
+                    "waiting=" .. tostring(waiting ~= nil)) then
                     setPhase("finish", current) return
                 end
-                H.encounterNormalArrival = true
-                local group, reason = SC.Factions.createOddballGroup(site,
-                    SC.Oddballs.definition(definition.id), true)
-                if not check("arthur_group_created", group ~= nil,
-                    tostring(reason)) then
-                    setPhase("finish", current) return
-                end
-                H.encounterGroup = group
-                H.encounterCreatedAt = current
-                setPhase("encounter_spawn", current)
+                H.encounterWaitingSquare = waiting
+                setPhase("encounter_arthur_waiting", current)
                 return
             end
             if H.config.oddball_arthur_head_side_trial == "true" then
@@ -1171,6 +1159,33 @@ function Probe.step(H, current, check, result, setPhase)
         return
     end
 
+    if H.phase == "encounter_arthur_waiting" then
+        local waiting, bedSquare = H.encounterWaitingSquare, H.encounterObserveBedSquare
+        local at = U.squareOf(H.player)
+        if at ~= waiting and current - H.phaseStartedAt < 3000 then return end
+        local unseen = at == waiting
+            and call(at, "getRoom") == nil
+            and call(bedSquare, "isCanSee", 0) ~= true
+            and U.canSee(H.player, bedSquare) ~= true
+        if not check("arthur_normal_arrival_unseen",
+            unseen == true,
+            "player_to_bed=" .. tostring(U.distance(waiting, bedSquare))
+                .. " arrived=" .. tostring(at == waiting)
+                .. " room=" .. roomName(at)) then
+            setPhase("finish", current) return
+        end
+        H.encounterNormalArrival = true
+        local group, reason = SC.Factions.createOddballGroup(H.encounterSite,
+            SC.Oddballs.definition(definition.id), true)
+        if not check("arthur_group_created", group ~= nil,
+            tostring(reason)) then
+            setPhase("finish", current) return
+        end
+        H.encounterGroup = group
+        H.encounterCreatedAt = current
+        setPhase("encounter_spawn", current)
+        return
+    end
     if H.phase == "encounter_spawn" then
         local group = H.encounterGroup
         local expected = key == "arthur" and 1 or 4
@@ -1756,7 +1771,13 @@ function Probe.step(H, current, check, result, setPhase)
                     .. " unseen=" .. tostring(unseen)
                     .. " actor=" .. tostring(x) .. "," .. tostring(y)
                     .. " anim=" .. tostring(call(actor,
-                        "getVariableString", "OnBedAnim"))) then
+                        "getVariableString", "OnBedAnim"))
+                    .. " poseStarted=" .. tostring(story.nativeBedPoseStarted)
+                    .. " onBed=" .. tostring(onBed)
+                    .. " bedStarted=" .. tostring(bedStarted)
+                    .. " pillow=" .. tostring(pillowAligned)
+                    .. " lying=" .. tostring(lyingOnBed)
+                    .. " rest=" .. tostring(settledBedRest)) then
                 setPhase("finish", current) return
             end
             H.encounterArrivalMoved = true
