@@ -62,6 +62,10 @@ final class SCRoadFollower {
     /** Back-offs allowed before the route must make real progress again. */
     static final int MAX_BACKOFFS = 3;
     private static final float BACKOFF_RESET_TILES = 8.0f;
+    /** Farther than this from its line, a car stopped against scenery is beside the road. */
+    static final float OFF_LINE_TILES = 1.5f;
+    /** A rejoin turn faces the lane this far ahead along the route. */
+    private static final float REJOIN_AHEAD_TILES = 4.0f;
     private static final float TURN_BACKOUT_TILES = 8.0f;
     private static final long TURN_BACKOUT_LIMIT_MS = 12000L;
 
@@ -105,6 +109,8 @@ final class SCRoadFollower {
     private SCTurnAround turn;
     private boolean followBack;
     private boolean resumeAfterTurn;
+    /** The current turn only rejoins the lane; failing it falls back to following. */
+    private boolean rejoinTurn;
     private boolean initialAlignmentPending = true;
     private boolean turnBackoutTried;
     private boolean turnBackoutSettling;
@@ -488,12 +494,22 @@ final class SCRoadFollower {
                     stoppedSince = -1L;
                     blockedAt = -1.0f;
                     swerves = 0;
+                    rejoinTurn = false;
                     mode = Mode.FOLLOW;
                 } else {
                     mode = Mode.TURNED;
                 }
             } else if (turn.state() == SCTurnAround.State.FAILED) {
-                mode = Mode.TURN_FAILED;
+                if (rejoinTurn) {
+                    // A rejoin is only a recovery: the route itself has not
+                    // failed. Follow again so the normal hold and replan apply.
+                    rejoinTurn = false;
+                    resumeAfterTurn = false;
+                    wedgedSince = -1L;
+                    mode = Mode.FOLLOW;
+                } else {
+                    mode = Mode.TURN_FAILED;
+                }
             }
             return command;
         }
@@ -677,7 +693,7 @@ final class SCRoadFollower {
         }
         command.targetKmh = target;
         if (convoyParking) command.maneuver = true;
-        noteWedge(x, y, speedKmh, frontClear, rearClear, frontKind, nowMs, command);
+        noteWedge(x, y, heading, speedKmh, frontClear, rearClear, frontKind, nowMs, command);
         if (path.cornerProfile() != null && mode == Mode.FOLLOW && !backingOff()
                 && command.targetKmh >= 0 && Math.abs(offset - laneOffset) <= 0.25f) {
             laneError = lateral - laneOffset;
@@ -760,7 +776,7 @@ final class SCRoadFollower {
      * blocked road still holds. Rear scans and the existing attempt/distance
      * limits govern both recoveries.
      */
-    private void noteWedge(float x, float y, float speedKmh, float frontClear,
+    private void noteWedge(float x, float y, float heading, float speedKmh, float frontClear,
                            float rearClear, int frontKind, long nowMs, Command command) {
         if (backoffAlong >= 0.0f && along - backoffAlong >= BACKOFF_RESET_TILES) {
             backoffs = 0;
@@ -776,7 +792,16 @@ final class SCRoadFollower {
         boolean cornerBlocked = !scanClear && nearCornerBumper()
                 && (frontKind == SCLaneScan.SOLID || frontKind == SCLaneScan.WALL
                     || frontKind == SCLaneScan.TREE || frontKind == SCLaneScan.VEHICLE);
-        if (preciseArrival || command.targetKmh <= 0.0f || !(scanClear || passingBlocked || cornerBlocked)
+        // A cramped turnaround can finish facing along the route but well
+        // beside it, the nose over the kerb against a corner (live 0.27.92
+        // taxi at a junction mouth). Scenery ahead of a car off its line is
+        // not the road closing: back off at the opposite lock and rejoin,
+        // as for a corner. In its lane the car still holds.
+        boolean offLineBlocked = !scanClear && Math.abs(lateral - offset) > OFF_LINE_TILES
+                && (frontKind == SCLaneScan.SOLID || frontKind == SCLaneScan.WALL
+                    || frontKind == SCLaneScan.TREE);
+        if (preciseArrival || command.targetKmh <= 0.0f
+                || !(scanClear || passingBlocked || cornerBlocked || offLineBlocked)
                 || Math.abs(speedKmh) > SCDriveControl.STOPPED_KMH) {
             wedgedSince = -1L;
             return;
@@ -789,6 +814,26 @@ final class SCRoadFollower {
         if (rearClear >= 0.0f && rearClear <= SCTurnAround.LEG_CLEARANCE) return;
         backoffs++;
         backoffAlong = along;
+        if (offLineBlocked && !passingBlocked && !cornerBlocked) {
+            // Beside the road a straight back-off cannot help: the bumper
+            // brake holds every forward try along the old heading. Turn on
+            // the spot, in bounded slow legs, to face a point on the lane a
+            // few tiles ahead, then follow from there.
+            path.pointAt(Math.min(path.length(), along + REJOIN_AHEAD_TILES), offset, point);
+            float target = (float) Math.atan2(point[1] - y, point[0] - x);
+            int side = SCTurnAround.wrap(target - heading) >= 0.0f ? 1 : -1;
+            turn = new SCTurnAround(target, side, forwardTurnKmh);
+            followBack = false;
+            resumeAfterTurn = true;
+            rejoinTurn = true;
+            initialAlignmentPending = false;
+            wedgedSince = -1L;
+            mode = Mode.TURNING;
+            command.steering = 0.0f;
+            command.targetKmh = 0.0f;
+            command.maneuver = true;
+            return;
+        }
         backoffStartedAt = nowMs;
         backoffX = x;
         backoffY = y;

@@ -671,6 +671,24 @@ local function appendRoadExit(route, exit)
         y = exit.entry.y + dy / length * into, width = 5, street = last.street }
 end
 
+-- A cramped turnaround or departure can stop the car against the kerb right
+-- where its leg began. That obstruction is local: an avoidance circle round
+-- it also covers the car and the road it needs, and sends the trip round the
+-- block (live 0.27.92 taxi: 27 tiles became 512). Such a block replans the
+-- same leg once from the new pose; a second one uses the normal circles.
+local function blockedAtStart(job, status, x, y)
+    if job.startRetried or job.precise then return false end
+    local kind = status.obstacleKind
+    if kind ~= "solid" and kind ~= "wall" and kind ~= "tree" then return false end
+    local xOk, carX = method(job.vehicle, "getX")
+    local yOk, carY = method(job.vehicle, "getY")
+    carX, carY = xOk and finite(carX) or nil, yOk and finite(carY) or nil
+    local sourceX, sourceY = finite(job.routeSourceX), finite(job.routeSourceY)
+    if not carX or not carY or not sourceX or not sourceY then return false end
+    return (carX - x)^2 + (carY - y)^2 <= 25
+        and (carX - sourceX)^2 + (carY - sourceY)^2 <= 36
+end
+
 local function planJob(job)
     local route, reason, result
     if not SC.ExpeditionRoute or not SC.ExpeditionRoute.planAvoidingAll then
@@ -951,6 +969,11 @@ function Driving.tick(current)
                         job.blockedKind = status.obstacleKind
                         if not x or not y or x < 0 or x > 30000 or y < 0 or y > 30000 then
                             parkResult(job, "failed", "invalid_blocked_position")
+                        elseif job.attempts < 3 and #job.circles < 8
+                            and blockedAtStart(job, status, x, y) then
+                            job.startRetried = true
+                            job.attempts, job.phase = job.attempts + 1, "replanning"
+                            planJob(job)
                         elseif job.attempts >= 3 or #job.circles >= 8 then
                             if SC.GameplayUtil and type(SC.GameplayUtil.diagnostic)
                                 == "function" then

@@ -432,6 +432,57 @@ public final class SCRoadFollowerTest {
                         + drive.minSpeedKmh + " backoffs=" + follower.backoffs());
     }
 
+    /**
+     * Live 0.27.92 taxi: a turnaround at a junction mouth ended facing along
+     * the route but three tiles beside it, the nose against the corner. The
+     * car sat braked until the trip replanned 512 tiles round the block.
+     * Beside its line, a car stopped against scenery turns in slow legs to
+     * face its lane, then follows on. Squeezed against a wall as well, the
+     * rejoin gives up within its leg limit and the car holds. In its lane the
+     * same scenery holds, as before.
+     */
+    private static void offLineCornerBacksOff() {
+        // The side street the car turned through stays open behind and to
+        // its left; the corner lot fills the ground ahead of the nose.
+        Road road = new Road();
+        road.firstOpen = 85;
+        road.block(13, 30, 85, 98, SCLaneScan.SOLID);
+        SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Car car = new Car(9.4f, 96.0f, 0.0f);
+        Drive drive = new Drive(road, car, follower);
+        drive.run(30.0f, () -> car.x > 13.0f);
+        require(!drive.collided && car.x > 13.0f && car.y > 99.0f && drive.minSpeedKmh < -0.5f
+                        && follower.backoffs() == 1 && follower.mode() == SCRoadFollower.Mode.FOLLOW,
+                "a car beside its route with its nose on scenery turns once to face its lane: x="
+                        + car.x + " y=" + car.y + " backoffs=" + follower.backoffs()
+                        + " mode=" + follower.mode() + " " + drive.trace);
+        drive.run(30.0f, () -> car.x > 40.0f);
+        require(!drive.collided && car.x > 40.0f && follower.backoffs() == 0
+                        && Math.abs(follower.lateral() - 2.0f) < 1.0f,
+                "then it drives on in its own lane and earns the budget back: x=" + car.x
+                        + " lateral=" + follower.lateral() + " backoffs=" + follower.backoffs());
+
+        Road squeezed = new Road().block(13, 14, 95, 98, SCLaneScan.SOLID);
+        SCRoadFollower boxed = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Car boxedCar = new Car(9.4f, 97.0f, 0.0f);
+        Drive stuck = new Drive(squeezed, boxedCar, boxed);
+        stuck.run(40.0f, () -> false);
+        require(!stuck.collided && boxed.mode() == SCRoadFollower.Mode.FOLLOW
+                        && boxed.backoffs() >= 1 && boxed.backoffs() <= SCRoadFollower.MAX_BACKOFFS
+                        && Math.abs(boxedCar.kmh()) < 0.6f,
+                "with a wall beside it too, the rejoin stays bounded and the car holds: mode="
+                        + boxed.mode() + " backoffs=" + boxed.backoffs() + " kmh=" + boxedCar.kmh()
+                        + " " + stuck.trace);
+
+        Road walled = new Road().block(13, 14, 95, 106, SCLaneScan.SOLID);
+        SCRoadFollower inLane = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
+        Drive held = new Drive(walled, new Car(6.0f, 103.0f, 0.0f), inLane);
+        held.run(20.0f, () -> false);
+        require(!held.collided && held.minSpeedKmh > -0.1f && inLane.backoffs() == 0,
+                "a car in its lane still holds before scenery across the road: min="
+                        + held.minSpeedKmh + " backoffs=" + inLane.backoffs());
+    }
+
     private static void wedgedForeverIsBounded() {
         SCRoadFollower follower = new SCRoadFollower(SCDrivePath.parse(ROUTE), 10.0f, true);
         Car car = new Car(10.0f, 103.0f, 0.0f);
@@ -935,6 +986,7 @@ public final class SCRoadFollowerTest {
         wedgedCarBacksOff();
         wedgedWithoutRoomBehind();
         wedgedForeverIsBounded();
+        offLineCornerBacksOff();
         newRouteBehind();
         returnBesideParkedCars();
         perpendicularParkedDeparture();

@@ -680,6 +680,42 @@ do
     check(Driving.jobStatus(actor).attempts == 1 and #T.plans == plans + 1,
         "an engine-running car without physical displacement cannot follow forever")
     Driving.release(actor)
+
+    -- Live 0.27.92 taxi: after its turnaround the cab stopped with the corner
+    -- kerb 1.2 tiles ahead, right where the leg began. A circle there covered
+    -- the cab and its road, and the replan went 512 tiles round the block.
+    actor = managed("drive-start-kerb")
+    plans = #T.plans
+    local firstCircles = T.plans[#T.plans].circles
+    T.native[actor].state, T.native[actor].mode = "safety_blocked", "follow"
+    T.native[actor].obstacleKind = "solid"
+    T.native[actor].blockedX, T.native[actor].blockedY = 102.5, 98.5
+    Driving.tick(140000)
+    Driving.tick(146000)
+    local start = Driving.jobStatus(actor)
+    check(start.attempts == 1 and #start.circles == 0 and #T.plans == plans + 1
+        and T.plans[#T.plans].circles == firstCircles
+        and T.native[actor].state == "following",
+        "a kerb block where the leg began replans the same leg without an avoidance circle")
+    T.native[actor].state, T.native[actor].mode = "safety_blocked", "follow"
+    Driving.tick(147000)
+    Driving.tick(153000)
+    start = Driving.jobStatus(actor)
+    check(start.attempts == 2 and #start.circles == 1 and #T.plans == plans + 2,
+        "a second block at the start of the leg uses the normal avoidance circle")
+    Driving.release(actor)
+
+    actor = managed("drive-start-wreck")
+    plans = #T.plans
+    T.native[actor].state, T.native[actor].mode = "safety_blocked", "follow"
+    T.native[actor].obstacleKind = "vehicle"
+    T.native[actor].blockedX, T.native[actor].blockedY = 102.5, 100
+    Driving.tick(160000)
+    Driving.tick(166000)
+    start = Driving.jobStatus(actor)
+    check(start.attempts == 1 and #start.circles == 1 and #T.plans == plans + 1,
+        "a parked car at the start keeps the narrow avoidance circle it had before")
+    Driving.release(actor)
 end
 
 do
