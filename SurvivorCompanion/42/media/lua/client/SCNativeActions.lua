@@ -1820,10 +1820,25 @@ local function nativeClothingVisual(actor, intent)
         -- Only that UI housekeeping is omitted for this NPC-owned instance.
         return ISBaseTimedAction.perform(self)
     end
-    action.scApplyClothing = function(self)
-        if self.scNativeCommitted then return self.scNativeCommitResult == true end
-        if self.scStopped or not self:isValid() or not valid(self) then return false end
+    action.scApplyClothing = function(self, fittedItem)
+        if self.scNativeCommitted then
+            return self.scNativeCommitResult == true and fittedItem == self.scClothingFit
+        end
+        if self.scStopped or not self:isValid() then return false end
+        local original = self.item
+        if fittedItem then
+            -- A spare pad keeps its original identity through the pose. Only
+            -- the stock wear effect receives the staged, opposite variant.
+            local utility = SC.GameplayUtil
+            if self.scUnequip or intent.location
+                or utility.containerContainsIdentity(utility.inventory(actor), fittedItem) ~= true then
+                return false
+            end
+            self.item = fittedItem
+        end
+        if not valid(self) then self.item = original; return false end
         self.scNativeCommitted = true
+        self.scClothingFit = fittedItem
         if intent.location and not self.scUnequip then
             -- A shower receipt records the authoritative worn slot, which can
             -- differ from an item's preferred slot. Delegate only this native
@@ -1844,16 +1859,17 @@ local function nativeClothingVisual(actor, intent)
         end
         local okay, result = pcall(effect, self)
         self.character = actor
+        self.item = original
         self.scNativeCommitResult = okay and result == true
         return self.scNativeCommitResult
     end
-    action.scCommitClothing = function(self)
-        return self.scCompleted == true and self:scApplyClothing()
+    action.scCommitClothing = function(self, fittedItem)
+        return self.scCompleted == true and self:scApplyClothing(fittedItem)
     end
     return action
 end
 
-function actions.commitClothingVisual(actor, token, item, unwear)
+function actions.commitClothingVisual(actor, token, item, unwear, fittedItem)
     local record = activeVisual[actor]
     local action = record and record.timedAction
     if not action or action ~= token or action.character ~= actor or action.item ~= item
@@ -1862,7 +1878,7 @@ function actions.commitClothingVisual(actor, token, item, unwear)
         or actions.visualStatus(actor, "wear_clothing") ~= "completed" then
         return false, "native_clothing_action_unverified"
     end
-    local okay = action:scCommitClothing()
+    local okay = action:scCommitClothing(fittedItem)
     return okay == true, okay and (action.scUnequip and "native_clothing_removed" or "native_clothing_equipped")
         or "native_clothing_commit_failed"
 end

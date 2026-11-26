@@ -98,6 +98,61 @@ do
         "entry survey skips the locked door and pairs the alternate window stand with its landing")
     SurvivorCompanion.Topology = oldTopology
 end
+do
+    local SC = SurvivorCompanion
+    local topology, square = SC.Topology, fixture.cell.getGridSquare
+    local gridSquare = SC.GameplayUtil.gridSquare
+    local stationId = "8040:11137:8052:11164"
+    fixture.buildings[#fixture.buildings + 1] = fixture.building(8040, 11137, 8052, 11164, {"fossoil"})
+    local checked, unlocked = 0, false
+    fixture.cell.getGridSquare = function(self, x, y, z)
+        checked = checked + 1
+        local result = square(self, x, y, z)
+        if x >= 8040 and x <= 8052 and y >= 11137 and y <= 11164 then
+            result.getRoom = function() return "station" end
+        end
+        return result
+    end
+    SC.GameplayUtil.gridSquare = function(x, y, z) return fixture.cell:getGridSquare(x, y, z) end
+    SC.Topology = {classifyEdge = function(_, from, to)
+        if from:getX() == 8039 and to:getX() == 8040 and to:getY() == 11153
+            and from:getY() == 11153 and unlocked then
+            return {affordance = "door", traversable = true}
+        end
+        return {affordance = "door", reason = "door_locked"}
+    end}
+    local crew = {getX = function() return 8045 end, getY = function() return 11169 end}
+    local function surveyFor(rejected, now)
+        local survey = {budget = 48, rejected = rejected, now = now}
+        local candidates, reason, portals, retryPending
+        repeat
+            local oldIndex = survey.index or 0
+            checked = 0
+            candidates, reason, portals, retryPending = Places.loadedInteriorCandidates(stationId, crew, survey)
+            check(survey.index - oldIndex <= 48 and checked <= 48 * 5,
+                "the wider site survey yields after its per-update square budget")
+            if not candidates then check(reason == "site_entry_survey_pending", "entry survey yields while incomplete") end
+        until candidates
+        return candidates, portals, retryPending
+    end
+    local floor, initial = surveyFor(nil, 1000)
+    check(#floor > 0 and #initial == 0, "loaded room tiles do not certify a locked entrance")
+    unlocked = true
+    local _, portals = surveyFor(nil, 4000)
+    local portal = portals[1]
+    check(#portals == 1 and portal.outside.x == 8039 and portal.outside.y == 11153,
+        "a new unlocked entrance beyond the old radius is discovered")
+    local _, delayed, retryPending = surveyFor(
+        {[portal.key] = {signature = portal.signature, retryAt = 16000}}, 4000)
+    check(#delayed == 0 and retryPending, "an unchanged failed threshold cools down before one bounded retry")
+    local _, retried = surveyFor(
+        {[portal.key] = {signature = portal.signature, retryAt = 16000}}, 16000)
+    check(#retried == 1, "a formerly obstructed portal can be verified again")
+    unlocked = false
+    check(not Places.siteEntryPortalSquares(crew, portal), "revalidation rejects a door locked since the survey")
+    table.remove(fixture.buildings)
+    SC.Topology, fixture.cell.getGridSquare, SC.GameplayUtil.gridSquare = topology, square, gridSquare
+end
 check(not Places.actorInsideSite(nearby[1].id, entryActor),
     "the exterior arrival point does not count as entering the building")
 entryActor.getCurrentSquare = function()

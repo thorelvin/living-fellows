@@ -310,30 +310,54 @@ end
 
 local entryOffsets = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
+local function ordinaryEntryEdge(actor, outside, inside)
+    local topology = SC.Topology
+    if not topology or not topology.classifyEdge then return nil end
+    local outdoors, known = call(outside, "getRoom")
+    local indoors = call(inside, "getRoom")
+    if not known or outdoors or not indoors
+        or not SC.GameplayUtil.isSquareFree(outside) then return nil end
+    local edge = topology.classifyEdge(actor, outside, inside)
+    local kind = edge and edge.affordance
+    if edge and edge.traversable and (kind == "open" or kind == "door"
+        or kind == "window" or kind == "window_frame") then return edge end
+end
+
+function Places.siteEntryPortalSquares(actor, portal)
+    local util = SC.GameplayUtil
+    local outside = util.gridSquare(portal.outside.x, portal.outside.y, 0)
+    local inside = util.gridSquare(portal.inside.x, portal.inside.y, 0)
+    if outside and inside and ordinaryEntryEdge(actor, outside, inside) then
+        return outside, inside
+    end
+end
+
 local function addEntryPortals(portals, actor, cell, square, x, y, ax, ay)
     local topology = SC.Topology
     if not topology or not topology.classifyEdge then return end
     for _, offset in ipairs(entryOffsets) do
         local ox, oy = x + offset[1], y + offset[2]
         local outside = call(cell, "getGridSquare", ox, oy, 0)
-        local room, known = call(outside, "getRoom")
-        if known and not room and SC.GameplayUtil.isSquareFree(outside) then
-            local edge = topology.classifyEdge(actor, outside, square)
-            local kind = edge and edge.affordance
+        local edge = ordinaryEntryEdge(actor, outside, square)
+        if edge then
+            local kind = edge.affordance
             local window = kind == "window" or kind == "window_frame"
-            if edge and edge.traversable and (kind == "open" or kind == "door" or window) then
-                portals[#portals + 1] = {
-                    outside = {x = ox, y = oy, z = 0}, inside = {x = x, y = y, z = 0},
-                    score = math.sqrt((ox - ax)^2 + (oy - ay)^2) + (window and 4 or 0),
-                }
-            end
+            local key = table.concat({ox, oy, x, y}, ":")
+            local signature = topology.objectStateSignature
+                and topology.objectStateSignature(edge.object) or kind
+            portals[#portals + 1] = {
+                outside = {x = ox, y = oy, z = 0}, inside = {x = x, y = y, z = 0},
+                key = key, signature = signature,
+                score = math.sqrt((ox - ax)^2 + (oy - ay)^2)
+                    + (window and math.max(4, tonumber(edge.cost) or 0) or 0),
+            }
         end
     end
 end
 
 -- Keep the scan local. A portal records the actual exterior stand and interior
 -- landing so the expedition can walk around the building before crossing.
-function Places.loadedInteriorCandidates(siteId, actor)
+function Places.loadedInteriorCandidates(siteId, actor, survey)
     local place = savedSite(siteId)
     if not place or not actor or not SC.GameplayUtil then
         return {}, "site_entry_unavailable"
@@ -345,25 +369,36 @@ function Places.loadedInteriorCandidates(siteId, actor)
     if not ax or not ay or not gridOk or not cellOk or not grid or not cell then
         return {}, "site_entry_unavailable"
     end
-    local candidates, portals = {}, {}
-    local bounds = place.bounds
-    for y = math.max(bounds.y, math.floor(ay) - 14),
-            math.min(bounds.y2, math.floor(ay) + 14) do
-        for x = math.max(bounds.x, math.floor(ax) - 14),
-                math.min(bounds.x2, math.floor(ax) + 14) do
-            local square, loaded = call(cell, "getGridSquare", x, y, 0)
-            local room, roomOk = call(square, "getRoom")
-            if loaded and square and roomOk and room
-                and SC.GameplayUtil.isSquareFree(square)
-                and matchingBuildingAt(grid, place, x, y, 0) then
-                candidates[#candidates + 1] = {
-                    x = x, y = y, z = 0,
-                    distanceSq = (x - ax)^2 + (y - ay)^2,
-                }
-                addEntryPortals(portals, actor, cell, square, x, y, ax, ay)
-            end
+    survey = survey or {}
+    if survey.index == nil then
+        local radius = survey.budget and 32 or 14
+        local bounds = place.bounds
+        survey.x = math.max(bounds.x, math.floor(ax) - radius)
+        survey.y = math.max(bounds.y, math.floor(ay) - radius)
+        survey.width = math.max(0, math.min(bounds.x2, math.floor(ax) + radius) - survey.x + 1)
+        survey.total = survey.width
+            * math.max(0, math.min(bounds.y2, math.floor(ay) + radius) - survey.y + 1)
+        survey.index, survey.candidates, survey.portals = 0, {}, {}
+    end
+    local candidates, portals = survey.candidates, survey.portals
+    local finish = math.min(survey.total, survey.index + (survey.budget or survey.total))
+    for index = survey.index, finish - 1 do
+        local x = survey.x + index % survey.width
+        local y = survey.y + math.floor(index / survey.width)
+        local square, loaded = call(cell, "getGridSquare", x, y, 0)
+        local room, roomOk = call(square, "getRoom")
+        if loaded and square and roomOk and room
+            and SC.GameplayUtil.isSquareFree(square)
+            and matchingBuildingAt(grid, place, x, y, 0) then
+            candidates[#candidates + 1] = {
+                x = x, y = y, z = 0,
+                distanceSq = (x - ax)^2 + (y - ay)^2,
+            }
+            addEntryPortals(portals, actor, cell, square, x, y, ax, ay)
         end
     end
+    survey.index = finish
+    if finish < survey.total then return nil, "site_entry_survey_pending" end
     table.sort(candidates, function(a, b)
         if a.distanceSq ~= b.distanceSq then
             return a.distanceSq < b.distanceSq
@@ -392,8 +427,18 @@ function Places.loadedInteriorCandidates(siteId, actor)
         if a.inside.x ~= b.inside.x then return a.inside.x < b.inside.x end
         return a.inside.y < b.inside.y
     end)
-    for index = #portals, 5, -1 do portals[index] = nil end
-    return result, #result == 0 and "site_entry_no_loaded_floor" or nil, portals
+    local selectable, retryPending = {}, false
+    for _, portal in ipairs(portals) do
+        local rejected = survey.rejected and survey.rejected[portal.key]
+        if not rejected or rejected.signature ~= portal.signature
+            or survey.now >= rejected.retryAt then
+            selectable[#selectable + 1] = portal
+            if #selectable >= (survey.budget and 8 or 4) then break end
+        elseif rejected.retryAt < math.huge then
+            retryPending = true
+        end
+    end
+    return result, #result == 0 and "site_entry_no_loaded_floor" or nil, selectable, retryPending
 end
 
 function Places.actorInsideSite(siteId, actor)

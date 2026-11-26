@@ -50,6 +50,24 @@ SC.Topology.classifyEdge = function(_, from, to)
     return { traversable = not closed, reason = closed and "door_locked" or nil,
         cost = from.x ~= to.x and from.y ~= to.y and math.sqrt(2) or 1 }
 end
+
+-- The same expedition threshold can become passable while the crew waits.
+do
+    local scout = actor("waiting-site-entry", 1.5, 0.5)
+    local outside, inside = square(1, 0), square(2, 0)
+    local state = {}
+    local intent = { action = "expedition_enter_site", preferVerifiedPath = true,
+        expeditionEntryPortal = true, expeditionEntryFrom = outside }
+    blocked = true
+    N._seedVerifiedRoute(scout, state, outside, inside, intent, SC_TEST_CLOCK)
+    check(state.path == nil and state.verifiedPathAttemptKey ~= nil,
+        "a locked threshold supplies no direct route")
+    blocked = false
+    N._seedVerifiedRoute(scout, state, outside, inside, intent, SC_TEST_CLOCK + 12000)
+    check(state.path and #state.path == 2 and state.path[1] == outside and state.path[2] == inside,
+        "the same selected threshold is revalidated after it opens")
+end
+
 -- A full shelf sends ordinary Logistics to a marked floor. Its floor survey
 -- must lend the proved path to the real drop transaction without replanning.
 do

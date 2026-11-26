@@ -2121,15 +2121,18 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
                 commands.expeditionEntryTargets, "walk", {
                     action = "expedition_enter_site", snapshot = snapshot,
                     preferVerifiedPath = commands.expeditionEntryPortal == true,
+                    expeditionEntryPortal = commands.expeditionEntryPortal == true,
                     expeditionEntryFrom = commands.expeditionEntryFrom,
-                    doorBashAsLastResort = not commands.expeditionEntryPortal
-                        and not (SC.ExpeditionPrototype.hasEntryCrowbar
-                        and SC.ExpeditionPrototype.hasEntryCrowbar()),
+                    targetSignature = commands.expeditionEntryPortal and
+                        (commands.expeditionEntryFrom
+                            and ("site_entry_threshold:" .. tostring(utility.squareKey(commands.expeditionEntryFrom)))
+                            or "site_entry_exterior") or nil,
+                    doorBashAsLastResort = not commands.expeditionEntryPortal,
                     arrivalDistance = 0.35, requireSameSquare = true,
                     movementPriority = 60,
                 })
             if SC.ExpeditionPrototype.noteEntryBlocked then
-                SC.ExpeditionPrototype.noteEntryBlocked(actor, reason)
+                SC.ExpeditionPrototype.noteEntryBlocked(actor, reason, accepted)
             end
             return accepted, reason
         end

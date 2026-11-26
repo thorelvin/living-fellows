@@ -7056,11 +7056,13 @@ function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
             and type(requestIntent.goalCandidates) == "table"
             and #requestIntent.goalCandidates > 1
             and requestIntent.verifiedSelectedGoal ~= true)
-        or type(Navigation.findPath) ~= "function" then return end
+        or type(Navigation.findPath) ~= "function"
+        or requestIntent.expeditionEntryPortal and not requestIntent.expeditionEntryFrom then return end
     local attemptKey = tostring(squareKey(sourceSquare)) .. ">"
         .. tostring(squareKey(goalSquare))
         .. (requestIntent.draggingBody == true and ":dragging_body" or "")
-    if state.verifiedPathAttemptKey == attemptKey then return end
+    if state.verifiedPathAttemptKey == attemptKey
+        and not requestIntent.expeditionEntryPortal then return end
     state.verifiedPathAttemptKey = attemptKey
     local options = { actor = actor, nodeBudget = 900,
         draggingBody = requestIntent.draggingBody == true,
@@ -7074,7 +7076,9 @@ function Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         -- route to the interior can send the actor back around to a locked door.
         verified = { sourceSquare, goalSquare }
     end
-    verified = verified or Navigation.findPath(sourceSquare, goalSquare, options)
+    if not verified and not requestIntent.expeditionEntryPortal then
+        verified = Navigation.findPath(sourceSquare, goalSquare, options)
+    end
     if type(verified) ~= "table" or #verified < 2
         or not sameSquare(verified[1], sourceSquare)
         or not sameSquare(verified[#verified], goalSquare) then return end
@@ -7739,6 +7743,8 @@ function Navigation.request(actor, target, movementMode, intent)
     end
     SC.Navigation._seedVerifiedRoute(actor, state, sourceSquare, goalSquare,
         requestIntent, now)
+    if requestIntent.expeditionEntryPortal and requestIntent.expeditionEntryFrom
+        and not state.path then return false, "site_entry_threshold_changed" end
     if not state.path and now >= (state.nextRepathAt or 0) then
         local followRouting = requestIntent.followRecovery == true
             or requestIntent.action == "follow_formation" or requestIntent.action == "regroup"
@@ -7765,6 +7771,14 @@ function Navigation.request(actor, target, movementMode, intent)
             allowHazards = requestIntent.urgent == true,
         }
         if multipleGoals then pathOptions.goalSquares = requestIntent.goalCandidates end
+        if requestIntent.expeditionEntryPortal then
+            pathOptions.nodeBudget = 650
+            pathOptions.squareAdmission = function(square)
+                local _, _, floor = utility.position(square)
+                local room, known = utility.call(square, "getRoom")
+                return floor == 0 and known and room == nil
+            end
+        end
         if requestIntent.doorBashAsLastResort == true
             and requestIntent.draggingBody ~= true
             and SC.NativeActions
@@ -7971,7 +7985,7 @@ function Navigation.request(actor, target, movementMode, intent)
             -- on the frame the search begins.
             local quietened = state.pathSearchHolding == true
             local advanceX, advanceY, advanceSquare
-            if quietened then
+            if quietened and not requestIntent.expeditionEntryPortal then
                 advanceX, advanceY, advanceSquare = SC.Navigation._provisionalAdvance(
                     actor, state, planningGoal, requestIntent, now)
             end
@@ -8059,6 +8073,7 @@ function Navigation.request(actor, target, movementMode, intent)
         end
 
         local completedSearch = state.pathSearch and state.pathSearch.route or nil
+        if requestIntent.expeditionEntryPortal and reason == "partial" then path = nil end
         state.lastSearchSliceBudgetMs = completedSearch and completedSearch.lastSliceBudgetMs
         state.lastSearchSliceBudgetReason = completedSearch and completedSearch.lastSliceBudgetReason
         local completedSearchStartedAt = state.pathSearch and state.pathSearch.startedAt or now
@@ -8252,6 +8267,7 @@ function Navigation.request(actor, target, movementMode, intent)
         -- static/policy failure must not become an opaque engine path.
         local failure = state.pathFailure
         local allowNative = not knownLockedRoom
+            and not requestIntent.expeditionEntryPortal
             and requestIntent.workCampOnly ~= true and (state.pathReason == "budget"
             or sameSquare(sourceSquare, goalSquare)
             or (type(failure) == "table" and failure.nativeFallbackAllowed == true)

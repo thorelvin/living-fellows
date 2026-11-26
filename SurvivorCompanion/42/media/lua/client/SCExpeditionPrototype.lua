@@ -264,6 +264,10 @@ local function unstartedSearchReturn(itinerary)
         return false
     end
     local reason = itinerary.search and itinerary.search.endReason
+    if reason == "site_entry_blocked" then
+        for _ in pairs(itinerary.search.acquisitions) do return false end
+        return validSite(itinerary.site)
+    end
     return (reason == "return_time_reached" and itinerary.turnHomeAtHour ~= nil)
         or (reason == "arrival_reserve_reached" and itinerary.arriveByHour ~= nil)
         or reason == "radio_return" or reason == "called_off_nearby" or reason == "legacy_car_return"
@@ -3996,6 +4000,24 @@ local function currentEntryPortal(scout)
     return scout.siteEntryPortals and scout.siteEntryPortals[scout.siteEntryPortalIndex or 1]
 end
 
+function Expedition._rejectSiteEntryPortal(scout, reason)
+    local portal = currentEntryPortal(scout)
+    if not portal then return end
+    scout.siteEntryRejected = scout.siteEntryRejected or {}
+    local prior = scout.siteEntryRejected[portal.key]
+    local retry = not prior or prior.signature ~= portal.signature
+    scout.siteEntryRejected[portal.key] = {
+        signature = portal.signature,
+        retryAt = retry and SC.GameplayUtil.nowMs() + 12000 or math.huge,
+    }
+    scout.siteEntryPortalIndex = (scout.siteEntryPortalIndex or 1) + 1
+    scout.siteEntryPortalProgressAt, scout.siteEntryPortalDistance = nil, nil
+    if type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic("expedition-entry-portal", mission.leader.actor,
+            "action=rejected key=" .. portal.key .. " reason=" .. tostring(reason))
+    end
+end
+
 function Expedition.siteEntryTargetsFor(actor)
     if mission == nil or mission.terminal or mission.leader.actor ~= actor
         or mission.scout == nil or mission.scout.phase ~= "entering_site"
@@ -4006,14 +4028,19 @@ function Expedition.siteEntryTargetsFor(actor)
     local util = SC.GameplayUtil
     local portal = currentEntryPortal(scout)
     if portal then
-        local outside = util.gridSquare(portal.outside.x, portal.outside.y, portal.outside.z)
-        local inside = util.gridSquare(portal.inside.x, portal.inside.y, portal.inside.z)
-        if not outside or not inside then return nil end
+        local outside, inside = SC.ExpeditionPlaces.siteEntryPortalSquares(actor, portal)
+        if not outside then
+            Expedition._rejectSiteEntryPortal(scout, "site_entry_threshold_changed")
+            return nil
+        end
         if util.sameSquare(actor, outside) then return {inside}, true, outside end
         return {outside}, true
     end
+    -- Bare room tiles are not proof of an entrance. Only expose them to
+    -- Navigation's existing last-resort door-bash search when equipped.
+    if scout.siteEntrySurvey or not scout.siteEntryBashPermitted then return nil end
     local targets = {}
-    for _, point in ipairs(scout.siteEntryCandidates or {}) do
+    for _, point in ipairs(scout.siteEntryCandidates) do
         local square = util.gridSquare(point.x, point.y, point.z)
         if square ~= nil then targets[#targets + 1] = square end
     end
@@ -4024,6 +4051,7 @@ function Expedition.hasEntryCrowbar()
     if not mission or not mission.scout or mission.scout.kind ~= "search"
         or mission.scout.phase ~= "entering_site" then return false end
     if mission.scout.forceEntry then return true end -- failed attempts never escalate to bashing
+    if not SC.ForceEntry or not SC.ForceEntry.tool then return false end
     for _, member in ipairs(mission.roster) do
         if alive(member) and SC.ForceEntry.tool(member.actor) then return true end
     end
@@ -4046,16 +4074,25 @@ function Expedition.queueForceEntry(actor, object)
     return true, "force_open_queued"
 end
 
-function Expedition.noteEntryBlocked(actor, reason)
+function Expedition.noteEntryBlocked(actor, reason, accepted)
     local scout = mission and mission.scout
     if not scout or scout.kind ~= "search" or scout.phase ~= "entering_site"
-        or mission.leader.actor ~= actor or mission.terminal or scout.forceEntry
-        or currentEntryPortal(scout)
-        or not Expedition.hasEntryCrowbar() then return end
-    local nav = SC.Navigation.status(actor)
-    if nav.phase ~= "failed" and reason ~= "locked_door" and reason ~= "no_route"
-        and reason ~= "path_blocked" then return end
-    if scout._forceScanDone then return end
+        or mission.leader.actor ~= actor or mission.terminal or scout.forceEntry then return end
+    if currentEntryPortal(scout) then
+        if accepted == false and (reason == "site_entry_threshold_changed"
+                or reason == "no_reachable_interaction_target"
+                or type(reason) == "string" and reason:find("^path_blocked")) then
+            Expedition._rejectSiteEntryPortal(scout, reason)
+        end
+        return
+    end
+    if scout.siteEntrySurvey or scout._forceScanDone
+        or SC.GameplayUtil.nowMs() < (scout.nextSiteEntryForceCheckAt or 0) then return end
+    local nav = SC.Navigation and SC.Navigation.status and SC.Navigation.status(actor)
+    if reason ~= "no_route" and reason ~= "locked_door" and reason ~= "path_blocked"
+        and (not nav or nav.phase ~= "failed") then return end
+    scout.nextSiteEntryForceCheckAt = SC.GameplayUtil.nowMs() + 500
+    if not Expedition.hasEntryCrowbar() then return end
     scout._forceScan = scout._forceScan or { bounds = scout.site.bounds }
     local object, done = SC.ForceEntry.findSitePortal(actor, scout.site.id, mission.radioSession, scout._forceScan)
     if done then scout._forceScanDone = true end
@@ -4104,6 +4141,11 @@ function Expedition.updateForceEntry(actor, snapshot)
     if done then
         if reason == "force_open_succeeded" then
             active.scout.forceEntry = nil
+            active.scout.siteEntryCandidates, active.scout.siteEntryPortals = nil, nil
+            active.scout.siteEntrySurvey, active.scout.siteEntryRejected = nil, nil
+            active.scout.nextSiteEntryScanAt, active.scout.siteEntryPortalsExhausted = nil, nil
+            active.scout.siteEntryBashPermitted = nil
+            active.scout.siteEntryPortalProgressAt, active.scout.siteEntryPortalDistance = nil, nil
             SC.Navigation.cancel(active.leader.actor, "force_open_succeeded")
         else
             force.failed, force.reason = true, reason
@@ -5406,10 +5448,46 @@ function Expedition._isWalkingRoadPause(scout, pause)
         and (scout.vehicle == nil or scout.vehicle.state == "abandoned")
 end
 
+-- A yielding combat route can retain the navigation goal even after combat
+-- has ended. Repeated requests can also renew the search without any motion.
+-- Sample real progress independently of those request and search clocks.
+function Expedition._heldRetreatPlanning(actor, recovery, now)
+    local navigation = SC.Navigation
+    local status = navigation and navigation.status and navigation.status(actor)
+    local route = navigation and navigation.peek and navigation.peek(actor)
+    if not status or status.active ~= true or status.action ~= "combat_retreat"
+        or not route or not route.pathSearch or route.nativeLease or route.pendingInteraction
+        or route.pendingDoorBash or route.path ~= nil then
+        recovery.retreatAnchor = nil
+        return nil
+    end
+    local combat = SC.Combat and SC.Combat.peek and SC.Combat.peek(actor)
+    local native = SC.NativeActions
+    local moving, known
+    if SC.GameplayUtil.call then moving, known = SC.GameplayUtil.call(actor, "isMoving") end
+    local x, y, z = SC.GameplayUtil.position(actor)
+    if combat and combat.active == true or not known or moving ~= false
+        or x == nil or y == nil or z ~= 0 then
+        recovery.retreatAnchor = nil
+        return nil
+    end
+    local anchor = recovery.retreatAnchor
+    if not anchor or (x - anchor.x)^2 + (y - anchor.y)^2 >= 0.04
+        or route.motionAt and route.motionAt > anchor.at then
+        recovery.retreatAnchor = { x = x, y = y, at = now }
+        return nil
+    end
+    if now - anchor.at >= 4500 and native and native.activityStatus
+        and native.activityStatus(actor) == "none" and native.combatReadiness
+        and native.combatReadiness(actor, "attack") == true then
+        return route
+    end
+end
+
 -- The expedition waypoint and an exact ordered_move destination must both
 -- match before we cancel Navigation. Other movement and portal owners yield
 -- to their existing decision/action lifecycle.
-function Expedition._canReplaceRoadWaypoint(actor, now)
+function Expedition._canReplaceRoadWaypoint(actor, now, idleRetreat)
     local supervisor = SC.ActionSupervisor
     if supervisor and supervisor.current and supervisor.current(actor) then return false end
     local traversal = SC.NativeTraversalActions
@@ -5419,7 +5497,8 @@ function Expedition._canReplaceRoadWaypoint(actor, now)
     local decision = SC.Decision and SC.Decision.peek and SC.Decision.peek(actor)
     if decision and now - (decision.lastHandledAt or -math.huge) <= 2000
         and (decision.current == "medical" or decision.current == "needs"
-            or decision.current == "combat" or decision.current == "retreat") then return false end
+            or decision.current == "retreat"
+            or decision.current == "combat" and not idleRetreat) then return false end
     local navigation = SC.Navigation and SC.Navigation.status and SC.Navigation.status(actor)
     if not navigation or navigation.active ~= true then return true, false end
     local waypoint = mission.testWaypoint
@@ -5429,6 +5508,9 @@ function Expedition._canReplaceRoadWaypoint(actor, now)
     -- Navigation retains the goal after arrival or a terminal path failure.
     -- A completed request no longer owns movement, but need not be cancelled.
     local state = SC.Navigation.peek and SC.Navigation.peek(actor)
+    if idleRetreat and state == idleRetreat and navigation.action == "combat_retreat" then
+        return true, false
+    end
     local arrived = state and state.arrivedAt ~= nil and SC.GameplayUtil.squareKey
         and SC.GameplayUtil.squareKey(actor:getCurrentSquare()) == navigation.target
     return navigation.phase == "failed" or arrived == true, false
@@ -5441,9 +5523,9 @@ function Expedition._clearRoadWaypoint(actor, reason)
     if owned and SC.Navigation.cancel then SC.Navigation.cancel(actor, reason) end
 end
 
-function Expedition._resumeBlockedReturn(scout, pause, now, candidate, snapshot)
+function Expedition._resumeBlockedReturn(scout, pause, now, candidate, snapshot, idleRetreat)
     local leader = mission.leader.actor
-    if not Expedition._canReplaceRoadWaypoint(leader, now) then
+    if not Expedition._canReplaceRoadWaypoint(leader, now, idleRetreat) then
         return false, "return_movement_owned"
     end
     local route, reason = candidate, nil
@@ -5451,11 +5533,13 @@ function Expedition._resumeBlockedReturn(scout, pause, now, candidate, snapshot)
     if not route then return false, reason or "no_safe_return" end
     local entry, issue, path = SC.ExpeditionRoute.verifyReturnEntry(route, leader)
     if not entry then return false, issue end
+    local threatLimit
     if snapshot then
         local living = 0
         for _, record in ipairs(mission.roster) do if alive(record) then living = living + 1 end end
+        threatLimit = math.max(2, living - 2)
         local safe, observedIssue = SC.ExpeditionRoute.returnEntryObserved(
-            leader, path, snapshot, now, math.max(2, living - 2))
+            leader, path, snapshot, now, threatLimit)
         if not safe then return false, observedIssue end
     end
     if candidate then
@@ -5465,7 +5549,27 @@ function Expedition._resumeBlockedReturn(scout, pause, now, candidate, snapshot)
             if observed[index] ~= square then return false, "return_entry_changed" end
         end
     end
-    Expedition._clearRoadWaypoint(leader, "expedition_return_recovered")
+    if idleRetreat then
+        local destination = path[#path]
+        local key, why = SC.ExpeditionRoute.stalledReturnPathKey(leader, destination, path, route)
+        if not key then return false, why end
+        local staged, stageReason = Expedition.stageTestWaypoint(leader, entry.x, entry.y, entry.z)
+        if not staged then return false, stageReason end
+        local navigation = SC.Navigation
+        if not navigation.cancel
+            or navigation.cancel(leader, "expedition_idle_retreat_replaced") ~= true then
+            Expedition.clearTestWaypoint(leader)
+            return false, "return_retreat_release_failed"
+        end
+        scout.stalledReturnReceipt = {
+            actor = leader, source = path[1], destination = destination, path = path,
+            corridor = route, threatLimit = threatLimit, expiresAt = now + 1500, hordePause = pause,
+        }
+        scout.waypointStagedAt = now
+        scout.bestDistanceToWaypoint = distanceToPoint(leader, entry)
+    else
+        Expedition._clearRoadWaypoint(leader, "expedition_return_recovered")
+    end
     route.recoveryEntry = entry
     scout.pause, scout.trailReturn, scout.walkingReturn = nil, nil, nil
     scout.roadRoute, scout.roadAvoidance = route, copyRoadAvoidance(route.avoidance)
@@ -5477,7 +5581,8 @@ function Expedition._resumeBlockedReturn(scout, pause, now, candidate, snapshot)
     if SC.GameplayUtil.diagnostic then
         SC.GameplayUtil.diagnostic("expedition-return-resume", leader,
             "action=resumed via=" .. (candidate and "observed_clear" or "hazard_detour")
-                .. " entry=" .. entry.x .. ":" .. entry.y .. ":" .. entry.z)
+                .. " entry=" .. entry.x .. ":" .. entry.y .. ":" .. entry.z
+                .. " replaced_idle_retreat=" .. tostring(idleRetreat ~= nil))
     end
     return true, "returning"
 end
@@ -5500,9 +5605,14 @@ function Expedition._pulseBlockedReturn(scout, pause, now)
         pause.recovery = state
     end
     if now < state.nextAt then return false end
-    if not Expedition._canReplaceRoadWaypoint(leader, now) then
+    local idleRetreat = Expedition._heldRetreatPlanning(leader, state, now)
+    if not Expedition._canReplaceRoadWaypoint(leader, now, idleRetreat) then
         state.clearRoute, state.clearPath, state.cursor, state.clearSince, state.clearAt = nil, nil, nil, nil, nil
         state.nextAt = now + 2000
+        if SC.GameplayUtil.diagnostic then
+            SC.GameplayUtil.diagnostic("expedition-return-recheck", leader,
+                "action=deferred mode=" .. pause.mode .. " reason=return_movement_owned retry_ms=2000")
+        end
         return false
     end
     local record = SC.Registry.byId(mission.leader.id)
@@ -5520,7 +5630,7 @@ function Expedition._pulseBlockedReturn(scout, pause, now)
                 state.clearSince, state.clearAt = now, observedAt
             elseif result == "clear" and now - state.clearSince >= 2500 and observedAt > state.clearAt then
                 local resumed
-                resumed, issue = Expedition._resumeBlockedReturn(scout, pause, now, state.clearRoute, snapshot)
+                resumed, issue = Expedition._resumeBlockedReturn(scout, pause, now, state.clearRoute, snapshot, idleRetreat)
                 if resumed then return true end
             end
             if issue == nil then
@@ -5533,7 +5643,7 @@ function Expedition._pulseBlockedReturn(scout, pause, now)
         local origin = SC.ExpeditionRoute.returnObservation(leader, snapshot, now)
         if origin then
             local resumed
-            resumed, issue = Expedition._resumeBlockedReturn(scout, pause, now, nil, snapshot)
+            resumed, issue = Expedition._resumeBlockedReturn(scout, pause, now, nil, snapshot, idleRetreat)
             if resumed then return true end
         else
             issue = "return_entry_unobserved"
@@ -5622,6 +5732,25 @@ function Expedition.rejectStalledReturnReceipt(actor, receipt, why)
     local scout = mission.scout
     local state = scout.stalledReturnRecovery
     local now = SC.GameplayUtil.nowMs()
+    if receipt.hordePause then
+        local pause = receipt.hordePause
+        Expedition._clearRoadWaypoint(actor, "expedition_horde_entry_rejected")
+        scout.pause = pause
+        scout.roadAvoidance = copyRoadAvoidance(pause.hazard)
+        useReachedTrailForReturn(scout, scout.roadAvoidance)
+        local recovery = pause.recovery
+        if recovery then
+            recovery.clearRoute, recovery.clearPath, recovery.cursor = nil, nil, nil
+            recovery.clearSince, recovery.clearAt, recovery.retreatAnchor = nil, nil, nil
+            recovery.nextAt = now + 4000
+        end
+        if SC.GameplayUtil.diagnostic then
+            SC.GameplayUtil.diagnostic("expedition-return-recheck", actor,
+                "action=deferred mode=" .. pause.mode .. " reason=" .. tostring(why)
+                    .. " retry_ms=4000")
+        end
+        return
+    end
     if state then Expedition._deferStalledReturn(state, now, why or "receipt_rejected") end
     holdForReturnOrders(scout, why or "return_entry_rejected")
 end
@@ -5923,7 +6052,10 @@ local function beginSearchAtSite(scout, now)
     scout.siteEntryTarget = nil
     scout.siteEntryCandidates = nil
     scout.siteEntryStartedAt = nil
-    scout.siteEntryPortals, scout.siteEntryPortalIndex, scout.siteEntryPortalStartedAt = nil, nil, nil
+    scout.siteEntryPortals, scout.siteEntryPortalIndex, scout.siteEntryRejected = nil, nil, nil
+    scout.siteEntrySurvey, scout.nextSiteEntryScanAt = nil, nil
+    scout.siteEntryPortalsExhausted, scout.siteEntryBashPermitted = nil, nil
+    scout.siteEntryPortalProgressAt, scout.siteEntryPortalDistance = nil, nil
     if mission.testWaypoint ~= nil then
         Expedition.clearTestWaypoint(mission.leader.actor)
     end
@@ -6973,23 +7105,43 @@ local function pulseScout()
             end
             return
         end
-        if scout.siteEntryCandidates == nil
-            or (#scout.siteEntryCandidates == 0
-                and now >= (scout.nextSiteEntryScanAt or 0)) then
-            if places and type(places.loadedInteriorCandidates) == "function" then
-                local candidates, _, portals = places.loadedInteriorCandidates(scout.site.id, mission.leader.actor)
-                scout.siteEntryCandidates = candidates
-                scout.siteEntryPortals, scout.siteEntryPortalIndex = portals, 1
-            else
-                scout.siteEntryCandidates = {}
+        if scout.forceEntry then return end
+        local leader = mission.leader.actor
+        local portal = currentEntryPortal(scout)
+        if portal then
+            local distance = distanceToPoint(leader, portal.outside)
+            if scout.siteEntryPortalDistance == nil and type(SC.GameplayUtil.diagnostic) == "function" then
+                SC.GameplayUtil.diagnostic("expedition-entry-portal", leader,
+                    "action=approach key=" .. portal.key)
             end
-            scout.nextSiteEntryScanAt = now + 2000
-        end
-        if currentEntryPortal(scout) then
-            scout.siteEntryPortalStartedAt = scout.siteEntryPortalStartedAt or now
-            if now - scout.siteEntryPortalStartedAt >= 18000 then
-                scout.siteEntryPortalIndex = scout.siteEntryPortalIndex + 1
-                scout.siteEntryPortalStartedAt = nil
+            if scout.siteEntryPortalDistance == nil
+                or distance < scout.siteEntryPortalDistance - 0.35 then
+                scout.siteEntryPortalDistance, scout.siteEntryPortalProgressAt = distance, now
+            elseif now - scout.siteEntryPortalProgressAt >= 12000 then
+                Expedition._rejectSiteEntryPortal(scout, "site_entry_no_progress")
+            end
+        else
+            if now >= (scout.nextSiteEntryScanAt or 0)
+                and places and type(places.loadedInteriorCandidates) == "function" then
+                scout.siteEntrySurvey = scout.siteEntrySurvey
+                    or { budget = 48, rejected = scout.siteEntryRejected }
+                scout.siteEntrySurvey.now = now
+                local candidates, _, portals, retryPending = places.loadedInteriorCandidates(
+                    scout.site.id, leader, scout.siteEntrySurvey)
+                if candidates then
+                    scout.siteEntryCandidates = candidates
+                    scout.siteEntryPortals, scout.siteEntryPortalIndex = portals, 1
+                    scout.siteEntrySurvey, scout.nextSiteEntryScanAt = nil, now + 2500
+                    scout.siteEntryPortalsExhausted = type(portals) == "table"
+                        and #portals == 0 and not retryPending
+                    local native = SC.NativeActions
+                    scout.siteEntryBashPermitted = scout.siteEntryPortalsExhausted
+                        and native and native.doorBashTool and native.doorBashTool(leader) ~= nil
+                        and not Expedition.hasEntryCrowbar()
+                end
+            end
+            if scout.siteEntryPortalsExhausted and not currentEntryPortal(scout) then
+                Expedition.noteEntryBlocked(leader, "no_route")
             end
         end
         return

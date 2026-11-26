@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.27.87 - Expedition entry and horde hold recovery
+
+- Survey verified alternate entrances when the first approach is locked.
+- Recheck blocked walking returns when a stalled retreat no longer needs movement ownership.
+- Fit spare elbow and knee pads to the free side when companions have two pads for the same side.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.86 - Radio restore on game load
 
 - Restore companion radio and TV power state without requiring a placed device or powered world tile.

@@ -1435,8 +1435,10 @@ SC.ExpeditionPlaces.actorInsideSite = function()
     return SC.ExpeditionPlaces._testSquadInside
 end
 SC.ExpeditionPlaces.loadedInteriorCandidates = function()
-    return { { x = 80, y = 20, z = 0 } }
+    return { { x = 80, y = 20, z = 0 } }, nil, SC.ExpeditionPlaces._testEntryPortals or {}
 end
+SC.ExpeditionPlaces._oldEntryTool = SC.ForceEntry and SC.ForceEntry.tool
+if SC.ForceEntry then SC.ForceEntry.tool = function() return nil end end
 reserve.x, reserve.y = 78, 20
 expedition.pulse()
 check(siteSearch.scout.phase == "entering_site"
@@ -1456,18 +1458,42 @@ siteSearch.survivors.gamma = true
 scoutClock = scoutClock + 2000
 expedition.pulse()
 do
-    local entryGridSquare = SC.GameplayUtil.gridSquare
-    SC.GameplayUtil.gridSquare = function(x, y, z)
-        return { x = x, y = y, z = z }
-    end
+    local util, places = SC.GameplayUtil, SC.ExpeditionPlaces
+    local entryGridSquare, entrySameSquare = util.gridSquare, util.sameSquare
+    local entryPortalSquares = places.siteEntryPortalSquares
+    util.gridSquare = function(x, y, z) return { x = x, y = y, z = z } end
+    util.sameSquare = function(actor, square) return actor.x == square.x and actor.y == square.y end
+    places.siteEntryPortalSquares = function(_, portal) return portal.outside, portal.inside end
     local entryTargets = expedition.siteEntryTargetsFor(reserve)
-    check(entryTargets ~= nil and #entryTargets == 1
-            and entryTargets[1].x == 80
-            and siteSearch.testWaypoint == nil
+    check(entryTargets == nil and siteSearch.testWaypoint == nil
             and siteSearch.cohesionHold == nil,
-        "a lagging follower leaves multi-goal interior navigation available to the leader")
-    SC.GameplayUtil.gridSquare = entryGridSquare
+        "floor candidates behind locked doors never start an ordinary interior move")
+    local first = { key = "south", signature = "open",
+        outside = { x = 79, y = 20, z = 0 }, inside = { x = 80, y = 20, z = 0 } }
+    local alternate = { key = "west", signature = "open",
+        outside = { x = 80, y = 19, z = 0 }, inside = { x = 80, y = 20, z = 0 } }
+    places._testEntryPortals = { first, alternate }
+    scoutClock = scoutClock + 3000
+    expedition.pulse()
+    local targets, verified = expedition.siteEntryTargetsFor(reserve)
+    check(verified and targets[1] == first.outside,
+        "an unlocked portal rediscovered after the first scan supplies its exterior approach")
+    expedition.noteEntryBlocked(reserve, "path_blocked:door_locked", false)
+    targets, verified = expedition.siteEntryTargetsFor(reserve)
+    check(verified and targets[1] == alternate.outside
+            and siteSearch.scout.siteEntryRejected[first.key].retryAt > scoutClock,
+        "a failed portal advances to a different threshold for the same room")
+    reserve.x, reserve.y = alternate.outside.x, alternate.outside.y
+    local outside
+    targets, verified, outside = expedition.siteEntryTargetsFor(reserve)
+    check(verified and targets[1] == alternate.inside and outside == alternate.outside,
+        "the leader crosses only the selected cardinal threshold from its exact exterior tile")
+    reserve.x, reserve.y = 78, 20
+    places._testEntryPortals, places.siteEntryPortalSquares = nil, entryPortalSquares
+    util.gridSquare, util.sameSquare = entryGridSquare, entrySameSquare
 end
+if SC.ForceEntry then SC.ForceEntry.tool = SC.ExpeditionPlaces._oldEntryTool end
+SC.ExpeditionPlaces._oldEntryTool = nil
 table.remove(siteSearch.roster)
 siteSearch.survivors.gamma = nil
 siteSearch.survivors = SC.ExpeditionPlaces._oldSurvivors
@@ -2192,6 +2218,121 @@ SC.ExpeditionRoute.plan = successfulRoadPlan
     SC.Navigation.status, SC.Navigation.cancel = navigation, cancel
     reserve.x = player.x + 3
     check(expedition.finishAtPlayer(player), "the recovered walking squad can hand back control")
+end)()
+;(function()
+    local route, nav, util = SC.ExpeditionRoute, SC.Navigation, SC.GameplayUtil
+    local cached, observe, verify, entryObserved = SC.Senses.cached,
+        route.returnObservation, route.verifyReturnEntry, route.returnEntryObserved
+    local plan, status, peek, cancel, gridSquare, isMoving =
+        route.plan, nav.status, nav.peek, nav.cancel, util.gridSquare, reserve.isMoving
+    local originalCombat, originalDecision, originalNative = SC.Combat, SC.Decision, SC.NativeActions
+    reserve.x, reserve.y = 125, 21
+    check(expedition.restore(recoveryProbeSave) and expedition.pulse(),
+        "the horde-hold fixture restores the leader with no radio receipt")
+    local scout = expedition.current().scout
+    local pause = scout.pause
+    pause.hazard = { x = 90, y = 20, radius = 4 }
+    pause.recovery = { nextAt = scoutClock, failures = 0 }
+    local path = {}
+    for x = 125, 136 do path[#path + 1] = squareFor(x, 21) end
+    local idleRoute = { pathSearch = {} }
+    local active, moving, nativePhase, ready, known = true, false, "none", true, true
+    local calls, cancelled, safe = 0, 0, false
+    SC.Decision = { peek = function() return { current = "combat", lastHandledAt = scoutClock } end }
+    SC.Combat = { peek = function() return { active = active } end }
+    SC.NativeActions = {
+        activityStatus = function() return nativePhase end,
+        combatReadiness = function() return ready end,
+    }
+    reserve.isMoving = function() return moving end
+    util.gridSquare = function(x, y, z) return z == 0 and squareFor(x, y) or nil end
+    nav.peek = function() return idleRoute end
+    nav.status = function()
+        return { active = idleRoute ~= nil, phase = "planning", action = "combat_retreat" }
+    end
+    nav.cancel = function(actor, reason)
+        assert(actor == reserve and reason == "expedition_idle_retreat_replaced")
+        idleRoute, cancelled = nil, cancelled + 1
+        return true
+    end
+    SC.Senses.cached = function() return known and { time = scoutClock } or nil end
+    route.returnObservation = function(_, view) return view end
+    route.plan = function(actor, goal, continuing, hazard)
+        calls = calls + 1
+        return plan(actor, goal, continuing, hazard)
+    end
+    route.verifyReturnEntry = function() return { x = 136, y = 21, z = 0 }, nil, path end
+    route.returnEntryObserved = function(_, proof)
+        return safe and proof == path, "return_entry_horde"
+    end
+    local function retry()
+        scoutClock = pause.recovery.nextAt
+        return expedition._pulseBlockedReturn(scout, pause, scoutClock)
+    end
+    for _ = 1, 4 do retry() end
+    check(calls == 0 and cancelled == 0, "active combat keeps its own retreat")
+    active, moving = false, true
+    for _ = 1, 4 do retry() end
+    check(calls == 0 and cancelled == 0, "a moving leader retains the retreat")
+    moving, nativePhase = false, "result_pending"
+    for _ = 1, 4 do retry() end
+    check(calls == 0 and cancelled == 0, "a pending native result retains ownership")
+    nativePhase, ready = "none", false
+    retry()
+    check(calls == 0 and cancelled == 0, "a native swing or recovery blocks a stationary handoff")
+    ready, known = true, false
+    retry()
+    check(calls == 0 and cancelled == 0 and scout.pause == pause,
+        "a stalled retreat still needs a fresh observation")
+    known = true
+    retry()
+    check(cancelled == 0 and scout.pause == pause, "an unsafe alternate preserves the old retreat and hazard")
+    safe = true
+    check(retry() and calls == 2 and cancelled == 1 and scout.pause == nil
+            and scout.road.avoidance.x == pause.hazard.x,
+        "idle combat planning yields to an observed safe route while retaining the hazard")
+    local receipt = expedition.stalledReturnReceiptFor(reserve, path[#path])
+    check(receipt and receipt.path == path and not receipt.used,
+        "the recovery hands Navigation the exact observed path")
+    expedition.rejectStalledReturnReceipt(reserve, receipt, "return_entry_proof_lost")
+    check(scout.pause == pause and scout.roadAvoidance.x == pause.hazard.x
+            and scout.pause.recovery.nextAt > scoutClock,
+        "a lost recovery proof restores the same horde hold and hazard")
+    route.plan, route.returnObservation = plan, observe
+    route.verifyReturnEntry, route.returnEntryObserved = verify, entryObserved
+    SC.Senses.cached = cached
+    nav.status, nav.peek, nav.cancel, util.gridSquare = status, peek, cancel, gridSquare
+    reserve.isMoving = isMoving
+    SC.Combat, SC.Decision, SC.NativeActions = originalCombat, originalDecision, originalNative
+    reserve.x, reserve.y = player.x + 3, 20
+    check(expedition.finishAtPlayer(player), "the reproduced horde hold can be released normally")
+end)()
+;(function()
+    -- A site-entry timeout can put an unstarted Search on a road return
+    -- before a horde forces that return to hold and the player saves.
+    local saved = recoveryProbeSave
+    local scout = saved.scout
+    scout.kind = "search"
+    scout.search = { request = { category = "useful", quantity = 8 },
+        acquisitions = {}, radius = 5, endReason = "site_entry_blocked" }
+    scout.site = nil
+    check(not expedition.restore(saved), "a site-entry timeout requires a site")
+    scout.site = { id = "unresolved", label = "Gas station",
+        knowledge = "map_metadata_unconfirmed", street = "KY-60" }
+    check(not expedition.restore(saved), "a site-entry timeout cannot restore a malformed site")
+    scout.site.id = "8040:11137:8052:11164"
+    scout.search.acquisitions[1] = { id = "acquired", itemType = "Base.Hammer", memberId = "delta" }
+    check(not expedition.restore(saved), "an unstarted site Search cannot have loot")
+    scout.search.acquisitions[1] = nil
+    check(expedition.restore(saved), "a valid unstarted site Search can restore its blocked return")
+    local restored = expedition.export().scout
+    check(restored.phase == "inbound" and restored.search.startedHour == nil
+            and restored.search.endReason == "site_entry_blocked"
+            and restored.pause.reason == "return_horde_blocked"
+            and restored.pause.hazard.x == scout.pause.hazard.x
+            and restored.pause.playerHold == false,
+        "the restored site Search retains the original hold and hazard")
+    check(expedition.prepareReset() and expedition.reset(), "the site return fixture can be reset")
 end)()
 ;(function()
     local send, fishing = SCSplitScreenProbe.sendTestRadioWithLeaderText, SC.Fishing

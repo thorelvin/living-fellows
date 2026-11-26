@@ -153,6 +153,131 @@ end
 SurvivorCompanion.__testManualFilterMasks()
 SurvivorCompanion.__testManualFilterMasks = nil
 
+local function testSparePadFit()
+    local sc = SurvivorCompanion
+    local safe = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 } }
+    local previousNative, previousManager = sc.NativeActions, getScriptManager
+    local previousModuleType, previousInstance, previousCopy = moduleDotType, instanceItem, copyClothingItem
+    local elbowLeft, elbowRight = "base:elbow_left", "base:elbow_right"
+    local kneeLeft, kneeRight = "base:knee_left", "base:knee_right"
+    local leftElbowType, leftKneeType = "Base.ElbowPad_Left", "Base.Kneepad_Left"
+    local itemSlots = { [leftElbowType] = elbowLeft, [leftKneeType] = kneeLeft }
+    local function pad(fullType, slot, alternate)
+        local gear = item(fullType, "Clothing", { bodyLocation = slot, biteDefense = 30, weight = .5 })
+        function gear:getModule() return "Base" end
+        function gear:getClothingItemExtra()
+            return { size = function() return alternate and 1 or 0 end,
+                get = function() return alternate end }
+        end
+        function gear:setCustomName() end
+        return gear
+    end
+    local made
+    getScriptManager = function()
+        return { FindItem = function(_, fullType)
+            return { getBodyLocation = function() return itemSlots[fullType] end }
+        end }
+    end
+    moduleDotType = function(module, name)
+        return string.find(name, ".", 1, true) and name or module .. "." .. name
+    end
+    instanceItem = function(fullType)
+        made = pad(fullType, itemSlots[fullType])
+        return made
+    end
+    copyClothingItem = function(original, fitted)
+        fitted:setCondition(original:getCondition())
+        fitted:setFavorite(original:isFavorite())
+        fitted:getModData().padMark = original:getModData().padMark
+    end
+    local token, visual, rejected = {}, "active", false
+    sc.NativeActions = {
+        visualStatus = function(_, expected) return visual, expected end,
+        visualToken = function() return token end,
+        clearVisual = function() visual = "none" end,
+        cancelVisual = function() visual = "cancelled" return true end,
+        stopDirect = function(subject) subject.moving = false return true end,
+        commitClothingVisual = function(subject, visualToken, original, unwear, fitted)
+            check(visualToken == token and unwear == false
+                    and subject.inventory:contains(original) and subject.inventory:contains(fitted),
+                "the wear effect keeps its original item and stages the fitted pad")
+            subject:setWornItem(fitted:getBodyLocation(), fitted)
+            return not rejected
+        end,
+    }
+    for _, scenario in ipairs({ "equip", "manual-race", "failed-effect" }) do
+        local knee = scenario == "manual-race"
+        local originalType = knee and "Base.Kneepad_Right" or "Base.ElbowPad_Right"
+        local right, left = knee and kneeRight or elbowRight, knee and kneeLeft or elbowLeft
+        local alternate = knee and leftKneeType or leftElbowType
+        local worn = pad(originalType, right, alternate)
+        local spare = pad(originalType, right, alternate)
+        local fellow = actor("sc-pad-fit-" .. scenario, 11, 5, { inventory = inventory({ worn }) })
+        registry[fellow.id] = fellow
+        local accepted, _, _, slot, variant = sc.Logistics.clothingUpgrade(fellow, worn)
+        check(accepted and slot == right and variant == nil,
+            "a single pad uses its own side")
+        fellow:setWornItem(right, worn)
+        worn:getModData().SC_ManualWearFor = fellow.id
+        local stock = inventory({ spare })
+        local take, reason = sc.Logistics.canTake(fellow, spare, "clothing", nil, nil, stock)
+        check(take and reason == "clothing_upgrade" and stock:contains(spare),
+            "a same-side spare from camp stock is a clothing upgrade for the vacant limb")
+        local calf = pad("Test.LeftCalf", "base:calf_left")
+        if knee then
+            fellow.exclusiveLocations = { ["base:knee_left:base:calf_left"] = true }
+            fellow:setWornItem("base:calf_left", calf)
+            check(not sc.Logistics.clothingUpgrade(fellow, spare),
+                "a spare pad does not replace conflicting armor on the opposite limb")
+            fellow:removeWornItem(calf, false)
+            local wrong = pad(originalType, right, leftElbowType)
+            spare.broken = true
+            check(not sc.Logistics.clothingUpgrade(fellow, wrong)
+                    and not sc.Logistics.clothingUpgrade(fellow, spare),
+                "an unrelated alternate variant or a broken pad cannot fill the opposite limb")
+            spare.broken = false
+        end
+        stock:Remove(spare)
+        fellow.inventory:AddItem(spare)
+        spare:setCondition(8)
+        spare:setFavorite(true)
+        spare:setName("Spare pad")
+        spare:getModData().padMark = scenario
+        made, visual, rejected = nil, "active", scenario == "failed-effect"
+        check(sc.Logistics.update(fellow, nil, safe) and made == nil,
+            "the spare is fitted only after the supervised wear pose")
+        local manual
+        if knee then
+            manual = pad(alternate, left)
+            fellow.inventory:AddItem(manual)
+            fellow:setWornItem(left, manual)
+            manual:getModData().SC_ManualWearFor = fellow.id
+        end
+        visual = "completed"
+        local equipped = sc.Logistics.update(fellow, nil, safe)
+        check(fellow:getWornItem(right) == worn and fellow.inventory:contains(worn),
+            "fitting a spare preserves the original manually worn pad")
+        if scenario == "equip" then
+            check(equipped and fellow:getWornItem(left) == made
+                    and #fellow.inventory.items == 2 and not fellow.inventory:contains(spare)
+                    and made:getCondition() == 8 and made:isFavorite()
+                    and made:getName() == "Spare pad" and made:getModData().padMark == scenario,
+                "fitting the opposite pad replaces exactly one item and preserves its state")
+        else
+            check(not equipped and fellow:getWornItem(left) == manual
+                    and fellow.inventory:contains(spare) and not fellow.inventory:contains(made)
+                    and sc.ActionSupervisor.reservationCount(fellow) == 0,
+                "one-sided pad fit rolls back after " .. scenario)
+        end
+        sc.Logistics.reset(fellow)
+        sc.ActionSupervisor.releaseActor(fellow)
+        registry[fellow.id], fellow.dead = nil, true
+    end
+    sc.NativeActions, getScriptManager = previousNative, previousManager
+    moduleDotType, instanceItem, copyClothingItem = previousModuleType, previousInstance, previousCopy
+end
+testSparePadFit()
+
 function SurvivorCompanion.__testPreparationPacking()
     local sc, originalClock = SurvivorCompanion, f.clock
     local safe = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 } }

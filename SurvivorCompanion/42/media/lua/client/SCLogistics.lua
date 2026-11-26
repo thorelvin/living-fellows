@@ -567,6 +567,35 @@ local function replacementItems(actor, location)
     return result
 end
 
+local oppositePadSlots = {
+    ["base:elbow_left"] = "base:elbow_right", ["base:elbow_right"] = "base:elbow_left",
+    ["base:knee_left"] = "base:knee_right", ["base:knee_right"] = "base:knee_left",
+}
+
+local function sparePadFit(actor, item, location)
+    local opposite = oppositePadSlots[lower(location)]
+    if not opposite or not wornAt(actor, location)
+        or type(copyClothingItem) ~= "function" or type(instanceItem) ~= "function"
+        or type(moduleDotType) ~= "function" or type(getScriptManager) ~= "function" then
+        return nil
+    end
+    local utility = U()
+    if select(1, utility.call(actor, "isHandItem", item)) == true then return nil end
+    local extras = select(1, utility.call(item, "getClothingItemExtra"))
+    local size = select(1, utility.call(extras, "size"))
+    if size ~= 1 then return nil end
+    local extra = select(1, utility.call(extras, "get", 0))
+    if type(extra) ~= "string" then return nil end
+    local module = select(1, utility.call(item, "getModule"))
+    local extraType = moduleDotType(module, extra)
+    local script = select(1, utility.call(getScriptManager(), "FindItem", extraType))
+    local extraLocation = select(1, utility.call(script, "getBodyLocation"))
+    if lower(extraLocation) == opposite and #replacementItems(actor, extraLocation) == 0 then
+        return extraType, extraLocation
+    end
+    return nil
+end
+
 local function conditionRatio(item)
     local condition, conditionOk = U().call(item, "getCondition")
     local maximum, maxOk = U().call(item, "getConditionMax")
@@ -635,6 +664,18 @@ function Logistics.clothingUpgrade(actor, item)
     local replacements = replacementItems(actor, location)
     local current = replacements[1]
     if isWorn(actor, item, location) then return false, 0, current, location end
+    local minimum = U().config("logisticsClothingUpgradeMinimum") or 8
+    local candidateScore
+    -- Fit a loose spare to the uncovered limb before considering replacement.
+    if current then
+        local extraType, extraLocation = sparePadFit(actor, item, location)
+        if extraType then
+            candidateScore = Logistics.clothingScore(item)
+            if candidateScore >= minimum then
+                return true, candidateScore, nil, extraLocation, extraType
+            end
+        end
+    end
     -- A player explicitly dressed this companion. Routine loadout decisions
     -- must not immediately undo that choice while the garment is still worn.
     for _, replaced in ipairs(replacements) do
@@ -645,7 +686,7 @@ function Logistics.clothingUpgrade(actor, item)
             return false, 0, current, location
         end
     end
-    local candidateScore = Logistics.clothingScore(item)
+    candidateScore = candidateScore or Logistics.clothingScore(item)
     if candidateScore == -math.huge then return false, 0, current, location end
     local currentScore = 0
     for _, replaced in ipairs(replacements) do
@@ -656,8 +697,7 @@ function Logistics.clothingUpgrade(actor, item)
         currentScore = currentScore + score
     end
     local difference = candidateScore - currentScore
-    return difference >= (U().config("logisticsClothingUpgradeMinimum") or 8),
-        difference, current, location
+    return difference >= minimum, difference, current, location
 end
 
 local function bagScore(item)
@@ -1093,10 +1133,12 @@ local function selectOwnedClothingUpgrade(actor, audit)
             and SC.PersonalItems.isProtected(record.item, actor, "loadout")
         if record.category == "clothing" and not personal
             and not isWorn(actor, record.item) then
-            local accepted, difference, current, location = Logistics.clothingUpgrade(actor, record.item)
-            if accepted and (not best or difference > best.difference) then
+            local accepted, difference, current, location, extraType =
+                Logistics.clothingUpgrade(actor, record.item)
+            if accepted and (not best or difference > best.difference
+                or (difference == best.difference and best.extraType and not extraType)) then
                 best = { item = record.item, source = record.source, current = current,
-                    location = location, difference = difference }
+                    location = location, difference = difference, extraType = extraType }
             elseif not accepted then
                 reportClothingDecision(actor, record.item, "refused",
                     "location=" .. tostring(location)
@@ -1172,9 +1214,71 @@ local function selectPackMove(actor, audit, options)
     return best
 end
 
+local function refreshWearables(actor, root)
+    local utility = U()
+    utility.call(actor, "resetModelNextFrame")
+    if type(triggerEvent) == "function" then
+        pcall(triggerEvent, "OnClothingUpdated", actor)
+    end
+    utility.call(root, "setDirty", true)
+    utility.call(root, "setDrawDirty", true)
+    if type(ISInventoryPage) == "table" then ISInventoryPage.renderDirty = true end
+    if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+        SC.InventoryIndex.touch(actor)
+    end
+end
+
+local function commitSparePad(actor, record, transaction, root)
+    local utility = U()
+    local item, source = record.item, record.source
+    local accepted, _, _, location, extraType = Logistics.clothingUpgrade(actor, item)
+    if not accepted or extraType ~= record.extraType or location ~= record.location
+        or utility.containerContainsIdentity(source, item) ~= true
+        or (SC.PersonalItems and SC.PersonalItems.isProtected
+            and SC.PersonalItems.isProtected(item, actor, "loadout")) then
+        return false, "spare_pad_fit_changed"
+    end
+    local made, fitted = pcall(instanceItem, extraType)
+    if not made or not fitted or wearableLocation(fitted) ~= location then
+        return false, "spare_pad_variant_unavailable"
+    end
+    local copied = pcall(function()
+        copyClothingItem(item, fitted)
+        if item:isCustomName() then
+            fitted:setName(item:getName())
+            fitted:setCustomName(true)
+        end
+    end)
+    if not copied then return false, "spare_pad_copy_failed" end
+
+    -- Keep the original in its own container until the stock wear effect has
+    -- retained the fitted version in the exact opposite slot.
+    utility.call(root, "AddItem", fitted)
+    local native = SC.NativeActions
+    local committed, equipped
+    if utility.containerContainsIdentity(root, fitted) == true and native and native.commitClothingVisual then
+        committed, equipped = pcall(native.commitClothingVisual, actor,
+            transaction.visualToken, item, false, fitted)
+    end
+    if committed and equipped and wornAt(actor, location) == fitted then
+        utility.call(source, "Remove", item)
+        if utility.containerContainsIdentity(source, item) == false then
+            utility.call(source, "setDirty", true)
+            utility.call(source, "setDrawDirty", true)
+            refreshWearables(actor, root)
+            return true, "wearable_equipped"
+        end
+    end
+    if wornAt(actor, location) == fitted then utility.call(actor, "removeWornItem", fitted, false) end
+    utility.call(root, "Remove", fitted)
+    refreshWearables(actor, root)
+    return false, "spare_pad_equip_failed"
+end
+
 local function commitWearable(actor, record, transaction)
     local utility = U()
     local root = utility.inventory(actor)
+    if record.extraType then return commitSparePad(actor, record, transaction, root) end
     local source = record.source
     local previous = {}
     for _, item in ipairs(replacementItems(actor, record.location)) do
@@ -1251,16 +1355,7 @@ local function commitWearable(actor, record, transaction)
         end
         return false, "wearable_equip_failed"
     end
-    utility.call(actor, "resetModelNextFrame")
-    if type(triggerEvent) == "function" then
-        pcall(triggerEvent, "OnClothingUpdated", actor)
-    end
-    utility.call(root, "setDirty", true)
-    utility.call(root, "setDrawDirty", true)
-    if type(ISInventoryPage) == "table" then ISInventoryPage.renderDirty = true end
-    if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
-        SC.InventoryIndex.touch(actor)
-    end
+    refreshWearables(actor, root)
     return true, "wearable_equipped"
 end
 
