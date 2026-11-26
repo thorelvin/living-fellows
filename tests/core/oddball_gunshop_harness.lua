@@ -13,6 +13,21 @@ local doorSquare = { x = -2, y = 2, z = 0, objects = { door } }
 local visible, profanityEnabled = true, true
 local seenPosts = {}
 local spawned, sounds, emotes = {}, {}, {}
+-- The shop floor: x -2..5, y -3..3. The street door sits on the west edge
+-- of (-2, 2), so the pavement square (-3, 2) is outside.
+local shopRoom = { name = "gunstore" }
+local blockedFloor = {}
+local function roomAt(x, y)
+    if x >= -2 and x <= 5 and y >= -3 and y <= 3 then return shopRoom end
+    return nil
+end
+local navigation = { requests = {}, accept = true, reason = "moving" }
+local faced = {}
+SC.Navigation = { request = function(actor, square, mode, options)
+    navigation.requests[#navigation.requests + 1] = { actor = actor.id, x = square.x,
+        y = square.y, mode = mode, arrival = options and options.arrivalDistance }
+    return navigation.accept, navigation.reason
+end }
 local function newGroup()
     return { id = "bob-group", standing = "Neutral", members = { { actorId = "bob" } },
         oddball = { id = "gunshop_bob_kenley", stage = "unmet", site = { kind = "resident",
@@ -55,6 +70,9 @@ SC.GameplayUtil = {
         return { x = x, y = y, z = z or 0, post = true, key = x .. ":" .. y }
     end,
     isSafeSpawnSquare = function(square) return square ~= nil end,
+    isSquareFree = function(square)
+        return square ~= nil and not blockedFloor[square.x .. ":" .. square.y]
+    end,
     inventory = function(value) return value.inv end,
     inventoryItemsDeep = function(inv) return inv.items end,
     itemType = function(item) return item.kind end,
@@ -76,7 +94,14 @@ SC.GameplayUtil = {
     end,
     modData = function(item) return item.data end,
     say = function(actor, line) actor.lastLine = line return true end,
-    call = function(value, method, a)
+    call = function(value, method, a, b)
+        if method == "getRoom" and type(value) == "table" and value.x ~= nil then
+            return roomAt(value.x, value.y), true
+        end
+        if method == "faceLocationF" then
+            faced[#faced + 1] = { actor = value.id, x = a, y = b }
+            return nil, true
+        end
         if value == glass then
             if method == "isSmashed" then return glass.smashed, true end
             if method == "isBarricaded" then return glass.barricaded, true end
@@ -93,6 +118,7 @@ SC.GameplayUtil = {
             if method == "ToggleDoorSilent" then door.open = not door.open return nil, true end
             if method == "setLocked" or method == "setLockedByKey" then door.locked = a return nil, true end
             if method == "isLocked" then return door.locked, true end
+            if method == "getNorth" then return door.north == true, true end
         end
         if value == player and method == "getPlayerNum" then return 0, true end
         if type(value) == "table" and value.post and method == "isCanSee" then
@@ -356,6 +382,88 @@ group.oddball.smashAt = now
 G.pulse(group, player, now)
 assert(group.oddball.stage == "siege" and contains("doorOpen", said()),
     "an open door is how they come in")
+
+-- Live 0.27.92: Bob stayed behind the counter, round the corner from the
+-- open door, and the dead idled outside it for the whole siege. He covers
+-- the doorway from two squares back along its line instead.
+local cover = group.oddball.coverPost
+assert(type(cover) == "table" and cover.x == 0 and cover.y == 2 and cover.z == 0
+        and cover.faceX == -2.5 and cover.faceY == 2.5,
+    "an open west-edge door gives a cover post two squares in, facing the pavement")
+local counter = { mode = "gunshop_counter" }
+bob.x, bob.y = 3, 0
+navigation.requests, navigation.accept, navigation.reason = {}, true, "moving"
+local handled, why = G.update(bob, player, nil, counter, group)
+local walk = navigation.requests[1]
+assert(handled == true and why == "bob_taking_cover" and #navigation.requests == 1
+        and walk.actor == "bob" and walk.x == 0 and walk.y == 2 and walk.mode == "walk"
+        and walk.arrival == 0.5,
+    "during the siege he walks to the cover post on ordinary navigation")
+bob.x, bob.y = 0.4, 2.6
+faced = {}
+handled, why = G.update(bob, player, nil, counter, group)
+assert(handled == true and why == "bob_covering_the_door" and #navigation.requests == 1
+        and #faced == 1 and faced[1].x == -2.5 and faced[1].y == 2.5
+        and group.oddball.coverReached == true,
+    "at the post he faces the doorway and holds")
+
+-- A north-edge door, as in the live West Point shop, covers along y.
+G._resetForTests()
+group = lockedGroup()
+group.oddball.lockedIn = true
+door.open, door.locked, door.north = true, false, true
+doorSquare.y = 4
+group.oddball.site.partyDoor.y = 4
+group.oddball.stage = "greeted"
+group.oddball.smashAt = now
+G.pulse(group, player, now)
+cover = group.oddball.coverPost
+assert(type(cover) == "table" and cover.x == -2 and cover.y == 1
+        and cover.faceX == -1.5 and cover.faceY == 4.5,
+    "a north-edge door with the shop to the north covers two squares up the doorway line")
+doorSquare.y, door.north = 2, nil
+
+-- The line is blocked two squares in: the next free depth is used, and a
+-- doorway with no room on either side gives no post at all.
+G._resetForTests()
+group = lockedGroup()
+group.oddball.lockedIn = true
+door.open, door.locked = true, false
+blockedFloor["0:2"] = true
+group.oddball.stage = "greeted"
+group.oddball.smashAt = now
+G.pulse(group, player, now)
+cover = group.oddball.coverPost
+assert(type(cover) == "table" and cover.x == -1 and cover.y == 2,
+    "with the second square taken he covers from the first")
+blockedFloor = {}
+
+-- A refused walk ends the attempt; he does not retry every pulse.
+navigation.requests, navigation.accept, navigation.reason = {}, false, "no_path"
+bob.x, bob.y = 3, 0
+handled, why = G.update(bob, player, nil, counter, group)
+assert(handled == true and why == "bob_behind_the_counter"
+        and group.oddball.coverPost == nil and group.oddball.coverFailure == "no_path",
+    "a refused walk drops the cover post")
+handled, why = G.update(bob, player, nil, counter, group)
+assert(why == "bob_behind_the_counter" and #navigation.requests == 1,
+    "and nothing asks again")
+navigation.accept = true
+
+-- A shut door is hammered on, not walked through: no cover post.
+G._resetForTests()
+group = lockedGroup()
+group.oddball.lockedIn = true
+door.open, door.locked = false, true
+group.oddball.stage = "greeted"
+group.oddball.smashAt = now
+G.pulse(group, player, now)
+assert(group.oddball.stage == "siege" and group.oddball.coverPost == nil,
+    "a shut door gives no cover post")
+navigation.requests = {}
+handled, why = G.update(bob, player, nil, counter, group)
+assert(why == "bob_behind_the_counter" and #navigation.requests == 0,
+    "and he stays behind the counter")
 
 -- Every approach in view: no pop-in. Six tries, then a quiet day.
 G._resetForTests()

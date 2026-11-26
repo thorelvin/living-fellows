@@ -23,6 +23,8 @@ local MIN_UNSEEN_POSTS = 3
 local BARK_MS = 8000
 local SIEGE_LIMIT_MS = 600000
 local NOISE_RADIUS = 30
+-- Squares back from the doorway for his cover post, best first.
+local COVER_DEPTHS = { 2, 3, 1, 4 }
 
 local REWARD = {
     { kind = "Base.Pistol2", count = 1 },
@@ -243,6 +245,56 @@ local function shopDoor(value)
     return openingAt(post, "IsoDoor"), post
 end
 
+local function roomOf(square)
+    return square and select(1, U().call(square, "getRoom")) or nil
+end
+
+local function standable(square)
+    local util = U()
+    if type(util.isSquareFree) == "function" then return util.isSquareFree(square) == true end
+    return util.isSafeSpawnSquare(square) == true
+end
+
+-- Live, Bob stood behind his counter, round the corner from the open door,
+-- while the dead milled outside it: nobody saw anybody and the siege ran
+-- out its ten minutes. He covers the doorway instead, a few squares back
+-- along its line, so the dead see him come through and he sees them.
+-- A door on a square's north edge joins (x, y-1) and (x, y); on its west
+-- edge, (x-1, y) and (x, y). The side with the shop's room is inside.
+local function coverPost(door, post)
+    if not door or not post then return nil end
+    local z = post.z or 0
+    local north = select(1, U().call(door, "getNorth")) == true
+    local otherX, otherY = north and post.x or post.x - 1, north and post.y - 1 or post.y
+    local here = U().gridSquare(post.x, post.y, z)
+    local there = U().gridSquare(otherX, otherY, z)
+    local hereRoom, thereRoom = roomOf(here), roomOf(there)
+    local inside, outside
+    if thereRoom ~= nil and hereRoom == nil then
+        inside, outside = { x = otherX, y = otherY, room = thereRoom }, { x = post.x, y = post.y }
+    elseif hereRoom ~= nil and thereRoom == nil then
+        inside, outside = { x = post.x, y = post.y, room = hereRoom }, { x = otherX, y = otherY }
+    else
+        return nil
+    end
+    local dx, dy = inside.x - outside.x, inside.y - outside.y
+    for _, depth in ipairs(COVER_DEPTHS) do
+        local clear = true
+        for step = 1, depth do
+            local square = U().gridSquare(inside.x + dx * step, inside.y + dy * step, z)
+            if not square or roomOf(square) ~= inside.room or not standable(square) then
+                clear = false
+                break
+            end
+        end
+        if clear then
+            return { x = inside.x + dx * depth, y = inside.y + dy * depth, z = z,
+                faceX = outside.x + 0.5, faceY = outside.y + 0.5 }
+        end
+    end
+    return nil
+end
+
 -- Every outside door of the shop, shut and locked from the inside.
 function GunShop.lockUp(group, value)
     local posts = {}
@@ -307,9 +359,11 @@ local function breakIn(group, value, player, current)
         U().call(window, "smashWindow")
         pool = "smash"
     else
-        local open = door ~= nil and (select(1, U().call(door, "IsOpen")) == true
-            or select(1, U().call(door, "isLocked")) ~= true)
+        local ajar = door ~= nil and select(1, U().call(door, "IsOpen")) == true
+        local open = door ~= nil and (ajar or select(1, U().call(door, "isLocked")) ~= true)
         pool = open and "doorOpen" or "door"
+        -- A shut door is hammered on; an open one is walked through.
+        value.coverPost = ajar and coverPost(door, doorPost) or nil
     end
     value.siegeVia = glass and "glass" or "door"
     for index = value.hordeSpawned + 1, HORDE_SIZE do
@@ -433,7 +487,29 @@ end
 
 function GunShop.update(actor, player, runtime, intent, group)
     if not intent or intent.mode ~= "gunshop_counter" then return false end
-    return true, "bob_behind_the_counter"
+    local value = story(group)
+    local post = value and value.stage == "siege" and value.coverPost or nil
+    if type(post) ~= "table" then return true, "bob_behind_the_counter" end
+    local x, y, z = U().position(actor)
+    if x and math.floor(z or 0) == (post.z or 0)
+        and math.floor(x) == post.x and math.floor(y) == post.y then
+        U().call(actor, "faceLocationF", post.faceX, post.faceY)
+        value.coverReached = true
+        return true, "bob_covering_the_door"
+    end
+    local square = U().gridSquare(post.x, post.y, post.z or 0)
+    if not square or not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+        value.coverPost = nil
+        return true, "bob_behind_the_counter"
+    end
+    local moving, reason = SC.Navigation.request(actor, square, "walk", {
+        action = "faction_support", arrivalDistance = 0.5 })
+    if not moving then
+        -- One refused walk ends the attempt; he holds where he is.
+        value.coverPost, value.coverFailure = nil, tostring(reason)
+        return true, "bob_behind_the_counter"
+    end
+    return true, "bob_taking_cover"
 end
 
 function GunShop.menuOptions(group, player)

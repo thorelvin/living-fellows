@@ -11,6 +11,13 @@
     (Join-Path $Essential 'power_night_harness.lua')) }
 @{ Name = 'behaviour.power-night-seating'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Essential 'power_night_seating_harness.lua')) }
+@{ Name = 'behaviour.gunshop-siege'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Shared 'SCCall.lua'),
+    (Join-Path $Shared 'SCNativeList.lua'),
+    (Join-Path $Client 'SCOddballExchange.lua'),
+    (Join-Path $Client 'SCOddballGunShop.lua'),
+    (Join-Path $Core 'oddball_gunshop_harness.lua')) }
 @{ Name = 'behaviour.decision-arbitration-and-shelter-entry'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Shared 'SCSpeechColors.lua'),
