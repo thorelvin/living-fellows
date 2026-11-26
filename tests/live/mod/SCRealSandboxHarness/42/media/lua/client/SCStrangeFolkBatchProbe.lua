@@ -1476,18 +1476,18 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
             local horde = taggedZombies(F.group.id)
             if F.locked then
                 check("gunshop_dead_come_through_his_door", value.siegeVia == "door"
-                        and value.spawned == 5 and #horde == 5
+                        and value.hordeSpawned == 5 and #horde == 5
                         and said(F, module.LINES.safeLocked, F.speechMark, actor) ~= nil
                         and said(F, module.LINES.doorOpen, F.speechMark, actor) ~= nil,
-                    "via=" .. tostring(value.siegeVia) .. " spawned=" .. tostring(value.spawned)
+                    "via=" .. tostring(value.siegeVia) .. " spawned=" .. tostring(value.hordeSpawned)
                         .. " live=" .. #horde)
             else
                 check("gunshop_glass_gives_way", call(F.window, "isSmashed") == true
-                        and value.spawned == 5 and #horde == 5
+                        and value.hordeSpawned == 5 and #horde == 5
                         and said(F, module.LINES.smash, F.speechMark, actor) ~= nil
                         and said(F, module.LINES.safe, F.speechMark, actor) ~= nil,
                     "smashed=" .. tostring(call(F.window, "isSmashed")) .. " spawned="
-                        .. tostring(value.spawned) .. " live=" .. #horde)
+                        .. tostring(value.hordeSpawned) .. " live=" .. #horde)
             end
             F.step, F.stepAt = "siege", current
             return
@@ -1519,20 +1519,20 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
             for _, zombie in ipairs(horde) do nearest = math.min(nearest, dist(actor, zombie)) end
             trace("BOB", "nearest walker=" .. round(nearest) .. " m inside="
                 .. tostring(#horde > 0 and call(U().squareOf(horde[1]), "getRoom") ~= nil))
-            trace("BOB", "siege killed=" .. tostring(value.killed) .. "/" .. tostring(value.spawned)
+            trace("BOB", "siege killed=" .. tostring(value.killed) .. "/" .. tostring(value.hordeSpawned)
                 .. " live=" .. #horde .. " bobAlive=" .. tostring(not U().isDead(actor))
                 .. " ammo=" .. tostring(ammo) .. " health="
                 .. round(call(call(actor, "getBodyDamage"), "getOverallBodyHealth")))
         end
         if U().isDead(actor) then
             need("gunshop_bob_survives_the_siege", false, "Bob died; killed="
-                .. tostring(value.killed) .. " of " .. tostring(value.spawned))
+                .. tostring(value.killed) .. " of " .. tostring(value.hordeSpawned))
             return
         end
         if not F.byBob and (#horde == 0 or current - F.stepAt > 90000) then
             F.byBob = tonumber(value.killed) or 0
             result("PASS", "gunshop_bob_fights_back", "Bob's own count of the dead after "
-                .. (current - F.stepAt) .. " ms: " .. F.byBob .. " of " .. tostring(value.spawned))
+                .. (current - F.stepAt) .. " ms: " .. F.byBob .. " of " .. tostring(value.hordeSpawned))
             for _, zombie in ipairs(horde) do
                 pcall(function() zombie:Kill(H.player) end)
             end
@@ -1544,7 +1544,7 @@ function Flows.gunshop(H, F, current, check, result, setPhase, need)
         end
         if F.killedAt and current - F.killedAt > 20000 then
             need("gunshop_kills_are_counted", false, "killed=" .. tostring(value.killed)
-                .. " spawned=" .. tostring(value.spawned) .. " live=" .. #horde)
+                .. " spawned=" .. tostring(value.hordeSpawned) .. " live=" .. #horde)
         end
         return
     end

@@ -3334,6 +3334,32 @@ local function taxiCallStep(H, SC, current, check, result, setPhase)
         return
     end
     if H.phase == "drive_taxi_call_ride" then
+        if current - (test.taxiDiagAt or 0) >= 2000 then
+            test.taxiDiagAt = current
+            local native = test.actor and SC.Driving.status(test.actor) or {}
+            local job = test.actor and SC.Driving.jobStatus(test.actor) or {}
+            local fields = {}
+            for key, value in pairs(type(native) == "table" and native or {}) do
+                if type(value) ~= "table" then
+                    fields[#fields + 1] = tostring(key) .. "=" .. tostring(value)
+                end
+                if #fields >= 60 then break end
+            end
+            table.sort(fields)
+            local jobFields = {}
+            for key, value in pairs(type(job) == "table" and job or {}) do
+                if type(value) ~= "table" then
+                    jobFields[#jobFields + 1] = tostring(key) .. "=" .. tostring(value)
+                end
+                if #jobFields >= 40 then break end
+            end
+            table.sort(jobFields)
+            print("SC_REAL_SANDBOX|TAXI_TRACE|x=" .. fmt(car:getX()) .. " y=" .. fmt(car:getY())
+                .. " kmh=" .. fmt(call(car, "getCurrentSpeedKmHour"))
+                .. " driver=" .. tostring(call(car, "getDriver") == test.actor)
+                .. " job={" .. table.concat(jobFields, ",") .. "}"
+                .. " native={" .. table.concat(fields, ",") .. "}")
+        end
         if H.config.taxi_call_long_paid == "true" then
             local x, y = car:getX(), car:getY()
             if test.taxiLongPreviousX then

@@ -834,6 +834,22 @@ local function setup(H, current, check, result, setPhase)
         and SC.BaseWatch.current() == nil and SC.ViewSession.owner() == nil and getSpecificPlayer(1) == nil,
         "refuse an existing session; never reset it") then setPhase("finish", current) return end
     fixture.crew = selectCrew(SC, crewSize)
+    if fixture.crew[1] == nil and current - H.phaseStartedAt < 60000 then
+        H.woodExpedition = nil
+        return
+    end
+    if fixture.crew[1] == nil then
+        for _, record in ipairs(SC.Registry.records()) do
+            local actor = record.actor
+            local command = actor and SC.Commands.peek(actor)
+            print("SC_REAL_SANDBOX|WOOD_ROSTER|id=" .. tostring(record.id)
+                .. " name=" .. tostring(actor and SC.GameplayUtil.nameOf(actor))
+                .. " actor=" .. tostring(actor ~= nil)
+                .. " recruited=" .. tostring(command and command.recruited)
+                .. " healthy=" .. tostring(actor and healthy(actor))
+                .. " inside=" .. tostring(actor and SC.BaseLife.isInside(actor)))
+        end
+    end
     if not check("wood_probe_saved_scarlet", fixture.crew[1] ~= nil,
         "requires the saved healthy Scarlet; no companion placement, stat changes or respawn") then setPhase("finish", current) return end
     if not check("wood_probe_saved_crew", #fixture.crew == crewSize,
