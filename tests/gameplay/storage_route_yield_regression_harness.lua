@@ -191,6 +191,173 @@ do
     SC.ExpeditionPrototype = previousExpedition
 end
 
+-- A proved shelter uses the exact loaded route through ordinary ordered movement.
+do
+    local previousExpedition, previousSearch = SC.ExpeditionPrototype, SC.PathSearch.new
+    local previousBarrier, previousLockedRoom = SC.Topology.barrierBetween, N.behindLockedDoor
+    local previousClassify = SC.Topology.classifyEdge
+    local outside, threshold, interior = square(1, 0), square(2, 0), square(2, 1)
+    local offRoute, joinBlocked = square(1, 1), false
+    local skippedDoorFrom, skippedDoorTo
+    local room = {}
+    function interior:getRoom() return room end
+    local openDoor = { IsOpen = function() return true end }
+    SC.Topology.barrierBetween = function(from, to)
+        if from == threshold and to == interior then return openDoor, "door" end
+        if joinBlocked and from == offRoute and to == threshold then return nil, "blocked" end
+        if from == skippedDoorFrom and to == skippedDoorTo then return openDoor, "door" end
+        return previousBarrier(from, to)
+    end
+    SC.Topology.classifyEdge = function(member, from, to, options)
+        local edge = previousClassify(member, from, to, options)
+        if from.x ~= to.x and from.y ~= to.y then edge.affordance = "diagonal_open" end
+        return edge
+    end
+    N.behindLockedDoor = function(_, goal) return goal == interior end
+    local path = { outside, threshold, interior }
+    local scout, receipt
+    SC.ExpeditionPrototype = { stalledReturnReceiptFor = function(member, destination)
+        local goal = receipt and receipt.destination
+        if member == scout and goal and destination.x == goal.x and destination.y == goal.y then return receipt end
+    end }
+    local searches = 0
+    SC.PathSearch.new = function(...)
+        searches = searches + 1
+        return previousSearch(...)
+    end
+    local function approach(goal)
+        return N.request(scout, goal or receipt.destination, "walk", { action = "ordered_move",
+            arrivalDistance = 0.35, requireSameSquare = true, continuousApproach = true,
+            stalledReturnReceipt = receipt })
+    end
+    local function begin(name)
+        scout = actor(name, path[1].x + 0.5, path[1].y + 0.5)
+        receipt = { actor = scout, source = path[1], destination = path[#path], path = path,
+            shelterPause = {}, expiresAt = SC_TEST_CLOCK + 1500 }
+    end
+
+    begin("shelter-closed-threshold")
+    blocked = true
+    local accepted, status = approach()
+    check(not accepted and not receipt.used and scout.lastMove == nil and searches == 0,
+        "a locked first edge rejects the shelter proof before movement or replanning: " .. tostring(status))
+    blocked = false
+    N.cancel(scout, "shelter_receipt_fixture")
+
+    begin("shelter-hit-hazard")
+    receipt.shelterPause.hazard = { x = 2, y = 0, radius = 4 }
+    accepted, status = approach()
+    check(not accepted and status == "shelter_hazard_changed" and not receipt.used
+            and scout.lastMove == nil and searches == 0,
+        "a new hazard rejects the shelter proof without an unchecked replacement route")
+    N.cancel(scout, "shelter_receipt_fixture")
+
+    begin("shelter-reloaded-destination")
+    local destinationKey = "2:1:0"
+    grid[destinationKey] = nil
+    local reloaded = square(2, 1)
+    function reloaded:getRoom() return room end
+    accepted, status = approach(reloaded)
+    check(not accepted and status == "shelter_destination_changed" and not receipt.used
+            and scout.lastMove == nil and searches == 0,
+        "a replacement square at the same coordinates cannot consume the old shelter proof")
+    grid[destinationKey] = interior
+    N.cancel(scout, "shelter_receipt_fixture")
+
+    begin("shelter-adopt-exact-path")
+    accepted, status = approach()
+    local state = N.peek(scout)
+    check(accepted and receipt.used and state.path == path and state.pathGoalSquare == interior
+            and scout.lastMove and scout.lastMove.nextSquare == threshold and searches == 0,
+        "ordinary movement adopts the existing proof and starts on its first edge: " .. tostring(status))
+    scout.x, scout.y = 2.5, 0.98
+    accepted, status = approach()
+    local doorLease = state.nativeLease
+    check(accepted and status ~= "arrived" and state.path == path and searches == 0
+            and doorLease and doorLease.affordance == "door" and doorLease.toSquare == interior,
+        "the outdoor threshold starts its verified native door step: " .. tostring(status))
+    accepted, status = approach()
+    check(accepted and status ~= "arrived" and state.nativeLease == doorLease and state.path == path,
+        "the owned door lease survives another ordered movement request: " .. tostring(status))
+    scout.x, scout.y = 2.5, 1.02
+    accepted, status = approach()
+    check(accepted and status ~= "arrived" and state.nativeLease == doorLease,
+        "the actor clears the doorway before the shelter route stops: " .. tostring(status))
+    scout.x, scout.y = 2.5, 1.5
+    accepted, status = approach()
+    check(accepted and status == "arrived" and state.path == nil and searches == 0,
+        "ordinary movement completes on the proved interior square: " .. tostring(status))
+    N.cancel(scout, "shelter_receipt_fixture")
+
+    for _, join in ipairs({ "open", "blocked", "hazard" }) do
+        begin("shelter-join-" .. join)
+        if join == "hazard" then
+            receipt.hazard = { x = 1, y = 3, radius = 0 }
+            receipt.shelterPause.hazard = receipt.hazard
+        end
+        check(approach(), "the original shelter path is admitted before a brief off-route step")
+        joinBlocked = join == "blocked"
+        scout.x, scout.y = 1.95, 1.02
+        scout.lastMove = nil
+        accepted, status = approach()
+        if join == "open" then
+            check(accepted and scout.lastMove and scout.lastMove.nextSquare == threshold
+                    and N.peek(scout).path == path and searches == 0,
+                "the verified open adjacent edge rejoins the same shelter path: " .. tostring(status))
+        else
+            local reason = joinBlocked and "shelter_route_changed" or "shelter_route_crosses_hazard"
+            check(not accepted and status == reason and scout.lastMove == nil and searches == 0,
+                "a " .. join .. " reconnection issues no movement or path search: " .. tostring(status))
+        end
+        N.cancel(scout, "shelter_receipt_fixture")
+    end
+    joinBlocked = false
+
+    local bend, refuge = square(9, 5), square(10, 6)
+    function refuge:getRoom() return room end
+    path = { square(8, 4), square(9, 4), bend, square(10, 5), refuge }
+    begin("shelter-projected-turn")
+    check(approach(), "the original route through the turn is admitted")
+    scout.x, scout.y = 9.9, 4.5
+    scout.lastMove = nil
+    accepted, status = approach()
+    check(accepted and scout.lastMove and scout.lastMove.nextSquare == bend
+            and N.peek(scout).pathIndex == 3 and N.peek(scout).path == path and searches == 0,
+        "the physical square advances to the actual turn despite projected overshoot: " .. tostring(status))
+    N.cancel(scout, "shelter_receipt_fixture")
+
+    local landing, finalRoom = square(10, 7), square(11, 7)
+    function finalRoom:getRoom() return room end
+    path = { square(8, 4), square(9, 4), bend, square(9, 6), landing, finalRoom }
+    for _, doorway in ipairs({ false, true }) do
+        begin(doorway and "shelter-overshot-doorway" or "shelter-overshot-proved-squares")
+        check(approach(), "the route to the later loaded squares is admitted")
+        scout.x, scout.y = 9.5, 4.5
+        check(approach() and N.peek(scout).pathIndex == 3,
+            "the movement cursor still points to the first turn")
+        if doorway then skippedDoorFrom, skippedDoorTo = path[3], path[4] end
+        scout.x, scout.y = 10.5, 7.5
+        scout.lastMove = nil
+        accepted, status = approach()
+        if doorway then
+            check(not accepted and status == "shelter_route_changed" and scout.lastMove == nil
+                    and N.peek(scout).pathIndex == 3 and searches == 0,
+                "physical overshoot cannot consume an unacknowledged door crossing")
+        else
+            check(accepted and scout.lastMove and scout.lastMove.nextSquare == finalRoom
+                    and N.peek(scout).pathIndex == 6 and N.peek(scout).path == path and searches == 0,
+                "physical occupation of the fifth square resumes the same proved route: " .. tostring(status))
+        end
+        N.cancel(scout, "shelter_receipt_fixture")
+    end
+    SC.ExpeditionPrototype, SC.PathSearch.new = previousExpedition, previousSearch
+    SC.Topology.barrierBetween, N.behindLockedDoor = previousBarrier, previousLockedRoom
+    SC.Topology.classifyEdge = previousClassify
+    interior.getRoom = nil
+    refuge.getRoom = nil
+    finalRoom.getRoom = nil
+end
+
 local worker = actor("route-worker")
 local owner, object = {}, { target = square(3, 0) }
 function object:getSquare() return self.target end

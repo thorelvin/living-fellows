@@ -6977,19 +6977,41 @@ function Navigation._adoptStalledReturnRoute(actor, state, source, goal, intent,
         or expedition.stalledReturnReceiptFor(actor, goal) ~= receipt then
         return false, "return_entry_owner_changed"
     end
+    local shelter = receipt.shelterPause
+    if shelter then
+        if goal ~= receipt.destination then return false, "shelter_destination_changed" end
+        local hazard, live = receipt.hazard, shelter.hazard
+        if (hazard or live) and (not hazard or not live or hazard.x ~= live.x
+            or hazard.y ~= live.y or hazard.radius ~= live.radius) then
+            return false, "shelter_hazard_changed"
+        end
+    end
     if receipt.used then
+        local lease = state.nativeLease
+        local ownedStep = shelter ~= nil and lease ~= nil and lease.ultimateGoal == goal
+            and lease.toSquare == receipt.path[state.pathIndex]
+            and lease.fromSquare == receipt.path[state.pathIndex - 1]
         return state.path == receipt.path and state.pathGoalSquare == goal
-            and state.nativeLease == nil, "return_entry_proof_lost"
+            and (lease == nil or ownedStep), "return_entry_proof_lost"
     end
     if state.nativeLease or state.pathSearch or now > receipt.expiresAt or source ~= receipt.source then
         return false, "return_entry_proof_lost"
     end
     local route = SC.ExpeditionRoute
-    local _, reason = route.stalledReturnPathKey(actor, goal, receipt.path, receipt.corridor)
-    if reason then return false, reason end
-    local observed, observationReason = route.returnEntryObserved(
-        actor, receipt.path, intent.snapshot, now, receipt.threatLimit)
-    if not observed then return false, observationReason end
+    if shelter then
+        local room = U().call(goal, "getRoom")
+        if room == nil or not U().isSquareFree(goal) then return false, "shelter_destination_changed" end
+        if receipt.hazard and not route.withinCorridor({ points = {}, index = 1,
+            avoidance = receipt.hazard, allowEscapeFromAvoidance = true }, receipt.path) then
+            return false, "shelter_route_crosses_hazard"
+        end
+    else
+        local _, reason = route.stalledReturnPathKey(actor, goal, receipt.path, receipt.corridor)
+        if reason then return false, reason end
+        local observed, observationReason = route.returnEntryObserved(
+            actor, receipt.path, intent.snapshot, now, receipt.threatLimit)
+        if not observed then return false, observationReason end
+    end
     local valid, why = SC.WorkRoutes.validateReceiptPath(receipt.path, source, goal, {
         actor = actor, blockedEdges = state.blockedEdges, blockedSquares = state.blockedSquares,
         routeMemory = state.routeMemory, now = now, allowHazards = false, vegetationScale = 1,
@@ -6997,7 +7019,7 @@ function Navigation._adoptStalledReturnRoute(actor, state, source, goal, intent,
     if not valid then return false, why or "return_entry_edge_changed" end
     receipt.used = true
     Navigation._installVerifiedReceiptPath(state, receipt.path, goal, now,
-        "expedition_return_receipt", intent.stealthAvoidance == true)
+        shelter and "expedition_shelter_receipt" or "expedition_return_receipt", intent.stealthAvoidance == true)
     Navigation._resetRouteProjection(state)
     return true
 end
@@ -7233,6 +7255,27 @@ function Navigation.moveFormationIntercept(actor, sourceSquare, goalSquare,
     state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
     state.goalSquare, state.goalAction = goalSquare, intent.action
     return true, "moving_formation_intercept"
+end
+
+function Navigation._advanceShelterCursor(state, sourceSquare)
+    local path, cursor = state.path, state.pathIndex
+    if state.nativeLease or sourceSquare == path[cursor] then return true end
+    -- Walk momentum can carry the actor onto a later proved tile before a
+    -- diagonal turn is consumed. Use physical square identity and keep
+    -- doorways and other transitions on their normal movement leases.
+    for index = cursor + 1, math.min(#path, cursor + 3) do
+        if sourceSquare == path[index] then
+            for step = cursor, index do
+                local previous, following = path[step - 1], path[step]
+                local _, edge = barrierBetween(previous, following)
+                if (edge ~= "open" and edge ~= "diagonal")
+                    or Navigation.edgeAffordance(previous, following) then return false end
+            end
+            state.pathIndex = index
+            return true
+        end
+    end
+    return true
 end
 
 function Navigation.request(actor, target, movementMode, intent)
@@ -7550,7 +7593,8 @@ function Navigation.request(actor, target, movementMode, intent)
     -- native look-ahead -- so a door already recorded as shut was handed back to
     -- the engine, which routed through it again. One companion did that at one
     -- door ten times in fifteen minutes, against a ten-minute memory.
-    local knownLockedRoom = SC.Navigation.behindLockedDoor(actor, goalSquare, now)
+    local knownLockedRoom = (not returnReceipt or not returnReceipt.shelterPause)
+        and SC.Navigation.behindLockedDoor(actor, goalSquare, now)
         and state.nativeLease == nil
         and not (requestIntent.doorBashAsLastResort == true
             and SC.NativeActions and type(SC.NativeActions.doorBashTool) == "function"
@@ -8109,10 +8153,16 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     local nextSquare, afterSquare
-    if state.path then
+    -- A projected turn can discard a proof while the actor is physically
+    -- entering its next tile. Verified shelter progress follows real squares.
+    if state.path and not (returnReceipt and returnReceipt.shelterPause) then
         SC.Navigation._correctRouteProjectionForTests(actor, state, sourceSquare, requestIntent, now)
     end
     if state.path then
+        if returnReceipt and returnReceipt.shelterPause
+            and not SC.Navigation._advanceShelterCursor(state, sourceSquare) then
+            return false, "shelter_route_changed"
+        end
         while state.pathIndex <= #state.path and sameSquare(sourceSquare, state.path[state.pathIndex]) do
             state.pathIndex = state.pathIndex + 1
             SC.Navigation._resetRouteProjection(state)
@@ -8121,6 +8171,7 @@ function Navigation.request(actor, target, movementMode, intent)
         afterSquare = state.path[state.pathIndex + 1]
         if nextSquare and not adjacentStep(sourceSquare, nextSquare,
                 requestIntent.draggingBody == true)
+            and not (returnReceipt and returnReceipt.shelterPause)
             and tryReusePathSuffix(actor, state, sourceSquare, requestIntent, now) then
             while state.pathIndex <= #state.path
                 and sameSquare(sourceSquare, state.path[state.pathIndex]) do
@@ -8142,6 +8193,30 @@ function Navigation.request(actor, target, movementMode, intent)
             state.nextRepathAt = 0
             nextSquare, afterSquare = nil, nil
             requestIntent.pathSearchReason = "path_deviation"
+        end
+    end
+    if returnReceipt and returnReceipt.shelterPause then
+        if state.path ~= returnReceipt.path then return false, "shelter_route_changed" end
+        if nextSquare then
+            local x, y, z = utility.position(nextSquare)
+            if x == nil or utility.gridSquare(x, y, z) ~= nextSquare then
+                return false, "shelter_route_unloaded"
+            end
+            if sourceSquare ~= state.path[state.pathIndex - 1] then
+                -- A diagonal walk can briefly touch the neighboring tile.
+                -- Rejoin only over open ground outside the hazard.
+                local _, edge = barrierBetween(sourceSquare, nextSquare)
+                if edge ~= "open" and edge ~= "diagonal" then return false, "shelter_route_changed" end
+                local path = { sourceSquare, nextSquare }
+                local hazard = returnReceipt.hazard
+                if hazard and not SC.ExpeditionRoute.withinCorridor({ points = {}, index = 1,
+                    avoidance = hazard }, path) then return false, "shelter_route_crosses_hazard" end
+                local valid, reason = SC.WorkRoutes.validateReceiptPath(path, sourceSquare, nextSquare, {
+                    actor = actor, blockedEdges = state.blockedEdges, blockedSquares = state.blockedSquares,
+                    routeMemory = state.routeMemory, now = now, allowHazards = false, vegetationScale = 1,
+                })
+                if not valid then return false, reason or "shelter_route_changed" end
+            end
         end
     end
 

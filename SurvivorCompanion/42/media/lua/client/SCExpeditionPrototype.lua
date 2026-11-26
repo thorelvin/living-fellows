@@ -3659,6 +3659,7 @@ local function applyBlockDecision(payload)
             Expedition.clearTestWaypoint(leader)
         end
         pause.mode = "holding"
+        pause.shelterSurvey = nil
         return true, "holding_position"
     end
     if pause.reason == "return_route_stuck" then
@@ -5721,8 +5722,10 @@ function Expedition.stalledReturnReceiptFor(actor, destination)
     local scout = mission and mission.scout
     local receipt = scout and scout.stalledReturnReceipt
     if receipt and not mission.terminal and not mission.restoring and scout.phase == "inbound"
-        and not scout.pause and mission.leader.actor == actor and receipt.actor == actor
-        and receipt.destination == destination and mission.testWaypoint ~= nil then
+        and (receipt.shelterPause == nil and scout.pause == nil
+            or scout.pause ~= nil and receipt.shelterPause == scout.pause and scout.pause.mode == "seeking_shelter")
+        and mission.leader.actor == actor and receipt.actor == actor
+        and (receipt.shelterPause or receipt.destination == destination) and mission.testWaypoint ~= nil then
         local x, y, z = SC.GameplayUtil.position(destination)
         local target = mission.testWaypoint
         if target.x == x and target.y == y and target.z == z then return receipt end
@@ -5734,6 +5737,10 @@ function Expedition.rejectStalledReturnReceipt(actor, receipt, why)
     local scout = mission.scout
     local state = scout.stalledReturnRecovery
     local now = SC.GameplayUtil.nowMs()
+    if receipt.shelterPause then
+        Expedition._failRecoveryShelter(scout, receipt.shelterPause, now, why or "shelter_route_unavailable")
+        return
+    end
     if receipt.hordePause then
         local pause = receipt.hordePause
         Expedition._clearRoadWaypoint(actor, "expedition_horde_entry_rejected")
@@ -5888,7 +5895,10 @@ end
 function Expedition._failRecoveryShelter(scout, pause, now, reason)
     local leader = mission.leader.actor
     local recovery = pause.shelterAttempt
+    pause.shelterSurvey = nil
     if not Expedition._isWalkingRoadPause(scout, pause) or not recovery then
+        Expedition._clearRoadWaypoint(leader, "expedition_shelter_unreachable")
+        pause.shelterTarget = nil
         pause.mode = "holding"
         return
     end
@@ -5909,6 +5919,40 @@ function Expedition._failRecoveryShelter(scout, pause, now, reason)
     end
 end
 
+function Expedition._pollRecoveryShelter(pause, leader, excluded)
+    local places = SC.ExpeditionPlaces
+    if places and type(places.pollNearestLoadedShelter) == "function" then
+        pause.shelterSurvey = pause.shelterSurvey or {}
+        local shelter, reason, status = places.pollNearestLoadedShelter(
+            leader, pause.hazard, excluded, pause.shelterSurvey)
+        if status ~= "pending" then pause.shelterSurvey = nil end
+        return shelter, reason, status
+    end
+    if places and type(places.nearestLoadedShelter) == "function" then
+        return places.nearestLoadedShelter(leader, pause.hazard, excluded)
+    end
+    return nil, "shelter_unavailable"
+end
+
+function Expedition._stageRecoveryShelter(scout, pause, leader, shelter, now)
+    local path = shelter.path
+    if type(path) == "table" and #path >= 2 then
+        if mission.testWaypoint then Expedition._clearRoadWaypoint(leader, "expedition_shelter_verified") end
+        if not Expedition.stageTestWaypoint(leader, shelter.x, shelter.y, shelter.z) then return false end
+        scout.stalledReturnReceipt = {
+            actor = leader, source = path[1], destination = path[#path], path = path,
+            shelterPause = pause, hazard = copyRoadAvoidance(pause.hazard), expiresAt = now + 1500,
+            lastProgressAt = now, pathIndex = 1,
+        }
+        scout.legPlan, scout.firstPlanFailureAt, scout.lastPlanFailure = nil, nil, nil
+        scout.lastProgressAt, scout.waypointStagedAt = now, now
+        scout.bestDistanceToWaypoint = distanceToPoint(leader, shelter)
+    end
+    pause.shelterTarget = { x = shelter.x, y = shelter.y, z = shelter.z }
+    scout.lastStalledTarget, scout.replans = nil, 0
+    return true
+end
+
 function Expedition._seekRecoveryShelter(scout, pause, now)
     local leader = mission.leader.actor
     local recovery = pause.shelterAttempt
@@ -5918,14 +5962,9 @@ function Expedition._seekRecoveryShelter(scout, pause, now)
     end
     if now < recovery.nextAt then return pause.shelterTarget ~= nil end
     if not Expedition._canReplaceRoadWaypoint(leader, now) then return false end
-    recovery.nextAt = now + 250
     if not pause.shelterTarget then
-        local places = SC.ExpeditionPlaces
-        local shelter, reason
-        if places and places.nearestLoadedShelter then
-            shelter, reason = places.nearestLoadedShelter(leader, pause.hazard, recovery.excluded)
-        end
-        recovery.attempts = recovery.attempts + 1
+        local shelter, reason, status = Expedition._pollRecoveryShelter(pause, leader, recovery.excluded)
+        if status == "pending" then return false end
         if not shelter then
             -- No viable loaded cover is a valid place to hold. The road
             -- recheck remains active independently of the shelter search.
@@ -5933,7 +5972,8 @@ function Expedition._seekRecoveryShelter(scout, pause, now)
             Expedition._failRecoveryShelter(scout, pause, now, reason or "shelter_unavailable")
             return false
         end
-        pause.shelterTarget = { x = shelter.x, y = shelter.y, z = shelter.z }
+        if not Expedition._stageRecoveryShelter(scout, pause, leader, shelter, now) then return false end
+        recovery.attempts = recovery.attempts + 1
         recovery.buildingId = shelter.buildingId
         if SC.GameplayUtil.diagnostic then
             SC.GameplayUtil.diagnostic("expedition-shelter-target", leader,
@@ -5941,6 +5981,9 @@ function Expedition._seekRecoveryShelter(scout, pause, now)
                     .. " attempt=" .. tostring(recovery.attempts))
         end
     end
+    recovery.nextAt = now + 250
+    local proof = scout.stalledReturnReceipt
+    if proof and proof.shelterPause == pause then return true end
     local distance = distanceToPoint(leader, pause.shelterTarget)
     if recovery.bestDistance == nil or recovery.bestDistance - distance >= 0.75 then
         recovery.bestDistance, recovery.lastProgressAt = distance, now
@@ -6496,10 +6539,8 @@ local function pulseScout()
             if not Expedition._seekRecoveryShelter(scout, pause, now) then return end
         elseif pause.mode == "seeking_shelter" then
             if pause.shelterTarget == nil then
-                local shelter = SC.ExpeditionPlaces
-                    and SC.ExpeditionPlaces.nearestLoadedShelter
-                    and SC.ExpeditionPlaces.nearestLoadedShelter(
-                        mission.leader.actor, pause.hazard)
+                local shelter, _, status = Expedition._pollRecoveryShelter(pause, mission.leader.actor)
+                if status == "pending" then return end
                 if shelter == nil then
                     pause.mode = "holding"
                     if type(SC.GameplayUtil.diagnostic) == "function" then
@@ -6509,16 +6550,13 @@ local function pulseScout()
                     end
                     return
                 end
-                pause.shelterTarget = { x = shelter.x,
-                    y = shelter.y, z = shelter.z }
+                if not Expedition._stageRecoveryShelter(scout, pause, mission.leader.actor, shelter, now) then return end
                 if type(SC.GameplayUtil.diagnostic) == "function" then
                     SC.GameplayUtil.diagnostic("expedition-road",
                         mission.leader.actor,
                         "action=seek_shelter target=" .. tostring(shelter.x)
                             .. "," .. tostring(shelter.y))
                 end
-                scout.lastStalledTarget = nil
-                scout.replans = 0
             end
         else
             return
@@ -6816,6 +6854,18 @@ local function pulseScout()
     end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
+        local shelterProof = scout.stalledReturnReceipt
+        if shelterProof and shelterProof.shelterPause == pause and pause ~= nil then
+            local navigation = SC.Navigation and SC.Navigation.peek and SC.Navigation.peek(leader)
+            if navigation and navigation.path == shelterProof.path
+                and navigation.pathIndex > shelterProof.pathIndex then
+                shelterProof.pathIndex, shelterProof.lastProgressAt = navigation.pathIndex, now
+            elseif now - shelterProof.lastProgressAt >= 30000
+                and Expedition._canReplaceRoadWaypoint(leader, now) then
+                Expedition._failRecoveryShelter(scout, pause, now, "shelter_no_progress")
+            end
+            return
+        end
         -- A genuine survival errand can own a different navigation goal before
         -- it reaches a timed action. Keep its retained search through mission
         -- stall checks, rather than restarting a drinking/medical route.
@@ -7249,7 +7299,11 @@ local function pulseScout()
     local close = distanceToPoint(mission.leader.actor, target)
     if pause and pause.mode == "seeking_shelter" and close <= 2 then
         local square = mission.leader.actor:getCurrentSquare()
-        if square and square:getRoom() ~= nil then
+        local proof = scout.stalledReturnReceipt
+        -- In an exact approach, Navigation clears the receipt on arrival once
+        -- any door crossing has finished.
+        if square and square:getRoom() ~= nil
+            and (not proof or proof.shelterPause ~= pause) then
             pause.mode = "sheltered"
             Expedition._clearRoadWaypoint(mission.leader.actor, "expedition_shelter_reached")
             if SC.GameplayUtil.diagnostic then

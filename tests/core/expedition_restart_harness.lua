@@ -2071,20 +2071,106 @@ check(homeMission.scout.pause ~= nil
         and homeMission.scout.pause.reported == true
         and homeMission.scout.trailReturn == true,
     "a blocked return road reports in and diverts toward shelter")
-local homeHold = expedition.sendRadioOrder(player,
-    "expedition_decision", "hold_position")
-check(homeHold == true and homeMission.scout.pause.mode == "seeking_shelter",
-    "a homeward hold order keeps the squad moving to cover")
 local shelterLookup = SC.ExpeditionPlaces.nearestLoadedShelter
 SC.ExpeditionPlaces.nearestLoadedShelter = function()
     return { x = 126, y = 20, z = 0 }
 end
-scoutClock = scoutClock + 1000
-expedition.pulse()
-check(homeMission.scout.pause.shelterTarget.x == 126,
-    "the blocked home squad selects a loaded interior refuge")
-local pausedSave = expedition.export()
-check(pausedSave.scout.pause.reported == true
+local pausedSave
+do
+    local places, pause = SC.ExpeditionPlaces, homeMission.scout.pause
+    local previousPoll, previousPlan = places.pollNearestLoadedShelter, SC.ExpeditionRoute.plan
+    local previousPeek = SC.Navigation.peek
+    local survey, polls, roadPlans, routeReady = nil, 0, 0, false
+    local destination = squareFor(126, 20)
+    local route = { reserve:getCurrentSquare(), squareFor(125, 21), squareFor(126, 21), destination }
+    local alternate = false
+    places.pollNearestLoadedShelter = function(leader, hazard, excluded, state)
+        if alternate then
+            check(excluded["verified-house"] and excluded["126:20:0"] and state ~= survey,
+                "the stalled proved shelter starts a fresh survey with its building and tile excluded")
+            return { x = 127, y = 20, z = 0, buildingId = "alternate-house",
+                path = { route[1], destination, squareFor(127, 20) } }, nil, "complete"
+        end
+        check(leader == reserve and hazard == pause.hazard and type(state) == "table"
+                and (survey == nil or state == survey),
+            "the walking pause keeps one runtime survey for the current leader and hazard")
+        survey, polls = state, polls + 1
+        if not routeReady then return nil, "shelter_search_pending", "pending" end
+        return { x = 126, y = 20, z = 0, buildingId = "verified-house", path = route }, nil, "complete"
+    end
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    local attempt = pause.shelterAttempt
+    check(polls == 1 and pause.mode == "seeking_shelter" and pause.shelterTarget == nil
+            and attempt and attempt.attempts == 0 and attempt.lastProgressAt == nil,
+        "a pending shelter survey does not count as an attempt or start the movement watchdog")
+    local pendingSave = expedition.export()
+    check(pendingSave.scout.pause.shelterSurvey == nil,
+        "the transient shelter survey is absent from the saved pause")
+
+    local homeHold = expedition.sendRadioOrder(player, "expedition_decision", "hold_position")
+    check(homeHold == true and pause.playerHold == true and pause.mode == "seeking_shelter",
+        "a homeward hold order keeps the squad seeking cover and prevents automatic return")
+    SC.ExpeditionRoute.plan = function(...)
+        roadPlans = roadPlans + 1
+        return previousPlan(...)
+    end
+    scoutClock = scoutClock + 31000
+    expedition.pulse()
+    check(polls == 2 and pause.mode == "seeking_shelter" and pause.shelterTarget == nil
+            and pause.playerHold == true and roadPlans == 0 and attempt.attempts == 0
+            and attempt.lastProgressAt == nil,
+        "long pending work keeps the operator hold and leaves shelter progress unstarted")
+
+    routeReady = true
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    local receipt = expedition.stalledReturnReceiptFor(reserve, destination)
+    check(polls == 3 and pause.playerHold == true and attempt.attempts == 1
+            and receipt and receipt.lastProgressAt == scoutClock and pause.shelterSurvey == nil,
+        "a verified shelter starts the approach watchdog without releasing the operator hold")
+    local waypoint = expedition.testWaypointFor(reserve)
+    check(waypoint and waypoint.x == destination.x and waypoint.y == destination.y
+            and receipt and receipt.path == route and receipt.source == route[1]
+            and receipt.shelterPause == pause and homeMission.scout.legPlan == nil,
+        "the ordinary expedition waypoint owns the proved shelter path without planning an intermediate leg")
+    check(expedition.stalledReturnReceiptFor(reserve, { x = destination.x, y = destination.y }) == receipt,
+        "a reloaded destination square retains the proof to let movement reject changed identity")
+    check(expedition.export().scout.stalledReturnReceipt == nil,
+        "the loaded-square shelter proof is runtime only")
+    local navigation = { path = route, pathIndex = 3 }
+    SC.Navigation.peek = function() return navigation end
+    receipt.used = true
+    reserve.y = route[2].y
+    scoutClock = scoutClock + 9000
+    expedition.pulse()
+    check(expedition.stalledReturnReceiptFor(reserve, destination) == receipt
+            and receipt.lastProgressAt == scoutClock and receipt.pathIndex == 3,
+        "forward progress on an outward detour survives the generic eight-second waypoint stall")
+    local previousRoom = destination.getRoom
+    destination.getRoom = function() return destination end
+    reserve.x, reserve.y = destination.x, destination.y
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    check(pause.mode == "seeking_shelter" and expedition.testWaypointFor(reserve)
+            and expedition.stalledReturnReceiptFor(reserve, destination) == receipt,
+        "touching the interior tile waits for acknowledged movement before reporting shelter")
+    pausedSave = expedition.export()
+    reserve.x, reserve.y, destination.getRoom = route[1].x, route[1].y, previousRoom
+    scoutClock = receipt.lastProgressAt + 30001
+    expedition.pulse()
+    check(pause.mode == "seeking_shelter" and pause.shelterTarget == nil
+            and expedition.testWaypointFor(reserve) == nil and pause.playerHold,
+        "a proved route without movement progress expires after thirty seconds and preserves Radio Hold")
+    alternate = true
+    scoutClock = scoutClock + 2001
+    expedition.pulse()
+    check(pause.shelterTarget and pause.shelterTarget.x == 127 and attempt.attempts == 2,
+        "the next proved shelter is staged after the stalled attempt")
+    SC.Navigation.peek = previousPeek
+    places.pollNearestLoadedShelter, SC.ExpeditionRoute.plan = previousPoll, previousPlan
+end
+check(pausedSave.scout.pause.shelterTarget.x == 126 and pausedSave.scout.pause.reported == true
         and expedition.prepareReset() and expedition.reset()
         and expedition.restore(pausedSave) and expedition.pulse()
         and expedition.current().scout.pause.shelterTarget.x == 126,

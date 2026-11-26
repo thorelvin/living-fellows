@@ -2148,6 +2148,7 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
             arrivalDistance = exactApproach and 0.35 or nil,
             requireSameSquare = exactApproach,
             stalledReturnReceipt = returnReceipt,
+            continuousApproach = returnReceipt and returnReceipt.shelterPause ~= nil or nil,
             expeditionHomeApproach = commands.expeditionHomeApproach == true,
             doorBashAsLastResort = commands.doorBashAsLastResort == true,
             -- A follower in combat can request priority 80; the mission

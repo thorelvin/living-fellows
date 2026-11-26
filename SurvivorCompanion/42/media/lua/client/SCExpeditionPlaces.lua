@@ -912,6 +912,257 @@ function Places.nearestLoadedShelter(actor, hazard, excluded)
     return nil, "shelter_no_loaded_path"
 end
 
+local function sameShelterExclusions(snapshot, excluded)
+    for key in pairs(snapshot) do
+        if not (excluded and excluded[key]) then return false end
+    end
+    for key, enabled in pairs(excluded or {}) do
+        if enabled and not snapshot[key] then return false end
+    end
+    return true
+end
+
+local function sameShelterSurvey(survey, current, hazard, excluded)
+    if not survey or survey.actor ~= current.actor or survey.source ~= current.source
+        or survey.sourceRoom ~= current.sourceRoom or survey.cell ~= current.cell
+        or survey.grid ~= current.grid then return false end
+    local marker = survey.hazard
+    if marker ~= nil or hazard ~= nil then
+        if not marker or not hazard or marker.x ~= hazard.x or marker.y ~= hazard.y
+            or marker.radius ~= hazard.radius then return false end
+    end
+    return sameShelterExclusions(survey.excluded, excluded)
+end
+
+local function shelterOutsideHazard(hazard, x, y, clearance)
+    return hazard == nil or (x - hazard.x)^2 + (y - hazard.y)^2
+        > (hazard.radius + clearance)^2
+end
+
+local function shelterCandidateSquare(survey, house, x, y)
+    if survey.excluded[house.place.id] or survey.excluded[x .. ":" .. y .. ":0"]
+        or not shelterOutsideHazard(survey.hazard, x, y, 3) then return nil end
+    local square = call(survey.cell, "getGridSquare", x, y, 0)
+    if square and call(square, "getRoom") ~= nil and SC.GameplayUtil.isSquareFree(square)
+        and matchingBuildingAt(survey.grid, house.place, x, y, 0) then return square end
+end
+
+local function shelterCandidateLess(a, b)
+    if a.distance ~= b.distance then return a.distance < b.distance end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+end
+
+local function beginShelterSurvey(current, hazard, excluded)
+    local x, y = SC.GameplayUtil.position(current.actor)
+    if x == nil or y == nil then return nil, "shelter_area_unavailable" end
+    local places, reason = Places.nearby(math.floor(x), math.floor(y), 40, 64, true)
+    if not places then return nil, reason end
+    current.x, current.y = x, y
+    current.hazard = hazard and { x = hazard.x, y = hazard.y, radius = hazard.radius }
+    current.excluded, current.houses = {}, {}
+    for key, enabled in pairs(excluded or {}) do
+        if enabled then current.excluded[key] = true end
+    end
+    for _, place in ipairs(places) do
+        if place.kind == "residence" and place.groundFloor and not current.excluded[place.id] then
+            local bounds = place.bounds
+            local area = (bounds.x2 - bounds.x + 1) * (bounds.y2 - bounds.y + 1)
+            current.houses[#current.houses + 1] = { place = place, x = bounds.x, y = bounds.y,
+                stride = math.max(1, math.ceil(math.sqrt(area / 256))), candidates = {} }
+            if #current.houses >= 8 then break end
+        end
+    end
+    if #current.houses == 0 then return nil, "shelter_no_loaded_path" end
+    current.discoveryIndex, current.searchIndex, current.discoveryTurn = 1, 1, true
+    return current
+end
+
+local function scanShelterHouse(survey, house, expired)
+    local bounds = house.place.bounds
+    local checked = 0
+    while house.x <= bounds.x2 and checked < 24 and (checked == 0 or not expired()) do
+        local x, y = house.x, house.y
+        local square = shelterCandidateSquare(survey, house, x, y)
+        if square then
+            local candidates = house.candidates
+            local candidate = { square = square, x = x, y = y,
+                distance = (x - survey.x)^2 + (y - survey.y)^2 }
+            if #candidates < 8 or shelterCandidateLess(candidate, candidates[8]) then
+                candidates[#candidates + 1] = candidate
+                table.sort(candidates, shelterCandidateLess)
+                candidates[9] = nil
+            end
+        end
+        checked = checked + 1
+        house.y = y + house.stride
+        if house.y > bounds.y2 then house.x, house.y = x + house.stride, bounds.y end
+    end
+    if house.x > bounds.x2 then
+        survey.discoveryIndex = survey.discoveryIndex + 1
+        house.ready = #house.candidates > 0
+    end
+    return checked
+end
+
+-- Match the road corridor's escape rule for each edge, so a short unsafe
+-- route does not hide a safe route to the same house.
+local function shelterCorridorEdge(survey, previous, square)
+    local hazard = survey.hazard
+    if not hazard then return true end
+    local x, y = SC.GameplayUtil.position(square)
+    if x == nil or y == nil then return false end
+    if shelterOutsideHazard(hazard, x, y, 2) then return true end
+    if shelterOutsideHazard(hazard, survey.sourceX, survey.sourceY, 2) then return false end
+    local px, py = SC.GameplayUtil.position(previous)
+    if px == nil or py == nil or shelterOutsideHazard(hazard, px, py, 2) then return false end
+    local originDistance = math.sqrt((survey.sourceX - hazard.x)^2 + (survey.sourceY - hazard.y)^2)
+    return math.sqrt((x - hazard.x)^2 + (y - hazard.y)^2) >= originDistance - 1
+end
+
+local function shelterResult(house, candidate, path)
+    return { x = candidate.x, y = candidate.y, z = 0,
+        buildingId = house.place.id, pathNodes = #path, path = path }
+end
+
+local function verifyShelterPath(survey, nav, expired)
+    local proof = survey.proof
+    local path, candidate, house = proof.path, proof.candidate, proof.house
+    local first = proof.index
+    local options = { actor = survey.actor, allowHazards = false }
+    local function passable(previous, square)
+        return shelterCorridorEdge(survey, previous, square)
+            and nav._adjacentStepForWorkRoutes(previous, square)
+            and nav._passableEdgeForWorkRoutes(previous, square, 1, options) == true
+    end
+    for index = first, math.min(#path, first + 6) do
+        if index > first and expired() then break end
+        local square = path[index]
+        if not currentApproachSquare(survey.cell, square)
+            or (index > 1 and not passable(path[index - 1], square)) then return false end
+        proof.index = index + 1
+    end
+    if proof.index <= #path then return nil end
+    if #path > 1 and (not currentApproachSquare(survey.cell, path[2])
+        or not passable(path[1], path[2])) then return false end
+    return shelterCandidateSquare(survey, house, candidate.x, candidate.y) == candidate.square
+end
+
+local function pollShelterJob(survey, house, nav, quota)
+    if not house.job then
+        local goals = {}
+        for index = #house.candidates, 1, -1 do
+            local candidate = house.candidates[index]
+            if shelterCandidateSquare(survey, house, candidate.x, candidate.y) ~= candidate.square then
+                table.remove(house.candidates, index)
+            end
+        end
+        for _, candidate in ipairs(house.candidates) do goals[#goals + 1] = candidate.square end
+        if #goals == 0 then house.ready = false return 0 end
+        house.job = nav.beginPathSearch(survey.source, goals[1], nil, {
+            actor = survey.actor, goalSquares = goals, nodeBudget = 1800,
+            alternatives = false, sliceBudgetMs = 1,
+            squareAdmission = survey.hazard and function(square, previous)
+                return shelterCorridorEdge(survey, previous, square)
+            end or nil,
+        })
+    end
+    local status, path, reason, _, _, used
+    if house.job then status, path, reason, _, _, used = nav.resumePathSearch(house.job, quota) end
+    if status == "pending" then return tonumber(used) or 0 end
+    house.job = nil
+    if status == "complete" and reason == nil and type(path) == "table" and #path >= 1
+        and path[1] == survey.source then
+        for index, candidate in ipairs(house.candidates) do
+            if path[#path] == candidate.square then
+                -- An invalidated goal may be exchanged for a different goal in
+                -- the same house. A blocked group does not start eight jobs.
+                table.remove(house.candidates, index)
+                if #path <= 80 then
+                    survey.proof = { path = path, index = 1, candidate = candidate, house = house }
+                end
+                house.ready = #house.candidates > 0
+                return tonumber(used) or 0
+            end
+        end
+    end
+    house.ready = false
+    return tonumber(used) or 0
+end
+
+local function pollShelterSurvey(survey, nav, perf, expired)
+    if survey.proof then
+        local valid = verifyShelterPath(survey, nav, expired)
+        if valid then
+            local proof = survey.proof
+            return shelterResult(proof.house, proof.candidate, proof.path), nil, "complete"
+        end
+        if valid == false then survey.proof = nil end
+        return nil, "shelter_proof_pending", "pending"
+    end
+    local selected
+    for offset = 0, #survey.houses - 1 do
+        local index = (survey.searchIndex + offset - 1) % #survey.houses + 1
+        if survey.houses[index].ready then selected = index break end
+    end
+    local discovering = survey.houses[survey.discoveryIndex]
+    if discovering and (survey.discoveryTurn or selected == nil) then
+        survey.discoveryTurn = false
+        return nil, "shelter_discovery_pending", "pending", scanShelterHouse(survey, discovering, expired)
+    end
+    if not selected then return nil, "shelter_no_loaded_path", "failed" end
+    local quota, claim = 48, nil
+    if perf and type(perf.claimUnits) == "function" then
+        quota, claim = perf.claimUnits("navigation", quota, false, true)
+    end
+    survey.discoveryTurn = true
+    if quota <= 0 then return nil, "shelter_search_pending", "pending" end
+    -- Rotate between homes. One locked house cannot monopolize all search
+    -- slices when a nearby alternate is reachable.
+    survey.searchIndex = selected % #survey.houses + 1
+    local used = pollShelterJob(survey, survey.houses[selected], nav, quota)
+    if claim and type(perf.settleUnits) == "function" then perf.settleUnits(claim, used) end
+    return nil, "shelter_search_pending", "pending", used
+end
+
+function Places.pollNearestLoadedShelter(actor, hazard, excluded, state)
+    if type(state) ~= "table" then return nil, "shelter_area_unavailable", "failed" end
+    local nav, perf = SC.Navigation, SC.Performance
+    if not nav or type(nav.beginPathSearch) ~= "function" or type(nav.resumePathSearch) ~= "function"
+        or type(nav._adjacentStepForWorkRoutes) ~= "function"
+        or type(nav._passableEdgeForWorkRoutes) ~= "function"
+        or (hazard ~= nil and (type(hazard) ~= "table" or type(hazard.x) ~= "number"
+            or type(hazard.y) ~= "number" or type(hazard.radius) ~= "number"
+            or hazard.x ~= hazard.x or hazard.y ~= hazard.y or hazard.radius ~= hazard.radius
+            or hazard.x < 0 or hazard.x > 30000 or hazard.y < 0 or hazard.y > 30000
+            or hazard.radius < 0 or hazard.radius > 32)) then
+        state.survey = nil
+        return nil, "shelter_area_unavailable", "failed"
+    end
+    local frame = perf and type(perf.frameId) == "function" and perf.frameId() or nil
+    if frame ~= nil and state.lastFrame == frame then return nil, "shelter_frame_pending", "pending" end
+    state.lastFrame = frame
+    local clock = perf and perf.preciseNowMs
+    local began = type(clock) == "function" and clock() or nil
+    local function expired() return began ~= nil and clock() - began >= 1 end
+    local current = readApproachInputs(actor)
+    local shelter, reason, status, units
+    if not current or not currentApproachSquare(current.cell, current.source) then
+        reason, status = "shelter_area_unavailable", "failed"
+    elseif sameShelterSurvey(state.survey, current, hazard, excluded) then
+        shelter, reason, status, units = pollShelterSurvey(state.survey, nav, perf, expired)
+    else
+        state.survey, reason = beginShelterSurvey(current, hazard, excluded)
+        status = state.survey and "pending" or "failed"
+        if state.survey then reason = "shelter_discovery_pending" end
+    end
+    if status ~= "pending" then state.survey = nil end
+    if began ~= nil and type(perf.record) == "function" then
+        perf.record("expedition.shelter-survey", nil, clock() - began, units or 0, status == "pending")
+    end
+    return shelter, reason, status
+end
+
 local function seenInterior(place, grid, cell)
     if place.groundFloor ~= true then return false, false, {} end
     local bounds = place.bounds

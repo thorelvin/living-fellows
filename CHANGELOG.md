@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.91 - Emergency shelter search
+
+- Spread blocked-return shelter surveys across frames so nearby residences get turns on the shared planner.
+- Keep the crew seeking cover while the survey is pending and hand the verified indoor route to companion navigation.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.90 - Bounded expedition site approaches
 
 - Advance loaded exterior approach surveys across frames with the resumable companion route planner.

@@ -358,6 +358,149 @@ check(shelter == nil and shelterReason == "shelter_no_loaded_path",
 SurvivorCompanion.Navigation.findPath = originalShelterPath
 fixture.cell.getGridSquare = originalShelterSquare
 SurvivorCompanion.GameplayUtil.position = originalPosition
+do
+    local SC = SurvivorCompanion
+    local nav, perf = SC.Navigation, SC.Performance
+    local position, gridSquare = SC.GameplayUtil.position, fixture.cell.getGridSquare
+    local alternate = fixture.building(125, 22, 128, 27, { "bedroom", "kitchen" })
+    fixture.buildings[#fixture.buildings + 1] = alternate
+    local primaryId, alternateId = nearby[4].id, "125:22:128:27"
+    local rooms = {
+        [100] = { getBuilding = function() return fixture.buildings[4] end },
+        [125] = { getBuilding = function() return alternate end },
+    }
+    local squares, reads, frame, resumes, edgeReads = {}, 0, 0, 0, 0
+    fixture.cell.getGridSquare = function(_, x, y, z)
+        reads = reads + 1
+        local key = x .. ":" .. y .. ":" .. z
+        if not squares[key] then
+            squares[key] = gridSquare(fixture.cell, x, y, z)
+            squares[key].getRoom = function() return y == 25 and z == 0 and rooms[x] or nil end
+        end
+        return squares[key]
+    end
+    local function square(x, y) return fixture.cell:getGridSquare(x, y, 0) end
+    local origin = square(95, 25)
+    local leader = { getCurrentSquare = function() return origin end,
+        getX = function() return origin:getX() end,
+        getY = function() return origin:getY() end }
+    SC.GameplayUtil.position = function(value) return value:getX(), value:getY(), 0 end
+    local starts, visits, quota, claims = {}, {}, 0, 0
+    local staleStarts, staleResumes, unsafeAdmissions = 0, 0, 0
+    local nearestUnreachable, lockedEdge, corridorReads = false, false, 0
+    local hazard, excluded = { x = 90, y = 39, radius = 1 }, {}
+    SC.Performance = {
+        frameId = function() return frame end,
+        claimUnits = function(kind, requested)
+            check(kind == "navigation" and requested <= 48,
+                "shelter work claims a bounded shared navigation quota")
+            claims = claims + 1
+            return math.min(quota, requested)
+        end,
+    }
+    SC.Navigation = {
+        findPath = function() error("a pending shelter survey must not use the synchronous planner") end,
+        beginPathSearch = function(from, to, _, options)
+            if from ~= origin or options.actor ~= leader or options.goalSquares[1] ~= to then
+                staleStarts = staleStarts + 1
+            end
+            if type(options.squareAdmission) ~= "function"
+                or options.squareAdmission(square(hazard.x, hazard.y), from) then
+                unsafeAdmissions = unsafeAdmissions + 1
+            end
+            corridorReads = corridorReads + 1
+            local job = { from = from, to = to, visits = 0 }
+            starts[#starts + 1] = job
+            return job
+        end,
+        resumePathSearch = function(job, granted)
+            resumes = resumes + 1
+            if granted <= 0 then return "pending", nil, nil, 0, nil, 0 end
+            check(granted <= 48, "a shelter resume honors shared quota")
+            if job.from ~= origin then staleResumes = staleResumes + 1 end
+            visits[#visits + 1] = job.to:getX()
+            job.visits = job.visits + 1
+            if job.to:getX() == 100 then
+                return nearestUnreachable and "failed" or "pending", nil, "no_path", 1, nil, 1
+            end
+            if job.visits == 1 then return "pending", nil, nil, 1, nil, 1 end
+            local path = { job.from }
+            for x = job.from:getX() + 1, job.to:getX() do path[#path + 1] = square(x, 25) end
+            return "complete", path, nil, 1, nil, 1
+        end,
+        _adjacentStepForWorkRoutes = function(from, to) return to:getX() - from:getX() == 1 end,
+        _passableEdgeForWorkRoutes = function(_, to)
+            edgeReads = edgeReads + 1
+            return not lockedEdge or to:getX() ~= 125
+        end,
+    }
+    check(type(Places.pollNearestLoadedShelter) == "function", "the emergency shelter survey can resume")
+    local function poll(state)
+        frame, reads, resumes, edgeReads = frame + 1, 0, 0, 0
+        local result, why, phase = Places.pollNearestLoadedShelter(leader, hazard, excluded, state)
+        check(resumes <= 1 and edgeReads <= 8 and (resumes > 0 or reads <= 32),
+            "each frame bounds shelter discovery, search, and live proof work")
+        return result, why, phase
+    end
+    local function pollUntil(state, ready)
+        for _ = 1, 128 do
+            local result, why, phase = poll(state)
+            if phase ~= "pending" or ready and ready() then return result, why, phase end
+        end
+        error("shelter test exceeded its frame budget")
+    end
+    local state = {}
+    local result, why, phase = poll(state)
+    local firstReads = reads
+    result, why, phase = Places.pollNearestLoadedShelter(leader, hazard, excluded, state)
+    check(phase == "pending" and reads == firstReads and resumes == 0 and edgeReads == 0,
+        "a repeated poll in the same frame does no shelter work")
+    result, why, phase = pollUntil(state, function() return claims > 0 end)
+    check(phase == "pending" and claims > 0 and #starts == 0,
+        "an empty shared quota does not start a shelter job")
+    quota = 48
+    result, why, phase = pollUntil(state)
+    check(phase == "complete" and why == nil and result and result.buildingId == alternateId
+            and result.x == 125 and result.y == 25 and result.z == 0 and visits[1] == 100
+            and corridorReads > 0 and unsafeAdmissions == 0 and staleStarts == 0,
+        "the exact safe alternate indoor square can win while the nearest house remains blocked")
+
+    state, starts = {}, {}
+    pollUntil(state, function() return #starts > 0 end)
+    origin = square(96, 25)
+    result, why, phase = pollUntil(state)
+    check(phase == "complete" and result and result.buildingId == alternateId
+            and staleStarts == 0 and staleResumes == 0
+            and starts[1].from ~= origin and starts[#starts].from == origin,
+        "moving the leader discards stale shelter paths and proves a route from the new square")
+
+    state, starts = {}, {}
+    pollUntil(state, function() return #starts > 0 end)
+    excluded[primaryId] = true
+    result, why, phase = pollUntil(state)
+    check(phase == "complete" and result and result.buildingId == alternateId and excluded[primaryId]
+            and starts[1].to:getX() == 100 and starts[1].visits == 1,
+        "excluding a house discards its in-flight search and leaves the caller exclusion intact")
+
+    state, starts = {}, {}
+    pollUntil(state, function() return #starts > 0 end)
+    hazard.x, hazard.y = 125, 25
+    result, why, phase = pollUntil(state)
+    check(phase == "failed" and result == nil and starts[1].visits == 1,
+        "a changed hazard prevents an in-flight destination from becoming shelter")
+
+    hazard.x, hazard.y, lockedEdge, nearestUnreachable = 90, 39, false, true
+    state, starts = {}, {}
+    pollUntil(state, function() return starts[1] and starts[1].visits >= 2 end)
+    lockedEdge = true
+    result, why, phase = pollUntil(state)
+    check(phase == "failed" and result == nil,
+        "an entrance that locks after search completion fails live path proof")
+
+    table.remove(fixture.buildings)
+    SC.Navigation, SC.Performance = nav, perf
+    SC.GameplayUtil.position, fixture.cell.getGridSquare = position, gridSquare
+end
 check(Places.siteContainsPoint(nearby[1].id, 20, 25, 0)
         and Places.siteContainsPoint(nearby[1].id, 20, 25, 1)
         and not Places.siteContainsPoint(nearby[1].id, 19, 25, 0)
