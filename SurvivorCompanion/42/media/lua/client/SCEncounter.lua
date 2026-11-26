@@ -1429,11 +1429,13 @@ end
 
 function Encounter._chooseLoot(actor, item, category, projection, commands, storage, extras, planned)
     local logistics = SC.Logistics
-    local choice, why = logistics.lootChoice(actor, item, category, projection, commands, storage, extras, planned)
+    local choice, why, evaluatedCategory = logistics.lootChoice(
+        actor, item, category, projection, commands, storage, extras, planned)
     if choice or not logistics.lootReplacement or planned and not planned.drop
         or (why ~= "loadout_too_heavy" and why ~= "loadout_satisfied")
         or not Encounter._canSwapLoot(actor, commands, storage, extras) then return choice end
-    return logistics.lootReplacement(actor, item, category, projection, commands, planned and planned.drop)
+    return logistics.lootReplacement(actor, item, category or evaluatedCategory,
+        projection, commands, planned and planned.drop)
 end
 
 local function lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
@@ -1441,17 +1443,20 @@ local function lootEvaluation(actor, item, node, needs, commands, audit, project
     local itemData = select(1, U().call(item, "getModData"))
     if type(itemData) == "table" and itemData.SC_LootTransferUncertain
         and not Encounter._settleUncertainLoot(actor, item, itemData, node) then return 0 end
-    local allowed, _, storage = Encounter.mayTakeFrom(node.root, storages)
+    local allowed, access, storage = Encounter.mayTakeFrom(node.root, storages)
     if not allowed or storage and not storageAllows(storage, item) then return 0 end
-    local score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
-    local supplyCategory = SC.Logistics and SC.Logistics.itemCategory
-        and SC.Logistics.itemCategory(item) or category
-    local band = 1
+    local score, category, supplyCategory, band
     if SC.Logistics and SC.Logistics.lootChoice then
-        local choice = Encounter._chooseLoot(actor, item, supplyCategory, projection,
-            commands, storage, not insideBase(node.root and containerOwner(node.root)))
+        local choice = Encounter._chooseLoot(actor, item, nil, projection,
+            commands, storage, access == "outside")
         if not choice then return 0 end
         score, category, band = choice.score, choice.category, choice.band
+        supplyCategory = category
+    else
+        score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
+        supplyCategory = SC.Logistics and SC.Logistics.itemCategory
+            and SC.Logistics.itemCategory(item) or category
+        band = 1
     end
     if category == "weapon" and priorityMeleeAllowed(actor, item, audit, commands) then
         score, band = math.max(140, score), 2

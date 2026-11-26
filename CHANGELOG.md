@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.89 - Scavenging loot scoring
+
+- Reuse item classification, admission, and equipment upgrade scores during scavenging selection.
+- Recheck live storage permissions, item safety, and carrying capacity before transfer.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.88 - Navigation and clothing diagnostics
 
 - Reuse navigation helpers to restore room for new declarations in the debug compiler, and share the path state update for verified routes.

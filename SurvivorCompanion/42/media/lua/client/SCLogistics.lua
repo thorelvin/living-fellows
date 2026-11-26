@@ -790,6 +790,8 @@ local function requestedSupplyMatches(requestedCategory, category)
         or requestedCategory == "useful" and usefulSupplyCategories[category] == true)
 end
 
+-- Admission also supplies its upgrade difference or stock target to callers
+-- scoring the same item against this audit.
 function Logistics.canTake(actor, item, category, audit, requestedCategory, sourceStorage)
     if not actor or not item then return false, "invalid_loot" end
     if Logistics.manualOnlyFilterMask(item) then return false, "manual_only_filter_mask" end
@@ -803,19 +805,19 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory, sour
     end
     if category == "clothing" then
         if cosmeticWearable(item) then return false, "cosmetic_wearable" end
-        local upgrade = Logistics.clothingUpgrade(actor, item)
+        local upgrade, difference = Logistics.clothingUpgrade(actor, item)
         if upgrade then
             if audit.capacity > 0 and audit.weight + U().itemWeight(item)
                 > audit.capacity * audit.hardRatio then return false, "loadout_too_heavy" end
-            return true, "clothing_upgrade"
+            return true, "clothing_upgrade", difference
         end
     end
     if category == "container" then
-        local upgrade = Logistics.bagUpgrade(actor, item)
+        local upgrade, difference = Logistics.bagUpgrade(actor, item)
         if upgrade then
             if audit.capacity > 0 and audit.weight + U().itemWeight(item)
                 > audit.capacity * audit.hardRatio then return false, "loadout_too_heavy" end
-            return true, "bag_upgrade"
+            return true, "bag_upgrade", difference
         end
     end
     local target = dynamicTarget(audit, category, actor)
@@ -844,7 +846,7 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory, sour
                 > audit.capacity * audit.hardRatio then
                 return false, "loadout_too_heavy"
             end
-            return true, "expedition_supply"
+            return true, "expedition_supply", nil, target
         end
         -- The base always has a use for more nails, planks, thread and tape,
         -- so crafting stock is not capped by a per-role target the way a third
@@ -859,7 +861,7 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory, sour
             and audit.weight + U().itemWeight(item) > audit.capacity * ceiling then
             return false, "loadout_satisfied"
         end
-        return true, "base_supply"
+        return true, "base_supply", nil, target
     end
     if audit.capacity > 0 then
         local projected = audit.weight + U().itemWeight(item)
@@ -867,7 +869,7 @@ function Logistics.canTake(actor, item, category, audit, requestedCategory, sour
             return false, "loadout_too_heavy"
         end
     end
-    return true, "loadout_needed"
+    return true, "loadout_needed", nil, target
 end
 
 -- Need-driven scavenging priority.
@@ -967,15 +969,8 @@ function Logistics.needTier(actor, category, audit, hasStock)
     return hasStock and TIER.ignore or TIER.marginal
 end
 
-function Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
-    audit = audit or Logistics.audit(actor)
-    local category = Logistics.itemCategory(item)
-    local requestedCategory = type(commands) == "table"
-        and commands.scavengeRequestedCategory or nil
-    local accepted, reason = Logistics.canTake(
-        actor, item, category, audit, requestedCategory, sourceStorage)
-    if not accepted then return 0, category end
-    local target = math.max(1, dynamicTarget(audit, category, actor))
+local function scoreAdmittedLoot(actor, item, category, audit, requestedCategory, reason, difference, target)
+    target = math.max(1, target or dynamicTarget(audit, category, actor))
     local held = audit.counts[category] or 0
     local deficit = math.max(0, target - held) / target
     -- The tier decides the order; the old formula only ranks within it, so a
@@ -1002,13 +997,11 @@ function Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
         score = math.max(score, TIER.marginal + 10)
     end
     if reason == "clothing_upgrade" then
-        local _, difference = Logistics.clothingUpgrade(actor, item)
-        score = TIER.marginal + 72 + math.min(48, math.max(0, difference))
+        score = TIER.marginal + 72 + math.min(48, math.max(0, difference or 0))
     elseif reason == "bag_upgrade" then
         -- A better bag raises everything else this survivor can carry, so it
         -- outranks ordinary restocking without displacing a real emergency.
-        local _, difference = Logistics.bagUpgrade(actor, item)
-        score = TIER.useful + 78 + math.min(42, math.max(0, difference) * 3)
+        score = TIER.useful + 78 + math.min(42, math.max(0, difference or 0) * 3)
     end
     local condition, conditionOk = U().call(item, "getCondition")
     local maximum, maxOk = U().call(item, "getConditionMax")
@@ -1033,6 +1026,21 @@ function Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
         score=score+12/(1+weight)
     end
     return score, category
+end
+
+local function scoreLootCategory(actor, item, category, audit, requestedCategory, storage)
+    local accepted, reason, difference, target = Logistics.canTake(
+        actor, item, category, audit, requestedCategory, storage)
+    if not accepted then return 0, category end
+    return scoreAdmittedLoot(actor, item, category, audit, requestedCategory, reason, difference, target)
+end
+
+function Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
+    audit = audit or Logistics.audit(actor)
+    local category = Logistics.itemCategory(item)
+    local requestedCategory = type(commands) == "table"
+        and commands.scavengeRequestedCategory or nil
+    return scoreLootCategory(actor, item, category, audit, requestedCategory, sourceStorage)
 end
 
 -- keptHarvestDeposit admits one case: a harvest kept for pickup because no
@@ -1910,21 +1918,36 @@ end
 function Logistics.lootChoice(actor, item, category, projection, commands, storage, extras, planned, vacancy)
     if not projection then return nil, "inventory_scan_pending" end
     local audit = projection.audit
-    category = category or Logistics.itemCategory(item)
+    local classifiedCategory
+    if not category then
+        classifiedCategory = Logistics.itemCategory(item)
+        category = classifiedCategory
+    end
     if category == "food" and SC.Needs and SC.Needs.isSafeFoodItem
         and not SC.Needs.isSafeFoodItem(item) then return nil, "unsafe_food" end
     if category == "water" and SC.Needs and SC.Needs.isSafeWaterItem
         and not SC.Needs.isSafeWaterItem(item) then return nil, "unsafe_water" end
-    local accepted, reason = Logistics.canTake(actor, item, category, audit,
-        commands and commands.scavengeRequestedCategory, storage)
+    local requestedCategory = commands and commands.scavengeRequestedCategory
+    local accepted, reason, difference, target = Logistics.canTake(
+        actor, item, category, audit, requestedCategory, storage)
     local needed = Logistics.lootBand(projection, category) == 2
         or reason == "clothing_upgrade" or reason == "bag_upgrade"
     local ritual = SC.Quirks and SC.Quirks.acceptsLoot and SC.Quirks.acceptsLoot(actor, item, commands)
     if not accepted and not (reason == "loadout_satisfied" and extras and not storage
-        and (usefulSupplyCategories[category] or ritual)) then return nil, reason end
+        and (usefulSupplyCategories[category] or ritual)) then return nil, reason, category end
     -- A selected row already has a utility score. Committing still checks
     -- admission and real capacity, without repeating presentation scoring.
-    local score = planned and planned.score or Logistics.itemNeedScore(actor, item, commands, audit, storage)
+    local score = planned and planned.score
+    if not score then
+        local scoreCategory = classifiedCategory or Logistics.itemCategory(item)
+        -- A quirk can assign a category for carrying the item. Its utility
+        -- score still comes from the item's native category and that admission.
+        if scoreCategory ~= category then
+            score = scoreLootCategory(actor, item, scoreCategory, audit, requestedCategory, storage)
+        elseif accepted then
+            score = scoreAdmittedLoot(actor, item, category, audit, requestedCategory, reason, difference, target)
+        end
+    end
     if (tonumber(score) or 0) <= 0 then score = 130 + ((roleWeights[audit.role] or {})[category] or 0) end
     local raw = U().itemWeight(item)
     local ceiling = math.min(0.72, tonumber(audit.softRatio) or 0.72)
@@ -1946,7 +1969,7 @@ function Logistics.lootChoice(actor, item, category, projection, commands, stora
             end
         end
     end
-    return nil, "loadout_too_heavy"
+    return nil, "loadout_too_heavy", category
 end
 
 -- Compare against the same loadout with just the offered item removed. Native

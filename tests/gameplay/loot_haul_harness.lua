@@ -62,6 +62,76 @@ local function complete(actor)
 end
 
 do
+    local find = nails(1)[1]
+    local worker, cupboard = fixture({ find })
+    local logistics, loot = SC.Logistics, SC.ScavengeLoot
+    local classify, canTake, scan = logistics.itemCategory, logistics.canTake, loot.scan
+    local evaluations, classifications, admissions, evaluating = 0, 0, 0, false
+    logistics.itemCategory = function(item)
+        if evaluating and item == find then classifications = classifications + 1 end
+        return classify(item)
+    end
+    logistics.canTake = function(actor, item, ...)
+        if evaluating and actor == worker and item == find then admissions = admissions + 1 end
+        return canTake(actor, item, ...)
+    end
+    loot.scan = function(visit, evaluate, ...)
+        return scan(visit, function(item, node)
+            if visit.actor ~= worker or item ~= find then return evaluate(item, node) end
+            evaluations, evaluating = evaluations + 1, true
+            local score, category, band = evaluate(item, node)
+            evaluating = false
+            return score, category, band
+        end, ...)
+    end
+    local planned = animate(worker)
+    logistics.itemCategory, logistics.canTake, loot.scan = classify, canTake, scan
+    check(evaluations > 0 and classifications == evaluations and admissions == evaluations,
+        "initial loot scoring classifies and admits once per evaluation: "
+            .. evaluations .. "/" .. classifications .. "/" .. admissions)
+    check(planned.takeList[1].item == find, "the chosen row retains the exact candidate")
+    complete(worker)
+    check(worker.inventory:contains(find) and not cupboard:contains(find)
+        and SC.Encounter.peek(worker).lastLoot.verified, "the new score path retains exact pickup evidence")
+end
+
+do
+    local logistics = SC.Logistics
+    local worker = fixture({})
+    local projection = logistics.lootProjection(worker, logistics.audit(worker))
+    local personal = f.item("Base.Bandage", "Medical", { weight = .05 })
+    local expectedScore = logistics.itemNeedScore(worker, personal, {}, projection.audit)
+    local acceptsLoot = SC.Quirks.acceptsLoot
+    SC.Quirks.acceptsLoot = function(actor, item) return actor == worker and item == personal end
+    local choice = logistics.lootChoice(worker, personal, "personal", projection, {}, nil, true)
+    SC.Quirks.acceptsLoot = acceptsLoot
+    check(expectedScore > 130 and choice and choice.category == "personal"
+        and choice.destination == worker.inventory and choice.score == expectedScore,
+        "an explicit personal category keeps its admission and destination with the native medicine score")
+
+    local garment = f.item("Base.Shirt_FormalWhite", "Clothing", {
+        bodyLocation = "Torso1", condition = 7, biteDefense = 10, weight = .2,
+    })
+    local bag = f.item("Base.Bag_DuffelBag", "Container", {
+        nestedInventory = f.inventory(), bagCapacity = 10, weightReduction = 80,
+        equipLocation = "Back", weight = .5,
+    })
+    for _, entry in ipairs({ { garment, "clothingUpgrade" }, { bag, "bagUpgrade" } }) do
+        local item, method = entry[1], entry[2]
+        expectedScore = logistics.itemNeedScore(worker, item, {}, projection.audit)
+        local upgrade, calls = logistics[method], 0
+        logistics[method] = function(actor, candidate)
+            if candidate == item then calls = calls + 1 end
+            return upgrade(actor, candidate)
+        end
+        choice = logistics.lootChoice(worker, item, nil, projection, {}, nil, true)
+        logistics[method] = upgrade
+        check(expectedScore > 130 and choice and choice.score == expectedScore and calls == 1,
+            "admission supplies the same upgrade score with one " .. method .. " check: " .. calls)
+    end
+end
+
+do
     local worker = fixture(nails(1))
     local Logistics, index = SC.Logistics, SC.InventoryIndex
     local nativeAudit, calls = Logistics.audit, 0
@@ -321,6 +391,17 @@ end
 visuals[actor] = "completed"; tick(actor)
 SC.Encounter.mayTakeFrom = originalAccess
 check(#source.items == 4 and #actor.inventory.items == 0, "withdrawn permission cancels the whole remaining batch")
+
+-- Carry room and food safety can change between the pose and verified transfer.
+for _, mode in ipairs({ "spoiled", "full" }) do
+    local apple = f.item("Base.Apple", "Food", { hungerChange = -.20, weight = .2 })
+    actor, source = fixture({ apple })
+    check(animate(actor).takeList[1].item == apple, "a fresh apple fits before the loot pose")
+    if mode == "spoiled" then apple.rotten = true else actor.inventory.capacity = .01 end
+    visuals[actor] = "completed"; tick(actor)
+    check(source:contains(apple) and not actor.inventory:contains(apple),
+        "fresh transfer checks leave the planned apple in its source when " .. mode)
+end
 
 -- A swap with the same item count is checked by identity at application time.
 actor, source = fixture(nails(3)); task = animate(actor)
