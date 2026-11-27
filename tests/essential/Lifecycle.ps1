@@ -115,7 +115,7 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Core 'persistence_medical_xp_harness.lua')) }
 @{ Name = 'resident-wake-restoration'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Client 'SCOddballs.lua'),
-    (Join-Path $Client 'SCOddballCaleb.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballCaleb.lua'),
     (Join-Path $Client 'SCOddballGunShop.lua'),
     (Join-Path $Client 'SCOddballHitchhiker.lua'),
     (Join-Path $Core 'oddball_story_rules_fixture.lua'),
@@ -691,14 +691,14 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Core 'private_spawn_harness.lua')) }
 @{ Name = 'oddball-animal-spawn'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_animal_spawn_fixture.lua'),
-    (Join-Path $Client 'SCOddballAnimals.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballAnimals.lua'),
     (Join-Path $Client 'SCOddballBigChris.lua'),
     (Join-Path $Core 'oddball_animal_spawn_harness.lua')) }
 @{ Name = 'bed-geometry-tight-2'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Client 'SCBedGeometry.lua'),
     (Join-Path $Client 'SCOddballs.lua'),
-    (Join-Path $Client 'SCOddballBedridden.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballBedridden.lua'),
     (Join-Path $Core 'oddball_bedridden_harness.lua'),
     (Join-Path $Core 'bed_geometry_tight_harness.lua')) }
 @{ Name = 'alife-adapter'; Extended = $true; Files = @(

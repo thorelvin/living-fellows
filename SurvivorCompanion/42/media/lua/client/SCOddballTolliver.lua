@@ -16,18 +16,8 @@ local function story(group)
     value.armed = value.armed or {}
     return value
 end
-local function actorFor(group, index)
-    local member = group and group.members and group.members[index]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
-local function ageHours()
-    local time = type(getGameTime) == "function" and getGameTime() or nil
-    local raw = time and select(1, U().call(time, "getWorldAgeHours"))
-    return tonumber(raw)
-end
+local function actorFor(group, index) return SC.OddballKit.actor(group, index) end
+local function ageHours() return SC.OddballKit.ageHours() end
 local function night()
     local time = type(getGameTime) == "function" and getGameTime() or nil
     local raw = time and select(1, U().call(time, "getTimeOfDay"))
@@ -38,14 +28,7 @@ local function near(group, player, radius)
     local actor = actorFor(group, 1)
     return actor and player and U().distance(actor, player) <= radius
 end
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        160, 8) or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 160, 8) end
 local function playerHasLight(player)
     for _, getter in ipairs({ "getPrimaryHandItem", "getSecondaryHandItem" }) do
         local item = select(1, U().call(player, getter))

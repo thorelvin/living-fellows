@@ -57,11 +57,7 @@ local function near(group, player)
     return false
 end
 
-local function ageHours()
-    local time = type(getGameTime) == "function" and getGameTime() or nil
-    local hours = time and select(1, U().call(time, "getWorldAgeHours"))
-    return tonumber(hours)
-end
+local function ageHours() return SC.OddballKit.ageHours() end
 
 local function night()
     local hours = ageHours()
@@ -70,14 +66,7 @@ local function night()
     return clock >= 20 or clock < 5
 end
 
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        240, 10) or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 240, 10) end
 
 local function taggedSupply(actor, groupId)
     local inventory = actor and U().inventory(actor)

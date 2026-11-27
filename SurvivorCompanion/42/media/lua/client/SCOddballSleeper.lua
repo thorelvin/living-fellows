@@ -8,29 +8,10 @@ local Sleeper = SC.OddballSleeper
 local ID = "sleeping_it_off"
 
 local function U() return SC.GameplayUtil end
-local function story(group)
-    local value = type(group) == "table" and group.oddball or nil
-    if type(value) ~= "table" or value.id ~= ID then return nil end
-    value.stage = value.stage or "sleeping"
-    return value
-end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
-local function near(group, player, radius)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= radius
-        and U().canSee(player, actor) == true
-end
-local function ageHours()
-    local time = type(getGameTime) == "function" and getGameTime() or nil
-    local raw = time and select(1, U().call(time, "getWorldAgeHours"))
-    return tonumber(raw)
-end
+local function story(group) return SC.OddballKit.story(group, ID, "sleeping") end
+local function actorFor(group) return SC.OddballKit.actor(group) end
+local function near(group, player, radius) return SC.OddballKit.seenWithin(actorFor(group), player, radius) end
+local function ageHours() return SC.OddballKit.ageHours() end
 local function bedObject(value)
     local post = value.site and value.site.bed
     local square = post and U().gridSquare(post.x, post.y, post.z or 0)

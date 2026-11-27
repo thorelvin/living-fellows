@@ -18,13 +18,7 @@ local function story(group)
     return value
 end
 
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 
 local function rivalGroup(group)
     local value = story(group)
@@ -32,20 +26,9 @@ local function rivalGroup(group)
         and SC.Factions.group(value.rivalGroupId) or nil
 end
 
-local function near(group, player)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= 7
-        and U().canSee(player, actor) == true
-end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group), player, 7) end
 
-local function itemFor(actor, predicate)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        240, 10) or {}) do
-        if predicate(U().itemType(item), item) then return item end
-    end
-    return nil
-end
+local function itemFor(actor, predicate) return SC.OddballKit.itemWhere(actor, predicate, 240, 10) end
 
 local function clipping(_, item)
     local data = U().modData(item)

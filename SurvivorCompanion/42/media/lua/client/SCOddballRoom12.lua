@@ -27,11 +27,7 @@ local lines = {
 
 local function U() return SC.GameplayUtil end
 
-local function number(value)
-    if type(value) == "number" then return value end
-    if type(value) == "string" then return tonumber(value) end
-    return nil
-end
+local function number(value) return SC.OddballKit.number(value) end
 
 local function story(group)
     local value = type(group) == "table" and group.oddball or nil
@@ -44,12 +40,7 @@ local function story(group)
     return value
 end
 
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId)
-    return record and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.recordActor(group) end
 
 local function speak(group, beat)
     local actor = actorFor(group)
@@ -82,14 +73,7 @@ local function inPartyRoom(group, player)
     return room ~= nil and select(1, U().call(playerSquare, "getRoom")) == room
 end
 
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory, 200, 8)
-        or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 200, 8) end
 
 local function supplyItem(player)
     local inventory = player and U().inventory(player)

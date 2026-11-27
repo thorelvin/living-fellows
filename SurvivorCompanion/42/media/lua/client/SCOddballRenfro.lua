@@ -18,24 +18,9 @@ local RATS = {
 }
 
 local function U() return SC.GameplayUtil end
-local function story(group)
-    local value = type(group) == "table" and group.oddball or nil
-    if type(value) ~= "table" or value.id ~= ID then return nil end
-    value.stage = value.stage or "court"
-    return value
-end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
-local function near(group, player)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= 7
-        and U().canSee(player, actor) == true
-end
+local function story(group) return SC.OddballKit.story(group, ID, "court") end
+local function actorFor(group) return SC.OddballKit.actor(group) end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group), player, 7) end
 local function itemFor(actor, kinds, tagged)
     local inventory = actor and U().inventory(actor)
     for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,

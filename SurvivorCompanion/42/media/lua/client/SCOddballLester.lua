@@ -25,13 +25,7 @@ local function story(group)
     return value
 end
 
-local function actorFor(group, index)
-    local member = group and group.members and group.members[index]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group, index) return SC.OddballKit.actor(group, index) end
 
 local function slotDoor(value)
     local point = value and value.site and value.site.slotDoor
@@ -81,14 +75,7 @@ local function playerInside(group, player)
         and select(1, U().call(U().squareOf(player), "getRoom")) ~= nil
 end
 
-local function itemFor(actor, predicate)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        240, 10) or {}) do
-        if predicate(U().itemType(item), item) then return item end
-    end
-    return nil
-end
+local function itemFor(actor, predicate) return SC.OddballKit.itemWhere(actor, predicate, 240, 10) end
 
 local function payment(kind)
     return type(kind) == "string" and (

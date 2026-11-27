@@ -55,13 +55,7 @@ local function story(group)
     value.asked = type(value.asked) == "table" and value.asked or {}
     return value
 end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId)
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 local function objectAt(post, predicate)
     if not post then return nil end
     local square = U().gridSquare(post.x, post.y, post.z or 0)
@@ -230,14 +224,7 @@ local function openView(actor, value, allowUnlock)
     end
     return true, "smoker_view_open"
 end
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory
-        and U().inventoryItemsDeep(inventory, 180, 10) or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 180, 10) end
 local function ensureItem(actor, inventory, kind)
     return itemFor(actor, kind) or U().addItem(inventory, kind)
 end
@@ -334,11 +321,7 @@ local function arm(actor)
     end
     return true, "smoker_cleaver_equipped"
 end
-local function near(group, player, radius)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= radius
-        and U().canSee(player, actor) == true
-end
+local function near(group, player, radius) return SC.OddballKit.seenWithin(actorFor(group), player, radius) end
 local function lineFor(group, lines, salt)
     local hash = type(U().stableHash) == "function"
         and U().stableHash(tostring(group.id) .. ":" .. salt) or 0

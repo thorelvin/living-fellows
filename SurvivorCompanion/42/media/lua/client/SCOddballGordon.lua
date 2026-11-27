@@ -12,11 +12,7 @@ local function story(group)
     v.trades = math.max(0, tonumber(v.trades) or 0)
     return v
 end
-local function actorFor(group)
-    local m = group and group.members and group.members[1]
-    local r = m and m.actorId and SC.Registry and SC.Registry.byId(m.actorId)
-    return r and r.actor and U().isValidActor(r.actor) and r.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 local function door(v)
     local p = v and v.site and v.site.bunkerDoor
     local s = p and U().gridSquare(p.x, p.y, p.z)
@@ -33,11 +29,7 @@ local function atDoor(group, player)
     return actorFor(group) ~= nil and x and p and z == p.z
         and (x-p.x)^2 + (y-p.y)^2 <= 6.25 and door(v) ~= nil
 end
-local function near(group, player)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= 7
-        and U().canSee(player, actor) == true
-end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group), player, 7) end
 local function clean(player)
     local visual = player and select(1, U().call(player, "getHumanVisual"))
     if not visual or BloodBodyPartType == nil then

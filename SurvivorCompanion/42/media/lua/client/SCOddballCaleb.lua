@@ -15,18 +15,11 @@ local TALE = {
 }
 local SOURCES = { { -3, 0 }, { 0, -3 }, { 3, 0 } }
 local function U() return SC.GameplayUtil end
-local function story(group)
-    local value = group and group.oddball
-    return type(value) == "table" and value.id == ID and value or nil
-end
+local function story(group) return SC.OddballKit.story(group, ID) end
 local function square(post)
     return post and U().gridSquare(post.x, post.y, post.z or 0) or nil
 end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry.byId(member.actorId)
-    return record and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.recordActor(group) end
 local function close(actor, player, radius)
     return actor and player and U().sameFloor(actor, player)
         and U().distance(actor, player) <= radius and U().canSee(player, actor) == true

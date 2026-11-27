@@ -27,13 +27,7 @@ local function story(group)
     return value
 end
 
-local function actorFor(group, index)
-    local member = group and group.members and group.members[index]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group, index) return SC.OddballKit.actor(group, index) end
 
 local function near(group, player)
     for index = 1, 2 do
@@ -44,14 +38,7 @@ local function near(group, player)
     return false
 end
 
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        160, 8) or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 160, 8) end
 
 local function seedFlock(group)
     local value = story(group)

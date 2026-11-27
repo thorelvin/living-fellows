@@ -21,22 +21,9 @@ local AFTER = {
 }
 
 local function U() return SC.GameplayUtil end
-local function story(group)
-    local value = group and group.oddball
-    return type(value) == "table" and value.id == ID and value or nil
-end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId)
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
-local function near(group, player, radius)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= radius
-        and U().canSee(player, actor) == true
-end
+local function story(group) return SC.OddballKit.story(group, ID) end
+local function actorFor(group) return SC.OddballKit.actor(group) end
+local function near(group, player, radius) return SC.OddballKit.seenWithin(actorFor(group), player, radius) end
 local function bedroomDoor(value)
     local post = value and value.site and value.site.bedroomDoor
     local square = post and U().gridSquare(post.x, post.y, post.z or 0)

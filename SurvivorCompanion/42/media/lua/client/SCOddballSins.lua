@@ -49,13 +49,7 @@ local function story(group)
     return value, KIND[value.id]
 end
 
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 
 local function say(group, kind, key)
     local actor = actorFor(group)
@@ -63,11 +57,7 @@ local function say(group, kind, key)
     return actor and line and U().say(actor, line) == true or false
 end
 
-local function near(group, player)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= 6
-        and U().canSee(player, actor) == true
-end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group), player, 6) end
 
 local function itemFor(actor, test)
     local inventory = actor and U().inventory(actor)

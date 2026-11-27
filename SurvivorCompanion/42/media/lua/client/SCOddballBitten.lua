@@ -126,29 +126,11 @@ local function story(group)
     return value
 end
 
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 
-local function lineText(entry)
-    if type(entry) == "table" then
-        return U().config("profanityEnabled") == false and entry.clean or entry[1]
-    end
-    return entry
-end
+local function lineText(entry) return SC.OddballKit.lineText(entry) end
 
-local function nextLine(value, pool)
-    local list = LINES[pool]
-    local index = tonumber(value.lines[pool]) or 0
-    if index ~= index or index < 0 or index % 1 ~= 0 then index = 0 end
-    index = index % #list + 1
-    value.lines[pool] = index
-    return lineText(list[index])
-end
+local function nextLine(value, pool) return lineText(SC.OddballKit.nextLine(LINES[pool], value, pool)) end
 
 local function speak(actor, value, pool)
     if not actor then return false end

@@ -334,6 +334,12 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   A story whose module is not loaded gets only the shared behaviour. A new
   encounter adds its rules and fields to its own module or the registry, not
   to `SCFactions`.
+- `SCOddballKit` holds the small helpers the encounter modules share: the
+  member's actor (`actor` valid, `livingActor`, `recordActor` as stored),
+  `seenWithin`, `story`, `itemOfType` and `itemWhere`, `nextLine`,
+  `lineText`, `number` and `ageHours`. Each module keeps a one-line wrapper
+  under its old name that calls the kit when it runs, so load order does not
+  matter and a module that needs a different rule keeps its own version.
 - `SCThreatSet` owns bounded threat de-duplication, emergency-first retention,
   deterministic ranking, posture/fence subsets, and overflow accounting.
   `SCPerceptionScan` owns the cached horizontal/vertical frontier, persistent

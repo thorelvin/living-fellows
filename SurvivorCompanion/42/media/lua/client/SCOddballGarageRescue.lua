@@ -43,13 +43,7 @@ local function valueFor(group)
     local value = group and group.oddball
     return type(value) == "table" and value.id == ID and value or nil
 end
-local function actorFor(group)
-    local first = group and group.members and group.members[1]
-    local record = first and first.actorId and SC.Registry
-        and SC.Registry.byId(first.actorId)
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 local function sitePoint(value)
     local site = value and value.site
     return site and (site.spawn or site.anchor) or nil

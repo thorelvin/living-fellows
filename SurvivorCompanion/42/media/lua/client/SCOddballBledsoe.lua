@@ -18,28 +18,11 @@ local function story(group)
     return value
 end
 
-local function actorFor(group, index)
-    local member = group and group.members and group.members[index]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group, index) return SC.OddballKit.actor(group, index) end
 
-local function near(group, player)
-    local actor = actorFor(group, 1)
-    return actor and player and U().distance(actor, player) <= 7
-        and U().canSee(player, actor) == true
-end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group, 1), player, 7) end
 
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        240, 10) or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 240, 10) end
 
 local function lawOutfit(actor)
     local outfit = select(1, U().call(actor, "getOutfitName"))

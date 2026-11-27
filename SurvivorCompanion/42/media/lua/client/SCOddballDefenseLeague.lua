@@ -22,12 +22,7 @@ local lines = {
 
 local function U() return SC.GameplayUtil end
 
-local function story(group)
-    local value = type(group) == "table" and group.oddball or nil
-    if type(value) ~= "table" or value.id ~= ID then return nil end
-    value.stage = value.stage or "unmet"
-    return value
-end
+local function story(group) return SC.OddballKit.story(group, ID, "unmet") end
 
 local function leader(group)
     local member = group and group.members and group.members[1]

@@ -11,11 +11,15 @@
     (Join-Path $Essential 'power_night_harness.lua')) }
 @{ Name = 'behaviour.power-night-seating'; Files = @(Get-ScGameplayFiles) + @(
     (Join-Path $Essential 'power_night_seating_harness.lua')) }
+@{ Name = 'behaviour.oddball-kit'; Files = @(
+    (Join-Path $Shared 'SCNamespace.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'),
+    (Join-Path $Core 'oddball_kit_harness.lua')) }
 @{ Name = 'behaviour.gunshop-siege'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Shared 'SCCall.lua'),
     (Join-Path $Shared 'SCNativeList.lua'),
-    (Join-Path $Client 'SCOddballExchange.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballExchange.lua'),
     (Join-Path $Client 'SCOddballGunShop.lua'),
     (Join-Path $Core 'oddball_gunshop_harness.lua')) }
 @{ Name = 'behaviour.decision-arbitration-and-shelter-entry'; Files = @(
@@ -190,17 +194,17 @@
 @{ Name = 'behaviour.loretta-car'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Core 'oddball_loretta_fixture.lua'),
-    (Join-Path $Client 'SCOddballLoretta.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballLoretta.lua'),
     (Join-Path $Core 'oddball_loretta_harness.lua')) }
 @{ Name = 'behaviour.preacher-van'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballExchange.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballExchange.lua'),
     (Join-Path $Client 'SCOddballPreacher.lua'),
     (Join-Path $Core 'oddball_preacher_harness.lua')) }
 @{ Name = 'behaviour.relationship-help'; Files = @(Get-ScGameplayFiles) + (Join-Path $Essential 'relationship_help_harness.lua') }
 @{ Name = 'behaviour.family-pyre'; Files = @(
     (Join-Path $Essential 'caleb_fixture.lua'),
-    (Join-Path $Client 'SCOddballCaleb.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballCaleb.lua'),
     (Join-Path $Essential 'caleb_harness.lua')) }
 
 # Extended scenarios, moved from the former on-demand runners (0.27.94). They
@@ -666,74 +670,74 @@
     (Join-Path $Core 'nickname_life_harness.lua')) }
 @{ Name = 'oddball-amos'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballAmos.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballAmos.lua'),
     (Join-Path $Core 'oddball_amos_harness.lua')) }
 @{ Name = 'oddball-ashby'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballAshby.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballAshby.lua'),
     (Join-Path $Core 'oddball_ashby_harness.lua')) }
 @{ Name = 'oddball-auxiliary'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballAuxiliary.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballAuxiliary.lua'),
     (Join-Path $Core 'oddball_auxiliary_harness.lua')) }
 @{ Name = 'oddball-bitten'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballBitten.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballBitten.lua'),
     (Join-Path $Core 'oddball_bitten_harness.lua')) }
 @{ Name = 'oddball-bledsoe'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballBledsoe.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballBledsoe.lua'),
     (Join-Path $Core 'oddball_bledsoe_harness.lua')) }
 @{ Name = 'oddball-camp-storyteller'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_camp_storyteller_fixture.lua'),
     (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\server\SCCampStorytellerServer.lua'),
-    (Join-Path $Client 'SCOddballCampStoryteller.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballCampStoryteller.lua'),
     (Join-Path $Core 'oddball_camp_storyteller_harness.lua')) }
 @{ Name = 'oddball-clem-purdy'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballClem.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballClem.lua'),
     (Join-Path $Client 'SCOddballPurdy.lua'),
     (Join-Path $Core 'oddball_clem_purdy_harness.lua')) }
 @{ Name = 'oddball-corey'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballCorey.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballCorey.lua'),
     (Join-Path $Core 'oddball_corey_harness.lua')) }
 @{ Name = 'oddball-dads'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballExchange.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballExchange.lua'),
     (Join-Path $Client 'SCOddballDads.lua'),
     (Join-Path $Core 'oddball_dads_harness.lua')) }
 @{ Name = 'oddball-defense-league'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballDefenseLeague.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballDefenseLeague.lua'),
     (Join-Path $Core 'oddball_defense_league_harness.lua')) }
 @{ Name = 'oddball-dehydrated'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_dehydrated_fixture.lua'),
-    (Join-Path $Client 'SCOddballDehydrated.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballDehydrated.lua'),
     (Join-Path $Core 'oddball_dehydrated_harness.lua')) }
 @{ Name = 'oddball-deputy'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballDeputy.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballDeputy.lua'),
     (Join-Path $Core 'oddball_deputy_harness.lua')) }
 @{ Name = 'oddball-distress-radio'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballDistressRadio.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballDistressRadio.lua'),
     (Join-Path $Core 'oddball_distress_radio_harness.lua')) }
 @{ Name = 'oddball-dwight'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballDwight.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballDwight.lua'),
     (Join-Path $Core 'oddball_dwight_harness.lua')) }
 @{ Name = 'oddball-ebb'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballEbb.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballEbb.lua'),
     (Join-Path $Core 'oddball_ebb_harness.lua')) }
 @{ Name = 'oddball-elmer'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballElmer.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballElmer.lua'),
     (Join-Path $Core 'oddball_elmer_harness.lua')) }
 @{ Name = 'oddball-final-four'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_final_four_fixture.lua'),
-    (Join-Path $Client 'SCOddballExchange.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballExchange.lua'),
     (Join-Path $Client 'SCPersonalItems.lua'),
     (Join-Path $Client 'SCOddballGordon.lua'),
     (Join-Path $Client 'SCOddballMorton.lua'),
@@ -742,96 +746,96 @@
     (Join-Path $Core 'oddball_final_four_harness.lua')) }
 @{ Name = 'oddball-firecracker'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballFirecracker.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballFirecracker.lua'),
     (Join-Path $Core 'oddball_firecracker_harness.lua')) }
 @{ Name = 'oddball-furry-pack'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballFurryPack.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballFurryPack.lua'),
     (Join-Path $Core 'oddball_furry_pack_harness.lua')) }
 @{ Name = 'oddball-garage-rescue'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_garage_rescue_fixture.lua'),
-    (Join-Path $Client 'SCOddballGarageRescue.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballGarageRescue.lua'),
     (Join-Path $Core 'oddball_garage_rescue_harness.lua')) }
 @{ Name = 'oddball-hitchhiker'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballHitchhiker.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballHitchhiker.lua'),
     (Join-Path $Core 'oddball_hitchhiker_harness.lua')) }
 @{ Name = 'oddball-kris'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballKris.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballKris.lua'),
     (Join-Path $Core 'oddball_kris_harness.lua')) }
 @{ Name = 'oddball-lester'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballLester.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballLester.lua'),
     (Join-Path $Core 'oddball_lester_harness.lua')) }
 @{ Name = 'oddball-lusk'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballLusk.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballLusk.lua'),
     (Join-Path $Core 'oddball_lusk_harness.lua')) }
 @{ Name = 'oddball-mose'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballMose.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballMose.lua'),
     (Join-Path $Core 'oddball_mose_harness.lua')) }
 @{ Name = 'oddball-prentice'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballPrentice.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballPrentice.lua'),
     (Join-Path $Core 'oddball_prentice_harness.lua')) }
 @{ Name = 'oddball-pyromaniac'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_pyromaniac_fixture.lua'),
-    (Join-Path $Client 'SCOddballPyromaniac.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballPyromaniac.lua'),
     (Join-Path $Core 'oddball_pyromaniac_harness.lua')) }
 @{ Name = 'oddball-remaining-gaps'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_remaining_gaps_fixture.lua'),
-    (Join-Path $Client 'SCOddballMerle.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballMerle.lua'),
     (Join-Path $Client 'SCOddballSleeper.lua'),
     (Join-Path $Core 'oddball_remaining_gaps_harness.lua')) }
 @{ Name = 'oddball-rivals'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballRivals.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballRivals.lua'),
     (Join-Path $Core 'oddball_rivals_harness.lua')) }
 @{ Name = 'oddball-royce'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballRoyce.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballRoyce.lua'),
     (Join-Path $Core 'oddball_royce_harness.lua')) }
 @{ Name = 'oddball-sealed-and-voice'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_sealed_and_voice_fixture.lua'),
-    (Join-Path $Client 'SCOddballSurvivalist.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballSurvivalist.lua'),
     (Join-Path $Client 'SCOddballVoiceActor.lua'),
     (Join-Path $Core 'oddball_sealed_and_voice_harness.lua')) }
 @{ Name = 'oddball-sins'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballSins.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballSins.lua'),
     (Join-Path $Core 'oddball_sins_harness.lua')) }
 @{ Name = 'oddball-skeeter'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballSkeeter.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballSkeeter.lua'),
     (Join-Path $Core 'oddball_skeeter_harness.lua')) }
 @{ Name = 'oddball-smoker'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballSmoker.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballSmoker.lua'),
     (Join-Path $Core 'oddball_smoker_harness.lua')) }
 @{ Name = 'oddball-soldier'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballForecast.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballForecast.lua'),
     (Join-Path $Client 'SCOddballDistressRadio.lua'),
     (Join-Path $Client 'SCOddballSoldier.lua'),
     (Join-Path $Core 'oddball_soldier_harness.lua')) }
 @{ Name = 'oddball-tupelo'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballTupelo.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballTupelo.lua'),
     (Join-Path $Core 'oddball_tupelo_harness.lua')) }
 @{ Name = 'oddball-velma'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballForecast.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballForecast.lua'),
     (Join-Path $Client 'SCOddballVelma.lua'),
     (Join-Path $Core 'oddball_velma_harness.lua')) }
 @{ Name = 'oddball-visitors'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballVisitors.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballVisitors.lua'),
     (Join-Path $Core 'oddball_visitors_harness.lua')) }
 @{ Name = 'oddball-werewolf'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballWerewolf.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballWerewolf.lua'),
     (Join-Path $Core 'oddball_werewolf_harness.lua')) }
 @{ Name = 'oddball-foundation'; Extended = $true; Files = @(
     (Join-Path $Core 'core_fixture.lua'),
@@ -846,7 +850,7 @@
     (Join-Path $Client 'SCBedGeometry.lua'),
     (Join-Path $Client 'SCSpawnSafety.lua'),
     (Join-Path $Client 'SCOddballs.lua'),
-    (Join-Path $Client 'SCOddballCaleb.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballCaleb.lua'),
     (Join-Path $Client 'SCOddballCampStoryteller.lua'),
     (Join-Path $Client 'SCOddballRoom12.lua'),
     (Join-Path $Client 'SCOddballSurvivalist.lua'),
@@ -918,17 +922,17 @@
     (Join-Path $Core 'oddball_schedule_harness.lua')) }
 @{ Name = 'oddball-lonnie-virgil'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballLonnie.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballLonnie.lua'),
     (Join-Path $Client 'SCOddballVirgil.lua'),
     (Join-Path $Core 'oddball_lonnie_virgil_harness.lua')) }
 @{ Name = 'oddball-milli'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_milli_fixture.lua'),
     (Join-Path $Client 'SCFactionContracts.lua'),
-    (Join-Path $Client 'SCOddballMilli.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballMilli.lua'),
     (Join-Path $Core 'oddball_milli_harness.lua')) }
 @{ Name = 'oddball-phase2'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballGale.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballGale.lua'),
     (Join-Path $Client 'SCOddballButch.lua'),
     (Join-Path $Client 'SCOddballCecil.lua'),
     (Join-Path $Client 'SCOddballAnimals.lua'),
@@ -939,20 +943,20 @@
 @{ Name = 'oddball-room-guard'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
     (Join-Path $Core 'oddball_room_guard_fixture.lua'),
-    (Join-Path $Client 'SCOddballRoomGuard.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballRoomGuard.lua'),
     (Join-Path $Core 'oddball_room_guard_harness.lua')) }
 @{ Name = 'oddball-silas-rusty'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballSilas.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballSilas.lua'),
     (Join-Path $Client 'SCOddballRusty.lua'),
     (Join-Path $Core 'oddball_silas_rusty_harness.lua')) }
 @{ Name = 'oddball-wendell'; Extended = $true; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'),
-    (Join-Path $Client 'SCOddballWendell.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballWendell.lua'),
     (Join-Path $Core 'oddball_wendell_harness.lua')) }
 @{ Name = 'strange-folk-behavior'; Extended = $true; Files = @(
     (Join-Path $Core 'strange_folk_behavior_fixture.lua'),
-    (Join-Path $Client 'SCOddballRed.lua'),
+    (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballRed.lua'),
     (Join-Path $Client 'SCOddballSpiffo.lua'),
     (Join-Path $Client 'SCZombieTargeting.lua'),
     (Join-Path $Core 'strange_folk_behavior_harness.lua')) }

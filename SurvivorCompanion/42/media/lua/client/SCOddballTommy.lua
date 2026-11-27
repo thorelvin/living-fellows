@@ -10,37 +10,15 @@ local BELLE = { kind = "cow", breed = "simmental",
     name = "Bourbon Belle" }
 
 local function U() return SC.GameplayUtil end
-local function story(group)
-    local value = type(group) == "table" and group.oddball or nil
-    if type(value) ~= "table" or value.id ~= ID then return nil end
-    value.stage = value.stage or "training_belle"
-    return value
-end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
-local function near(group, player, radius)
-    local actor = actorFor(group)
-    return actor and player and U().distance(actor, player) <= radius
-        and U().canSee(player, actor) == true
-end
+local function story(group) return SC.OddballKit.story(group, ID, "training_belle") end
+local function actorFor(group) return SC.OddballKit.actor(group) end
+local function near(group, player, radius) return SC.OddballKit.seenWithin(actorFor(group), player, radius) end
 local function ageDay()
     local time = type(getGameTime) == "function" and getGameTime() or nil
     local raw = time and select(1, U().call(time, "getWorldAgeHours"))
     return tonumber(raw) and math.floor(raw / 24) or nil
 end
-local function itemFor(actor, kind)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        120, 8) or {}) do
-        if U().itemType(item) == kind then return item end
-    end
-    return nil
-end
+local function itemFor(actor, kind) return SC.OddballKit.itemOfType(actor, kind, 120, 8) end
 local function hunger(animal)
     local value = select(1, U().call(animal, "getHunger"))
     if tonumber(value) then return tonumber(value) end

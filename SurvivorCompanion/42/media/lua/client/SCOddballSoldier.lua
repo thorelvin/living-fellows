@@ -102,11 +102,7 @@ Soldier.LINES = LINES
 
 local function U() return SC.GameplayUtil end
 
-local function number(value)
-    if type(value) == "number" then return value end
-    if type(value) == "string" then return tonumber(value) end
-    return nil
-end
+local function number(value) return SC.OddballKit.number(value) end
 
 local function call(object, method, ...)
     return object and select(1, U().call(object, method, ...)) or nil
@@ -122,22 +118,9 @@ local function story(group)
     return value
 end
 
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    local actor = record and record.actor
-    return actor and U().isValidActor(actor) and not U().isDead(actor) and actor or nil
-end
+local function actorFor(group) return SC.OddballKit.livingActor(group) end
 
-local function nextLine(value, pool)
-    local list = LINES[pool]
-    local index = number(value.lines[pool]) or 0
-    if index ~= index or index < 0 or index % 1 ~= 0 then index = 0 end
-    index = index % #list + 1
-    value.lines[pool] = index
-    return list[index]
-end
+local function nextLine(value, pool) return SC.OddballKit.nextLine(LINES[pool], value, pool) end
 
 local function worldHours()
     if type(getGameTime) ~= "function" then return nil end

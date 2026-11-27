@@ -56,13 +56,7 @@ local function memberFor(group, actor)
     return nil
 end
 
-local function actorFor(group, index)
-    local member = group and group.members and group.members[index]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group, index) return SC.OddballKit.actor(group, index) end
 
 local function speak(group, key, index)
     local actor, choice = actorFor(group, index or 1), lines[key]

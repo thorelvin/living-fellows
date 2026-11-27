@@ -32,13 +32,7 @@ local function story(group)
     return value
 end
 
-local function actorFor(group, index)
-    local member = group and group.members and group.members[index]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId) or nil
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function actorFor(group, index) return SC.OddballKit.actor(group, index) end
 
 local function indexFor(group, actor)
     for index = 1, 3 do
@@ -141,20 +135,9 @@ local function faceKitchen(group, actor, index)
     return called == true, target
 end
 
-local function near(group, player)
-    local leader = actorFor(group, 1)
-    return leader and player and U().distance(leader, player) <= 7
-        and U().canSee(player, leader) == true
-end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group, 1), player, 7) end
 
-local function itemFor(actor, predicate)
-    local inventory = actor and U().inventory(actor)
-    for _, item in ipairs(inventory and U().inventoryItemsDeep(inventory,
-        240, 10) or {}) do
-        if predicate(U().itemType(item), item) then return item end
-    end
-    return nil
-end
+local function itemFor(actor, predicate) return SC.OddballKit.itemWhere(actor, predicate, 240, 10) end
 
 local function taggedBake(_, item)
     local data = U().modData(item)

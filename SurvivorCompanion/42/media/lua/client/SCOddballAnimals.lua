@@ -11,11 +11,7 @@ local loadedScan = { cell = nil, list = nil, untilMs = 0 }
 
 local function U() return SC.GameplayUtil end
 
-local function number(value)
-    if type(value) == "number" then return value end
-    if type(value) == "string" then return tonumber(value) end
-    return nil
-end
+local function number(value) return SC.OddballKit.number(value) end
 
 local function onlineId(animal)
     local id = number(select(1, U().call(animal, "getOnlineID")))

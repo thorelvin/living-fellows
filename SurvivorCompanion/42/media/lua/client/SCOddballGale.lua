@@ -25,11 +25,7 @@ local lines = {
 
 local function U() return SC.GameplayUtil end
 
-local function number(value)
-    if type(value) == "number" then return value end
-    if type(value) == "string" then return tonumber(value) end
-    return nil
-end
+local function number(value) return SC.OddballKit.number(value) end
 
 local function story(group)
     local value = type(group) == "table" and group.oddball or nil
@@ -41,12 +37,7 @@ local function story(group)
     return value
 end
 
-local function actorFor(group)
-    local member = type(group) == "table" and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId)
-    return record and record.actor or nil
-end
+local function actorFor(group) return SC.OddballKit.recordActor(group) end
 
 local function speak(group, beat)
     local actor, choice = actorFor(group), lines[beat]

@@ -41,22 +41,9 @@ local nextPoseAt = setmetatable({}, { __mode = "k" })
 local shelterByActor = setmetatable({}, { __mode = "k" })
 
 local function U() return SC.GameplayUtil end
-local function number(value)
-    if type(value) == "number" then return value end
-    if type(value) == "string" then return tonumber(value) end
-    return nil
-end
-local function story(group)
-    local value = group and group.oddball
-    return type(value) == "table" and value.id == ID and value or nil
-end
-local function actorFor(group)
-    local member = group and group.members and group.members[1]
-    local record = member and member.actorId and SC.Registry
-        and SC.Registry.byId(member.actorId)
-    return record and record.actor and U().isValidActor(record.actor)
-        and record.actor or nil
-end
+local function number(value) return SC.OddballKit.number(value) end
+local function story(group) return SC.OddballKit.story(group, ID) end
+local function actorFor(group) return SC.OddballKit.actor(group) end
 local function doorFor(value)
     local post = value and value.site and value.site.rescueDoor
     local square = post and U().gridSquare(post.x, post.y, post.z or 0)

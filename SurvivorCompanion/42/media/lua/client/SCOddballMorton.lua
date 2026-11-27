@@ -11,15 +11,8 @@ local function story(g)
     v.stage = v.stage or "performing"
     return v
 end
-local function actorFor(g)
-    local m = g and g.members and g.members[1]
-    local r = m and m.actorId and SC.Registry and SC.Registry.byId(m.actorId)
-    return r and r.actor and U().isValidActor(r.actor) and r.actor or nil
-end
-local function near(g,p)
-    local a=actorFor(g)
-    return a and p and U().distance(a,p)<=8 and U().canSee(p,a)==true
-end
+local function actorFor(group) return SC.OddballKit.actor(group) end
+local function near(group, player) return SC.OddballKit.seenWithin(actorFor(group), player, 8) end
 local function doll(a)
     local inv=a and U().inventory(a)
     for _,item in ipairs(inv and U().inventoryItemsDeep(inv,120,8) or {}) do
