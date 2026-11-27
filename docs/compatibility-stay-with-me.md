@@ -2,7 +2,7 @@
 
 # Stay With Me
 
-Living Fellows 0.27.31 recognises Stay With Me 0.6.5, Workshop item
+Living Fellows 0.27.100 verifies Stay With Me 0.6.8, Workshop item
 [3800989007](https://steamcommunity.com/sharedfiles/filedetails/?id=3800989007),
 mod ID `Bridge`. Enable both mods normally. No separate compatibility mod or
 setting is needed. Support diagnostics include `stayWithMe` adapter status.
@@ -25,19 +25,23 @@ navigation nor overrides zombie pathing. This is LF-side protection; it does
 not promise reciprocal combat behaviour from unrelated mods. LF remains a
 single-player mod.
 
-The downloaded [author-published source](https://github.com/rdflwr13/stay-with-me)
-was pinned at `8f93627cfa93d4a50c14d8ff2e9eb5b0326c4d25` (0.6.5). It is
-used locally for contract tests and is not redistributed with LF.
+The focused contract suite passed against the official 0.6.8 Workshop package
+from November 18, 2026, manifest `4524220579017415426`. The dependency is used
+locally for verification. [Official change notes](https://steamcommunity.com/sharedfiles/filedetails/changelog/3800989007)
 
 Run the focused harness with the downloaded mod's `common` directory:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Test-StayWithMe.ps1 `
-  -StayWithMeRoot '<Stay With Me>\Contents\mods\Bridge\common' -RequireSource
+  -StayWithMeRoot '<Workshop item 3800989007>\mods\Bridge\common' -RequireSource
 ```
 
 The harness executes the original client/server identity functions, LF
 perception and relationships, all four direct attack handlers, native hit-list
 filtering and reverted-fix controls. The full release gate also exercises the
 filter with actual Build 42.22.2 zombie objects and a real Kahlua callback.
-These are harness checks; no combined-mod live play session is claimed.
+
+An isolated Build 42.22.2 session with both mods passed 30 checks using Rin's
+real standing body and Stay With Me's optional vehicle-seat visual. LF marked
+both as protected people and rejected all eight direct melee, firearm, shove,
+and stomp requests. An ordinary zombie remained eligible for targeting.

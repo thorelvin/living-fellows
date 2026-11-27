@@ -605,7 +605,7 @@ function Adapter.initialize()
         changeState("unsupported", "Simultaneous A-Life and Bandits is not supported") return false
     end
     if not configured() then changeState("disabled", "Combat integration is off; identity guards retained") return false end
-    changeState("active", "Project A-Life 1.4.6 interfaces ready")
+    changeState("active", "Project A-Life Interop v1 interfaces ready")
     return active()
 end
 function Adapter.pulse(current)

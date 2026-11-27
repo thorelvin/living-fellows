@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.27.100 - Workshop compatibility refresh
+
+- Validate the official signed-game PZ_Optimization agent and both action evaluation routes before enabling the existing companion-targeted combat adapter. Support identifies the verified optimizer build or explains why the adapter is unavailable.
+- Report the A-Life Interop interface version in Support and record the Workshop build tested in the compatibility notes.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.99 - The One That Got Away
 
 - Find Wade Hensley at a secluded riverbank or hear his call on 90 MHz. Bring one spool of line and watch him get a bite six seconds after his bobber hits the water. Wade gets his old lure back and shares a fish fillet.

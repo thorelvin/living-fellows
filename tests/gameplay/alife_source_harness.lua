@@ -86,4 +86,24 @@ local accepted = P.Combat.resolveAttack(record, shell, member, false)
 check(not accepted and member.body.hits == before and not member.body.fallbacks,
     "late immunity blocks the actual stock AddDamage fallback")
 member.getBodyDamage, member.god = originalBody, false
+
+if type(P.Relations.defendingOther) == "function" then
+    P.Experiments = { enabled = function(feature) return feature == "rep_defend_player" end }
+    local ally = ALIFE_TEST_ACTOR("sc-source-defended")
+    local aggressor, threat = ALIFE_TEST_NPC("source-defence")
+    threat.factionId = "friendly"
+    check(not P.Relations.isSelfDefence(member, threat, SC_TEST_CLOCK),
+        "a fresh encounter has no defence authority")
+    check(P.Relations.noteAggression(aggressor, ally, SC_TEST_CLOCK)
+        and P.Relations.isSelfDefence(member, threat, SC_TEST_CLOCK),
+        "stock defence recognizes an LF actor protecting a different LF identity")
+    check(not P.Reputation.onPlayerDamagedActor(member, threat)
+        and not P.Reputation.onPlayerKilledActor(member, threat, aggressor)
+        and P.Reputation.recordedStatus(ALIFE_TEST_PLAYER, threat) == nil,
+        "defending another LF person does not penalize the player's faction standing")
+    check(P.Relations.noteAggression(member, aggressor, SC_TEST_CLOCK)
+        and P.Relations.isSelfDefence(member, threat, SC_TEST_CLOCK + P.Relations.aggressionHoldMs + 1),
+        "stock defence receipt persists beyond the short aggression window")
+end
+
 SC_TEST_REPORT = "ALIFE_INSTALLED_SOURCE_PASS checks=" .. tostring(checks)

@@ -12,6 +12,8 @@ ALIFE_TEST_RECORDS[folk.md.SC_Id].factionId = "strange_folk"
 local shell, record = ALIFE_TEST_NPC("alife-1")
 local originalPlayers, originalKey, originalPolicy = P.PlayerLocator.list, P.Reputation.playerKey, P.TargetPolicy.canAttack
 check(A.initialize() and A.status().active, "valid single-player interfaces activate")
+check(A.status().reason == "Project A-Life Interop v1 interfaces ready",
+    "Support names the validated runtime interface rather than an assumed Workshop release")
 check(A.initialize() and P.PlayerLocator.list == originalPlayers, "repeat initialization never hooks the global player locator")
 check(P.Reputation.playerKey(ALIFE_TEST_PLAYER) == "sp:0", "main player key is unchanged")
 for _, actor in ipairs({ member, resident, household, folk }) do

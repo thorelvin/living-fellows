@@ -2,6 +2,7 @@
 -- Explicit disposable fixture: one stock Bandits clan member, one controlled
 -- wound transaction, then ordinary production AI. No zombie clearing/healing.
 local Probe = {}
+local RELOAD_PROOF_KEY = "SC_BanditsHarnessReload"
 local function call(actor, method, ...)
     if actor == nil or type(actor[method]) ~= "function" then return nil end
     local okay, value = pcall(actor[method], actor, ...)
@@ -32,6 +33,15 @@ local function samePlayers(fixture)
 end
 local function cleanup(fixture)
     if fixture and fixture.hitObserver then Events.OnHitZombie.Remove(fixture.hitObserver) end
+end
+local function openSaveMenu()
+    local menu = MainScreen and MainScreen.instance
+    if not menu or menu.inGame ~= true or type(ToggleEscapeMenu) ~= "function" then return false end
+    if not menu:getIsVisible() then
+        local key = getCore():getKey(KeybindId.MAIN_MENU)
+        ToggleEscapeMenu(key > 0 and key or Keyboard.KEY_ESCAPE)
+    end
+    return menu:getIsVisible()
 end
 local function finish(H, result, setPhase, current, okay, label, detail)
     if H.banditsAdapter and H.banditsAdapter.bandit then
@@ -246,16 +256,25 @@ function Probe.step(H, current, check, result, setPhase)
         local fixture = { player = getSpecificPlayer(0), players = playerSnapshot(nativeList),
             nativeNumPlayers = IsoPlayer.numPlayers, playerCount = nativeList:size() }
         local alias = BanditUtils.GetCharacterID(actor)
+        local proof = ModData.getOrCreate(RELOAD_PROOF_KEY)
+        if type(proof.spawnKey) ~= "string" or proof.actorId ~= id then
+            finish(H, result, setPhase, current, false, "bandits_reload_fixture", "exact staged identities missing")
+            return
+        end
+        local recognized = 0
+        for _, bandit in pairs(BanditZombie.Cache) do
+            if SC.BanditsAdapter.owns(bandit) then
+                local brain = BanditBrain.Get(bandit)
+                if brain and brain.key == proof.spawnKey then recognized = recognized + 1 end
+            end
+        end
+        if recognized == 0 and current - H.startedAt < 60000 then return end
         check("bandits_reload_identity", alias == "lf:" .. id and BanditPlayer.GetPlayerById(alias) == actor,
             "previous run's persistent UUID resolves to the restored native actor: " .. tostring(alias))
         check("bandits_reload_primary", BanditUtils.GetCharacterID(fixture.player) == 1 and samePlayers(fixture),
             "native main player/slots remain unchanged after loading the Bandits-enabled clone")
-        local recognized = 0
-        for _, bandit in pairs(BanditZombie.Cache) do
-            if SC.BanditsAdapter.owns(bandit) then recognized = recognized + 1 end
-        end
-        check("bandits_reload_foreign_ownership", recognized > 0,
-            "native Bandits after reload=" .. recognized .. "; no actor conversion")
+        check("bandits_reload_foreign_ownership", recognized == 1,
+            "exact stock Bandit brain restored once under Bandits ownership; matches=" .. recognized)
         getCore():TakeFullScreenshot(tostring(H.config.run_id) .. "-bandits-reload.png")
         finish(H, result, setPhase, current, SC.BanditsAdapter.status().active,
             "bandits_reload_complete", "existing schemas; no persisted alias objects")
@@ -349,7 +368,9 @@ function Probe.step(H, current, check, result, setPhase)
             if square then break end
         end
         if not square then finish(H, result, setPhase, current, false, "bandits_spawn_square", "No free loaded native square") return end
+        if H.config.bandits_lf_role == "strange_folk_save" then fixture.banditKey = H.config.run_id end
         BanditServer.Spawner.Clan(player, { cid = clan, size = 1, hostile = false, hostileP = false,
+            key = fixture.banditKey,
             spawnPoints = { { x = square:getX(), y = square:getY(), z = square:getZ() } } })
         result("PASS", "bandits_stock_spawn_requested", "one member of armed official clan=" .. tostring(clan)
             .. "; LF=" .. selected.id .. "; distance from primary=" .. selectedDistance
@@ -360,7 +381,13 @@ function Probe.step(H, current, check, result, setPhase)
         local fixture = H.banditsAdapter
         for id, bandit in pairs(BanditZombie.Cache) do
             if not fixture.before[id] and SC.BanditsAdapter.owns(bandit)
-                and SC.GameplayUtil.distance(bandit, fixture.actor) < 14 then fixture.bandit = bandit break end
+                and SC.GameplayUtil.distance(bandit, fixture.actor) < 14 then
+                local brain = fixture.banditKey and BanditBrain.Get(bandit) or nil
+                if not fixture.banditKey or brain and brain.key == fixture.banditKey then
+                    fixture.bandit = bandit
+                    break
+                end
+            end
         end
         if not fixture.bandit then
             if current - fixture.spawnAt > 20000 then finish(H, result, setPhase, current,
@@ -377,8 +404,18 @@ function Probe.step(H, current, check, result, setPhase)
             setPhase("finish", current) return
         end
         if H.config.bandits_lf_role == "strange_folk_save" then
+            local brain = BanditBrain.Get(bandit)
+            if not fixture.banditKey or not brain or brain.key ~= fixture.banditKey or not openSaveMenu() then
+                finish(H, result, setPhase, current, false, "bandits_save_fixture",
+                    "stock Bandit identity or native Escape menu unavailable")
+                return
+            end
+            -- Bandits' normal quit handler serializes its live bodies from this menu.
+            local proof = ModData.getOrCreate(RELOAD_PROOF_KEY)
+            proof.actorId, proof.spawnKey = fixture.record.id, fixture.banditKey
             finish(H, result, setPhase, current, true, "bandits_save_fixture",
-                "native Corey UUID=" .. fixture.record.id .. "; valid roamer site; stock Bandit retained for reload")
+                "native Corey UUID=" .. fixture.record.id .. "; stock Bandit key=" .. proof.spawnKey
+                    .. "; native Escape menu open for save")
             return
         end
         local beforeActor, beforePlayer = partHealth(actor), partHealth(fixture.player)

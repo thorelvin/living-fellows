@@ -2,6 +2,20 @@
 
 # Project A-Life adapter validation
 
+## November 27, 2026 Workshop refresh
+
+The [Project A-Life 1.5.4 Workshop package](https://steamcommunity.com/sharedfiles/filedetails/changelog/3803984183) was downloaded through SteamCMD as item `3803984183`, manifest `2865504447189745152`. Its selected payload declares `modversion=1.5.4` and publishes Interop v1. The checks below use Project Zomboid **42.22.2**.
+
+The adapter and hardening fixtures pass **56** and **35** checks. The original **1.4.6** source still passes **928** checks. The unchanged **1.5.4** source passes **932**, including four checks for separate LF identities in the upstream defense ledger, faction-standing preservation during defense, and retention after the short aggression window expires. The test runner loads the owning combat core and uses fixture audio and body boundaries. Live verification is recorded separately.
+
+Cold reload passed from `SC-Harness-20261127-155445-d9466ede` to `SC-Harness-20261127-155634-a52e2fa6`. The original A-Life UID and shell returned under A-Life ownership. The LF UUID resolved to exactly one restored native body, with all **12** stable item identities and types intact. The primary retained reputation key `sp:0`, native player count 1 and engine player-list size 4.
+
+The combat run `SC-Harness-20261127-155232-0f466884` passed adapter activation, primary isolation and actual incoming wounds to the selected LF body. The private probe now waits for A-Life's normal post-spawn grace to expire before provoking its actor. LF initially aimed at a different nearby threat, then spent the remaining time on emergency treatment. It retained all 15 pistol rounds and issued no attack receipt before death.
+
+The quiet retry `SC-Harness-20261127-161548-58561fbf` used an outdoor lane with fewer nearby bodies and equipped the LF actor with real bandages. Incoming wounds and primary isolation passed again. The last sample before death counted **13** incoming wounds. LF queued and animated emergency treatment, retained all **15** pistol rounds, and its native attack serial stayed at zero. A-Life's actor remained at full health. These two runs leave reciprocal fire open at the point of initiating an LF attack.
+
+## October 26, 2026 compatibility baseline
+
 26 October 2026. Unreleased changes on `living_fellows/0.26.69`, alongside the separately documented [human combat fixes](validation-human-combat-fixes.md). Target: Project Zomboid **42.21.0 single-player**.
 
 ## Dependency inspected

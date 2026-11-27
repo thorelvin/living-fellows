@@ -4,9 +4,11 @@
 
 Living Fellows includes an optional Lua adapter for the official
 [Bandits2](https://steamcommunity.com/workshop/filedetails/?id=3268487204)
-core on **Project Zomboid 42.21.0, single-player**. It activates when both
-mods are enabled and the required interfaces are available. Bandits is an
-optional dependency; Living Fellows does not install or enable it for you.
+core in single-player. It activates when both mods are enabled and the
+required interfaces are available. Bandits is an optional dependency.
+The November 21 Workshop payload passes the installed-source checks on
+**Project Zomboid 42.22.2**. The validation record gives the scope of the
+current checks and the earlier 42.21.0 live scenarios.
 
 The adapter covers companions, camp residents, independent households and
 Strange Folk. Hostile Bandits are human threats. Neutral or friendly Bandits

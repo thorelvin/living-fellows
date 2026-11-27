@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid',
-    [string]$BanditsRoot = 'C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3268487204\mods\Bandits\42.21',
+    [string]$BanditsRoot = 'C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3268487204\mods\Bandits\42.22',
     [switch]$RequireBanditsSource
 )
 $ErrorActionPreference = 'Stop'
@@ -33,6 +33,6 @@ try {
         & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskSourceFiles
         if ($LASTEXITCODE -ne 0) { throw 'Installed Bandits source contract failed' }
     } elseif ($RequireBanditsSource) {
-        throw 'Official Bandits 42.21 payload is required for this check'
+        throw 'Official Bandits payload is required for this check'
     } else { Write-Output 'BANDITS_SOURCE_SKIP optional dependency not installed' }
 } finally { Pop-Location }

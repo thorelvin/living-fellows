@@ -47,6 +47,24 @@ local function openPoint(SC, actor, minimum, maximum)
         end
     end
 end
+local function combatField(shared, SC, player)
+    local zombies = getCell():getZombieList()
+    local best, fewest
+    for radius = 44, 24, -2 do
+        local scene = shared.field(SC, player, radius, radius)
+        if scene then
+            local nearby = 0
+            for index = 0, zombies:size() - 1 do
+                local body = zombies:get(index)
+                if body and not body:isDead() and math.floor(body:getZ()) == scene.fellow:getZ()
+                    and SC.GameplayUtil.distance(body, scene.fellow) < 18 then nearby = nearby + 1 end
+            end
+            if nearby == 0 then return scene end
+            if not fewest or nearby < fewest then best, fewest = scene, nearby end
+        end
+    end
+    return best
+end
 local function inventoryProof(SC, actor)
     local proof = {}
     for _, entry in ipairs(SC.Logistics.audit(actor).items or {}) do
@@ -222,7 +240,8 @@ function Probe.step(H, current, check, result, setPhase)
         end
         require "SCBanditsCombatAcceptance"
         local shared = SCRealSandboxHarnessProbes.SCBanditsCombatAcceptance.shared
-        f.scene = shared.field(SC, player, 24, 44)
+        local combat = H.config.project_alife_scenario == "combat"
+        f.scene = combat and combatField(shared, SC, player) or shared.field(SC, player, 24, 44)
         if not f.scene then finish(H, current, result, setPhase, false, "No surveyed outdoor combat corridor") return end
         player:setX(f.scene.observer:getX() + 0.5)
         player:setY(f.scene.observer:getY() + 0.5)
@@ -268,6 +287,9 @@ function Probe.step(H, current, check, result, setPhase)
         if weaponType == "Base.BaseballBat" then f.meleeWeapon = actor:getInventory():AddItem(weaponType) end
         local weapon = actor:getInventory():AddItem("Base.Pistol")
         if not weapon then finish(H, current, result, setPhase, false, "Real weapon unavailable") return end
+        if H.config.project_alife_scenario == "combat" then
+            for _ = 1, 8 do actor:getInventory():AddItem("Base.Bandage") end
+        end
         if weapon:isRanged() then
             local clip = weapon:getClipSize()
             for _ = 1, 2 do
@@ -313,7 +335,10 @@ function Probe.step(H, current, check, result, setPhase)
         }, true)
         if not accepted then finish(H, current, result, setPhase, false, "A-Life spawn: " .. tostring(why)) return end
         result("PASS", "alife_fixture", "owner spawner; surveyed clear lane; observer relocated only in clone; native " .. weaponType
-            .. "; pistol has two magazines and Hold Fire until first incoming wound; melee equips its real bat after that wound; authored A-Life damageOutput=3; ordinary zombies retained; role=" .. f.role)
+            .. "; pistol has two magazines and Hold Fire until first incoming wound; melee equips its real bat after that wound"
+            .. "; authored A-Life damageOutput=3"
+            .. (H.config.project_alife_scenario == "combat" and "; combat kit includes bandages" or "")
+            .. "; ordinary zombies retained; role=" .. f.role)
         setPhase("alife_adapter_foreign", current)
     elseif H.phase == "alife_adapter_foreign" then
         local f = H.alifeAdapter
@@ -345,13 +370,16 @@ function Probe.step(H, current, check, result, setPhase)
             return
         end
         if f.observerReady and current < f.observerReady then return end
+        local invulnerable = P.Health.invulnerable(f.shell)
+        if invulnerable and P.LoadSafe and type(P.LoadSafe.graced) == "function"
+            and P.LoadSafe.graced(f.shell) and current - H.phaseStartedAt < 45000 then return end
         local alias = SC.ALifeAdapter.idFor(f.actor)
         P.Combat.faceTarget(f.shell, f.actor)
         check("alife_native_identity", alias == "lf:" .. f.id and P.Reputation.playerKey(f.actor) == alias
             and P.Reputation.playerKey(f.player) == f.key, "distinct LF identity and untouched primary key")
         check("alife_initial_neutral", SC.ALifeAdapter.relationship(f.shell, f.actor) == "neutral", "native neutral scene before provocation")
-        if not check("alife_native_scene", P.Health.invulnerable(f.shell) ~= true and f.actor:isNpc() == true,
-            "A-Life invulnerable=" .. tostring(P.Health.invulnerable(f.shell)) .. "; LF native NPC=" .. tostring(f.actor:isNpc())
+        if not check("alife_native_scene", invulnerable ~= true and f.actor:isNpc() == true,
+            "A-Life invulnerable=" .. tostring(invulnerable) .. "; LF native NPC=" .. tostring(f.actor:isNpc())
                 .. "; primary sees target=" .. tostring(SC.GameplayUtil.canSee(f.player, f.shell))) then
             setPhase("finish", current) return
         end

@@ -49,8 +49,8 @@ end
 local function cleanup(fixture)
     if fixture then
         fixture.observing = false
-        if fixture.shootOwner and fixture.shootOwner.onComplete == fixture.shootWrapper then
-            fixture.shootOwner.onComplete = fixture.shootOriginal
+        if fixture.shootOwner and fixture.shootOwner[fixture.shootCallback] == fixture.shootWrapper then
+            fixture.shootOwner[fixture.shootCallback] = fixture.shootOriginal
         end
     end
     if fixture and fixture.hitObserver then Events.OnHitZombie.Remove(fixture.hitObserver) fixture.hitObserver = nil end
@@ -59,13 +59,17 @@ local function cleanup(fixture)
 end
 local function observeFirearms(f)
     local owner = ZombieActions and ZombieActions.Shoot
-    if type(owner) ~= "table" or type(owner.onComplete) ~= "function" then return false, "native Shoot callback missing" end
-    local original = owner.onComplete
+    if type(owner) ~= "table" then return false, "native Shoot action missing" end
+    local callback = type(owner.onComplete) == "function" and "onComplete" or "onWorking"
+    local original = owner[callback]
+    if type(original) ~= "function" then return false, "native Shoot callback missing" end
     f.observing, f.nativeBulletWounds = true, 0
     local wrapper = function(attacker, task, ...)
         if not f.observing then return original(attacker, task, ...) end
         local matched = f.bandits[attacker] and not (f.retired and f.retired[attacker])
             and type(task) == "table" and task.eid == "lf:" .. f.id
+            -- Current Bandits resolves the ray on a specific working tick.
+            and (callback == "onComplete" or type(task.tickAtTarget) == "number" and task.tick == task.tickAtTarget)
         local before, requests, armorBefore
         if matched then
             before = partsHealth(f.actor)
@@ -93,8 +97,8 @@ local function observeFirearms(f)
         end
         return unpackValues(values, 2, values.n)
     end
-    f.shootOwner, f.shootOriginal, f.shootWrapper = owner, original, wrapper
-    owner.onComplete = wrapper
+    f.shootOwner, f.shootCallback, f.shootOriginal, f.shootWrapper = owner, callback, original, wrapper
+    owner[callback] = wrapper
     return true
 end
 local function finish(H, current, check, result, setPhase, okay, detail)
@@ -294,6 +298,15 @@ function Probe.step(H, current, check, result, setPhase)
         end
         local equipped, why = SC.Combat.equipPreferred(actor, "firearm")
         if not equipped then finish(H, current, check, result, setPhase, false, "production equip: " .. tostring(why)) return end
+        if H.config.bandits_combat_scenario == "firearms" then
+            -- Give stock shooters time to prepare through their own AI.
+            local held, holdWhy = SC.Commands.issue(f.id, "set_hold_fire", true, f.primary.player)
+            if not held then
+                finish(H, current, check, result, setPhase, false, "production Hold Fire: " .. tostring(holdWhy))
+                return
+            end
+            f.holdForIncoming = true
+        end
         f.healthBefore, f.primaryHealth = partsHealth(actor), partsHealth(f.primary.player)
         f.statusBefore = SC.BanditsAdapter.status()
         f.hitObserver = function(zombie, attacker, bodyPart, weapon)
@@ -425,7 +438,13 @@ function Probe.step(H, current, check, result, setPhase)
                 f.soundPlaying=true
             end
         end
-        if ammo < f.lastAmmo then f.lfRounds = f.lfRounds + f.lastAmmo - ammo end
+        if ammo < f.lastAmmo then
+            if f.holdForIncoming then
+                finish(H, current, check, result, setPhase, false, "LF fired before the Hold Fire order was lifted")
+                return
+            end
+            f.lfRounds = f.lfRounds + f.lastAmmo - ammo
+        end
         f.lastAmmo = ammo
         local living = 0
         for actor in pairs(f.bandits) do
@@ -447,6 +466,15 @@ function Probe.step(H, current, check, result, setPhase)
         local incoming = status.bulletHits > f.statusBefore.bulletHits and status.lastVictim == "lf:" .. f.id
             and status.lastModel == "BulletHit"
         if incoming and partsHealth(f.actor) < f.healthBefore and (f.nativeBulletWounds or 0) > 0 then f.incoming = true end
+        if f.incoming and f.holdForIncoming then
+            local released, why = SC.Commands.issue(f.id, "set_hold_fire", false, f.primary.player)
+            if not released then
+                finish(H, current, check, result, setPhase, false, "Lifting Hold Fire: " .. tostring(why))
+                return
+            end
+            f.holdForIncoming = false
+            result("PASS", "combat_hold_fire_released", "stock bullet wounded the exact LF actor before Hold Fire was lifted")
+        end
         if current >= f.nextTrace then
             f.nextTrace = current + 1000
             local decision = SC.Decision.peek(f.actor) or {}
@@ -490,6 +518,7 @@ function Probe.step(H, current, check, result, setPhase)
             finish(H, current, check, result, setPhase, false,
                 "outgoing=" .. f.outgoing .. "; incoming=" .. tostring(f.incoming) .. "; LF rounds=" .. f.lfRounds
                     .. "; Bandits rounds=" .. f.banditShots .. "; LF_dead=" .. tostring(call(f.actor, "isDead"))
+                    .. "; waiting_in_hold_fire=" .. tostring(f.holdForIncoming == true)
                     .. (f.armor and f.armorModule.detail(f) or ""))
         end
     end

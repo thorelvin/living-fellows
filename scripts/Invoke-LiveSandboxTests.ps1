@@ -473,7 +473,8 @@ param(
     [string]$SplitScreenScreenshot = '',
     [string]$ZombieVisibilityScreenshot = '',
     [string]$PostHandoffScreenshot = '',
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [string]$OutputRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1143,7 +1144,10 @@ if ($ObserveMenusClosed -and $ObserveSeconds -le 0) {
 if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
     throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
 }
-$RunsRoot = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'build\live-sandbox-runs'))
+if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
+    $OutputRoot = Join-Path $ProjectRoot 'build\live-sandbox-runs'
+}
+$RunsRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $runsPrefix = $RunsRoot.TrimEnd('\') + '\'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
@@ -1874,8 +1878,8 @@ if ($DrivingGateNegativeControl) {
     Write-Output 'Disabled the driving gate only in the disposable sandbox mod copy.'
 }
 if ($BanditsAdapterProbe -or $BanditsEnabled) {
-    if (-not (Test-Path -LiteralPath (Join-Path $BanditsModPath '42.21\mod.info') -PathType Leaf)) {
-        throw 'BanditsAdapterProbe requires the official Bandits 42.21 payload.'
+    if (-not (Test-Path -LiteralPath (Join-Path $BanditsModPath '42.22\mod.info') -PathType Leaf)) {
+        throw 'BanditsAdapterProbe requires the official Bandits 42.22 payload.'
     }
     Copy-Item -LiteralPath $BanditsModPath -Destination (Join-Path $SandboxMods 'Bandits') -Recurse
 }

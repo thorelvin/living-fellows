@@ -56,7 +56,7 @@ live sandboxes; no third-party source is added to this repository.
 Reproduce the source checks:
 
 ```powershell
-./tests/gameplay/run_bandits_adapter_tests.ps1 -RequireBanditsSource
+./tests/gameplay/run_bandits_adapter_tests.ps1 -RequireBanditsSource -BanditsRoot '<archived Bandits 42.21 payload>'
 ./scripts/Test-Project.ps1
 ```
 
@@ -604,3 +604,58 @@ The existing expedition return-safety failures described in the
 [driving investigation](driving-expedition-investigation-0.26.67.md) remain a
 prerequisite for driving-with-Bandits acceptance. Neither a passing source
 fixture nor a simple native melee exchange closes those issues.
+
+## November 27, 2026 check on 42.22.2
+
+The official Bandits2 Workshop update from November 21 is manifest
+`9123322409688064143`. The installed-source harness ran all **131 checks**
+against its `42.22` payload on Build 42.22.2 with Living Fellows 0.27.100.
+[Workshop change notes](https://steamcommunity.com/sharedfiles/filedetails/changelog/3268487204)
+
+The first isolated client loaded Bandits and reported the LF adapter active.
+The firearm probe stopped during setup because the upstream action now fires
+inside `Shoot.onWorking` instead of `Shoot.onComplete`. The probe observes
+only the target tick and delegates to the stock action once. The old callback
+remains supported by the probe for archived runs. The synthetic observer
+regression verifies both forms and rejects damage outside the target tick.
+
+The corrected two-Officer scene `SC-Harness-20261127-154734-e0b8e03c`
+recorded two native LF pistol hits from three rounds and preserved the primary
+player's native identity and slots. Both Officers died while equipping or
+racking their weapons, before they fired. Incoming firearm damage and the
+same-fight two-way check remained open after that encounter. The revised probe
+issues the normal LF Hold Fire order until the first exact stock wound and
+lifts it for the reciprocal response.
+
+`SC-Harness-20261127-161111-dc3ec7cc` confirmed five native Bandits bullet
+wounds to the exact staged LF actor. The first reduced the sum of body-part
+health from 1700 to 1678.15 inside the stock callback. Bandits fired eleven
+rounds. LF returned fire with six rounds after Hold Fire was lifted and died
+before landing a confirmed hit. Primary-player slots and identity remained
+stable. The current payload has native firearm evidence in both directions
+across the two fights. The same-fight two-way check remains open.
+
+The fresh-save run `SC-Harness-20261127-161857-7b819365` passed startup.
+The legacy roster check delayed setup, and the fixture's existing count
+selection spawned two Officers. They fired 32 rounds. The selected LF actor
+died before the probe confirmed an exact incoming wound and was still on Hold
+Fire, with zero LF rounds spent. The primary player and native slots remained
+stable. This run left same-fight acceptance open.
+
+The first cold-reload pair restored Corey Biggs and his exact LF alias while
+preserving the primary player and native slots. The stock Bandit was absent
+from the loaded cache. The upstream save hook only stages Bandits restoration
+while the game's Escape menu is open. The old harness quit directly from the
+world. The revised fixture opens the native menu and checks the exact staged
+Bandits identity on reload.
+
+The normal menu save in `SC-Harness-20261127-160907-d6ba5fc4` and cold reload
+in `SC-Harness-20261127-161010-938fed65` both passed. Corey Biggs' original LF
+UUID resolved to his restored actor, primary-player slots were preserved, and
+the exact staged stock Bandit returned once under Bandits ownership.
+
+Run the source check against the current Workshop payload with:
+
+```powershell
+./tests/gameplay/run_bandits_adapter_tests.ps1 -RequireBanditsSource
+```
