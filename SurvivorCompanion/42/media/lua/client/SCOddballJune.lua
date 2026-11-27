@@ -550,12 +550,27 @@ function June.action(group, action, player, payload)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballJune.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballJune.storyRules = {
     claims = { animalSpawns = true },
     validate = function(story, path, kit)
         return kit.animalPosts(story, path, 10)
     end,
 }
+
+-- A loose rabbit hurt within 50 tiles of June's place, on her floor, by the
+-- player or a recruited companion (SC.Oddballs.wildAnimalHurt).
+function SC.OddballJune.onWildAnimalHurt(group, animal, animalType, attacker, details)
+    if animalType ~= "rabbuck" and animalType ~= "rabdoe" and animalType ~= "rabkitten" then
+        return
+    end
+    local story = group.oddball
+    local site = story and story.site and story.site.spawn
+    local x, y, z = U().position(animal)
+    if site and x and z == (site.z or 0)
+        and (x - site.x) ^ 2 + (y - site.y) ^ 2 <= 2500 then
+        SC.Oddballs.storyAction(group.id, "animal_hurt", attacker, details)
+    end
+end
 
 return June

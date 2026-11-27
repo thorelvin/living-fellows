@@ -413,9 +413,12 @@ function Caleb.onMemberDeath(group, actor)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-Caleb.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+Caleb.storyRules = {
     siteKind = "family_pyre",
+    siteFields = {
+        { field = "familySpawns", depth = 3, count = 24, required = true },
+    },
     validate = function(story, path, kit)
         if story.site.kind ~= "family_pyre" then return true end
         return kit.positions(story.site.familySpawns, path .. ".site.familySpawns", 3, 3)

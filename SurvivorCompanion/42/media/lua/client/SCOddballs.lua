@@ -3356,16 +3356,29 @@ function Oddballs.definition(id)
     return byId[id]
 end
 
--- The saved-story rules an encounter's module publishes as `saveRules`, or
--- nil when the module is not loaded. The faction restore keeps the checks
--- every encounter shares; a module adds only what its own story saves:
---   siteKind  a site kind other than resident or roamer
---   claims    site fields no other encounter's story may carry
---   validate  function(story, storyPath, kit) -> true | false, reason
-function Oddballs.saveRules(id)
+-- The story rules an encounter's module publishes as `storyRules`, or nil
+-- when the module is not loaded. The faction layer keeps what every
+-- encounter shares; a module adds only what its own story needs:
+--   siteKind    a site kind other than resident or roamer
+--   siteFields  site fields its own site builder adds, in SITE_FIELDS form
+--   acceptSite  function(site, definition, kit) -> true | false, reason,
+--               the live placement check when the story is created
+--   claims      site fields no other encounter's story may carry
+--   validate    function(story, storyPath, kit) -> true | false, reason,
+--               the check of a saved story on restore
+--   upgrade     function(story, group, kit), run on an older saved story
+--               before validate
+-- and answers to faction questions, where a missing or failing hook means
+-- the faction default:
+--   memberDeparted   function(story, readOnly) -> true when the authored
+--                    member has left for good
+--   keepsAfterDeath  function(story) -> true to keep the household settled
+--   takingAllowed    function(story) -> true when taking is not theft
+--   shoplifted       function(group, player, count) -> true when handled
+function Oddballs.storyRules(id)
     local definition = byId[id]
     local module = definition and SC[definition.module] or nil
-    local rules = type(module) == "table" and module.saveRules or nil
+    local rules = type(module) == "table" and module.storyRules or nil
     return type(rules) == "table" and rules or nil
 end
 
@@ -3373,11 +3386,89 @@ end
 function Oddballs.claimedSiteFields()
     local result = {}
     for _, definition in ipairs(definitions) do
-        local rules = Oddballs.saveRules(definition.id)
+        local rules = Oddballs.storyRules(definition.id)
         if rules and type(rules.claims) == "table" then
             for field, claimed in pairs(rules.claims) do
                 if claimed == true then result[field] = true end
             end
+        end
+    end
+    return result
+end
+
+-- The encounter fields of the sites built in this file, and how much of each
+-- a faction story may save: copy depth, entry budget, and whether a site
+-- that has the field may not lose it to an exhausted budget. `value` fields
+-- are saved as they are; `position` fields must be one position when a saved
+-- story has them. Kind, room, anchor, spawn, house, captive cells and member
+-- posts belong to the faction story itself.
+local SITE_FIELDS = {
+    -- Set by a story at run time, never by its site builder.
+    { field = "wake", depth = 2, position = true },
+    { field = "altar", depth = 2, position = true }, { field = "vestry", depth = 2, position = true },
+    { field = "vestryDoor", depth = 2, position = true },
+    { field = "mailTargets", depth = 4, count = 64 },
+    { field = "homeTarget", depth = 2, position = true }, { field = "homeZombie", depth = 2, position = true },
+    { field = "duelGround", depth = 2, position = true }, { field = "tradePost", depth = 2, position = true },
+    { field = "coop", depth = 2, position = true }, { field = "truck", depth = 2, position = true },
+    { field = "partyDoor", depth = 2, position = true }, { field = "partyWindow", depth = 2, position = true },
+    { field = "elvesRoom", depth = 2 },
+    { field = "neighbors", depth = 3, count = 24 },
+    { field = "stashSpawns", depth = 3, count = 24 },
+    { field = "stashEntry", depth = 2 },
+    { field = "slotDoor", depth = 2 }, { field = "slotOutside", depth = 2 },
+    { field = "woods", depth = 2 }, { field = "cache", depth = 2 },
+    { field = "cellar", depth = 2 }, { field = "cellarDoor", depth = 2 },
+    { field = "grave", depth = 2 }, { field = "trail", depth = 2 },
+    { field = "kitchenDoor", depth = 2 }, { field = "haunt", depth = 2 },
+    { field = "hauntKind", value = true },
+    { field = "bed", depth = 2 }, { field = "floor", depth = 2 },
+    { field = "chair", depth = 2 }, { field = "window", depth = 2 },
+    { field = "lookOut", depth = 2 }, { field = "bedroom", depth = 2 },
+    { field = "bedroomDoor", depth = 2 }, { field = "rescueDoor", depth = 2 },
+    { field = "sealedRoom", depth = 2 }, { field = "roomDoor", depth = 2 },
+    { field = "hordeSpawns", depth = 3, count = 128, required = true },
+    { field = "vehicle", depth = 3 }, { field = "van", depth = 2 },
+    { field = "fuelPosts", depth = 3, count = 32, required = true },
+    { field = "bins", depth = 3, count = 40, required = true },
+    { field = "racePost", depth = 2 },
+    { field = "bunkerDoor", depth = 2 }, { field = "bunkerOutside", depth = 2 },
+    { field = "animalSpawns", depth = 3, count = 64, required = true },
+}
+
+-- A named animal some story keeps (SCOddballAnimals), which the faction
+-- layer must not treat as loose wildlife.
+function Oddballs.isProtectedAnimal(animal)
+    return SC.OddballAnimals ~= nil and type(SC.OddballAnimals.isProtected) == "function"
+        and SC.OddballAnimals.isProtected(animal) == true
+end
+
+-- A loose animal was hurt by the player or a recruited companion. Each story
+-- whose module listens (onWildAnimalHurt) decides whether it cares.
+function Oddballs.wildAnimalHurt(animal, animalType, attacker, details)
+    for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
+        local module = type(group.oddball) == "table" and moduleFor(group) or nil
+        if type(module) == "table" and type(module.onWildAnimalHurt) == "function" then
+            callModule(group, "onWildAnimalHurt", group, animal, animalType, attacker, details)
+        end
+    end
+end
+
+-- The encounter site fields a faction story saves: the ones above, then the
+-- fields each loaded encounter module builds into its own site.
+function Oddballs.siteFields()
+    local result, seen = {}, {}
+    local function add(entry)
+        if type(entry) == "table" and type(entry.field) == "string" and not seen[entry.field] then
+            seen[entry.field] = true
+            result[#result + 1] = entry
+        end
+    end
+    for _, entry in ipairs(SITE_FIELDS) do add(entry) end
+    for _, definition in ipairs(definitions) do
+        local rules = Oddballs.storyRules(definition.id)
+        if rules and type(rules.siteFields) == "table" then
+            for _, entry in ipairs(rules.siteFields) do add(entry) end
         end
     end
     return result

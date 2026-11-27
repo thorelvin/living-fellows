@@ -1482,4 +1482,16 @@ function Loretta.onZombieDead(group, zombie, attacker, player)
     return remark(group, actor, "Pedestrian. That's ten points.", U().nowMs())
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballLoretta.storyRules = {
+    -- Loretta's last written message remains at her car until the player
+    -- opens the seat. Retiring the one-member group at native death would
+    -- remove both her pulse and the interaction that reveals the clipboard.
+    keepsAfterDeath = function(story)
+        return (story.dead == true or story.pendingDead == true)
+            and story.clipboardShown ~= true
+    end,
+}
+
 return Loretta

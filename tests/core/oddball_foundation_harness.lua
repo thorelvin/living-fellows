@@ -1126,7 +1126,7 @@ for _, case in ipairs({
 end
 check(SC.Factions.restore(pyroSave) == true,
     "the original scene remains restorable after animal schema checks")
--- Each encounter's own save checks come from its module's saveRules.
+-- Each encounter's own save checks come from its module's storyRules.
 ;(function()
     local claimed = SC.StableValue.copyStrict(pyroSave,
         { maxDepth = 16, maxEntries = 131072 })
@@ -1136,17 +1136,17 @@ check(SC.Factions.restore(pyroSave) == true,
     check(accepted == false and string.find(tostring(reason),
         "site.petSpawns: kept by another encounter", 1, true) ~= nil,
         "Milli's pet posts are refused on another encounter's story: " .. tostring(reason))
-    local rules = SC.OddballPyromaniac.saveRules
-    SC.OddballPyromaniac.saveRules = nil
+    local rules = SC.OddballPyromaniac.storyRules
+    SC.OddballPyromaniac.storyRules = nil
     check(SC.Factions.restore(duplicateFuelSave) == true,
         "without the pyromaniac's own checks only the shared checks run")
-    SC.OddballPyromaniac.saveRules = {
+    SC.OddballPyromaniac.storyRules = {
         validate = function() error("broken encounter check") end }
     local called, restored, why = pcall(SC.Factions.restore, pyroSave)
     check(called and restored == false
         and string.find(tostring(why), "encounter check failed", 1, true) ~= nil,
         "an encounter check that throws refuses the restore: " .. tostring(why))
-    SC.OddballPyromaniac.saveRules = rules
+    SC.OddballPyromaniac.storyRules = rules
     check(SC.Factions.restore(pyroSave) == true,
         "the scene restores again once its own checks are back")
     -- Encounters with no other restore case here, each with its own field.
@@ -1196,6 +1196,222 @@ check(SC.Factions.restore(pyroSave) == true,
         "a pet post off Milli's bedroom floor is refused")
     check(SC.Factions.restore(pyroSave) == true,
         "the original scene restores after the per-encounter cases")
+end)()
+-- What SCFactions used to decide for single encounters, now asked of them.
+;(function()
+    local savedGrid, savedSafe, savedOccupied = U.gridSquare, U.isSafeSpawnSquare,
+        U.squareOccupyingObject
+    local function key(position)
+        return position and (tostring(position.x) .. ":" .. tostring(position.y)
+            .. ":" .. tostring(position.z or 0)) or nil
+    end
+    local kit = { positionKey = key }
+    local livingRoom, kitchen = { name = "living" }, { name = "kitchen" }
+    local rooms = {}
+    local function room(x, y, z, value) rooms[x .. ":" .. y .. ":" .. (z or 0)] = value end
+    for x = 40, 46 do for y = 40, 44 do room(x, y, 0, livingRoom) end end
+    for x = 47, 49 do for y = 40, 44 do room(x, y, 0, kitchen) end end
+    room(40, 40, 1, livingRoom)
+    U.gridSquare = function(x, y, z)
+        local inside = rooms[x .. ":" .. y .. ":" .. (z or 0)]
+        if inside == nil and not (x >= 60 and x <= 70 and y >= 40 and y <= 44) then return nil end
+        return { x = x, y = y, z = z or 0, getRoom = function() return inside end }
+    end
+    U.isSafeSpawnSquare = function(square) return square ~= nil end
+    U.squareOccupyingObject = function() return nil end
+    local spawn = { x = 41, y = 41, z = 0 }
+
+    -- Earl: two to six fuel posts, distinct, loaded, never his own spawn.
+    local earl = SC.OddballPyromaniac.storyRules.acceptSite
+    check(earl({ spawn = spawn, fuelPosts = { { x = 42, y = 41 }, { x = 43, y = 41 } } }, nil, kit) == true,
+        "Earl accepts two loaded fuel posts")
+    check(select(2, earl({ spawn = spawn, fuelPosts = { { x = 41, y = 41 }, { x = 43, y = 41 } } },
+        nil, kit)) == "pyromaniac_fuel_posts_unavailable", "Earl refuses a fuel post on his own spawn")
+    check(select(2, earl({ spawn = spawn, fuelPosts = { { x = 42, y = 41 }, { x = 99, y = 99 } } },
+        nil, kit)) == "pyromaniac_fuel_posts_unavailable", "Earl refuses a fuel post on an unloaded square")
+    check(select(2, earl({ spawn = spawn, fuelPosts = { { x = 42, y = 41 } } }, nil, kit))
+        == "pyromaniac_fuel_posts_unavailable", "Earl refuses a single fuel post")
+
+    -- Milli: two pets and three or more toys, all in her room on her floor.
+    local milliSite = function(toys)
+        return { spawn = spawn,
+            petSpawns = { { x = 42, y = 41, z = 0 }, { x = 43, y = 41, z = 0 } },
+            toySpawns = toys or { { x = 40, y = 42, z = 0 }, { x = 41, y = 42, z = 0 },
+                { x = 42, y = 42, z = 0 } } }
+    end
+    local milli = SC.OddballMilli.storyRules.acceptSite
+    check(milli(milliSite(), nil, kit) == true, "Milli accepts pets and toys in her room")
+    check(select(2, milli(milliSite({ { x = 40, y = 42, z = 0 }, { x = 41, y = 42, z = 0 },
+        { x = 48, y = 42, z = 0 } }), nil, kit)) == "milli_toy_posts_unavailable",
+        "Milli refuses a toy post in another room")
+    local roomless = milliSite()
+    roomless.spawn = { x = 65, y = 41, z = 0 }
+    check(select(2, milli(roomless, nil, kit)) == "milli_room_unavailable",
+        "Milli refuses a site whose spawn has no room")
+
+    -- Arthur: bed, floor and door in the room he lies in.
+    local arthurSite = function(floorX)
+        return { spawn = spawn, bed = { x = 42, y = 42, z = 0, objectIndex = 0 },
+            floor = { x = floorX or 43, y = 42, z = 0 }, bedroomDoor = { x = 44, y = 44, z = 0 } }
+    end
+    local arthur = SC.OddballBedridden.storyRules.acceptSite
+    check(arthur(arthurSite()) == true, "Arthur accepts a bed and floor in his room")
+    check(select(2, arthur(arthurSite(48))) == "arthur_bedroom_unavailable",
+        "Arthur refuses a floor post in another room")
+    local bedless = arthurSite()
+    bedless.bed.objectIndex = nil
+    check(select(2, arthur(bedless)) == "arthur_bedroom_unavailable",
+        "Arthur refuses a bed without its object index")
+
+    -- The costume ambush: every member post in the living room, one floor.
+    local pack = SC.OddballFurryPack.storyRules.acceptSite
+    check(pack({ spawn = spawn }) == true, "the ambush accepts a site without member posts")
+    check(pack({ spawn = spawn, memberSpawns = { { x = 41, y = 41, z = 0 }, { x = 42, y = 43, z = 0 } } })
+        == true, "the ambush accepts member posts in the living room")
+    check(select(2, pack({ spawn = spawn, memberSpawns = { { x = 41, y = 41, z = 0 },
+        { x = 48, y = 43, z = 0 } } })) == "furry_living_room_posts_unavailable",
+        "the ambush refuses a member post in the kitchen")
+    check(select(2, pack({ spawn = spawn, memberSpawns = { { x = 41, y = 41, z = 0 },
+        { x = 40, y = 40, z = 1 } } })) == "furry_living_room_posts_unavailable",
+        "the ambush refuses a member post upstairs")
+
+    -- The Purdys: a safe trade post on the ground floor.
+    local purdy = SC.OddballPurdy.storyRules.acceptSite
+    check(purdy({ tradePost = { x = 62, y = 41, z = 0 } }) == true,
+        "the Purdys accept a ground-floor trade post")
+    check(select(2, purdy({ tradePost = { x = 40, y = 40, z = 1 } }))
+        == "purdy_ground_trade_post_unavailable", "the Purdys refuse an upstairs trade post")
+    check(select(2, purdy({ tradePost = { x = 99, y = 99, z = 0 } }))
+        == "purdy_ground_trade_post_unavailable", "the Purdys refuse an unloaded trade post")
+    U.gridSquare, U.isSafeSpawnSquare, U.squareOccupyingObject = savedGrid, savedSafe, savedOccupied
+
+    -- An encounter position saved in the wrong shape is refused on restore.
+    local badAltar = SC.StableValue.copyStrict(pyroSave, { maxDepth = 16, maxEntries = 131072 })
+    badAltar.groups[pyroGroup.id].oddball.site.altar = { x = "north", y = 1, z = 0 }
+    local accepted, reason = SC.Factions.restore(badAltar)
+    check(accepted == false and string.find(tostring(reason), "site.altar.x", 1, true) ~= nil,
+        "a saved altar that is not a position is refused: " .. tostring(reason))
+
+    -- A loose rabbit the player hurts near June's place reaches her story.
+    local heard = {}
+    local storyAction = SC.Oddballs.storyAction
+    SC.Oddballs.storyAction = function(groupId, action)
+        heard[#heard + 1] = tostring(groupId) .. ":" .. tostring(action)
+        return true
+    end
+    local function animal(kind, x, y, z)
+        return { x = x, y = y, z = z or 0, getAnimalType = function() return kind end }
+    end
+    local june = juneGroup.id .. ":animal_hurt"
+    SC.Factions.onWeaponHitCharacter(SC_TEST_PLAYER, animal("rabdoe", 30, 30), nil, 1)
+    check(#heard == 1 and heard[1] == june, "June hears a rabbit hurt near her place")
+    SC.Factions.onWeaponHitCharacter(SC_TEST_PLAYER, animal("deer", 30, 30), nil, 1)
+    SC.Factions.onWeaponHitCharacter(SC_TEST_PLAYER, animal("rabbuck", 90, 20), nil, 1)
+    SC.Factions.onWeaponHitCharacter(SC_TEST_PLAYER, animal("rabkitten", 21, 21, 1), nil, 1)
+    SC.Factions.onWeaponHitCharacter({ id = "stranger" }, animal("rabdoe", 30, 30), nil, 1)
+    check(#heard == 1, "June ignores other animals, far rabbits, other floors and strangers: "
+        .. table.concat(heard, ","))
+    -- A named animal some story keeps is that story's, not loose wildlife.
+    local savedModData, savedAnimals = U.modData, SC.OddballAnimals
+    U.modData = function(object) return object and object.modData end
+    SC.OddballAnimals = { isProtected = function(value) return value.named == true end }
+    heard = {}
+    local pet = animal("rabdoe", 30, 30)
+    pet.named, pet.modData = true, { lfOddballGroupId = pyroGroup.id }
+    SC.Factions.onWeaponHitCharacter(SC_TEST_PLAYER, pet, nil, 1)
+    check(#heard == 1 and heard[1] == pyroGroup.id .. ":animal_hurt",
+        "a named animal's own story hears its hurt, June does not: " .. table.concat(heard, ","))
+    U.modData, SC.OddballAnimals = savedModData, savedAnimals
+
+    -- Taking from a story's house: allowed, answered by the story, or theft.
+    local offenses = {}
+    local noteOffense = SC.Factions.noteOffense
+    SC.Factions.noteOffense = function(id, kind)
+        offenses[#offenses + 1] = tostring(id) .. ":" .. tostring(kind)
+        return true
+    end
+    local inventory = { name = "player inventory" }
+    local savedInventory = SC_TEST_PLAYER.getInventory
+    SC_TEST_PLAYER.getInventory = function() return inventory end
+    local function list(values)
+        return { size = function() return #values end,
+            get = function(_, index) return values[index + 1] end }
+    end
+    -- The fixtures share houses, so give Earl's live household a house of its
+    -- own for these cases; the restore below puts the saved one back.
+    SC.Factions.group(pyroGroup.id).house.bounds = { x1 = 500, x2 = 505, y1 = 500, y2 = 505, z = 0 }
+    local square = { x = 501, y = 501, z = 0 }
+    local clock = SC_TEST_CLOCK
+    local function takeOne(storyId, blessing)
+        local story = SC.Factions.group(pyroGroup.id).oddball
+        story.id, story.blessing = storyId, blessing
+        local kept = { getFullType = function() return "Base.Apple" end,
+            getContainer = function(self) return self.owner end }
+        local taken = { getFullType = function() return "Base.Axe" end,
+            getContainer = function(self) return self.owner end }
+        local contents = { kept, taken }
+        local container = { getSourceGrid = function() return square end,
+            getItems = function() return list(contents) end }
+        kept.owner, taken.owner = container, container
+        local observed, owner = SC.Factions.observeContainerOpened(container, SC_TEST_PLAYER)
+        check(observed == true and owner == pyroGroup.id,
+            storyId .. " house container is observed for that household")
+        contents = { kept }
+        taken.owner = inventory
+        offenses, heard = {}, {}
+        clock = clock + 100
+        SC.Factions._observeContainerTransfersForTests(clock)
+        local theft, answered = 0, 0
+        for _, entry in ipairs(offenses) do
+            if entry == pyroGroup.id .. ":theft" then theft = theft + 1 end
+        end
+        for _, entry in ipairs(heard) do
+            if entry == pyroGroup.id .. ":shoplift" then answered = answered + 1 end
+        end
+        return theft, answered, table.concat(offenses, ",") .. " | " .. table.concat(heard, ",")
+    end
+    local theft, answered, seen = takeOne("tupelo_boys", true)
+    check(theft == 0 and answered == 0, "the Tupelo boys' blessing lets the player take: " .. seen)
+    theft, answered, seen = takeOne("tupelo_boys", false)
+    check(theft == 1 and answered == 0, "without the blessing taking is theft: " .. seen)
+    theft, answered, seen = takeOne("grocery_gale_mercer")
+    check(theft == 0 and answered == 1, "Gale answers shoplifting himself: " .. seen)
+    theft, answered, seen = takeOne("sin_gluttony_bonnie")
+    check(theft == 0 and answered == 1, "Bonnie answers shoplifting herself: " .. seen)
+    theft, answered, seen = takeOne("sin_greed_lyman")
+    check(theft == 1 and answered == 0, "the other sins leave theft to the faction: " .. seen)
+    theft, answered, seen = takeOne("pyromaniac_earl_kessler")
+    check(theft == 1 and answered == 0,
+        "an encounter with no answer leaves theft to the faction: " .. seen)
+    local tupeloRules = SC.OddballTupelo.storyRules
+    SC.OddballTupelo.storyRules = { takingAllowed = function() error("broken blessing") end }
+    theft, answered, seen = takeOne("tupelo_boys", true)
+    check(theft == 1 and answered == 0,
+        "a story answer that throws leaves the faction default: " .. seen)
+    SC.OddballTupelo.storyRules = tupeloRules
+    SC.Factions.noteOffense, SC_TEST_PLAYER.getInventory = noteOffense, savedInventory
+    SC.Oddballs.storyAction = storyAction
+
+    -- Loretta keeps her household settled while her last note is unread.
+    local retire = SC.Oddballs.retire
+    SC.Oddballs.retire = function() return true end
+    local function lastDeath(clipboardShown)
+        check(SC.Factions.restore(pyroSave) == true, "restore Earl's scene for a death case")
+        local group = SC.Factions.group(pyroGroup.id)
+        group.oddball.id, group.oddball.dead = "loretta_ten_and_two", true
+        group.oddball.clipboardShown = clipboardShown
+        for index, member in ipairs(group.members) do
+            member.actorId = "death-case-" .. index
+            if index > 1 then member.alive = false end
+        end
+        SC.Factions.memberDied({ id = "death-case-1", factionId = group.id })
+        return group.lifecycle
+    end
+    check(lastDeath(false) == "settled", "Loretta's household stays while her note is unread")
+    check(lastDeath(true) == "destroyed", "Loretta's household goes once the note was read")
+    SC.Oddballs.retire = retire
+    check(SC.Factions.restore(pyroSave) == true,
+        "the original scene restores after the faction-question cases")
 end)()
 ;(function()
 local probeSite = {
@@ -2111,6 +2327,11 @@ do
         site, milliDefinition, true)
     check(petPostGroup == nil and petPostReason == "milli_pet_posts_unavailable",
         "a chair appearing on a pet post invalidates that new scene")
+    squares["11:10:0"].chair = nil
+    local milliGroup, milliReason = createRealOddballGroup(site, milliDefinition, true)
+    check(milliGroup ~= nil and #milliGroup.oddball.site.petSpawns == 2
+        and #milliGroup.oddball.site.toySpawns == 3,
+        "Milli's own pet and toy posts are saved with her scene: " .. tostring(milliReason))
     SC.Actor.beginSpawn = previousBegin
     U.gridSquare, U.squareOccupyingObject = previousGrid, previousOccupying
 end

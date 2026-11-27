@@ -2,12 +2,15 @@
 
 # Changelog
 
-## 0.27.96 - Each Strange Folk encounter checks its own save
+## 0.27.96 - Strange Folk rules live with each encounter
 
-- Check the saved fields that only one Strange Folk encounter keeps in that encounter's own code, instead of in the shared faction restore. Seventeen encounters carry their own checks (Caleb, the forest storyteller, Delbert, the locked-room survivalist, Vera, Eli, Nate, Earl, Milli, the Purdys and the seven animal encounters); the faction restore keeps only what every story shares. Saves restore exactly as before.
-- A new encounter with saved fields of its own no longer has to change the faction restore. The 0.27.64 gun shop field rename showed why that mattered.
-- An encounter check that fails with a script error refuses that restore instead of breaking it.
-- Test the saved checks of Eli, Nate, the Purdys and Milli's bedroom posts, which no test restored before.
+- Keep every rule that belongs to one Strange Folk encounter in that encounter's own code. The shared faction code now names no encounter: it keeps what every story shares and asks the encounter the rest.
+  - Saved-story checks: Caleb, the forest storyteller, Delbert, the locked-room survivalist, Vera, Eli, Nate, Earl, Milli, the Purdys and the seven animal encounters.
+  - Placement checks when an encounter is set up: Earl's fuel posts, Milli's bedroom, Arthur's bedroom, the costume ambush's living room and the Purdys' trade post.
+  - Which site details a story saves, Bob's upgrade of older gun shop saves, Ruth Ann staying gone, Loretta's unread note, the Tupelo boys' blessing, Gale's and Bonnie's answer to shoplifting, and June hearing about rabbits hurt near her place.
+- Everything behaves and restores exactly as before. A new encounter no longer has to change the shared faction code; the 0.27.64 gun shop field rename showed why that mattered.
+- An encounter rule that fails with a script error now falls back to the normal faction behaviour, or refuses that restore, instead of breaking it.
+- Test these rules through the faction code, including Eli's, Nate's and the Purdys' saves, Milli's bedroom posts, theft in a story's house and June's rabbits, none of which a test covered before.
 - Native bridge protocol `42.22-isocompanion-37`.
 
 ## 0.27.95 - Dead code and shared restore checks

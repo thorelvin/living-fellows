@@ -579,4 +579,16 @@ function Hitchhiker._resetForTests()
     runtimeByGroup = setmetatable({}, { __mode = "k" })
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballHitchhiker.storyRules = {
+    -- Ruth Ann has gone inside, or waits to be found: never spawn her again.
+    memberDeparted = function(story, readOnly)
+        local departed = story.departed == true or story.stage == "gone_inside"
+            or story.stage == "waiting_to_be_found"
+        if departed and not readOnly then story.departed = true end
+        return departed
+    end,
+}
+
 return Hitchhiker

@@ -329,8 +329,8 @@ function Survivalist.canRecruit()
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballSurvivalist.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballSurvivalist.storyRules = {
     validate = function(story, path, kit)
         local site = story.site
         local okay, reason = kit.position(site.sealedRoom, path .. ".site.sealedRoom", false)

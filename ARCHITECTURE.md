@@ -310,18 +310,30 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCAllegiance` is the pure, direction-sensitive relationship policy for party,
   faction, neutral, and hostile actors. `SCFactions` alone resolves mutable
   registry/group facts and retains the public relationship facade.
-- `SCFactions.validGroup` restores each faction group with the checks every
-  Strange Folk story shares: header, site anchor and spawn, optional positions,
-  captives, member posts, the animal ledger and mail targets. What only one
-  encounter saves is checked by that encounter's module, which publishes
-  `saveRules` (`siteKind`, `claims`, `validate(story, storyPath, kit)`);
-  `SC.Oddballs.saveRules` finds it through the encounter's definition. The kit
-  lends the restore's own failure, position, list and opening helpers, so
-  paths and wording stay the restore's. A site field one module claims is
-  refused on any other story, and a check that throws refuses the restore. A
-  story whose module is not loaded gets only the shared checks. A new
-  encounter that saves fields of its own adds rules to its own module, not to
-  `SCFactions`.
+- `SCFactions` names no Strange Folk encounter. It keeps what every story
+  shares (header, anchor and spawn, captives, member posts, the animal ledger,
+  mail targets) and asks the rest of the encounter: each module publishes
+  `storyRules`, found by `SC.Oddballs.storyRules` through the encounter's
+  definition, and the registry lists the site fields its own site builders add
+  (`SC.Oddballs.siteFields`, with copy budget, required and position flags).
+  - On creation: `acceptSite(site, definition, kit)` checks the live
+    placement; the site fields are copied by the registry's list plus each
+    module's `siteFields`.
+  - On restore: `upgrade(story, group, kit)` brings an older save up to date,
+    then `siteKind`, `claims` and `validate(story, storyPath, kit)` check it.
+    The kit lends the restore's own failure, position, list, opening and
+    animal-post helpers, so paths and wording stay the restore's. A field one
+    module claims is refused on any other story; a check that throws refuses
+    the restore.
+  - In play: `memberDeparted`, `keepsAfterDeath`, `takingAllowed` and
+    `shoplifted` answer faction questions through one guarded `storyHook`;
+    a missing or throwing answer means the faction default. A loose animal
+    hurt by the player or a companion goes to `SC.Oddballs.wildAnimalHurt`,
+    which modules answer with `onWildAnimalHurt`; named animals are checked
+    with `SC.Oddballs.isProtectedAnimal`.
+  A story whose module is not loaded gets only the shared behaviour. A new
+  encounter adds its rules and fields to its own module or the registry, not
+  to `SCFactions`.
 - `SCThreatSet` owns bounded threat de-duplication, emergency-first retention,
   deterministic ranking, posture/fence subsets, and overflow accounting.
   `SCPerceptionScan` owns the cached horizontal/vertical frontier, persistent

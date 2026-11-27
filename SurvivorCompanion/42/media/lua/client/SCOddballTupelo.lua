@@ -215,4 +215,11 @@ function Tupelo.action(group, action, player)
     return false, "unknown_tupelo_choice"
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballTupelo.storyRules = {
+    -- With the boys' blessing, taking from their place is not theft.
+    takingAllowed = function(story) return story.blessing == true end,
+}
+
 return Tupelo

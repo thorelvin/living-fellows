@@ -554,4 +554,20 @@ function GunShop._resetForTests()
     runtimeByGroup = setmetatable({}, { __mode = "k" })
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballGunShop.storyRules = {
+    -- Kenley's siege used the actor activation flag for its count. A saved
+    -- actor ID also proves activation before the first zombie.
+    upgrade = function(story, group, kit)
+        if story.hordeSpawned == nil and kit.finite(story.spawned)
+            and story.spawned >= 0 and story.spawned <= 5 and story.spawned % 1 == 0 then
+            local member = type(group.members) == "table" and group.members[1] or nil
+            story.hordeSpawned = story.spawned
+            story.spawned = story.hordeSpawned > 0
+                or type(member) == "table" and type(member.actorId) == "string"
+        end
+    end,
+}
+
 return GunShop

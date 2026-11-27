@@ -616,8 +616,18 @@ function Purdy.action(group, action, player, payload)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballPurdy.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballPurdy.storyRules = {
+    acceptSite = function(site)
+        local position = site.tradePost
+        local square = type(position) == "table" and U().gridSquare(
+            position.x, position.y, position.z or 0) or nil
+        if not square or not U().isSafeSpawnSquare(square)
+            or tonumber(position.z) ~= 0 then
+            return false, "purdy_ground_trade_post_unavailable"
+        end
+        return true
+    end,
     validate = function(story, path, kit)
         if not story.site.tradePost or tonumber(story.site.tradePost.z) ~= 0 then
             return kit.fail(path .. ".site.tradePost",

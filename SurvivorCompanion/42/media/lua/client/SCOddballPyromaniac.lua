@@ -387,8 +387,24 @@ function Pyro.pulseRecruited(group, actor, player, current)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballPyromaniac.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballPyromaniac.storyRules = {
+    acceptSite = function(site, _, kit)
+        if type(site.fuelPosts) ~= "table" or #site.fuelPosts < 2
+            or #site.fuelPosts > 6 then
+            return false, "pyromaniac_fuel_posts_unavailable"
+        end
+        local seen = { [kit.positionKey(site.spawn)] = true }
+        for _, post in ipairs(site.fuelPosts) do
+            local key = kit.positionKey(post)
+            if key == nil or seen[key] or not U().gridSquare(
+                post.x, post.y, post.z or 0) then
+                return false, "pyromaniac_fuel_posts_unavailable"
+            end
+            seen[key] = true
+        end
+        return true
+    end,
     validate = function(story, path, kit)
         return kit.positions(story.site.fuelPosts, path .. ".site.fuelPosts", 2, 6, {
             duplicate = "duplicate fuel post",

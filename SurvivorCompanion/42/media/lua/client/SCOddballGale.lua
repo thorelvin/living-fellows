@@ -265,4 +265,13 @@ function Gale.action(group, action, player, payload)
     return false, "unsupported_gale_action"
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballGale.storyRules = {
+    -- Gale answers shoplifting in his store himself.
+    shoplifted = function(group, player, count)
+        return SC.Oddballs.storyAction(group.id, "shoplift", player, { count = count })
+    end,
+}
+
 return Gale

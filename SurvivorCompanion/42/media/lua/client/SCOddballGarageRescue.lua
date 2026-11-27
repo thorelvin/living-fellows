@@ -480,8 +480,8 @@ function Rescue.avoidsZombieCombat(actor, group)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballGarageRescue.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballGarageRescue.storyRules = {
     validate = function(story, path, kit)
         return kit.opening(story.site.rescueDoor, path .. ".site.rescueDoor",
             "door", "expected rescue door")

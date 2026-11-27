@@ -863,7 +863,15 @@
     (Join-Path $Client 'SCOddballBigChris.lua'),
     (Join-Path $Client 'SCOddballMilli.lua'),
     (Join-Path $Client 'SCOddballPurdy.lua'),
-    (Join-Path $Core 'oddball_save_rules_fixture.lua'),
+    (Join-Path $Client 'SCOddballBedridden.lua'),
+    (Join-Path $Client 'SCOddballFurryPack.lua'),
+    (Join-Path $Client 'SCOddballHitchhiker.lua'),
+    (Join-Path $Client 'SCOddballGunShop.lua'),
+    (Join-Path $Client 'SCOddballLoretta.lua'),
+    (Join-Path $Client 'SCOddballGale.lua'),
+    (Join-Path $Client 'SCOddballTupelo.lua'),
+    (Join-Path $Client 'SCOddballSins.lua'),
+    (Join-Path $Core 'oddball_story_rules_fixture.lua'),
     (Join-Path $Core 'oddball_foundation_harness.lua')) }
 @{ Name = 'oddball-budget'; Extended = $true; Files = @(
     (Join-Path $Core 'core_fixture.lua'),

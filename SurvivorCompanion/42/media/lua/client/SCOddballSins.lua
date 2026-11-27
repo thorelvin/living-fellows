@@ -332,4 +332,14 @@ function Sins.action(group, action, player)
     return false, "unknown_sin_choice"
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballSins.storyRules = {
+    -- Of the five sins, only Bonnie (gluttony) answers shoplifting herself.
+    shoplifted = function(group, player, count)
+        if group.oddball.id ~= "sin_gluttony_bonnie" then return nil end
+        return SC.Oddballs.storyAction(group.id, "shoplift", player, { count = count })
+    end,
+}
+
 return Sins

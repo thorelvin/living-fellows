@@ -404,8 +404,8 @@ function Room12.action(group, action, player)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballRoom12.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballRoom12.storyRules = {
     validate = function(story, path, kit)
         local okay, reason = kit.opening(story.site.partyDoor, path .. ".site.partyDoor",
             "door", "wrong party opening kind")

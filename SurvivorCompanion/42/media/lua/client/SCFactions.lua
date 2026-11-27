@@ -1429,13 +1429,25 @@ end
 
 Factions._chooseMemberSquareForTests = chooseMemberSquare
 
+-- A Strange Folk story's own answer to a faction question
+-- (SC.Oddballs.storyRules(id)[name]), or nil when it has none. A hook that
+-- throws counts as no answer, so the faction default applies.
+local function storyHook(story, name, ...)
+    local rules = type(story) == "table" and SC.Oddballs
+        and type(SC.Oddballs.storyRules) == "function"
+        and SC.Oddballs.storyRules(story.id) or nil
+    local hook = rules and rules[name]
+    if type(hook) ~= "function" then return nil end
+    local called, result = pcall(hook, ...)
+    if called then return result end
+    return nil
+end
+
+-- An encounter whose authored member has left for good says so
+-- (memberDeparted); nothing then spawns that member again.
 local function authoredMemberDeparted(group, readOnly)
     local story = group and group.oddball
-    local departed = type(story) == "table" and story.id == "hitchhiker_ruth_ann"
-        and (story.departed == true or story.stage == "gone_inside"
-            or story.stage == "waiting_to_be_found")
-    if departed and not readOnly then story.departed = true end
-    return departed == true
+    return storyHook(story, "memberDeparted", story, readOnly == true) == true
 end
 
 local function queueMemberSpawn(group, member, square, snapshot, debugCreated)
@@ -1687,75 +1699,6 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             seen[key] = true
         end
     end
-    if definition.id == "pyromaniac_earl_kessler" then
-        if type(site.fuelPosts) ~= "table" or #site.fuelPosts < 2
-            or #site.fuelPosts > 6 then
-            return nil, "pyromaniac_fuel_posts_unavailable"
-        end
-        local seen = { [spawnPositionKey(site.spawn)] = true }
-        for _, post in ipairs(site.fuelPosts) do
-            local key = spawnPositionKey(post)
-            if key == nil or seen[key] or not U().gridSquare(
-                post.x, post.y, post.z or 0) then
-                return nil, "pyromaniac_fuel_posts_unavailable"
-            end
-            seen[key] = true
-        end
-    end
-    if definition.id == "milli_tea_and_trouble" then
-        if type(site.petSpawns) ~= "table" or #site.petSpawns ~= 2 then
-            return nil, "milli_pet_posts_unavailable"
-        end
-        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
-            site.spawn.z or 0)
-        local spawnRoom = select(1, U().call(spawnSquare, "getRoom"))
-        if spawnRoom == nil then return nil, "milli_room_unavailable" end
-        local seen = { [spawnPositionKey(site.spawn)] = true }
-        for _, post in ipairs(site.petSpawns) do
-            local key = spawnPositionKey(post)
-            local square = key and U().gridSquare(post.x, post.y,
-                post.z or 0) or nil
-            if key == nil or seen[key] or not U().isClearActorSpawnSquare(square)
-                or (post.z or 0) ~= (site.spawn.z or 0)
-                or select(1, U().call(square, "getRoom")) ~= spawnRoom then
-                return nil, "milli_pet_posts_unavailable"
-            end
-            seen[key] = true
-        end
-        if type(site.toySpawns) ~= "table" or #site.toySpawns < 3
-            or #site.toySpawns > 32 then
-            return nil, "milli_toy_posts_unavailable"
-        end
-        local toysSeen = {}
-        for _, post in ipairs(site.toySpawns) do
-            local key = spawnPositionKey(post)
-            local square = key and U().gridSquare(post.x, post.y,
-                post.z or 0) or nil
-            if key == nil or toysSeen[key] or not U().isSafeSpawnSquare(square)
-                or (post.z or 0) ~= (site.spawn.z or 0)
-                or select(1, U().call(square, "getRoom")) ~= spawnRoom then
-                return nil, "milli_toy_posts_unavailable"
-            end
-            toysSeen[key] = true
-        end
-    end
-    if definition.id == "bedridden_arthur_hale" then
-        local bed, floor, door = site.bed, site.floor, site.bedroomDoor
-        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
-            site.spawn.z or 0)
-        local room = select(1, U().call(spawnSquare, "getRoom"))
-        local floorSquare = type(floor) == "table" and U().gridSquare(
-            floor.x, floor.y, floor.z or 0) or nil
-        local bedSquare = type(bed) == "table" and U().gridSquare(
-            bed.x, bed.y, bed.z or 0) or nil
-        if room == nil or type(door) ~= "table"
-            or type(bed) ~= "table" or type(bed.objectIndex) ~= "number"
-            or not U().isClearActorSpawnSquare(floorSquare)
-            or select(1, U().call(floorSquare, "getRoom")) ~= room
-            or select(1, U().call(bedSquare, "getRoom")) ~= room then
-            return nil, "arthur_bedroom_unavailable"
-        end
-    end
     if site.memberSpawns ~= nil then
         if definition.captives == true or type(site.memberSpawns) ~= "table"
             or #site.memberSpawns < 2 or #site.memberSpawns > 4
@@ -1772,29 +1715,21 @@ function Factions.createOddballGroup(site, definition, debugCreated)
                 or index == 1 and key ~= spawnPositionKey(site.spawn) then
                 return nil, "invalid_oddball_member_posts"
             end
-            if definition.id == "spiffo_dressup_ambush" then
-                local spawnSquare = U().gridSquare(site.spawn.x,
-                    site.spawn.y, site.spawn.z or 0)
-                local room = select(1, U().call(spawnSquare, "getRoom"))
-                if room == nil or not U().isClearActorSpawnSquare(square)
-                    or (position.z or 0) ~= (site.spawn.z or 0)
-                    or select(1, U().call(square, "getRoom")) ~= room then
-                    return nil, "furry_living_room_posts_unavailable"
-                end
-            end
             seen[key] = true
         end
     elseif (tonumber(definition.memberCountMin) or 1) > 1 then
         return nil, "oddball_member_posts_required"
     end
-    if definition.id == "sniper_purdy_clan" then
-        local position = site.tradePost
-        local square = type(position) == "table" and U().gridSquare(
-            position.x, position.y, position.z or 0) or nil
-        if not square or not U().isSafeSpawnSquare(square)
-            or tonumber(position.z) ~= 0 then
-            return nil, "purdy_ground_trade_post_unavailable"
-        end
+    -- What only this encounter's site needs is checked by its module
+    -- (SC.Oddballs.storyRules), against the live world, before anything is
+    -- created. A check that throws refuses the site.
+    local rules = SC.Oddballs and type(SC.Oddballs.storyRules) == "function"
+        and SC.Oddballs.storyRules(definition.id) or nil
+    if rules and type(rules.acceptSite) == "function" then
+        local called, accepted, reason = pcall(rules.acceptSite, site, definition,
+            { positionKey = spawnPositionKey })
+        if not called then return nil, "oddball_site_check_failed" end
+        if accepted ~= true then return nil, reason or "oddball_site_unavailable" end
     end
     local compactHouse = {
         id = site.house.id,
@@ -1809,75 +1744,30 @@ function Factions.createOddballGroup(site, definition, debugCreated)
             and stableCopy(site.captiveSpawns, 4, { count = 16 }) or nil,
         memberSpawns = site.memberSpawns
             and stableCopy(site.memberSpawns, 4, { count = 24 }) or nil,
-        familySpawns = site.familySpawns
-            and stableCopy(site.familySpawns, 3, { count = 24 }) or nil,
-        altar = site.altar and stableCopy(site.altar, 2) or nil,
-        vestry = site.vestry and stableCopy(site.vestry, 2) or nil,
-        vestryDoor = site.vestryDoor and stableCopy(site.vestryDoor, 2) or nil,
-        mailTargets = site.mailTargets
-            and stableCopy(site.mailTargets, 4, { count = 64 }) or nil,
-        homeTarget = site.homeTarget and stableCopy(site.homeTarget, 2) or nil,
-        homeZombie = site.homeZombie and stableCopy(site.homeZombie, 2) or nil,
-        duelGround = site.duelGround and stableCopy(site.duelGround, 2) or nil,
-        tradePost = site.tradePost and stableCopy(site.tradePost, 2) or nil,
-        coop = site.coop and stableCopy(site.coop, 2) or nil,
-        truck = site.truck and stableCopy(site.truck, 2) or nil,
-        partyDoor = site.partyDoor and stableCopy(site.partyDoor, 2) or nil,
-        partyWindow = site.partyWindow and stableCopy(site.partyWindow, 2) or nil,
-        elvesRoom = site.elvesRoom and stableCopy(site.elvesRoom, 2) or nil,
-        neighbors = site.neighbors
-            and stableCopy(site.neighbors, 3, { count = 24 }) or nil,
-        stashSpawns = site.stashSpawns
-            and stableCopy(site.stashSpawns, 3, { count = 24 }) or nil,
-        stashEntry = site.stashEntry and stableCopy(site.stashEntry, 2) or nil,
-        slotDoor = site.slotDoor and stableCopy(site.slotDoor, 2) or nil,
-        slotOutside = site.slotOutside and stableCopy(site.slotOutside, 2) or nil,
-        woods = site.woods and stableCopy(site.woods, 2) or nil,
-        cache = site.cache and stableCopy(site.cache, 2) or nil,
-        cellar = site.cellar and stableCopy(site.cellar, 2) or nil,
-        cellarDoor = site.cellarDoor and stableCopy(site.cellarDoor, 2) or nil,
-        grave = site.grave and stableCopy(site.grave, 2) or nil,
-        trail = site.trail and stableCopy(site.trail, 2) or nil,
-        kitchenDoor = site.kitchenDoor and stableCopy(site.kitchenDoor, 2) or nil,
-        haunt = site.haunt and stableCopy(site.haunt, 2) or nil,
-        hauntKind = site.hauntKind,
-        bed = site.bed and stableCopy(site.bed, 2) or nil,
-        floor = site.floor and stableCopy(site.floor, 2) or nil,
-        chair = site.chair and stableCopy(site.chair, 2) or nil,
-        window = site.window and stableCopy(site.window, 2) or nil,
-        lookOut = site.lookOut and stableCopy(site.lookOut, 2) or nil,
-        bedroom = site.bedroom and stableCopy(site.bedroom, 2) or nil,
-        bedroomDoor = site.bedroomDoor and stableCopy(site.bedroomDoor, 2) or nil,
-        rescueDoor = site.rescueDoor and stableCopy(site.rescueDoor, 2) or nil,
-        sealedRoom = site.sealedRoom and stableCopy(site.sealedRoom, 2) or nil,
-        roomDoor = site.roomDoor and stableCopy(site.roomDoor, 2) or nil,
-        hordeSpawns = site.hordeSpawns
-            and stableCopy(site.hordeSpawns, 3, { count = 128 }) or nil,
-        vehicle = site.vehicle and stableCopy(site.vehicle, 3) or nil,
-        van = site.van and stableCopy(site.van, 2) or nil,
-        fuelPosts = site.fuelPosts
-            and stableCopy(site.fuelPosts, 3, { count = 32 }) or nil,
-        bins = site.bins and stableCopy(site.bins, 3,
-            { count = 40 }) or nil,
-        racePost = site.racePost and stableCopy(site.racePost, 2) or nil,
-        bunkerDoor = site.bunkerDoor and stableCopy(site.bunkerDoor, 2) or nil,
-        bunkerOutside = site.bunkerOutside and stableCopy(site.bunkerOutside, 2) or nil,
-        animalSpawns = site.animalSpawns
-            and stableCopy(site.animalSpawns, 3, { count = 64 }) or nil,
-        petSpawns = site.petSpawns
-            and stableCopy(site.petSpawns, 3, { count = 16 }) or nil,
-        toySpawns = site.toySpawns
-            and stableCopy(site.toySpawns, 3, { count = 128 }) or nil,
         house = compactHouse,
     }
-    -- An exhausted copy budget must not quietly erase a required scene target.
-    -- Keep the failure local to this encounter instead of persisting a scene
-    -- which cannot complete its work after the next load.
-    for _, field in ipairs({ "hordeSpawns", "bins", "animalSpawns",
-        "fuelPosts", "memberSpawns", "petSpawns", "toySpawns", "familySpawns" }) do
-        if site[field] ~= nil and storySite[field] == nil then
+    -- The encounter's own site fields, as the Strange Folk registry and the
+    -- encounter modules declare them (SC.Oddballs.siteFields). An exhausted
+    -- copy budget must not quietly erase a required scene target: keep the
+    -- failure local to this encounter instead of persisting a scene which
+    -- cannot complete its work after the next load.
+    local siteFields = SC.Oddballs and type(SC.Oddballs.siteFields) == "function"
+        and SC.Oddballs.siteFields() or {}
+    for _, entry in ipairs(siteFields) do
+        local field = entry.field
+        local value = site[field]
+        if entry.value == true then
+            storySite[field] = value
+        elseif value then
+            storySite[field] = stableCopy(value, entry.depth,
+                entry.count and { count = entry.count } or nil)
+        end
+        if entry.required == true and value ~= nil and storySite[field] == nil then
             return nil, "oddball_site_copy_failed_" .. field
         end
+    end
+    if site.memberSpawns ~= nil and storySite.memberSpawns == nil then
+        return nil, "oddball_site_copy_failed_memberSpawns"
     end
     return createGroup(site.house, 1, debugCreated == true,
         definition.archetype, nil, {
@@ -2243,20 +2133,15 @@ local function observeContainerTransfers(current, remainingBudget, cursor)
                 end
                 local removed = scan.removed
                 local observedGroup = groups[observation.factionId]
-                local musicBlessing = observedGroup
-                    and type(observedGroup.oddball) == "table"
-                    and observedGroup.oddball.id == "tupelo_boys"
-                    and observedGroup.oddball.blessing == true
-                if removed > 0 and not musicBlessing and not scan.authorized and not (SC.Trade
+                local story = observedGroup and observedGroup.oddball
+                -- A story may let the player take freely (takingAllowed), or
+                -- answer a theft itself instead of the faction (shoplifted).
+                local takingAllowed = storyHook(story, "takingAllowed", story) == true
+                if removed > 0 and not takingAllowed and not scan.authorized and not (SC.Trade
                     and type(SC.Trade.isAuthorizedTransfer) == "function"
                     and SC.Trade.isAuthorizedTransfer(observation.factionId)) then
-                    local group = groups[observation.factionId]
-                    local handled = group and type(group.oddball) == "table"
-                        and (group.oddball.id == "grocery_gale_mercer"
-                            or group.oddball.id == "sin_gluttony_bonnie")
-                        and SC.Oddballs and type(SC.Oddballs.storyAction) == "function"
-                        and SC.Oddballs.storyAction(group.id, "shoplift", observation.player,
-                            { count = removed })
+                    local handled = storyHook(story, "shoplifted", observedGroup,
+                        observation.player, removed)
                     if handled ~= true then
                         Factions.noteOffense(observation.factionId, "theft", math.min(2, removed))
                     end
@@ -2270,6 +2155,10 @@ local function observeContainerTransfers(current, remainingBudget, cursor)
         end
     end
     return true
+end
+-- Test seam: one full pass of the opened-container transfer check alone.
+Factions._observeContainerTransfersForTests = function(current)
+    return observeContainerTransfers(current, nil, {})
 end
 
 local function noteCompanionHit(attacker, target, record)
@@ -2351,8 +2240,9 @@ end
 
 function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
     local currentPlayer = localPlayer()
-    local namedAnimal = target and SC.OddballAnimals
-        and SC.OddballAnimals.isProtected(target) == true
+    local namedAnimal = target and SC.Oddballs
+        and type(SC.Oddballs.isProtectedAnimal) == "function"
+        and SC.Oddballs.isProtectedAnimal(target) == true
     if namedAnimal then
         local companion = attacker ~= currentPlayer and SC.Registry
             and SC.Registry.byId(U().idOf(attacker)) or nil
@@ -2366,30 +2256,20 @@ function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
                     { target = target, weapon = weapon, damage = damage })
             end
         end
-        -- The owning story receives the strike once. June's nearby-rabbit
+        -- The owning story receives the strike once. The loose-animal
         -- reaction below is for unowned wildlife, not another resident's pet.
         return
     end
     if attacker and target and SC.Oddballs
-        and type(SC.Oddballs.storyAction) == "function" then
+        and type(SC.Oddballs.wildAnimalHurt) == "function" then
         local animalType = select(1, U().call(target, "getAnimalType"))
-        if animalType == "rabbuck" or animalType == "rabdoe"
-            or animalType == "rabkitten" then
+        if animalType ~= nil then
             local companion = attacker ~= currentPlayer and SC.Registry
                 and SC.Registry.byId(U().idOf(attacker)) or nil
             if attacker == currentPlayer
                 or companion and companion.recruited == true then
-                local x, y, z = U().position(target)
-                for _, group in ipairs(Factions.list(false)) do
-                    local story = group.oddball
-                    local site = story and story.site and story.site.spawn
-                    if story and story.id == "ranger_june_whitlock"
-                        and site and x and z == (site.z or 0)
-                        and (x - site.x) ^ 2 + (y - site.y) ^ 2 <= 2500 then
-                        SC.Oddballs.storyAction(group.id, "animal_hurt", attacker,
-                            { target = target, weapon = weapon, damage = damage })
-                    end
-                end
+                SC.Oddballs.wildAnimalHurt(target, animalType, attacker,
+                    { target = target, weapon = weapon, damage = damage })
             end
             if attacker ~= currentPlayer then return end
         end
@@ -3181,16 +3061,11 @@ function Factions.memberDied(record)
         and type(SC.FactionLife.noteEvent) == "function" then
         SC.FactionLife.noteEvent(group, "member_died", deadMemberKey or record.id)
     end
-    -- Loretta's last written message remains at her car until the player
-    -- opens the seat. Retiring the one-member group at native death would
-    -- remove both her pulse and the interaction that reveals the clipboard.
-    local unreadLorettaClipboard = type(group.oddball) == "table"
-        and group.oddball.id == "loretta_ten_and_two"
-        and (group.oddball.dead == true
-            or group.oddball.pendingDead == true)
-        and group.oddball.clipboardShown ~= true
+    -- A story may keep its household settled after the last death while it
+    -- still has something to show (keepsAfterDeath).
+    local keptAfterDeath = storyHook(group.oddball, "keepsAfterDeath", group.oddball) == true
     if householdLivingCount(group) == 0 then
-        group.lifecycle = unreadLorettaClipboard and "settled" or "destroyed"
+        group.lifecycle = keptAfterDeath and "settled" or "destroyed"
     end
     if type(group.oddball) == "table" and group.lifecycle == "destroyed"
         and SC.Oddballs and type(SC.Oddballs.retire) == "function" then
@@ -3940,7 +3815,7 @@ local function validRecordArray(value, path, maximum)
 end
 
 -- Helpers handed to an encounter module's own save checks
--- (SC.Oddballs.saveRules), so they report with this restore's wording.
+-- (SC.Oddballs.storyRules), so they report with this restore's wording.
 local saveKit = {
     fail = restoreFailure,
     finite = finiteNumber,
@@ -4053,8 +3928,8 @@ local function validGroup(source, id, path)
         -- What only one encounter saves is checked by that encounter's module.
         -- A story whose module is not loaded gets only the checks every
         -- encounter shares, including a resident or roamer site.
-        local rules = SC.Oddballs and type(SC.Oddballs.saveRules) == "function"
-            and SC.Oddballs.saveRules(story.id) or nil
+        local rules = SC.Oddballs and type(SC.Oddballs.storyRules) == "function"
+            and SC.Oddballs.storyRules(story.id) or nil
         local kind = story.site.kind
         if kind ~= "resident" and kind ~= "roamer"
             and not (rules and rules.siteKind ~= nil and rules.siteKind == kind) then
@@ -4073,9 +3948,12 @@ local function validGroup(source, id, path)
         siteOkay, siteReason = validPosition(story.site.spawn,
             path .. ".oddball.site.spawn", false)
         if not siteOkay then return false, siteReason end
-        for _, field in ipairs({ "wake", "coop", "truck",
-            "partyDoor", "partyWindow" }) do
-            if story.site[field] ~= nil then
+        -- Encounter site fields that are a single position when present
+        -- (SC.Oddballs.siteFields, position = true).
+        for _, entry in ipairs(SC.Oddballs and type(SC.Oddballs.siteFields) == "function"
+            and SC.Oddballs.siteFields() or {}) do
+            local field = entry.field
+            if entry.position == true and story.site[field] ~= nil then
                 siteOkay, siteReason = validPosition(story.site[field],
                     path .. ".oddball.site." .. field, false)
                 if not siteOkay then return false, siteReason end
@@ -4161,14 +4039,6 @@ local function validGroup(source, id, path)
                     return restoreFailure(postPath, "duplicate or mismatched member post")
                 end
                 seen[key] = true
-            end
-        end
-        for _, field in ipairs({ "altar", "vestry", "vestryDoor",
-            "homeTarget", "homeZombie", "duelGround", "tradePost" }) do
-            if story.site[field] ~= nil then
-                siteOkay, siteReason = validPosition(story.site[field],
-                    path .. ".oddball.site." .. field, false)
-                if not siteOkay then return false, siteReason end
             end
         end
         if story.site.mailTargets ~= nil then
@@ -4482,16 +4352,18 @@ function Factions.restore(document)
         end
         ensureFactionIdentity(group, occupiedNames)
         ensureBanditState(group)
+        -- An encounter brings its own older saves up to date first
+        -- (storyRules.upgrade), on this restore's private copy.
         local story = group.oddball
-        if type(story) == "table" and story.id == "gunshop_bob_kenley"
-            and story.hordeSpawned == nil and finiteNumber(story.spawned)
-            and story.spawned >= 0 and story.spawned <= 5 and story.spawned % 1 == 0 then
-            -- Kenley's siege used the actor activation flag for its count.
-            -- A saved actor ID also proves activation before the first zombie.
-            local member = type(group.members) == "table" and group.members[1] or nil
-            story.hordeSpawned = story.spawned
-            story.spawned = story.hordeSpawned > 0
-                or type(member) == "table" and type(member.actorId) == "string"
+        local storyRules = type(story) == "table" and SC.Oddballs
+            and type(SC.Oddballs.storyRules) == "function"
+            and SC.Oddballs.storyRules(story.id) or nil
+        if storyRules and type(storyRules.upgrade) == "function" then
+            local upgraded, upgradeReason = pcall(storyRules.upgrade, story, group, saveKit)
+            if not upgraded then
+                return restoreFailure("$.factions.groups[" .. tostring(id) .. "].oddball",
+                    "encounter upgrade failed: " .. tostring(upgradeReason))
+            end
         end
         local groupOkay, groupReason = validGroup(group, id,
             "$.factions.groups[" .. tostring(id) .. "]")

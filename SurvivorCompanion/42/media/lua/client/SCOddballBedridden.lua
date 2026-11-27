@@ -1091,4 +1091,27 @@ function Bedridden.canRecruit()
     return false, "arthur_is_too_ill_to_leave"
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballBedridden.storyRules = {
+    acceptSite = function(site)
+        local bed, floor, door = site.bed, site.floor, site.bedroomDoor
+        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
+            site.spawn.z or 0)
+        local room = select(1, U().call(spawnSquare, "getRoom"))
+        local floorSquare = type(floor) == "table" and U().gridSquare(
+            floor.x, floor.y, floor.z or 0) or nil
+        local bedSquare = type(bed) == "table" and U().gridSquare(
+            bed.x, bed.y, bed.z or 0) or nil
+        if room == nil or type(door) ~= "table"
+            or type(bed) ~= "table" or type(bed.objectIndex) ~= "number"
+            or not U().isClearActorSpawnSquare(floorSquare)
+            or select(1, U().call(floorSquare, "getRoom")) ~= room
+            or select(1, U().call(bedSquare, "getRoom")) ~= room then
+            return false, "arthur_bedroom_unavailable"
+        end
+        return true
+    end,
+}
+
 return Bedridden

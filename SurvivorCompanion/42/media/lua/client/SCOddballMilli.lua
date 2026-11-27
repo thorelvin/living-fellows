@@ -1126,8 +1126,50 @@ function Milli.pulseRecruited(group, actor, player, current)
 end
 
 -- Saved-story checks the faction restore runs for this encounter only
--- (SC.Oddballs.saveRules); paths and wording match the restore's own.
-SC.OddballMilli.saveRules = {
+-- (SC.Oddballs.storyRules); paths and wording match the restore's own.
+SC.OddballMilli.storyRules = {
+    siteFields = {
+        { field = "petSpawns", depth = 3, count = 16, required = true },
+        { field = "toySpawns", depth = 3, count = 128, required = true },
+    },
+    acceptSite = function(site, _, kit)
+        if type(site.petSpawns) ~= "table" or #site.petSpawns ~= 2 then
+            return false, "milli_pet_posts_unavailable"
+        end
+        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
+            site.spawn.z or 0)
+        local spawnRoom = select(1, U().call(spawnSquare, "getRoom"))
+        if spawnRoom == nil then return false, "milli_room_unavailable" end
+        local seen = { [kit.positionKey(site.spawn)] = true }
+        for _, post in ipairs(site.petSpawns) do
+            local key = kit.positionKey(post)
+            local square = key and U().gridSquare(post.x, post.y,
+                post.z or 0) or nil
+            if key == nil or seen[key] or not U().isClearActorSpawnSquare(square)
+                or (post.z or 0) ~= (site.spawn.z or 0)
+                or select(1, U().call(square, "getRoom")) ~= spawnRoom then
+                return false, "milli_pet_posts_unavailable"
+            end
+            seen[key] = true
+        end
+        if type(site.toySpawns) ~= "table" or #site.toySpawns < 3
+            or #site.toySpawns > 32 then
+            return false, "milli_toy_posts_unavailable"
+        end
+        local toysSeen = {}
+        for _, post in ipairs(site.toySpawns) do
+            local key = kit.positionKey(post)
+            local square = key and U().gridSquare(post.x, post.y,
+                post.z or 0) or nil
+            if key == nil or toysSeen[key] or not U().isSafeSpawnSquare(square)
+                or (post.z or 0) ~= (site.spawn.z or 0)
+                or select(1, U().call(square, "getRoom")) ~= spawnRoom then
+                return false, "milli_toy_posts_unavailable"
+            end
+            toysSeen[key] = true
+        end
+        return true
+    end,
     claims = { petSpawns = true, toySpawns = true },
     validate = function(story, path, kit)
         local site = story.site

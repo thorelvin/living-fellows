@@ -358,4 +358,25 @@ function Pack.action(group, action, player)
     return false, "unsupported_pack_action"
 end
 
+-- Story rules the faction layer applies to this encounter only
+-- (SC.Oddballs.storyRules); paths, wording and reasons match its own.
+SC.OddballFurryPack.storyRules = {
+    acceptSite = function(site)
+        if site.memberSpawns == nil then return true end
+        local spawnSquare = U().gridSquare(site.spawn.x, site.spawn.y,
+            site.spawn.z or 0)
+        local room = select(1, U().call(spawnSquare, "getRoom"))
+        for _, position in ipairs(site.memberSpawns) do
+            local square = U().gridSquare(position.x, position.y,
+                position.z or 0)
+            if room == nil or not U().isClearActorSpawnSquare(square)
+                or (position.z or 0) ~= (site.spawn.z or 0)
+                or select(1, U().call(square, "getRoom")) ~= room then
+                return false, "furry_living_room_posts_unavailable"
+            end
+        end
+        return true
+    end,
+}
+
 return Pack
