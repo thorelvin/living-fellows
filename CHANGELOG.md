@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.27.95 - Dead code and shared restore checks
+
+- Remove 58 functions that nothing in the mod, its tests or its tools called any more, with the helpers and one menu text that only they used. About 425 lines go; nothing a player sees changes.
+- Check saved base life, community, faction, faction-world, infection and diary documents with one shared set of number, list and limit checks instead of six copies. Every restore keeps its own error wording.
+- A diary save whose lists have gaps is now always refused, as the other saves already were. The old diary check could let some gapped lists through.
+- Test the shared checks directly in every routine run.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.94 - One test definition and a missing status label
 
 - Show "heading for shelter" for a companion walking to shelter during a Handover. The companion panel had no status text for it.
