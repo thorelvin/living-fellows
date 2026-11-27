@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Both receiver preparations must reach scoring; generic rest cannot silently
 -- discard a better TV seat in favour of a radio seat or reserve one twice.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local F=SC.TestFixture
 local actor=F.actor('sc-power-night-seat',0,0)
 local _,_,_,candidates=SC.Downtime._sleepForTests()

@@ -4,7 +4,7 @@
 -- facts, her memory, and the live world adapter against fake game objects.
 -- Random picks are fixed by an injected roll, so every answer is exact.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Brain, Lines, World = SC.TerminalBrain, SC.TerminalLines, SC.TerminalWorld
 local checks = 0
 local function check(value, message)

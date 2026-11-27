@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B=SC.TerminalBrain
 local offered,enabled=false,true
 SC.Guidance={enabled=function() return enabled end,offerShortVersion=function()

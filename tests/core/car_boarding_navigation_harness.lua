@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Real car boarding and requestAny policy; the ordinary route owner below
 -- emulates a yielding detour and the world's eventual physical door arrival.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local Car, Navigation, U = SC.ExpeditionCar, SC.Navigation, SC.GameplayUtil
 local function check(value, message)
     checks = checks + 1

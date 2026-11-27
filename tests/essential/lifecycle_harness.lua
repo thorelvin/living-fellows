@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Actual action/actor owners; provider callbacks stand in only for native removal.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local S, A, checks = SC.ActionSupervisor, SC.Actor, 0
 local function check(value, label)
     checks = checks + 1

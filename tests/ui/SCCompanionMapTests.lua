@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local Map = SurvivorCompanion and SurvivorCompanion.CompanionMap
+local Map = LivingFellows and LivingFellows.CompanionMap
 assert(Map, "SCCompanionMap must be loaded before this test")
 
 local fixture = SCCompanionMapFixture
@@ -57,7 +57,7 @@ assert(rows[2].name == "Daryl" and rows[2].id == "joined-daryl")
 
 local viewer = {}
 getSpecificPlayer = function(index) return index == 0 and viewer or nil end
-SurvivorCompanion.ExpeditionPrototype = {
+LivingFellows.ExpeditionPrototype = {
     isMember = function(actor)
         return actor == fixture.records[1].actor
             or actor == fixture.records[4].actor
@@ -70,7 +70,7 @@ SurvivorCompanion.ExpeditionPrototype = {
 rows = Map.rows()
 assert(#rows == 1 and rows[1].id == "joined-daryl",
     "the map hides an unseen expedition member but retains a visible one")
-SurvivorCompanion.ExpeditionPrototype = nil
+LivingFellows.ExpeditionPrototype = nil
 
 local map = {
     width = 180,
@@ -143,9 +143,9 @@ assert(#fixture.reports == 0, "the world-map overlay must render without diagnos
 assert(Map.lastFactionDrawCount == 3,
     "the live harness must be able to confirm the actual world-map draw count")
 
-local previousPicker=SurvivorCompanion.ExpeditionMap
+local previousPicker=LivingFellows.ExpeditionMap
 local clicks=0
-SurvivorCompanion.ExpeditionMap={click=function()clicks=clicks+1 return true end}
+LivingFellows.ExpeditionMap={click=function()clicks=clicks+1 return true end}
 map.dragging,map.dragMoved=true,false
 ISWorldMap.onMouseUp(map,20,20)
 assert(clicks==1 and not map.dragging and stockUps==0,"a stationary map click selects an area corner")
@@ -160,7 +160,7 @@ map.symbolsUI=nil
 map.isMouseOverChild=function()return true end
 ISWorldMap.onMouseUp(map,30,30)
 assert(clicks==1 and stockUps==3,"clicking map controls cannot select a corner behind them")
-SurvivorCompanion.ExpeditionMap=previousPicker
+LivingFellows.ExpeditionMap=previousPicker
 local removed, removeReason = Map.remove()
 assert(removed == true and removeReason == "removed")
 assert(ISMiniMapInner.render ~= nil)

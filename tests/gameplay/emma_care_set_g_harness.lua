@@ -2,7 +2,7 @@
 -- Care regression on blind set G and its variants, through the full reply path
 -- (parser, care rules and the distress safety net). Never print inputs or
 -- replies; a failure names only the row number and kind.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B=SC.TerminalBrain
 local world={
     camp=function() return {configured=true,inside=true,name="Rising"} end,

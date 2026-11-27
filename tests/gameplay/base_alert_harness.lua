@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- The camp alarm: who sees, who hears, who wakes, who goes and where.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Alert = SC.BaseAlert
 local RealDowntime = SC.Downtime
 local checks = 0

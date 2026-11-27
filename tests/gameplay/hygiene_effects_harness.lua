@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local sc = SurvivorCompanion
+local sc = LivingFellows
 local oldLiving, oldNeeds, oldDowntime = sc.Registry.living,
     sc.Needs.peek, sc.Downtime.peek
 local oldPlayer, oldScreenX, oldScreenY = getSpecificPlayer,

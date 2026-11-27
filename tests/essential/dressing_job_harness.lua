@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Camp washing must retain exact stock ownership across native replacement.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local W, U = SC.BandageWashing, SC.GameplayUtil
 local checks = 0
 local function check(value, message)

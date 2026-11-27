@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 Fluid = { Petrol = "petrol" }
 
 local time = 1000

@@ -104,7 +104,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $gameRoot = [System.IO.Path]::GetFullPath($GameRoot)
 $launcherPath = Join-Path $gameRoot 'ProjectZomboid64.json'
-$candidate = Join-Path $projectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+$candidate = Join-Path $projectRoot 'LivingFellows\42\media\java\LivingFellowsBridge.jar'
 if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) { throw 'Game launcher JSON missing.' }
 if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
     throw 'Build the experimental native bridge with Build-NativeBridge.ps1 -InstallIntoPayload first.'
@@ -129,10 +129,10 @@ $backupPath = Join-Path $backupRoot 'ProjectZomboid64.json'
 Copy-Item -LiteralPath $launcherPath -Destination $backupPath
 $originalHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
 $launcher = Get-Content -LiteralPath $launcherPath -Raw -Encoding utf8 | ConvertFrom-Json
-if ($launcher.mainClass -ne 'survivorcompanion/bridge/SCLauncher') {
+if ($launcher.mainClass -ne 'livingfellows/bridge/SCLauncher') {
     throw 'The installed game launcher is not the expected Living Fellows launcher.'
 }
-$bridgeEntries = @($launcher.classpath | Where-Object { $_ -match 'SurvivorCompanion.*Bridge.*\.jar' })
+$bridgeEntries = @($launcher.classpath | Where-Object { $_ -match 'LivingFellows.*Bridge.*\.jar' })
 if ($bridgeEntries.Count -ne 1) { throw 'Expected exactly one native bridge classpath entry.' }
 $launcher.classpath = @($launcher.classpath | ForEach-Object {
         if ($_ -eq $bridgeEntries[0]) { $candidate.Replace('\', '/') } else { $_ }

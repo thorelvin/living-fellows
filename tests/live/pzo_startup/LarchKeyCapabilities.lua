@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Test-only Phase 0. Uses native objects in a disposable clone, then a real disk reload.
 require 'ISUI/ISContextMenu'
-local SC,s=SurvivorCompanion,{phase='menu',checks=0,notes={'probe_revision=phase0-primitives-first-native-art-diagnostic-r6'}}
+local SC,s=LivingFellows,{phase='menu',checks=0,notes={'probe_revision=phase0-primitives-first-native-art-diagnostic-r6'}}
 local ITEM='LFLarchProbe.LarchKeyCard'
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function read(name) local r=getFileReader(name,false);if not r then return end;local x=r:readLine();r:close();return x end

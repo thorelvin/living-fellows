@@ -43,16 +43,16 @@ try {
         (Join-Path $project 'tests\live\auto_start\SCPzoLoadingGateAgent.java')
     if($LASTEXITCODE -ne 0){throw 'Loading-gate compilation failed.'}
     $manifest=Join-Path $output 'MANIFEST.MF'
-    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: survivorcompanion.harness.SCPzoLoadingGateAgent`n`n",$utf8)
+    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: livingfellows.harness.SCPzoLoadingGateAgent`n`n",$utf8)
     $gateJar=Join-Path $output 'loading-gate.jar'
-    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes survivorcompanion
+    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes livingfellows
     if($LASTEXITCODE -ne 0){throw 'Loading-gate packaging failed.'}
     $run=& (Join-Path $fixtures 'PrepareFixture.ps1') -Scenario approved -PayloadProjectRoot $project `
         -GameRoot $GameRoot -OutputRoot $output -MediaSnapshotRoot $MediaSnapshotRoot -PzoJar $PzoJar
     if($run -is [array]){throw 'Unexpected fixture path output.'}
     $fixture=Get-Content -LiteralPath (Join-Path $run 'run.json') -Raw|ConvertFrom-Json
     if($RevertReadingPose){
-        $lua=Join-Path $fixture.cache 'mods\SurvivorCompanion\42\media\lua\client\SCDowntime.lua'
+        $lua=Join-Path $fixture.cache 'mods\LivingFellows\42\media\lua\client\SCDowntime.lua'
         $text=Get-Content -LiteralPath $lua -Raw
         $pattern='(?m)^        passengerPose = activity\.kind == "read",\r?\n'
         if([regex]::Matches($text,$pattern).Count -ne 1){throw 'The exact pose opt-in to revert was not found.'}
@@ -79,7 +79,7 @@ try {
     Write-Output $receiptText
     if($receiptText -notmatch '(?m)^result=PASS\r?$'){throw 'Native passenger regression failed; see the captured receipt.'}
     $pzo=Get-Content -LiteralPath (Join-Path $fixture.cache 'Lua\pzo_engine.log') -Raw
-    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on survivorcompanion.bridge.SCBootstrapAgent'){
+    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on livingfellows.bridge.SCBootstrapAgent'){
         throw 'PZO did not load the production bridge.'
     }
     Write-Output "NATIVE_PZO_PASSENGER_PASS evidence=$output"

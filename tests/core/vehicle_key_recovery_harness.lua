@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local function actionList()
     local list = { values = {} }
     function list:add(value) self.values[#self.values + 1] = value end

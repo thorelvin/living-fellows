@@ -3,7 +3,7 @@
 -- result mappings and two-person crew exchanges. Speech is captured, never
 -- shown; every decision is driven by a fake clock and fixed random rolls.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U, Dialogue, Voice, Lines = SC.GameplayUtil, SC.Dialogue, SC.WorkVoice, SC.WorkVoiceLines
 local checks = 0
 local function check(value, message)

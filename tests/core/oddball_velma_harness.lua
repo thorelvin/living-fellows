@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local playerInventory = { items = {} }
 local velmaInventory = { items = {} }
 local cache = { items = {} }

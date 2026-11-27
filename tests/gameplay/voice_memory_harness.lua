@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local V,C,D,T=SC.VoiceMemory,SC.Community,SC.Dialogue,SC.TestFixture
 local checks,clock,age=0,100000,240
 local function check(ok,why) checks=checks+1 assert(ok,"variety check "..checks..": "..why) end

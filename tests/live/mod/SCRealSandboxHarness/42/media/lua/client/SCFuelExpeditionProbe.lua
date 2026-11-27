@@ -36,7 +36,7 @@ local function fail(H,current,result,setPhase,name,why)
     finish(H,current,setPhase)
 end
 local function returned(H,f,current,check,setPhase,fuel,release)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if release then
         local okay=SC.ExpeditionPrototype.finishAtPlayer(H.player)
         if not okay then return end
@@ -60,7 +60,7 @@ local function returned(H,f,current,check,setPhase,fuel,release)
     setPhase("fuel_expedition_deliver",current)
 end
 function P.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local U=SC.GameplayUtil
     local f=H.fuelExpedition
     if H.phase=="fuel_expedition_setup" then

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- A safe floor-finisher offer must survive the production execution gates.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local U, checks = SC.GameplayUtil, 0
 local function check(value, message)
     checks=checks+1;assert(value,"ground finisher execution " .. checks .. ": " .. message)

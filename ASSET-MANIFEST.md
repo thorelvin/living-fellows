@@ -51,12 +51,12 @@ The poster and preview derivatives were resized from the selected source with ne
 | Workshop image | `assets/preview-512.png` | 512×512 RGB | `4733a0c1a6d1253516e691b07ee4252332abd418bd413d3e2eacc640e1fabdba` |
 | Mod poster | `assets/poster-256.png` | 256×256 RGB | `394943ab5257d57cfe72e11fd0a2e5266173160cc9dcac892bbf96acc194faec` |
 | Workshop preview | `Workshop/preview.png` | 512×512 RGB | `4733a0c1a6d1253516e691b07ee4252332abd418bd413d3e2eacc640e1fabdba` |
-| Payload poster | `SurvivorCompanion/poster.png` | 256×256 RGB | `394943ab5257d57cfe72e11fd0a2e5266173160cc9dcac892bbf96acc194faec` |
-| Build 42 poster | `SurvivorCompanion/42/poster.png` | 256×256 RGB | `394943ab5257d57cfe72e11fd0a2e5266173160cc9dcac892bbf96acc194faec` |
+| Payload poster | `LivingFellows/poster.png` | 256×256 RGB | `394943ab5257d57cfe72e11fd0a2e5266173160cc9dcac892bbf96acc194faec` |
+| Build 42 poster | `LivingFellows/42/poster.png` | 256×256 RGB | `394943ab5257d57cfe72e11fd0a2e5266173160cc9dcac892bbf96acc194faec` |
 
 ## UI symbols
 
-All UI symbols are original deterministic pixel bitmaps declared in `SurvivorCompanion/42/media/lua/client/SCUIPixels.lua` and rendered at runtime with ISUI rectangles. No generated or imported icon asset is used.
+All UI symbols are original deterministic pixel bitmaps declared in `LivingFellows/42/media/lua/client/SCUIPixels.lua` and rendered at runtime with ISUI rectangles. No generated or imported icon asset is used.
 
 ## EMMA terminal artwork
 
@@ -113,7 +113,7 @@ handset answer is a short mechanical click. The five-note escrow signature is
 original UI audio heard on a verified radio-key receipt. No voice recording,
 network service or downloaded music is used.
 
-| Asset under `SurvivorCompanion/42/media/sound/` | SHA-256 |
+| Asset under `LivingFellows/42/media/sound/` | SHA-256 |
 | --- | --- |
 | `LFTerminalLampTick.wav` | 2dbb6b866938d8b89a33c80498570192fe7fe7982f25f25d58dfcfaa79821c77 |
 | `LFReelClunk.wav` | 2de70df6919fad95d91aa0c3472ce2b0d7ddf057744fc4f0d939ae6340e654b4 |
@@ -132,7 +132,7 @@ They use no imported recordings or game audio: mono, 16-bit PCM, 22,050 Hz.
 The ping, discovery blip and completion phrase play through the UI sound path,
 without world noise or zombie attraction.
 
-| Asset under `SurvivorCompanion/42/media/sound/` | SHA-256 |
+| Asset under `LivingFellows/42/media/sound/` | SHA-256 |
 | --- | --- |
 | `LFTerminalScanPing.wav` | d1ae4b66c8f9c6ef3320ea43258d0e365e59ae21c670c1818430ad49d73bfd0c |
 | `LFTerminalScanBlip.wav` | 88356dbe59f4401592c19e2942e43a361c902dc303edbf469062c76585e97704 |
@@ -169,7 +169,7 @@ Original LARCH/KEY UI sound cues use no game audio or imported recordings.
 0.13-second read blip. Both play through the player's UI sound path, never a
 world-noise event.
 
-| Asset under `SurvivorCompanion/42/media/sound/` | SHA-256 |
+| Asset under `LivingFellows/42/media/sound/` | SHA-256 |
 | --- | --- |
 | `LFCardSwipe.wav` | 399429cf72eb3e999067a7095dd428ad8671c0403aba4b612f40f1710952368a |
 | `LFCardRead.wav` | c5ec423aded1a2dd656d7a1b5aac5b6dfd3b2816a57f540f41fedcabede19f59 |

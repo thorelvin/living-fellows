@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Synthetic first-person disclosures through the ordinary terminal conversation.
 -- Report only assertion numbers and route names; the blind evaluation is separate.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local brain = SC.TerminalBrain
 local world = {camp=function() return {configured=false,inside=false} end}
 local checks = 0

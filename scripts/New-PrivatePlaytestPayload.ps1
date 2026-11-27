@@ -17,8 +17,8 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path $ProjectRoot 'build\private-playtest'
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
-$Payload = Join-Path $ProjectRoot 'SurvivorCompanion'
-$Destination = Join-Path $OutputRoot 'SurvivorCompanion'
+$Payload = Join-Path $ProjectRoot 'LivingFellows'
+$Destination = Join-Path $OutputRoot 'LivingFellows'
 $projectPrefix = $ProjectRoot.TrimEnd('\') + '\'
 $outputIsProject = $OutputRoot.StartsWith($projectPrefix, [System.StringComparison]::OrdinalIgnoreCase)
 $outputIsTemporary = $OutputRoot.StartsWith([System.IO.Path]::GetTempPath(), [System.StringComparison]::OrdinalIgnoreCase)
@@ -72,7 +72,7 @@ $marker = @'
 PRIVATE NATIVE BRIDGE PLAYTEST - NOT FOR PUBLIC RELEASE
 
 This copy enables the in-game Debug tab and its manual spawn controls. Actor
-creation requires the version-pinned SurvivorCompanionBridge bootstrap. The
+creation requires the version-pinned LivingFellowsBridge bootstrap. The
 private Expedition prototype may promote one actual companion to the second
 local player slot to stream its area. This is a single-player, two-viewport
 playtest and is not the multiplayer release path.
@@ -91,8 +91,8 @@ if (@($markerBytes | Where-Object { $_ -gt 127 }).Count -ne 0) {
 $classes = Get-ChildItem -LiteralPath $Destination -Recurse -File -Filter '*.class'
 if ($classes) { throw 'Private payload contains loose Java classes.' }
 $jars = @(Get-ChildItem -LiteralPath $Destination -Recurse -File -Filter '*.jar')
-$expectedJar = Join-Path $Destination '42\media\java\SurvivorCompanionBridge.jar'
+$expectedJar = Join-Path $Destination '42\media\java\LivingFellowsBridge.jar'
 if ($jars.Count -ne 1 -or $jars[0].FullName -ne $expectedJar) {
-    throw 'Private payload must contain exactly the versioned SurvivorCompanion bridge JAR.'
+    throw 'Private payload must contain exactly the versioned LivingFellows bridge JAR.'
 }
 Write-Output $Destination

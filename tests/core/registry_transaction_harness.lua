@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.Actor = SC.Actor or {}
 SC.Actor._isRegistryActor = function(actor)
     return type(actor) == "table" and actor.__owned == true

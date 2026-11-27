@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Extended physical timber permutations; essential cargo retains the complete effect chain.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Wood, Logging, U, X = SC.ExpeditionWood, SC.LoggingWork, SC.GameplayUtil, assert(SC.WoodTestFixture)
 local check, actor, item, container = X.check, X.actor, X.item, X.container
 local put, remove, weight, plant, square, drop = X.put, X.remove, X.weight, X.plant, X.square, X.drop

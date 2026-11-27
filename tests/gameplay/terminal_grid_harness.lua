@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local Brain=SC.TerminalBrain
 local checks=0
 local function check(value,text) checks=checks+1 assert(value,"terminal grid "..checks..": "..text) end

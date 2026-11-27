@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise real chat/menu confirmation, with domain commands replaced by spies.
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local Terminal, Actions, Brain = SC.Terminal, SC.TerminalActions, SC.TerminalBrain
 local check, before = T.check, T.checks
 local saved = { life = SC.BaseLife, vehicle = SC.Vehicle, refuel = SC.VehicleRefuel,

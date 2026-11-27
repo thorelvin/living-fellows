@@ -28,12 +28,12 @@ ModData = {
     end,
 }
 function SC_TEST_SET_WORLD_STORE(store)
-    SC_TEST_GLOBAL_MOD_DATA[SurvivorCompanion.Identity.worldSaveKey] = store or {}
-    if SurvivorCompanion.Persistence
-        and type(SurvivorCompanion.Persistence.bindWorldStore) == "function" then
-        SurvivorCompanion.Persistence.bindWorldStore(false)
+    SC_TEST_GLOBAL_MOD_DATA[LivingFellows.Identity.worldSaveKey] = store or {}
+    if LivingFellows.Persistence
+        and type(LivingFellows.Persistence.bindWorldStore) == "function" then
+        LivingFellows.Persistence.bindWorldStore(false)
     end
-    return SC_TEST_GLOBAL_MOD_DATA[SurvivorCompanion.Identity.worldSaveKey]
+    return SC_TEST_GLOBAL_MOD_DATA[LivingFellows.Identity.worldSaveKey]
 end
 
 CharacterStat = {

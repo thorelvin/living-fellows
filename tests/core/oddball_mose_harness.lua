@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local hour = 24
 local doctrine = "close_defense"
 local crouched = false

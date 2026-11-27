@@ -2,7 +2,7 @@
 -- Clone-only real computers and hardware; provision before measuring packets.
 local Q={}
 function Q.prepare(H,t,check)
-    local SC,player=SurvivorCompanion,H.player
+    local SC,player=LivingFellows,H.player
     local car=t.vehicle
     local x,y=math.floor(car:getX()),math.floor(car:getY())
     local created,reason=SC.BaseLife.create({x=x,y=y,z=0},"Pickup radio fixture")
@@ -37,7 +37,7 @@ function Q.prepare(H,t,check)
     return true
 end
 function Q.install(H,t,check)
-    local SC,player=SurvivorCompanion,H.player
+    local SC,player=LivingFellows,H.player
     local index=t.radioPCBuild
     if not index then return true end
     local pc=t.radioPCs[math.min(index,2)]
@@ -54,7 +54,7 @@ function Q.install(H,t,check)
     return nil
 end
 function Q.measure(H,t,check)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local caller=SC.PickupRadio.caller(H.player,t.radioKit.player)
     local driver=SC.PickupRadio.driver(t.actor)
     local station,why=SC.RadioEndpoints.station(H.player,t.radioPCs[1])
@@ -73,7 +73,7 @@ function Q.measure(H,t,check)
     return true
 end
 function Q.relay(H,t,check)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     if SC.PickupRadio.driver(t.actor)~=nil then return nil end
     local ctx={requestId=t.pickup.requestId,camp=SC.HomeTrip.captureCamp(SC.BaseLife.active()),
         player=H.player,stations={t.radioRelayCamp}}

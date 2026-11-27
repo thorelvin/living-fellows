@@ -58,7 +58,7 @@ local function listed(actor)
     return false
 end
 local function snapshot(f)
-    local status = SurvivorCompanion.BanditsAdapter.status()
+    local status = LivingFellows.BanditsAdapter.status()
     return { parts = parts(f.car), health = Shared.partsHealth(f.actor),
         lfListed = listed(f.actor), mainListed = listed(f.primary and f.primary.player),
         requests = status.bulletHits, lastVictim = status.lastVictim, lastModel = status.lastModel }

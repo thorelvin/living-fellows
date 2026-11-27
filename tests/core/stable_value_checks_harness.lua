@@ -2,7 +2,7 @@
 -- The shared saved-document checks that the base, community, faction,
 -- faction-world, infection and diary restores call instead of keeping copies.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local V = SC.StableValue
 local checks = 0
 

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Native item roles, registered shelves and the real bounded supply planner.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local f, C = assert(SC.TestFixture), assert(SC.CleaningSupplies)
 local function check(value, message)
     checks = checks + 1

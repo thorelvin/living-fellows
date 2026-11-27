@@ -32,7 +32,7 @@ def generate():
                 value = .15 * edge * min(1, note / .004, (.065 - note) / .012)
                 value *= math.sin(2 * math.pi * frequency * t)
             frames.extend(struct.pack("<h", round(max(-1, min(1, value)) * 32767)))
-        path = ROOT / "SurvivorCompanion/42/media/sound" / (name + ".wav")
+        path = ROOT / "LivingFellows/42/media/sound" / (name + ".wav")
         with wave.open(str(path), "wb") as stream:
             stream.setnchannels(1)
             stream.setsampwidth(2)

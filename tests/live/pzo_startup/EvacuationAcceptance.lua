@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Native PZO acceptance for a disposable Rosewood save. Only the fixture player,
 -- test vehicle and initial zombie are placed by the probe.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local state = { phase = "menu", buildings = {}, distance = 0 }
 
 local function write(name, value)

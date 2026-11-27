@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- A pure policy simulation; native claims and XP have separate live acceptance.
-local SC=SurvivorCompanion local E,L=SC.TerminalLockEmma,SC.TerminalLocks
+local SC=LivingFellows local E,L=SC.TerminalLockEmma,SC.TerminalLocks
 local facts,finish=E.facts,L.finishUnlock
 local fixed={days=12,people=3,electrical=3,screwdriver=true,zombie=false,threatKnown=true,distance=0}
 E.facts=function() return fixed end

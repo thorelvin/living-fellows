@@ -11,7 +11,7 @@ end
 -- test companion unexpectedly receives a book.
 SC_TEST_DIARIES_ENABLED = false
 do
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local baseConfig = utility.config
     utility.config = function(key)
         if key == "diaryEnabled" and SC_TEST_DIARIES_ENABLED ~= true then return false end
@@ -883,7 +883,7 @@ local function zombie(x, y, options)
 end
 
 local movementLog = {}
-SurvivorCompanion.Actor = {
+LivingFellows.Actor = {
     isCompanion = function(value) return value and value.modData and value.modData.SC_Recruited == true end,
     setMovement = function(value, mode, intent)
         value.movementCalls = (value.movementCalls or 0) + 1
@@ -916,7 +916,7 @@ SurvivorCompanion.Actor = {
 }
 
 local registry = {}
-SurvivorCompanion.Registry = {
+LivingFellows.Registry = {
     byId = function(id) return registry[id] end,
     idOf = function(candidate)
         if not candidate then return nil end
@@ -968,8 +968,8 @@ SurvivorCompanion.Registry = {
     end,
 }
 
-SurvivorCompanion.Config._canonicalTestGet = SurvivorCompanion.Config.get
-SurvivorCompanion.Config.values = setmetatable({
+LivingFellows.Config._canonicalTestGet = LivingFellows.Config.get
+LivingFellows.Config.values = setmetatable({
         perceptionRadius = 8,
         perceptionSquareBudget = 160,
         perceptionThreatLimit = 12,
@@ -1007,9 +1007,9 @@ SurvivorCompanion.Config.values = setmetatable({
         decisionMinStateMs = 0,
         movementRecorderEnabled = true,
         maxCompanions = 64,
-    }, { __index = SurvivorCompanion.Config.defaults })
-SurvivorCompanion.Config.get = function(section, key)
-    local config = SurvivorCompanion.Config
+    }, { __index = LivingFellows.Config.defaults })
+LivingFellows.Config.get = function(section, key)
+    local config = LivingFellows.Config
     if key == nil then
         local override = rawget(config.values, section)
         if override ~= nil then return override end
@@ -1017,10 +1017,10 @@ SurvivorCompanion.Config.get = function(section, key)
     return config._canonicalTestGet(section, key)
 end
 
-SurvivorCompanion.UI = {
-    showStatus = function(summary) SurvivorCompanion.UI.lastStatus = summary return true end,
-    openInventory = function() return SurvivorCompanion.UI.inventoryResult == true end,
-    openHealth = function() return SurvivorCompanion.UI.healthResult == true end,
+LivingFellows.UI = {
+    showStatus = function(summary) LivingFellows.UI.lastStatus = summary return true end,
+    openInventory = function() return LivingFellows.UI.inventoryResult == true end,
+    openHealth = function() return LivingFellows.UI.healthResult == true end,
 }
 
 local function containerObject(square, contents, options)
@@ -1070,4 +1070,4 @@ setmetatable(fixture, {
         else rawset(self, key, value) end
     end,
 })
-SurvivorCompanion.TestFixture = fixture
+LivingFellows.TestFixture = fixture

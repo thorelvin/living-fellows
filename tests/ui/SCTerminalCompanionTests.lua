@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local Terminal,check,before=SC.Terminal,T.check,T.checks
 local computer=T.computer(T.square(100,100,0,true))
 local player=T.player(101,100,0)

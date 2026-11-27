@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Single-machine destructive requests must stay explicit, local and portable.
-local SC, T = SurvivorCompanion, TERMINAL_TEST
+local SC, T = LivingFellows, TERMINAL_TEST
 local Terminal, Actions = SC.Terminal, SC.TerminalActions
 local check, before = T.check, T.checks
 local savedMain, savedLife, savedNow = getSpecificPlayer, SC.BaseLife, SC.GameplayUtil.nowMs

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Execute only with the archived 0.27.18 production sources. This generates a
 -- real old-format serialization rather than reconstructing it in the new code.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 assert(SC.Identity.release=="0.27.18","legacy fixture must come from 0.27.18 sources")
 SC.Community.reset() SC.LifeEvents.reset()
 SC.LifeEvents.emit("worked",{participants={"sc-legacy-1"},sourceId="sc-legacy-1"})

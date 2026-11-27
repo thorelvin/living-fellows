@@ -12,7 +12,7 @@ function ZombRand(low, high)
 end
 CharacterTrait = { ILLITERATE = "ILLITERATE" }
 ItemTag = { PICTUREBOOK = "PICTUREBOOK", PICTURE = "PICTURE" }
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.Background = {}
 local function call(object, method, ...)
     if object and type(object[method]) == "function" then

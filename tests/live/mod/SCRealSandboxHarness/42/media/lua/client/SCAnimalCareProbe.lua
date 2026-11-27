@@ -3,12 +3,12 @@
 local P = { nextAt = 0, phase = "waiting", samples = {} }
 local function emit(text) print("SC_ANIMAL_ACCEPTANCE|" .. tostring(text)) end
 local function call(object, method, ...)
-    local result, okay = SurvivorCompanion.GameplayUtil.call(object, method, ...)
+    local result, okay = LivingFellows.GameplayUtil.call(object, method, ...)
     if not okay then error("native call unavailable: " .. method) end
     return result
 end
 local function write(text)
-    local writer = getFileWriter("SurvivorCompanionHarness/animal-care.txt", true, false)
+    local writer = getFileWriter("LivingFellowsHarness/animal-care.txt", true, false)
     writer:write(text) writer:close()
 end
 local function screenshot(label)
@@ -21,7 +21,7 @@ local function crate(square, category)
     object:setContainer(ItemContainer.new("crate", square, object))
     object:getContainer():setCapacity(50)
     square:AddSpecialObject(object)
-    assert(SurvivorCompanion.BaseLife.registerStorage(object, category))
+    assert(LivingFellows.BaseLife.registerStorage(object, category))
     return object
 end
 local function fence(x,y,north)
@@ -31,7 +31,7 @@ local function fence(x,y,north)
     square:AddSpecialObject(object) square:RecalcAllWithNeighbours(true)
 end
 local function setup(H)
-    local SC, U, player = SurvivorCompanion, SurvivorCompanion.GameplayUtil, H.player
+    local SC, U, player = LivingFellows, LivingFellows.GameplayUtil, H.player
     local records = SC.Registry.records()
     if #records == 0 then return false end
     P.record = records[1]
@@ -209,7 +209,7 @@ local function setup(H)
     return true
 end
 local function startRoost(H,current)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     P.settings.animalWorkEnabled=0
     SC.BaseLife.setDuty(P.record.id,false)
     SC.Commands.issue(P.record.id,"stay",nil,H.player)
@@ -227,7 +227,7 @@ local function shelteredCount()
     return count
 end
 local function observe(H, current)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local inside = shelteredCount()
     local hour = getGameTime():getTimeOfDay()
     local text = "phase="..P.phase.." hour="..hour.." inside="..inside
@@ -413,7 +413,7 @@ local function tick()
     end
     local okay, reason = pcall(function()
         if P.phase == "waiting" then
-            if H.player and SurvivorCompanion.BaseLife and H.phase ~= "idle" then setup(H) end
+            if H.player and LivingFellows.BaseLife and H.phase ~= "idle" then setup(H) end
         elseif P.phase ~= "blocked" and P.phase ~= "passed" then observe(H,current) end
     end)
     if not okay then

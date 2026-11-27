@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Bed entry is walking, not construction of a new actor in an open area.
 do
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local oldU,oldList,oldManager=SC.GameplayUtil,SC.NativeList,SeatingManager
     local tiles,room,grid={},{},{}
     local function key(x,y) return x..":"..y end
@@ -58,7 +58,7 @@ do
 end
 
 do
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local previousU, previousList, previousManager = SC.GameplayUtil, SC.NativeList, SeatingManager
     local checks = 0
     local function check(value, message) checks = checks + 1 assert(value, message) end

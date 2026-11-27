@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=SC_HANDOVER_TEST,SurvivorCompanion
+local F,SC=SC_HANDOVER_TEST,LivingFellows
 local H,R=SC.Handover,SC.HandoverRescue
 local owner,slot,lastLoader,status,loads,releases,restoreNext
 local checks=0

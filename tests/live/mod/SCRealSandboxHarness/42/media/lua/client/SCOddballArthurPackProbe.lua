@@ -799,13 +799,13 @@ local function costumeState(SC, actor)
 end
 
 local function stop(H, result, setPhase, current, name, detail)
-    endPackSpeech(H, SurvivorCompanion)
+    endPackSpeech(H, LivingFellows)
     result("FAIL", name, detail)
     setPhase("finish", current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     local key = H.config.oddball_arthur_probe == "true"
         and "arthur" or "pack"
@@ -1121,7 +1121,7 @@ function Probe.step(H, current, check, result, setPhase)
         end
         if not check("arthur_observer_preview_ready",
             H.encounterSignals.write(
-                "SurvivorCompanionHarness/oddball-observer-ready.txt",
+                "LivingFellowsHarness/oddball-observer-ready.txt",
                 { "ready=true", "kind=arthur", detail }),
             detail) then
             setPhase("finish", current) return
@@ -1489,7 +1489,7 @@ function Probe.step(H, current, check, result, setPhase)
         end
         if H.config.oddball_scene_screenshot == "true" then
             local signaled = H.encounterSignals.write(
-                "SurvivorCompanionHarness/oddball-scene-ready.txt",
+                "LivingFellowsHarness/oddball-scene-ready.txt",
                 { "ready=true", "kind=arthur_player_baseline" })
             if not check("arthur_player_baseline_capture_ready", signaled,
                 "stock player bed pose ready for screenshot") then
@@ -1504,7 +1504,7 @@ function Probe.step(H, current, check, result, setPhase)
 
     if H.phase == "encounter_arthur_player_capture" then
         if H.encounterSignals.exists(
-            "SurvivorCompanionHarness/oddball-scene-captured.txt") then
+            "LivingFellowsHarness/oddball-scene-captured.txt") then
             result("PASS", "arthur_player_baseline_capture",
                 "stock player bed pose captured")
             setPhase("finish", current)
@@ -1902,7 +1902,7 @@ function Probe.step(H, current, check, result, setPhase)
             setPhase("finish", current) return
         end
         local signaled = H.encounterSignals.write(
-            "SurvivorCompanionHarness/oddball-scene-ready.txt",
+            "LivingFellowsHarness/oddball-scene-ready.txt",
             { "ready=true", "kind=arthur" })
         if not check("arthur_capture_ready", signaled,
             "bed pose ready for native screenshot") then
@@ -1914,7 +1914,7 @@ function Probe.step(H, current, check, result, setPhase)
 
     if H.phase == "encounter_arthur_capture" then
         if H.encounterSignals.exists(
-            "SurvivorCompanionHarness/oddball-scene-captured.txt") then
+            "LivingFellowsHarness/oddball-scene-captured.txt") then
             result("PASS", "arthur_live_capture", "native bed scene captured")
             setPhase(H.config.oddball_pose_only == "true"
                 and "encounter_arthur_watch"
@@ -1928,7 +1928,7 @@ function Probe.step(H, current, check, result, setPhase)
 
     if H.phase == "encounter_arthur_watch" then
         if H.encounterSignals.exists(
-            "SurvivorCompanionHarness/oddball-scene-release.txt") then
+            "LivingFellowsHarness/oddball-scene-release.txt") then
             setPhase("finish", current)
         end
         return
@@ -2155,7 +2155,7 @@ function Probe.step(H, current, check, result, setPhase)
         end
         if H.config.oddball_scene_screenshot == "true" then
             local signaled = H.encounterSignals.write(
-                "SurvivorCompanionHarness/oddball-scene-ready.txt",
+                "LivingFellowsHarness/oddball-scene-ready.txt",
                 { "ready=true", "kind=pack" })
             if not check("pack_capture_ready", signaled,
                 "four native costumes ready for screenshot") then
@@ -2171,7 +2171,7 @@ function Probe.step(H, current, check, result, setPhase)
 
     if H.phase == "encounter_pack_capture" then
         if H.encounterSignals.exists(
-            "SurvivorCompanionHarness/oddball-scene-captured.txt") then
+            "LivingFellowsHarness/oddball-scene-captured.txt") then
             result("PASS", "pack_live_capture",
                 "four native costumes captured before reveal")
             setPhase("encounter_pack_dialogue", current)

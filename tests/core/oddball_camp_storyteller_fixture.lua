@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = { GameplayUtil = {}, Registry = {}, Factions = {},
+LivingFellows = { GameplayUtil = {}, Registry = {}, Factions = {},
     FactionRecruitment = {}, Navigation = {} }
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U = SC.GameplayUtil
 CampFixture = { now = 1000, lines = {}, fires = {}, reputation = 0,
     trial = false, players = {}, client = false, commands = {}, stores = {} }

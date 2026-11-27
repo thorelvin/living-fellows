@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local FarmWork = SC.FarmWork
 local F = FarmLifecycleFixture
 local checks = 0
@@ -256,10 +256,10 @@ waterReach = F.job("water", 1, 1, {
 })
 FarmWork.update(actor, {}, waterReach, {})
 actor.preciseX, actor.preciseY = 0.02, 1.5
-local originalTargets = SurvivorCompanion.Navigation.interactionTargets
-SurvivorCompanion.Navigation.interactionTargets = function() return { useTile } end
+local originalTargets = LivingFellows.Navigation.interactionTargets
+LivingFellows.Navigation.interactionTargets = function() return { useTile } end
 local microIntent
-SurvivorCompanion.Navigation.request = function(_, target, _, intent)
+LivingFellows.Navigation.request = function(_, target, _, intent)
     microIntent = intent
     return true, "moving_formation_intercept"
 end
@@ -269,8 +269,8 @@ check(handled == true and reason == "moving_formation_intercept"
         and microIntent.interceptPosition.x == 0.5
         and #F.nativeStarts == 0,
     "a farmer on the far edge of the correct use tile makes a checked short move")
-SurvivorCompanion.Navigation.interactionTargets = originalTargets
-SurvivorCompanion.Navigation.request = nil
+LivingFellows.Navigation.interactionTargets = originalTargets
+LivingFellows.Navigation.request = nil
 
 -- LF-04: cancelling a supply-free harvest stops its live native action.
 fresh()

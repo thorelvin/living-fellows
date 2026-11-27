@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local T,G=GRID_TEST,SurvivorCompanion.GridControl
+local T,G=GRID_TEST,LivingFellows.GridControl
 local check=T.check
 T.reset()
 check(G.visible(),"ordinary single-player worlds offer grid control")
@@ -109,7 +109,7 @@ check(not T.bucket.on and T.bucket.standDown==nil and T.shut==26,
     "a lost native lease is accepted as off without forcing power back on")
 T.crew={{id="home",skill=8},{id="foreign",skill=10},{id="dead",skill=10,dead=true}}
 T.residents={home={baseId="base"},foreign={baseId="other"},dead={baseId="base"}}
-SurvivorCompanion.BaseLife.active=function() return {id="base"} end
+LivingFellows.BaseLife.active=function() return {id="base"} end
 check(G.bestSkill({skill=2})==8,"only living residents of the active camp contribute Electrical")
 T.reset(100000)
 check(not G.visible() and T.writes==0,"never-shuts worlds stay untouched")
@@ -310,15 +310,15 @@ check(T.bucket.lockedUntilCold and T.halos[#T.halos]:find("breaker tripped",1,tr
 -- An open screen prints the notice itself, and an unread pile stays bounded.
 local cycled,cycledBy=T.ready(0)
 G.takeNotices() T.halos={}
-SurvivorCompanion.Terminal.window={closed=false}
+LivingFellows.Terminal.window={closed=false}
 for _=1,8 do
     check(G.energize(cycled,cycledBy),"notice cap fixture starts")
     check(G.cut("Switched off."),"notice cap fixture stops")
 end
 check(#T.halos==0,"an open computer screen does not also show a halo")
-SurvivorCompanion.Terminal.window={closed=true}
+LivingFellows.Terminal.window={closed=true}
 check(G.energize(cycled,cycledBy) and #T.halos==1,"a closed window no longer counts as an open screen")
-SurvivorCompanion.Terminal.window=nil
+LivingFellows.Terminal.window=nil
 local pile=G.takeNotices()
 check(#pile==G.MAX_UNREAD and pile[#pile]:find("Grid power restored",1,true)==1,"the unread pile keeps the newest notices")
 check(#G.takeNotices()==0,"an emptied pile reads as empty")

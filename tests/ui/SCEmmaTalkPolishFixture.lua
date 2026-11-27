@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- The same observed camp used by the original public playground sessions.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 SC.EmmaTalkPolishFixture={}
 local F=SC.EmmaTalkPolishFixture
 function F.world()

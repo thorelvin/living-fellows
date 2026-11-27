@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Public crisis controls must distinguish a current policy from releasing it,
 -- and keep the exact decision snapshot on each callback.
-local SC, UI = SurvivorCompanion, SurvivorCompanion.UI
+local SC, UI = LivingFellows, LivingFellows.UI
 local oldCrisis, oldRefresh = SC.InfectionCrisis, UI.refresh
 local calls, refreshes = {}, 0
 SC.InfectionCrisis = {

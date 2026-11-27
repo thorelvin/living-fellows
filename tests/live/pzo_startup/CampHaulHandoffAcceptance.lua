@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable world. Exercise the floor hauler's route entry point during a
 -- completed, still-claimable native Loot effect, then observe real movement.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local s = {phase="menu", notes={}, modals={}}
 
 local function write(name, data)

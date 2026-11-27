@@ -82,7 +82,7 @@ foreach ($classFile in Get-ChildItem -LiteralPath $classes -Filter '*.class' -Fi
     }
 }
 
-$bridgeJar = Join-Path $OutputRoot 'SurvivorCompanionBridge.jar'
+$bridgeJar = Join-Path $OutputRoot 'LivingFellowsBridge.jar'
 $manifest = Join-Path $ProjectRoot 'bridge\native\MANIFEST.MF'
 # Keep jar's atomic temporary archive on the same writable volume. A
 # sandboxed JVM can otherwise create it in a private TEMP directory that
@@ -92,7 +92,7 @@ New-Item -ItemType Directory -Path $jarTemp -Force | Out-Null
 # Pin archive timestamps so rebuilding the same Java sources produces the same
 # bridge bytes for source, Workshop staging, the release ZIP, and local install.
 & $jar "-J-Djava.io.tmpdir=$jarTemp" --create --file $bridgeJar --manifest $manifest `
-    --date=2025-01-01T00:00:00Z -C $classes survivorcompanion
+    --date=2025-01-01T00:00:00Z -C $classes livingfellows
 if ($LASTEXITCODE -ne 0) { throw "Native bridge JAR creation failed with exit code $LASTEXITCODE" }
 
 $entries = & $jar tf $bridgeJar
@@ -101,24 +101,24 @@ if ($entries | Where-Object { $_ -match '^zombie/' }) {
     throw 'Compile-only Project Zomboid stubs leaked into the native bridge JAR.'
 }
 # Live-run helpers belong to the disposable test agent, never to a release.
-if ($entries | Where-Object { $_ -match '^survivorcompanion/harness/' -or $_ -match 'Harness' }) {
+if ($entries | Where-Object { $_ -match '^livingfellows/harness/' -or $_ -match 'Harness' }) {
     throw 'A test-only live-run helper leaked into the native bridge JAR.'
 }
 foreach ($required in @(
-    'survivorcompanion/bridge/SCNativeCompanion.class',
-    'survivorcompanion/bridge/SCBridge.class',
-    'survivorcompanion/bridge/SCBootstrap.class',
-    'survivorcompanion/bridge/SCBootstrapAgent.class',
-    'survivorcompanion/bridge/SCLauncher.class',
-    'survivorcompanion/bridge/Main.class'
+    'livingfellows/bridge/SCNativeCompanion.class',
+    'livingfellows/bridge/SCBridge.class',
+    'livingfellows/bridge/SCBootstrap.class',
+    'livingfellows/bridge/SCBootstrapAgent.class',
+    'livingfellows/bridge/SCLauncher.class',
+    'livingfellows/bridge/Main.class'
 )) {
     if ($entries -notcontains $required) { throw "Native bridge JAR is missing $required" }
 }
 
 if ($InstallIntoPayload) {
-    $payloadJava = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java'
+    $payloadJava = Join-Path $ProjectRoot 'LivingFellows\42\media\java'
     New-Item -ItemType Directory -Path $payloadJava -Force | Out-Null
-    Copy-Item -LiteralPath $bridgeJar -Destination (Join-Path $payloadJava 'SurvivorCompanionBridge.jar') -Force
+    Copy-Item -LiteralPath $bridgeJar -Destination (Join-Path $payloadJava 'LivingFellowsBridge.jar') -Force
 }
 
 $hash = (Get-FileHash -LiteralPath $bridgeJar -Algorithm SHA256).Hash.ToLowerInvariant()

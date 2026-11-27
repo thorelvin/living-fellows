@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Use the real restore queues, parked Handover transaction and vehicle storage.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local B, P = SC.BaseLife, SC.Persistence
 local checks = 0
 local function check(value, message)

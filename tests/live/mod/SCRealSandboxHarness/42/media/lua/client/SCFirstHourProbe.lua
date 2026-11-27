@@ -21,7 +21,7 @@ local function capture(H,label)
     print("SC_REAL_SANDBOX|FIRST_HOUR_SCREENSHOT|"..name)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local s=H.firstHour
     local function stop(id,why)
         capture(H,"blocked-"..id)

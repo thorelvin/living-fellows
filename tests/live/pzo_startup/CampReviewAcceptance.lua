@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Disposable native PZO acceptance. Driven through the real camp controllers.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local s = {phase="menu", notes={}, seen={}}
 local function evidence(key, value)
     s.notes[#s.notes+1] = key.."="..tostring(value)

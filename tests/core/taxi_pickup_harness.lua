@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Drive actual booking/service dispatch through loaded overlapping Nav zones.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Service, Booking = SC.TaxiService, SC.TaxiBooking
 local function check(value, label)
     if not value then error("taxi pickup: " .. label) end

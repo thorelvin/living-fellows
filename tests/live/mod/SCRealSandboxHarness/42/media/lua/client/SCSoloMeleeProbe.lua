@@ -4,7 +4,7 @@
 -- No mid-fight stat changes, zombie steering, artificial collisions or damage.
 local Probe = {}
 local PIN = {x=6444,y=5461,z=0}
-local FILE = "SurvivorCompanionHarness/solo-melee-results.txt"
+local FILE = "LivingFellowsHarness/solo-melee-results.txt"
 local WEAPONS = {
     {"Base.Crowbar","Crowbar"}, {"Base.BaseballBat","BaseballBat"},
     {"Base.Axe","Axe"}, {"Base.HandAxe","HandAxe"},
@@ -49,27 +49,27 @@ local function call(o,m,...)
 end
 local function num(v,d) return tonumber(tostring(v)) or d or 0 end
 local function alive(a) return a and call(a,"isDead")==false
-    and SurvivorCompanion.GameplayUtil.nativeHealth(a)>0 end
+    and LivingFellows.GameplayUtil.nativeHealth(a)>0 end
 local function format(v) return string.format("%.2f",num(v)) end
 local function point(a)
-    local x,y,z=SurvivorCompanion.GameplayUtil.position(a)
+    local x,y,z=LivingFellows.GameplayUtil.position(a)
     return {x=x,y=y,z=z}
 end
 local function distance(a,b)
     return math.sqrt((a.x-b.x)^2+(a.y-b.y)^2)
 end
 local function square(x,y)
-    return SurvivorCompanion.GameplayUtil.gridSquare(math.floor(x),math.floor(y),0)
+    return LivingFellows.GameplayUtil.gridSquare(math.floor(x),math.floor(y),0)
 end
 local function free(x,y,indoors)
     local s=square(x,y)
     return s and call(s,"TreatAsSolidFloor")==true
-        and SurvivorCompanion.GameplayUtil.isSquareFree(s)
+        and LivingFellows.GameplayUtil.isSquareFree(s)
         and (indoors==nil or (call(s,"getRoom")~=nil)==indoors) and s or nil
 end
 local function photo(H,label)
     pcall(function()
-        local SC=SurvivorCompanion
+        local SC=LivingFellows
         if SC.UI and SC.UI.instance then call(SC.UI.instance,"setVisible",false) end
         for slot=0,(getSpecificPlayer(1) and 1 or 0) do
             call(getPlayerInfoPanel(slot),"setVisible",false)
@@ -95,7 +95,7 @@ local function writeRows(H)
     return true
 end
 local function geometry(s)
-    local U=SurvivorCompanion.GameplayUtil
+    local U=LivingFellows.GameplayUtil
     local arena,direction,indoor
     if not s.siteCandidates then
         s.siteCandidates={};s.siteCursor=1
@@ -206,7 +206,7 @@ function Probe.removeBody(body)
     return true
 end
 local function clearBodies(s)
-    local U=SurvivorCompanion.GameplayUtil
+    local U=LivingFellows.GameplayUtil
     local removed,failed,loaded=0,0,0
     for y=math.floor(s.arena.y)-22,math.floor(s.arena.y)+22 do
         for x=math.floor(s.arena.x)-22,math.floor(s.arena.x)+22 do
@@ -268,7 +268,7 @@ end
 local function writeTrace(s,suffix,header,rows)
     -- PZ's Lua file API accepts .txt here, not arbitrary .csv names. The
     -- contents are CSV; the audit exporter supplies the .csv extension.
-    local writer=getFileWriter("SurvivorCompanionHarness/solo-melee-case-" .. s.case .. "-" .. suffix .. ".txt",true,false)
+    local writer=getFileWriter("LivingFellowsHarness/solo-melee-case-" .. s.case .. "-" .. suffix .. ".txt",true,false)
     if not writer then return false end
     writer:writeln(header)
     for _,row in ipairs(rows) do writer:writeln(table.concat(row,",")) end
@@ -285,7 +285,7 @@ local function movingBack(s,now)
     return m.dx*fx+m.dy*fy < -0.001
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     if SC.UI and SC.UI.instance then SC.UI.close() end
     pcall(function()
         for slot=0,(getSpecificPlayer(1) and 1 or 0) do

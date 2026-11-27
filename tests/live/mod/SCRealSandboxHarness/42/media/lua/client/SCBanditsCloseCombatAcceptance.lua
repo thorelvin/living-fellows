@@ -65,7 +65,7 @@ local function observeActions(f)
             end
             if matched then
                 local after, afterBites = partsHealth(f.actor), bites(f.actor)
-                local status = SurvivorCompanion.BanditsAdapter.status()
+                local status = LivingFellows.BanditsAdapter.status()
                 if f.windowObserve then f.windowObserve(action, task, hitBefore, windowBefore, f.windowSnapshot(), before, after) end
                 if mainBefore ~= partsHealth(f.primary.player) then f.leaked = true end
                 if action == "Push" and hitBefore ~= true and task.hit == true then
@@ -196,7 +196,7 @@ local function placeAt(actor, x, y, z)
     actor:setMovingSquareNow()
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.banditsClose
+    local SC, f = LivingFellows, H.banditsClose
     if not f then
         if not SC.State.active or SC.Registry.count() == 0 or current - H.startedAt < 10000 then return end
         if not check("close_adapter_active", SC.BanditsAdapter.status().active, SC.BanditsAdapter.status().reason) then

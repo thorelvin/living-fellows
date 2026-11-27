@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion={}
-local SC=SurvivorCompanion
+LivingFellows={}
+local SC=LivingFellows
 PN={hours=19,tod=19,grid=true,ms=100000,media={},devices={},channels={},stores={},members={},checks=0}
 function require() end
 ISBaseTimedAction={derive=function() return {} end}

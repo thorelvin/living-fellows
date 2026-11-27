@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Actual kit decisions, camp rows, permissions and exact inventory identities.
 -- Only the native packing animation boundary is replaced in this Lua harness.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local K,B,L,P,M=SC.MedicKit,SC.BaseLife,SC.Logistics,SC.MedicalProcedures,SC.Medical
 local F,T,C=SC.TestMedicalMedicines,SC.TestFixture,SC.TestMedicalProcedures
 local checks,transfers=0,0

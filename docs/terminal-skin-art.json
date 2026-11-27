@@ -4,7 +4,7 @@
   "entries": [
     {
       "id": "crt-frame",
-      "file": "SurvivorCompanion/42/media/textures/Terminal/Skin/crt-frame.png",
+      "file": "LivingFellows/42/media/textures/Terminal/Skin/crt-frame.png",
       "source_filename": "exec-5c6864a1-a232-4ea0-a04a-b574b3767291.png",
       "transparent_background": true,
       "mode": "Built-in image_gen generation, no referenced images",
@@ -12,7 +12,7 @@
     },
     {
       "id": "crt-glass",
-      "file": "SurvivorCompanion/42/media/textures/Terminal/Skin/crt-glass.png",
+      "file": "LivingFellows/42/media/textures/Terminal/Skin/crt-glass.png",
       "source_filename": "exec-38c102bb-5e07-4726-870f-04c3c693be3e.png",
       "transparent_background": false,
       "prompt": "Use case: game-asset. Generate ONE seamless-looking rectangular CRT SCREEN GLASS BACKGROUND texture for the live text area of a fictional 1993 computer terminal game UI. This is the BACKGROUND ONLY, not a screenshot and not a monitor. Canvas approximately 16:10, fill every pixel edge-to-edge. Neutral monochrome grayscale only, near-black charcoal (not green or blue); the runtime will tint this texture green, golden sand, aquamarine or purple. Clearly visible fine horizontal CRT raster scanlines across the ENTIRE image, evenly spaced continuous thin dark lines alternating with faintly lit gray phosphor rows, around 200 to250 horizontal rows over the image height. Very dark at the edges, a soft subtle phosphor glow in the central glass, a faint broad diffuse reflection toward the upper-right like a slightly curved old CRT tube, with ample uniform dark space to preserve bright live text readability. Maximum brightness restrained dark gray, approximately RGB45 or lower, no white hotspot, no eye-straining light band. No text of any kind, no numbers, no symbols, no logo, no frame, no monitor casing, no buttons, no bezel, no perspective, no photographic room reflections, no moire, no vertical RGB stripes, no random snow/static, no strong scratches. The horizontal raster should be unmistakably visible at thumbnail size while remaining a calm low-contrast background. The image itself is fully opaque. ONE empty glass texture only."

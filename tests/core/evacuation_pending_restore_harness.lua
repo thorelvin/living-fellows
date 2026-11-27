@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local P = SC.Persistence
 local crewId, otherId = "oddball-evacuation-fixture", "oddball-neighbor-fixture"
 local joy, brock, neighbor, playerCompanion = "sc-test-joy", "sc-test-brock", "sc-test-neighbor", "sc-player-friend"

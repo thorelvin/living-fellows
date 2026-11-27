@@ -98,7 +98,7 @@ local function visibilityLine(label, detail)
     local line = "visibility:" .. label .. "|" .. detail
     print("SC_REAL_SANDBOX|WOOD_EXPEDITION|" .. line)
     local writer = type(getFileWriter) == "function"
-        and getFileWriter("SurvivorCompanionHarness/wood-expedition.log", true, true)
+        and getFileWriter("LivingFellowsHarness/wood-expedition.log", true, true)
     if writer then writer:writeln(line); writer:close() end
 end
 local function selectCrew(SC, size)
@@ -235,7 +235,7 @@ local function visibilityNow(current)
         local okay, value = pcall(getTimestampMs)
         if okay and tonumber(value) then return tonumber(value) end
     end
-    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows and LivingFellows.GameplayUtil
     if utility and type(utility.nowMs) == "function" then
         local okay, value = pcall(utility.nowMs)
         if okay and tonumber(value) then return tonumber(value) end
@@ -243,7 +243,7 @@ local function visibilityNow(current)
     return tonumber(current)
 end
 local function observeSoloVisibility(H, fixture, result, current)
-    local SC, baseline = SurvivorCompanion, fixture.visibility
+    local SC, baseline = LivingFellows, fixture.visibility
     if not baseline or baseline.done or not fixture.dispatchedAt or SC.ExpeditionPrototype.current() ~= nil then return end
     local restore = SC.ViewSession and type(SC.ViewSession.primaryRestoreDiagnostic) == "function"
         and SC.ViewSession.primaryRestoreDiagnostic() or nil
@@ -318,7 +318,7 @@ local function captureKitchen(H, fixture, label, result)
     return flags
 end
 local function startKitchenRoute(H, fixture, current, result)
-    local SC, probes = SurvivorCompanion, SCRealSandboxHarnessProbes
+    local SC, probes = LivingFellows, SCRealSandboxHarnessProbes
     local wallProbe = probes and probes.SCViewCutawayProbe
     if not wallProbe then
         pcall(require, "SCViewCutawayProbe")
@@ -390,7 +390,7 @@ local function observeKitchen(H, fixture, result)
                 .. ";frames=" .. kitchen.frames .. ";normalRoomMs=" .. (now - kitchen.arrivedAt))
         result("SKIP", "wood_probe_kitchen_pixels_require_review",
             "inspect kitchen-before-walk/frame2/frame12/frame120/settled PNGs; native flags alone do not prove rendered wall pixels")
-        captureVisibility(SurvivorCompanion, fixture, "kitchen-settled-crew")
+        captureVisibility(LivingFellows, fixture, "kitchen-settled-crew")
         kitchen.done = true
     end
 end
@@ -426,7 +426,7 @@ local function traceNavigation(SC, actor, current)
     return table.concat(rows, ";")
 end
 local function trace(H, fixture, label)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local scout = mission and mission.scout
     local wood = scout and scout.wood
@@ -484,7 +484,7 @@ local function trace(H, fixture, label)
     local line = table.concat(rows, "|")
     print("SC_REAL_SANDBOX|WOOD_EXPEDITION|" .. line)
     local writer = type(getFileWriter) == "function"
-        and getFileWriter("SurvivorCompanionHarness/wood-expedition.log", true, true)
+        and getFileWriter("LivingFellowsHarness/wood-expedition.log", true, true)
     if writer then writer:writeln(line); writer:close() end
     if scout and scout.vehicle and scout.vehicle.lastFailure and not fixture.carFailureScreenshot then
         fixture.carFailureScreenshot = true
@@ -625,7 +625,7 @@ end
 local function startObserver(H, fixture, result)
     if not Events or not Events.OnPostRender or not Events.OnPostRender.Add then return end
     fixture.observer = function()
-        local SC = SurvivorCompanion
+        local SC = LivingFellows
         observeWitnessMovement(fixture)
         observeSoloVisibility(H, fixture, result, fixture.latestStepAt)
         observeKitchen(H, fixture, result)
@@ -818,7 +818,7 @@ local function stockEquipment(SC, H, fixture, survey, check, result)
     return true
 end
 local function setup(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local crewSize = tonumber(H.config.wood_expedition_crew_size) or 1
     if not check("wood_probe_crew_size_option", crewSize == 1 or crewSize == 3,
         "requested crew=" .. tostring(crewSize)) then setPhase("finish", current) return end
@@ -900,7 +900,7 @@ local function setup(H, current, check, result, setPhase)
 end
 function Probe.step(H, current, check, result, setPhase)
     if H.phase == "wood_expedition_setup" then return setup(H, current, check, result, setPhase) end
-    local SC, fixture = SurvivorCompanion, H.woodExpedition
+    local SC, fixture = LivingFellows, H.woodExpedition
     if not fixture then result("FAIL", "wood_probe_fixture_missing", H.phase) setPhase("finish", current) return end
     fixture.latestStepAt = current
     for _, member in ipairs(fixture.crew or {}) do

@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: MIT
 -- Dedicated deterministic contract test for the Shotgun Farmer story.
 
-local W = SurvivorCompanion.OddballWendell
-local SC = SurvivorCompanion
+local W = LivingFellows.OddballWendell
+local SC = LivingFellows
 local hour, noiseCount, attackCount, animalCount = 0, 0, 0, 0
 local records = {}
 local photos = {}

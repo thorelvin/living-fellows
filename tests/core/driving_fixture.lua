@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Small world/native doubles; the supervisor, decision, commands and job are real.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC_DRIVING_TEST = { records = {}, native = {}, plans = {}, parks = 0,
     exits = 0, combatCalls = 0, motionCalls = 0, planStatus = "READY", stopRejected = false }
 local T = SC_DRIVING_TEST

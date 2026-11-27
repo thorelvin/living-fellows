@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=PICKUP_RADIO,SurvivorCompanion
+local F,SC=PICKUP_RADIO,LivingFellows
 local R,check=SC.HandoverRescue,F.check
 local world={schema=1,crew={},retired={}}
 local owner,secondary,records=nil,nil,{}

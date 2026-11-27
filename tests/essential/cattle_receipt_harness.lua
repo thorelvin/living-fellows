@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the real save normalizer before the native-shaped farm fixture.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local B=SC.BaseLife
 local function check(okay,message) assert(okay,"milk persistence: "..message) end
 B.reset()

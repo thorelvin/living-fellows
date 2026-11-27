@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 PROJECT = Path(__file__).resolve().parents[2]
-PAYLOAD = PROJECT / "SurvivorCompanion"
+PAYLOAD = PROJECT / "LivingFellows"
 LUA = PAYLOAD / "42" / "media" / "lua"
 CLIENT = LUA / "client"
 SHARED = LUA / "shared"

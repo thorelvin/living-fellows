@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real terminal dispatch/rendering with a deterministic survey snapshot.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local UI=SC.TerminalScanUI
 local check=T.check
 local pc=T.computer(T.square(100,100,0,true))

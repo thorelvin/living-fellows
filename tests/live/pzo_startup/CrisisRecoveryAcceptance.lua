@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Native bite, camp panel and powered computer, followed by a historical
 -- open-crisis document loaded in a second game process. Disposable worlds only.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local B, C, U = SC.BaseLife, SC.InfectionCrisis, SC.GameplayUtil
 local state = { phase = "menu", notes = {}, modals = {} }
 

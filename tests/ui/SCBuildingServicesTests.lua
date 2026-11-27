@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Run the production services with a native-shaped world and explicit spies.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local U,B,H,S=SC.ControlUtil,SC.BuildingControls,SC.TerminalHardware,SC.TerminalServices
 local check=T.check
 SC.Terminal._clock=function() return T.now end

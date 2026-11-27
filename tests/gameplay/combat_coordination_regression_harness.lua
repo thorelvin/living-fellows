@@ -10,7 +10,7 @@
 -- fight in front of the companion having changed.
 --
 -- These cases hold every local fact constant and vary only the distant count.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local U = SC.GameplayUtil
 local function check(value, message)
     checks = checks + 1

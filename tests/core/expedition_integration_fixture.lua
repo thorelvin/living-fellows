@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 INTEGRATION_TEST = { now = 0, moves = 0, storages = {}, actors = {} }
 local T = INTEGRATION_TEST
 

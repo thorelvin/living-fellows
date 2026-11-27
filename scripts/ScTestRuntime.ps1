@@ -69,7 +69,7 @@ function Invoke-ScTestCommand {
 
 function Get-ScLuaCompilationKey {
     param([string]$ProjectRoot, [string]$GameRoot)
-    $luaRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua'
+    $luaRoot = Join-Path $ProjectRoot 'LivingFellows\42\media\lua'
     $inputs = @(
         (Join-Path $GameRoot 'projectzomboid.jar'),
         (Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java')

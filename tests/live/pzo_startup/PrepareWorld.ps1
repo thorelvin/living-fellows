@@ -16,7 +16,7 @@ if($Mode -ne 'disk-restored') {
 } elseif(-not (Test-Path -LiteralPath (Join-Path $target 'global_mod_data.bin') -PathType Leaf)) {
     throw 'A durably saved waiting world is required for the disk reload.'
 }
-$list="VERSION = 1,`nmods {`n mod = \SurvivorCompanion,`n mod = \SCPzoStartupProbe,`n mod = \SCPzoLoadingGate,`n}`n"
+$list="VERSION = 1,`nmods {`n mod = \LivingFellows,`n mod = \SCPzoStartupProbe,`n mod = \SCPzoLoadingGate,`n}`n"
 [IO.File]::WriteAllText((Join-Path $target 'mods.txt'),$list,$utf8)
 [IO.File]::WriteAllText((Join-Path $fixture.cache 'mods\default.txt'),$list,$utf8)
 $gate=Join-Path $fixture.cache 'mods\SCPzoLoadingGate'

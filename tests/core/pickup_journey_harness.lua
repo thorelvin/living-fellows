@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=PICKUP,SurvivorCompanion
+local F,SC=PICKUP,LivingFellows
 local J,check=SC.PickupJourney,PICKUP.check
 local watch={leaderActor=F.follower,leaderId="sc-follower",pickupOwner=nil}
 F.view,F.viewActor="base_watch",F.follower

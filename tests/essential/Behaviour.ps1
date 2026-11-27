@@ -702,7 +702,7 @@
     (Join-Path $Core 'oddball_bledsoe_harness.lua')) }
 @{ Name = 'oddball-camp-storyteller'; Extended = $true; Files = @(
     (Join-Path $Core 'oddball_camp_storyteller_fixture.lua'),
-    (Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\server\SCCampStorytellerServer.lua'),
+    (Join-Path $ProjectRoot 'LivingFellows\42\media\lua\server\SCCampStorytellerServer.lua'),
     (Join-Path $Client 'SCOddballKit.lua'), (Join-Path $Client 'SCOddballCampStoryteller.lua'),
     (Join-Path $Core 'oddball_camp_storyteller_harness.lua')) }
 @{ Name = 'oddball-clem-purdy'; Extended = $true; Files = @(

@@ -12,7 +12,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/AccessGranted-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/AccessGranted-01.png",
         "x": 0,
         "y": 0,
         "width": 1087,
@@ -27,7 +27,7 @@
         "sha256": "460f972d654fb4887788df744b6097c9b1477ebcd5cdac7018a7b58e8782db66"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/AccessGranted-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/AccessGranted-02.png",
         "x": 1085,
         "y": 0,
         "width": 1087,
@@ -56,7 +56,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/Case486-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -71,7 +71,7 @@
         "sha256": "abe6936b6d28603f82690ca7847ea83d6cdc1274ccd4d6ad87c4b00782cf05c1"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/Case486-02.png",
         "x": 0,
         "y": 511,
         "width": 769,
@@ -86,7 +86,7 @@
         "sha256": "432b8b8d18d10c8c1313108110d8655dae1da2620408c2590849644ec7c78d17"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/Case486-03.png",
         "x": 767,
         "y": 0,
         "width": 769,
@@ -101,7 +101,7 @@
         "sha256": "7386c6a6826cdf09701e9c69b94e8297da701613122ed53a89eef5810549cf60"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Case486-04.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/Case486-04.png",
         "x": 767,
         "y": 511,
         "width": 769,
@@ -130,7 +130,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CrackTitle-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/CrackTitle-01.png",
         "x": 0,
         "y": 0,
         "width": 1087,
@@ -145,7 +145,7 @@
         "sha256": "f359336a4a91a82e816bd03ebe5620e22f223fc0a816ad23c08075aba22a0131"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CrackTitle-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/CrackTitle-02.png",
         "x": 1085,
         "y": 0,
         "width": 1087,
@@ -174,7 +174,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/Padlock-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/Padlock-01.png",
         "x": 0,
         "y": 0,
         "width": 1254,
@@ -203,7 +203,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/UndeleteTitle-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/UndeleteTitle-01.png",
         "x": 0,
         "y": 0,
         "width": 1087,
@@ -218,7 +218,7 @@
         "sha256": "5a49a62d09df4d3807abd527e8a50ceb461d8a14c5eb1de068e79db89e19109a"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/UndeleteTitle-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/UndeleteTitle-02.png",
         "x": 1085,
         "y": 0,
         "width": 1087,
@@ -247,7 +247,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualCover-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualCover-01.png",
         "x": 0,
         "y": 0,
         "width": 1024,
@@ -262,7 +262,7 @@
         "sha256": "55a9442bd0332afc8defb4729c3a896e62a9d0c1a8b165bd245b38d08c2855f9"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualCover-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualCover-02.png",
         "x": 0,
         "y": 767,
         "width": 513,
@@ -277,7 +277,7 @@
         "sha256": "4119fa0a9cab7f16ac1621818510bf2267ee2d7a805caf9d48ecaed2baf6affe"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualCover-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualCover-03.png",
         "x": 511,
         "y": 767,
         "width": 513,
@@ -306,7 +306,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualPower-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualPower-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -321,7 +321,7 @@
         "sha256": "d673763ebcce6110d2421b88eb6c8df30fb0ba24f1bd3e55b0a56711dc137f04"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualPower-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualPower-02.png",
         "x": 0,
         "y": 511,
         "width": 769,
@@ -336,7 +336,7 @@
         "sha256": "c156b82fdd25b4a18628b6b2a0ccfa379e1001b91888a167a776abaf3b3c3308"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualPower-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualPower-03.png",
         "x": 767,
         "y": 0,
         "width": 769,
@@ -365,7 +365,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualFiles-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualFiles-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -380,7 +380,7 @@
         "sha256": "8c9a4235adb033041310944ffcd87df16714cfa611b21068fd657ea7197d25b1"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualFiles-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualFiles-02.png",
         "x": 767,
         "y": 0,
         "width": 769,
@@ -409,7 +409,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualWarranty-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -424,7 +424,7 @@
         "sha256": "5016295afb9f117371c4bcf9020c3def3e7234ac09c62daa988373d6f3c3a7a0"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualWarranty-02.png",
         "x": 0,
         "y": 511,
         "width": 769,
@@ -439,7 +439,7 @@
         "sha256": "3c26a17615413204077fffa8833d88731f78f9b2121b1e76941e5578bef64e4a"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualWarranty-03.png",
         "x": 767,
         "y": 0,
         "width": 769,
@@ -454,7 +454,7 @@
         "sha256": "44793dad2c840d9ba9963170388e32473b69f88888ef1648f9e13878c2d7b161"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/ManualWarranty-04.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/ManualWarranty-04.png",
         "x": 767,
         "y": 511,
         "width": 769,
@@ -483,7 +483,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/WheelCentre-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/WheelCentre-01.png",
         "x": 0,
         "y": 0,
         "width": 1254,
@@ -512,7 +512,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/DialBackTitle-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/DialBackTitle-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -527,7 +527,7 @@
         "sha256": "3e2a0f712a6a189f9707e04ca1a8390c543cf6acf14a60be875b4b115bdeb529"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/DialBackTitle-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/DialBackTitle-02.png",
         "x": 767,
         "y": 0,
         "width": 769,
@@ -562,7 +562,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CountyKeyEscrow-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/CountyKeyEscrow-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -577,7 +577,7 @@
         "sha256": "40f95fa1de7849f8c2763eb1d74d72146ea5d4dee9299e67a322e4ab5b01d6c1"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/CountyKeyEscrow-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/CountyKeyEscrow-02.png",
         "x": 767,
         "y": 0,
         "width": 769,
@@ -612,7 +612,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/User2Sign-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/User2Sign-01.png",
         "x": 0,
         "y": 0,
         "width": 1536,
@@ -647,7 +647,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryTitle-01.png",
         "x": 0,
         "y": 0,
         "width": 628,
@@ -662,7 +662,7 @@
         "sha256": "daf7461e7464a27a17712387388c0f50c83df6c6e6d68b7ef3bc6d9833c37e4e"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryTitle-02.png",
         "x": 0,
         "y": 626,
         "width": 628,
@@ -677,7 +677,7 @@
         "sha256": "1c8b6c8f5446b9820546bcc122ad6f41b293852184c224151dc41a91f0d802e3"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryTitle-03.png",
         "x": 626,
         "y": 0,
         "width": 628,
@@ -692,7 +692,7 @@
         "sha256": "7d4e77edd45789bac19350edb32dd55ee9f664b476e59744118caf87d12447a5"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryTitle-04.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryTitle-04.png",
         "x": 626,
         "y": 626,
         "width": 628,
@@ -727,7 +727,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryClasses-01.png",
         "x": 0,
         "y": 0,
         "width": 628,
@@ -742,7 +742,7 @@
         "sha256": "9e70b0bdbda93b317e456e3a0b612215ed5410c45f1f6930b4b178d45c0c48a8"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryClasses-02.png",
         "x": 0,
         "y": 626,
         "width": 628,
@@ -757,7 +757,7 @@
         "sha256": "4584664470a5f8d00c753a95a14b79810b3cea7b5c71fdc0493391974be163e7"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryClasses-03.png",
         "x": 626,
         "y": 0,
         "width": 628,
@@ -772,7 +772,7 @@
         "sha256": "34767b142bb7d3d161c539bdae15742db5ff5cedc2d987a826598395b18f7f8e"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryClasses-04.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryClasses-04.png",
         "x": 626,
         "y": 626,
         "width": 628,
@@ -857,7 +857,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryScenes-01.png",
         "x": 0,
         "y": 0,
         "width": 628,
@@ -872,7 +872,7 @@
         "sha256": "b7781fc6161f64ff79660e8fd7c805c7f4a1fe4a96af13cbfa8c9330351f99e3"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryScenes-02.png",
         "x": 0,
         "y": 626,
         "width": 628,
@@ -887,7 +887,7 @@
         "sha256": "2fc355fe228e326195256951abf78d56e18e3c7990a225d03c835820188e27bf"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryScenes-03.png",
         "x": 626,
         "y": 0,
         "width": 628,
@@ -902,7 +902,7 @@
         "sha256": "0d3cbf3ded0444abdcf8636f97a3d087cb733f59122651837a8c36ce3bd67ec3"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryScenes-04.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryScenes-04.png",
         "x": 626,
         "y": 626,
         "width": 628,
@@ -1011,7 +1011,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryEndings-01.png",
         "x": 0,
         "y": 0,
         "width": 628,
@@ -1026,7 +1026,7 @@
         "sha256": "53fbdf999ccf5f719f95ecc6182c994905cf51dd7b41c0af94246b52923538e5"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryEndings-02.png",
         "x": 0,
         "y": 626,
         "width": 628,
@@ -1041,7 +1041,7 @@
         "sha256": "d75bc0ae2f10f259d2d830a6ae98f321d3a705ef00d110b6269bcfd0b3a4745b"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-03.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryEndings-03.png",
         "x": 626,
         "y": 0,
         "width": 628,
@@ -1056,7 +1056,7 @@
         "sha256": "e4e951ab8d258f41ec6066b0a4b6e8b3c9a5d6f2ee0cefb146b53ebef4d5688c"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/StoryEndings-04.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/StoryEndings-04.png",
         "x": 626,
         "y": 626,
         "width": 628,
@@ -1117,7 +1117,7 @@
     "treatment": "Lossless RGB PNG partitioning only; original pixels reconstructed exactly. One-pixel sampling gutters are clipped by the live renderer. No resizing, quantization or visual edits.",
     "files": [
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/LarchKeyTitle-01.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/LarchKeyTitle-01.png",
         "x": 0,
         "y": 0,
         "width": 769,
@@ -1132,7 +1132,7 @@
         "sha256": "090899ab45090437faf862ff8224925b4ce64d25cf67be01e9091a75515e445b"
       },
       {
-        "file": "SurvivorCompanion/42/media/textures/Terminal/Locks/LarchKeyTitle-02.png",
+        "file": "LivingFellows/42/media/textures/Terminal/Locks/LarchKeyTitle-02.png",
         "x": 767,
         "y": 0,
         "width": 769,

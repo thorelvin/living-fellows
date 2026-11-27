@@ -33,9 +33,9 @@ public final class SCPzoLoaderSmokeTest {
         Instrumentation instrumentation = (Instrumentation) Proxy.newProxyInstance(
                 ClassLoader.getSystemClassLoader(), new Class<?>[] { Instrumentation.class },
                 (proxy, method, arguments) -> { throw new AssertionError("Unexpected call: " + method); });
-        Class<?> bootstrap = Class.forName("survivorcompanion.bridge.SCBootstrap");
+        Class<?> bootstrap = Class.forName("livingfellows.bridge.SCBootstrap");
         long before = ((Number) bootstrap.getMethod("getGeneration").invoke(null)).longValue();
-        Object invoked = entry.invoke(null, new File(args[1]), "survivorcompanion.bridge.SCBootstrapAgent", instrumentation);
+        Object invoked = entry.invoke(null, new File(args[1]), "livingfellows.bridge.SCBootstrapAgent", instrumentation);
         long after = ((Number) bootstrap.getMethod("getGeneration").invoke(null)).longValue();
         if (!Boolean.TRUE.equals(invoked) || after != before + 1) {
             throw new AssertionError("PZO did not invoke the real bridge bootstrap");

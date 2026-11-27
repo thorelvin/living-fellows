@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 require=function() end
 local SC={}
-SurvivorCompanion=SC
+LivingFellows=SC
 local F={time=1000,trace={},deliver=true,drive=nil,view=nil,reservation=nil,missing=false}
 PICKUP=F
 function F.check(value,message) if not value then error("pickup: "..message) end F.checks=(F.checks or 0)+1 end

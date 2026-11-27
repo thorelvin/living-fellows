@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Reviewed native metadata and real storage selectors; loadout roles remain separate.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local cases, checks = assert(SC_STORAGE_CATEGORY_CASES), 0
 local function check(value, message)
     checks = checks + 1

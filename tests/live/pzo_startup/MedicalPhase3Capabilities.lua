@@ -4,7 +4,7 @@ require 'TimedActions/ISStitch'
 require 'TimedActions/ISTakePillAction'
 require 'TimedActions/ISEatFoodAction'
 require 'XpSystem/ISUI/ISHealthPanel'
-local SC,s=SurvivorCompanion,{phase='menu',checks=0,notes={},actors={}}
+local SC,s=LivingFellows,{phase='menu',checks=0,notes={},actors={}}
 local function write(name,value) local w=assert(getFileWriter(name,true,false));w:write(value);w:close() end
 local function check(value,reason) s.checks=s.checks+1;assert(value,'medical phase3 '..s.checks..': '..reason) end
 local function note(value) s.notes[#s.notes+1]=value;print('SC_MEDICAL_PHASE3 '..value) end

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Native completion starts pacing inside the same BaseWork update that
 -- settles Downtime. A decision-layer guard cannot intercept that transition.
-local SC, f, checks = SurvivorCompanion, SurvivorCompanion.TestFixture, 0
+local SC, f, checks = LivingFellows, LivingFellows.TestFixture, 0
 local function check(value, message)
     checks = checks + 1
     assert(value, 'cleaning return pacing ' .. checks .. ': ' .. message)

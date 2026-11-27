@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, fixture = SurvivorCompanion, SCBaseVisualsFixture
+local SC, fixture = LivingFellows, SCBaseVisualsFixture
 local Visuals = SC.BaseVisuals
 local originalHighlight = addAreaHighlightForPlayer
 local inUIDraw, uiStamp, retained, submissions = false, 0, {}, 0

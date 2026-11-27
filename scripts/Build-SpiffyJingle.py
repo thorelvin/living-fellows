@@ -18,7 +18,7 @@ for note, seconds in NOTES:
         envelope = min(1, t / .009, (seconds-t) / .045)
         tone = sum(math.sin(2*math.pi*frequency*h*t)/(h*h) for h in (1, 3, 5)) if note else 0
         samples.append(round(12500 * max(0, envelope) * tone))
-destination = Path(__file__).resolve().parents[1] / 'SurvivorCompanion/42/media/sound/LFSpiffyJingle.wav'
+destination = Path(__file__).resolve().parents[1] / 'LivingFellows/42/media/sound/LFSpiffyJingle.wav'
 with wave.open(str(destination), 'wb') as output:
     output.setparams((1, 2, RATE, 0, 'NONE', 'not compressed'))
     output.writeframes(struct.pack('<' + 'h' * len(samples), *samples))

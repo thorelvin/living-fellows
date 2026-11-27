@@ -36,7 +36,7 @@ require("('bandits_enabled=' + ($BanditsAdapterProbe.IsPresent -or $BanditsEnabl
 
 for info in (root_info, version_info):
     require("id=SCRealSandboxHarness" in info, "harness mod id must be isolated")
-    require("require=SurvivorCompanion" in info, "harness must load after the production mod")
+    require("require=LivingFellows" in info, "harness must load after the production mod")
     require(f"versionMin={game_version}" in info and f"versionMax={game_version}" in info,
             "harness must use the same exact game-family gate")
 
@@ -67,7 +67,7 @@ require("Stop-OwnedSandboxProcess" in runner
         and "Stop-Process -Id $OwnedProcess.Id -Force" in runner
         and "runner_failure" in runner and "post_summary_deadline" in runner,
         "runner must terminate only its owned client on timeout, failure, or failed self-exit")
-require("survivorcompanion/bridge/SCLauncher" in runner, "runner must require the native launcher")
+require("livingfellows/bridge/SCLauncher" in runner, "runner must require the native launcher")
 require("SCRealSandboxHarness" in runner and "Add-ModEntry" in runner,
         "runner must add the harness to default and cloned-save mod lists")
 require("New-PrivatePlaytestPayload.ps1" in runner,
@@ -100,7 +100,7 @@ require("$autoGateAgent = -not $SteamLaunch -and -not $ExternalUiControl" in run
         and "-javaagent:" in runner
         and "loading-gate-agent.jar" in runner
         and "agent_failed:" in runner
-        and "survivorcompanion.harness.SCLoadingGateAgent" in runner,
+        and "livingfellows.harness.SCLoadingGateAgent" in runner,
         "direct isolated runs must attach the test-only unattended loading gate")
 require("[switch]$DrivingWithAi" in runner and "[switch]$DrivingBlocked" in runner
         and "[switch]$DrivingSaveStage" in runner and "[switch]$DrivingSaveResume" in runner,
@@ -109,7 +109,7 @@ require("[switch]$DrivingGateNegativeControl" in runner
         and "-DrivingGateNegativeControl requires -DrivingProbe -DrivingRoute -DrivingWithAi" in runner
         and "drivingGateNegativeControl = $DrivingGateNegativeControl.IsPresent" in runner
         and "Join-Path $SandboxMods" in runner
-        and "'SurvivorCompanion\\42\\media\\lua\\client\\SCDecision.lua'" in runner
+        and "'LivingFellows\\42\\media\\lua\\client\\SCDecision.lua'" in runner
         and "and false and SC.Driving.isDriving(actor) then" in runner
         and "$matchCount -ne 1" in runner,
         "driving gate negative control must mutate exactly one disposable cached Decision module")
@@ -366,8 +366,8 @@ require(re.search(r"expanded\s*<=\s*380", lua) is not None,
         "route test must enforce the bounded search budget")
 
 release_files = [
-    ROOT / "SurvivorCompanion/mod.info",
-    ROOT / "SurvivorCompanion/42/mod.info",
+    ROOT / "LivingFellows/mod.info",
+    ROOT / "LivingFellows/42/mod.info",
     ROOT / "scripts/Build-Workshop.ps1",
 ]
 for path in release_files:

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Extended timber cases; the essential gate retains the physical delivery chain.
-local SC, T = SurvivorCompanion, INTEGRATION_TEST
+local SC, T = LivingFellows, INTEGRATION_TEST
 local I, U, X = SC.ExpeditionIntegration, SC.GameplayUtil, assert(T.WoodDelivery)
 local check, clone, clear, log, create = X.check, X.clone, X.clear, X.log, X.create
 local yard, bagFor, carFor, transfer = X.yard, X.bagFor, X.carFor, X.transfer

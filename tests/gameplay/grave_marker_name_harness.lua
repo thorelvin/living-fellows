@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local work = SC.BaseWork
 local crisis = SC.InfectionCrisis
 local spriteName = "location_community_cemetary_01_38"

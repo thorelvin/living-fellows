@@ -114,7 +114,7 @@ local function parkingFor(SC, car)
     return zone
 end
 local function prepare(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local base = SC.BaseLife.active()
     local worker = locateWorker(SC)
     if base and not worker and not H.refuelMovedToBase then
@@ -160,7 +160,7 @@ local function prepare(H, current, check, result, setPhase)
 end
 local function ready(H, current, check, result, setPhase)
     if current - H.phaseStartedAt < 2000 then return end
-    local SC, f = SurvivorCompanion, H.refuel
+    local SC, f = LivingFellows, H.refuel
     local base = SC.BaseLife.active()
     local car, tank = f.car, call(f.car, "getPartById", "GasTank")
     local capacity = tonumber(call(tank, "getContainerCapacity"))
@@ -250,7 +250,7 @@ local function ready(H, current, check, result, setPhase)
     setPhase("vehicle_refuel_auto_work", current)
 end
 local function progress(H, current, check, result, setPhase, manual)
-    local SC, f = SurvivorCompanion, H.refuel
+    local SC, f = LivingFellows, H.refuel
     if current - (f.nextWorkAt or 0) >= 300 then
         f.nextWorkAt = current
         f.lastHandled, f.lastReason = SC.BaseWork.update(

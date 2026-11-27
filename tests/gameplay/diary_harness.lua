@@ -2,7 +2,7 @@
 -- Private diaries: text compiler, physical book payload and controller
 -- lifecycle, run inside the game's own Kahlua VM.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Text, Catalog, Item, Diary = SC.DiaryText, SC.DiaryCatalog, SC.DiaryItem, SC.Diary
 local checks = 0
 local function check(value, message)

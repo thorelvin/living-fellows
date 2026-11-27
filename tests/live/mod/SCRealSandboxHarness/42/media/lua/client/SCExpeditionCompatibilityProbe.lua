@@ -39,7 +39,7 @@ local function statusBars(actor)
     return bars
 end
 local function trace(fixture, label)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local mission = SC.ExpeditionPrototype.current()
     local scout = mission and mission.scout
     local actor, primary = fixture.leader.actor, fixture.primary
@@ -70,7 +70,7 @@ local function trace(fixture, label)
         .. ";blocked="..tostring(call(actor,"isBlockMovement"))..";asleep="..tostring(call(actor,"isAsleep"))
         .. ";lightingCounter0=" .. tostring(fixture.lightingCounter) .. ";" .. uiEvidence(actor)
     print("SC_REAL_SANDBOX|EXPEDITION_COMPAT|" .. line)
-    local writer = getFileWriter("SurvivorCompanionHarness/expedition-compatibility.log", true, true)
+    local writer = getFileWriter("LivingFellowsHarness/expedition-compatibility.log", true, true)
     if writer then writer:writeln(line); writer:close() end
 end
 local function cleanup(fixture)
@@ -80,7 +80,7 @@ local function cleanup(fixture)
     end
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local fixture = H.expeditionCompatibility
     local function fail(name, detail)
         result("FAIL", name, detail); cleanup(fixture); setPhase("finish", current)

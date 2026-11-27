@@ -2,7 +2,7 @@
 -- Build 42.21's ISBarricadeAction:isValid tests hasEquippedTag(ItemType.HAMMER),
 -- and ItemType has no HAMMER field. This fake keeps that line, so the stock check
 -- fails here for the same reason it fails in the game.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Actions, checks = SC.NativeActions, 0
 local function check(value, message)
     checks = checks + 1

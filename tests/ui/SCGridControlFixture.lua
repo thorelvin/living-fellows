@@ -3,7 +3,7 @@ function require() return true end
 GRID_TEST={hours=1000,days=40,now=1000,checks=0,clocks=0,powerReads=0,squareReads=0,writes=0,reads=0}
 local T=GRID_TEST
 local SC={}
-SurvivorCompanion=SC
+LivingFellows=SC
 function T.check(value,text) T.checks=T.checks+1 assert(value,"grid "..T.checks..": "..text) end
 function T.near(a,b) return math.abs(a-b)<0.00001 end
 function T.empty(value) for _ in pairs(value) do return false end return true end

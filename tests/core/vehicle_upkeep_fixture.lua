@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, T = SurvivorCompanion, SC_REFUEL_TEST
+local SC, T = LivingFellows, SC_REFUEL_TEST
 Fluid.Water, Fluid.TaintedWater = "water", "tainted"
 
 local car, actor, storage = T.car, T.actor, T.storage

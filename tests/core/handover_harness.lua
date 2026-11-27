@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=SC_HANDOVER_TEST,SurvivorCompanion
+local F,SC=SC_HANDOVER_TEST,LivingFellows
 local H=SC.Handover
 local a=F.recruit('Mara');F.recruit('Ben')
 a.car=F.car;F.car.passenger=a

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Diary = SC.Diary
 local author = SC.Registry.byId("sc-tom")
 local subject = SC.Registry.byId("sc-ruth")

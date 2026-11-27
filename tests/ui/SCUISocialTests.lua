@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, UI, F = SurvivorCompanion, SurvivorCompanion.UI, BasePolicyFixture
+local SC, UI, F = LivingFellows, LivingFellows.UI, BasePolicyFixture
 local saved = { factions = SC.Factions, recruitment = SC.FactionRecruitment,
     util = SC.GameplayUtil }
 SC.GameplayUtil = { text = function(_, fallback, ...)

@@ -7,7 +7,7 @@
 --      bounded quarantine instead of owning the actor forever;
 --   3. urgent dispatch during begin() is reported as a deferral, not a refusal.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Supervisor = SC.ActionSupervisor
 
 local assertions = 0

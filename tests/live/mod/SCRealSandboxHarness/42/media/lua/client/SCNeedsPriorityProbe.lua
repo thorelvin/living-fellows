@@ -2,11 +2,11 @@
 -- Disposable clone: real marked storage, exact native food and timed actions.
 local Probe={}
 local function call(object,method,...)
-    return select(1,SurvivorCompanion.GameplayUtil.call(object,method,...))
+    return select(1,LivingFellows.GameplayUtil.call(object,method,...))
 end
 local function finish(H,current,result,setPhase,okay,name,detail)
     result(okay and "PASS" or "FAIL",name,detail)
-    if H.needsFood and H.needsFood.actor then SurvivorCompanion.Needs.cancel(H.needsFood.actor,"probe_finished") end
+    if H.needsFood and H.needsFood.actor then LivingFellows.Needs.cancel(H.needsFood.actor,"probe_finished") end
     setPhase("finish",current)
 end
 local function emptyFood(container,SC)
@@ -19,7 +19,7 @@ local function emptyFood(container,SC)
     end
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local function done(okay,name,detail) return finish(H,current,result,setPhase,okay,name,detail) end
     if H.phase=="needs_food_setup" then
         if #SC.Registry.records()==0 and current-H.phaseStartedAt<10000 then return end

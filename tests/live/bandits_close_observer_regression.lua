@@ -18,7 +18,7 @@ local function actor()
 end
 local victim, main, enemy = actor(), actor(), {}
 local status = { lastVictim = "lf:sc-observer", lastModel = "MeleeHit" }
-SurvivorCompanion = {
+LivingFellows = {
     Call = { resolve = function(value, key)
         local method = value and value[key]
         return type(method) == "function", method

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = {}
-local SC = SurvivorCompanion
+LivingFellows = {}
+local SC = LivingFellows
 CAR_TEST = { now = 0, routeCalls = {}, driveCalls = 0, zones = {},
     cars = {}, ready = true, startBlocked = false, key = true }
 local T = CAR_TEST

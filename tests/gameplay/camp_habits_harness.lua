@@ -1,12 +1,12 @@
 -- SPDX-License-Identifier: MIT
 -- Subject scenarios use the same native-shaped fixture as the essential checks.
-local f = assert(SurvivorCompanion.TestFixture)
+local f = assert(LivingFellows.TestFixture)
 local check, item, inventory, actor, zombie = f.check, f.item, f.inventory, f.actor, f.zombie
 local bodyPart, bodyDamage, buildKit = f.bodyPart, f.bodyDamage, f.buildKit
 local cell, registry, player, containerObject = f.cell, f.registry, f.player, f.containerObject
 local makeSquare, squares, movementLog = f.makeSquare, f.squares, f.movementLog
 local squareKey = f.squareKey
-function SurvivorCompanion.__testCompanionWashing()
+function LivingFellows.__testCompanionWashing()
 BloodBodyPartType = {
     MAX = { index = function() return 2 end },
     FromIndex = function(index) return index end,
@@ -32,9 +32,9 @@ washSquare.objects[#washSquare.objects + 1] = sink
 -- cleaning are covered by tests/essential/native_care_harness.lua in the
 -- release gate. Here only Downtime's own choice is checked: which wash,
 -- at which source, for which item.
-local createdNativeActions = SurvivorCompanion.NativeActions == nil
-local nativeActions = SurvivorCompanion.NativeActions or {}
-SurvivorCompanion.NativeActions = nativeActions
+local createdNativeActions = LivingFellows.NativeActions == nil
+local nativeActions = LivingFellows.NativeActions or {}
+LivingFellows.NativeActions = nativeActions
 local savedStartDowntime = nativeActions.startDowntimeAction
 local startedCare = {}
 nativeActions.startDowntimeAction = function(careActor, activity)
@@ -44,12 +44,12 @@ end
 local washActor = actor("sc-wash-self", -2, 5, { humanVisual = dirtyVisual })
 washActor.modData.SC_Order = "stay"
 function washActor.inventory:getSoapList() return {} end
-local washStarted, washKind = SurvivorCompanion.Downtime.update(washActor, player, safeRuntime)
+local washStarted, washKind = LivingFellows.Downtime.update(washActor, player, safeRuntime)
 local washCare = startedCare[washActor]
 check(washStarted == true and washKind == "wash_self" and washCare
     and washCare.kind == "wash_self" and washCare.object == sink,
     "safe idle companions start washing their body at a nearby clean water source")
-SurvivorCompanion.Downtime.cancel(washActor, "test_complete")
+LivingFellows.Downtime.cancel(washActor, "test_complete")
 
 local dirtyJacket = item("Base.Jacket_LeatherWildRacoons", "Clothing", {
     bodyLocation = "Jacket", bloodLevel = 50, dirtiness = 25,
@@ -63,19 +63,19 @@ local gearWashActor = actor("sc-wash-gear", -2, 5,
     { inventory = inventory({ washBag }) })
 gearWashActor.modData.SC_Order = "stay"
 function gearWashActor.inventory:getSoapList() return {} end
-local gearWashStarted, gearWashKind = SurvivorCompanion.Downtime.update(gearWashActor, player, safeRuntime)
+local gearWashStarted, gearWashKind = LivingFellows.Downtime.update(gearWashActor, player, safeRuntime)
 local gearCare = startedCare[gearWashActor]
 check(gearWashStarted == true and gearWashKind == "wash_equipment" and gearCare
     and gearCare.item == dirtyJacket and gearCare.object == sink,
     "downtime inventory inspection reaches inside bags and starts washing dirty equipment")
-SurvivorCompanion.Downtime.cancel(gearWashActor, "test_complete")
+LivingFellows.Downtime.cancel(gearWashActor, "test_complete")
 nativeActions.startDowntimeAction = savedStartDowntime
-if createdNativeActions then SurvivorCompanion.NativeActions = nil end
+if createdNativeActions then LivingFellows.NativeActions = nil end
 
 do
-    local showerActivity = SurvivorCompanion.Downtime._showerForTests()
-    local savedInside = SurvivorCompanion.BaseLife.isInside
-    SurvivorCompanion.BaseLife.isInside = function() return true end
+    local showerActivity = LivingFellows.Downtime._showerForTests()
+    local savedInside = LivingFellows.BaseLife.isInside
+    LivingFellows.BaseLife.isInside = function() return true end
     local showerVisual = {
         blood = { [0] = 0.8, [1] = 0 },
         dirt = { [0] = 0.2, [1] = 0 },
@@ -121,13 +121,13 @@ do
     -- native_care_harness.lua).
     showerSquare.objects[#showerSquare.objects] = nil
     registry[showerActor.id] = nil
-    SurvivorCompanion.BaseLife.isInside = savedInside
+    LivingFellows.BaseLife.isInside = savedInside
 end
 end
-SurvivorCompanion.__testCompanionWashing()
-SurvivorCompanion.__testCompanionWashing = nil
+LivingFellows.__testCompanionWashing()
+LivingFellows.__testCompanionWashing = nil
 
-function SurvivorCompanion.__testCurtainHabits()
+function LivingFellows.__testCurtainHabits()
 local curtainSquare = squares[squareKey(-4, 7, 0)]
 curtainSquare.room = { name = "bedroom" }
 local testCurtain = { __class = "IsoCurtain", square = curtainSquare, open = true }
@@ -146,7 +146,7 @@ curtainActor.modData.SC_Order = "stay"
 curtainActor.modData.SC_CombatDoctrine = "stealth"
 registry[curtainActor.id] = curtainActor
 local curtainThreat = { threatCount = 1, immediateCount = 1 }
-local attemptedCurtain = SurvivorCompanion.Downtime.considerCurtain(
+local attemptedCurtain = LivingFellows.Downtime.considerCurtain(
     curtainActor, curtainThreat, f.clock)
 check(not attemptedCurtain and testCurtain.open,
     "curtain habit never outranks an active zombie threat")
@@ -155,19 +155,19 @@ f.worldHour = 12
 local stealthClosed = false
 for _ = 1, 20 do
     f.clock = f.clock + 12001
-    local closeAttempted, closeAccepted = SurvivorCompanion.Downtime.considerCurtain(
+    local closeAttempted, closeAccepted = LivingFellows.Downtime.considerCurtain(
         curtainActor, { threatCount = 0, immediateCount = 0 }, f.clock)
     if closeAttempted and closeAccepted and not testCurtain.open then stealthClosed = true break end
 end
 check(stealthClosed, "safe stealth downtime sometimes closes an open indoor curtain")
 
-check(SurvivorCompanion.Commands.issue(curtainActor.id, "set_combat_doctrine",
+check(LivingFellows.Commands.issue(curtainActor.id, "set_combat_doctrine",
         { doctrine = "close_defense" }, player),
     "curtain fixture can leave stealth doctrine")
 local openedCurtain = false
 for _ = 1, 100 do
     f.clock = f.clock + 12001
-    local openAttempted, openAccepted = SurvivorCompanion.Downtime.considerCurtain(
+    local openAttempted, openAccepted = LivingFellows.Downtime.considerCurtain(
         curtainActor,
         { threatCount = 0, immediateCount = 0 },
         f.clock
@@ -177,7 +177,7 @@ end
 check(openedCurtain, "safe daylight cadence occasionally opens a nearby indoor curtain")
 f.worldHour = 22
 f.clock = f.clock + 45001
-local nightAttempted, nightAccepted = SurvivorCompanion.Downtime.considerCurtain(
+local nightAttempted, nightAccepted = LivingFellows.Downtime.considerCurtain(
     curtainActor,
     { threatCount = 0, immediateCount = 0 },
     f.clock
@@ -205,21 +205,21 @@ registry[farCurtainActor.id] = farCurtainActor
 local approachStarted = false
 for _ = 1, 20 do
     f.clock = f.clock + 12001
-    local attempted, accepted, reason = SurvivorCompanion.Downtime.considerCurtain(
+    local attempted, accepted, reason = LivingFellows.Downtime.considerCurtain(
         farCurtainActor, { threatCount = 0, immediateCount = 0 }, f.clock)
     if attempted and accepted and reason == "approaching_curtain" then
         approachStarted = true
         break
     end
 end
-check(approachStarted and SurvivorCompanion.Downtime.peek(farCurtainActor).curtainTask ~= nil
+check(approachStarted and LivingFellows.Downtime.peek(farCurtainActor).curtainTask ~= nil
         and farCurtain.open,
     "a stealth companion reserves and walks toward an open curtain in the same building")
 farCurtainActor.square, farCurtainActor.worldX, farCurtainActor.worldY = farCurtainSquare, nil, nil
-local arrivedAttempted, arrivedAccepted = SurvivorCompanion.Downtime.considerCurtain(
+local arrivedAttempted, arrivedAccepted = LivingFellows.Downtime.considerCurtain(
     farCurtainActor, { threatCount = 0, immediateCount = 0 }, f.clock + 100)
 check(arrivedAttempted and arrivedAccepted and not farCurtain.open
-        and SurvivorCompanion.Downtime.peek(farCurtainActor).curtainTask == nil,
+        and LivingFellows.Downtime.peek(farCurtainActor).curtainTask == nil,
     "the reserved curtain is closed only after the companion physically arrives")
 
 -- A path request can be accepted repeatedly without moving the actor. The
@@ -230,9 +230,9 @@ farCurtainActor.square, farCurtainActor.worldX, farCurtainActor.worldY =
     farActorSquare, nil, nil
 f.worldHour = 22
 f.clock = f.clock + 120001
-local originalCurtainRequestAny = SurvivorCompanion.Navigation.requestAny
+local originalCurtainRequestAny = LivingFellows.Navigation.requestAny
 local curtainApproachCalls = 0
-SurvivorCompanion.Navigation.requestAny = function(_, targets, _, intent)
+LivingFellows.Navigation.requestAny = function(_, targets, _, intent)
     curtainApproachCalls = curtainApproachCalls + 1
     check(#targets > 0 and intent.environmentalTask == "curtain"
             and intent.requireSameSquare == true,
@@ -240,31 +240,31 @@ SurvivorCompanion.Navigation.requestAny = function(_, targets, _, intent)
     return true, "moving"
 end
 local stalledAttempted, stalledAccepted, stalledReason =
-    SurvivorCompanion.Downtime.considerCurtain(farCurtainActor,
+    LivingFellows.Downtime.considerCurtain(farCurtainActor,
         { threatCount = 0, immediateCount = 0 }, f.clock)
 check(stalledAttempted and stalledAccepted and stalledReason == "approaching_curtain"
         and farCurtain.open,
     "curtain task keeps its target state while approach is pending")
-local stalledDeadline = SurvivorCompanion.Downtime.peek(farCurtainActor)
+local stalledDeadline = LivingFellows.Downtime.peek(farCurtainActor)
     .curtainTask.expiresAt
 local expiredAttempted, expiredAccepted, expiredReason =
-    SurvivorCompanion.Downtime.considerCurtain(farCurtainActor,
+    LivingFellows.Downtime.considerCurtain(farCurtainActor,
         { threatCount = 0, immediateCount = 0 }, stalledDeadline)
 check(expiredAttempted and not expiredAccepted
         and expiredReason == "curtain_approach_timeout"
-        and SurvivorCompanion.Downtime.peek(farCurtainActor).curtainTask == nil,
+        and LivingFellows.Downtime.peek(farCurtainActor).curtainTask == nil,
     "an accepted but stalled curtain approach expires cleanly")
-local retryAttempted = SurvivorCompanion.Downtime.considerCurtain(farCurtainActor,
+local retryAttempted = LivingFellows.Downtime.considerCurtain(farCurtainActor,
     { threatCount = 0, immediateCount = 0 }, stalledDeadline + 12001)
 check(not retryAttempted and curtainApproachCalls == 1,
     "the same unreachable curtain is not selected again immediately")
-local laterAttempted, laterAccepted = SurvivorCompanion.Downtime.considerCurtain(
+local laterAttempted, laterAccepted = LivingFellows.Downtime.considerCurtain(
     farCurtainActor, { threatCount = 0, immediateCount = 0 },
     stalledDeadline + 120001)
 check(laterAttempted and laterAccepted and curtainApproachCalls == 2,
     "a curtain may be reconsidered after its failure cooldown")
-SurvivorCompanion.Downtime.cancel(farCurtainActor, "fixture_done")
-SurvivorCompanion.Navigation.requestAny = originalCurtainRequestAny
+LivingFellows.Downtime.cancel(farCurtainActor, "fixture_done")
+LivingFellows.Navigation.requestAny = originalCurtainRequestAny
 f.worldHour = 12
 
 local noOpCurtainSquare = squares[squareKey(-5, 7, 0)]
@@ -281,10 +281,10 @@ local noOpCurtainActor = actor("sc-curtain-noop", -5, 7, {})
 noOpCurtainActor.modData.SC_Order = "stay"
 registry[noOpCurtainActor.id] = noOpCurtainActor
 f.worldHour = 22
-SurvivorCompanion.Downtime.considerCurtain(
+LivingFellows.Downtime.considerCurtain(
     noOpCurtainActor, { threatCount = 0, immediateCount = 0 }, f.clock)
 f.clock = f.clock + 12001
-local noOpCurtainAttempted, noOpCurtainAccepted = SurvivorCompanion.Downtime.considerCurtain(
+local noOpCurtainAttempted, noOpCurtainAccepted = LivingFellows.Downtime.considerCurtain(
     noOpCurtainActor,
     { threatCount = 0, immediateCount = 0 },
     f.clock
@@ -294,7 +294,7 @@ check(noOpCurtainAttempted and not noOpCurtainAccepted and noOpCurtain.open,
 f.worldHour = 12
 
 end
-SurvivorCompanion.__testCurtainHabits()
-SurvivorCompanion.__testCurtainHabits = nil
+LivingFellows.__testCurtainHabits()
+LivingFellows.__testCurtainHabits = nil
 
 print("SUBJECT_PASS checks=" .. tostring(f.checks()))

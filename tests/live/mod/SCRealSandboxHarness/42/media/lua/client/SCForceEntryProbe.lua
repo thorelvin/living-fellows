@@ -4,7 +4,7 @@ local P={}
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 SCRealSandboxHarnessProbes.SCForceEntryProbe=P
 local function call(o,m,...)
-    if not o or not SurvivorCompanion.GameplayUtil.hasMethod(o,m) then return nil end
+    if not o or not LivingFellows.GameplayUtil.hasMethod(o,m) then return nil end
     local okay,value=pcall(function(...) return o[m](o,...) end,...)
     if okay then return value end
 end
@@ -15,7 +15,7 @@ local function photo(H,label)
     end)
 end
 local function finish(H,current,setPhase)
-    local f,SC=H.forceEntry,SurvivorCompanion
+    local f,SC=H.forceEntry,LivingFellows
     if f then
         SC.ForceEntry.cancel(f.actor,"probe_finished")
         if f.decision then SC.Decision.update=f.decision end
@@ -26,7 +26,7 @@ local function fail(H,current,check,setPhase,label,why)
     photo(H,"blocked-"..label); check(label,false,tostring(why)); finish(H,current,setPhase)
 end
 function P.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local U,F,N=SC.GameplayUtil,SC.ForceEntry,SC.NativeActions
     local f=H.forceEntry
     if not f then

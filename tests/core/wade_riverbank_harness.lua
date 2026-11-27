@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Bank = SC.OddballWadeBank
 local anchorX, anchorY = 6402, 6416
 local grid, cell = {}, {}

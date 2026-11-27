@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the shared Lua owner and the actual no-argument render hook. Native
 -- frame compatibility/application is independently covered against the game JAR.
-local SC, View = SurvivorCompanion, SurvivorCompanion.ViewSession
+local SC, View = LivingFellows, LivingFellows.ViewSession
 local function check(value, message)
     if not value then error("view session restore: " .. message) end
 end

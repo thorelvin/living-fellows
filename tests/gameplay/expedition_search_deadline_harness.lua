@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run the production footprint cursor and itinerary clock together. The
 -- fixture models a normal-speed day; no synchronous full-building scan.
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local E, Encounter = SC.ExpeditionPrototype, SC.Encounter
 local clock, elapsed, minutesPerDay, probes, contentReads = 0, 0, 60, 0, 0
 local cells, slot, bounds = {}, nil, { 100, 100, 180, 180 }

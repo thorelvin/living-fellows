@@ -3,7 +3,7 @@
 -- roster is empty, which is the early-return path, so it also proves the
 -- entry is offered on menus with nothing else of ours on them, and that a
 -- failing terminal cannot take the rest of the menu down.
-local T, SC = MEDICAL_CONTEXT_TEST, SurvivorCompanion
+local T, SC = MEDICAL_CONTEXT_TEST, LivingFellows
 local Context = SC.UIContext
 local check = T.check
 

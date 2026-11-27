@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local Brain,K,Lore=SC.TerminalBrain,SC.TerminalKnowledge,SC.TerminalLore
 local checks=0
 local function check(value,message) checks=checks+1 assert(value,"knowledge "..checks..": "..message) end

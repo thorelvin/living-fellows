@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Build the EMMA playground page from the real mod modules (no prototype).
 
-Usage: python -I -X utf8 build_real.py <worktree with SurvivorCompanion> <commit label> <output.html>
+Usage: python -I -X utf8 build_real.py <worktree with LivingFellows> <commit label> <output.html>
 The Lua load order matches tests/essential/Interface.ps1 (interfaceTerminalFiles) up to
 SCTerminalFiles, which is what Brain.respond needs.
 """
@@ -13,7 +13,7 @@ here = pathlib.Path(__file__).parent
 root = pathlib.Path(sys.argv[1])
 label = sys.argv[2]
 out_path = pathlib.Path(sys.argv[3])
-lua = root / "SurvivorCompanion/42/media/lua"
+lua = root / "LivingFellows/42/media/lua"
 
 PRELUDE = """-- The game preloads its modules; here they load in order, so require is a no-op for them.
 -- Fengari is Lua 5.3; the game's Kahlua is closer to 5.1, so restore the few 5.1 names.

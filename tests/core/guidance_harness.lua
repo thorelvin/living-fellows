@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Player-observable guidance rules, using a fake clock and a real file format.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local checks=0
 local function check(value,message) checks=checks+1;assert(value,message) end
 if guidanceReload then

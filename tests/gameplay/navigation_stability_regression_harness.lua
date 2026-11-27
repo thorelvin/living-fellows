@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Standalone real-Kahlua regression: production route repair and incremental A*.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local N, P, U = SC.Navigation, SC.PathSearch, SC.GameplayUtil
 local function check(value, message)
     checks = checks + 1

@@ -91,8 +91,8 @@ H.onMeleeWeaponHit({}, companion, weapon, 1)
 H.onMeleeWeaponHit(observer, {}, weapon, 1)
 check(H.combatImpactCount == nil and companion.health == 43,
     "impact diagnostics ignore unrelated actors and never apply damage")
-local oldCell, U = getCell, SurvivorCompanion.GameplayUtil
-local oldFree, oldActor = U.isSquareFree, SurvivorCompanion.Actor
+local oldCell, U = getCell, LivingFellows.GameplayUtil
+local oldFree, oldActor = U.isSquareFree, LivingFellows.Actor
 local square = { free = true, occupied = false, blocked = false, chunk = {} }
 function square:getChunk() return self.chunk end
 function square:getMovingObjects()
@@ -145,7 +145,7 @@ function actor:ensureWorldMembership()
     self.square.members[self] = true
     return self.renderSquare and self.renderSquare.members[self] == true
 end
-SurvivorCompanion.Actor = {stop=function() return true end}
+LivingFellows.Actor = {stop=function() return true end}
 check(H.placeCombatActor(actor, {x=22.5,y=10.5,z=0}) and actor.nx == actor.lx
     and actor.ny == actor.ly and actor.moving == square and actor.renderSquare == square
     and square.members[actor] and not oldSquare.members[actor],
@@ -161,5 +161,5 @@ check(not H.placeCombatActor(actor, {x=22.5,y=10.5,z=0}),
 actor.setSquare = setRenderSquare
 function actor:ensureWorldMembership() return false end
 check(not H.placeCombatActor(actor, {x=22.5,y=10.5,z=0}), "membership repair failure rejects placement")
-getCell, U.isSquareFree, SurvivorCompanion.Actor = oldCell, oldFree, oldActor
+getCell, U.isSquareFree, LivingFellows.Actor = oldCell, oldFree, oldActor
 SC_TEST_REPORT = "LIVE_COMBAT_FIXTURE_REGRESSION_PASS checks=" .. checks

@@ -2,7 +2,7 @@
 -- Behavioral checks for the authored Milli encounter, including negative
 -- controls for duplicate native animals and false baby-death attribution.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Milli = SC.OddballMilli
 local F = SC_MILLI_FIXTURE
 local checks = 0

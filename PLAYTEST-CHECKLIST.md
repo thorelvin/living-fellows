@@ -92,7 +92,7 @@ Evidence and timings: `docs/animal-native-probe-2026-11-09.md`.
 - [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer subscribed and enabled before Living Fellows, and its one-time Java loader installation is complete.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.
 - [ ] The local install displays `PRIVATE-NATIVE-BRIDGE.txt`.
-- [ ] `ProjectZomboid64.json` uses `survivorcompanion/bridge/SCLauncher` and retains the original JSON backup.
+- [ ] `ProjectZomboid64.json` uses `livingfellows/bridge/SCLauncher` and retains the original JSON backup.
 
 ## Provider invariants
 
@@ -193,7 +193,7 @@ Evidence and timings: `docs/animal-native-probe-2026-11-09.md`.
 - [ ] Trigger repeated zombie warnings, work failures, supply requests, stress, joy and grief; line pools vary, names remain correct, and no speech appears over the player.
 - [ ] Watch a wood or supply expedition through its view from departure to delivery: the car pull-away, site, felling, full trunk, turn for home, camp in sight and storage each get at most an occasional line; crew exchanges come a few minutes apart, a reply always matches its opener, and contact with a zombie silences both. At camp, a resident taking, finishing or getting stuck on a job speaks only now and then, and profanity off gives only clean lines.
 - [ ] Time a short and a long overhead line at normal and accelerated game speed: each stays fully readable over its companion for its 8-15-second length target before fading, creates no duplicate rows, and yields immediately when a different line is spoken.
-- [ ] Stop outdoors with a nearby companion on Follow: it remains alert/standing and never starts reading, crafting, washing or sitting. Repeat indoors, let downtime begin, then walk away; the NPC cancels the pose before following and never moonwalks, slides or retains a kneel. In Debug, confirm `[SurvivorCompanion][downtime]` names each start/finish/cancel kind.
+- [ ] Stop outdoors with a nearby companion on Follow: it remains alert/standing and never starts reading, crafting, washing or sitting. Repeat indoors, let downtime begin, then walk away; the NPC cancels the pose before following and never moonwalks, slides or retains a kneel. In Debug, confirm `[LivingFellows][downtime]` names each start/finish/cancel kind.
 - [ ] Opening Orders, Squad and Loadout creates every selector without a Lua error; changing each selector applies once and shows feedback.
 - [ ] Holding and dragging either roster or detail scrollbar for at least five seconds is uninterrupted by scheduled UI refreshes; the view catches up after release without jumping.
 - [ ] A More > Debug household spawn reports its house coordinates, direction and distance, and creates a visible yellow house marker plus HUD direction arrow; Locate and Clear work for every listed household.

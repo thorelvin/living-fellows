@@ -77,7 +77,7 @@ local function queueState(player)
 end
 
 local function splintState(H)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local actor, doctor = H.medicalCheckActor, H.player
     local window = ISMedicalCheckAction
         and ISMedicalCheckAction.getHealthWindowForPlayer(actor)
@@ -130,7 +130,7 @@ end
 
 local function countPlayerSupplyType(player, fullType)
     if not fullType then return 0 end
-    local utility = SurvivorCompanion.GameplayUtil
+    local utility = LivingFellows.GameplayUtil
     local count = 0
     for _, item in ipairs(utility.inventoryItemsDeep(player:getInventory(), 1000)) do
         if call(item, "getFullType") == fullType then count = count + 1 end
@@ -172,7 +172,7 @@ local function selectTreatment(panel, part, label, playerNum, doctor, desiredTyp
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local reportCheck = check
     check = function(name, okay, detail)
         if not okay then pcall(function()

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 local T = VEHICLE_CONTEXT_TEST
 local check, option = T.check, T.option
-local Context = SurvivorCompanion.UIContext
+local Context = LivingFellows.UIContext
 local object = { getSquare = function() return T.square end }
 
 local function open()
@@ -68,12 +68,12 @@ local radio = { container = inventory }
 function radio:getContainer() return self.container end
 function T.player:getInventory() return inventory end
 T.player.getPrimaryHandItem = function() return nil end
-SurvivorCompanion.GameplayUtil.instanceOf = function(item, kind)
+LivingFellows.GameplayUtil.instanceOf = function(item, kind)
     return item == radio and kind == "Radio"
 end
 local acknowledged
 local mission = { scout = { phase = "searching", search = {} } }
-SurvivorCompanion.ExpeditionPrototype = {
+LivingFellows.ExpeditionPrototype = {
     current = function() return mission end,
     sendRadioOrder = function(_, command, payload)
         acknowledged = command == "progress_report" and payload == "status"

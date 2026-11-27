@@ -3,8 +3,8 @@
 -- this probe never calls addVehicle or changes the source save.
 local Probe = {}
 
-local READY = "SurvivorCompanionHarness/loretta-ready.txt"
-local CAPTURED = "SurvivorCompanionHarness/loretta-captured.txt"
+local READY = "LivingFellowsHarness/loretta-ready.txt"
+local CAPTURED = "LivingFellowsHarness/loretta-captured.txt"
 
 local function call(object, method, ...)
     if not object then return nil end
@@ -325,12 +325,12 @@ local function darrenState(SC, group, car)
 end
 
 local function restoreSpeech(H)
-    if H.lorettaOriginalSay and SurvivorCompanion
-        and SurvivorCompanion.GameplayUtil then
-        SurvivorCompanion.GameplayUtil.say = H.lorettaOriginalSay
+    if H.lorettaOriginalSay and LivingFellows
+        and LivingFellows.GameplayUtil then
+        LivingFellows.GameplayUtil.say = H.lorettaOriginalSay
     end
     H.lorettaOriginalSay = nil
-    if H.lorettaOriginalRecover then SurvivorCompanion.Actor.recover=H.lorettaOriginalRecover; H.lorettaOriginalRecover=nil end
+    if H.lorettaOriginalRecover then LivingFellows.Actor.recover=H.lorettaOriginalRecover; H.lorettaOriginalRecover=nil end
 end
 
 local function photo(H,label)
@@ -347,7 +347,7 @@ local function fail(H, result, setPhase, current, name, detail)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local originalCheck=check
     check=function(name,okay,detail)
         if not okay then photo(H,"blocked-"..name) end

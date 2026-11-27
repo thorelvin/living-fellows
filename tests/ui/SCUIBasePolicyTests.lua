@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 local fixture = BasePolicyFixture
-local UI = SurvivorCompanion.UI
+local UI = LivingFellows.UI
 assert(type(ISUIElement.setHeight) == "function" and type(ISUIElement.getKeepOnScreen) == "function",
     "installed stock UIElement positioning methods are loaded")
 -- Negative control: the exact stock addOption -> setHeight path reproduces the
@@ -97,11 +97,11 @@ assert(not disabled.enable and disabled.disabledOptions[disabled.options[1]])
 disabled:forceClick()
 assert(#fixture.calls == before and disabled:isSelected(1), "disabled checkbox cannot dispatch")
 fixture.remote = false
-local setter = SurvivorCompanion.BaseLife.setPolicy
-SurvivorCompanion.BaseLife.setPolicy = nil
+local setter = LivingFellows.BaseLife.setPolicy
+LivingFellows.BaseLife.setPolicy = nil
 tick:forceClick()
 assert(not tick:isSelected(1), "missing backend restores existing state")
-SurvivorCompanion.BaseLife.setPolicy = setter
+LivingFellows.BaseLife.setPolicy = setter
 
 -- A remote-only tooltip uses native UIManager ownership and must be dismissed
 -- when the panel refreshes, even when nested inside a scrolling child.
@@ -154,10 +154,10 @@ local baseRows = {
     { id = "chef", type = "production", state = "blocked", autoRetry = false,
         blocker = "chef_restart_needs_recovery" },
 }
-SurvivorCompanion.BaseLife.summary = function()
+LivingFellows.BaseLife.summary = function()
     return { configured = true, rows = baseRows, jobs = { blocked = 3 } }
 end
-SurvivorCompanion.BaseLife.blueprintsVisible = function() return false end
+LivingFellows.BaseLife.blueprintsVisible = function() return false end
 UI.humanize = function(value) return tostring(value) end
 local information, actions = {}, {}
 local function skip(_, _, y) return y end
@@ -200,7 +200,7 @@ for reason, key in pairs({
     local_view_restore_bridge_unavailable = "UI_SC_View_BridgeUpdateRequired",
     local_view_restore_event_unavailable = "UI_SC_View_RenderUnavailable",
 }) do
-    SurvivorCompanion.BaseWatch.start = function() return false, reason end
+    LivingFellows.BaseWatch.start = function() return false, reason end
     detail:addBaseWatchAction(watchPanel, 0, "UI_SC_BaseWatch_Start", "start")
     local button = watchPanel.childrenInOrder[#watchPanel.childrenInOrder]
     button.callback(button.target, button)
@@ -303,8 +303,8 @@ function selected:addBasePolicySelector(_, y) return y + 1 end
 function selected:addBaseToggle(_, y) return y + 1 end
 function selected:buildBaseWatch(_, y) return y + 1 end
 function selected:buildProductionSection(_, y) record("section", "production") return y + 1 end
-local nativeSummary = SurvivorCompanion.BaseLife.summary
-local nativeCanRemoveZone = SurvivorCompanion.BaseLife.canRemoveZone
+local nativeSummary = LivingFellows.BaseLife.summary
+local nativeCanRemoveZone = LivingFellows.BaseLife.canRemoveZone
 local unnamedZones = {
     { id = "private:zone-parking", name = " \t ", kind = "parking",
         x1 = 10, y1 = 20, x2 = 12, y2 = 22, z = 0 },
@@ -312,7 +312,7 @@ local unnamedZones = {
         x1 = 30, y1 = 40, x2 = 32, y2 = 42, z = 0 },
 }
 UI.booleanText = function(value) return value and "On" or "Off" end
-SurvivorCompanion.BaseLife.summary = function()
+LivingFellows.BaseLife.summary = function()
     return { configured = true, rows = baseRows, jobs = { blocked = 3 },
         zoneRows = unnamedZones,
         storageRows = {
@@ -322,8 +322,8 @@ SurvivorCompanion.BaseLife.summary = function()
                 containerIndex = 1, containerType = "freezer" },
         } }
 end
-SurvivorCompanion.BaseLife.canRemoveZone = function() return true end
-SurvivorCompanion.BaseLife.resident = function() return { role = "generalist", duty = true } end
+LivingFellows.BaseLife.canRemoveZone = function() return true end
+LivingFellows.BaseLife.resident = function() return { role = "generalist", duty = true } end
 local nativeTextOrNull = getTextOrNull
 getTextOrNull = function(key)
     local titles = { IGUI_ContainerTitle_fridge = "Fridge", IGUI_ContainerTitle_freezer = "Freezer" }
@@ -373,6 +373,6 @@ for zoneId, readable in pairs({
         and not string.find(remove.confirmation, zoneId, 1, true),
         "zone IDs remain in action data rather than visible management labels")
 end
-SurvivorCompanion.BaseLife.summary = nativeSummary
-SurvivorCompanion.BaseLife.canRemoveZone = nativeCanRemoveZone
+LivingFellows.BaseLife.summary = nativeSummary
+LivingFellows.BaseLife.canRemoveZone = nativeCanRemoveZone
 SC_TEST_REPORT = "Base policy native checkbox, deep layout (" .. matrixCases .. " cases), section order, zone labels and job retry interactions PASS"

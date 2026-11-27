@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local C, B, player = SC.InfectionCrisis, SC.BaseLife, f.player
 local subjectId, helperId, crisisId = "sc-missing-subject", "sc-crisis-medic", "crisis:1"
 local helper = f.actor(helperId, 3, 1, {})

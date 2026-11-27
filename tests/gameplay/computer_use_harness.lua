@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local Use,Down=SC.ComputerUse,SC.Downtime
 local saved={}
 for _,key in ipairs({"GameplayUtil","Terminal","BaseLife","Navigation","Commands",

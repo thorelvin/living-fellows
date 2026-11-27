@@ -3,7 +3,7 @@
 local Probe={}
 local scenarios={'positive','cancel','leaving','player-care','fallback','danger'}
 local function refresh(actor,s,check)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local runtime=SC.GameplayUtil.actorState(actor)
     local observed=SC.Senses.snapshot(actor,s.primary,runtime)
     check(type(observed)=='table' and observed.valid==true,'visit fixture observes the real loaded world')
@@ -18,7 +18,7 @@ local function openJobs(base,patientId)
     return count,found
 end
 local function pairSquares(s)
-    local U=SurvivorCompanion.GameplayUtil
+    local U=LivingFellows.GameplayUtil
     local origin=s.primary:getSquare();local room=origin:getRoom();local all,same={},{}
     for radius=1,8 do for dx=-radius,radius do for dy=-radius,radius do
         if math.abs(dx)==radius or math.abs(dy)==radius then
@@ -37,8 +37,8 @@ local function pairSquares(s)
 end
 local function supplies(actor,amount,withTool)
     local root=actor:getInventory();local result={}
-    for _,row in ipairs(assert(SurvivorCompanion.BandageWash.inventoryEntries(actor))) do
-        if SurvivorCompanion.Medical.dressingRank(row.item,true) or row.item:getType()=='Tweezers'
+    for _,row in ipairs(assert(LivingFellows.BandageWash.inventoryEntries(actor))) do
+        if LivingFellows.Medical.dressingRank(row.item,true) or row.item:getType()=='Tweezers'
             or row.item:getType()=='SutureNeedle' or row.item:getType()=='Pills' or row.item:getType()=='AlcoholWipes'
             or row.item:getFluidContainer() then row.source:Remove(row.item) end
     end
@@ -71,11 +71,11 @@ local function coveredGlass(actor,second,low)
         dirty:setBandaged(true,0,false,'Base.Bandage')
     end
     if low then actor:getBodyDamage():ReduceGeneralHealth(70);actor:getBodyDamage():calculateOverallHealth() end
-    SurvivorCompanion.Medical.invalidate(actor)
+    LivingFellows.Medical.invalidate(actor)
     return part,dirty
 end
 local function register(s,check)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local v=s.visitState
     v.patientId,v.medicId=assert(U.idOf(v.patient)),assert(U.idOf(v.medic))
     check(SC.BaseLife.assign(v.patientId,'generalist',true),'native patient becomes an on-duty resident')
@@ -105,7 +105,7 @@ local function unchanged(v,check)
     end
 end
 local function drive(s,check)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local v=s.visitState
     v.context=refresh(v.medic,s,check);v.patientContext=refresh(v.patient,s,check)
     SC.ActionSupervisor.update(v.medic);SC.ActionSupervisor.update(v.patient)
@@ -129,7 +129,7 @@ local function drive(s,check)
     return held
 end
 function Probe.step(s,check,note,phase)
-    local SC,U,M,V,N=SurvivorCompanion,SurvivorCompanion.GameplayUtil,SurvivorCompanion.Medical,SurvivorCompanion.MedicalVisits,SurvivorCompanion.NativeActions
+    local SC,U,M,V,N=LivingFellows,LivingFellows.GameplayUtil,LivingFellows.Medical,LivingFellows.MedicalVisits,LivingFellows.NativeActions
     local now=getTimestampMs()
     if s.phase=='acceptance-visits-start' then
         check(SC.BaseWork.reset(),'prior native work releases before visiting-care fixtures')

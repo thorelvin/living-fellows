@@ -286,7 +286,7 @@ local function seatStateDetail(SC, H)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     if H.phase == "smoker_prepare" then
         if not check("smoker_definition_ready",
@@ -500,7 +500,7 @@ function Probe.step(H, current, check, result, setPhase)
         result("PASS", "smoker_closeup_camera_ready",
             "zoom=" .. tostring(call(core, "getZoom", 0)))
         H.encounterSignals.write(
-            "SurvivorCompanionHarness/oddball-scene-ready.txt",
+            "LivingFellowsHarness/oddball-scene-ready.txt",
             { "ready=true", "kind=smoker" })
         setPhase("smoker_capture", current)
         return
@@ -508,7 +508,7 @@ function Probe.step(H, current, check, result, setPhase)
 
     if H.phase == "smoker_capture" then
         if H.encounterSignals.exists(
-            "SurvivorCompanionHarness/oddball-scene-captured.txt") then
+            "LivingFellowsHarness/oddball-scene-captured.txt") then
             result("PASS", "smoker_live_capture", "Mara seated at open window")
             setPhase("smoker_dialogue", current)
         elseif current - H.phaseStartedAt > 15000 then

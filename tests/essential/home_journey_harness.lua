@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Production Home dispatch, final approach and exact whole-crew handover.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local E,H,I,F=SC.ExpeditionPrototype,SC.HomeTrip,SC.ExpeditionIntegration,assert(SC.HomeTestFixture)
 local at,records=F.at,F.records
 F.reset()

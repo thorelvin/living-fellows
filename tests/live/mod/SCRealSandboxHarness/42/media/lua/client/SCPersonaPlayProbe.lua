@@ -2,7 +2,7 @@
 -- Real native input, dialogue, physical drawer and reload in a disposable save.
 SCRealSandboxHarnessProbes=SCRealSandboxHarnessProbes or {}
 local Probe={} SCRealSandboxHarnessProbes.SCPersonaPlayProbe=Probe
-local function call(o,m,...) return SurvivorCompanion.ControlUtil.call(o,m,...) end
+local function call(o,m,...) return LivingFellows.ControlUtil.call(o,m,...) end
 local function shot(H,name) getCore():TakeFullScreenshot(H.config.run_id.."-persona-play-"..name..".png") end
 local function typeText(w,text)
     w:setEntryText("")
@@ -16,7 +16,7 @@ local function logRows(w)
     end
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion local f=H.personaPlay
+    local SC=LivingFellows local f=H.personaPlay
     if H.phase=="persona_play_setup" then
         f={electricity=getSandboxOptions():getElecShutModifier(),ghost=H.player:isGhostMode(),index=1,
             maxWeight=H.player:getMaxWeightBase()}

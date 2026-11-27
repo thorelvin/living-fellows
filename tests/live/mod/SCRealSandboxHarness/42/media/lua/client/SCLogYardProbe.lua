@@ -14,7 +14,7 @@ local function photo(H,label)
     end)
 end
 local function finish(H,current,setPhase)
-    local f,SC=H.logYard,SurvivorCompanion
+    local f,SC=H.logYard,LivingFellows
     if f and f.originalDecision then SC.Decision.update=f.originalDecision end
     setPhase("finish",current)
 end
@@ -23,13 +23,13 @@ local function fail(H,current,check,setPhase,label,why)
 end
 local function countRope(actor)
     local n=0
-    for _,item in ipairs(SurvivorCompanion.GameplayUtil.inventoryItems(actor:getInventory(),1024)) do
+    for _,item in ipairs(LivingFellows.GameplayUtil.inventoryItems(actor:getInventory(),1024)) do
         if item:getFullType()=="Base.Rope" then n=n+1 end
     end
     return n
 end
 local function unstack(H,f,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local work=f.unstack
     if not work.job then
         if current-work.startedAt<1000 then return end
@@ -69,7 +69,7 @@ local function unstack(H,f,current,check,result,setPhase)
     f.finishPhoto="unstacked"; f.finishedAt=current
 end
 function P.step(H,current,check,result,setPhase)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     local U,Y=SC.GameplayUtil,SC.LogYard
     local f=H.logYard
     if f and f.finishedAt then

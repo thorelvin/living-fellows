@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Radio = SC.RadioListening
 local originalUtil, originalRegistry, originalPeek =
     SC.GameplayUtil, SC.Registry, SC.Downtime.peek

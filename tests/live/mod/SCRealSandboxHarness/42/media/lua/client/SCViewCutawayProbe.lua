@@ -67,7 +67,7 @@ local function snapshotSql(H, fixture)
     local read = SCSplitScreenProbe.debugPlayerSqlId
     if read == nil then return nil end
     local saved = { primary = read(H.player), companions = {},
-        slot = SurvivorCompanion.ViewSession.slotSqlId() }
+        slot = LivingFellows.ViewSession.slotSqlId() }
     for _, record in ipairs(fixture.records) do
         saved.companions[record.id] = read(record.actor)
     end
@@ -78,7 +78,7 @@ local function sameSql(H, fixture)
     local saved, read = fixture.stockSql, SCSplitScreenProbe.debugPlayerSqlId
     if not saved or not read then return false, "SQL snapshot API unavailable" end
     if read(H.player) ~= saved.primary
-        or SurvivorCompanion.ViewSession.slotSqlId() ~= saved.slot then
+        or LivingFellows.ViewSession.slotSqlId() ~= saved.slot then
         return false, "primary or reusable companion slot SQL identity changed"
     end
     for _, record in ipairs(fixture.records) do
@@ -225,7 +225,7 @@ local function capture(H, fixture, label, screenshot)
     -- Keep full bounded native diagnostics in a separate journal: the ordinary
     -- harness result formatter intentionally clips individual details.
     local writer = type(getFileWriter) == "function"
-        and getFileWriter("SurvivorCompanionHarness/view-cutaway.log", true, true) or nil
+        and getFileWriter("LivingFellowsHarness/view-cutaway.log", true, true) or nil
     if writer then
         writer:writeln(label .. "|render=" .. fixture.frames .. "|" .. detail)
         writer:close()
@@ -239,7 +239,7 @@ local function capture(H, fixture, label, screenshot)
 end
 
 local function cleanup(fixture)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if fixture.postRender and Events.OnPostRender then
         Events.OnPostRender.Remove(fixture.postRender)
     end
@@ -542,7 +542,7 @@ local function quickOwnFact(value)
 end
 function Probe.banditsViewState(H, fixture, label)
     if not H.config or H.config.bandits_enabled ~= "true" then return true end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if not SC.BanditsAdapter or not SC.BanditsAdapter.status().active then return false, "adapter inactive" end
     local list, seen, primaryCount, leaderCount = BanditPlayer.GetPlayers(), {}, 0, 0
     for index = 0, list:size() - 1 do
@@ -581,12 +581,12 @@ local function quickCapture(H, fixture, label, png)
         .. quickNative(fixture.adjacentKitchen) .. "}"
     print("SC_REAL_SANDBOX|VIEW_QUICK|" .. detail)
     local writer = type(getFileWriter) == "function"
-        and getFileWriter("SurvivorCompanionHarness/view-cutaway-quick.log", true, true)
+        and getFileWriter("LivingFellowsHarness/view-cutaway-quick.log", true, true)
     if writer then writer:writeln(detail); writer:close() end
     if png then
         pcall(function() getCore():TakeFullScreenshot(tostring(H.config.run_id)
             .. "-view-quick-" .. label .. ".png") end)
-        if fixture.helpers then fixture.helpers.captureVisibility(SurvivorCompanion, fixture, "quick-" .. label) end
+        if fixture.helpers then fixture.helpers.captureVisibility(LivingFellows, fixture, "quick-" .. label) end
     end
     return quickOwnFact(own)
 end
@@ -596,7 +596,7 @@ local function quickCarPose(primary, walk)
         and math.abs(at.y - walk.target.y) <= 0.6 and call(call(primary, "getCurrentSquare"), "getRoom") == nil
 end
 local function quickStartCarWalk(H, fixture, current, result)
-    local U, target = SurvivorCompanion.GameplayUtil, nil
+    local U, target = LivingFellows.GameplayUtil, nil
     for _, offset in ipairs({ { 0, 0 }, { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
             { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 } }) do
         local x, y = 12035 + offset[1], 6753 + offset[2]
@@ -648,7 +648,7 @@ local function quickCleanupCar(fixture, failed)
     end
 end
 local function quickCleanup(fixture, failed)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if fixture.postRender and Events and Events.OnPostRender then Events.OnPostRender.Remove(fixture.postRender) end
     if fixture.helpers then fixture.helpers.cleanupKitchen(fixture, failed) end
     quickCleanupCar(fixture, failed)
@@ -666,7 +666,7 @@ local function quickFail(H, fixture, current, result, setPhase, name, detail)
     setPhase("finish", current)
 end
 local function quickSetup(H, current, check, result, setPhase)
-    local SC, helpers = SurvivorCompanion, quickHelpers()
+    local SC, helpers = LivingFellows, quickHelpers()
     if (not SC.BaseLife.active() or #SC.Registry.records() == 0) and current - H.phaseStartedAt < 15000 then return end
     if not check("view_quick_helpers", helpers ~= nil, "existing physical kitchen route/visibility helpers") then setPhase("finish", current) return end
     if not check("view_quick_no_prior_session", SC.BaseWatch.current() == nil
@@ -729,7 +729,7 @@ local function quickTryWatch(H, fixture, current, result, setPhase)
     end
     if current < (fixture.nextWatchAttemptAt or 0) then return false end
     fixture.nextWatchAttemptAt = current + 1000
-    local SC, candidates = SurvivorCompanion, SurvivorCompanion.BaseWatch.candidates() or {}
+    local SC, candidates = LivingFellows, LivingFellows.BaseWatch.candidates() or {}
     local count = #candidates
     local offset = fixture.watchCandidateOffset or 0
     local attempted = 0
@@ -771,7 +771,7 @@ local function quickTryWatch(H, fixture, current, result, setPhase)
 end
 local function quickStep(H, current, check, result, setPhase)
     if H.phase == "view_cutaway_setup" then return quickSetup(H, current, check, result, setPhase) end
-    local SC, fixture = SurvivorCompanion, H.viewCutaway
+    local SC, fixture = LivingFellows, H.viewCutaway
     if not fixture or not fixture.quick then result("FAIL", "view_quick_fixture", "missing quick fixture") setPhase("finish", current) return end
     if fixture.banditsViewFailure then return quickFail(H, fixture, current, result, setPhase,
         "view_quick_bandits_identity", fixture.banditsViewFailure) end
@@ -871,7 +871,7 @@ end
 
 function Probe.step(H, current, check, result, setPhase)
     if H.config.view_cutaway_quick_watch == "true" then return quickStep(H, current, check, result, setPhase) end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "view_cutaway_setup" then return setup(H, SC, check, result, setPhase, current) end
     local fixture = H.viewCutaway
     if not fixture then result("FAIL", "view_cutaway_fixture_lost", H.phase); setPhase("finish", current) return end

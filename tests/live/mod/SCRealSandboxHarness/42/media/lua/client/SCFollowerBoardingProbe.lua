@@ -54,13 +54,13 @@ local function finish(H,current,result,setPhase,okay,name,detail)
             if call(H.player,"getVehicle")==state.car then call(state.car,"exit",H.player) end
             if state.actor and call(state.actor,"getVehicle")==state.car then call(state.car,"exit",state.actor) end
         end
-        if state.actor then pcall(SurvivorCompanion.Actor.remove,state.actor) end
+        if state.actor then pcall(LivingFellows.Actor.remove,state.actor) end
         if state.zombie then call(state.zombie,"removeFromWorld");call(state.zombie,"removeFromSquare") end
     end
     setPhase("finish",current)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC,U=SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U=LivingFellows,LivingFellows.GameplayUtil
     local state=H.followerBoarding
     local function done(okay,name,detail) return finish(H,current,result,setPhase,okay,name,detail) end
     if H.phase=="follower_car_ai_setup" then

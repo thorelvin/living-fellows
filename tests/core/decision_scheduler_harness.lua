@@ -7,7 +7,7 @@
 -- surface with counting test doubles, and calls the exposed decisionTask seam with
 -- an explicit clock so timing is deterministic.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local checks = 0
 local function check(value, message)
     checks = checks + 1

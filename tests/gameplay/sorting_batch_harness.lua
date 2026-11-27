@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local checks,clock,poses,phase,transfers=0,1000,0,"active",0
 local physicalReads, strengthReads = 0, 0
 local function check(ok,msg) checks=checks+1;assert(ok,"sorting batch "..checks..": "..msg) end

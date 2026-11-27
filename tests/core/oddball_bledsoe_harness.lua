@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local function actor(id, x)
     return { id = id, x = x, y = 0, z = 0, inv = { items = {} } }
 end

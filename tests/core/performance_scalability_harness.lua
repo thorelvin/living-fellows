@@ -6,7 +6,7 @@ local function check(value, message)
     assert(value, "performance check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 check(type(SC.Performance) == "table", "performance service is loaded")
 
 local clock = 0

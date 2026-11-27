@@ -1,16 +1,16 @@
 -- SPDX-License-Identifier: MIT
 -- Distinct subject regressions retained from the former gameplay monolith.
-local f = assert(SurvivorCompanion.TestFixture)
+local f = assert(LivingFellows.TestFixture)
 local check, item, inventory, actor, zombie = f.check, f.item, f.inventory, f.actor, f.zombie
 local bodyPart, bodyDamage, buildKit = f.bodyPart, f.bodyDamage, f.buildKit
 local cell, registry, player, containerObject = f.cell, f.registry, f.player, f.containerObject
 local makeSquare, squares, movementLog, squareKey = f.makeSquare, f.squares, f.movementLog, f.squareKey
-function SurvivorCompanion.__testCharacterDepth()
-local Background = SurvivorCompanion.Background
-local Personality = SurvivorCompanion.Personality
-local PersonalItems = SurvivorCompanion.PersonalItems
-local Objectives = SurvivorCompanion.Objectives
-local Journal = SurvivorCompanion.Journal
+function LivingFellows.__testCharacterDepth()
+local Background = LivingFellows.Background
+local Personality = LivingFellows.Personality
+local PersonalItems = LivingFellows.PersonalItems
+local Objectives = LivingFellows.Objectives
+local Journal = LivingFellows.Journal
 
 local backgroundA = Background.initialize("sc-background-deterministic", {})
 local backgroundB = Background.initialize("sc-background-deterministic", {})
@@ -147,11 +147,11 @@ do
         "a float read-back of the Feeble multiplier is not rewritten on every pulse")
     person.carryTrait = "stout"
     Background.refreshCarryCapacity(person)
-    local weight, capacity, ratio = SurvivorCompanion.GameplayUtil.inventoryLoad(person)
+    local weight, capacity, ratio = LivingFellows.GameplayUtil.inventoryLoad(person)
     check(weight == 9 and capacity == 50 and ratio > 0.17 and ratio < 0.19,
         "physical load uses the inventory's hard limit")
     local carryWeight, carryLimit, carryRatio =
-        SurvivorCompanion.GameplayUtil.carryLoad(person)
+        LivingFellows.GameplayUtil.carryLoad(person)
     check(carryWeight == 9 and carryLimit == 17 and carryRatio > 0.52
             and carryRatio < 0.54,
         "carry load uses the character's Strength and condition limit")
@@ -160,10 +160,10 @@ do
     function shown.inventory:getEffectiveCapacity() return capacity end
     function shown:getMaxWeight() return carryLimit end
     registry[shown.id] = shown
-    local summary = SurvivorCompanion.Commands.describe(shown.id, player)
+    local summary = LivingFellows.Commands.describe(shown.id, player)
     check(summary.loadWeight == carryWeight and summary.loadCapacity == carryLimit
             and summary.loadRatio == carryRatio
-            and summary.loadRole == SurvivorCompanion.Logistics.roleOf(shown),
+            and summary.loadRole == LivingFellows.Logistics.roleOf(shown),
         "Loadout describes actual carrying weight, Strength capacity and ratio without changing the role")
     registry[shown.id] = nil
     table.remove(shown.square.moving)
@@ -433,9 +433,9 @@ local absoluteSnapshot = {
     closeThreatCount = 3, occupiedThreatSectors = 3, pressure = 0,
     escapeSquares = { { square = depthActor.square } }, allies = {},
 }
-check(SurvivorCompanion.Combat.assessOverrun(depthActor, absoluteSnapshot, nil,
+check(LivingFellows.Combat.assessOverrun(depthActor, absoluteSnapshot, nil,
         { combatMode = "defensive", personalityProfile = brave }).overrun
-    and SurvivorCompanion.Combat.assessOverrun(depthActor, absoluteSnapshot, nil,
+    and LivingFellows.Combat.assessOverrun(depthActor, absoluteSnapshot, nil,
         { combatMode = "defensive", personalityProfile = cautious }).overrun,
     "absolute three-attacker/sector overrun remains true for every personality")
 
@@ -456,7 +456,7 @@ local depthState = {
             progress = 0, createdAt = 1 },
     },
 }
-SurvivorCompanion.Relationship.initialize(depthActor, depthState)
+LivingFellows.Relationship.initialize(depthActor, depthState)
 local hiddenJournal = Journal.build(depthActor, depthState, { name = "Depth Fellow" })
 check(hiddenJournal.objective.known == false and hiddenJournal.keepsake.known == false
     and #hiddenJournal.background == 0 and depthState.objectives.active.revealed == false,
@@ -512,7 +512,7 @@ do
     local mealActor = actor("sc-capped-meal-objective", 1, 1, { inventory = inventory() })
     mealActor.hunger = 0.6
     local mealMemories = {}
-    local mealMemoryCap = tonumber(SurvivorCompanion.GameplayUtil.config("maxMemories")) or 24
+    local mealMemoryCap = tonumber(LivingFellows.GameplayUtil.config("maxMemories")) or 24
     for index = 1, mealMemoryCap do
         mealMemories[index] = { kind = "older_memory", at = f.clock - index }
     end
@@ -530,15 +530,15 @@ do
         },
     }
     registry[mealActor.id] = mealRecord
-    check(SurvivorCompanion.Commands.restore(mealActor, mealRecord),
+    check(LivingFellows.Commands.restore(mealActor, mealRecord),
         "capped-meal fixture restores one companion relationship state")
-    local restoredMealState = SurvivorCompanion.Commands.peek(mealActor)
+    local restoredMealState = LivingFellows.Commands.peek(mealActor)
     restoredMealState.memories = mealMemories
-    SurvivorCompanion.Commands.observeRelationship(mealActor, player, {})
+    LivingFellows.Commands.observeRelationship(mealActor, player, {})
     f.clock = f.clock + 2000
     mealActor.hunger = 0.2
-    local mealChanged = SurvivorCompanion.Commands.observeRelationship(mealActor, player, {})
-    local mealState = SurvivorCompanion.Commands.peek(mealActor)
+    local mealChanged = LivingFellows.Commands.observeRelationship(mealActor, player, {})
+    local mealState = LivingFellows.Commands.peek(mealActor)
     check(mealChanged and #mealState.memories == mealMemoryCap
             and mealState.objectives.active == nil
             and #mealState.objectives.history == 1,
@@ -546,12 +546,12 @@ do
             .. tostring(mealChanged) .. "/" .. tostring(#mealState.memories)
             .. "/" .. tostring(mealState.objectives.active)
             .. "/" .. tostring(#mealState.objectives.history))
-    SurvivorCompanion.Commands.reset(mealActor)
+    LivingFellows.Commands.reset(mealActor)
     registry[mealActor.id] = nil
 end
 
 depthState.reveals.background = 2
-local publicSummary = SurvivorCompanion.Relationship.summary(depthActor, depthState, {})
+local publicSummary = LivingFellows.Relationship.summary(depthActor, depthState, {})
 check(publicSummary.background.occupation == "Mechanic"
     and string.find(publicSummary.background.history, "old cars", 1, true) ~= nil
     and publicSummary.background.home == nil
@@ -596,21 +596,21 @@ hungryActor.hunger = 0.8
 registry[hungryActor.id] = hungryActor
 local privateRuntime={snapshot={threats={},threatCount=0,immediateCount=0,pressure=0}}
 local privateOptions={commands={recruited=true,order="base_duty"}}
-SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
-SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
-local consumedPrivate,privateReason=SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+LivingFellows.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+LivingFellows.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+local consumedPrivate,privateReason=LivingFellows.Needs.update(hungryActor,player,privateRuntime,privateOptions)
 check(not consumedPrivate and privateReason == "safe_food_unavailable" and not privateMeal.used,
     "needs automation refuses to consume a marked personal item")
 local normalMeal = item("Base.NormalMeal", "Food", { hungerChange = -0.4 })
 hungryActor.inventory:AddItem(normalMeal)
-check(SurvivorCompanion.Needs.update(hungryActor,player,privateRuntime,privateOptions)
+check(LivingFellows.Needs.update(hungryActor,player,privateRuntime,privateOptions)
     and hungryActor.lastIntent.item == normalMeal,
     "needs automation still selects an ordinary safe item beside a protected one")
 
 registry[depthActor.id] = nil
 registry[hungryActor.id] = nil
 end
-SurvivorCompanion.__testCharacterDepth()
-SurvivorCompanion.__testCharacterDepth = nil
+LivingFellows.__testCharacterDepth()
+LivingFellows.__testCharacterDepth = nil
 
 print("SUBJECT_PASS checks=" .. tostring(f.checks()))

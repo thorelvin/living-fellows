@@ -22,7 +22,7 @@ local RESUME_CHECKPOINT_STATES = {resume_active="walking",resume_midtrip="midtri
     resume_midtrip_save_dormant="midtrip",resume_dormant="dormant",resume_delivery="walking"}
 local REMOTE_OBSERVER_PHASES = {home_trip_departure_setup=true,home_trip_drive_field_setup=true,
     home_trip_sheet=true,home_trip_dispatch=true,home_trip_resume=true,home_trip_walk=true,home_trip_radio=true,home_trip_dormant=true}
-local function S() return SurvivorCompanion end
+local function S() return LivingFellows end
 local function call(object, method, ...)
     if not object then return nil end
     local indexed, fn = pcall(function() return object[method] end)
@@ -120,7 +120,7 @@ local function captureRoutes(f)
             if line~=f.lastRouteCaptureLine then
                 f.lastRouteCaptureLine=line
                 print("SC_REAL_SANDBOX|HOME_ROUTE_AVOID|"..line)
-                local writer=getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
+                local writer=getFileWriter("LivingFellowsHarness/home-trip.log",true,true)
                 if writer then writer:writeln("route_avoid|"..line);writer:close() end
             end
         end)
@@ -192,7 +192,7 @@ local function observeDriveStatus(f,active)
             print("SC_REAL_SANDBOX|HOME_CAMP_DELTA|expected="..tostring(expected and expected.fingerprint)
                 ..";actual="..tostring(actual and actual.fingerprint))
         end
-        local writer=getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
+        local writer=getFileWriter("LivingFellowsHarness/home-trip.log",true,true)
         if writer then writer:writeln("native_drive|"..line);writer:close() end
     end)
 end
@@ -466,7 +466,7 @@ local function trace(f,label)
     if f.drive and not active and f.phase=="home_trip_duty" then rows[#rows+1]=Probe.deliveryTraceLine(integration,deliveryCrew) end
     local line=table.concat(rows,"|")
     print("SC_REAL_SANDBOX|HOME_TRIP|"..line)
-    local writer=getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/home-trip.log",true,true)
     if writer then writer:writeln(line);writer:close() end
     return line
 end
@@ -515,7 +515,7 @@ local function healthy(actor,allowSeated)
 end
 local function preflightDiagnostic(H,label)
     local SC=S()
-    local writer=getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
+    local writer=getFileWriter("LivingFellowsHarness/home-trip.log",true,true)
     local function emit(detail)
         local line="preflight="..label.."|"..detail
         print("SC_REAL_SANDBOX|HOME_PREFLIGHT|"..line)

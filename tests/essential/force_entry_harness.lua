@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Stock ISForceOpen, deterministic native outcomes, exact actor/item boundaries.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local F, N, U = SC.ForceEntry, SC.NativeActions, SC.GameplayUtil
 local checks = 0
 local function check(v, message) checks=checks+1; assert(v, "crowbar "..checks..": "..message) end

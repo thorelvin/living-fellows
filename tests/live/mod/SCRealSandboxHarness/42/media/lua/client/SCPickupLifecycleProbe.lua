@@ -4,10 +4,10 @@
 require "SCPickupJourney"
 local P = {}
 local function value(object, name, ...)
-    return (SurvivorCompanion.GameplayUtil.call(object, name, ...))
+    return (LivingFellows.GameplayUtil.call(object, name, ...))
 end
 function P.step(H, current, check, result, setPhase)
-    local SC, test = SurvivorCompanion, H.driveTest
+    local SC, test = LivingFellows, H.driveTest
     local actor, car = test.actor, test.vehicle
     local function fail(name, detail)
         check(name, false, detail)

@@ -2,7 +2,7 @@
 -- Disposable-save setup ends before public Send. After dispatch this module
 -- only reads native cars, seats, items, save receipts and permitted storage.
 local D = {}
-local function S() return SurvivorCompanion end
+local function S() return LivingFellows end
 local function call(object, method, ...)
     if not object then return nil end
     local indexed,callback=pcall(function() return object[method] end)
@@ -353,7 +353,7 @@ local function routeUnavailable(H,f,t,reason,native)
     if line==r.lastRouteDiagnostic and t<(r.nextRouteDiagnosticAt or 0) then return end
     r.lastRouteDiagnostic,r.nextRouteDiagnosticAt=line,t+10000
     print("SC_REAL_SANDBOX|HOME_ROUTE_UNAVAILABLE|"..line)
-    local writer=type(getFileWriter)=="function" and getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
+    local writer=type(getFileWriter)=="function" and getFileWriter("LivingFellowsHarness/home-trip.log",true,true)
     if writer then writer:writeln("route_unavailable|"..line);writer:close() end
 end
 local function trunk(vehicle)
@@ -490,7 +490,7 @@ function D.prepareCamp(H,f,t,check,result)
             .."|direction="..tostring(H.config.home_trip_direction or "east").."|distance="..tostring(H.config.home_trip_distance or 200)
             .."|profile="..profile
         print("SC_REAL_SANDBOX|HOME_PARKING_SCAN|"..line)
-        local writer=type(getFileWriter)=="function" and getFileWriter("SurvivorCompanionHarness/home-trip.log",true,true)
+        local writer=type(getFileWriter)=="function" and getFileWriter("LivingFellowsHarness/home-trip.log",true,true)
         if writer then writer:writeln("parking_scan|"..line);writer:close() end
     end
     if okay~=true then return okay,at end

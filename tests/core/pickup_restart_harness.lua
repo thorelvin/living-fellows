@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=PICKUP,SurvivorCompanion
+local F,SC=PICKUP,LivingFellows
 local S,check=SC.PickupService,PICKUP.check
 check(S.beginPreview(F.player,{radio=true}),"preparation opens") F.tick()
 check(S.request(F.player,{radio=true}),"initial accepted order")

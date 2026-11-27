@@ -2,14 +2,14 @@
 -- Shipping Phase 3 owner/visual/commit acceptance on real disposable companions.
 local Probe={}
 local function refresh(s,actor,check)
-    local SC=SurvivorCompanion;local runtime=SC.GameplayUtil.actorState(actor)
+    local SC=LivingFellows;local runtime=SC.GameplayUtil.actorState(actor)
     local observed=SC.Senses.snapshot(actor,s.primary,runtime)
     check(type(observed)=='table' and observed.valid==true,'Phase3 observes actual loaded world')
     check(SC.Medical.canTreatNow(actor,observed),'Phase3 actual world is semi-safe')
     return runtime
 end
 local function clear(actor)
-    local SC=SurvivorCompanion
+    local SC=LivingFellows
     actor:getBodyDamage():RestoreToFullHealth();actor:setPainEffect(0);actor:setPainDelta(0)
     actor:getBodyDamage():setPainReduction(0);actor:setReduceInfectionPower(0)
     local stats=actor:getStats()
@@ -29,11 +29,11 @@ local function wound(actor,glass)
     part:setDeepWounded(true);part:setDeepWoundTime(15);part:setBleeding(false);part:setBleedingTime(0)
     part:setHaveGlass(glass==true);part:setGetStitchXp(true);part:setAdditionalPain(0)
     part:setBandaged(true,15,false,'Base.Bandage')
-    SurvivorCompanion.Medical.invalidate(actor)
+    LivingFellows.Medical.invalidate(actor)
     return part
 end
 local function protect(actor,item,check)
-    local P=SurvivorCompanion.PersonalItems
+    local P=LivingFellows.PersonalItems
     check(P.restoreMarker(item,{ownerId='phase3-native-control',key='phase3-native-protected',kind='medical'},true),'native protected supply marker is authoritative')
     check(P.isProtected(item,actor,'medical_consume'),'native marked supply is protected')
 end
@@ -43,7 +43,7 @@ local function options(need,extra)
     return out
 end
 local function setupStitch(s,check,helper,patient,kind)
-    local SC,M=SurvivorCompanion,SurvivorCompanion.Medical
+    local SC,M=LivingFellows,LivingFellows.Medical
     clear(patient);if helper~=patient then clear(helper) end
     local root=helper:getInventory();local part=wound(patient)
     local fresh=assert(root:AddItem('Base.Bandage'))
@@ -55,7 +55,7 @@ local function setupStitch(s,check,helper,patient,kind)
         uses=consumable:getCurrentUses(),kind=kind,options=options(need),xpBefore=helper:getXp():getXP(Perks.Doctor)}
 end
 local function drive(s,row,check)
-    local SC,M=SurvivorCompanion,SurvivorCompanion.Medical
+    local SC,M=LivingFellows,LivingFellows.Medical
     refresh(s,row.patient,check)
     return M.treat(row.helper,row.patient,refresh(s,row.helper,check),row.options)
 end
@@ -63,10 +63,10 @@ local function painSetup(s,check)
     local actor=s.actor;local parts=actor:getBodyDamage():getBodyParts()
     for i=0,parts:size()-1 do parts:get(i):setAdditionalPain(20) end
     actor:getStats():set(CharacterStat.PAIN,65)
-    SurvivorCompanion.Medical.invalidate(actor)
+    LivingFellows.Medical.invalidate(actor)
 end
 function Probe.step(s,check,note,phase)
-    local SC,M,P,N=SurvivorCompanion,SurvivorCompanion.Medical,SurvivorCompanion.MedicalProcedures,SurvivorCompanion.NativeActions
+    local SC,M,P,N=LivingFellows,LivingFellows.Medical,LivingFellows.MedicalProcedures,LivingFellows.NativeActions
     local now=getTimestampMs()
     if s.phase=='acceptance-phase3-start' then
         clear(s.actor);clear(s.helper);clear(s.control)

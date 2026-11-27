@@ -75,12 +75,12 @@ local function transferred(player, actor, item)
     local ok, result = pcall(ISTransferAction.transferItem,
         ISTransferAction, player, item, source, destination, nil)
     return ok and result == item and item:getContainer() == destination
-        and SurvivorCompanion.GameplayUtil.inventoryContains(destination, item)
-        and not SurvivorCompanion.GameplayUtil.inventoryContains(source, item)
+        and LivingFellows.GameplayUtil.inventoryContains(destination, item)
+        and not LivingFellows.GameplayUtil.inventoryContains(source, item)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "gifted_equipment_setup" then
         -- Let the cloned save clear its load prompts before moving the observer.
         if current - H.phaseStartedAt < 22000 then return end

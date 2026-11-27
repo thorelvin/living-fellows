@@ -6,7 +6,7 @@
 -- modules it needs and this fixture keeps only those: every other registry
 -- lookup for behaviour still finds nothing, exactly as before.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local kept = {}
 for name, module in pairs(SC) do
     if type(name) == "string" and name ~= "Oddballs" and string.sub(name, 1, 7) == "Oddball"

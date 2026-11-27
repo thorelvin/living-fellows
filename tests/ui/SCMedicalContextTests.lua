@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local T, SC = MEDICAL_CONTEXT_TEST, SurvivorCompanion
+local T, SC = MEDICAL_CONTEXT_TEST, LivingFellows
 local Context = SC.UIContext
 local check = T.check
 local floor = { getSquare = function() return T.square(11, 11) end }

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local angling = SC.Fishing
 local util = SC.GameplayUtil
 local topology = SC.Topology

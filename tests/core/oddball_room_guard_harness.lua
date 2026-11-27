@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 local F = RoomGuardFixture
-local Guard = SurvivorCompanion.OddballRoomGuard
+local Guard = LivingFellows.OddballRoomGuard
 local room = {}
 local inside = F.square(10, 10, 0, room)
 local sameRoom = F.square(10, 11, 0, room)
@@ -210,7 +210,7 @@ local emptySquare = F.square(9, 13, 0, emptyRoom)
 F.square(9, 12, 0, nil)
 local emptyGroup = F.group("empty", { x = 9, y = 13, z = 0 })
 local reports = {}
-SurvivorCompanion.Diagnostics = { report = function(_, _, _, reason)
+LivingFellows.Diagnostics = { report = function(_, _, _, reason)
     reports[#reports + 1] = reason
 end }
 local registered, emptyReason = Guard.register(emptyGroup, far, 0)
@@ -257,7 +257,7 @@ assert(protected == false and breachedReason == "room_opening_breached",
 function westDoor:IsOpen() return false end
 
 Guard.reset()
-SurvivorCompanion.GameplayUtil.squareOf = function(player)
+LivingFellows.GameplayUtil.squareOf = function(player)
     return F.squares[F.key(math.floor(player.x), math.floor(player.y), 0)]
 end
 local voice = F.group("voice", { x = 10, y = 10, z = 0 })
@@ -292,7 +292,7 @@ assert(Guard.pulse(milli, outsideTen, 2000) == false,
     "Milli guard releases inside twelve tiles")
 
 Guard.reset()
-SurvivorCompanion.Config = { get = function(key)
+LivingFellows.Config = { get = function(key)
     if key == "oddballMilliGuardReleaseTiles" then return 1 end
 end }
 local entrySquare = F.square(13, 13, 0, nil)
@@ -303,7 +303,7 @@ milliHouse.oddball.id = "milli_tea_and_trouble"
 assert(Guard.register(milliHouse, outsideFifteen, 0) == true)
 assert(Guard.pulse(milliHouse, enteredHouse, 1000) == false,
     "entering Milli's building releases the room even outside approach radius")
-SurvivorCompanion.Config = nil
+LivingFellows.Config = nil
 
 -- A player directly below an upstairs bedroom is neither in the room nor
 -- inside its building, so horizontal proximity alone must not end the guard.

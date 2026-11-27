@@ -374,7 +374,7 @@ local function setup(H, SC, current, check, result, setPhase)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "base_job_latency_setup" then return setup(H, SC, current, check, result, setPhase) end
     local f = H.baseJobLatency
     if not f then setPhase("finish", current) return end

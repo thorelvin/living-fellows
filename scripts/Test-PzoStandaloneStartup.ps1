@@ -46,8 +46,8 @@ $config=$installed|ConvertFrom-Json
 if($config.mainClass -ne 'com/pzoptimizer/PZOEntrypoint' -or @($config.vmArgs|Where-Object {$_ -like '-javaagent:*LivingFellowsBridge.jar*'}).Count -ne 0){throw 'Installer did not retain PZO with loader-only bootstrap.'}
 $config.mainClass='SCPzoLoaderSmokeTest'
 $originalArgs=@($config.vmArgs)
-$canonical=Join-Path $projectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
-$standalone=Join-Path $runRoot 'mods\SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+$canonical=Join-Path $projectRoot 'LivingFellows\42\media\java\LivingFellowsBridge.jar'
+$standalone=Join-Path $runRoot 'mods\LivingFellows\42\media\java\LivingFellowsBridge.jar'
 $results=@()
 try {
     foreach($mode in @('legacy-agent-control','pzo-loader')) {
@@ -73,7 +73,7 @@ try {
 & (Join-Path $PSScriptRoot 'Uninstall-Standalone.ps1') -ProjectRoot $projectRoot -ModsRoot (Join-Path $runRoot 'mods') -InstallDataRoot (Join-Path $runRoot 'install-data') | Out-Null
 if([IO.File]::ReadAllText($configPath) -cne $originalConfig -or
     (Test-Path -LiteralPath (Join-Path $game 'LivingFellowsBridge.jar')) -or
-    (Test-Path -LiteralPath (Join-Path $runRoot 'mods\SurvivorCompanion')) -or
+    (Test-Path -LiteralPath (Join-Path $runRoot 'mods\LivingFellows')) -or
     (Get-FileHash -LiteralPath (Join-Path $game 'PZOptimEngine.jar') -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pinnedPzo){throw 'Native startup fixture uninstall changed the original PZO installation.'}
 Write-Output 'NATIVE_PZO_STARTUP_PASS original-launcher-restored'
 [IO.File]::WriteAllText((Join-Path $runRoot 'results.json'),($results|ConvertTo-Json -Depth 8),$utf8)

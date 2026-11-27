@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
-SurvivorCompanion = SurvivorCompanion or {}
-local SC = SurvivorCompanion
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
 
 SC.ComfortTestConfig = {}
 SC.GameplayUtil = {

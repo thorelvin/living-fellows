@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local A, P, checks = SurvivorCompanion.ALifeAdapter, ProjectALife, 0
+local A, P, checks = LivingFellows.ALifeAdapter, ProjectALife, 0
 local function check(value, message) checks = checks + 1 assert(value, "A-Life hardening " .. checks .. ": " .. message) end
 local actor = ALIFE_TEST_ACTOR("sc-hardened", true)
 local shell, record = ALIFE_TEST_NPC("hardened-foreign")

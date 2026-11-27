@@ -999,7 +999,7 @@ local function wait(H, SC, check, result, setPhase, current)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.phase == "upstairs_haul_setup" then
         if current - H.phaseStartedAt < 4000 then return end
         if (not SC.BaseLife.active() or #(SC.Registry.records() or {}) == 0)

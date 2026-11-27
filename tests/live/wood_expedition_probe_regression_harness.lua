@@ -13,7 +13,7 @@ function original:getY() return 6747.67 end
 function original:getZ() return 0 end
 local car = { sqlId = 46, zone = { id = "saved-parking" }, vehicle = original }
 local crew = { { id = "original-scarlet", actor = original } }
-SurvivorCompanion = {
+LivingFellows = {
     ExpeditionPrototype = {
         startWoodCollection = function(records, options)
             calls[#calls + 1] = { records = records, options = options }
@@ -27,7 +27,7 @@ SurvivorCompanion = {
 }
 getFileWriter = function() return nil end
 local historyReads = 0
-SurvivorCompanion.ActionSupervisor = {
+LivingFellows.ActionSupervisor = {
     current = function() error("diagnostics must not reconcile actor actions") end,
     history = function(actor, limit)
         expect(actor == original and limit == 1, "bounded read-only action history")
@@ -35,10 +35,10 @@ SurvivorCompanion.ActionSupervisor = {
         return { { action = "ordered_move", phase = "waiting", event = "progress" } }
     end,
 }
-local navigationTrace = Probe._tests.traceNavigation(SurvivorCompanion, original, 1000)
+local navigationTrace = Probe._tests.traceNavigation(LivingFellows, original, 1000)
 expect(historyReads == 1 and string.find(navigationTrace, "ordered_move/waiting/progress", 1, true),
     "observer reports action history without updating the action supervisor")
-SurvivorCompanion.ActionSupervisor = nil
+LivingFellows.ActionSupervisor = nil
 local function fixture(mode)
     return { config = {}, phase = "wood_expedition_dispatch",
         woodExpedition = { mode = mode, quantity = mode == "drive" and 2 or 1,
@@ -80,22 +80,22 @@ expect(Probe._tests.treeEffects(effects) == 1, "native removal is required")
 local owner, other = {}, {}
 local item = { id = "exact-log", kind = "Base.Log", owner = other }
 function item:getContainer() return self.owner end
-SurvivorCompanion.GameplayUtil = {
+LivingFellows.GameplayUtil = {
     itemType = function(value) return value.kind end,
     itemStableId = function(value) return value.id end,
     inventoryContains = function(container, value) return container == owner and value == item end,
 }
-SurvivorCompanion.BaseLife = {
+LivingFellows.BaseLife = {
     storage = function(id) return id == "storage" and {} end,
     resolveContainer = function() return owner end,
 }
 local receipt = { id = "exact-log", storageId = "storage", stored = true }
-expect(not Probe._tests.storageOwned(SurvivorCompanion, receipt, item),
+expect(not Probe._tests.storageOwned(LivingFellows, receipt, item),
     "stored flag without actual item owner cannot pass")
 item.owner = owner
-expect(Probe._tests.storageOwned(SurvivorCompanion, receipt, item), "exact physical membership and owner both required")
+expect(Probe._tests.storageOwned(LivingFellows, receipt, item), "exact physical membership and owner both required")
 item.id = "same-type-replacement"
-expect(not Probe._tests.storageOwned(SurvivorCompanion, receipt, item), "same-type replacement cannot satisfy receipt")
+expect(not Probe._tests.storageOwned(LivingFellows, receipt, item), "same-type replacement cannot satisfy receipt")
 expect(Probe._tests.count({ a = {}, b = {} }) == 2, "native identity evidence maps count all entries")
 
 -- An equipment fixture is an explicit clone-only input. It must first inspect
@@ -330,7 +330,7 @@ local restore = { status = "waiting", pending = true }
 local visibilityTime = 0
 getTimestampMs = function() return visibilityTime end
 local named = 0
-SurvivorCompanion = {
+LivingFellows = {
     Registry = selection.Registry, Commands = selection.Commands, BaseLife = selection.BaseLife,
     Names = { displayName = function(value) named = named + 1 return value.name or "Known primary" end },
     Vehicle = { loadedVehicles = function() loadedVehicleCalls = loadedVehicleCalls + 1 return nativeCars end },
@@ -339,8 +339,8 @@ SurvivorCompanion = {
 }
 SCSplitScreenProbe = { releaseDiagnostics = function() return "frameIsPrimary=true" end }
 local observed = { mode = "walk", crew = three, dispatchedAt = 1 }
-Probe._tests.snapshotVisibility(SurvivorCompanion, observed, primary)
-Probe._tests.captureVisibility(SurvivorCompanion, observed, "before")
+Probe._tests.snapshotVisibility(LivingFellows, observed, primary)
+Probe._tests.captureVisibility(LivingFellows, observed, "before")
 expect(#observed.visibility.cars == 2 and observed.visibility.cars[1].before.visible
     and observed.visibility.cars[2].before.visible, "native vehicle list retains both stationary visible cars and excludes moving traffic")
 expect(carSet.get == nil and loadedVehicleCalls == 1,
@@ -425,7 +425,7 @@ expect(Probe._tests.compareVisibleCars(observed, skipped) == 0, "zero initial wi
 nativeCars = {}
 for index = 1, 512 do nativeCars[index] = index % 2 == 0 and firstCar or secondCar end
 local journalStart = #journal
-Probe._tests.snapshotVisibility(SurvivorCompanion, observed, primary)
+Probe._tests.snapshotVisibility(LivingFellows, observed, primary)
 local inspected = 0
 for index = journalStart + 1, #journal do
     if string.find(journal[index], "visibility:vehicle-inventory", 1, true) then inspected = inspected + 1 end
@@ -468,11 +468,11 @@ local targetSquare = kitchenSquare(12035, 6746, true)
 kitchenSquare(12035, 6747, true)
 local southWall = kitchenSquare(12035, 6748, false, true)
 local outsideSquare = kitchenSquare(12035, 6749, false)
-SurvivorCompanion.GameplayUtil = { gridSquare = function(x, y, z)
+LivingFellows.GameplayUtil = { gridSquare = function(x, y, z)
     return z == 0 and kitchenSquares[x .. ":" .. y] or nil
 end }
 getCell = function() return { getGridSquare = function(_, x, y, z)
-    return SurvivorCompanion.GameplayUtil.gridSquare(x, y, z)
+    return LivingFellows.GameplayUtil.gridSquare(x, y, z)
 end } end
 primary.x, primary.y, primary.z, primary.square = 12035.5, 6749.5, 0, outsideSquare
 primary.setX = function() error("kitchen probe must walk; no placement") end
@@ -571,13 +571,13 @@ expect(fact.counter == 17 and fact.rawCounter == 19 and fact.canSee and not fact
 local watch, slot1, ownerMode, watchStarts, watchCloses, frozenCounter = nil, nil, nil, 0, 0, nil
 local watchStartAttempts = 0
 local originalDecision = function() return "ordinary AI" end
-SurvivorCompanion.Decision = { update = originalDecision }
-SurvivorCompanion.BaseLife.active = function() return {} end
-SurvivorCompanion.BaseWork = { cancel = function() error("quick fixture must not cancel resident work") end }
-SurvivorCompanion.Downtime = { cancel = function() error("quick fixture must not cancel downtime") end }
-SurvivorCompanion.Commands.issue = function() error("quick fixture must not change resident commands") end
-SurvivorCompanion.ViewSession.owner = function() return ownerMode end
-SurvivorCompanion.BaseWatch = {
+LivingFellows.Decision = { update = originalDecision }
+LivingFellows.BaseLife.active = function() return {} end
+LivingFellows.BaseWork = { cancel = function() error("quick fixture must not cancel resident work") end }
+LivingFellows.Downtime = { cancel = function() error("quick fixture must not cancel downtime") end }
+LivingFellows.Commands.issue = function() error("quick fixture must not change resident commands") end
+LivingFellows.ViewSession.owner = function() return ownerMode end
+LivingFellows.BaseWatch = {
     current = function() return watch end,
     candidates = function() return { saved[2] } end,
     start = function(id)
@@ -679,7 +679,7 @@ expect(quickH.phase == "finish" and #renderCallbacks == 0
     and evidenceRows.view_quick_primary_own_visibility_at_car.status == "FAIL"
     and evidenceRows.view_quick_primary_counter_at_car.status == "FAIL",
     "frozen native sight/counters remain failures after the third ordinary primary position; car samples still complete")
-expect(SurvivorCompanion.Decision.update == originalDecision and watchStarts == 1 and watchCloses == 1
+expect(LivingFellows.Decision.update == originalDecision and watchStarts == 1 and watchCloses == 1
     and nativeQueue.queue[1] == unrelated and quickPath.stopped == 0 and carPath.stopped == 0,
     "quick BaseWatch fixture preserves ordinary AI, exact owned view lifecycle and unrelated player actions")
 expect(string.find(table.concat(journal, "\n"), "lightingThreadAlive=true", 1, true)
@@ -687,8 +687,8 @@ expect(string.find(table.concat(journal, "\n"), "lightingThreadAlive=true", 1, t
     "before/during/after quick journal retains thread scheduling facts and an adjacent verified kitchen sample")
 
 local alternateCalls = {}
-SurvivorCompanion.BaseWatch.candidates = function() return { saved[1], saved[2] } end
-SurvivorCompanion.BaseWatch.start = function(id)
+LivingFellows.BaseWatch.candidates = function() return { saved[1], saved[2] } end
+LivingFellows.BaseWatch.start = function(id)
     alternateCalls[#alternateCalls + 1] = id
     if id == saved[1].id then return false, "leader_finishing_outdoor_work" end
     return true

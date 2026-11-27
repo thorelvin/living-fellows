@@ -21,7 +21,7 @@ function Get-StackClassification {
     $labels = [System.Collections.Generic.HashSet[string]]::new(
         [System.StringComparer]::OrdinalIgnoreCase)
     foreach ($line in $Lines) {
-        if ($line -match '(?i)SurvivorCompanion|Living[ _-]?Fellows|media[/\\]lua[/\\](client|shared)[/\\]SC[A-Za-z]+\.lua') {
+        if ($line -match '(?i)LivingFellows|Living[ _-]?Fellows|media[/\\]lua[/\\](client|shared)[/\\]SC[A-Za-z]+\.lua') {
             [void]$labels.Add('living_fellows')
         }
         elseif ($line -match '(?i)(workshop[/\\]content|[/\\]mods[/\\]).*\.lua') {

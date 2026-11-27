@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
-SurvivorCompanion = { GameplayUtil = {}, Registry = {}, Factions = {},
+LivingFellows = { GameplayUtil = {}, Registry = {}, Factions = {},
     NativeList = {}, Navigation = {}, OddballRoomGuard = {}, Diagnostics = {} }
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local U = SC.GameplayUtil
 SealedVoiceFixture = { now = 1000, zombies = {}, groups = {}, released = 0,
     sounds = {}, lines = {}, clicks = {}, routes = {} }

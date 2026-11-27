@@ -2,7 +2,7 @@
 -- Native squad survival trials. The runner installs this only in a disposable
 -- cloned save; all actors and zombies are created and removed inside that clone.
 local Probe = {}
-local FILE = "SurvivorCompanionHarness/squad-combat-results.txt"
+local FILE = "LivingFellowsHarness/squad-combat-results.txt"
 local RING_CASES = { { 3, 6 }, { 5, 10 }, { 5, 12 } }
 local FRONT_CASES = { { 3, 6, "front" }, { 5, 10, "front" },
     { 1, 2, "front" }, { 1, 3, "front" }, { 1, 1, "front" },
@@ -45,11 +45,11 @@ end
 
 local function alive(actor)
     return actor ~= nil and call(actor, "isDead") == false
-        and SurvivorCompanion.GameplayUtil.nativeHealth(actor) > 0
+        and LivingFellows.GameplayUtil.nativeHealth(actor) > 0
 end
 
 local function openSquare(x, y, z)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local square = U.gridSquare(x, y, z)
     if not square or not call(square, "getChunk")
         or not U.isSquareFree(square) then return nil end
@@ -118,7 +118,7 @@ local function frontZombieSquares(center)
 end
 
 local function staggeredZombieSquares(center)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local x, y, z = math.floor(center.x), math.floor(center.y),
         math.floor(center.z or 0)
     local bestDirection, bestScore = nil, -1
@@ -156,7 +156,7 @@ local function staggeredZombieSquares(center)
 end
 
 local function corpsesNear(center, radius)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local bodies = {}
     local x, y, z = math.floor(center.x), math.floor(center.y),
         math.floor(center.z or 0)
@@ -190,16 +190,16 @@ end
 -- room for the approaching ring and for companions to retreat without a
 -- nearby wall or fence steering the entire trial back into the base.
 local function findOpenCombatArena(player)
-    local U = SurvivorCompanion.GameplayUtil
+    local U = LivingFellows.GameplayUtil
     local px, py, pz = U.position(player)
     if not px or not py then return nil, 0 end
     local z = math.floor(pz or 0)
     local best, bestScore, bestPaved = nil, -math.huge, 0
     local function consider(x, y)
         local center = { x = x + 0.5, y = y + 0.5, z = z }
-        local insideBase = SurvivorCompanion.BaseLife
-            and type(SurvivorCompanion.BaseLife.isInside) == "function"
-            and SurvivorCompanion.BaseLife.isInside(center) == true
+        local insideBase = LivingFellows.BaseLife
+            and type(LivingFellows.BaseLife.isInside) == "function"
+            and LivingFellows.BaseLife.isInside(center) == true
         if insideBase then return end
         local score, paved, clearCenter = 0, 0, true
         for dx = -8, 8 do
@@ -287,7 +287,7 @@ local function endZombieLifetime(H, zombie, receipt, reason, member, dead)
     receipt.dead, receipt.removed = dead == true, dead ~= true
     if dead then
         receipt.health = 0
-        receipt.x, receipt.y = SurvivorCompanion.GameplayUtil.position(zombie)
+        receipt.x, receipt.y = LivingFellows.GameplayUtil.position(zombie)
     end
     lifetimeReason(H, zombie, receipt, reason, member)
 end
@@ -341,7 +341,7 @@ local function trackedZombie(H, zombie, deathEvent)
             member == false and "membership_lost" or "membership_unavailable", member)
     else
         receipt.health = number(call(zombie, "getHealth"), receipt.health)
-        receipt.x, receipt.y = SurvivorCompanion.GameplayUtil.position(zombie)
+        receipt.x, receipt.y = LivingFellows.GameplayUtil.position(zombie)
     end
     return not receipt.terminal, receipt
 end
@@ -372,7 +372,7 @@ local function targetZombie(H, zombie, actor)
 end
 
 local function cleanup(H)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if H.squadCombatPhotoOriginal and H.player then
         local original = H.squadCombatPhotoOriginal
         pcall(function()
@@ -579,7 +579,7 @@ local function finishTrial(H, current, check, result, setPhase)
             .. " locomotion_mode_returns_under_650ms=" .. observation.modeReversals
             .. " combat_ms=" .. observation.combatMs .. " angular_travel_deg=" .. math.floor(observation.angularTravel))
     end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local survivors, kills, engaged, damage = 0, 0, 0, 0
     local lowestCompanionHealth = 100
     local woundedZombies, lowestLivingHealthRatio = 0, 1
@@ -784,7 +784,7 @@ local function finishTrial(H, current, check, result, setPhase)
 end
 
 function Probe.step(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local U = SC.GameplayUtil
     H.squadCombatNow = current
     if H.phase == "squad_combat_setup" then

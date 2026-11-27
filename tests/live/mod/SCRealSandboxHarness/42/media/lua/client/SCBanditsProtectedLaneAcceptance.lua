@@ -114,7 +114,7 @@ local function consumeShots(f)
     end
 end
 local function install(f)
-    local owner = SurvivorCompanion.Combat
+    local owner = LivingFellows.Combat
     local original = owner.friendlyFireBlocked
     f.observing = true
     local wrapper = function(actor, target, context)
@@ -144,8 +144,8 @@ local function install(f)
         if actor ~= f.actor or weapon ~= f.gun then return end
         local target, blocked = nativeAimTarget(f), false
         if target then
-            local record = SurvivorCompanion.Registry.byId(f.id)
-            local snapshot = SurvivorCompanion.Senses.cached(actor, record and record.runtime)
+            local record = LivingFellows.Registry.byId(f.id)
+            local snapshot = LivingFellows.Senses.cached(actor, record and record.runtime)
             blocked = original(actor, target, { player = f.primary.player, snapshot = snapshot, kind = "ranged" })
         end
         f.pendingShots = f.pendingShots or {}
@@ -177,7 +177,7 @@ local function finish(H, current, check, result, setPhase, good, why)
     setPhase("finish", current)
 end
 function Probe.step(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.banditsLane
+    local SC, f = LivingFellows, H.banditsLane
     if not f then
         if current - H.startedAt < 10000 or not SC.State.active then return end
         if not check("lane_adapter_active", SC.BanditsAdapter.status().active, SC.BanditsAdapter.status().reason) then

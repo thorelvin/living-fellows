@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real target selection, strike geometry and one owner per native damage episode.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local check = f.check
 local part = f.bodyPart({})
 local parts = { part }

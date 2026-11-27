@@ -2,7 +2,7 @@
 -- Clone-only native radio kit before departure; genuine public radio orders
 -- afterwards. Never moves, heals or replaces travelling companions or cargo.
 local R={}
-local function S() return SurvivorCompanion end
+local function S() return LivingFellows end
 local function call(object,method,...)
     if not object then return nil end
     local ok,fn=pcall(function() return object[method] end)

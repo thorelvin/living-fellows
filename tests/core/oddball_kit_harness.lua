@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- SCOddballKit: the helpers the Strange Folk encounter modules share.
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Kit = SC.OddballKit
 local checks = 0
 local function check(value, message)

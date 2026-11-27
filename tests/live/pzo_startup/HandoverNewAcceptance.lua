@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Actual camp creator, cancellation, surviving crew and native radio rescue.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local s={phase='menu',checks=0,routeReasons={},loadedCandidates={}}
 local function write(k,v) local w=assert(getFileWriter(k,true,false));w:write(v);w:close() end
 local rescuePulse=SC.HandoverRescue.pulse

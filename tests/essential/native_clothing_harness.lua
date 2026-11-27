@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Stock wardrobe action, including its deferred logistics effect and isolation.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local N, actor = SC.NativeActions, f.actor("native-wardrobe",3,3,{})
 local root, owned, changes = actor:getInventory(), true, 0
 local worn = {}

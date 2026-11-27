@@ -27,7 +27,7 @@ end
 
 local function restore(f)
     if not f then return end
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     if f.originalDecision then SC.Decision.update = f.originalDecision end
     if f.originalDecision then SC.Navigation.cancel(f.actor, "field_cargo_probe_finished") end
     if f.savedField then SC.FieldWork.restore(f.savedField) end
@@ -184,7 +184,7 @@ local function savedOrder(H, f)
         center = { x = math.floor(x), y = math.floor(y), z = 0 }, carId = f.carId,
         workers = { [f.id] = worker }, done = {}, woodClaims = {}, completed = 1, loaded = 0 }
     for _, item in ipairs(f.items) do
-        local data = SurvivorCompanion.GameplayUtil.modData(item)
+        local data = LivingFellows.GameplayUtil.modData(item)
         data.LF_FieldOrder, data.LF_FieldWorker = id, f.id
     end
     return { schema = 1, serial = 1, recentVehicleId = f.carId,
@@ -192,7 +192,7 @@ local function savedOrder(H, f)
 end
 
 local function setup(H, current, check, result, setPhase)
-    local SC = SurvivorCompanion
+    local SC = LivingFellows
     local f = H.fieldCargo
     if not f then
         local record = locateWorker(SC)
@@ -221,7 +221,7 @@ end
 
 local function prepare(H, current, check, result, setPhase)
     if current - H.phaseStartedAt < 2000 then return end
-    local SC, f = SurvivorCompanion, H.fieldCargo
+    local SC, f = LivingFellows, H.fieldCargo
     local rawId = tonumber(call(f.car, "getSqlId"))
     if (not rawId or rawId < 0 or SC.Vehicle.loadedBySqlId(rawId) ~= f.car)
         and current - H.phaseStartedAt < 15000 then return end
@@ -334,7 +334,7 @@ local function prepare(H, current, check, result, setPhase)
 end
 
 local function observe(H, current, check, result, setPhase)
-    local SC, f = SurvivorCompanion, H.fieldCargo
+    local SC, f = LivingFellows, H.fieldCargo
     if current - f.lastAt < 100 then return end
     f.lastAt = current
     local handled, reason = SC.FieldWork.update(f.actor, H.player,

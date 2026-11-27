@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- Run the maintained live driver's input phases against the real dialogue engine.
 -- Only native entry delivery/completion is adapted; this is not a live-game pass.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local P,D,L,S=SC.TerminalPersona,SC.TerminalPersonaDiscovery,SC.TerminalLocks,SC.TerminalSystem
 local probe=SCRealSandboxHarnessProbes.SCCampReleaseProbe
 local oldMod=ModData local book={} ModData={getOrCreate=function() return book end} L.reset()

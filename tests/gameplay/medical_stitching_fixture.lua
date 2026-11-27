@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- The fixture models only effects established by the native Phase 0 probe.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local F={serial=400000}
 local Base=SC.TestMedicalProcedures
 Perks.Doctor=Perks.Doctor or 'Doctor'

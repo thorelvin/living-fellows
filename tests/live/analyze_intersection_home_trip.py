@@ -21,7 +21,7 @@ def main():
                         help="add the historical bumper-fallback exercise requirement")
     args = parser.parse_args()
     manifest = json.loads((args.run / "run-manifest.json").read_text(encoding="utf-8-sig"))
-    base = args.run / "cache/Lua/SurvivorCompanionHarness"
+    base = args.run / "cache/Lua/LivingFellowsHarness"
     require((base / "summary.txt").is_file(), "wait for the full Home probe to finish; do not interrupt it")
     events = (base / "events.log").read_text(encoding="utf-8-sig").splitlines()
     bridge = hashlib.sha256(args.bridge.read_bytes()).hexdigest()

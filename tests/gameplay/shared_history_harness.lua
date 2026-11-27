@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local T,C,H,E=SC.TestFixture,SC.Community,SC.SharedHistory,SC.LifeEvents
 local checks=0
 local function check(value,why) checks=checks+1 assert(value,"shared history "..checks..": "..why) end

@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local SC = SurvivorCompanion
+local SC = LivingFellows
 local Pack = SC.OddballFurryPack
 local den, hall = {}, {}
 local clock = 1000

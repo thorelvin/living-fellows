@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- World receipts, speech admission and live power reporting, not engine dialogue.
-local SC,T=SurvivorCompanion,TERMINAL_TEST
+local SC,T=LivingFellows,TERMINAL_TEST
 local D,L,P,S=SC.TerminalPersonaDiscovery,SC.TerminalLocks,SC.TerminalPersona,SC.TerminalSystem
 local check,before=T.check,T.checks
 local old={mod=ModData,registry=SC.Registry,banter=SC.Banter,dialogue=SC.Dialogue,

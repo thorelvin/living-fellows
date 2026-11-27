@@ -65,7 +65,7 @@ function audio:stopUISound(handle)
     self.active[handle] = nil
 end
 getSoundManager = function() return audio end
-SurvivorCompanion = {
+LivingFellows = {
     GameplayUtil = {
         isZombie = function() return false end,
         instanceOf = function(item, class)
@@ -123,7 +123,7 @@ function TaxiContextRun()
 local square = { getVehicleContainer = function() return car end }
 local object = { getSquare = function() return square end }
 local worldMenu = menu()
-SurvivorCompanion.UIContext.fillWorldObjectContextMenu(0, worldMenu,
+LivingFellows.UIContext.fillWorldObjectContextMenu(0, worldMenu,
     { object }, false)
 local taxi = option(worldMenu, "UI_SC_Taxi_Menu")
 check(taxi and taxi.subMenu, "boarded world menu")
@@ -139,7 +139,7 @@ check(departCount == 1 and offerCount == 1,
     "in-car actions work without a radio")
 
 local radioMenu = menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0, radioMenu, { radio })
+LivingFellows.UIContext.fillRadioContextMenu(0, radioMenu, { radio })
 local radioTaxi = option(radioMenu, "UI_SC_Taxi_Menu")
 check(radioTaxi and radioTaxi.subMenu, "boarded radio menu")
 check(not option(radioTaxi.subMenu, "UI_SC_Taxi_Status"),
@@ -150,60 +150,60 @@ check(option(radioTaxi.subMenu, "UI_SC_Taxi_DriveTo")
 
 phase = "in_transit"
 local ridingMenu = menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0, ridingMenu, { radio })
+LivingFellows.UIContext.fillRadioContextMenu(0, ridingMenu, { radio })
 check(not option(ridingMenu, "UI_SC_Taxi_Menu"),
     "in-transit radio does not leave an empty taxi submenu")
 
 player.car = nil
 local walkingMenu = menu()
-SurvivorCompanion.UIContext.fillWorldObjectContextMenu(0, walkingMenu,
+LivingFellows.UIContext.fillWorldObjectContextMenu(0, walkingMenu,
     { object }, false)
 check(not option(walkingMenu, "UI_SC_Taxi_Menu"),
     "in-car menu unavailable outside cab")
 
 hasBooking = false
-local oldExpedition = SurvivorCompanion.ExpeditionPrototype
-SurvivorCompanion.ExpeditionPrototype = {current=function() return {scout={search=true}} end}
+local oldExpedition = LivingFellows.ExpeditionPrototype
+LivingFellows.ExpeditionPrototype = {current=function() return {scout={search=true}} end}
 for _,tvType in ipairs({"Base.TvAntique","Base.TvBlack","Base.TvWideScreen"}) do
     local tv={radioClass=true,container=inventory,fullType=tvType}
     function tv:getContainer() return self.container end
     function tv:getDeviceData() return {getIsTelevision=function() return true end} end
     player.primary=tv
     local televisionMenu=menu()
-    SurvivorCompanion.UIContext.fillRadioContextMenu(0,televisionMenu,{tv})
+    LivingFellows.UIContext.fillRadioContextMenu(0,televisionMenu,{tv})
     check(#televisionMenu.options==0,"equipped "..tvType.." has no taxi or expedition transmit menu")
 end
-SurvivorCompanion.ExpeditionPrototype=oldExpedition player.primary=nil
+LivingFellows.ExpeditionPrototype=oldExpedition player.primary=nil
 local receiveOnly={radioClass=true}
 local receiverMenu=menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0,receiverMenu,{receiveOnly})
+LivingFellows.UIContext.fillRadioContextMenu(0,receiverMenu,{receiveOnly})
 check(not option(receiverMenu,"UI_SC_Taxi_Menu"),"receive-only Radio-class item has no taxi menu")
 radio.taxiReady=false
 local unpoweredMenu=menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0,unpoweredMenu,{radio})
+LivingFellows.UIContext.fillRadioContextMenu(0,unpoweredMenu,{radio})
 check(not option(unpoweredMenu,"UI_SC_Taxi_Menu"),"off or otherwise unusable handset has no taxi menu")
 radio.taxiReady=true
 local mixedMenu=menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0,mixedMenu,{{items={receiveOnly,radio}}})
+LivingFellows.UIContext.fillRadioContextMenu(0,mixedMenu,{{items={receiveOnly,radio}}})
 local mixedRoot=option(mixedMenu,"UI_SC_Taxi_Menu")
 local mixedCall=mixedRoot and option(mixedRoot.subMenu,"UI_SC_Taxi_Call")
 check(mixedCall and mixedCall.args[2]==radio,"stacked mixed selection binds the working handset")
 local bookingMenu = menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0, bookingMenu, {radio})
+LivingFellows.UIContext.fillRadioContextMenu(0, bookingMenu, {radio})
 local bookingRoot = option(bookingMenu,"UI_SC_Taxi_Menu")
 local book = bookingRoot and option(bookingRoot.subMenu,"UI_SC_Taxi_Call")
 check(book ~= nil and #audio.plays == 0, "building the radio menu plays no audio")
 local accepted = book.callback(book.target,unpack(book.args))
 check(accepted == true and #audio.plays == 1 and audio.plays[1] == "LFTaxiRadioCall",
     "clicking a new accepted booking plays the supplied clip once")
-local handle = SurvivorCompanion.UIContext._taxiCallAudio.handle
+local handle = LivingFellows.UIContext._taxiCallAudio.handle
 requestReason = "already_booked"
 book.callback(book.target,unpack(book.args))
-check(#audio.plays == 1 and SurvivorCompanion.UIContext._taxiCallAudio.handle == handle,
+check(#audio.plays == 1 and LivingFellows.UIContext._taxiCallAudio.handle == handle,
     "stale duplicate booking clicks do not replay or replace the active clip")
 hasBooking, phase = true, "searching"
 local statusMenu = menu()
-SurvivorCompanion.UIContext.fillRadioContextMenu(0,statusMenu,{radio})
+LivingFellows.UIContext.fillRadioContextMenu(0,statusMenu,{radio})
 local statusRoot = option(statusMenu,"UI_SC_Taxi_Menu")
 local status = option(statusRoot.subMenu,"UI_SC_Taxi_Status")
 status.callback(status.target,unpack(status.args))
@@ -218,8 +218,8 @@ book.callback(book.target,unpack(book.args))
 check(#audio.plays == 1, "rejected or switched-off radios make no transmission sound")
 requestAccepted, requestReason = true, "booking_received"
 book.callback(book.target,unpack(book.args))
-local nextHandle = SurvivorCompanion.UIContext._taxiCallAudio.handle
-SurvivorCompanion.UIContext.remove()
+local nextHandle = LivingFellows.UIContext._taxiCallAudio.handle
+LivingFellows.UIContext.remove()
 check(not audio.active[nextHandle] and audio.active[777], "world UI removal releases only the taxi clip")
 
 getSoundManager = function() error("test unavailable audio device") end

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Contract checks run the dependency's real client/server identity functions.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local A, checks = SC.StayWithMeAdapter, 0
 local function check(value, why)
     checks = checks + 1

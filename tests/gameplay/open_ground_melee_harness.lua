@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exercise the production risk, utility and execution paths for local kiting.
-local SC, f = SurvivorCompanion, SurvivorCompanion.TestFixture
+local SC, f = LivingFellows, LivingFellows.TestFixture
 local U, checks = SC.GameplayUtil, 0
 local function check(value, message)
     checks = checks + 1

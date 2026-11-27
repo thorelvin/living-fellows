@@ -2,7 +2,7 @@
 -- Real Home camp fingerprint, Integration ownership and VehicleUnload.takeExact.
 -- Only world geometry, movement/animation receipts and native item containers
 -- are fixtures; no delivery, movement permission or transfer result is forced.
-local SC,T=SurvivorCompanion,INTEGRATION_TEST
+local SC,T=LivingFellows,INTEGRATION_TEST
 local I,H,V=SC.ExpeditionIntegration,SC.HomeTrip,SC.VehicleUnload
 assert(SC.FieldWork and type(SC.FieldWork.unlockTrunkFor)=="function",
     "Home cargo regression requires the real SCFieldWork unlock transaction")

@@ -43,9 +43,9 @@ try {
         (Join-Path $project 'tests\live\auto_start\SCPzoLoadingGateAgent.java')
     if($LASTEXITCODE -ne 0){throw 'Loading-gate compilation failed.'}
     $manifest=Join-Path $output 'MANIFEST.MF'
-    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: survivorcompanion.harness.SCPzoLoadingGateAgent`n`n",$utf8)
+    [IO.File]::WriteAllText($manifest,"Manifest-Version: 1.0`nPremain-Class: livingfellows.harness.SCPzoLoadingGateAgent`n`n",$utf8)
     $gateJar=Join-Path $output 'loading-gate.jar'
-    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes survivorcompanion
+    & (Join-Path (Split-Path -Parent $javac) 'jar.exe') --create --file $gateJar --manifest $manifest -C $classes livingfellows
     if($LASTEXITCODE -ne 0){throw 'Loading-gate packaging failed.'}
     $run=& (Join-Path $fixtures 'PrepareFixture.ps1') -Scenario approved -PayloadProjectRoot $project `
         -GameRoot $GameRoot -OutputRoot $output -MediaSnapshotRoot $MediaSnapshotRoot -PzoJar $PzoJar
@@ -53,14 +53,14 @@ try {
     $fixture=Get-Content -LiteralPath (Join-Path $run 'run.json') -Raw|ConvertFrom-Json
     if($BaselineBaseWork){
         $archive=Join-Path $output 'baseline-base-work.zip'
-        & git -C $project archive --format=zip --output=$archive 039a84fd -- SurvivorCompanion/42/media/lua/client/SCBaseWork.lua
+        & git -C $project archive --format=zip --output=$archive 039a84fd -- LivingFellows/42/media/lua/client/SCBaseWork.lua
         if($LASTEXITCODE -ne 0){throw 'Baseline departure cargo archive failed.'}
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $zip=[IO.Compression.ZipFile]::OpenRead($archive)
         try {
             foreach($entry in $zip.Entries){
                 if($entry.Name -notin @('SCBaseWork.lua')){continue}
-                $target=Join-Path $fixture.cache ('mods/SurvivorCompanion/42/media/lua/client/'+$entry.Name)
+                $target=Join-Path $fixture.cache ('mods/LivingFellows/42/media/lua/client/'+$entry.Name)
                 [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$target,$true)
             }
         } finally {$zip.Dispose()}
@@ -88,7 +88,7 @@ try {
     Write-Output $receiptText
     if($receiptText -notmatch '(?m)^result=PASS\r?$'){throw 'Native departure cargo regression failed; see the captured receipt.'}
     $pzo=Get-Content -LiteralPath (Join-Path $fixture.cache 'Lua\pzo_engine.log') -Raw
-    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on survivorcompanion.bridge.SCBootstrapAgent'){
+    if($pzo -notmatch 'Invoked premain\(String, Instrumentation\) on livingfellows.bridge.SCBootstrapAgent'){
         throw 'PZO did not load the production bridge.'
     }
     Write-Output "NATIVE_PZO_DEPARTURE_CARGO_PASS evidence=$output"

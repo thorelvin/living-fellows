@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real downtime/supervisor policies with the seat-route fixture's native adapters.
-local SC=SurvivorCompanion
+local SC=LivingFellows
 local D,U,S=SC.Downtime,SC.GameplayUtil,SC.ActionSupervisor
 local _,seatActivity,_,begin,_,_,floorRest,_,_,_,_,stateFor=D._furnitureForTests()
 local checks=0

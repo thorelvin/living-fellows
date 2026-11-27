@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: MIT
-local F,SC=PICKUP_RADIO,SurvivorCompanion
+local F,SC=PICKUP_RADIO,LivingFellows
 local R,E,check=SC.PickupRadio,SC.RadioEndpoints,PICKUP_RADIO.check
 local function noHooks() for _ in pairs(F.hooks) do return false end return true end
 local caller=R.caller(F.player,F.callerRadio)

@@ -53,7 +53,7 @@ local function stage(SC, actor)
     SC.GameplayUtil.invalidateSpatial(actor)
 end
 function Probe.step(H,current,check,result,setPhase)
-    local SC,U = SurvivorCompanion,SurvivorCompanion.GameplayUtil
+    local SC,U = LivingFellows,LivingFellows.GameplayUtil
     if H.phase == "doorway_stall_setup" then
         if current-H.phaseStartedAt<8000 then return end
         local chosen

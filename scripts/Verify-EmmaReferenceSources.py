@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CLIENT = ROOT / 'SurvivorCompanion/42/media/lua/client'
+CLIENT = ROOT / 'LivingFellows/42/media/lua/client'
 
 
 def digest(path):

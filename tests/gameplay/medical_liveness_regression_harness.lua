@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Isolated regression for native body-part defaults and dead rescue candidates.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local M, U = SC.Medical, SC.GameplayUtil
 local function check(value, message)
     checks = checks + 1

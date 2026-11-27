@@ -1,0 +1,3984 @@
+-- SPDX-License-Identifier: MIT
+
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
+if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
+require "SCScavengeLoot"
+local Loot = SC.ScavengeLoot
+
+SC.Encounter = SC.Encounter or {}
+local Encounter = SC.Encounter
+local states = setmetatable({}, { __mode = "k" })
+local containerReservations = setmetatable({}, { __mode = "k" })
+local corpseContainers = setmetatable({}, { __mode = "k" })
+local failedContainers = setmetatable({}, { __mode = "k" })
+local scavengeRetries = setmetatable({}, { __mode = "k" })
+local supplyCacheGeneration = 0
+local stopScavengeMovement
+local cleanupScavengeTarget
+local finishHaul
+local nextPartyLootAt = 0
+
+local function U()
+    return SC.GameplayUtil
+end
+
+local function manualEquipmentOnly(item)
+    return SC.Logistics and type(SC.Logistics.manualOnlyFilterMask) == "function"
+        and SC.Logistics.manualOnlyFilterMask(item) == true
+end
+
+local function matchesSupplyRequest(requestedCategory, category)
+    return requestedCategory == "useful" and category ~= nil
+        or requestedCategory == category
+end
+
+local function stateFor(actor)
+    local state = states[actor]
+    if not state then
+        state = {
+            scanPhase = 0,
+            lastActionAt = 0,
+            visited = setmetatable({}, { __mode = "k" }),
+        }
+        states[actor] = state
+    end
+    return state
+end
+
+local function sourceSquareKey(x, y, z)
+    if x == nil or y == nil or z == nil then return nil end
+    return tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
+        .. ":" .. tostring(math.floor(z))
+end
+
+local function expeditionSourceOnCooldown(state, square, time)
+    local remembered = state.failedSiteSources
+    if remembered == nil then return false end
+    local x, y, z = U().position(square)
+    local key = sourceSquareKey(x, y, z)
+    local expires = key and remembered[key] or nil
+    if expires == nil then return false end
+    if time >= expires then remembered[key] = nil return false end
+    return true
+end
+
+local function rememberFailedExpeditionSource(state, task, time)
+    if task.scavengeMissionId == nil then return end
+    local key = sourceSquareKey(task.containerX, task.containerY,
+        task.containerZ)
+    if key == nil then return end
+    state.failedSiteSources = state.failedSiteSources or {}
+    state.failedSiteSources[key] = time + 60000
+end
+
+local function commandState(actor)
+    if SC.Commands and type(SC.Commands.peek) == "function" then
+        local ok, value = pcall(SC.Commands.peek, actor)
+        if ok and type(value) == "table" then
+            if SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.testSearchFor) == "function"
+                and SC.ExpeditionPrototype.testSearchFor(actor) then
+                local missionView = {}
+                for key, entry in pairs(value) do missionView[key] = entry end
+                missionView.order = "stay"
+                missionView.scavenge = true
+                missionView.scavengeTargetContainer =
+                    SC.ExpeditionPrototype.testSearchTargetFor(actor)
+                missionView.scavengeRequestedCategory =
+                    SC.ExpeditionPrototype.testSearchCategoryFor(actor)
+                missionView.scavengeMissionId =
+                    SC.ExpeditionPrototype.testSearchMissionIdFor(actor)
+                missionView.scavengeSite =
+                    SC.ExpeditionPrototype.searchSiteFor(actor)
+                missionView.scavengeSiteRadius =
+                    SC.ExpeditionPrototype.searchSiteRadiusFor(actor)
+                return missionView
+            end
+            return value
+        end
+    end
+    return { recruited = false, scavenge = false, order = "wander" }
+end
+
+local function now()
+    return U().nowMs()
+end
+
+local function supervisor()
+    if type(SC.ActionSupervisor) == "table" then return SC.ActionSupervisor end
+    return nil
+end
+
+local supervisorPhases = {
+    select = "selected", approach = "approaching", settle = "settling",
+    animate = "animating", commit = "committing", verify = "verifying",
+}
+
+local function syncSupervisorPhase(task, phase, reason)
+    local service = supervisor()
+    local token = task and task.supervisorToken or nil
+    local mapped = supervisorPhases[phase]
+    if service and mapped and token and type(service.transition) == "function" then
+        service.transition(token, mapped, { reason = reason, item = task.itemType })
+    end
+end
+
+local function debugTrace(actor, task, phase, reason)
+    local utility = U()
+    if not utility or utility.config("debugSpawnEnabled") ~= true then return end
+    print("[LivingFellows][scavenge] actor=" .. tostring(utility.idOf(actor))
+        .. " phase=" .. tostring(phase or "none")
+        .. " item=" .. tostring(task and task.itemType or "none")
+        .. " source=" .. tostring(task and task.sourceKind or "none")
+        .. " destination=" .. tostring(task and task.destinationKind or "none")
+        .. " result=" .. tostring(reason or "none"))
+end
+
+local function setTaskPhase(actor, state, task, phase, reason)
+    if not task then return end
+    local changed = task.phase ~= phase or (reason ~= nil and task.reason ~= reason)
+    task.phase = phase
+    task.reason = reason
+    task.phaseAt = now()
+    state.task = task
+    syncSupervisorPhase(task, phase, reason)
+    if changed then debugTrace(actor, task, phase, reason) end
+end
+
+-- NativeActions is intentionally optional in the pure gameplay harness. In a
+-- real game this reports the exact state of our queued human animation, letting
+-- inventory mutation wait for the rummage action instead of racing it.
+local function nativeVisualStatus(actor, expectedAction)
+    local adapter = SC.NativeActions
+    if type(adapter) ~= "table" then return nil end
+    if type(adapter.visualStatus) ~= "function" then
+        return type(adapter.dispatch) == "function" and "unavailable" or nil
+    end
+    local ok, status, actionName = pcall(adapter.visualStatus, actor, expectedAction)
+    -- A failed live status read must not count as a finished rummage animation.
+    if not ok then return "unavailable" end
+    return status, actionName
+end
+
+local function visualAdapterAbsent()
+    local adapter = SC.NativeActions
+    -- Gameplay fixtures provide status stubs but no native action dispatcher.
+    -- A live dispatcher that is present but broken must fail closed.
+    return type(adapter) ~= "table"
+        or type(adapter.dispatch) ~= "function"
+end
+
+local function clearNativeVisual(actor)
+    if SC.NativeActions and type(SC.NativeActions.clearVisual) == "function" then
+        pcall(SC.NativeActions.clearVisual, actor)
+    end
+end
+
+local function cancelOwnedVisual(actor, expectedAction, reason, token)
+    if token and SC.NativeActions
+        and type(SC.NativeActions.cancelVisualOwned) == "function" then
+        return SC.NativeActions.cancelVisualOwned(actor, token, reason)
+    end
+    local status = nativeVisualStatus(actor, expectedAction)
+    if status == nil or status == "none" or status == "different" then return true end
+    if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
+        local ok, cancelled, why = pcall(SC.NativeActions.cancelVisual, actor, reason)
+        return ok and cancelled ~= false, why
+    else
+        clearNativeVisual(actor)
+    end
+    return true
+end
+
+local function containerOnCooldown(container, current)
+    local expires = container and failedContainers[container] or nil
+    if expires and expires <= current then
+        failedContainers[container] = nil
+        return false
+    end
+    return expires ~= nil
+end
+
+local function coolDownContainer(container, current)
+    if container then
+        failedContainers[container] = current
+            + (U().config("scavengeFailureCooldownMs") or 15000)
+    end
+end
+
+local function pruneReservation(container, time)
+    local reservation = containerReservations[container]
+    if reservation and reservation.expires <= time then
+        containerReservations[container] = nil
+        return nil
+    end
+    return reservation
+end
+
+local function reserveContainer(container, actor, time, leaseMs)
+    local reservation = pruneReservation(container, time)
+    if reservation and reservation.actor ~= actor then return false end
+    containerReservations[container] = {
+        actor = actor,
+        expires = time + (leaseMs or U().config("scavengeReservationMs") or 12000),
+    }
+    return true
+end
+
+local function releaseContainer(container, actor)
+    local reservation = container and containerReservations[container]
+    if reservation and reservation.actor == actor then containerReservations[container] = nil end
+end
+
+local function containerOwner(container)
+    local utility = U()
+    local owner, ok = utility.call(container, "getParent")
+    if ok and owner then return owner end
+    owner, ok = utility.call(container, "getContainingItem")
+    if ok and owner then return owner end
+    return container
+end
+
+-- How far a container is, without ever asking a container that is no longer
+-- anywhere. A looted, destroyed or unloaded world object keeps its Lua
+-- reference but loses its square, and Build 42's IsoObject.getX() dereferences
+-- that square without checking it, so the read throws inside its pcall and
+-- still costs a full Java and Lua stack trace in the log. An owner with no
+-- square is out of range, which is the truth: it is gone. An owner that still
+-- has one is measured exactly as before.
+local function ownerDistance(actor, owner)
+    if owner == nil then return math.huge end
+    local utility = U()
+    if utility.squareOf(owner) == nil then return math.huge end
+    return utility.distance(actor, owner)
+end
+
+local function containerFlags(container)
+    local utility = U()
+    local owner = containerOwner(container)
+    local data = utility.modData(owner) or utility.modData(container)
+    return data
+end
+
+local function hasScavengeRetries()
+    for _ in pairs(scavengeRetries) do return true end
+    return false
+end
+
+function Encounter.noteScavengeObjectAdded(object)
+    if not object or not hasScavengeRetries() then return end
+    Encounter.noteScavengeContainerChanged(Loot.primary(object))
+end
+
+function Encounter.noteScavengeContainerChanged(container)
+    if not container or not hasScavengeRetries() then return end
+    local utility = U()
+    local square = utility.call(container, "getSourceGrid")
+        or utility.squareOf(containerOwner(container))
+    local x, y, z = utility.position(square)
+    if not x or not y or z == nil then return end
+    for actor, retry in pairs(scavengeRetries) do
+        if retry.z == z and (retry.x - x)^2 + (retry.y - y)^2 <= (retry.radius + 1)^2 then
+            scavengeRetries[actor] = nil
+        end
+    end
+end
+
+function Encounter.markPlayerOpened(containerOrObject)
+    local utility = U()
+    if not containerOrObject then return false end
+    local container = containerOrObject
+    if not utility.hasMethod(container, "getItems") then
+        local value, ok = utility.call(containerOrObject, "getContainer")
+        if ok and value then container = value end
+    end
+    local flags = containerFlags(container)
+    if not flags then return false end
+    if flags.SC_PlayerOpened ~= true then Encounter.noteScavengeContainerChanged(container) end
+    flags.SC_PlayerOpened = true
+    flags.SC_PlayerOpenedAt = now()
+    return true
+end
+
+function Encounter.onPlayerContainerOpened(containerOrObject)
+    return Encounter.markPlayerOpened(containerOrObject)
+end
+
+function Encounter.wasPlayerOpened(containerOrObject)
+    if not containerOrObject then return false end
+    local utility = U()
+    local container = containerOrObject
+    if not utility.hasMethod(container, "getItems") then
+        local value, ok = utility.call(containerOrObject, "getContainer")
+        if ok and value then container = value end
+    end
+    local flags = containerFlags(container)
+    return flags and flags.SC_PlayerOpened == true or false
+end
+
+-- Registered base storage by tile, so a scan can recognise marked storage
+-- without resolving every row for every container it passes.
+local function storageTileKey(x, y, z)
+    return math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(tonumber(z) or 0)
+end
+
+local function storageIndex()
+    local index = { count = 0 }
+    local baseLife = SC.BaseLife
+    if type(baseLife) ~= "table" or type(baseLife.storageRows) ~= "function" then return index end
+    for _, storage in ipairs(baseLife.storageRows()) do
+        local x, y = tonumber(storage.x), tonumber(storage.y)
+        if x and y then
+            local key = storageTileKey(x, y, storage.z)
+            index[key] = index[key] or {}
+            index[key][#index[key] + 1] = storage
+            index.count = index.count + 1
+        end
+    end
+    return index
+end
+
+-- The registered base storage a container belongs to, if any.
+local function registeredStorage(container, index)
+    local baseLife = SC.BaseLife
+    if index.count == 0 or type(baseLife) ~= "table"
+        or type(baseLife.resolveContainer) ~= "function" then return nil end
+    -- Through the square, never the object: a container that has been removed
+    -- from the world still answers getParent() but no longer has a square for
+    -- IsoObject.getX() to read.
+    local x, y, z = U().position(U().squareOf(containerOwner(container)))
+    if x == nil then return nil end
+    local rows = index[storageTileKey(x, y, z)]
+    for _, storage in ipairs(rows or {}) do
+        local ok, resolved = pcall(baseLife.resolveContainer, storage)
+        if ok and resolved == container then return storage end
+    end
+end
+
+local function insideBase(value)
+    local baseLife = SC.BaseLife
+    if type(baseLife) ~= "table" or type(baseLife.isInside) ~= "function" then return false end
+    local ok, inside = pcall(baseLife.isInside, value)
+    return ok and inside == true
+end
+
+-- Inside the base, companions use the storage the player has marked and
+-- leave every other container to the player, opened or not. Memorial storage
+-- keeps the keepsakes of the dead, and storage with withdrawals turned off
+-- stays shut. Outside the base any container is fair loot, so a house the
+-- player searched first is not closed to the companions who came along.
+-- Returns "outside", "shared" with its storage row, or "player".
+function Encounter.baseStorageAccess(container, index, inside)
+    if inside == nil then inside = insideBase(containerOwner(container)) end
+    if not inside then return "outside" end
+    local storage = registeredStorage(container, index or storageIndex())
+    if storage and storage.category ~= "memorial" and storage.withdrawals ~= false then
+        return "shared", storage
+    end
+    return "player"
+end
+
+-- Whether this companion may take anything out of this container at all.
+--
+-- Candidate discovery filtered on the access verdict, but scoring only kept
+-- the storage row that comes with it -- and a refused container has no row, so
+-- `storage == nil` read as "unrestricted" rather than "forbidden". Discovery
+-- hid the problem until the sticky path began calling the scorer directly:
+-- once a companion had taken one item out of shared storage, revoking
+-- withdrawals, marking the container memorial or unmarking it entirely did not
+-- stop the next one, and each transfer renewed the sticky window.
+--
+-- One function, asked by everything that can move an item.
+function Encounter.mayTakeFrom(container, index, inside)
+    local access, storage = Encounter.baseStorageAccess(container, index, inside)
+    if access == "player" then return false, "player_storage", nil end
+    return true, access, storage
+end
+
+-- Marked storage keeps its reserve: never take an item below it.
+local function storageAllows(storage, item)
+    if SC.BaseWork and SC.BaseWork.choreReserved and SC.BaseWork.choreReserved(item) then return false end
+    local base = SC.BaseLife
+    local kind = U().itemType(item)
+    if base and type(base.storageReserve)=="function" and base.storageReserve(storage,kind)==0 then return true end
+    local count = base and (base.availableCountExact or base.availableCount)
+    if type(count) ~= "function" then return true end
+    local ok, available = pcall(count, storage, kind)
+    return ok and (tonumber(available) or 0) > 0
+end
+
+local containerItems
+local chooseDestination
+
+local function supplyStillPresent(supply)
+    return type(supply) == "table" and supply.container ~= nil and supply.item ~= nil
+        and U().inventoryContains(supply.container, supply.item)
+end
+
+local function releasePlayerSupply(actor, state)
+    state = state or (actor and states[actor])
+    local supply = state and state.supply or nil
+    if supply and supply.phase == "visual" then
+        cancelOwnedVisual(actor, "loot_container", "camp_supply_cancelled")
+    end
+    if supply then releaseContainer(supply.container, actor) end
+    if state then state.supply = nil end
+end
+
+-- One retained pass over marked stock. The item/container limits cover the
+-- entire request and share the scheduler's frame quotas across companions.
+-- A yield remains pending; it must never authorize lower-priority food.
+local function findMarkedSupply(actor, predicate, oz, state, options, supplyKey)
+    local utility, baseLife, performance = U(), SC.BaseLife, SC.Performance
+    local clock = performance and performance.preciseNowMs or now
+    local deadline = clock() + 0.75
+    if performance and performance.remainingBudgetMs then
+        local remaining = performance.remainingBudgetMs()
+        if remaining and remaining<=0 then return nil,true end
+        if remaining then deadline=math.min(deadline,clock()+remaining) end
+    end
+    local itemLimit, containerLimit, itemClaim, containerClaim = 64, 2
+    if performance and performance.claimUnits then
+        itemLimit,itemClaim=performance.claimUnits("campSupplyItems",itemLimit,false,true)
+        containerLimit,containerClaim=performance.claimUnits("campSupplyContainers",containerLimit,false,true)
+    end
+    local examined, visited = 0, 0
+    local function finish(result, pending)
+        if performance and performance.settleUnits then
+            performance.settleUnits(itemClaim,examined)
+            performance.settleUnits(containerClaim,visited)
+        end
+        if pending and performance and performance.markYield then
+            performance.markYield("camp-supply",utility.idOf and utility.idOf(actor),examined)
+        end
+        return result,pending
+    end
+    if itemLimit<=0 or containerLimit<=0 then return finish(nil,true) end
+    local rows, membership = baseLife.storageRows(nil,true), {}
+    for _,row in ipairs(rows) do membership[row]=true end
+    local base=type(baseLife.active)=="function" and baseLife.active() or nil
+    local key=tostring(supplyCacheGeneration)..":"..tostring(base and base.id or baseLife)..":"..tostring(supplyKey)
+    local query=key..":"..tostring(oz)..":"..tostring(options.radius)..":"..tostring(options.campFloors)
+    if options.radius then
+        local x,y=utility.position(options.origin or actor)
+        query=query..":"..tostring(math.floor(x or 0))..":"..tostring(math.floor(y or 0))
+    end
+    local scan=state.markedScan
+    local changed=not scan or scan.query~=query or #scan.sources~=#rows
+    if not changed then
+        for index,row in ipairs(rows) do if scan.sources[index]~=row then changed=true break end end
+    end
+    if changed then
+        scan={query=query,sources=rows,rows={},at=1,index=0,waiting=false}
+        local priorities={}
+        for index,kind in ipairs(options.preferredCategories or {}) do priorities[kind]=index end
+        local ax,ay=utility.position(actor)
+        for index,row in ipairs(rows) do
+            local dx,dy=(tonumber(row.x) or math.huge)-(ax or 0),(tonumber(row.y) or math.huge)-(ay or 0)
+            scan.rows[#scan.rows+1]={row=row,priority=priorities[row.category] or 100,
+                distance=dx*dx+dy*dy,index=index}
+        end
+        table.sort(scan.rows,function(a,b)
+            if a.priority~=b.priority then return a.priority<b.priority end
+            if a.distance~=b.distance then return a.distance<b.distance end
+            return a.index<b.index
+        end)
+        state.markedScan=scan
+    end
+    local resolved={}
+    local function inspect(row)
+        if resolved[row] then return resolved[row].value,resolved[row].reason end
+        if not membership[row] then return nil,"gone" end
+        if visited>=containerLimit or examined>0 and clock()>=deadline then return nil,"budget" end
+        visited=visited+1
+        local okay,container=pcall(baseLife.resolveContainer,row)
+        local owner=okay and container and containerOwner(container)
+        local value,reason
+        if not container or not owner then reason="unknown"
+        elseif (state.supplyRejected and state.supplyRejected[container] or 0)>now() then reason="rejected"
+        elseif options.radius and ownerDistance(options.origin or actor,owner)>options.radius then reason="outside"
+        else
+            local floorAllowed=math.floor(tonumber(row.z) or 0)==math.floor(oz or 0)
+            if not floorAllowed and options.campFloors and type(baseLife.allowsFloorTransit)=="function" then
+                local called,allowed=pcall(baseLife.allowsFloorTransit,actor,owner,{workCampOnly=true})
+                floorAllowed=called and allowed==true
+            end
+            if floorAllowed then
+                local items=containerItems(container)
+                if items then value={container=container,owner=owner,items=items,storage=row}
+                else reason="unknown" end
+            else reason="outside" end
+        end
+        resolved[row]={value=value,reason=reason}
+        return value,reason
+    end
+    local function accepted(item,source)
+        if examined>=itemLimit or examined>0 and clock()>=deadline then return false,"budget" end
+        examined=examined+1
+        if SC.PersonalItems and SC.PersonalItems.isProtected(item,actor,"camp_supply") then return false end
+        local called,matches=pcall(predicate,item)
+        return called and matches==true and storageAllows(source.storage,item)
+    end
+    local cached=performance and performance.cacheGet and performance.cacheGet("camp-supply",key,now()) or {}
+    local function remember(source,item)
+        if not performance or not performance.cachePut then return end
+        for _,entry in ipairs(cached) do if entry.item==item and entry.storage==source.storage then return end end
+        if #cached>=8 then table.remove(cached,1) end
+        cached[#cached+1]={item=item,container=source.container,storage=source.storage}
+        performance.cachePut("camp-supply",key,cached,2000,now())
+    end
+    -- Probe at most one cached candidate so protected/reserved results cannot
+    -- consume the entire container allowance and starve new discovery.
+    for _=1,math.min(1,#cached) do
+        state.supplyCacheCursor=((state.supplyCacheCursor or 0)%#cached)+1
+        local entry=cached[state.supplyCacheCursor]
+        local source,reason=inspect(entry.storage)
+        if reason=="budget" then return finish(nil,true) end
+        if source and source.container==entry.container and utility.inventoryContains(source.container,entry.item) then
+            local allowed,why=accepted(entry.item,source)
+            if why=="budget" then return finish(nil,true) end
+            if allowed then
+                local reservation=pruneReservation(source.container,now())
+                if not reservation or reservation.actor==actor then
+                    state.markedScan=nil
+                    return finish({container=source.container,item=entry.item,owner=source.owner},false)
+                end
+                scan.waiting=true
+                source.heldMatch=true
+            end
+        elseif reason=="gone" or source then
+            -- The item moved or the marker/container was replaced. This is
+            -- invalid for every actor, unlike an actor-specific predicate.
+            table.remove(cached,state.supplyCacheCursor)
+            state.supplyCacheCursor=math.max(0,state.supplyCacheCursor-1)
+        end
+    end
+    while scan.at<=#scan.rows do
+        local source,reason=inspect(scan.rows[scan.at].row)
+        if reason=="budget" or examined>=itemLimit then return finish(nil,true) end
+        if source and not source.heldMatch then
+            local size=utility.listSize(source.items)
+            if scan.container~=source.container or scan.index>size or scan.size and size>scan.size then
+                scan.container,scan.index=source.container,0
+            elseif scan.size and size<scan.size then
+                scan.index=math.max(0,scan.index-(scan.size-size))
+            end
+            scan.size=size
+            local chosen,yielded
+            utility.each(source.items,itemLimit-examined,function(item)
+                local allowed,why=accepted(item,source)
+                if why=="budget" then yielded=true return false end
+                scan.index=scan.index+1
+                if allowed then chosen=item return false end
+            end,scan.index)
+            if chosen then
+                remember(source,chosen)
+                local reservation=pruneReservation(source.container,now())
+                if not reservation or reservation.actor==actor then
+                    state.markedScan=nil
+                    return finish({container=source.container,item=chosen,owner=source.owner},false)
+                end
+                scan.waiting=true
+                -- A known matching container is pending, not a reason to read
+                -- every remaining copy of the same food while another NPC uses it.
+                scan.index=size
+            end
+            if yielded or scan.index<size then return finish(nil,true) end
+        elseif reason=="unknown" then scan.waiting=true end
+        scan.at,scan.index,scan.container,scan.size=scan.at+1,0,nil,nil
+    end
+    state.markedScan=nil
+    return finish(nil,scan.waiting)
+end
+
+-- Searches the base's marked storage inside the base and, away from it, the
+-- world containers the local player has opened. The rotating outer-band
+-- sample keeps a 24-tile camp useful without turning every companion
+-- decision into a full square scan.
+local function findPlayerSupply(actor, predicate, options, state, supplyKey)
+    local utility = U()
+    local origin = options.origin or actor
+    local ox, oy, oz = utility.position(origin)
+    if not ox then return nil end
+    if insideBase(origin) and SC.BaseLife
+        and type(SC.BaseLife.storageRows) == "function"
+        and type(SC.BaseLife.resolveContainer) == "function" then
+        -- Registered storage is the permitted source set at home. A completed
+        -- miss must not start another scan of hundreds of world squares.
+        return findMarkedSupply(actor,predicate,oz,state,options,supplyKey)
+    end
+    local storages = storageIndex()
+    local radius = math.max(1, math.min(32,
+        math.floor(tonumber(options.radius) or utility.config("campStorageRadius") or 24)))
+    local squareBudget = math.max(1,
+        math.floor(tonumber(options.squareBudget)
+            or utility.config("campStorageSquareBudget") or 220))
+    local itemBudget = math.max(1,
+        math.floor(tonumber(options.itemBudget)
+            or utility.config("campStorageItemBudget") or 80))
+    state.supplyScanPhase = ((state.supplyScanPhase or 0) + 1) % 8
+    local phase = state.supplyScanPhase
+    local scanned = 0
+    local best, bestDistance, waiting
+
+    for distance = 0, radius do
+        for dx = -distance, distance do
+            for dy = -distance, distance do
+                if scanned >= squareBudget then return best,waiting end
+                local edge = math.max(math.abs(dx), math.abs(dy)) == distance
+                local sampled = distance <= 6 or ((dx * 17 + dy * 31) % 8) == phase
+                if edge and sampled then
+                    local square = utility.gridSquare(ox + dx, oy + dy, oz)
+                    if square then
+                        scanned = scanned + 1
+                        local squareInside = insideBase(square)
+                        utility.squareObjects(square, function(object)
+                            local container, containerOk = utility.call(object, "getContainer")
+                            local access, storage
+                            if containerOk and container then
+                                access, storage = Encounter.baseStorageAccess(
+                                    container, storages, squareInside)
+                            end
+                            if access == "shared" or (access == "outside"
+                                and Encounter.wasPlayerOpened(container)) then
+                                local reservation = pruneReservation(container, now())
+                                local rejected=state.supplyRejected and state.supplyRejected[container] or 0
+                                if now()>=rejected and (options.completeSearch or not reservation or reservation.actor == actor) then
+                                    local examined = 0
+                                    local offset=options.completeSearch and state.supplySlices[container] or 0
+                                    offset=offset or 0
+                                    utility.each(containerItems(container), itemBudget, function(candidate)
+                                        examined = examined + 1
+                                        local accepted = false
+                                        local protected = SC.PersonalItems
+                                            and SC.PersonalItems.isProtected(candidate, actor, "camp_supply")
+                                        if not protected then
+                                            local ok, value = pcall(predicate, candidate)
+                                            if ok then accepted = value == true end
+                                        end
+                                        if accepted and storage then
+                                            accepted = storageAllows(storage, candidate)
+                                        end
+                                        if accepted and options.completeSearch and options.radius then
+                                            accepted=ownerDistance(origin,containerOwner(container))<=options.radius
+                                        end
+                                        if accepted then
+                                            if options.completeSearch then state.supplySlices[container]=nil end
+                                            if reservation and reservation.actor~=actor then
+                                                waiting=true
+                                                return false
+                                            end
+                                            local owner = containerOwner(container)
+                                            local candidateDistance = ownerDistance(actor, owner)
+                                            if not bestDistance or candidateDistance < bestDistance then
+                                                best = {
+                                                    container = container,
+                                                    item = candidate,
+                                                    owner = owner,
+                                                }
+                                                bestDistance = candidateDistance
+                                            end
+                                            return false
+                                        end
+                                        return examined < itemBudget
+                                    end,offset)
+                                    if options.completeSearch and examined==itemBudget
+                                        and offset+itemBudget<utility.listSize(containerItems(container)) then
+                                        state.supplySlices[container]=offset+itemBudget
+                                        waiting=true
+                                    elseif options.completeSearch then state.supplySlices[container]=nil end
+                                end
+                            end
+                        end, 40)
+                    end
+                end
+            end
+        end
+        if best then return best,waiting end
+    end
+    return best,waiting
+end
+
+-- Transaction state is deliberately transient.  Return values are a small
+-- state machine: "taken", "in_progress", "missing", "unsafe", or "error".
+function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
+    if not actor or type(predicate) ~= "function" then
+        return "error", "invalid_supply_request"
+    end
+    options = type(options) == "table" and options or {}
+    local utility = U()
+    local state = stateFor(actor)
+    -- Food tiers keep independent bounded cursors: looking for water between
+    -- meal ticks must not restart a large fridge at its first item forever.
+    local discovery=state
+    if options.completeSearch then
+        state.supplySearches=state.supplySearches or {}
+        state.supplySearchKeys=state.supplySearchKeys or {}
+        discovery=state.supplySearches[supplyKey]
+        if not discovery then
+            if #state.supplySearchKeys>=8 then
+                state.supplySearches[table.remove(state.supplySearchKeys,1)]=nil
+            end
+            state.supplySearchKeys[#state.supplySearchKeys+1]=supplyKey
+            discovery={supplySlices=setmetatable({}, {__mode="k"}),
+                supplyRejected=setmetatable({}, {__mode="k"})}
+            state.supplySearches[supplyKey]=discovery
+        end
+    end
+    local function rejectSupply(reason)
+        if options.completeSearch and state.supply then
+            discovery.supplyRejected[state.supply.container]=now()+15000
+        end
+        releasePlayerSupply(actor,state)
+        return "error",reason
+    end
+    local snapshot = options.snapshot
+    if type(snapshot) == "table" and ((snapshot.immediateCount or 0) > 0
+        or (snapshot.pressure or 0) >= 2.5) then
+        releasePlayerSupply(actor, state)
+        return "unsafe", "camp_supply_threat"
+    end
+
+    local supply = state.supply
+    if supply and options.revalidatePredicate then
+        local okay,accepted=pcall(predicate,supply.item)
+        if not okay or accepted~=true then releasePlayerSupply(actor,state);supply=nil end
+    end
+    if supply and (supply.key ~= supplyKey or not supplyStillPresent(supply)) then
+        releasePlayerSupply(actor, state)
+        supply = nil
+    end
+    local current = now()
+    local lease = utility.config("campStorageReservationMs") or 20000
+    if supply and not reserveContainer(supply.container, actor, current, lease) then
+        releasePlayerSupply(actor, state)
+        supply = nil
+    end
+    if not supply then
+        local waiting
+        supply, waiting = findPlayerSupply(actor, predicate, options, discovery, supplyKey)
+        if not supply then
+            if waiting then return "in_progress", "camp_supply_reserved", "searching" end
+            return "missing", "camp_supply_missing"
+        end
+        if not reserveContainer(supply.container, actor, current, lease) then
+            return "in_progress", "camp_supply_reserved", "searching"
+        end
+        supply.key = supplyKey
+        state.supply = supply
+    end
+
+    if options.completeSearch then
+        local allowed,_,storage=Encounter.mayTakeFrom(supply.container)
+        if not allowed or storage and not storageAllows(storage,supply.item)
+            or options.radius and ownerDistance(options.origin or actor,supply.owner)>options.radius then
+            return rejectSupply("camp_supply_access_changed")
+        end
+    end
+
+    -- A container's own tile is often occupied by the furniture holding it.
+    -- Approach a usable side instead, and never transfer through a wall just
+    -- because the actor is within the old distance threshold.
+    local atSupply, targets, accessReason = utility.directInteractionAccess(
+        actor, supply.owner, { snapshot = snapshot })
+    if atSupply ~= true then
+        if accessReason == "no_interaction_targets" or not SC.Navigation
+            or type(SC.Navigation.requestAny) ~= "function" then
+            return rejectSupply(accessReason == "no_interaction_targets"
+                and accessReason or "camp_supply_navigation_unavailable")
+        end
+        local accepted, reason = SC.Navigation.requestAny(actor, targets,
+            options.moveMode or "walk", {
+                action = "move_to_camp_storage",
+                container = supply.container,
+                item = supply.item,
+                object = supply.owner,
+                snapshot = snapshot,
+                arrivalDistance = 0.35,
+                requireSameSquare = true,
+                continuousApproach = true,
+                workCampOnly = options.campFloors == true,
+            })
+        if accepted then return "in_progress", reason or "approaching_camp_storage" end
+        return rejectSupply(reason or "camp_supply_path_failed")
+    end
+
+    if SC.PersonalItems and SC.PersonalItems.isProtected(
+        supply.item, actor, "camp_supply") then
+        return rejectSupply("camp_supply_item_became_personal")
+    end
+
+    if stopScavengeMovement then stopScavengeMovement(actor) end
+
+    if supply.phase == "visual" then
+        local visualState = nativeVisualStatus(actor, "loot_container")
+        if visualState == "active" then
+            return "in_progress", "camp_supply_looting"
+        elseif visualState == "completed" then
+            clearNativeVisual(actor)
+            supply.phase = nil
+        elseif visualState ~= nil then
+            return rejectSupply("camp_supply_animation_" .. tostring(visualState))
+        else
+            -- Test providers without the native timed-action adapter retain the
+            -- original synchronous transfer contract.
+            supply.phase = nil
+        end
+    else
+        local animated, animationReason = utility.move(actor, "walk", {
+            action = "loot_container",
+            container = supply.container,
+            item = supply.item,
+            campStorage = true,
+        })
+        if not animated then
+            -- A prior verified loot animation may still own the native queue.
+            -- Keep the reservation and retry rather than dropping the order.
+            return "in_progress", animationReason or "camp_supply_action_wait"
+        end
+        local visualState = nativeVisualStatus(actor, "loot_container")
+        if visualState == "active" then
+            supply.phase = "visual"
+            return "in_progress", "camp_supply_looting"
+        elseif visualState == "completed" then
+            clearNativeVisual(actor)
+        elseif visualState ~= nil then
+            return rejectSupply("camp_supply_animation_" .. tostring(visualState))
+        end
+    end
+
+    local destination = utility.inventory(actor)
+    if SC.Logistics and type(SC.Logistics.preferredLootDestination) == "function" then
+        destination = SC.Logistics.preferredLootDestination(actor, supply.item) or destination
+    end
+    if utility.canRemoveFromContainer then
+        local allowed, reason = utility.canRemoveFromContainer(supply.container, actor, supply.item)
+        if not allowed then return rejectSupply(reason) end
+    end
+    if type(options.beforeTransfer) == "function" then
+        local okay, accepted = pcall(options.beforeTransfer, supply.item, supply.container, destination)
+        if not okay or accepted ~= true then return rejectSupply("camp_supply_receipt_rejected") end
+    end
+    local transferred, transferReason = utility.transferItemVerified(
+        supply.container, destination, supply.item)
+    if not transferred then
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("camp-supply-transfer", utility.idOf(actor),
+                "verified container transfer failed: " .. tostring(transferReason),
+                utility.itemType(supply.item))
+        end
+        return rejectSupply("camp_supply_transfer_failed")
+    end
+    local item = supply.item
+    local flags = containerFlags(supply.container)
+    if flags then flags.SC_LastCompanionUseAt = current end
+    if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
+        SC.NativeActions.noteResult(actor, "camp_supply", "taken", { kind = "short" })
+    end
+    if SC.Quirks and type(SC.Quirks.onVerifiedLoot) == "function" then
+        -- Let Quirks reject ordinary items before it initializes command state;
+        -- a camp-supply transfer must not create unrelated personal inventory.
+        SC.Quirks.onVerifiedLoot(actor, item)
+    end
+    releasePlayerSupply(actor, state)
+    return "taken", "camp_supply_taken", item
+end
+
+function Encounter.cancelPlayerSupply(actor)
+    if not actor then return false end
+    releasePlayerSupply(actor, states[actor])
+    return true
+end
+
+local function currentNeeds(actor, commands)
+    local utility = U()
+    local health = utility.nativeHealth(actor)
+    local hunger = utility.characterStatValue(actor, "HUNGER", 0.25)
+    local thirst = utility.characterStatValue(actor, "THIRST", 0.25)
+    local medicalNeed = math.max(0, (70 - health) / 70)
+    if SC.Medical and type(SC.Medical.assess) == "function" then
+        local ok, assessment = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
+        if ok and assessment then
+            medicalNeed = math.max(medicalNeed, math.min(1, assessment.bleedingCount * 0.6 + assessment.woundCount * 0.15))
+        end
+    end
+    return {
+        food = math.max(0.15, hunger),
+        water = math.max(0.2, thirst),
+        medicine = medicalNeed,
+        ammunition = 0.5,
+        weapon = type(commands) == "table" and commands.prioritizeMeleeWeapon == true
+            and 1.0 or 0.35,
+        clothing = 0.2,
+    }
+end
+
+local function itemCategory(item)
+    local utility = U()
+    local itemType = string.lower(utility.itemType(item))
+    local category, categoryOk = utility.call(item, "getCategory")
+    category = categoryOk and string.lower(tostring(category)) or ""
+    if string.find(itemType, "bandage", 1, true)
+        or string.find(itemType, "rippedsheet", 1, true)
+        or string.find(itemType, "disinfect", 1, true)
+        or string.find(itemType, "painkiller", 1, true)
+        or string.find(itemType, "antibiotic", 1, true) then return "medicine" end
+    if string.find(itemType, "water", 1, true) or U().itemHasTag(item, "WaterContainer") then return "water" end
+    if category == "food" or U().hasMethod(item, "getCalories") then return "food" end
+    if string.find(itemType, "ammo", 1, true)
+        or string.find(itemType, "bullet", 1, true)
+        or string.find(itemType, "shell", 1, true) then return "ammunition" end
+    if U().instanceOf(item, "HandWeapon") or U().hasMethod(item, "getMaxDamage") then return "weapon" end
+    if category == "clothing" then return "clothing" end
+    return nil
+end
+
+local function usableMeleeWeapon(item)
+    if not item then return false end
+    local utility = U()
+    local category, categoryOk = utility.call(item, "getCategory")
+    local weapon = utility.instanceOf(item, "HandWeapon")
+        or utility.instanceOf(item, "zombie.inventory.types.HandWeapon")
+        or (categoryOk and tostring(category) == "Weapon"
+            and utility.hasMethod(item, "getMaxDamage"))
+    if not weapon then return false end
+    local ranged, rangedOk = utility.call(item, "isRanged")
+    if rangedOk and ranged == true then return false end
+    local broken, brokenOk = utility.call(item, "isBroken")
+    if brokenOk and broken == true then return false end
+    local condition, conditionOk = utility.call(item, "getCondition")
+    return not conditionOk or tonumber(condition) == nil or tonumber(condition) > 0
+end
+
+local function actorNeedsMeleeWeapon(actor, audit)
+    local utility = U()
+    if type(audit) == "table" and type(audit.items) == "table" then
+        for _, record in ipairs(audit.items) do
+            if usableMeleeWeapon(type(record) == "table" and record.item or record) then
+                return false
+            end
+        end
+        return true
+    end
+    local root = utility.inventory(actor)
+    for _, item in ipairs(utility.inventoryItems(root, 256)) do
+        if usableMeleeWeapon(item) then return false end
+    end
+    return true
+end
+
+local function priorityMeleeAllowed(actor, item, audit, commands)
+    if type(commands) ~= "table" or commands.prioritizeMeleeWeapon ~= true
+        or not usableMeleeWeapon(item) then
+        return false
+    end
+    if SC.Logistics and type(SC.Logistics.canTake) == "function" then
+        local accepted, reason = SC.Logistics.canTake(actor, item, "weapon", audit)
+        -- A firearm or broken weapon may satisfy the generic category count
+        -- without giving this survivor a usable close-combat fallback.
+        return accepted == true or reason == "loadout_satisfied"
+    end
+    return true
+end
+
+local function itemNeedScore(actor, item, needs, commands, audit, sourceStorage)
+    local score, category
+    if SC.Logistics and type(SC.Logistics.itemNeedScore) == "function" then
+        score, category = SC.Logistics.itemNeedScore(actor, item, commands, audit, sourceStorage)
+        if priorityMeleeAllowed(actor, item, audit, commands) then
+            return math.max(140, tonumber(score) or 0), "weapon"
+        end
+        return score, category
+    end
+    local utility = U()
+    category = itemCategory(item)
+    if not category then return 0, nil end
+    score = (needs[category] or 0) * 60
+    local condition, conditionOk = utility.call(item, "getCondition")
+    local maximum, maxOk = utility.call(item, "getConditionMax")
+    if conditionOk and maxOk and maximum and maximum > 0 then score = score * condition / maximum end
+    if category == "food" then
+        local rotten, rottenOk = utility.call(item, "isRotten")
+        if rottenOk and rotten then score = score - 60 end
+    elseif category == "water" then
+        local amount, amountOk = utility.call(item, "getUsedDelta")
+        if amountOk then score = score * math.max(0.2, amount) end
+    end
+    if priorityMeleeAllowed(actor, item, audit, commands) then
+        score, category = math.max(140, score), "weapon"
+    end
+    return score, category
+end
+
+-- Where Build 42 actually puts weapons. Taken from the game's own loot tables
+-- rather than guessed: every room type below is one that Distributions.lua
+-- links to a weapon-bearing entry in ProceduralDistributions.lua (gun and
+-- knife stores and their stockrooms, tool stores, hunting and army surplus,
+-- pawn shops, the bat/golf/knife factories and their shipping bays, camping
+-- and outdoor supply, sports and gym storage, plus the ordinary domestic
+-- fallbacks -- kitchens for knives, garages and sheds for tools).
+local logicalWeaponRoomTokens = {
+    "gun", "knife", "tool", "hunting", "army", "military", "pawn",
+    "camping", "outdoor", "sport", "baseball", "golf", "bat",
+    "garage", "shed", "kitchen", "storage", "warehouse", "factory",
+    "shipping", "workshop", "mechanic", "maintenance", "construction",
+    "closet", "attic", "gym",
+}
+
+-- Container types the same tables sit in, most productive first. displaycase
+-- and metal_shelves are where store weapons live; militarylocker/militarycrate
+-- carry the army tables.
+local logicalWeaponContainerTokens = {
+    "displaycase", "metal_shelves", "militarylocker", "militarycrate",
+    "locker", "crate", "counter", "toolcabinet", "toolbox", "workbench",
+    "cupboard", "cabinet", "shelf", "smallbox", "cardboardbox", "metal",
+}
+
+local categoryRoomTokens = {
+    food = { "kitchen", "diner", "restaurant", "cafe", "grocery", "bar", "pantry" },
+    water = { "kitchen", "bathroom", "camping", "outdoor" },
+    medicine = { "medical", "clinic", "hospital", "pharmacy", "bathroom", "firstaid" },
+    tools = { "garage", "shed", "workshop", "mechanic", "maintenance", "tool",
+        "hardware", "construction", "factory", "warehouse" },
+    construction = { "construction", "hardware", "warehouse", "shed", "garage",
+        "factory", "workshop" },
+    crafting = { "workshop", "shed", "garage", "hardware", "craft", "sewing",
+        "storage", "factory" },
+    ammunition = { "gun", "army", "military", "police", "hunting", "pawn" },
+    literature = { "library", "school", "office", "bookstore", "classroom" },
+    clothing = { "clothing", "wardrobe", "closet", "bedroom", "laundry" },
+}
+
+local function containsAny(value, tokens)
+    value = string.lower(tostring(value or ""))
+    for _, token in ipairs(tokens) do
+        if string.find(value, token, 1, true) ~= nil then return true end
+    end
+    return false
+end
+
+local function logicalWeaponLocationBonus(container, owner)
+    local utility = U()
+    local bonus = 0
+    local containerType, typeOk = utility.call(container, "getType")
+    if typeOk and containsAny(containerType, logicalWeaponContainerTokens) then
+        bonus = bonus + 18
+    end
+    local square = utility.squareOf(owner)
+    if not square then
+        local source, sourceOk = utility.call(container, "getSourceGrid")
+        if sourceOk then square = source end
+    end
+    local roomName = utility.roomName(square)
+    if containsAny(roomName, logicalWeaponRoomTokens) then bonus = bonus + 42 end
+    return bonus
+end
+
+-- How plausible this container is for what the companion is short of. Weapons
+-- keep their own long-standing lists; everything else uses the room tokens
+-- above. Bounded and cheap: this runs for every candidate before any of them is
+-- opened, so it may not read contents and may not walk the world.
+function Encounter._roomAffinityBonus(container, owner, wanted)
+    local utility = U()
+    local bonus = 0
+    if wanted ~= nil and wanted.weapon == true then
+        bonus = bonus + logicalWeaponLocationBonus(container, owner)
+    end
+    if type(wanted) ~= "table" then return bonus end
+    local square = utility.squareOf(owner)
+    if not square then
+        local source, sourceOk = utility.call(container, "getSourceGrid")
+        if sourceOk then square = source end
+    end
+    local roomName = utility.roomName(square)
+    if roomName == nil or roomName == "" then return bonus end
+    local containerType, typeOk = utility.call(container, "getType")
+    for category in pairs(wanted) do
+        local tokens = categoryRoomTokens[category]
+        if tokens ~= nil then
+            if containsAny(roomName, tokens) then bonus = bonus + 30 end
+            if typeOk and containsAny(containerType, tokens) then bonus = bonus + 10 end
+        end
+    end
+    return bonus
+end
+
+containerItems = function(container)
+    local items, ok = U().call(container, "getItems")
+    if ok then return items end
+    return type(container) == "table" and (container.items or container) or nil
+end
+
+-- Reaching into a container is a physical act: the survivor has to be beside it
+-- and looking at it. Neither was checked at the moment of the transfer. The
+-- only positional test happens back in the approach phase, so once a task got
+-- past that, nothing re-verified it -- a companion reached into a shelf from
+-- across the room, and could do it with its back turned. Verify both
+-- immediately before the animation, the way native actions verify their own
+-- preconditions before an effect is applied.
+local function containerReach(actor, task)
+    local utility = U()
+    local owner = task and task.owner or nil
+    -- Resolve the container's position from whatever is available. The owner
+    -- is normally the IsoObject holding the ItemContainer, but a container that
+    -- reports no parent falls back to itself, and a task that has already
+    -- recorded where it was heading is better evidence than nothing.
+    local ownerSquare = owner and utility.squareOf(owner) or nil
+    local square = ownerSquare
+    if square == nil and task then square = utility.squareOf(task.container) end
+    local cx, cy, cz
+    if square ~= nil then
+        cx, cy, cz = utility.position(square)
+        -- IsoGridSquare coordinates identify the tile corner while actors stand
+        -- around its centre. Comparing those coordinate systems rejected valid
+        -- adjacent (especially diagonal) looting positions as 1.7-2.5 tiles
+        -- away and sent scavengers through approach/settle forever.
+        if cx ~= nil then cx, cy = math.floor(cx) + 0.5, math.floor(cy) + 0.5 end
+    elseif task then
+        cx, cy, cz = task.containerX, task.containerY, task.containerZ
+    end
+    local ax, ay, az = utility.position(actor)
+    if ax == nil or cx == nil then
+        -- Fail open rather than making every container of this shape
+        -- unlootable, but say so: a silent pass here is indistinguishable from
+        -- the very defect this gate exists to stop.
+        utility.diagnostic("scavenge-reach", actor,
+            "outcome=unverified reason=container_position_unavailable owner="
+            .. tostring(utility.objectLabel(owner)))
+        return true, "position_unavailable"
+    end
+    if math.floor(az or 0) ~= math.floor(cz or 0) then
+        return false, "container_out_of_reach"
+    end
+    -- The normal object-backed case has a stronger answer than distance:
+    -- Navigation already computed the topology-safe use squares.  Trust that
+    -- answer so an actor at an off-centre diagonal use position is not rejected
+    -- by a second, circular distance test (the live failure was 1.74 vs 1.60).
+    -- It also keeps an equally-near square on the other side of a wall invalid.
+    if ownerSquare ~= nil and type(utility.directInteractionAccess) == "function" then
+        local direct = utility.directInteractionAccess(actor, owner)
+        if direct == true then return true, "at_interaction_target", cx, cy end
+        return false, "container_out_of_reach"
+    end
+    -- Ownerless test/mod containers still need a positional fallback. One tile
+    -- in every direction is a square (Chebyshev) neighbourhood, not a circle;
+    -- diagonally adjacent and off-centre positions are therefore legitimate.
+    local reach = tonumber(utility.config("scavengeReachTiles")) or 1.6
+    local dx, dy = cx - ax, cy - ay
+    local distance = math.max(math.abs(dx), math.abs(dy))
+    if distance > reach then
+        utility.diagnostic("scavenge-reach", actor, string.format(
+            "outcome=refused distance=%.2f reach=%.2f actor=%.2f,%.2f container=%.2f,%.2f",
+            distance, reach, ax, ay, cx, cy))
+        return false, "container_out_of_reach"
+    end
+    return true, "within_reach", cx, cy
+end
+
+-- Turn toward the container, and report whether the survivor is looking at it
+-- yet. The caller keeps this inside its settle deadline, so a refused turn
+-- cannot hold the task open indefinitely.
+local function facingContainer(actor, cx, cy)
+    local utility = U()
+    local ax, ay = utility.position(actor)
+    if ax == nil or cx == nil then return true end
+    local dx, dy = cx - ax, cy - ay
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0.0001 then return true end
+    dx, dy = dx / length, dy / length
+    local forwardX, fxOk = utility.call(actor, "getForwardDirectionX")
+    local forwardY, fyOk = utility.call(actor, "getForwardDirectionY")
+    if not fxOk or not fyOk then return true end
+    forwardX, forwardY = tonumber(forwardX) or 0, tonumber(forwardY) or 0
+    local forwardLength = math.sqrt(forwardX * forwardX + forwardY * forwardY)
+    if forwardLength > 0.0001 then
+        local dot = (forwardX * dx + forwardY * dy) / forwardLength
+        local threshold = tonumber(utility.config("scavengeFacingDot")) or 0.55
+        if dot >= threshold then return true end
+    end
+    utility.call(actor, "faceLocationF", cx, cy)
+    return false
+end
+
+local function containerSignature(container)
+    local utility = U()
+    local count, hash = 0, 0
+    utility.each(containerItems(container), utility.config("scavengeItemBudget") or 40,
+        function(item)
+            count = count + 1
+            local id, idOk = utility.call(item, "getID")
+            local identity = idOk and tostring(id) or utility.itemType(item)
+            hash = (hash + utility.stableHash(utility.itemType(item) .. ":" .. identity))
+                % 2147483647
+        end)
+    return tostring(count) .. ":" .. tostring(hash)
+end
+
+local function memoryAllows(state, container, current)
+    local memory = state.visited and state.visited[container] or nil
+    if not memory then return true end
+    local signature = containerSignature(container)
+    if signature ~= memory.signature then
+        state.visited[container] = nil
+        return true
+    end
+    return current >= (tonumber(memory.expires) or 0)
+end
+
+local function rememberContainer(state, container, result, current)
+    if not state or not container then return end
+    state.visited = state.visited or setmetatable({}, { __mode = "k" })
+    local previous = state.visited[container]
+    if previous == nil then
+        local count, oldestContainer, oldestExpiry = 0, nil, math.huge
+        for remembered, memory in pairs(state.visited) do
+            count = count + 1
+            local expiry = tonumber(memory.expires) or 0
+            if expiry < oldestExpiry then
+                oldestContainer, oldestExpiry = remembered, expiry
+            end
+        end
+        if count >= (U().config("scavengeMemoryLimit") or 96) and oldestContainer then
+            state.visited[oldestContainer] = nil
+        end
+    end
+    local utility = U()
+    local signature = containerSignature(container)
+    -- Unreachable containers and targets past the leash back off: every
+    -- repeat doubles the cooldown. Reaching the container resets the count;
+    -- an interruption keeps it.
+    local failures = type(previous) == "table" and previous.signature == signature
+        and (tonumber(previous.failures) or 0) or 0
+    local duration
+    if result == "looted" or result == "nothing_needed" then
+        failures = 0
+        duration = result == "looted"
+            and (utility.config("scavengeSuccessCooldownMs") or 4000)
+            or (utility.config("scavengeNoUsefulCooldownMs") or 30000)
+    elseif result == "navigation_failed" or result == "outside_formation" then
+        failures = failures + 1
+        local base = result == "outside_formation"
+            and (utility.config("scavengeOutsideFormationCooldownMs") or 30000)
+            or (utility.config("scavengeFailureCooldownMs") or 15000)
+        duration = math.min(base * 2 ^ math.min(failures - 1, 16),
+            utility.config("scavengeFailureMaxCooldownMs") or 600000)
+    else
+        duration = utility.config("scavengeFailureCooldownMs") or 15000
+    end
+    state.visited[container] = {
+        signature = signature,
+        result = result,
+        failures = failures,
+        expires = current + duration,
+    }
+end
+
+-- What a closed container is worth walking to, judged from the outside only.
+--
+-- Container choice used to read the contents of every container in range and
+-- rank them by the single best item inside. Two things followed from that: a
+-- companion knew what was in a shut cupboard before opening it, and a trip
+-- produced exactly one item before everything was re-ranked and a different
+-- cupboard usually won. Watching it, they wandered between containers taking
+-- one thing from each.
+--
+-- Now selection sees distance and the room it stands in, nothing else. What is
+-- inside is discovered by opening it, which is also when it becomes worth
+-- emptying properly.
+function Encounter.blindContainerScore(actor, container, owner, commands, needs)
+    local utility = U()
+    if container == nil then return 0 end
+    local score = tonumber(utility.config("scavengeBlindBaseScore")) or 20
+    -- The room is the one honest clue a shut door gives: kitchens hold food,
+    -- garages hold tools. Reuses the affinity the weapon search already had.
+    local wanted = Encounter._wantedCategories(actor, commands, needs)
+    score = score + Encounter._roomAffinityBonus(container, owner, wanted)
+    local distance = ownerDistance(actor, owner)
+    if commands and commands.scavengeMissionId ~= nil
+        and commands.scavengeSite and commands.scavengeSite.buildingId then
+        -- Distance ranks shelves within the selected building; it must not
+        -- make the far side of that building worthless before it is opened.
+        score = score / (1 + distance * 0.075)
+    else
+        score = score - distance * 1.5
+    end
+    return score
+end
+
+-- The categories this companion is actually short of, so room affinity steers
+-- toward somewhere plausible rather than merely toward the nearest cupboard.
+function Encounter._wantedCategories(actor, commands, needs)
+    local wanted = {}
+    if type(needs) == "table" then
+        for category, value in pairs(needs) do
+            if tonumber(value) ~= nil and tonumber(value) > 0 then wanted[category] = true end
+        end
+    end
+    if type(commands) == "table" and commands.prioritizeMeleeWeapon == true then
+        wanted.weapon = true
+    end
+    if type(commands) == "table" and commands.scavengeRequestedCategory then
+        if commands.scavengeRequestedCategory == "useful" then
+            for category in pairs(categoryRoomTokens) do wanted[category] = true end
+            wanted.weapon = true
+        else
+            wanted[commands.scavengeRequestedCategory] = true
+        end
+    end
+    if SC.Combat and type(SC.Combat.weaponAvailability) == "function" then
+        local _, usable = SC.Combat.weaponAvailability(actor)
+        if tonumber(usable) ~= nil and tonumber(usable) <= 0 then wanted.weapon = true end
+    end
+    return wanted
+end
+
+-- The container this companion has open in front of it, if it still holds
+-- something wanted. Selection otherwise re-ranked every container in range
+-- after each item, and a marginally better one somewhere else usually won -- so
+-- a companion took one thing, walked away, took one thing there, and so on. Two
+-- steps from an open cupboard beats twenty to the next one.
+function Encounter.stickyContainer(actor, state, needs, commands, audit, time, context)
+    local container = state and state.openContainer
+    if not container or not Encounter._alreadyOpened(state, container) then return nil end
+    if time >= (tonumber(state.openContainerUntil) or 0) or containerOnCooldown(container, time)
+        or ownerDistance(actor, containerOwner(container)) > 2.5
+        or not Encounter.mayTakeFrom(container, context and context.storages) then
+        state.openContainer, state.visit = nil, nil
+        return nil
+    end
+    -- Contents are inspected only at physical contact, even on a return visit.
+    return container, Encounter.UNOPENED, nil, containerOwner(container), 1
+end
+
+function Encounter._alreadyOpened(state, container)
+    if type(state) ~= "table" or container == nil then return false end
+    local opened = state.openedContainers
+    if type(opened) ~= "table" then return false end
+    return opened[container] == true
+end
+
+function Encounter._noteContainerOpened(state, container, time)
+    if type(state) ~= "table" or container == nil then return false end
+    if type(state.openedContainers) ~= "table" then
+        state.openedContainers = setmetatable({}, { __mode = "k" })
+    end
+    state.openedContainers[container] = true
+    state.openContainer = container
+    state.openContainerUntil = (tonumber(time) or U().nowMs())
+        + (tonumber(U().config("scavengeOpenContainerMs")) or 60000)
+    return true
+end
+
+-- Selection carries a sentinel until the companion reaches the source.
+Encounter.UNOPENED = setmetatable({}, { __tostring = function() return "unopened" end })
+
+local function carrierHolds(carrier, item)
+    local inventory = U().inventory(carrier)
+    if inventory == nil then return nil end
+    local held, heldOk = U().call(inventory, "containsRecursive", item)
+    if heldOk then return held == true end
+    if U().inventoryContains(inventory, item) then return true end
+    for _, value in ipairs(U().inventoryItems(inventory, 160)) do
+        local nested = Loot.nested(value)
+        if nested and U().inventoryContains(nested, item) then return true end
+    end
+    return false
+end
+
+-- A transfer that could neither be verified nor undone marks the item with the
+-- looter's id. Taking it again while its location is in doubt could duplicate
+-- it, but the mark is saved on the item and used to exclude it forever. It
+-- settles once the item sits consistently in the container being read and the
+-- looter verifiably does not also hold it, or that companion no longer exists.
+function Encounter._settleUncertainLoot(actor, item, itemData, node)
+    local holder, readable = U().call(item, "getContainer")
+    if not readable or holder == nil or holder ~= node.source then return false end
+    local mark, carrier = itemData.SC_LootTransferUncertain, actor
+    if type(mark) == "string" then
+        local registry, record = SC.Registry, nil
+        if registry and type(registry.byId) == "function" then
+            local ok, value = pcall(registry.byId, mark)
+            record = ok and value or nil
+        end
+        carrier = type(record) == "table" and (record.actor or record) or nil
+        if carrier == nil and not (SC.BaseFuel and type(SC.BaseFuel.workerIdGone) == "function"
+            and SC.BaseFuel.workerIdGone(mark)) then return false end
+    end
+    if carrier ~= nil and carrierHolds(carrier, item) ~= false then return false end
+    itemData.SC_LootTransferUncertain = nil
+    return true
+end
+
+function Encounter._canSwapLoot(actor, commands, storage, extras)
+    return extras and not storage and commands.recruited == true
+        and not commands.scavengeRequestedCategory and not commands.scavengeMissionId
+        and not commands.expeditionMember and not insideBase(actor)
+        and not (SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember
+            and SC.ExpeditionPrototype.isMember(actor))
+end
+
+function Encounter._chooseLoot(actor, item, category, projection, commands, storage, extras, planned)
+    local logistics = SC.Logistics
+    local choice, why, evaluatedCategory = logistics.lootChoice(
+        actor, item, category, projection, commands, storage, extras, planned)
+    if choice or not logistics.lootReplacement or planned and not planned.drop
+        or (why ~= "loadout_too_heavy" and why ~= "loadout_satisfied")
+        or not Encounter._canSwapLoot(actor, commands, storage, extras) then return choice end
+    return logistics.lootReplacement(actor, item, category or evaluatedCategory,
+        projection, commands, planned and planned.drop)
+end
+
+local function lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
+    if manualEquipmentOnly(item) then return 0 end
+    local itemData = select(1, U().call(item, "getModData"))
+    if type(itemData) == "table" and itemData.SC_LootTransferUncertain
+        and not Encounter._settleUncertainLoot(actor, item, itemData, node) then return 0 end
+    local allowed, access, storage = Encounter.mayTakeFrom(node.root, storages)
+    if not allowed or storage and not storageAllows(storage, item) then return 0 end
+    local score, category, supplyCategory, band
+    if SC.Logistics and SC.Logistics.lootChoice then
+        local choice = Encounter._chooseLoot(actor, item, nil, projection,
+            commands, storage, access == "outside")
+        if not choice then return 0 end
+        score, category, band = choice.score, choice.category, choice.band
+        supplyCategory = category
+    else
+        score, category = itemNeedScore(actor, item, needs, commands, audit, storage)
+        supplyCategory = SC.Logistics and SC.Logistics.itemCategory
+            and SC.Logistics.itemCategory(item) or category
+        band = 1
+    end
+    if category == "weapon" and priorityMeleeAllowed(actor, item, audit, commands) then
+        score, band = math.max(140, score), 2
+    end
+    if SC.Objectives and SC.Objectives.itemBonus then
+        local bonus = SC.Objectives.itemBonus(commands.objectives, item, actor)
+        score = score + bonus
+        if bonus > 0 and not category then category = "personal" end
+    end
+    if SC.Quirks and SC.Quirks.itemDesireBonus then
+        local value, wanted = SC.Quirks.itemDesireBonus(actor, item, commands)
+        if (tonumber(value) or 0) > score then score, category = value, wanted or "personal" end
+    end
+    if commands.scavengeRequestedCategory ~= nil then
+        if not matchesSupplyRequest(commands.scavengeRequestedCategory, supplyCategory) then return 0 end
+        category = supplyCategory
+    end
+    return score, category, band
+end
+
+local function scanVisit(actor, container, needs, commands, audit, state, context)
+    local owner = containerOwner(container)
+    local visit = state.visit
+    if not visit or visit.container ~= container then
+        visit = Loot.new(actor, owner, container)
+        state.visit = visit
+    end
+    local projection = SC.Logistics and SC.Logistics.lootProjection
+        and SC.Logistics.lootProjection(actor, audit) or nil
+    local storages = context and context.storages or storageIndex()
+    local complete, why = Loot.scan(visit, function(item, node)
+        return lootEvaluation(actor, item, node, needs, commands, audit, projection, storages)
+    end, context and context.deadline, U().config("scavengeItemBudget") or 40)
+    visit.reason = why
+    if not complete then return 0, nil, nil, owner, false end
+    local rows = Loot.rows(visit)
+    local first = rows[1]
+    return first and first.score or 0, first and first.item, first and first.category, owner, true
+end
+
+local function prepareBatch(actor, state, task, commands, needs, audit)
+    local score, _, _, _, complete = scanVisit(actor, task.container, needs, commands, audit, state)
+    local visit = state.visit
+    if not complete then return nil, visit.reason or "container_slice_pending" end
+    local rows, batch, chosen = Loot.rows(visit), {}, {}
+    local projection = SC.Logistics and SC.Logistics.lootProjection
+        and SC.Logistics.lootProjection(actor, audit) or nil
+    local storages = storageIndex()
+    local service, token = supervisor(), task.supervisorToken
+    for _ = 1, Loot.batchLimit do
+        if projection then
+            for _, row in ipairs(rows) do row.band = SC.Logistics.lootBand(projection, row.category) end
+            table.sort(rows, Loot.better)
+        end
+        local picked
+        for _, row in ipairs(rows) do
+            if not chosen[row.item] and Loot.valid(visit, row) then
+                local allowed, _, storage = Encounter.mayTakeFrom(row.root, storages)
+                if not allowed then return nil, "storage_withdrawn" end
+                local choice
+                if SC.Logistics and SC.Logistics.lootChoice then
+                    choice = Encounter._chooseLoot(actor, row.item, row.category, projection,
+                        commands, storage, not insideBase(task.owner))
+                else
+                    local destination, kind, name = chooseDestination(actor, row.item, row.category, audit)
+                    if destination then choice = { destination = destination, destinationKind = kind,
+                        destinationName = name, score = row.score, band = row.band } end
+                end
+                if choice and (not storage or storageAllows(storage, row.item)) then
+                    local reserved = true
+                    if token and service and service.reserve then
+                        for _, resource in ipairs({ row.root, row.source, row.parentBag or row.item, row.item }) do
+                            if not service.reserve(token, resource, "source_item") then reserved = false break end
+                        end
+                        if reserved and choice.drop then
+                            reserved = service.reserve(token, choice.drop.item, "carried_exchange_item") == true
+                        end
+                    end
+                    if reserved then
+                        row.drop = choice.drop
+                        for key, value in pairs(choice) do row[key] = value end
+                        batch[#batch + 1], chosen[row.item], picked = row, true, row
+                        if projection and not row.drop then SC.Logistics.projectLoot(projection, row) end
+                        break
+                    end
+                end
+                chosen[row.item] = true
+            end
+        end
+        if not picked or picked.drop then break end
+    end
+    if #batch == 0 then return nil, score > 0 and "loadout_too_heavy" or "nothing_needed" end
+    return batch
+end
+
+local function isZombieCorpse(object)
+    if not U().instanceOf(object, "IsoDeadBody") then return false end
+    local animal, animalOk = U().call(object, "isAnimal")
+    if animalOk and animal == true then return false end
+    local zombie, zombieOk = U().call(object, "isZombie")
+    if zombieOk then return zombie == true end
+    local wasZombie, wasZombieOk = U().call(object, "wasZombie")
+    if wasZombieOk then return wasZombie == true end
+    return false
+end
+
+local function scavengeOffsets(radius, budget, phase)
+    local offsets = {}
+    for distance = 0, radius do
+        for dx = -distance, distance do
+            for dy = -distance, distance do
+                if #offsets >= budget then return offsets end
+                if math.max(math.abs(dx), math.abs(dy)) == distance
+                    and (distance <= 3 or (dx * 17 + dy * 31) % 4 == phase) then
+                    offsets[#offsets + 1] = { x = dx, y = dy }
+                end
+            end
+        end
+    end
+    return offsets
+end
+
+local function siteSearchAxes(site, x, y)
+    local id = site and site.buildingId
+    if type(id) ~= "string" then return nil end
+    local x1, y1, x2, y2 = id:match("^(%d+):(%d+):(%d+):(%d+)$")
+    x1, y1, x2, y2 = tonumber(x1), tonumber(y1), tonumber(x2), tonumber(y2)
+    -- Match the planner's validated maximum footprint. Membership is still
+    -- checked against the live selected building before reading world objects.
+    if not x1 or x1 < 0 or y1 < 0 or x2 > 30000 or y2 > 30000
+        or x2 <= x1 or y2 <= y1 or x2 - x1 > 80 or y2 - y1 > 80 then return nil end
+    local function axis(low, high, origin)
+        local centre = math.max(low, math.min(high, math.floor(origin)))
+        local values = { centre }
+        for distance = 1, high - low do
+            if centre + distance <= high then values[#values + 1] = centre + distance end
+            if centre - distance >= low then values[#values + 1] = centre - distance end
+        end
+        return values
+    end
+    return axis(x1, x2, x), axis(y1, y2, y)
+end
+
+local function newContainerSearch(actor, state, allowCorpses, current,
+        radius, budget, site, siteRadius)
+    local ax, ay, az = U().position(actor)
+    state.scanPhase = ((state.scanPhase or 0) + 1) % 4
+    local offsets = scavengeOffsets(radius, budget, state.scanPhase)
+    local scanFloors = { az }
+    local siteId = site and site.buildingId or nil
+    local columns, rows = siteSearchAxes(site, ax, ay)
+    if siteId ~= nil and SC.ExpeditionPlaces
+        and type(SC.ExpeditionPlaces.siteFloors) == "function" then
+        local floors = SC.ExpeditionPlaces.siteFloors(siteId)
+        if type(floors) == "table" and #floors > 0 then
+            for _, z in ipairs(floors) do
+                if z ~= az then scanFloors[#scanFloors + 1] = z end
+            end
+        end
+    end
+    return {
+        originX = ax, originY = ay, originZ = az,
+        radius = radius,
+        budget = budget,
+        allowCorpses = allowCorpses == true,
+        current = current,
+        siteX = site and site.x or nil,
+        siteY = site and site.y or nil,
+        siteZ = site and site.z or nil,
+        siteId = site and site.buildingId or nil,
+        siteRadius = site and siteRadius or nil,
+        offsets = offsets,
+        siteColumns = columns, siteRows = rows,
+        scanFloors = scanFloors,
+        total = (columns and #columns * #rows or #offsets) * #scanFloors,
+        index = 1,
+        candidates = {},
+        seenContainers = setmetatable({}, { __mode = "k" }),
+    }
+end
+
+-- A selected store is visited in one-second discovery slices. Account for
+-- one bounded footprint pass before spending its ordinary loot time. This
+-- uses the very same axes/floors as the live cursor; it reads no world items.
+function Encounter.siteDiscoverySeconds(actor, site)
+    local x, y = U().position(actor)
+    if not x or not y or not siteSearchAxes(site, x, y) then return 0 end
+    local budget = math.max(1, math.min(tonumber(U().config("scavengeSquareBudget")) or 100,
+        tonumber(U().config("performanceScavengeSquaresPerFrame")) or 28))
+    local job = newContainerSearch(actor, {}, false, 0, 14, budget, site, 5)
+    return math.min(600, math.ceil(job.total / budget) + 1)
+end
+
+local function containerSearchInvalid(job, actor, allowCorpses,
+        radius, budget, site, siteRadius)
+    if type(job) ~= "table" or job.allowCorpses ~= (allowCorpses == true)
+        or job.radius ~= radius or job.budget ~= budget
+        or job.siteX ~= (site and site.x or nil)
+        or job.siteY ~= (site and site.y or nil)
+        or job.siteZ ~= (site and site.z or nil)
+        or job.siteId ~= (site and site.buildingId or nil)
+        or job.siteRadius ~= (site and siteRadius or nil) then return true end
+    -- A selected-site cursor follows that footprint as the actor walks between
+    -- shelves or floors; restarting it on every short walk loses remote rooms.
+    if job.siteColumns then return false end
+    local ax, ay, az = U().position(actor)
+    if ax == nil or az ~= job.originZ then return true end
+    local dx, dy = ax - job.originX, ay - job.originY
+    return dx * dx + dy * dy > 16
+end
+
+-- Loot in a room whose route runs through a locked door fails on every
+-- approach, so all scavengers leave that room alone for a while.
+local function behindLockedDoor(actor, square, current)
+    local navigation = SC.Navigation
+    if not navigation or type(navigation.behindLockedDoor) ~= "function" then return false end
+    local ok, blocked = pcall(navigation.behindLockedDoor, actor, square, current)
+    return ok and blocked == true
+end
+
+local function rememberSiteLock(access, square)
+    if access then
+        local room = U().call(square, "getRoom") or square
+        if not access.lockedSeen[room] then
+            access.lockedSeen[room] = true
+            access.lockedRooms[#access.lockedRooms + 1] = { room = room, square = square }
+        end
+    end
+end
+
+local function inSelectedSite(siteId, square)
+    if siteId == nil then return true end
+    local places = SC.ExpeditionPlaces
+    if places == nil or type(places.siteContainsPoint) ~= "function"
+        or square == nil then return false end
+    local x, y, z = U().position(square)
+    return places.siteContainsPoint(siteId, x, y, z)
+end
+
+local function countSiteSearch(stage)
+    if SC.Performance and type(SC.Performance.count) == "function" then
+        SC.Performance.count("scavenge.site." .. stage)
+    end
+end
+
+local function searchRadius(utility, allowCorpses, player, commands)
+    local radius = math.floor(math.min(math.max(utility.config("scavengeRadius") or 14,
+        allowCorpses and (utility.config("corpseLootRadius") or 10) or 0), 18))
+    if player and commands.recruited == true and commands.order == "follow" then
+        local localRadius = math.max(3, tonumber(utility.config(
+            "scavengeFormationSearchRadius")) or 6)
+        radius = math.floor(math.min(radius,
+            math.max(localRadius, (tonumber(commands.followDistance) or 3) + 1.5)))
+    end
+    return radius
+end
+
+local function candidateContainers(actor, player, state, allowCorpses, current, commands, retry)
+    local utility = U()
+    local ax, ay, az = utility.position(actor)
+    if not ax then return {}, true end
+    local target = commands and commands.scavengeTargetContainer
+    local site = commands and commands.scavengeSite
+    local siteId = site and site.buildingId or nil
+    if target ~= nil then
+        state.containerSearch = nil
+        local owner = containerOwner(target)
+        local square = utility.squareOf(owner)
+        if square ~= nil and inSelectedSite(siteId, square)
+            and ownerDistance(actor, owner) <= 18
+            and not containerOnCooldown(target, current)
+            and memoryAllows(state, target, current)
+            and not behindLockedDoor(actor, square, current)
+            and Encounter.mayTakeFrom(target, storageIndex(), insideBase(square)) then
+            return { target }, true, 1, 1
+        end
+        return {}, true, 1, 1
+    end
+    local radius = searchRadius(utility, allowCorpses, player, commands)
+    local budget = math.max(utility.config("scavengeSquareBudget") or 100,
+        allowCorpses and (utility.config("corpseLootSquareBudget") or 80) or 0)
+    local siteRadius = math.max(2, math.min(8,
+        tonumber(commands and commands.scavengeSiteRadius) or 5))
+    local job = state.containerSearch
+    if containerSearchInvalid(job, actor, allowCorpses,
+            radius, budget, site, siteRadius) then
+        if siteId ~= nil and job then countSiteSearch("discovery.restarted") end
+        job = newContainerSearch(actor, state, allowCorpses, current,
+            radius, budget, site, siteRadius)
+        if job.siteColumns then countSiteSearch("discovery.started") end
+        job.emptyProof = retry
+        state.containerSearch = job
+    end
+    if job.emptyProof ~= retry then job.emptyProof = nil end
+    if job.siteColumns and #job.candidates > 0 then
+        local candidates = job.candidates
+        job.candidates = {}
+        return candidates, true, job.index - 1, job.total, job.index > job.total
+    end
+    local requested = math.max(0, job.total - job.index + 1)
+    if job.siteColumns then requested = math.min(requested, budget) end
+    local granted = requested
+    if SC.Performance and type(SC.Performance.claimUnits) == "function" then
+        granted = SC.Performance.claimUnits("scavengeSquares", requested, false)
+    end
+    if job.siteColumns and requested > 0 and granted == 0 then countSiteSearch("discovery.quota_wait") end
+    local clock = SC.Performance and SC.Performance.preciseNowMs or utility.nowMs
+    local startedAt, processed = clock(), 0
+    local storages = storageIndex()
+    while processed < granted and job.index <= job.total do
+        local offsetIndex = math.floor((job.index - 1) / #job.scanFloors) + 1
+        local floorIndex = (job.index - 1) % #job.scanFloors + 1
+        local offset = job.offsets[offsetIndex]
+        local scanX, scanY
+        if job.siteColumns then
+            local column = (offsetIndex - 1) % #job.siteColumns + 1
+            local row = math.floor((offsetIndex - 1) / #job.siteColumns) + 1
+            scanX, scanY = job.siteColumns[column], job.siteRows[row]
+        else
+            scanX, scanY = job.originX + offset.x, job.originY + offset.y
+        end
+        local scanZ = job.scanFloors[floorIndex]
+        job.index = job.index + 1
+        processed = processed + 1
+        local siteNear = site == nil or siteId ~= nil or (site.z == job.originZ
+            and (site.x - scanX)^2 + (site.y - scanY)^2
+                    <= siteRadius * siteRadius)
+        local square = siteNear and utility.gridSquare(
+            scanX, scanY, scanZ)
+            or nil
+        if job.emptyProof and not square then job.emptyProof = nil end
+        local accessible = square and siteNear and inSelectedSite(siteId, square)
+            and (commands.scavengeMissionId == nil
+                or not expeditionSourceOnCooldown(state, square, current))
+            and (commands.scavengeMissionId ~= nil or not player
+                or utility.distanceSq(player, square) <= radius * radius)
+        if accessible and behindLockedDoor(actor, square, current) then
+            accessible = false
+            job.emptyProof = nil
+            rememberSiteLock(state.siteRouteAccess, square)
+        end
+        if accessible then
+            local function addContainer(container)
+                -- A real container can become available after a reservation,
+                -- access restriction or visit cooldown. An empty pass proves
+                -- absence only when these checks never hide a container.
+                if container then job.emptyProof = nil end
+                if container and not job.seenContainers[container]
+                    and not containerOnCooldown(container, current)
+                    and memoryAllows(state, container, current) then
+                    -- SC_CompanionVisited is informational. A prior companion
+                    -- taking one item must not hide the remaining contents.
+                    job.seenContainers[container] = true
+                    job.candidates[#job.candidates + 1] = container
+                    return true
+                end
+            end
+            if insideBase(square) then
+                local baseLife = SC.BaseLife
+                local owners = {}
+                for _, storage in ipairs(storages[storageTileKey(scanX, scanY, scanZ)] or {}) do
+                    if storage.withdrawals ~= false and storage.category ~= "memorial"
+                        and type(baseLife.resolveContainer) == "function" then
+                        local ok, container, object = pcall(baseLife.resolveContainer, storage)
+                        if not ok or not container then job.emptyProof = nil end
+                        local owner = ok and container and (object or containerOwner(container))
+                        -- Loot opens one visit per furniture object and applies
+                        -- the marked policy to each exact compartment it reads.
+                        if owner and not owners[owner] and addContainer(container) then owners[owner] = true end
+                    end
+                end
+            else
+                local function inspectObject(object)
+                    local container, readable = Loot.primary(object)
+                    if readable == false then job.emptyProof = nil end
+                    addContainer(container)
+                end
+                if job.emptyProof then
+                    if not Loot.inspectSquareObjects(square, "getObjects", 40, inspectObject) then
+                        job.emptyProof = nil
+                    end
+                else
+                    utility.squareObjects(square, inspectObject, 40)
+                end
+            end
+            if allowCorpses then
+                local function inspectCorpse(object)
+                    if isZombieCorpse(object) then
+                        job.emptyProof = nil
+                        local container = Loot.primary(object)
+                        if container and not job.seenContainers[container]
+                            and not containerOnCooldown(container, current)
+                            and memoryAllows(state, container, current) then
+                            job.seenContainers[container] = true
+                            corpseContainers[container] = true
+                            job.candidates[#job.candidates + 1] = container
+                        end
+                    end
+                end
+                if job.emptyProof then
+                    if not Loot.inspectSquareObjects(square, "getStaticMovingObjects", 16, inspectCorpse) then
+                        job.emptyProof = nil
+                    end
+                else
+                    utility.squareStaticMovingObjects(square, inspectCorpse, 16)
+                end
+            end
+        end
+    end
+    local complete = job.index > job.total
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("scavenge.scan", utility.idOf(actor),
+            clock() - startedAt, processed, false)
+    end
+    if not complete then
+        if SC.Performance and type(SC.Performance.markYield) == "function" then
+            SC.Performance.markYield("scavenge.scan", utility.idOf(actor), processed)
+        end
+        if job.siteColumns and #job.candidates > 0 then
+            local candidates = job.candidates
+            job.candidates = {}
+            return candidates, true, job.index - 1, job.total, false
+        end
+        return nil, false, job.index - 1, job.total, false
+    end
+    local candidates = job.candidates
+    job.candidates = {}
+    if not job.siteColumns or #candidates == 0 then state.containerSearch = nil end
+    if job.siteColumns and processed > 0 then countSiteSearch("discovery.completed") end
+    return candidates, true, job.total, job.total, job.siteColumns ~= nil, job.emptyProof
+end
+
+local function safeForScavenging(snapshot, commands)
+    if commands.order == "regroup" or commands.order == "retreat" then return false end
+    if type(snapshot) ~= "table" then return true end
+    return (snapshot.immediateCount or 0) == 0 and (snapshot.pressure or 0) < 1.5
+end
+
+local function safeForCorpseLoot(actor, snapshot, state, current)
+    if type(snapshot) == "table" and ((snapshot.threatCount or 0) > 0
+        or (snapshot.immediateCount or 0) > 0 or (snapshot.pressure or 0) > 0) then
+        state.lastThreatAt = current
+        return false
+    end
+    local lastDanger = state.lastThreatAt or -math.huge
+    if SC.Combat and type(SC.Combat.peek) == "function" then
+        local combat = SC.Combat.peek(actor)
+        if combat and combat.active then return false end
+        if combat then lastDanger = math.max(lastDanger, tonumber(combat.lastActionAt) or -math.huge) end
+    end
+    if current - lastDanger < (U().config("corpseLootGraceMs") or 6000) then return false end
+    return true
+end
+
+stopScavengeMovement = function(actor)
+    if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+        pcall(SC.Navigation.cancel, actor, "scavenge_interaction")
+    end
+    if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+        pcall(SC.NativeActions.stopDirect, actor)
+    else
+        U().stop(actor)
+    end
+end
+
+local function clearTaskFields(state)
+    state.task = nil
+    -- Retain the old fields as nil so external diagnostics cannot mistake a
+    -- completed transaction for a still-owned target.
+    state.container = nil
+    state.item = nil
+    state.itemCategory = nil
+    state.containerOwner = nil
+    state.lootPhase = nil
+end
+
+local function clearSearchFields(actor, state, keepSiteSearch)
+    local selection = state and state.selectionJob or nil
+    if selection and selection.bestContainer then
+        releaseContainer(selection.bestContainer, actor)
+    end
+    if state then
+        state.selectionJob = nil
+        if not keepSiteSearch then
+            state.containerSearch = nil
+            state.siteRouteAccess = nil
+        end
+    end
+end
+
+cleanupScavengeTarget = function(actor, state, options)
+    options = options or {}
+    local task = state.task
+    local container = task and task.container or state.container
+    if options.cancelVisual and task
+        and (task.phase == "animate" or task.visualToken ~= nil) then
+        local stopped = cancelOwnedVisual(actor, "loot_container",
+            options.reason or "scavenge_cancelled", task.visualToken)
+        if stopped == false and task.visualToken then
+            state.pendingVisualCancel = task.visualToken
+        end
+    end
+    if options.stopMovement then stopScavengeMovement(actor) end
+    if options.cooldown and container then coolDownContainer(container, options.time or now()) end
+    if options.memoryResult and container then
+        rememberContainer(state, container, options.memoryResult, options.time or now())
+    end
+    if container then releaseContainer(container, actor) end
+    state.visit, state.lootInventory, state.visitSettled = nil, nil, nil
+    clearSearchFields(actor, state, options.keepSiteSearch)
+    if task and options.status ~= false then
+        state.lastStatus = {
+            phase = options.phase or "cancelled",
+            reason = options.reason,
+            itemType = task.itemType,
+            itemName = task.itemName,
+            category = task.category,
+            sourceKind = task.sourceKind,
+            destinationKind = task.destinationKind,
+            destinationName = task.destinationName,
+            expires = (options.time or now()) + (U().config("scavengeStatusHoldMs") or 8000),
+        }
+        debugTrace(actor, task, state.lastStatus.phase, options.reason)
+        if state.lastStatus.phase == "failed" then
+            if task.scavengeMissionId and SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.noteSearchWorkerFailure)
+                    == "function" then
+                SC.ExpeditionPrototype.noteSearchWorkerFailure(
+                    actor, task.scavengeMissionId, options.reason)
+            end
+            local ax, ay, az = U().position(actor)
+            print("[LivingFellows/scavenge-failure] actor="
+                .. tostring(U().idOf(actor))
+                .. " reason=" .. tostring(options.reason or "unknown")
+                .. " navigation=" .. tostring(task.lastNavigationStatus or "none")
+                .. " actorSquare=" .. tostring(ax and math.floor(ax) or "?")
+                .. ":" .. tostring(ay and math.floor(ay) or "?")
+                .. ":" .. tostring(az and math.floor(az) or "?")
+                .. " targetSquare=" .. tostring(task.containerX and math.floor(task.containerX) or "?")
+                .. ":" .. tostring(task.containerY and math.floor(task.containerY) or "?")
+                .. ":" .. tostring(task.containerZ and math.floor(task.containerZ) or "?"))
+            if task.routeAware and options.reason == "approach_timeout"
+                and U().config("debugSpawnEnabled") == true then
+                print("[LivingFellows/scavenge-route] actor=" .. tostring(U().idOf(actor))
+                    .. " action=approach_timeout standSquare="
+                    .. tostring(task.lastStandingSquare or "?"))
+            end
+        end
+    end
+    clearTaskFields(state)
+end
+
+local function resetScavengeTarget(actor, state, options)
+    options = options or {}
+    local task = state and state.task or nil
+    local service = supervisor()
+    local token = task and task.supervisorToken or nil
+    if token and service and type(service.isCurrent) == "function"
+        and service.isCurrent(token) and options.fromSupervisor ~= true then
+        local terminal = options.phase or "cancelled"
+        if terminal == "cancelled" and type(service.cancel) == "function" then
+            local cancelled, why = service.cancel(actor,
+                options.reason or "scavenge_cancelled", nil, true)
+            if cancelled ~= true then return false, why or "scavenge_handoff_pending" end
+            if state.task == task then
+                cleanupScavengeTarget(actor, state, options)
+            end
+            return true
+        end
+        cleanupScavengeTarget(actor, state, options)
+        if terminal == "failed" and type(service.fail) == "function" then
+            service.fail(token, options.reason or "scavenge_failed", {
+                source = task.sourceKind, destination = task.destinationKind,
+                item = task.itemType,
+            })
+        elseif terminal == "complete" and type(service.complete) == "function" then
+            service.complete(token, options.reason or "looted")
+        elseif type(service.cancel) == "function" then
+            service.cancel(actor, options.reason or "scavenge_cancelled", nil, true)
+        end
+        return
+    end
+    cleanupScavengeTarget(actor, state, options)
+end
+
+chooseDestination = function(actor, item, category, audit)
+    local utility = U()
+    if SC.Logistics and type(SC.Logistics.preferredLootDestination) == "function" then
+        local destination, kind, bag = SC.Logistics.preferredLootDestination(
+            actor, item, category, audit)
+        if destination then
+            return destination, kind or "inventory", bag and utility.itemName(bag) or nil
+        end
+    end
+    return utility.inventory(actor), "inventory", nil
+end
+
+local function lootReactionTone(actor, task, commands, sequence)
+    local utility = U()
+    if task and task.tone then return task.tone end
+    local item = task and task.item or nil
+    local function itemFlag(method)
+        local value, ok = utility.call(item, method)
+        return ok and value == true
+    end
+    if itemFlag("isRotten") or itemFlag("isBurnt") or itemFlag("isDirty")
+        or itemFlag("isBloody") or itemFlag("isbDangerousUncooked") then
+        return "gross"
+    end
+    local salt = tostring(utility.idOf(actor)) .. ":" .. tostring(task.itemType)
+        .. ":" .. tostring(sequence)
+    if task.sourceKind == "zombie_corpse" then
+        local chance = math.max(0, math.min(100, tonumber(utility.config(
+            "scavengeLootReactionCorpseGrossChancePercent")) or 45))
+        if math.abs(utility.stableHash(salt .. ":corpse")) % 100 < chance then
+            return "gross"
+        end
+    end
+    local condition, conditionOk = utility.call(item, "getCondition")
+    local maximum, maximumOk = utility.call(item, "getConditionMax")
+    local ratio = conditionOk and maximumOk and tonumber(maximum) and maximum > 0
+        and (tonumber(condition) or maximum) / maximum or nil
+    if ratio and ratio <= 0.35 then return "disappointed" end
+    if (tonumber(task.utilityScore) or 0) < 30 then return "disappointed" end
+    return "excited"
+end
+
+local function maybeReactToLoot(actor, state, task, commands, time)
+    local utility = U()
+    if not actor or not state or not task then return false, "invalid_loot_reaction" end
+    if time < nextPartyLootAt then return false, "loot_party_gap" end
+    if time < (tonumber(state.nextLootReactionAt) or 0) then
+        return false, "loot_reaction_cooldown"
+    end
+    state.lootReactionSequence = (tonumber(state.lootReactionSequence) or 0) + 1
+    local baseChance = tonumber(utility.config("scavengeLootReactionChancePercent")) or 38
+    if baseChance <= 0 then return false, "loot_reaction_disabled" end
+    local chance = baseChance
+    local stress, morale = tonumber(commands and commands.stress) or 0,
+        tonumber(commands and commands.morale) or 55
+    local profile = commands and type(commands.personalityProfile) == "table"
+        and commands.personalityProfile or {}
+    if baseChance < 100 then
+        if stress >= 65 then chance = chance + 10 end
+        if morale >= 72 then chance = chance + 8 elseif morale <= 28 then chance = chance - 4 end
+        if (tonumber(profile.courage) or 0) >= 72 then chance = chance + 5 end
+        if (tonumber(profile.practicality) or 0) >= 78 then chance = chance - 5 end
+        chance = math.max(5, math.min(85, chance))
+    else
+        chance = 100
+    end
+    local salt = tostring(utility.idOf(actor)) .. ":" .. tostring(task.itemType)
+        .. ":" .. tostring(state.lootReactionSequence) .. ":" .. tostring(math.floor(time / 250))
+    if math.abs(utility.stableHash(salt .. ":speak")) % 100 >= chance then
+        return false, "loot_reaction_roll"
+    end
+
+    if task.pendingItem == true or task.itemName == "unopened" then
+        return false, "loot_source_unread"
+    end
+    local tone = lootReactionTone(actor, task, commands, state.lootReactionSequence)
+    local topic = "scavenge.loot." .. tone
+    local itemName = utility.itemPhrase(task.itemName or task.itemType or "something")
+        :gsub("[%c]", " "):sub(1, 80)
+    local spoken, line
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        spoken, line = SC.Dialogue.say(actor, topic, nil, { itemName }, {
+            state = commands, recentLimit = 4, salt = salt,
+            fallback = "Found " .. itemName .. ".",
+        })
+    else
+        line = "Found " .. itemName .. "."
+        spoken = utility.say(actor, line)
+    end
+    if spoken ~= true then return false, line or "loot_reaction_rejected" end
+    state.nextLootReactionAt = time
+        + (utility.config("scavengeLootReactionCooldownMs") or 10000)
+    nextPartyLootAt = time + 15000
+    if state.lastHaul then
+        state.lastHaul.reactionTopic, state.lastHaul.reactionLine = topic, line
+    end
+
+    local service = supervisor()
+    if commands.order ~= "follow" and commands.order ~= "expedition" and state.task == nil
+        and (not service or not service.current or service.current(actor) == nil)
+        and SC.Relationship and type(SC.Relationship.playEmote) == "function" then
+        local emote
+        if tone == "excited" then
+            emote = math.abs(utility.stableHash(salt .. ":emote")) % 4 == 0
+                and "clap" or "thumbsup"
+        elseif tone == "gross" then
+            emote = "thumbsdown"
+        else
+            emote = (stress >= 65 or morale <= 28) and "thumbsdown" or "shrug"
+        end
+        pcall(SC.Relationship.playEmote, actor, emote)
+    end
+    return true, topic
+end
+
+local function noteHaul(actor, state, row, task, commands, time)
+    local haul = state.haul or { count = 0, commandSerial = task.commandSerial }
+    state.haul = haul
+    haul.count, haul.progressAt = haul.count + 1, time
+    if not haul.best or row.band > haul.best.band
+        or row.band == haul.best.band and row.score > haul.best.utilityScore then
+        haul.best = { itemType = row.itemType or U().itemType(row.item), itemName = row.itemName or U().itemName(row.item),
+            utilityScore = row.score, band = row.band, sourceKind = task.sourceKind,
+            tone = lootReactionTone(actor, { item = row.item, utilityScore = row.score,
+                itemType = U().itemType(row.item), sourceKind = task.sourceKind }, commands, haul.count) }
+    end
+end
+
+finishHaul = function(actor, state, commands, time, silent)
+    local haul = state and state.haul
+    if not haul then return end
+    state.haul = nil
+    state.lastHaul = { count = haul.count, bestName = haul.best.itemName,
+        bestType = haul.best.itemType, time = time }
+    local sleeping = select(1, U().call(actor, "isAsleep")) == true
+    if silent or sleeping or (tonumber(commands.commandSerial) or 0) ~= haul.commandSerial
+        or U().nativeHealth(actor) <= 0 then return end
+    maybeReactToLoot(actor, state, haul.best, commands, time)
+end
+
+-- Called by the existing decision pulse only for a live haul. No scans, timer
+-- registration or background work when there is nothing to summarize.
+function Encounter.observeLoot(actor, commands, snapshot, time)
+    local state = states[actor]
+    if not state or not state.haul then return end
+    if not safeForScavenging(snapshot, commands) then finishHaul(actor, state, commands, time, true)
+    elseif not state.task and time - state.haul.progressAt >= 20000 then
+        finishHaul(actor, state, commands, time, false)
+    end
+end
+
+local function beginTask(actor, state, container, item, category, owner, utilityScore,
+    commands, audit, time, routeAware)
+    -- A container nobody has opened is a place to go, not an item to fetch.
+    -- Where it ends up is decided once it is open and something has been
+    -- chosen out of it, so the destination is deferred with the item.
+    local pending = item == Encounter.UNOPENED
+    if pending then item, category = nil, nil end
+    local destination, destinationKind, destinationName
+    if not pending then
+        destination, destinationKind, destinationName = chooseDestination(
+            actor, item, category, audit)
+        if not destination then return nil, "destination_unavailable" end
+    end
+    local task = {
+        container = container,
+        owner = owner or containerOwner(container),
+        item = item,
+        pendingItem = pending,
+        itemType = pending and "unopened" or U().itemType(item),
+        itemName = pending and "unopened" or U().itemName(item),
+        category = category,
+        sourceKind = corpseContainers[container] and "zombie_corpse" or "world_container",
+        destination = destination,
+        destinationKind = destinationKind,
+        destinationName = destinationName,
+        utilityScore = tonumber(utilityScore) or 0,
+        selectedAt = time,
+        commandSerial = tonumber(commands.commandSerial) or 0,
+        scavengeRequestedCategory = commands.scavengeRequestedCategory,
+        scavengeMissionId = commands.scavengeMissionId,
+        scavengeSiteId = commands.scavengeSite and commands.scavengeSite.buildingId,
+        routeAware = routeAware == true,
+    }
+    state.container = container
+    state.item = item
+    state.itemCategory = category
+    state.containerOwner = task.owner
+    -- Where the container was when the task was created. A shelf does not move,
+    -- and this is the fallback the reach gate uses when neither the owner nor
+    -- the container resolves to a square at transfer time.
+    -- A container that was looted away, destroyed or unloaded between selection
+    -- and here keeps its Lua reference but loses its square, and Build 42's
+    -- IsoObject.getX() dereferences that square without checking it. Asking a
+    -- removed container where it is throws: harmless to the task, which simply
+    -- has no position either way, but the engine still dumps a full Java and
+    -- Lua stack trace for every attempt. No square, no position.
+    local taskSquare = U().squareOf(task.owner) or U().squareOf(task.container)
+    task.containerX, task.containerY, task.containerZ = U().position(taskSquare)
+    if taskSquare ~= nil and task.containerX ~= nil then
+        task.containerX = math.floor(task.containerX) + 0.5
+        task.containerY = math.floor(task.containerY) + 0.5
+    end
+    local _, _, sourceLevel = U().position(actor)
+    task.extendedSiteApproach = task.scavengeMissionId ~= nil
+        and task.scavengeSiteId ~= nil
+        and (ownerDistance(actor, task.owner) > (U().config("scavengeRadius") or 14)
+            or sourceLevel ~= nil and task.containerZ ~= nil
+                and math.floor(sourceLevel) ~= math.floor(task.containerZ))
+    local service = supervisor()
+    if service and type(service.begin) == "function" then
+        local x, y, z = U().position(taskSquare)
+        local targetKey = tostring(container) .. "|" .. tostring(task.itemType)
+            .. "@" .. tostring(math.floor(tonumber(x) or 0)) .. ":"
+            .. tostring(math.floor(tonumber(y) or 0)) .. ":"
+            .. tostring(math.floor(tonumber(z) or 0))
+        local token, startReason = service.begin(actor, {
+            owner = "encounter", action = "scavenge",
+            priority = service.Priority and service.Priority.WORK or 150,
+            targetKey = targetKey, targetLabel = pending and type(getText) == "function"
+                and getText("UI_SC_Loot_Container") or task.itemName,
+            retryCategory = "*", requiresVisual = true,
+            allowedActions = { move_to_scavenge = true, loot_container = true },
+            metadata = {
+                source = task.sourceKind, destination = task.destinationKind,
+                item = task.itemType,
+            },
+            onCancel = function(cancelActor, cancelReason)
+                local keepSiteSearch = task.routeAware and (cancelReason == "scavenge_route_invalidated"
+                    or cancelReason == "nothing_needed")
+                cleanupScavengeTarget(cancelActor, state, {
+                    cancelVisual = true, stopMovement = true,
+                    reason = cancelReason or "scavenge_cancelled",
+                    phase = "cancelled", memoryResult = cancelReason ~= "scavenge_route_invalidated"
+                        and Encounter._cancelMemoryResult(cancelReason) or nil,
+                    keepSiteSearch = keepSiteSearch,
+                    time = now(), fromSupervisor = true,
+                })
+                return true, cancelReason
+            end,
+        })
+        if not token then
+            -- The claim and task fields are module-local bookkeeping with no
+            -- cooldown attached, so releasing them is correct either way: the
+            -- next pulse re-selects the same container. Only the reported reason
+            -- differs, because a deferral must not read as a refusal upstream.
+            releaseContainer(container, actor)
+            clearTaskFields(state)
+            if service.containsDeferredStatus
+                and service.containsDeferredStatus(startReason) then
+                return nil, "deferred:" .. tostring(startReason)
+            end
+            return nil, startReason or "action_owner_unavailable"
+        end
+        task.supervisorToken = token
+        local reserved, reserveReason = service.reserve(token, container, "source_container")
+        if reserved and task.owner ~= nil then
+            reserved, reserveReason = service.reserve(token, task.owner, "source_object")
+        end
+        if reserved and item ~= nil then
+            reserved, reserveReason = service.reserve(token, item, "source_item")
+        end
+        if not reserved then
+            cleanupScavengeTarget(actor, state, {
+                reason = reserveReason or "resource_reserved", phase = "failed",
+                time = time, status = true, fromSupervisor = true, keepSiteSearch = task.routeAware,
+            })
+            service.fail(token, reserveReason or "resource_reserved", {
+                item = task.itemType,
+            })
+            return nil, reserveReason or "resource_reserved"
+        end
+    end
+    setTaskPhase(actor, state, task, "select", "selected")
+    state.lastStatus = nil
+    return task
+end
+
+local function clearSiteRouteDeferrals(access)
+    access.deferred, access.routeFailures, access.retrySources = {}, {}, {}
+    access.waitUntil, access.retryCandidates, access.retrySpent = nil, nil, nil
+    access.completedUntil, access.blocked = nil, nil
+end
+
+local function wakeSiteRouteAccess(state, access)
+    for container in pairs(access.routeFailures) do
+        local memory = state.visited[container]
+        if memory and memory.result == "navigation_failed" then state.visited[container] = nil end
+    end
+    clearSiteRouteDeferrals(access)
+end
+
+function Encounter._siteRouteContext(actor, state, commands, time)
+    local siteId = commands.scavengeSite and commands.scavengeSite.buildingId
+    if commands.scavengeMissionId == nil or siteId == nil or commands.scavengeTargetContainer ~= nil
+        or not SC.Navigation or type(SC.Navigation.selectInteraction) ~= "function"
+        or type(SC.Navigation.interactionTargets) ~= "function" then
+        return nil
+    end
+    local square = U().squareOf(actor)
+    local room = U().call(square, "getRoom")
+    local _, _, floor = U().position(square)
+    if floor == nil then return nil end
+    local access = state.siteRouteAccess
+    local key = tostring(commands.scavengeMissionId) .. ":" .. tostring(siteId)
+        .. ":" .. tostring(commands.scavengeRequestedCategory) .. ":" .. tostring(commands.commandSerial)
+    if not access or access.key ~= key or access.floor ~= floor then
+        if access then
+            countSiteSearch("discovery.site_changed")
+            clearSearchFields(actor, state, true)
+            state.containerSearch = nil
+        end
+        access = { key = key, siteId = siteId, crossFloor = {}, lockedRooms = {}, lockedSeen = {},
+            floor = floor, room = room }
+        clearSiteRouteDeferrals(access)
+        state.siteRouteAccess = access
+    elseif access.room ~= room then
+        local scan = state.containerSearch
+        if scan and scan.siteColumns then
+            for container in pairs(access.deferred) do scan.candidates[#scan.candidates + 1] = container end
+        end
+        access.room = room
+        wakeSiteRouteAccess(state, access)
+    end
+    -- Only probe one remembered room per decision. A real access change
+    -- invalidates discovery as well as the route survey, since its old cursor
+    -- may already have passed the newly accessible shelves.
+    local count = #access.lockedRooms
+    if count > 0 then
+        local index = (access.lockedCursor or 0) % count + 1
+        local locked = access.lockedRooms[index]
+        access.lockedCursor = index
+        if not behindLockedDoor(actor, locked.square, time) then
+            access.lockedSeen[locked.room] = nil
+            access.lockedRooms[index] = access.lockedRooms[count]
+            access.lockedRooms[count] = nil
+            access.lockedCursor = index - 1
+            wakeSiteRouteAccess(state, access)
+            access.crossFloor = {}
+            countSiteSearch("discovery.access_changed")
+            clearSearchFields(actor, state, true)
+            state.containerSearch = nil
+        end
+    end
+    return access, square
+end
+
+local function siteRouteEligible(actor, state, access, container, owner, storages, time)
+    if containerOnCooldown(container, time) or not memoryAllows(state, container, time) then
+        return nil, "cooldown"
+    end
+    local reservation = pruneReservation(container, time)
+    if reservation and reservation.actor ~= actor then return nil, "reserved" end
+    local square = U().squareOf(owner)
+    if not square or owner ~= containerOwner(container) then
+        return nil, "source_changed"
+    end
+    if not inSelectedSite(access.siteId, square) then return nil, "outside_site" end
+    if not Encounter.mayTakeFrom(container, storages, insideBase(square)) then return nil, "storage_denied" end
+    if behindLockedDoor(actor, square, time) then
+        rememberSiteLock(access, square)
+        return nil, "locked_room"
+    end
+    return square
+end
+
+local function siteRouteContact(actor, owner, snapshot)
+    if U().sameSquare(actor, U().squareOf(owner)) then return true end
+    for _, stand in ipairs(SC.Navigation.interactionTargets(actor, owner, {
+        snapshot = snapshot, requireDirectAccess = true, avoidDoorThreshold = true,
+    })) do
+        if U().sameSquare(actor, stand) then return true end
+    end
+    return false
+end
+
+local function traceSiteRoute(actor, action, source, stand, detail)
+    if U().config("debugSpawnEnabled") ~= true then return end
+    print("[LivingFellows/scavenge-route] actor=" .. tostring(U().idOf(actor))
+        .. " action=" .. action .. " actorSquare=" .. tostring(U().squareKey(U().squareOf(actor)))
+        .. " targetSquare=" .. tostring(source and U().squareKey(source) or "?")
+        .. " standSquare=" .. tostring(stand and U().squareKey(stand) or "?")
+        .. " detail=" .. tostring(detail or "-"))
+end
+
+local function deferSiteSource(state, access, container, time, cause)
+    local hard = cause == "unreachable" or cause == "handoff_changed"
+    if hard or cause == "unknown" then access.blocked = true end
+    if hard then
+        local failures = (access.routeFailures[container] or 0) + 1
+        access.routeFailures[container] = failures
+        if failures >= 2 then
+            rememberContainer(state, container, "navigation_failed", time)
+            access.deferred[container], access.retrySources[container] = nil, nil
+            return
+        end
+    end
+    access.deferred[container] = time + 1000
+    if not access.retrySpent then access.retrySources[container] = true end
+end
+
+function Encounter._retireSiteRoute(actor, state, task, time)
+    local access = state.siteRouteAccess
+    local cancelled, why = resetScavengeTarget(actor, state, {
+        reason = "scavenge_route_invalidated", phase = "cancelled",
+        stopMovement = true, keepSiteSearch = true, time = time,
+    })
+    if cancelled == false then return true, why end
+    if access then deferSiteSource(state, access, task.container, time, "handoff_changed") end
+    traceSiteRoute(actor, "invalidated", U().squareOf(task.owner),
+        task.interactionRoute and task.interactionRoute.endpoint, "handoff_changed")
+    return true, "searching_for_supplies"
+end
+
+local function startSiteRouteTask(actor, state, commands, audit, time, context, selection, row, receipt)
+    local access = selection.siteRouteAccess
+    local square = siteRouteEligible(actor, state, access, row.container, row.object, context.storages, time)
+    if not square or not reserveContainer(row.container, actor, time) then return nil end
+    local task = beginTask(actor, state, row.container, Encounter.UNOPENED, nil,
+        row.object, row.score, commands, audit, time, true)
+    if not task then
+        if state.siteRouteAccess == access then state.selectionJob = selection end
+        return nil
+    end
+    if receipt and task.supervisorToken then
+        receipt.scavengeMissionId = task.scavengeMissionId
+        receipt.boundToken = task.supervisorToken
+        task.interactionRoute = receipt
+    end
+    local scan = state.containerSearch
+    if scan and scan.siteColumns then
+        for _, other in ipairs(selection.siteRouteRows) do
+            if other ~= row and access.deferred[other.container] == nil then
+                scan.candidates[#scan.candidates + 1] = other.container
+            end
+        end
+    end
+    access.deferred[row.container], access.retrySources[row.container] = nil, nil
+    access.crossFloor[row.container] = nil
+    state.selectionJob = nil
+    countSiteSearch("task.started")
+    traceSiteRoute(actor, "selected", square, receipt and receipt.endpoint or row.contact and U().squareOf(actor),
+        receipt and "verified_route" or row.contact and "direct_contact" or "cross_floor")
+    return task
+end
+
+function Encounter._selectSiteRoute(actor, state, commands, audit, time, snapshot, context, selection)
+    local access = selection.siteRouteAccess
+    local rows = selection.siteRouteRows
+    if selection.routeIndex == nil then
+        table.sort(rows, function(a, b)
+            if a.contact ~= b.contact then return a.contact end
+            if a.sameRoom ~= b.sameRoom then return a.sameRoom end
+            if a.score ~= b.score then return a.score > b.score end
+            return a.id < b.id
+        end)
+        selection.routeIndex = 1
+    end
+    if not selection.routeBatch then
+        local batch = {}
+        while selection.routeIndex <= #rows and #batch < 4 do
+            local row = rows[selection.routeIndex]
+            selection.routeIndex = selection.routeIndex + 1
+            if siteRouteEligible(actor, state, access, row.container, row.object, context.storages, time) then
+                if row.contact and siteRouteContact(actor, row.object, snapshot) then
+                    local task = startSiteRouteTask(actor, state, commands, audit, time, context, selection, row)
+                    if task then return task end
+                    deferSiteSource(state, access, row.container, time, "source_changed")
+                else
+                    batch[#batch + 1] = row
+                end
+            end
+        end
+        if #batch > 0 then
+            selection.routeBatch, selection.routeSurvey = batch, {}
+        end
+    end
+    local batch = selection.routeBatch
+    if batch then
+        local row, cause, receipt = SC.Navigation.selectInteraction(actor, selection.routeSurvey,
+            access.key, batch, {
+                snapshot = snapshot, expeditionScavenge = true, requireDirectAccess = true,
+                maxChoices = 4, targetsPerChoice = 8, nodeBudget = 300, nodeQuota = 24, retainRoute = true,
+            })
+        if cause == "pending" then
+            state.lastStatus = { phase = "search", reason = "checking_container_access", expires = time + 1000 }
+            return nil, "searching"
+        end
+        countSiteSearch("survey." .. (cause or "no_result"))
+        if row and cause == "selected" then
+            if receipt or siteRouteContact(actor, row.object, snapshot) then
+                if not receipt then row.contact = true end
+                local task = startSiteRouteTask(actor, state, commands, audit, time, context, selection, row, receipt)
+                if task then return task end
+            end
+            deferSiteSource(state, access, row.container, time, "source_changed")
+            traceSiteRoute(actor, "deferred", U().squareOf(row.object), nil, "source_changed")
+            local remaining = {}
+            for _, candidate in ipairs(batch) do
+                if candidate ~= row then remaining[#remaining + 1] = candidate end
+            end
+            selection.routeBatch = #remaining > 0 and remaining or nil
+            selection.routeSurvey = selection.routeBatch and {} or nil
+            return nil, "searching"
+        end
+        for _, deferred in ipairs(batch) do
+            deferSiteSource(state, access, deferred.container, time, cause)
+            traceSiteRoute(actor, "deferred", U().squareOf(deferred.object), nil, cause)
+        end
+        selection.routeBatch, selection.routeSurvey = nil, nil
+        return nil, "searching"
+    end
+    if selection.sitePassComplete then
+        local best
+        for container, row in pairs(access.crossFloor) do
+            if not siteRouteEligible(actor, state, access, container, row.object, context.storages, time) then
+                access.crossFloor[container] = nil
+            elseif not best or row.score > best.score
+                or row.score == best.score and row.id < best.id then
+                best = row
+            end
+        end
+        if best then
+            local task = startSiteRouteTask(actor, state, commands, audit, time, context, selection, best)
+            if task then return task end
+            access.crossFloor[best.container] = nil
+        end
+        if not access.retrySpent then
+            local retryAt, candidates = time + 1000, {}
+            for container in pairs(access.retrySources) do
+                candidates[#candidates + 1] = container
+                retryAt = math.max(retryAt, access.deferred[container] or time)
+            end
+            if #candidates > 0 or #access.lockedRooms > 0 then
+                access.retrySpent, access.retryCandidates, access.waitUntil = true, candidates, retryAt
+                state.lastStatus = { phase = "search", reason = "checking_container_access", expires = retryAt }
+            end
+            access.retrySources = {}
+        end
+    end
+    state.selectionJob = nil
+    if not selection.sitePassComplete or access.waitUntil then return nil, "searching" end
+    local reason = (access.blocked or #access.lockedRooms > 0) and "approach_timeout" or "nothing_needed"
+    countSiteSearch("pass." .. reason)
+    access.completedUntil = time + 30000
+    state.lastStatus = reason == "approach_timeout"
+        and { phase = "failed", reason = reason, expires = time + 8000 } or nil
+    if SC.ExpeditionPrototype and type(SC.ExpeditionPrototype.noteSearchWorkerFailure) == "function" then
+        SC.ExpeditionPrototype.noteSearchWorkerFailure(actor, commands.scavengeMissionId, reason)
+    end
+    return nil, "nothing_needed"
+end
+
+local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time, retry, snapshot)
+    local selection = state.selectionJob
+    if selection and (selection.commandSerial ~= (tonumber(commands.commandSerial) or 0)
+        or selection.prioritizeMeleeWeapon ~= (commands.prioritizeMeleeWeapon == true)
+        or selection.scavengeRequestedCategory ~= commands.scavengeRequestedCategory
+        or selection.scavengeMissionId ~= commands.scavengeMissionId
+        or selection.scavengeTargetContainer ~= commands.scavengeTargetContainer) then
+        clearSearchFields(actor, state)
+        selection = nil
+    end
+    -- Two steps from an open cupboard beats twenty to the next one. Selection
+    -- used to re-rank everything in range after each item, so a marginally
+    -- better container elsewhere usually won and companions took one thing from
+    -- each in turn.
+    local performance = SC.Performance
+    local clock = performance and performance.preciseNowMs or U().nowMs
+    local context = { deadline = clock() + 1.5, storages = storageIndex() }
+    local openContainer, openItem, openCategory, openOwner, openScore, openComplete =
+        Encounter.stickyContainer(actor, state, needs, commands, audit, time, context)
+    if openContainer ~= nil and (commands.scavengeTargetContainer == nil
+        or openContainer == commands.scavengeTargetContainer) then
+        return beginTask(actor, state, openContainer, openItem, openCategory,
+            openOwner, openScore, commands, audit, time)
+    end
+    if openComplete == false and (commands.scavengeTargetContainer == nil
+        or state.openContainer == commands.scavengeTargetContainer) then return nil, "searching" end
+
+    local access, origin = Encounter._siteRouteContext(actor, state, commands, time)
+    selection = state.selectionJob
+    if selection and selection.siteRouteAccess ~= access then
+        local scan = state.containerSearch
+        if scan and scan.siteColumns then
+            for _, container in ipairs(selection.candidates) do scan.candidates[#scan.candidates + 1] = container end
+        end
+        clearSearchFields(actor, state, true)
+        selection = nil
+    end
+    if access and access.completedUntil then
+        if time < access.completedUntil then return nil, "nothing_needed" end
+        clearSiteRouteDeferrals(access)
+    end
+    if access and access.waitUntil then
+        if time < access.waitUntil then return nil, "searching" end
+        access.waitUntil = nil
+    end
+    if not selection then
+        local candidates, complete, progress, total, sitePassComplete, emptyProof
+        if access and access.retryCandidates then
+            candidates, complete, sitePassComplete = access.retryCandidates, true, true
+            access.retryCandidates = nil
+        else
+            candidates, complete, progress, total, sitePassComplete, emptyProof = candidateContainers(
+                actor, player, state, allowCorpses, time, commands, retry)
+        end
+        if not complete then
+            state.lastStatus = {
+                phase = "search", reason = "searching_containers",
+                progress = progress, total = total,
+                expires = time + 1000,
+            }
+            return nil, "searching"
+        end
+        selection = {
+            candidates = candidates or {}, index = 1,
+            deferredCandidates = {},
+            commandSerial = tonumber(commands.commandSerial) or 0,
+            prioritizeMeleeWeapon = commands.prioritizeMeleeWeapon == true,
+            scavengeRequestedCategory = commands.scavengeRequestedCategory,
+            scavengeMissionId = commands.scavengeMissionId,
+            scavengeTargetContainer = commands.scavengeTargetContainer,
+            sitePassComplete = sitePassComplete,
+            emptyProof = emptyProof,
+            siteRouteAccess = access,
+            siteRouteRows = access and {} or nil,
+        }
+        state.selectionJob = selection
+    end
+
+    local remaining = math.max(0, #selection.candidates - selection.index + 1)
+    local granted, claim = remaining
+    if SC.Performance and type(SC.Performance.claimUnits) == "function" then
+        granted, claim = SC.Performance.claimUnits("scavengeContainers", remaining, false, true)
+    end
+    local startedAt, processed = clock(), 0
+    while processed < granted and selection.index <= #selection.candidates
+        and (processed == 0 or clock() < context.deadline) do
+        local container = selection.candidates[selection.index]
+        selection.index = selection.index + 1
+        processed = processed + 1
+        if access then
+            local deferred = access.deferred[container]
+            if not deferred or time >= deferred then
+                access.deferred[container] = nil
+                local owner = containerOwner(container)
+                local square, rejected = siteRouteEligible(actor, state, access, container, owner, context.storages, time)
+                if square and not corpseContainers[container] then
+                    local score = Encounter.blindContainerScore(actor, container, owner, commands, needs)
+                    if score > 0 then
+                        local _, _, floor = U().position(square)
+                        local row = { id = tostring(container), object = owner, container = container,
+                            score = score, tier = 1 }
+                        if floor == access.floor then
+                            row.sameRoom = U().call(square, "getRoom") == access.room
+                            row.contact = U().distanceSq(origin, square) <= 2 and siteRouteContact(actor, owner, snapshot)
+                            selection.siteRouteRows[#selection.siteRouteRows + 1] = row
+                            countSiteSearch("candidate.same_floor")
+                        else
+                            access.crossFloor[container] = row
+                            countSiteSearch("candidate.cross_floor")
+                        end
+                    else
+                        countSiteSearch("candidate.rejected_score")
+                    end
+                else
+                    countSiteSearch("candidate.rejected_" .. (rejected or "corpse"))
+                end
+            end
+        elseif reserveContainer(container, actor, time) then
+            local score, item, category, owner, complete
+            owner = containerOwner(container)
+            complete = true
+            if corpseContainers[container] == true or Encounter.mayTakeFrom(container, context.storages) then
+                score = Encounter.blindContainerScore(actor, container, owner, commands, needs)
+                item, category = Encounter.UNOPENED, nil
+            else score = 0 end
+            if item and score > 0 then
+                if selection.bestScore == nil or score > selection.bestScore then
+                    if selection.bestContainer and selection.bestContainer ~= container then
+                        selection.deferredCandidates[#selection.deferredCandidates + 1] =
+                            selection.bestContainer
+                        releaseContainer(selection.bestContainer, actor)
+                    end
+                    selection.bestContainer, selection.bestItem, selection.bestCategory,
+                        selection.bestOwner, selection.bestScore =
+                        container, item, category, owner, score
+                else
+                    selection.deferredCandidates[#selection.deferredCandidates + 1] = container
+                    releaseContainer(container, actor)
+                end
+            elseif complete then
+                rememberContainer(state, container, "nothing_needed", time)
+                releaseContainer(container, actor)
+            else
+                -- More of this container still to read; leave it uncooled so
+                -- the next pass resumes where this slice stopped.
+                releaseContainer(container, actor)
+                selection.index = selection.index - 1
+                break
+            end
+        end
+    end
+    if claim and performance and type(performance.settleUnits) == "function" then
+        performance.settleUnits(claim, processed)
+    end
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("scavenge.score", U().idOf(actor),
+            clock() - startedAt, processed, false)
+    end
+    if selection.index <= #selection.candidates then
+        if SC.Performance and type(SC.Performance.markYield) == "function" then
+            SC.Performance.markYield("scavenge.score", U().idOf(actor), processed)
+        end
+        state.lastStatus = {
+            phase = "search", reason = "evaluating_supplies",
+            progress = selection.index - 1, total = #selection.candidates,
+            expires = time + 1000,
+        }
+        return nil, "searching"
+    end
+    if access then
+        return Encounter._selectSiteRoute(actor, state, commands, audit, time, snapshot, context, selection)
+    end
+    state.selectionJob = nil
+    if state.containerSearch and state.containerSearch.siteColumns then
+        for _, container in ipairs(selection.deferredCandidates) do
+            state.containerSearch.candidates[#state.containerSearch.candidates + 1] = container
+        end
+    end
+    if not selection.bestContainer or not selection.bestItem then
+        if selection.sitePassComplete and commands.scavengeMissionId ~= nil
+            and SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.noteSearchWorkerFailure) == "function" then
+            SC.ExpeditionPrototype.noteSearchWorkerFailure(actor,
+                commands.scavengeMissionId, "nothing_needed")
+        end
+        return nil, "nothing_needed", selection.emptyProof
+    end
+    return beginTask(actor, state, selection.bestContainer, selection.bestItem,
+        selection.bestCategory, selection.bestOwner, selection.bestScore,
+        commands, audit, time)
+end
+
+function Encounter._transferLoot(actor, row, choice, pendingVisuals)
+    local utility, drop = U(), choice.drop
+    if utility.canRemoveFromContainer then
+        local allowed, reason = utility.canRemoveFromContainer(row.source, actor, row.item, row.root)
+        if not allowed then return false, reason end
+    end
+    if not drop then return utility.transferItemVerified(row.source, choice.destination, row.item, pendingVisuals) end
+    local square = utility.squareOf(actor)
+    if not square or not utility.isSquareFree(square) then return false, "loot_swap_no_drop_square" end
+    local dropped, wrapper = utility.dropItem(drop.source, square, drop.item)
+    if not dropped then return false, wrapper end
+    if utility.worldItemPresent(square, wrapper) ~= true
+        or utility.inventoryContains(drop.source, drop.item) ~= false then
+        return false, "loot_swap_drop_unverified"
+    end
+    local room, why = utility.containerHasRoom(choice.destination, actor, row.item)
+    local moved, receipt
+    if room then
+        moved, why, receipt = utility.transferItemVerified(row.source, choice.destination, row.item, pendingVisuals)
+    end
+    if moved then
+        local data = utility.modData(drop.item)
+        if data then data.LF_ScavengedBy, data.LF_ScavengedOuting = nil, nil end
+        return moved, why, receipt
+    end
+    local restored, restoreReason = utility.takeWorldItemVerified(wrapper, drop.source, drop.item)
+    if not restored and SC.Diagnostics and SC.Diagnostics.report then
+        SC.Diagnostics.report("scavenge", utility.idOf(actor),
+            "could not recover the exchanged item from the floor", restoreReason)
+    end
+    return false, why or (restored and "loot_swap_reverted" or "loot_swap_rollback_failed"), receipt
+end
+
+local function commitTask(actor, state, task, commands, audit, time)
+    local utility, service, token = U(), supervisor(), task.supervisorToken
+    if token and service and service.transition then
+        if visualAdapterAbsent() and service.markVisualVerified then
+            service.markVisualVerified(token, { action = "loot_container", fixture = true })
+        end
+        local entered, why = service.transition(token, "committing")
+        if entered ~= true then
+            resetScavengeTarget(actor, state, { reason = why, phase = "failed", time = time })
+            return false, why
+        end
+    end
+    local projection = SC.Logistics and SC.Logistics.lootProjection
+        and SC.Logistics.lootProjection(actor, audit) or nil
+    local moved, after, stopReason, uncertain = 0, {}, nil, false
+    local visit, storages = state.visit, storageIndex()
+    local pendingVisuals, extras = {}, not insideBase(task.owner)
+    local sourceX, sourceY, sourceZ = utility.position(task.owner)
+    local sourceObjectIndex = tonumber((utility.call(task.owner, "getObjectIndex")))
+    local function transferBatch()
+        for _, row in ipairs(task.takeList or {}) do
+            local current = commandState(actor)
+            local missionOwned = false
+            if task.scavengeMissionId and SC.ExpeditionPrototype and SC.ExpeditionPrototype.searchLootRemaining then
+                local remaining = SC.ExpeditionPrototype.searchLootRemaining(actor, task.scavengeMissionId,
+                    task.scavengeRequestedCategory)
+                if remaining ~= nil and remaining <= 0 then stopReason = "quota_met" break end
+                missionOwned = remaining ~= nil
+            end
+            if (tonumber(current.commandSerial) or 0) ~= task.commandSerial
+                or not missionOwned and (current.scavengeRequestedCategory ~= task.scavengeRequestedCategory
+                    or current.scavengeMissionId ~= task.scavengeMissionId)
+                or utility.nativeHealth(actor) <= 0 then stopReason = "command_changed" break end
+            if missionOwned then
+                local view = {}; for key, value in pairs(current) do view[key] = value end
+                view.scavengeRequestedCategory, view.scavengeMissionId = task.scavengeRequestedCategory, task.scavengeMissionId
+                current = view
+            end
+            local allowed, _, storage = Encounter.mayTakeFrom(row.root, storages)
+            if not allowed then stopReason = "storage_withdrawn" break end
+            if Loot.valid(visit, row) and (SC.Logistics and SC.Logistics.lootChoice or not manualEquipmentOnly(row.item))
+                and not (SC.PersonalItems and SC.PersonalItems.isProtected(row.item, actor, "return_to_owner"))
+                and (not storage or storageAllows(storage, row.item)) then
+                local choice
+                if SC.Logistics and SC.Logistics.lootChoice then
+                    choice = Encounter._chooseLoot(actor, row.item, row.category, projection,
+                        current, storage, extras, row)
+                else choice = row end
+                if choice then
+                    -- lootChoice has just checked this exact destination's
+                    -- native filters and capacity. It is not a cached verdict.
+                    do
+                        local transferred, why, receipt = Encounter._transferLoot(actor, row, choice, pendingVisuals)
+                        if not transferred then
+                            stopReason = why or "transfer_failed"
+                            uncertain = stopReason == "transfer_rollback_failed" or stopReason == "destination_already_contains_item"
+                            if uncertain then
+                                local data = utility.modData(row.item)
+                                if data then data.SC_LootTransferUncertain = utility.idOf(actor) or true end
+                            end
+                            break
+                        end
+                        moved = moved + 1
+                        row.transferred = true
+                        row.itemType, row.itemName = receipt and receipt.itemType or utility.itemType(row.item),
+                            receipt and receipt.itemName or utility.itemName(row.item)
+                        if projection and not choice.drop then SC.Logistics.projectLoot(projection, choice) end
+                        if SC.Logistics and SC.Logistics.noteScavengedItem
+                            and Encounter._canSwapLoot(actor, current, storage, extras) then
+                            SC.Logistics.noteScavengedItem(actor, row.item)
+                        end
+                        local requested = task.scavengeRequestedCategory ~= nil
+                            and matchesSupplyRequest(task.scavengeRequestedCategory, row.category)
+                        state.lastLoot = { type = row.itemType, name = row.itemName,
+                            category = row.category, source = task.sourceKind, destination = choice.destinationKind,
+                            destinationName = choice.destinationName, time = time, verified = receipt ~= nil,
+                            replacedItem = choice.drop and utility.itemType(choice.drop.item),
+                            requestedCategory = requested and task.scavengeRequestedCategory or nil,
+                            stableId = requested and utility.itemStableId(row.item, true) or nil,
+                            sourceX = sourceX and math.floor(sourceX), sourceY = sourceY and math.floor(sourceY), sourceZ = sourceZ and math.floor(sourceZ),
+                            sourceObjectIndex = sourceObjectIndex,
+                            missionId = requested and task.scavengeMissionId or nil }
+                        if requested and SC.ExpeditionPrototype and SC.ExpeditionPrototype.noteVerifiedSearchLoot
+                            and SC.ExpeditionPrototype.noteVerifiedSearchLoot(actor, state.lastLoot) then
+                            countSiteSearch("transfer.verified")
+                        end
+                        noteHaul(actor, state, row, task, current, time)
+                        after[#after + 1] = row.item
+                    end
+                end
+            end
+        end
+        return moved > 0, stopReason or "looted", { count = moved, uncertain = uncertain }
+    end
+    local accepted, why
+    if token and service and service.commit then accepted, why = service.commit(token, transferBatch)
+    else
+        local ok
+        ok, accepted, why = pcall(transferBatch)
+        if not ok then accepted, why = false, "commit_callback_failed" end
+    end
+    for container in pairs(pendingVisuals) do utility.refreshContainerVisuals(container) end
+    if moved > 0 and SC.Logistics and SC.Logistics.noteLootPickup then SC.Logistics.noteLootPickup(actor) end
+    if not accepted then
+        state.openContainer, state.visit = nil, nil
+        if SC.Logistics and SC.Logistics.reset then SC.Logistics.reset(actor) end
+        resetScavengeTarget(actor, state, { reason = why or stopReason or "nothing_transferred",
+            phase = "failed", cooldown = true, memoryResult = "transfer_failed", time = time })
+        finishHaul(actor, state, commands, time, true)
+        return false, why or stopReason
+    end
+    setTaskPhase(actor, state, task, "verify", "verifying_transfer")
+    local flags = containerFlags(task.container)
+    if flags and task.sourceKind ~= "zombie_corpse" then
+        flags.SC_LastScavengedAt, flags.SC_CompanionVisited = time, true
+    end
+    Encounter._noteContainerOpened(state, task.container, time)
+    state.visit, state.lootInventory = nil, nil
+    state.lastStatus = { phase = "complete", reason = stopReason or "looted", itemType = task.itemType,
+        itemName = task.itemName, count = moved, sourceKind = task.sourceKind,
+        expires = time + (utility.config("scavengeStatusHoldMs") or 8000) }
+    setTaskPhase(actor, state, task, "complete", stopReason or "looted")
+    releaseContainer(task.container, actor)
+    clearTaskFields(state)
+    if token and service and service.complete then service.complete(token, stopReason or "looted", { count = moved }) end
+    if SC.Logistics and SC.Logistics.reset then SC.Logistics.reset(actor) end
+    if SC.NativeActions and SC.NativeActions.noteResult then SC.NativeActions.noteResult(actor, "scavenge", "looted") end
+    for _, item in ipairs(after) do
+        if SC.Quirks and SC.Quirks.onVerifiedLoot and SC.Quirks.onVerifiedLoot(actor, item, commands) then break end
+    end
+    if stopReason then
+        state.openContainer = nil
+        finishHaul(actor, state, commands, time, stopReason ~= "quota_met")
+    end
+    return true, "looted"
+end
+
+-- Keep the context while discovery is sliced, so a known local mutation can
+-- invalidate the negative proof even before the last slice finishes.
+local function opportunisticRetry(actor, player, state, commands, neutralOverride, allowCorpses, time)
+    local utility = U()
+    if player == nil or neutralOverride or commands.recruited ~= true or commands.order ~= "follow"
+        or commands.scavengeTargetContainer or commands.scavengeRequestedCategory
+        or commands.scavengeMissionId or commands.scavengeSite or commands.prioritizeMeleeWeapon
+        or state.task or state.pendingVisualCancel or state.haul or state.openContainer then
+        scavengeRetries[actor] = nil
+        return nil
+    end
+    local actorSquare, leaderSquare = utility.squareOf(actor), utility.squareOf(player)
+    local x, y, z = utility.position(actorSquare)
+    if not x or not y or z == nil or not leaderSquare then
+        scavengeRetries[actor] = nil
+        return nil
+    end
+    local inventory = SC.InventoryIndex
+    local revision = inventory and inventory.version and inventory.version(actor)
+    local base = SC.BaseLife
+    local storageRevision = base and base.storageRevision and base.storageRevision()
+    local radius = searchRadius(utility, allowCorpses, player, commands)
+    local retry = scavengeRetries[actor]
+    if not retry or retry.startedAt > time or retry.actorSquare ~= actorSquare
+        or retry.leader ~= player or retry.leaderSquare ~= leaderSquare
+        or retry.serial ~= commands.commandSerial or retry.revision ~= revision
+        or retry.storageRevision ~= storageRevision
+        or retry.radius ~= radius or retry.allowCorpses ~= allowCorpses then
+        retry = {
+            startedAt = time, x = x, y = y, z = z, radius = radius, allowCorpses = allowCorpses,
+            actorSquare = actorSquare, leader = player, leaderSquare = leaderSquare,
+            serial = commands.commandSerial, revision = revision, storageRevision = storageRevision,
+        }
+        scavengeRetries[actor] = retry
+    end
+    return retry
+end
+
+function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
+    local utility = U()
+    local rootRuntime = utility.actorState(actor, runtime)
+    local state = stateFor(actor)
+    if state.pendingVisualCancel then
+        local stopped, why = Encounter.cancelScavenge(actor, "scavenge_cleanup_pending")
+        if stopped ~= true then return true, why or "scavenge_visual_cancel_pending" end
+    end
+    local commands = commandState(actor)
+    local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
+    local time = now()
+    if state.haul and state.haul.commandSerial ~= (tonumber(commands.commandSerial) or 0) then
+        finishHaul(actor, state, commands, time, true)
+    end
+    if (not commands.scavenge and not neutralOverride) or not safeForScavenging(snapshot, commands) then
+        scavengeRetries[actor] = nil
+        finishHaul(actor, state, commands, time, true)
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = state.task ~= nil,
+            reason = not commands.scavenge and "scavenge_disabled" or "scavenge_unsafe",
+            phase = "cancelled", memoryResult = state.task and "interrupted" or nil,
+            time = time, status = state.task ~= nil,
+        })
+        return false, "scavenge_disabled_or_unsafe"
+    end
+    local mustRejoin, formationReason = Encounter.formationRejoinRequired(
+        actor, player, commands)
+    if mustRejoin == true then
+        scavengeRetries[actor] = nil
+        finishHaul(actor, state, commands, time, false)
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = state.task ~= nil,
+            reason = formationReason, phase = "cancelled",
+            memoryResult = state.task and Encounter._cancelMemoryResult(formationReason) or nil,
+            time = time, status = state.task ~= nil,
+        })
+        return false, formationReason
+    end
+    local radius = utility.config("scavengeRadius") or 14
+    if player and not neutralOverride and commands.scavengeMissionId == nil
+        and utility.distanceSq(actor, player) > radius * radius then
+        scavengeRetries[actor] = nil
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = state.task ~= nil,
+            reason = "outside_scavenge_radius", phase = "cancelled",
+            memoryResult = state.task and "interrupted" or nil,
+            time = time, status = state.task ~= nil,
+        })
+        return false, "outside_scavenge_radius"
+    end
+
+    local allowCorpses = safeForCorpseLoot(actor, snapshot, state, time)
+    local retry = opportunisticRetry(actor, player, state, commands, neutralOverride, allowCorpses, time)
+    if retry and retry.expires and time < retry.expires then
+        if SC.Performance and type(SC.Performance.count) == "function" then
+            SC.Performance.count("scavenge.retry.skipped")
+        end
+        return false, "nothing_needed"
+    end
+
+    local performance = commands.scavengeMissionId and SC.Performance
+    local clock = performance and type(performance.record) == "function" and performance.preciseNowMs
+    local inventoryStarted = clock and clock()
+    local logistics = SC.Logistics
+    local expeditionAudit = commands.scavengeMissionId and logistics and logistics.expeditionLootAudit
+    local audit
+    if expeditionAudit then
+        audit = expeditionAudit(actor, state, commands.scavengeMissionId)
+    elseif logistics and type(logistics.status) == "function" then
+        audit = logistics.status(actor)
+    end
+    if neutralOverride and actorNeedsMeleeWeapon(actor, audit) then
+        local view = {}
+        for key, value in pairs(commands) do view[key] = value end
+        view.prioritizeMeleeWeapon = true
+        commands = view
+    end
+    if not expeditionAudit and logistics and logistics.lootAudit then
+        audit = logistics.lootAudit(actor, state, audit)
+    end
+    if clock then
+        performance.record("scavenge.site.inventory", utility.idOf(actor), clock() - inventoryStarted, 1, not audit)
+    end
+    if not audit and (expeditionAudit or logistics and logistics.lootAudit) then
+        return true, "inventory_scan_pending"
+    end
+    local needs = currentNeeds(actor, commands)
+    if needsUnloading then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = state.task ~= nil,
+            reason = "loadout_needs_unloading", phase = "cancelled",
+            memoryResult = state.task and "loadout_changed" or nil,
+            time = time, status = state.task ~= nil,
+        })
+        return false, "loadout_needs_unloading"
+    end
+    local selectionPlayer = player
+    -- A remote Search is bounded by its selected site, not by the leader's
+    -- current tile. Followers may search different rooms of that site.
+    if neutralOverride or commands.scavengeMissionId ~= nil then
+        selectionPlayer = nil
+    end
+    local task = state.task
+    if task and (task.scavengeRequestedCategory
+            ~= commands.scavengeRequestedCategory
+        or task.scavengeMissionId ~= commands.scavengeMissionId) then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "request_changed",
+            phase = "cancelled", memoryResult = "interrupted", time = time,
+        })
+        return false, "request_changed"
+    end
+    if task and containerOnCooldown(task.container, time) then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "container_cooldown",
+            phase = "cancelled", time = time,
+        })
+        return false, "container_cooldown"
+    end
+    -- "Is the thing I came for still in there?" is not a question a task can
+    -- ask on the way to a container it has never opened -- it has not chosen
+    -- an item yet, and asking anyway failed the approach on its second round.
+    -- An empty cupboard is a discovery to be made at the cupboard, not a
+    -- source that changed.
+    if task and not task.pendingItem and not task.takeList
+        and not utility.inventoryContains(task.container, task.item) then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "source_changed",
+            phase = "failed", memoryResult = "source_changed", time = time,
+        })
+        return false, "source_changed"
+    end
+    if task and (tonumber(commands.commandSerial) or 0) ~= task.commandSerial then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "command_changed",
+            phase = "cancelled", memoryResult = "interrupted", time = time,
+        })
+        return false, "command_changed"
+    end
+    if not task then
+        local selectionReason, emptyProof
+        task, selectionReason, emptyProof = selectTask(
+            actor, selectionPlayer, state, commands,
+            needs, audit, allowCorpses, time, retry, snapshot)
+        if not task then
+            if selectionReason == "searching" then
+                local scan = state.containerSearch or state.selectionJob
+                local progress = scan and scan.index
+                if state.haul and progress ~= state.haul.searchProgress then
+                    state.haul.searchProgress, state.haul.progressAt = progress, time
+                end
+                return true, "searching_for_supplies"
+            end
+            if retry and emptyProof == retry and scavengeRetries[actor] == retry then
+                retry.expires = time + 3000
+            else
+                scavengeRetries[actor] = nil
+            end
+            finishHaul(actor, state, commands, time, false)
+            return false, selectionReason or "nothing_needed"
+        end
+        scavengeRetries[actor] = nil
+    end
+
+    if not reserveContainer(task.container, actor, time) then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "container_reserved",
+            phase = "cancelled", time = time,
+        })
+        return false, "container_reserved"
+    end
+    if task.sourceKind == "zombie_corpse"
+        and not safeForCorpseLoot(actor, snapshot, state, time) then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "corpse_loot_unsafe",
+            phase = "cancelled", memoryResult = "interrupted", time = time,
+        })
+        return false, "corpse_loot_unsafe"
+    end
+
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function"
+        or type(SC.Navigation.interactionTargets) ~= "function" then
+        resetScavengeTarget(actor, state, {
+            stopMovement = true, reason = "navigation_unavailable", phase = "failed",
+            cooldown = true, memoryResult = "navigation_unavailable", time = time,
+        })
+        return false, "navigation_unavailable"
+    end
+    local targets = SC.Navigation.interactionTargets(actor, task.owner, {
+        snapshot = snapshot, requireDirectAccess = true,
+        avoidDoorThreshold = true,
+    })
+    local receipt = task.interactionRoute
+    if #targets == 0 and receipt and not receipt.used then
+        return Encounter._retireSiteRoute(actor, state, task, time)
+    end
+    if #targets == 0 then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true,
+            reason = "no_interaction_targets", phase = "failed", cooldown = true,
+            memoryResult = "navigation_failed", time = time,
+        })
+        return false, "no_interaction_targets"
+    end
+    -- A passable object/corpse may share the actor's current square. That is
+    -- already direct contact and needs no synthetic adjacent step.
+    local atInteractionTarget = utility.sameSquare(actor, utility.squareOf(task.owner))
+    for _, target in ipairs(targets) do
+        if utility.sameSquare(actor, target) then
+            atInteractionTarget = true
+            break
+        end
+    end
+
+    if not atInteractionTarget then
+        state.visitSettled = nil
+        task.approachStartedAt = task.approachStartedAt or time
+        if Encounter._approachExpired(task, time,
+                ownerDistance(actor, task.owner),
+                SC.Navigation.status and SC.Navigation.status(actor), actor) then
+            rememberFailedExpeditionSource(state, task, time)
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true,
+                reason = "approach_timeout", phase = "failed", cooldown = true,
+                memoryResult = "navigation_failed", time = time,
+            })
+            return false, "approach_timeout"
+        end
+        setTaskPhase(actor, state, task, "approach", "approaching_container")
+        local ok, status, stand = SC.Navigation.requestAny(actor, targets, "walk", {
+            action = "move_to_scavenge", container = task.container,
+            -- Keep object identity for route invalidation. RequestAny selects
+            -- a contact square; Navigation.request owns movement to it.
+            item = task.item, object = task.owner, snapshot = snapshot,
+            arrivalDistance = 0.35, requireSameSquare = true,
+            -- Walking across a room to a shelf is cruising, not a tactical
+            -- reposition. Without this the strict turn-before-move rule applies
+            -- to every step and the companion advances in visible single
+            -- paces -- step, turn, step -- while a follower covers the same
+            -- ground smoothly for no reason other than this flag.
+            continuousApproach = true,
+            -- Let Navigation establish one full portal-aware route, then keep
+            -- its ordinary movement owner through the whole container approach.
+            preferVerifiedPath = task.scavengeMissionId ~= nil,
+            supervisorToken = task.supervisorToken,
+            scavengeMissionId = task.scavengeMissionId,
+            interactionRouteReceipt = receipt,
+            interactionRouteOwner = receipt and receipt.ownerState,
+        })
+        if status == "scavenge_route_invalidated" then
+            return Encounter._retireSiteRoute(actor, state, task, time)
+        end
+        if task.routeAware and stand then task.lastStandingSquare = utility.squareKey(stand) end
+        task.lastNavigationStatus = status
+        local service = supervisor()
+        if service and task.supervisorToken and type(service.progress) == "function" then
+            service.progress(task.supervisorToken,
+                Encounter._approachProgressSignature(task, ownerDistance(actor, task.owner)), {
+                    navigation = status,
+                })
+        end
+        local navigationStatus = tostring(status or "")
+        local terminalNavigation = not ok and (
+            navigationStatus == "no_interaction_targets"
+            or navigationStatus == "no_reachable_interaction_target"
+            or string.find(navigationStatus, "path_blocked:", 1, true) == 1
+            or string.find(navigationStatus, "recovery_exhausted:", 1, true) == 1
+            or string.find(navigationStatus, "actor_state_timeout:", 1, true) == 1)
+        if terminalNavigation then
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true,
+                reason = status, phase = "failed", cooldown = true,
+                memoryResult = "navigation_failed", time = time,
+            })
+            return false, status
+        end
+        return ok, status or "approaching_container"
+    end
+
+    if task.phase == "select" or task.phase == "approach" then
+        if task.routeAware and state.siteRouteAccess then
+            state.siteRouteAccess.routeFailures[task.container] = nil
+        end
+        stopScavengeMovement(actor)
+        task.settleUntil = time + (state.visitSettled == task.container and 0
+            or (utility.config("scavengeSettleMs") or 250))
+        setTaskPhase(actor, state, task, "settle", "stopping_at_container")
+    end
+    if task.phase == "settle" and time < (task.settleUntil or time) then
+        return true, "settling_at_container"
+    end
+    if task.phase == "settle" then
+        stopScavengeMovement(actor)
+        local moving, movingOk = utility.call(actor, "isMoving")
+        if movingOk and moving == true then return true, "settling_at_container" end
+    end
+
+    -- Open first, then look. This is the only place the contents of a
+    -- previously unopened container are read: the companion is standing at it,
+    -- the approach is done, and it has just been opened. Everything before
+    -- here chose it on where it was, not on what was inside.
+    if task.pendingItem then
+        Encounter._noteContainerOpened(state, task.container, time)
+        state.visitSettled = task.container
+        local batch, why = prepareBatch(actor, state, task, commands, needs, audit)
+        if not batch then
+            if why == "container_slice_pending" or why == "source_changed" then
+                if why == "source_changed" then state.visit = nil end
+                local service = supervisor()
+                if service and task.supervisorToken and service.progress then
+                    local visit = state.visit
+                    service.progress(task.supervisorToken, "scan:" .. tostring(visit and visit.sequence or 0))
+                end
+                if state.haul then state.haul.progressAt = time end
+                return true, "searching_container"
+            end
+            state.openContainer, state.visit = nil, nil
+            resetScavengeTarget(actor, state, { reason = why, phase = "cancelled",
+                memoryResult = why == "nothing_needed" and "nothing_needed" or "left_items",
+                keepSiteSearch = task.routeAware and why == "nothing_needed", time = time })
+            if why == "loadout_too_heavy" then finishHaul(actor, state, commands, time, false) end
+            return false, why
+        end
+        task.takeList, task.pendingItem = batch, nil
+        local first = batch[1]
+        task.item, task.category, task.utilityScore = first.item, first.category, first.score
+        task.itemType, task.itemName = utility.itemType(first.item), utility.itemName(first.item)
+        task.destination, task.destinationKind, task.destinationName = first.destination,
+            first.destinationKind, first.destinationName
+        if task.supervisorToken then
+            task.supervisorToken.targetLabel = #batch == 1 and task.itemName
+                or type(getText) == "function" and getText("UI_SC_Loot_Batch", #batch)
+                or tostring(#batch) .. " items"
+        end
+        state.item, state.itemCategory = first.item, first.category
+    end
+
+    if state.haul then state.haul.progressAt = time end
+    if task.phase == "animate" then
+        if task.visualToken and SC.NativeActions
+            and type(SC.NativeActions.visualToken) == "function"
+            and SC.NativeActions.visualToken(actor, "loot_container") ~= task.visualToken then
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true,
+                reason = "loot_animation_replaced", phase = "failed",
+                cooldown = true, memoryResult = "animation_failed", time = time,
+            })
+            return false, "loot_animation_replaced"
+        end
+        local visualState = nativeVisualStatus(actor, "loot_container")
+        if visualState == "active" then
+            task.visualObserved = true
+            local service = supervisor()
+            if service and task.supervisorToken and type(service.progress) == "function" then
+                service.progress(task.supervisorToken, "visual:active", { visual = visualState })
+            end
+            return true, "looting"
+        end
+        if visualState == "completed" then
+            if not task.visualObserved and not visualAdapterAbsent() then
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_unobserved", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_unobserved"
+            end
+            clearNativeVisual(actor)
+            local service = supervisor()
+            if service and task.supervisorToken
+                and type(service.markVisualVerified) == "function" then
+                service.markVisualVerified(task.supervisorToken, { action = "loot_container" })
+            end
+            setTaskPhase(actor, state, task, "commit", "animation_completed")
+        elseif visualState ~= nil then
+            resetScavengeTarget(actor, state, {
+                reason = "loot_animation_" .. tostring(visualState), phase = "failed",
+                cooldown = true, memoryResult = "animation_failed", time = time,
+            })
+            return false, "loot_animation_" .. tostring(visualState)
+        else
+            if visualAdapterAbsent() then
+                setTaskPhase(actor, state, task, "commit", "animation_fixture_unavailable")
+            else
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_untracked", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_untracked"
+            end
+        end
+    elseif task.phase == "settle" then
+        local reachable, reachStatus, containerX, containerY = containerReach(actor, task)
+        if not reachable then
+            -- Re-approach without resetting the original deadline. Resetting it
+            -- here made every settle/reacquire cycle a fresh 45-second attempt,
+            -- so a marginal use position could keep a companion forever.
+            task.approachStartedAt = task.approachStartedAt or time
+            if Encounter._approachExpired(task, time,
+                    ownerDistance(actor, task.owner),
+                    SC.Navigation.status and SC.Navigation.status(actor), actor) then
+                rememberFailedExpeditionSource(state, task, time)
+                resetScavengeTarget(actor, state, {
+                    cancelVisual = true, stopMovement = true,
+                    reason = "approach_timeout", phase = "failed", cooldown = true,
+                    memoryResult = "navigation_failed", time = time,
+                })
+                return false, "approach_timeout"
+            end
+            setTaskPhase(actor, state, task, "approach", "reacquiring_container")
+            return true, "reacquiring_container"
+        end
+        if containerX ~= nil and not facingContainer(actor, containerX, containerY) then
+            -- Turning is bounded by the settle phase timeout above, so a
+            -- companion that cannot face the container gives the task up
+            -- instead of spinning next to it.
+            return true, "facing_container"
+        end
+        local service = supervisor()
+        if service and task.supervisorToken and type(service.expectVisual) == "function" then
+            service.expectVisual(task.supervisorToken, { action = "loot_container" })
+        end
+        local animated, animationReason = utility.move(actor, "walk", {
+            action = "loot_container", container = task.container,
+            durationTicks = 180 + 30 * (math.max(1, #(task.takeList or {})) - 1),
+            item = task.item, category = task.category,
+            supervisorToken = task.supervisorToken,
+        })
+        if not animated then
+            resetScavengeTarget(actor, state, {
+                reason = animationReason or "loot_action_rejected", phase = "failed",
+                cooldown = true, memoryResult = "animation_failed", time = time,
+            })
+            return false, animationReason or "loot_action_rejected"
+        end
+        if SC.NativeActions and type(SC.NativeActions.visualToken) == "function" then
+            task.visualToken = SC.NativeActions.visualToken(actor, "loot_container")
+        end
+        local visualState = nativeVisualStatus(actor, "loot_container")
+        if visualState == "active" then
+            task.visualObserved = true
+            state.lootPhase = "visual"
+            setTaskPhase(actor, state, task, "animate", "looting")
+            return true, "looting"
+        elseif visualState == "completed" then
+            if not visualAdapterAbsent() then
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_unobserved", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_unobserved"
+            end
+            clearNativeVisual(actor)
+            setTaskPhase(actor, state, task, "commit", "animation_fixture_complete")
+        elseif visualState ~= nil then
+            resetScavengeTarget(actor, state, {
+                reason = "loot_animation_" .. tostring(visualState), phase = "failed",
+                cooldown = true, memoryResult = "animation_failed", time = time,
+            })
+            return false, "loot_animation_" .. tostring(visualState)
+        else
+            if visualAdapterAbsent() then
+                setTaskPhase(actor, state, task, "commit", "animation_fixture_unavailable")
+            else
+                resetScavengeTarget(actor, state, {
+                    reason = "loot_animation_untracked", phase = "failed",
+                    cooldown = true, memoryResult = "animation_failed", time = time,
+                })
+                return false, "loot_animation_untracked"
+            end
+        end
+    end
+
+    if task.phase == "commit" then
+        return commitTask(actor, state, task, commands, audit, time)
+    end
+    return true, task.phase or "scavenging"
+end
+
+-- A checked Scavenge option supplements Follow; it never suspends formation.
+-- This read-only predicate is shared with Decision so an existing approach owner
+-- can be cancelled before normal follow movement asks for locomotion ownership.
+function Encounter.formationRejoinRequired(actor, player, suppliedCommands)
+    local commands = type(suppliedCommands) == "table"
+        and suppliedCommands or commandState(actor)
+    if not actor or not player or commands.recruited ~= true
+        or commands.order ~= "follow" then return false end
+    local state = states[actor]
+    local active = state and (state.task or state.selectionJob or state.containerSearch)
+    if not active then return false end
+    local moving, movingOk = U().call(player, "isMoving")
+    if movingOk and moving == true then return true, "formation_leader_moving" end
+    local leash = math.max(3, tonumber(U().config("scavengeFormationLeash")) or 7,
+        (tonumber(commands.followDistance) or 3) + 2.5)
+    if U().distance(actor, player) > leash then return true, "formation_leash_exceeded" end
+    if state.task and state.task.owner and ownerDistance(player, state.task.owner) > leash then
+        return true, "scavenge_target_outside_formation"
+    end
+    return false
+end
+
+-- How a cancelled excursion is remembered. A target that keeps pulling a
+-- follower past the leash (a detour around a wall, a container on the far
+-- side) or an approach the supervisor timed out cools down with an
+-- escalating backoff; a leader who simply starts walking again only
+-- interrupts the excursion.
+function Encounter._cancelMemoryResult(reason)
+    reason = tostring(reason or "")
+    if reason == "formation_leash_exceeded" or reason == "scavenge_target_outside_formation" then
+        return "outside_formation"
+    end
+    if string.find(reason, "phase_timeout:approach", 1, true) == 1 then
+        return "navigation_failed"
+    end
+    -- A container that turned out to hold nothing this companion wants is a
+    -- finished answer, not an interruption. Cancelling the task takes the
+    -- supervisor's route, and that route used to relabel the verdict as
+    -- "interrupted" -- so the container was never put on cooldown and the
+    -- next tick walked back to it and read it again.
+    if reason == "nothing_needed" then return "nothing_needed" end
+    return "interrupted"
+end
+
+-- An approach that has not reached its container within this cap fails like
+-- an unreachable container. An expedition search also gives up after 12
+-- seconds without progress. Progress is a half tile gained on the container,
+-- a route search that is still expanding, or the actor walking at least a
+-- tile: a valid detour round a wall moves away before it closes in, and must
+-- not be abandoned for that. Nearby mission sources have a 25-second cap;
+-- a selected building's distant shelves or other floors get at most 45 seconds.
+function Encounter._approachExpired(task, time, distance, navigation, mover)
+    if type(task) ~= "table" or tonumber(task.approachStartedAt) == nil
+        or tonumber(time) == nil then
+        return false
+    end
+    local limit = tonumber(U().config("scavengeApproachMaxMs")) or 45000
+    if task.scavengeMissionId ~= nil then
+        limit = math.min(limit, task.extendedSiteApproach and 45000 or 25000)
+        distance = tonumber(distance)
+        if distance ~= nil and (task.bestDeadlineDistance == nil
+            or distance <= task.bestDeadlineDistance - 0.5) then
+            task.bestDeadlineDistance = distance
+            task.approachProgressAt = time
+        end
+        local expanded = type(navigation) == "table"
+            and tonumber(navigation.expandedNodes) or nil
+        if expanded ~= nil then
+            if task.lastApproachExpanded == nil
+                or expanded >= task.lastApproachExpanded + 32 then
+                task.approachProgressAt = time
+                task.lastApproachExpanded = expanded
+            elseif expanded < task.lastApproachExpanded then
+                task.lastApproachExpanded = expanded
+            end
+        end
+        local mx, my = nil, nil
+        if mover ~= nil then mx, my = U().position(mover) end
+        if mx ~= nil and my ~= nil then
+            local last = task.lastApproachPoint
+            if last == nil or (mx - last.x) ^ 2 + (my - last.y) ^ 2 >= 1 then
+                if last ~= nil then task.approachProgressAt = time end
+                task.lastApproachPoint = { x = mx, y = my }
+            end
+        end
+        if time - (task.approachProgressAt or task.approachStartedAt)
+            > 12000 then return true end
+    end
+    return tonumber(time) - tonumber(task.approachStartedAt) > limit
+end
+
+-- Approach progress means getting at least half a tile closer than ever
+-- before. A navigation status that merely flips between searching and
+-- recovering no longer keeps a stuck approach alive.
+function Encounter._approachProgressSignature(task, distance)
+    distance = tonumber(distance)
+    if type(task) ~= "table" or distance == nil then return "approach:unknown" end
+    local best = tonumber(task.bestApproachDistance)
+    if best == nil or distance < best - 0.5 then
+        task.bestApproachDistance = distance
+        best = distance
+    end
+    return "approach:" .. tostring(math.floor(best * 2))
+end
+
+local function zombieDensity(square, radius, limit)
+    local utility = U()
+    local x, y, z = utility.position(square)
+    local count = 0
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            local other = utility.gridSquare(x + dx, y + dy, z)
+            if other then
+                utility.squareMovingObjects(other, function(value)
+                    if utility.isZombie(value) and not utility.isDead(value) then
+                        count = count + 1
+                        if count >= limit then return false end
+                    end
+                end, 10)
+            end
+            if count >= limit then return count end
+        end
+    end
+    return count
+end
+
+local function spawnSquareScore(square, player)
+    local utility = U()
+    if not square or not utility.isSquareFree(square) then return nil end
+    local x, y, z = utility.position(square)
+    -- An upper-floor roof can be a safe solid floor yet have no route down.
+    -- Ordinary encounters enter the world at ground level instead.
+    if x == nil or y == nil or z ~= 0 then return nil end
+    if utility.canSee(player, square) then return nil end
+    local moving, movingOk = utility.call(square, "getMovingObjects")
+    if movingOk and utility.listSize(moving) > 0 then return nil end
+    local density = zombieDensity(square, 2, 5)
+    if density >= 4 then return nil end
+    local score = 40 - density * 12
+    local room, roomOk = utility.call(square, "getRoom")
+    if roomOk and room then score = score + 18 end
+    local traversable = 0
+    for _, delta in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+        local neighbor = utility.gridSquare(x + delta[1], y + delta[2], z)
+        if neighbor and utility.isSquareFree(neighbor) and not utility.edgeBlocked(square, neighbor) then
+            traversable = traversable + 1
+        end
+    end
+    if traversable == 0 then return nil end
+    score = score + traversable * 4
+    if traversable <= 2 then score = score + 6 end -- covered edge with an escape route
+    return score
+end
+
+function Encounter.chooseSpawnSquare(player, runtime)
+    local utility = U()
+    if not utility.isValidActor(player) then return nil, "invalid_player" end
+    local px, py = utility.position(player)
+    if px == nil or py == nil then return nil, "invalid_player_position" end
+    local minimum = math.max(1, math.floor(tonumber(utility.config("spawnMinDistance")) or 50))
+    local maximum = math.max(minimum,
+        math.floor(tonumber(utility.config("spawnMaxDistance")) or 110))
+    local attempts = 96
+    local seed = utility.stableHash(tostring(math.floor(px)) .. ":" .. tostring(math.floor(py)) .. ":" .. tostring(math.floor(now() / 10000)))
+    local candidates = {}
+    for index = 1, attempts do
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        local distance = minimum + (seed % (maximum - minimum + 1))
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        local side = seed % 4
+        seed = (seed * 1103515245 + 12345) % 2147483647
+        local offset = (seed % (distance * 2 + 1)) - distance
+        local dx, dy
+        if side == 0 then dx, dy = distance, offset
+        elseif side == 1 then dx, dy = -distance, offset
+        elseif side == 2 then dx, dy = offset, distance
+        else dx, dy = offset, -distance end
+        -- The square-ring sampler can put a diagonal candidate much farther
+        -- away than its chosen radius. Keep actual distance inside the range.
+        if dx * dx + dy * dy <= maximum * maximum then
+            local square = utility.gridSquare(px + dx, py + dy, 0)
+            local score = spawnSquareScore(square, player)
+            if score then candidates[#candidates + 1] = { square = square, score = score } end
+        end
+    end
+    table.sort(candidates, function(a, b) return a.score > b.score end)
+    local indoorProbes = 0
+    for _, candidate in ipairs(candidates) do
+        local room = select(1, utility.call(candidate.square, "getRoom"))
+        if room == nil then return candidate.square end
+        if indoorProbes < 8 then
+            indoorProbes = indoorProbes + 1
+            if SC.Navigation and SC.Navigation.spawnAccessible
+                and SC.Navigation.spawnAccessible(candidate.square, player) then
+                return candidate.square
+            end
+        end
+    end
+    return nil, "no_valid_loaded_square"
+end
+
+local function viableRescue(snapshot)
+    if type(snapshot) ~= "table" then return true end
+    if (snapshot.immediateCount or 0) > 0 then return false end
+    return #(snapshot.escapeSquares or {}) > 0 or (snapshot.threatCount or 0) <= 1
+end
+
+local function indoorCover(actor, snapshot)
+    local utility = U()
+    local x, y, z = utility.position(actor)
+    if not x then return nil end
+    local best, bestScore
+    local scanned = 0
+    for distance = 1, 6 do
+        for dx = -distance, distance do
+            for dy = -distance, distance do
+                if scanned >= 80 then return best end
+                if math.max(math.abs(dx), math.abs(dy)) == distance then
+                    local square = utility.gridSquare(x + dx, y + dy, z)
+                    if square and utility.isSquareFree(square) then
+                        scanned = scanned + 1
+                        local room, roomOk = utility.call(square, "getRoom")
+                        if roomOk and room then
+                            local score = 30 - distance
+                            if snapshot and type(snapshot.threats) == "table" then
+                                local nearest = math.huge
+                                for index = 1, math.min(#snapshot.threats, 10) do
+                                    nearest = math.min(nearest, utility.distanceSq(square, snapshot.threats[index].actor))
+                                end
+                                score = score + math.min(nearest, 64) * 0.2
+                            end
+                            if not bestScore or score > bestScore then best, bestScore = square, score end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function seekCover(actor, snapshot, action)
+    local utility = U()
+    local escape = snapshot and snapshot.escapeSquares and snapshot.escapeSquares[1]
+    if escape and SC.Navigation and type(SC.Navigation.request) == "function" then
+        return SC.Navigation.request(actor, escape.square, action == "retreat" and "jog" or "sneak", {
+            action = action,
+            snapshot = snapshot,
+            neutral = true,
+            urgent = action == "retreat",
+            escapeSpeedOverride = action == "retreat",
+        })
+    end
+    if escape then
+        local accepted = utility.move(actor, action == "retreat" and "jog" or "sneak", {
+            action = action, targetSquare = escape.square, enginePath = true,
+            snapshot = snapshot, neutral = true,
+            urgent = action == "retreat", escapeSpeedOverride = action == "retreat",
+        })
+        return accepted == true, accepted and action or "cover_action_rejected"
+    end
+    local immediate = snapshot and snapshot.immediateAttackers
+        and snapshot.immediateAttackers[1] or nil
+    local known = immediate or (snapshot and snapshot.threats and snapshot.threats[1])
+    local threat = type(known) == "table" and known.actor or known
+    if threat == nil then return false, "cover_direction_unavailable" end
+    local accepted = utility.move(actor, action == "retreat" and "jog" or "sneak", {
+        action = action, awayFrom = threat, snapshot = snapshot,
+        seekCover = true, neutral = true,
+        urgent = action == "retreat", escapeSpeedOverride = action == "retreat",
+    })
+    return accepted == true, accepted and action or "cover_action_rejected"
+end
+
+local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
+    local utility = U()
+    local playerDistance = player and utility.distance(actor, player) or math.huge
+    local playerCanSee = player and utility.canSee(player, actor) or false
+    local spawnService = SC.Spawn
+    local debugActor = type(spawnService) == "table"
+        and type(spawnService.isDebugActor) == "function"
+        and spawnService.isDebugActor(actor) == true
+    local debugProtected = debugActor and type(spawnService.isDebugProtected) == "function"
+        and spawnService.isDebugProtected(actor) == true
+    if debugProtected and (playerCanSee
+        or playerDistance <= (utility.config("debugDiscoveryDistance") or 6)) then
+        if type(spawnService.markDebugDiscovered) == "function"
+            and spawnService.markDebugDiscovered(actor) == true
+            and type(spawnService.debugLog) == "function" then
+            spawnService.debugLog("discovered", actor, player, playerCanSee and "line_of_sight" or "proximity")
+        end
+        debugProtected = false
+    end
+    if player and playerDistance > (utility.config("encounterDespawnRadius") or 95)
+        and not playerCanSee and not debugProtected then
+        local debugDescription = debugActor and type(spawnService.debugDescription) == "function"
+            and spawnService.debugDescription(actor, player) or nil
+        local actorService = SC.Actor
+        if type(actorService) == "table" and type(actorService.remove) == "function" then
+            local ok, result = pcall(actorService.remove, actor)
+            if not ok then ok, result = pcall(actorService.remove, actorService, actor) end
+            if ok and result == true then
+                if debugDescription ~= nil then
+                    print("[LivingFellows][debug-spawn] event=removed " .. debugDescription
+                        .. " reason=encounter_distance")
+                end
+                return true, "despawned"
+            end
+        end
+    end
+    if snapshot and (snapshot.immediateCount or 0) > 0 then return seekCover(actor, snapshot, "retreat") end
+    if snapshot and (snapshot.threatCount or 0) > 0 then return seekCover(actor, snapshot, "seek_cover") end
+    local firstMeetingNearby = false
+    if SC.FirstMeeting then
+        local handled,why=SC.FirstMeeting.approach(actor,player,snapshot)
+        if handled~=nil then return handled,why end
+        firstMeetingNearby = why == "first_meeting_nearby"
+    end
+
+    if player and viableRescue(snapshot) and SC.Medical and type(SC.Medical.assess) == "function" then
+        local assessment = (SC.Medical.assessCached or SC.Medical.assess)(player)
+        if assessment and (assessment.critical or assessment.needsBandage) and type(SC.Medical.treat) == "function" then
+            local ok, reason = SC.Medical.treat(actor, player, rootRuntime)
+            if ok then return true, reason or "neutral_rescue" end
+        end
+    end
+    local current = now()
+    local scavengingActive = state.task ~= nil or state.selectionJob ~= nil
+        or state.containerSearch ~= nil
+    local weaponSearch = actorNeedsMeleeWeapon(actor)
+    if scavengingActive or current >= (tonumber(state.nextNeutralScavengeAt) or 0) then
+        local scavenged, reason = Encounter.tryScavenge(actor, player, rootRuntime, true)
+        if scavenged then return true, reason or "neutral_scavenge" end
+        state.nextNeutralScavengeAt = current + (weaponSearch
+            and (utility.config("neutralWeaponSearchRetryMs") or 4000)
+            or (utility.config("neutralScavengeRetryMs") or 10000))
+    end
+    -- The first visitor has called out to the player: rescue and nearby
+    -- scavenging above still apply, but sounds and cover no longer lead away.
+    if firstMeetingNearby then
+        utility.stop(actor)
+        return true, "first_meeting_waiting"
+    end
+    if snapshot and snapshot.strongestSound and SC.Navigation and type(SC.Navigation.request) == "function" then
+        local sound = snapshot.strongestSound
+        local square = utility.gridSquare(sound.x, sound.y, sound.z)
+        if square then
+            return SC.Navigation.request(actor, square, "sneak", {
+                action = "investigate_sound",
+                snapshot = snapshot,
+                neutral = true,
+            })
+        end
+    end
+    local choice = (utility.stableHash(utility.idOf(actor))
+        + math.floor(current / math.max(1,
+            utility.config("encounterIntervalMs") or 1000))) % 3
+    if choice == 1 then
+        local cover = indoorCover(actor, snapshot)
+        if cover and SC.Navigation and type(SC.Navigation.request) == "function" then
+            return SC.Navigation.request(actor, cover, "sneak", {
+                action = "hide_indoors",
+                snapshot = snapshot,
+                neutral = true,
+            })
+        end
+    end
+    -- Being inside the encounter radius does not make an unknown survivor home
+    -- in on the player. Meetings now come from crossed paths, sound interest or
+    -- explicit social contact rather than an invisible player magnet.
+    return seekCover(actor, snapshot, "move_cautiously")
+end
+
+function Encounter.update(actor, player, runtime)
+    local utility = U()
+    if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
+    local rootRuntime = utility.actorState(actor, runtime)
+    local state = stateFor(actor)
+    local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
+    local commands = commandState(actor)
+    if commands.recruited then
+        return Encounter.tryScavenge(actor, player, rootRuntime)
+    end
+    return neutralUpdate(actor, player, rootRuntime, snapshot, state)
+end
+
+local function visibleStatus(state)
+    if not state then return nil end
+    if state.task then return state.task end
+    if state.lastStatus and now() <= (tonumber(state.lastStatus.expires) or 0) then
+        return state.lastStatus
+    end
+    state.lastStatus = nil
+    return nil
+end
+
+function Encounter.activity(actor)
+    local status = actor and visibleStatus(states[actor]) or nil
+    if not status then return nil end
+    if status.pendingItem and states[actor] and states[actor].visit then
+        return type(getText) == "function" and getText("UI_SC_Loot_Checking") or "Checking container contents"
+    end
+    local itemName = status.itemName or status.itemType or "item"
+    if status.phase == "select" then return "Selected " .. itemName end
+    if status.phase == "approach" then return "Approaching " .. itemName end
+    if status.phase == "settle" then return "Stopping to loot " .. itemName end
+    if status.phase == "animate" then return "Looting " .. itemName end
+    if status.phase == "commit" or status.phase == "verify" then
+        return "Verifying " .. itemName
+    end
+    if status.phase == "complete" then
+        local haul = states[actor] and (states[actor].haul or states[actor].lastHaul)
+        if haul then
+            local name = haul.best and haul.best.itemName or haul.bestName or itemName
+            if type(getText) == "function" then
+                return getText(haul.count == 1 and "UI_SC_Loot_One" or "UI_SC_Loot_Haul", haul.count, name)
+            end
+            return "Took " .. tostring(haul.count) .. " items; best find: " .. name
+        end
+        return "Picked up " .. itemName
+    end
+    if status.phase == "failed" then return "Could not take " .. itemName end
+    if status.phase == "cancelled" then return "Stopped looting " .. itemName end
+    return "Scavenging"
+end
+
+function Encounter.status(actor)
+    local state = actor and states[actor] or nil
+    local status = visibleStatus(state)
+    if not status and not (state and state.lastLoot) then return nil end
+    return {
+        phase = status and status.phase or nil,
+        reason = status and status.reason or nil,
+        itemType = status and status.itemType or nil,
+        itemName = status and status.itemName or nil,
+        category = status and status.category or nil,
+        source = status and status.sourceKind or nil,
+        destination = status and status.destinationKind or nil,
+        destinationName = status and status.destinationName or nil,
+        progress = status and status.progress or nil,
+        total = status and status.total or nil,
+        lastLoot = state and state.lastLoot and U().copyShallow(state.lastLoot) or nil,
+        lastHaul = state and state.lastHaul and U().copyShallow(state.lastHaul) or nil,
+    }
+end
+
+function Encounter.cancelScavenge(actor, reason)
+    if actor then scavengeRetries[actor] = nil end
+    local state = actor and states[actor] or nil
+    if not state then return true, reason or "no_scavenge_task" end
+    local ordinaryEnd = reason == "formation_leader_moving" or reason == "formation_leash_exceeded"
+        or reason == "scavenge_target_outside_formation"
+    finishHaul(actor, state, commandState(actor), now(), not ordinaryEnd)
+    state.openContainer, state.visit = nil, nil
+    if state.pendingVisualCancel then
+        local stopped, why = cancelOwnedVisual(actor, "loot_container",
+            reason or "scavenge_cancelled", state.pendingVisualCancel)
+        if stopped == false then return false, why or "scavenge_visual_cancel_pending" end
+        state.pendingVisualCancel = nil
+    end
+    if not state.task then
+        clearSearchFields(actor, state)
+        state.lastStatus = nil
+        return true, reason or "scavenge_search_cancelled"
+    end
+    local task = state.task
+    if task.phase == "commit" or task.phase == "verify" then
+        return false, "scavenge_commit_in_progress"
+    end
+    local cancelled, why = resetScavengeTarget(actor, state, {
+        cancelVisual = true, stopMovement = true,
+        reason = reason or "cancelled", phase = "cancelled",
+        memoryResult = Encounter._cancelMemoryResult(reason), time = now(),
+    })
+    if cancelled == false then return false, why or "scavenge_handoff_pending" end
+    if state.task ~= nil or state.pendingVisualCancel ~= nil then
+        return false, "scavenge_handoff_pending"
+    end
+    return true, reason or "scavenge_cancelled"
+end
+
+function Encounter.peek(actor)
+    return actor and states[actor] or nil
+end
+
+-- Test seam: per-companion container memory and its backoff.
+Encounter._ownerDistanceForTests = ownerDistance
+Encounter._containerReachForTests = containerReach
+Encounter._facingContainerForTests = facingContainer
+
+function Encounter.reset(actor)
+    if actor then
+        scavengeRetries[actor] = nil
+        local state = states[actor]
+        if state and state.task then
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true, reason = "reset",
+                status = false,
+            })
+        elseif state and state.container then
+            releaseContainer(state.container, actor)
+        end
+        clearSearchFields(actor, state)
+        releasePlayerSupply(actor, state)
+        states[actor] = nil
+    else
+        nextPartyLootAt = 0
+        supplyCacheGeneration=supplyCacheGeneration+1
+        states = setmetatable({}, { __mode = "k" })
+        scavengeRetries = setmetatable({}, { __mode = "k" })
+        containerReservations = setmetatable({}, { __mode = "k" })
+        corpseContainers = setmetatable({}, { __mode = "k" })
+        failedContainers = setmetatable({}, { __mode = "k" })
+    end
+end
+
+return Encounter

@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 -- The guard controller must service one real route until arrival, rather than
 -- cycling waypoints on each slow work-selection pulse.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local clock, calls, cancels, route = 10000, {}, {}, nil
 local requestHandled, requestReason = true, "path_searching"
 local base, center, job, quiet, guarding, resident

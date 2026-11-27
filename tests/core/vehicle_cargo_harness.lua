@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Exact native part/container selection, independent of vehicle brand or id.
-local SC, checks = SurvivorCompanion, 0
+local SC, checks = LivingFellows, 0
 local function check(value, message)
     checks = checks + 1
     assert(value, "vehicle cargo check " .. checks .. ": " .. message)

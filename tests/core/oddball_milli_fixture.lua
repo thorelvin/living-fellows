@@ -1,11 +1,11 @@
 -- SPDX-License-Identifier: MIT
 -- A small B42-shaped bedroom, inventory, and native-animal world for Milli.
 
-SurvivorCompanion = { GameplayUtil = {}, Registry = {}, Factions = {},
+LivingFellows = { GameplayUtil = {}, Registry = {}, Factions = {},
     OddballAnimals = {}, OddballRoomGuard = {}, Trade = {}, Actor = {},
     FactionRecruitment = {}, Diagnostics = {}, Community = {},
     BaseLife = {}, ActionSupervisor = {}, Downtime = {}, Navigation = {} }
-local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+local SC, U = LivingFellows, LivingFellows.GameplayUtil
 SC_MILLI_FIXTURE = { hour = 100, now = 1000, lines = {}, squares = {},
     animals = {}, spawnCalls = 0, followCalls = 0, guardRegisters = 0,
     guardReleases = 0, movement = {}, deliveries = 0, offenses = 0,

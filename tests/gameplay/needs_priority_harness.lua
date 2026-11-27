@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 -- Real needs selection and camp transfers; only engine objects/actions are fixtures.
-local SC,checks=SurvivorCompanion,0
+local SC,checks=LivingFellows,0
 local function check(value,message) checks=checks+1;assert(value,message) end
 local now,scans,transfers,cancels,routes=1000,0,0,0,0
 local atHome=true
