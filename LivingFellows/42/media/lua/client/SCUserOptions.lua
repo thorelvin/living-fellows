@@ -8,11 +8,12 @@ if PZAPI == nil or PZAPI.ModOptions == nil then
     require "PZAPI/ModOptions"
 end
 
-local SC = SurvivorCompanion
+local SC = LivingFellows
 SC.UserOptions = SC.UserOptions or {}
 local UserOptions = SC.UserOptions
 
-local MOD_ID = "SurvivorCompanion"
+local MOD_ID = "LivingFellows"
+local LEGACY_MOD_ID = "SurvivorCompanion"
 local CHATTER = { "normal", "less", "rare" }
 local COUGH_SNEEZES = { "normal", "rare", "off" }
 local SPEECH_COLORS = { "speaker", "white" }
@@ -90,6 +91,47 @@ if type(options.addButton)=="function" then
 else
     resetTipsOption=tickBox("resetTips","UI_SC_ModOptions_ResetTips",false,"UI_SC_ModOptions_ResetTips_Tooltip")
 end
+
+local function seedLegacyOptions()
+    if api:getOptions(LEGACY_MOD_ID) ~= nil then return end
+    local reader = getFileReader("ModOptions.ini", false)
+    if not reader then return end
+    local legacy, consumed = {}, nil
+    local read, reason = pcall(function()
+        while true do
+            local line = reader:readLine()
+            if not line then break end
+            local kind, id, token = line:match("^([^|]+)|" .. LEGACY_MOD_ID .. "|([^|]+)|([^|]+)$")
+            local option = id and options:getOption(id)
+            if option and kind == option.type then
+                consumed = consumed or {}
+                consumed[id] = { values = {} }
+                if kind == "tickbox" and (token == "true" or token == "false") then
+                    legacy[id] = token == "true"
+                elseif kind == "combobox" then
+                    local index = tonumber(token)
+                    if index and index % 1 == 0 and index >= 1 and index <= #option.values then
+                        legacy[id] = index
+                    end
+                end
+            end
+        end
+    end)
+    reader:close()
+    if not read then error(reason) end
+    if not consumed then return end
+
+    -- The next stock load applies current settings over these defaults. The old
+    -- rows are recognized by the reader and omitted by the next ordinary save.
+    -- Register in Dict only so the migration creates no second Options group.
+    for id, value in pairs(legacy) do
+        options:getOption(id):setValue(value)
+    end
+    api.Dict[LEGACY_MOD_ID] = { dict = consumed }
+end
+
+if type(getFileReader) == "function" then pcall(seedLegacyOptions) end
+
 function UserOptions.setShowTips(value)
     tipsOption:setValue(value==true);values.showTips=value==true
     if type(api.save)=="function" then pcall(api.save,api) end

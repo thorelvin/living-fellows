@@ -118,6 +118,38 @@ Two LF companions and three native zombies, natural acquisition, 45 seconds:
 Evidence under build/live-sandbox-runs/SC-Harness-20261106-180219-4e32ca12:
 cache/console.txt (SC_OPT_COMBAT receipts and samples)
 cache/Lua/SurvivorCompanionHarness/{events.log,summary.txt,squad-combat-results.txt}
+
+Signed-game refresh in Living Fellows 0.27.100
+
+Project Zomboid 42.22.2 revision 3d39148846, official PZ_Optimization
+b42.22.2-20261120-2110-20f89d32, official Java agent, and ZombieBuddy 2.3.4.
+https://github.com/xD3I/PZ_Optimization/releases/tag/b42.22.2-20261120-2110-20f89d32
+Archive SHA-256 8632e0150a417c89b58db01a4d7d1d68bb10343e547b55e400e2e52678d40b77.
+
+The optimizer's agent supplies replacement definitions while the original
+class resources still resolve to the signed game JAR. LF checks the JAR, the
+exact startup agent and pinned files from that installation, and the fields
+and methods present on the loaded game classes. It checks both submit routes
+after finding the exact LF advice through ZombieBuddy. Support distinguishes
+the official Java-agent profile from prop11's separate PZO launcher.
+
+Two disposable native runs used the same untouched seed save, three stock
+zombies with normal acquisition, and parallel action evaluation enabled.
+With LF 0.27.99 and the adapter Off, the 45-second control recorded five
+native impact events, thirteen wounded body-part counters and 95.33 health
+loss. The earlier no-impact stall did not reproduce on this optimizer build.
+With LF 0.27.100 and the adapter On, the first native impact reached the
+companion within four seconds, injured one body part and took 6.86 health.
+The scoped inline counter rose by 270 and fallback wounds stayed at zero in
+both runs. The enabled run stopped at the first verified wound, so these
+samples establish compatibility and do not measure relative combat outcomes.
+
+Headless checks used the exact agent and ZombieBuddy on the signed game.
+Startup classpath and normal ZombieBuddy dynamically registered mod JARs
+both pass. Controls cover reversed or missing agents, missing patch host,
+changed optimizer metadata, prop11 PZO alone, and real-player and unowned
+target delegation. The Workshop PZ Optimization Preloader is a separate
+loading route. Its coexistence check appears below.
 cache/Screenshots/*-optimizer-2-native-hit (native unmodified PNG, no extension)
 acceptance-launch.json (command, classpath, hashes and resource settings)
 Convenient screenshot copy: build/combat-tester-20261106/live-confirmation/native-impact.png.
@@ -145,3 +177,27 @@ No local install was performed. Installed launcher and game JAR remained
 byte-identical after the live run, and no game client remained running:
 launcher E8595D7588C0AA55D51878086FC337A609CB7B9647F900989135115B33452307
 game JAR E1A69EB743EDE60B213A0FE7F8B83D4FCAB773036D256CC4543A336F3B058A33
+
+Workshop Preloader 1.12 coexistence on Build 42.22.2
+--------------------------------------------------
+
+The official Workshop package has manifest 4810628569887296282 and JAR
+SHA-256 1a83d52131b8db43d8626fa2ef84959b0c23087e60e9295ce85ac643f4748670.
+https://github.com/antikristianos/PZOptPreloader/tree/v1.12
+
+ZombieBuddy 2.3.4 verified and preloaded the Workshop JAR. The Preloader
+reported 267 client class definitions using xD3I commit 20f89d32 in the
+disposable cache, with parallel action evaluation enabled. Living Fellows
+0.27.100 used its ordinary native combat path. The official-agent hook
+stayed inactive because the Preloader's ActionEval resource has separate
+bytes.
+
+The live coexistence fixture observed 405 natural target samples. The first
+native impact wounded the LF companion and reduced health by 1.90 in 5.467
+seconds. LF recorded zero inline calls and zero fallback wounds. The human
+observer stayed in slot zero. This receipt applies to the tested Preloader
+and optimizer pair on Build 42.22.2.
+
+The final 0.27.101 payload repeated the native check. It observed 255 natural
+target samples and a native impact with a wound at 3.699 seconds. The inline
+and fallback counters both stayed at zero.

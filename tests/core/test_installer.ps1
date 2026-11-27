@@ -64,7 +64,7 @@ try {
     & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
         -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
         -ConfigBackupRoot $ConfigBackupRoot -NativeBridge @initialBridge | Out-Null
-    $Target = Join-Path $ModsRoot 'SurvivorCompanion'
+    $Target = Join-Path $ModsRoot 'LivingFellows'
     $Config = Join-Path $Target '42\media\lua\shared\SCConfig.lua'
     $configText = Get-Content -LiteralPath $Config -Raw -Encoding utf8
     $experimentalDisabled = $configText -match 'experimentalNpcPlayerActor\s*=\s*false'
@@ -76,22 +76,22 @@ try {
     $defaultProfile = Join-Path $ModsRoot 'default.txt'
     $profileText = Get-Content -LiteralPath $defaultProfile -Raw -Encoding utf8
     if (@([regex]::Matches($profileText,
-            '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$')).Count -ne 1) {
+            '(?m)^\s*mod\s*=\s*LivingFellows\s*,?\s*$')).Count -ne 1) {
         throw 'Installer did not activate Living Fellows exactly once in the default mod profile.'
     }
     $installedJars = @(Get-ChildItem -LiteralPath $Target -Recurse -File -Filter '*.jar')
     $jarOwnershipFailed = $installedJars.Count -ne 1
     if (-not $jarOwnershipFailed) {
-        $jarOwnershipFailed = $installedJars[0].Name -ne 'SurvivorCompanionBridge.jar'
+        $jarOwnershipFailed = $installedJars[0].Name -ne 'LivingFellowsBridge.jar'
     }
     $looseClasses = @(Get-ChildItem -LiteralPath $Target -Recurse -File -Filter '*.class')
     $jarOwnershipFailed = $jarOwnershipFailed -or $looseClasses.Count -gt 0
     if ($jarOwnershipFailed) {
         throw 'Private install native bytecode ownership check failed.'
     }
-    $compiledBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
-    $payloadBridge = Join-Path $Target '42\media\java\SurvivorCompanionBridge.jar'
-    $launcherBridge = Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'
+    $compiledBridge = Join-Path $ProjectRoot 'build\native-bridge\LivingFellowsBridge.jar'
+    $payloadBridge = Join-Path $Target '42\media\java\LivingFellowsBridge.jar'
+    $launcherBridge = Join-Path $BridgeRoot 'LivingFellowsBridge.jar'
     $gameLauncherBridge = Join-Path $GameRoot 'LivingFellowsBridge.jar'
     $compiledHash = (Get-FileHash -LiteralPath $compiledBridge -Algorithm SHA256).Hash.ToLowerInvariant()
     if ((Get-FileHash -LiteralPath $payloadBridge -Algorithm SHA256).Hash.ToLowerInvariant() -ne
@@ -104,7 +104,7 @@ try {
     }
     $patchedConfig = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFrom-Json
     $bridgeJar = 'LivingFellowsBridge.jar'
-    $launcherInvalid = $patchedConfig.mainClass -ne 'survivorcompanion/bridge/SCLauncher'
+    $launcherInvalid = $patchedConfig.mainClass -ne 'livingfellows/bridge/SCLauncher'
     $launcherInvalid = $launcherInvalid -or $patchedConfig.classpath -notcontains $bridgeJar
     $launcherInvalid = $launcherInvalid -or -not (Test-Path -LiteralPath (Join-Path $BridgeRoot 'install-manifest.json'))
     if ($launcherInvalid) {
@@ -116,12 +116,12 @@ try {
         -ConfigBackupRoot $ConfigBackupRoot -NativeBridge @initialBridge | Out-Null
     $profileText = Get-Content -LiteralPath $defaultProfile -Raw -Encoding utf8
     if (@([regex]::Matches($profileText,
-            '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$')).Count -ne 1) {
+            '(?m)^\s*mod\s*=\s*LivingFellows\s*,?\s*$')).Count -ne 1) {
         throw 'Installer duplicated Living Fellows in the default mod profile during update.'
     }
     $duplicateIds = @(Get-ChildItem -LiteralPath $ModsRoot -Force -Directory | Where-Object {
         $info = Join-Path $_.FullName 'mod.info'
-        (Test-Path -LiteralPath $info) -and (Get-Content -LiteralPath $info -Raw) -match '(?m)^id=SurvivorCompanion\s*$'
+        (Test-Path -LiteralPath $info) -and (Get-Content -LiteralPath $info -Raw) -match '(?m)^id=LivingFellows\s*$'
     })
     if ($duplicateIds.Count -ne 1) {
         throw 'Installer left a duplicate same-ID mod inside the live mods directory.'
@@ -155,13 +155,13 @@ try {
     $preparedRoot = Join-Path $Sandbox 'prepared-payload'
     & (Join-Path $ProjectRoot 'scripts\New-PrivatePlaytestPayload.ps1') `
         -ProjectRoot $ProjectRoot -OutputRoot $preparedRoot -AllowExternalOutput | Out-Null
-    $preparedPayload = Join-Path $preparedRoot 'SurvivorCompanion'
-    $prebuiltJar = Join-Path $preparedPayload '42\media\java\SurvivorCompanionBridge.jar'
+    $preparedPayload = Join-Path $preparedRoot 'LivingFellows'
+    $prebuiltJar = Join-Path $preparedPayload '42\media\java\LivingFellowsBridge.jar'
     $standalonePreparedRoot = Join-Path $Sandbox 'prepared-standalone-payload'
     & (Join-Path $ProjectRoot 'scripts\New-StandalonePayload.ps1') `
         -ProjectRoot $ProjectRoot -OutputRoot $standalonePreparedRoot `
         -AllowExternalOutput | Out-Null
-    $standalonePreparedPayload = Join-Path $standalonePreparedRoot 'SurvivorCompanion'
+    $standalonePreparedPayload = Join-Path $standalonePreparedRoot 'LivingFellows'
 
     # Every case below owns a self-contained fixture under the sandbox --
     # its own mods, game, managed backups, bridge and config-backup roots --
@@ -189,6 +189,9 @@ try {
         'local-manifest-write', 'old-mod-backup', 'new-mod-move',
         'target-postcondition'
     )
+    foreach ($variant in @('wrapper', 'pzo', 'uninstall-old', 'conflict')) {
+        Add-InstallerCase 'legacy-brand' $variant
+    }
     if ($Essential) {
         # Distinct publication and ownership boundaries, rather than every
         # fresh/update permutation of the same rollback invariant.

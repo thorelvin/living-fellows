@@ -2,6 +2,24 @@
 
 # Changelog
 
+## 0.27.102 - Living Fellows identity
+
+- Use Living Fellows in the mod list and ZombieBuddy approval. The mod ID is `LivingFellows` and the native bridge is `LivingFellowsBridge.jar`.
+- For an existing save, select Living Fellows in its mod list before playing. The standalone installer migrates the default profile, and saved companion data stays attached to the world.
+- Native bridge protocol `42.22-isocompanion-38`.
+
+## 0.27.101 - Mixed-threat compatibility
+
+- Let companions respond to an urgent, visible A-Life or Bandits2 hostile when the only zombies in sight are distant. Close or immediate zombie danger still takes priority.
+- Use a version-neutral A-Life Interop profile in support data.
+- Native bridge protocol `42.22-isocompanion-37`.
+
+## 0.27.100 - Workshop compatibility refresh
+
+- Validate the official signed-game PZ_Optimization agent and both action evaluation routes before enabling the existing companion-targeted combat adapter. Support identifies the verified optimizer build or explains why the adapter is unavailable.
+- Report the A-Life Interop interface version in Support and record the Workshop build tested in the compatibility notes.
+- Native bridge protocol `42.22-isocompanion-37`.
+
 ## 0.27.99 - The One That Got Away
 
 - Find Wade Hensley at a secluded riverbank or hear his call on 90 MHz. Bring one spool of line and watch him get a bite six seconds after his bobber hits the water. Wade gets his old lure back and shares a fish fillet.

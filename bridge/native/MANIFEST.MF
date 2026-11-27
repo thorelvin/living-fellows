@@ -1,9 +1,9 @@
 Manifest-Version: 1.0
 Created-By: Living Fellows reproducible Java 17 build
-Main-Class: survivorcompanion.bridge.SCLauncher
-Premain-Class: survivorcompanion.bridge.SCBootstrapAgent
-Implementation-Title: SurvivorCompanion Native Bridge
-Implementation-Version: 0.27.99
-SC-Bridge-Protocol: 42.22-isocompanion-37
+Main-Class: livingfellows.bridge.SCLauncher
+Premain-Class: livingfellows.bridge.SCBootstrapAgent
+Implementation-Title: Living Fellows Native Bridge
+Implementation-Version: 0.27.102
+SC-Bridge-Protocol: 42.22-isocompanion-38
 SC-Supported-Game-Version: 42.22
 SC-Compiled-Game-Version: 42.22.2

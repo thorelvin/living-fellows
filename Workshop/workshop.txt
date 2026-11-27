@@ -7,7 +7,7 @@
 # "update existing item" path and Steam rejects it with result=9.
 version=1
 id=3805760339
-title=Living Fellows: Companion NPC
+title=Living Fellows NPC
 description=[h1]Living Fellows[/h1]
 description=[b]You won't die... alone.[/b]
 description=
@@ -16,6 +16,7 @@ description=
 description=[url=https://thorelvin.github.io/living-fellows/]Field Guide - start here[/url] | [url=https://thorelvin.github.io/living-fellows/quick-reference.html]Quick reference[/url]
 description=
 description=[b]Project Zomboid 42.22.2 | Single-player | Requires ZombieBuddy 2.3.3+ and its one-time loader setup[/b]
+description=Updating a save from before 0.27.102? Select the save from Load, enable Living Fellows in its mod list, and clear the unavailable entry before playing.
 description=
 description=[h2]Send a crew. Bring them home.[/h2]
 description=[img]https://images.steamusercontent.com/ugc/15183459141282847163/F3AC0D1A12EAF91CFC8B1618464F8E9D90D34572/[/img]
@@ -64,6 +65,6 @@ description=
 description=Need a hand? Open More > Support for a diagnostic report. [url=https://discord.gg/vPK7faQVt]Discord[/url] | [url=https://github.com/thorelvin/living-fellows/issues/new/choose]Report a bug[/url]
 description=
 description=Workshop ID: 3805760339
-description=Mod ID: SurvivorCompanion
+description=Mod ID: LivingFellows
 tags=Build 42;Balance;Building;Farming;Food;Framework;Interface;Map;Misc;Pop Culture;QoL;Realistic;Silly/Fun
 visibility=public

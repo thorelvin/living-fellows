@@ -1,4 +1,4 @@
-Living Fellows 0.27.99 - release
+Living Fellows 0.27.102 - release
 
 FIELD GUIDE
 https://thorelvin.github.io/living-fellows/
@@ -39,6 +39,8 @@ TAKE THE OTHERS WITH YOU
 INSTALL
 Workshop: subscribe to ZombieBuddy 2.3.3 or newer, complete its one-time loader
 setup, then enable both mods. For an existing save, use More... > Choose Mods.
+When updating an older save to 0.27.102, select Living Fellows in that save's
+mod list before playing and clear the unavailable entry from the earlier release.
 Standalone Windows: extract the whole package, close the game and run
 Install.bat. Enable Living Fellows for the game and the save. No ZombieBuddy
 is needed. Uninstall.bat removes the standalone installation.

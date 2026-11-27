@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
-SurvivorCompanion = SurvivorCompanion or {}
-local SC = SurvivorCompanion
+LivingFellows = LivingFellows or {}
+local SC = LivingFellows
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Positioning and type(require) == "function" then pcall(require, "SCPositioning") end
 
@@ -722,10 +722,18 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
     if (threatCount > 0 or humanThreat) and not boarding then
         local humanUrgent = humanThreat and humanThreat.visible == true
-        if humanThreat and (humanThreat.external == "bandits2"
-            or humanThreat.external == "project_alife" and SC.ALifeAdapter) then
+        local externalHuman = humanThreat and (humanThreat.external == "bandits2"
+            or humanThreat.external == "project_alife" and SC.ALifeAdapter)
+        if externalHuman then
             humanUrgent = humanThreatUrgent(snapshot, commands, actor, player)
         end
+        -- An urgent visible contact can use the human combat lane while the
+        -- only zombies in sight are distant. Close danger keeps the zombie lane.
+        local preferHuman = humanThreat and (threatCount == 0
+            or externalHuman and humanThreat.visible == true and humanUrgent and immediate == 0
+                and (tonumber(snapshot.closeThreatCount) or 0) == 0
+                and (tonumber(snapshot.player and snapshot.player.immediateThreats) or 0) == 0
+                and snapshot.encircled ~= true)
         local combatScore = 72 + immediate * 17
             + Decision._engagementPressure(snapshot) * 5
         local doctrine = commands.combatDoctrine
@@ -741,11 +749,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             and (snapshot.player and snapshot.player.immediateThreats or 0) == 0 then
             combatScore = 28
         end
-        if humanThreat and threatCount == 0 then
+        if preferHuman then
             combatScore = humanThreat.visible == true and 106 or 84
-            if (humanThreat.external == "bandits2"
-                or humanThreat.external == "project_alife" and SC.ALifeAdapter)
-                and doctrine ~= "weapons_free" then
+            if externalHuman and doctrine ~= "weapons_free" then
                 if not humanUrgent then combatScore = 28 end
             end
         end
@@ -769,7 +775,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         add("combat", combatScore,
             assessment.critical or immediate > 0 or snapshot.encircled
                 or humanUrgent,
-            threatCount == 0 and humanThreat and {
+            preferHuman and {
                 mode = "human_hostile",
                 targetId = humanThreat.id,
                 humanThreat = humanThreat,

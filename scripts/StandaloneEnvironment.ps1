@@ -1,7 +1,60 @@
 # SPDX-License-Identifier: MIT
 
-# ActiveModsFile accepts the backslash-prefixed form as well as a bare mod id.
-$LivingFellowsProfileEntry = '(?m)^[ \t]*(?i:mod)[ \t]*=[ \t]*\\*SurvivorCompanion[ \t]*,?[ \t]*(?:\r?\n|$)'
+$LivingFellowsModId = 'LivingFellows'
+$LivingFellowsLegacyModId = 'SurvivorCompanion'
+$LivingFellowsModIds = @($LivingFellowsModId, $LivingFellowsLegacyModId)
+$LivingFellowsBridgeOwner = 'LivingFellows.NativeBridge'
+$LivingFellowsLegacyBridgeOwner = 'SurvivorCompanion.NativeBridge'
+$LivingFellowsBridgeJar = 'LivingFellowsBridge.jar'
+$LivingFellowsLegacyBridgeJar = 'SurvivorCompanionBridge.jar'
+$LivingFellowsWrapperMain = 'livingfellows/bridge/SCLauncher'
+$LivingFellowsLegacyWrapperMain = 'survivorcompanion/bridge/SCLauncher'
+
+function Get-LivingFellowsProfilePattern([string[]]$Ids) {
+    # ActiveModsFile accepts a leading backslash as well as a bare mod ID.
+    $alternatives = ($Ids | ForEach-Object { [regex]::Escape($_) }) -join '|'
+    return '(?im)^([ \t]*mod[ \t]*=[ \t]*\\*)(?:' + $alternatives + ')([ \t]*,?[ \t]*)(\r?\n|$)'
+}
+$LivingFellowsProfileEntry = Get-LivingFellowsProfilePattern $LivingFellowsModIds
+$LivingFellowsLegacyProfileEntry = Get-LivingFellowsProfilePattern @($LivingFellowsLegacyModId)
+
+function Get-LivingFellowsInstalledTarget([string]$ModsRoot) {
+    $paths = @($LivingFellowsModIds | ForEach-Object { Join-Path $ModsRoot $_ } |
+        Where-Object { Test-Path -LiteralPath $_ })
+    if ($paths.Count -gt 1) {
+        throw 'Both the current and previous Living Fellows mod directories are present. Resolve the duplicate before changing either one.'
+    }
+    if ($paths.Count -eq 1) { return $paths[0] }
+    return (Join-Path $ModsRoot $LivingFellowsModId)
+}
+
+function Get-LivingFellowsGenerationId([string]$GenerationPath, $Manifest) {
+    $info = Get-Content -LiteralPath (Join-Path $GenerationPath 'mod.info') -Raw -Encoding utf8
+    $ids = [regex]::Matches($info, '(?m)^id[ \t]*=[ \t]*([^\r\n]+)')
+    if ($ids.Count -ne 1) { throw "Managed generation has ambiguous mod ID: $GenerationPath" }
+    $id = $ids[0].Groups[1].Value.Trim()
+    if ($id -cnotin $LivingFellowsModIds -or ($Manifest.modId -and [string]$Manifest.modId -cne $id)) {
+        throw "Managed generation has an unrecognized mod ID: $GenerationPath"
+    }
+    return $id
+}
+
+function Test-LivingFellowsBackupName([string]$Leaf) {
+    foreach ($id in $LivingFellowsModIds) {
+        if ($Leaf.StartsWith("$id-managed-backup-", [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Get-LivingFellowsNativeLayout([string]$Owner) {
+    if ($Owner -ceq $LivingFellowsBridgeOwner) {
+        return @{ jar = $LivingFellowsBridgeJar; wrapper = $LivingFellowsWrapperMain }
+    }
+    if ($Owner -ceq $LivingFellowsLegacyBridgeOwner) {
+        return @{ jar = $LivingFellowsLegacyBridgeJar; wrapper = $LivingFellowsLegacyWrapperMain }
+    }
+    return $null
+}
 
 function Read-LivingFellowsSteamKeyValues([string]$Path) {
     if (-not [IO.File]::Exists($Path)) { return $null }
@@ -87,7 +140,10 @@ function Get-LivingFellowsWorkshopCopies([string]$GameRoot) {
     foreach ($library in @(Get-LivingFellowsSteamLibraries $GameRoot -IncludeRegistered:$hasLauncher)) {
         $workshop = Join-Path $library 'steamapps\workshop'
         $item = Join-Path $workshop 'content\108600\3805760339'
-        $present = Test-Path -LiteralPath (Join-Path $item 'mods\SurvivorCompanion') -PathType Container
+        $present = $false
+        foreach ($id in $LivingFellowsModIds) {
+            if (Test-Path -LiteralPath (Join-Path $item "mods\$id") -PathType Container) { $present = $true; break }
+        }
         $config = Read-LivingFellowsSteamKeyValues (Join-Path $workshop 'appworkshop_108600.acf')
         $record = $config.AppWorkshop
         # The details table can list a subscription before it has a folder or
@@ -106,8 +162,10 @@ function Get-LivingFellowsStagingCopies([string]$ModsRoot) {
     $staging = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($ModsRoot).TrimEnd('\'))) 'Workshop'
     if (Test-Path -LiteralPath $staging -PathType Container) {
         foreach ($folder in @(Get-ChildItem -LiteralPath $staging -Directory -ErrorAction SilentlyContinue)) {
-            $copy = Join-Path $folder.FullName 'Contents\mods\SurvivorCompanion'
-            if (Test-Path -LiteralPath $copy -PathType Container) { $copy }
+            foreach ($id in $LivingFellowsModIds) {
+                $copy = Join-Path $folder.FullName "Contents\mods\$id"
+                if (Test-Path -LiteralPath $copy -PathType Container) { $copy }
+            }
         }
     }
 }

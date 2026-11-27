@@ -85,8 +85,13 @@ The full project gate passed all 27 stages, including ordinary field-work
 regressions and the native Viewpoint flag/exposure tests. Focused wood fixtures
 cover forest discovery, tools and claims, quota contention, native ownership,
 bag/trunk capacity, interruptions, death, cancellation, save/reload and delivery
-retry. The actual Viewpoint mod is not installed in this test environment, so
-3D rendering has not been visually checked.
+retry. Those runs used the native Viewpoint flag test.
+
+The 0.27.100 compatibility run loaded Viewpoint 0.1.7 (Workshop manifest
+`6733935479255935738`) with Living Fellows on Build 42.22.2. The companion's
+nameplate drew in isometric mode, disappeared in Viewpoint's 3D mode, and
+returned on switching back. Viewpoint's 3D context menu included the enabled
+"Talk to ViewpointTest Fellow" action.
 
 Walking clone `SC-Harness-20261024-210442-c57607a6` passed 52 checks with no
 failures or skips. The public mission traveled to woodland, rejected an empty

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-package survivorcompanion.bridge;
+package livingfellows.bridge;
 
 import java.net.URISyntaxException;
-import java.nio.file.Paths;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.Locale;
 
@@ -28,22 +29,23 @@ final class SCBridgeOrigin {
         try {
             CodeSource source = SCBridgeOrigin.class.getProtectionDomain().getCodeSource();
             if (source == null || source.getLocation() == null) return UNKNOWN;
-            return classify(Paths.get(source.getLocation().toURI()).toString());
+            Path location = Path.of(source.getLocation().toURI());
+            return classify(location.toString(), Files.isRegularFile(location.resolveSibling("projectzomboid.jar")));
         } catch (RuntimeException | URISyntaxException failure) {
             return UNKNOWN;
         }
     }
 
-    static String classify(String path) {
+    static String classify(String path, boolean besideGameJar) {
         if (path == null || path.isBlank()) return UNKNOWN;
-        String normalized = path.replace('\\', '/');
-        String name = normalized.substring(normalized.lastIndexOf('/') + 1);
-        if (name.equalsIgnoreCase("LivingFellowsBridge.jar")) return LAUNCHER;
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        if (!lower.endsWith("/media/java/survivorcompanionbridge.jar")) return UNKNOWN;
-        if (lower.contains("/steamapps/workshop/content/")) return WORKSHOP;
-        if (lower.contains("/zomboid/workshop/")) return STAGING;
-        return MODS;
+        String lower = path.replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (lower.endsWith("/media/java/livingfellowsbridge.jar")) {
+            if (lower.contains("/steamapps/workshop/content/")) return WORKSHOP;
+            if (lower.contains("/zomboid/workshop/")) return STAGING;
+            return MODS;
+        }
+        String name = lower.substring(lower.lastIndexOf('/') + 1);
+        return besideGameJar && name.equals("livingfellowsbridge.jar") ? LAUNCHER : UNKNOWN;
     }
 
     static String release() {

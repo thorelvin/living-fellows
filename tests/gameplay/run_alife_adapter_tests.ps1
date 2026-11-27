@@ -30,9 +30,11 @@ try {
             (Join-Path $taskLua 'shared\ProjectALife\Shells\ALifeWounds.lua'),
             (Join-Path $taskLua 'server\ProjectALife\Combat\ALifeLineOfFire.lua'),
             (Join-Path $taskLua 'server\ProjectALife\Senses\ALifePerception.lua'),
+            (Join-Path $taskLua 'shared\ProjectALife\Records\ALifeBehaviorSettings.lua'),
+            (Join-Path $taskLua 'server\ProjectALife\Combat\ALifeCombatCore.lua'),
             (Join-Path $taskLua 'server\ProjectALife\Combat\ALifeCombatStrike.lua'),
             (Join-Path $PSScriptRoot 'alife_source_setup.lua'),
-            (Join-Path $taskRoot 'SurvivorCompanion\42\media\lua\client\SCALifeAdapter.lua'),
+            (Join-Path $taskRoot 'LivingFellows\42\media\lua\client\SCALifeAdapter.lua'),
             (Join-Path $PSScriptRoot 'alife_source_harness.lua')
         )
         & .\jre64\bin\java.exe -cp "$taskOut;$GameRoot\projectzomboid.jar" KahluaTestRunner @taskSourceFiles

@@ -11,7 +11,7 @@ local parts = { size = function() return 1 end, get = function()
     return { getHealth = function() return health end }
 end }
 victim.getBodyDamage = function() return { getBodyParts = function() return parts end } end
-SurvivorCompanion = {
+LivingFellows = {
     Call = { resolve = function(value, key)
         local callback = value and value[key]
         return type(callback) == "function", callback
@@ -89,4 +89,20 @@ Probe.cleanup(f)
 outer(enemy, { eid = "lf:sc-firearm" })
 expect(ZombieActions.Shoot.onComplete == outer and f.nativeBulletWounds == 0,
     "cleanup preserves a foreign outer wrapper while retiring its inner observer")
+
+ZombieActions.Shoot = { onWorking = original, onCompleteOld = original }
+f = fixture()
+before = calls
+ZombieActions.Shoot.onWorking(enemy, { eid = "lf:sc-firearm", tick = 20, tickAtTarget = 15 })
+expect(calls == before + 1 and f.nativeBulletWounds == 0,
+    "working ticks before the ray preserve execution without recording a wound")
+local task = { eid = "lf:sc-firearm", tick = 15, tickAtTarget = 15 }
+effect = function() wound() task.tick = task.tick - 1 end
+a, b, c = ZombieActions.Shoot.onWorking(enemy, task, "working ray")
+expect(a == "working ray" and b == nil and c == 9 and calls == before + 2
+    and task.tick == 14 and f.nativeBulletWounds == 1 and f.incoming,
+    "the current firing tick preserves native outcomes and records the exact wound")
+Probe.cleanup(f)
+expect(ZombieActions.Shoot.onWorking == original and ZombieActions.Shoot.onCompleteOld == original,
+    "cleanup restores the current callback and leaves the obsolete callback untouched")
 print("BANDITS_FIREARM_OBSERVER_PASS checks=" .. checks)

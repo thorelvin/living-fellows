@@ -13,7 +13,7 @@ param(
     [ValidateSet('', 'payload-build', 'payload-validation', 'native-config-stage',
         'native-config-replace', 'native-jar-replace', 'native-manifest-write',
         'old-mod-backup', 'new-mod-move', 'local-manifest-write',
-        'target-file-corrupt', 'target-postcondition')]
+        'target-file-corrupt', 'target-postcondition', 'profile-migration')]
     [string]$FailAfter = '',
     [switch]$NativeBridge,
     [switch]$Standalone,
@@ -91,6 +91,10 @@ function Test-InstallSamePath([string]$Left, [string]$Right) {
         [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+if (Test-InstallSamePath $BridgeRoot $GameRoot) {
+    throw 'BridgeRoot must be separate from GameRoot so the stored bridge and launcher JAR have distinct paths.'
+}
+
 function Enable-LivingFellowsModProfile([string]$ProfilePath) {
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     $profile = if (Test-Path -LiteralPath $ProfilePath -PathType Leaf) {
@@ -98,17 +102,29 @@ function Enable-LivingFellowsModProfile([string]$ProfilePath) {
     } else {
         "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
     }
-    if ([regex]::IsMatch($profile, $LivingFellowsProfileEntry)) {
-        return $false
-    }
     $block = [regex]::Match($profile, '(?ms)(^\s*mods\s*\{)(.*?)(^\s*\})')
     if (-not $block.Success) {
         throw "Project Zomboid mod profile has no readable mods block: $ProfilePath"
     }
     $body = $block.Groups[2].Value
-    $separator = if ($body.EndsWith("`r`n")) { '' } elseif ($body.EndsWith("`n")) { '' }
-        else { [Environment]::NewLine }
-    $newBody = $body + $separator + '    mod = SurvivorCompanion,' + [Environment]::NewLine
+    $entries = [regex]::Matches($body, $LivingFellowsProfileEntry)
+    if ($entries.Count -eq 0) {
+        $separator = if ($body.EndsWith("`n")) { '' } else { [Environment]::NewLine }
+        $newBody = $body + $separator + "    mod = $LivingFellowsModId," + [Environment]::NewLine
+    } else {
+        $newBody = ''
+        $offset = 0
+        foreach ($entry in $entries) {
+            $newBody += $body.Substring($offset, $entry.Index - $offset)
+            if ($offset -eq 0) {
+                $newBody += $entry.Groups[1].Value + $LivingFellowsModId +
+                    $entry.Groups[2].Value + $entry.Groups[3].Value
+            }
+            $offset = $entry.Index + $entry.Length
+        }
+        $newBody += $body.Substring($offset)
+    }
+    if ($newBody -ceq $body) { return $false }
     $bodyStart = [int]$block.Groups[2].Index
     $bodyEnd = $bodyStart + [int]$block.Groups[2].Length
     $updated = $profile.Substring(0, $bodyStart) + $newBody + $profile.Substring($bodyEnd)
@@ -122,7 +138,8 @@ function Enable-LivingFellowsModProfile([string]$ProfilePath) {
         }
     }
     $verified = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
-    if (-not [regex]::IsMatch($verified, $LivingFellowsProfileEntry)) {
+    if ([regex]::Matches($verified, $LivingFellowsProfileEntry).Count -ne 1 -or
+        [regex]::IsMatch($verified, $LivingFellowsLegacyProfileEntry)) {
         throw "Living Fellows was not retained in the Project Zomboid mod profile: $ProfilePath"
     }
     return $true
@@ -149,7 +166,7 @@ if ($workshopCopy) {
 
 $ModsRoot = [System.IO.Path]::GetFullPath($ModsRoot)
 New-Item -ItemType Directory -Path $ModsRoot -Force | Out-Null
-$Target = Join-Path $ModsRoot 'SurvivorCompanion'
+$Target = Join-Path $ModsRoot $LivingFellowsModId
 $rootPrefix = $ModsRoot.TrimEnd('\') + '\'
 if (-not ([System.IO.Path]::GetFullPath($Target)).StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Invalid install target: $Target"
@@ -170,16 +187,23 @@ if ($backupSameAsMods -or $backupInsideMods) {
 }
 
 $backup = $null
-$targetManifest = Join-Path $Target '.sc-install-manifest.json'
-if (Test-Path -LiteralPath $Target) {
+$backupModId = $null
+$priorTarget = Get-LivingFellowsInstalledTarget $ModsRoot
+$targetManifest = Join-Path $priorTarget '.sc-install-manifest.json'
+$targetExisted = Test-Path -LiteralPath $priorTarget
+if ($targetExisted) {
     if (-not (Test-Path -LiteralPath $targetManifest -PathType Leaf)) {
-        throw "Refusing to overwrite unmanaged mod directory: $Target"
+        throw "Refusing to overwrite unmanaged mod directory: $priorTarget"
     }
     $existing = Get-Content -LiteralPath $targetManifest -Raw -Encoding utf8 | ConvertFrom-Json
     if ($existing.owner -ne $Owner) { throw "Refusing to overwrite a target owned by $($existing.owner)" }
+    $backupModId = Get-LivingFellowsGenerationId $priorTarget $existing
+    if ($backupModId -cne (Split-Path -Leaf $priorTarget)) {
+        throw "Managed mod ID does not match its live directory: $priorTarget"
+    }
     New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
     $backupSuffix = ([guid]::NewGuid().ToString('N')).Substring(0, 8)
-    $backupName = 'SurvivorCompanion-managed-backup-' `
+    $backupName = 'LivingFellows-managed-backup-' `
         + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $backupSuffix
     $backup = Join-Path $BackupRoot $backupName
     $resolvedBackup = [System.IO.Path]::GetFullPath($backup)
@@ -189,13 +213,17 @@ if (Test-Path -LiteralPath $Target) {
     if (Test-Path -LiteralPath $backup) { throw "Backup target already exists: $backup" }
 }
 
-$stageRoot = Join-Path $ModsRoot ('.SurvivorCompanion.stage.' + [guid]::NewGuid().ToString('N'))
+$stageRoot = Join-Path $ModsRoot ('.LivingFellows.stage.' + [guid]::NewGuid().ToString('N'))
 $installed = $false
-$targetExisted = Test-Path -LiteralPath $Target -PathType Container
 $nativeSnapshotReady = $false
+$profilePath = Join-Path $ModsRoot 'default.txt'
+$priorProfile = Join-Path $stageRoot 'previous-default.txt'
+$priorProfileHash = ''
+$profileUpdated = $false
 $nativeConfigPath = Join-Path $GameRoot 'ProjectZomboid64.json'
 $nativeManifestPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'install-manifest.json'
-$nativeJarPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'SurvivorCompanionBridge.jar'
+$nativeJarPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) $LivingFellowsBridgeJar
+$nativeLegacyJarPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) $LivingFellowsLegacyBridgeJar
 $nativeGameJarPath = Join-Path $GameRoot 'LivingFellowsBridge.jar'
 $nativeBridgeRootExisted = Test-Path -LiteralPath $BridgeRoot -PathType Container
 $effectiveConfigBackupRoot = if ([string]::IsNullOrWhiteSpace($ConfigBackupRoot)) {
@@ -203,7 +231,7 @@ $effectiveConfigBackupRoot = if ([string]::IsNullOrWhiteSpace($ConfigBackupRoot)
 } else { [System.IO.Path]::GetFullPath($ConfigBackupRoot) }
 $nativeBackupNamesBefore = @()
 try {
-    $stagedMod = Join-Path $stageRoot 'SurvivorCompanion'
+    $stagedMod = Join-Path $stageRoot 'LivingFellows'
     $compiledBridgeJar = ''
     if ($NativeBridge -and
         [string]::IsNullOrWhiteSpace($PreparedPayloadRoot) -and
@@ -214,7 +242,7 @@ try {
         & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
             -ProjectRoot $ProjectRoot | Out-Null
         $compiledBridgeJar = Join-Path $ProjectRoot `
-            'build\native-bridge\SurvivorCompanionBridge.jar'
+            'build\native-bridge\LivingFellowsBridge.jar'
         if (-not (Test-Path -LiteralPath $compiledBridgeJar -PathType Leaf)) {
             throw 'Direct native bridge compilation did not produce its expected JAR.'
         }
@@ -253,7 +281,7 @@ try {
     }
     Invoke-InstallFault 'payload-build'
     if (-not (Test-Path -LiteralPath $stagedMod -PathType Container)) { throw 'Private payload staging failed.' }
-    $expectedNativeJar = Join-Path $stagedMod '42\media\java\SurvivorCompanionBridge.jar'
+    $expectedNativeJar = Join-Path $stagedMod '42\media\java\LivingFellowsBridge.jar'
     $selectedBridgeJar = if (-not [string]::IsNullOrWhiteSpace($compiledBridgeJar)) {
         [System.IO.Path]::GetFullPath($compiledBridgeJar)
     } elseif (-not [string]::IsNullOrWhiteSpace($PrebuiltBridgeJar)) {
@@ -288,12 +316,14 @@ try {
     }
     $manifest = [ordered]@{
         owner = $Owner
+        modId = $LivingFellowsModId
         version = $installedVersion
         installedAtUtc = [DateTime]::UtcNow.ToString('o')
         nativeBridge = $true
         bridgeRoot = [System.IO.Path]::GetFullPath($BridgeRoot)
         bridgeSha256 = $selectedBridgeHash
         backupPath = $backup
+        backupModId = $backupModId
         backupRoot = $BackupRoot
         files = $hashes
     }
@@ -311,14 +341,19 @@ try {
     $outerPrior = Join-Path $stageRoot '.outer-native-prior'
     New-Item -ItemType Directory -Path $outerPrior -Force | Out-Null
     $priorNativeConfig = Join-Path $outerPrior 'ProjectZomboid64.json'
-    $priorNativeJar = Join-Path $outerPrior 'SurvivorCompanionBridge.jar'
-    $priorNativeGameJar = Join-Path $outerPrior 'LivingFellowsBridge.jar'
+    $priorNativeJar = Join-Path $outerPrior 'stored-bridge.jar'
+    $priorNativeLegacyJar = Join-Path $outerPrior 'previous-stored-bridge.jar'
+    $priorNativeGameJar = Join-Path $outerPrior 'launcher-bridge.jar'
     $priorNativeManifest = Join-Path $outerPrior 'install-manifest.json'
     Copy-Item -LiteralPath $nativeConfigPath -Destination $priorNativeConfig
     $priorNativeJarExisted = Test-Path -LiteralPath $nativeJarPath -PathType Leaf
+    $priorNativeLegacyJarExisted = Test-Path -LiteralPath $nativeLegacyJarPath -PathType Leaf
     $priorNativeGameJarExisted = Test-Path -LiteralPath $nativeGameJarPath -PathType Leaf
     $priorNativeManifestExisted = Test-Path -LiteralPath $nativeManifestPath -PathType Leaf
     if ($priorNativeJarExisted) { Copy-Item -LiteralPath $nativeJarPath -Destination $priorNativeJar }
+    if ($priorNativeLegacyJarExisted) {
+        Copy-Item -LiteralPath $nativeLegacyJarPath -Destination $priorNativeLegacyJar
+    }
     if ($priorNativeGameJarExisted) {
         Copy-Item -LiteralPath $nativeGameJarPath -Destination $priorNativeGameJar
     }
@@ -327,6 +362,7 @@ try {
     }
     $priorNativeConfigHash = Get-InstallHash $priorNativeConfig
     $priorNativeJarHash = Get-InstallHash $priorNativeJar
+    $priorNativeLegacyJarHash = Get-InstallHash $priorNativeLegacyJar
     $priorNativeGameJarHash = Get-InstallHash $priorNativeGameJar
     $priorNativeManifestHash = Get-InstallHash $priorNativeManifest
     if (Test-Path -LiteralPath $effectiveConfigBackupRoot -PathType Container) {
@@ -338,7 +374,7 @@ try {
     & $nativeInstaller @nativeArguments | Out-Null
 
     if ($backup) {
-        Move-Item -LiteralPath $Target -Destination $backup
+        Move-Item -LiteralPath $priorTarget -Destination $backup
         Invoke-InstallFault 'old-mod-backup'
     }
     Move-Item -LiteralPath $stagedMod -Destination $Target
@@ -360,6 +396,7 @@ try {
     $committedManifest = Get-Content -LiteralPath $committedManifestPath -Raw -Encoding utf8 |
         ConvertFrom-Json
     if ([string]$committedManifest.owner -ne $Owner -or
+        (Get-LivingFellowsGenerationId $Target $committedManifest) -cne $LivingFellowsModId -or
         [string]$committedManifest.version -ne $installedVersion -or
         -not (Test-InstallSamePath ([string]$committedManifest.bridgeRoot) $BridgeRoot) -or
         [string]$committedManifest.bridgeSha256 -ne $selectedBridgeHash) {
@@ -395,7 +432,7 @@ try {
         @($actualNames | Where-Object { -not $expectedNames.Contains($_) }).Count -ne 0) {
         throw 'Installed file set differs from its ownership manifest.'
     }
-    $committedBridgeJar = Join-Path $Target '42\media\java\SurvivorCompanionBridge.jar'
+    $committedBridgeJar = Join-Path $Target '42\media\java\LivingFellowsBridge.jar'
     if ((Get-InstallHash $committedBridgeJar) -ne $selectedBridgeHash -or
         (Get-InstallHash $nativeJarPath) -ne $selectedBridgeHash -or
         (Get-InstallHash $nativeGameJarPath) -ne $selectedBridgeHash) {
@@ -403,7 +440,7 @@ try {
     }
     $committedNativeManifest = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 |
         ConvertFrom-Json
-    if ([string]$committedNativeManifest.owner -ne 'SurvivorCompanion.NativeBridge' -or
+    if ([string]$committedNativeManifest.owner -ne $LivingFellowsBridgeOwner -or
         -not (Test-InstallSamePath ([string]$committedNativeManifest.bridgeRoot) $BridgeRoot) -or
         -not (Test-InstallSamePath ([string]$committedNativeManifest.bridgeJar) $nativeJarPath) -or
         -not (Test-InstallSamePath ([string]$committedNativeManifest.launcherJar) $nativeGameJarPath) -or
@@ -415,6 +452,14 @@ try {
         throw 'Native bridge manifest/hash postcondition failed after local install.'
     }
     Invoke-InstallFault 'target-postcondition'
+    if ((Test-Path -LiteralPath $profilePath -PathType Leaf) -and
+        [regex]::IsMatch((Get-Content -LiteralPath $profilePath -Raw -Encoding utf8),
+            $LivingFellowsLegacyProfileEntry)) {
+        Copy-Item -LiteralPath $profilePath -Destination $priorProfile
+        $priorProfileHash = Get-InstallHash $priorProfile
+        $profileUpdated = Enable-LivingFellowsModProfile $profilePath
+        Invoke-InstallFault 'profile-migration'
+    }
     $installed = $true
 }
 catch {
@@ -427,14 +472,23 @@ catch {
                 if (Test-Path -LiteralPath $Target) {
                     Remove-Item -LiteralPath $Target -Recurse -Force
                 }
-                Move-Item -LiteralPath $backup -Destination $Target
-            } elseif (-not (Test-Path -LiteralPath $Target -PathType Container)) {
+                Move-Item -LiteralPath $backup -Destination $priorTarget
+            } elseif (-not (Test-Path -LiteralPath $priorTarget -PathType Container)) {
                 throw 'original managed mod and its transaction backup are both missing'
             }
         } elseif (Test-Path -LiteralPath $Target) {
             Remove-Item -LiteralPath $Target -Recurse -Force
         }
     } catch { $rollbackFailures += "mod restore: $($_.Exception.Message)" }
+
+    if ($priorProfileHash) {
+        try {
+            Copy-Item -LiteralPath $priorProfile -Destination $profilePath -Force
+            if ((Get-InstallHash $profilePath) -ne $priorProfileHash) {
+                throw 'Restored profile hash differs from the pre-install profile.'
+            }
+        } catch { $rollbackFailures += "default mod profile: $($_.Exception.Message)" }
+    }
 
     if ($nativeSnapshotReady) {
         try { Copy-Item -LiteralPath $priorNativeConfig -Destination $nativeConfigPath -Force }
@@ -446,6 +500,13 @@ catch {
                 Remove-Item -LiteralPath $nativeJarPath -Force
             }
         } catch { $rollbackFailures += "bridge JAR restore: $($_.Exception.Message)" }
+        try {
+            if ($priorNativeLegacyJarExisted) {
+                Copy-Item -LiteralPath $priorNativeLegacyJar -Destination $nativeLegacyJarPath -Force
+            } elseif (Test-Path -LiteralPath $nativeLegacyJarPath) {
+                Remove-Item -LiteralPath $nativeLegacyJarPath -Force
+            }
+        } catch { $rollbackFailures += "previous bridge JAR restore: $($_.Exception.Message)" }
         try {
             if ($priorNativeGameJarExisted) {
                 Copy-Item -LiteralPath $priorNativeGameJar -Destination $nativeGameJarPath -Force
@@ -474,6 +535,10 @@ catch {
         if ($priorNativeJarExisted -ne (Test-Path -LiteralPath $nativeJarPath -PathType Leaf) -or
             ($priorNativeJarExisted -and (Get-InstallHash $nativeJarPath) -ne $priorNativeJarHash)) {
             $rollbackFailures += 'bridge JAR rollback presence/hash mismatch'
+        }
+        if ($priorNativeLegacyJarExisted -ne (Test-Path -LiteralPath $nativeLegacyJarPath -PathType Leaf) -or
+            ($priorNativeLegacyJarExisted -and (Get-InstallHash $nativeLegacyJarPath) -ne $priorNativeLegacyJarHash)) {
+            $rollbackFailures += 'previous bridge JAR rollback presence/hash mismatch'
         }
         if ($priorNativeGameJarExisted -ne
             (Test-Path -LiteralPath $nativeGameJarPath -PathType Leaf) -or
@@ -514,11 +579,9 @@ finally {
     }
 }
 
-$profilePath = Join-Path $ModsRoot 'default.txt'
-$profileUpdated = $false
 $profileActivationFailed = $false
 try {
-    $profileUpdated = Enable-LivingFellowsModProfile $profilePath
+    if (-not $profileUpdated) { $profileUpdated = Enable-LivingFellowsModProfile $profilePath }
 } catch {
     $profileActivationFailed = $true
     Write-Warning ("Living Fellows installed, but the default Project Zomboid mod profile " +

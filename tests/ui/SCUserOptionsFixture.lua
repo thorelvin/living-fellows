@@ -2,9 +2,9 @@
 
 -- Run the game's real PZAPI.ModOptions implementation against an in-memory
 -- ModOptions.ini so the adapter is tested without touching the player's file.
-SurvivorCompanion = { Gestures = { nativeOptionApplies = 0 } }
-function SurvivorCompanion.Gestures.applyNativeOptions()
-    local gestures = SurvivorCompanion.Gestures
+LivingFellows = { Gestures = { nativeOptionApplies = 0 } }
+function LivingFellows.Gestures.applyNativeOptions()
+    local gestures = LivingFellows.Gestures
     gestures.nativeOptionApplies = gestures.nativeOptionApplies + 1
     return true
 end
@@ -29,12 +29,18 @@ end
 function getText(key) return key end
 
 local diskLines = {
-    "combobox|SurvivorCompanion|chatter|3",
-    "combobox|SurvivorCompanion|coughSneezes|2",
-    "tickbox|SurvivorCompanion|ordinaryColds|false",
-    "tickbox|SurvivorCompanion|protectRecruitedCompanions|true",
-    "tickbox|SurvivorCompanion|banditsCompatibility|false",
-    "tickbox|SurvivorCompanion|alifeCompatibility|false",
+    "combobox|LivingFellows|chatter|3",
+    "combobox|LivingFellows|coughSneezes|2",
+    "tickbox|LivingFellows|ordinaryColds|false",
+    "tickbox|LivingFellows|protectRecruitedCompanions|true",
+    "tickbox|LivingFellows|banditsCompatibility|false",
+    "tickbox|LivingFellows|alifeCompatibility|false",
+    "combobox|SurvivorCompanion|chatter|2",
+    "combobox|SurvivorCompanion|terminalLamp|2",
+    "combobox|SurvivorCompanion|speechColors|99",
+    "tickbox|SurvivorCompanion|alifeCompatibility|true",
+    "tickbox|SurvivorCompanion|pzOptimizerCompatibility|false",
+    "tickbox|AnotherMod|enabled|false",
 }
 
 function getFileReader(name)

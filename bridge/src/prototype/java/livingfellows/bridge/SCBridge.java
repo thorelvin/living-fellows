@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-package survivorcompanion.bridge;
+package livingfellows.bridge;
 
 import zombie.characters.IsoSurvivor;
 import zombie.characters.SurvivorDesc;
@@ -62,7 +62,7 @@ public final class SCBridge {
             return "requires Project Zomboid " + REQUIRED_GAME_VERSION + "; detected " + detected;
         }
         if (multiplayer) {
-            return "Living Fellows: Companion is single-player only";
+            return "Living Fellows is single-player only";
         }
         return "";
     }

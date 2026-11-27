@@ -2,7 +2,9 @@
 
 # Project A-Life compatibility
 
-Living Fellows includes an optional adapter for [Project A-Life](https://steamcommunity.com/sharedfiles/filedetails/?id=3803984183) **1.4.6**, on **Project Zomboid 42.21.0 single-player**. It activates when both mods are enabled and the required interfaces are ready. Neither mod is installed or enabled automatically.
+Living Fellows includes an optional adapter for Project A-Life. It activates when both mods are enabled and the required Interop v1 interfaces are ready. The adapter was tested with A-Life **1.5.4** on **Project Zomboid 42.22.2 single-player**, following earlier coverage of A-Life **1.4.6** on **42.21.0**. [Project A-Life](https://steamcommunity.com/sharedfiles/filedetails/?id=3803984183) · [Validation record](validation-project-alife.md)
+
+The Workshop published A-Life **1.5.4** for Build 42.22 on November 25, 2026. A live test on 42.22.2 confirmed reciprocal pistol combat with a recruited companion, and a separate cold reload restored both mods’ actors and the LF inventory. Focused source checks cover perception, combat wounds and defending another LF person. **More → Support** reports whether the running interfaces are ready. [Workshop change notes](https://steamcommunity.com/sharedfiles/filedetails/changelog/3803984183) · [Validation record](validation-project-alife.md)
 
 Companions, camp residents, households and Strange Folk can recognize A-Life people and participate in two-way combat. Friendly and neutral people are protected in firing lanes. LF keeps its combat orders, Hold Fire, wound treatment, retreat and household territory limits. Regular zombies remain a separate threat.
 
