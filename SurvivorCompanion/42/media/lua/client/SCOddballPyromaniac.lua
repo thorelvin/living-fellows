@@ -386,4 +386,15 @@ function Pyro.pulseRecruited(group, actor, player, current)
     return true, "depressed_survivor"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballPyromaniac.saveRules = {
+    validate = function(story, path, kit)
+        return kit.positions(story.site.fuelPosts, path .. ".site.fuelPosts", 2, 6, {
+            duplicate = "duplicate fuel post",
+            seen = { [kit.positionKey(story.site.spawn)] = true },
+        })
+    end,
+}
+
 return Pyro

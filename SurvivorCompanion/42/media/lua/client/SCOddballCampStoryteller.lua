@@ -411,4 +411,8 @@ function Camp.action(group, action, player)
     return false, "storyteller_choice_unavailable"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballCampStoryteller.saveRules = { siteKind = "forest_camp" }
+
 return Camp

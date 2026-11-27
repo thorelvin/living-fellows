@@ -310,6 +310,18 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCAllegiance` is the pure, direction-sensitive relationship policy for party,
   faction, neutral, and hostile actors. `SCFactions` alone resolves mutable
   registry/group facts and retains the public relationship facade.
+- `SCFactions.validGroup` restores each faction group with the checks every
+  Strange Folk story shares: header, site anchor and spawn, optional positions,
+  captives, member posts, the animal ledger and mail targets. What only one
+  encounter saves is checked by that encounter's module, which publishes
+  `saveRules` (`siteKind`, `claims`, `validate(story, storyPath, kit)`);
+  `SC.Oddballs.saveRules` finds it through the encounter's definition. The kit
+  lends the restore's own failure, position, list and opening helpers, so
+  paths and wording stay the restore's. A site field one module claims is
+  refused on any other story, and a check that throws refuses the restore. A
+  story whose module is not loaded gets only the shared checks. A new
+  encounter that saves fields of its own adds rules to its own module, not to
+  `SCFactions`.
 - `SCThreatSet` owns bounded threat de-duplication, emergency-first retention,
   deterministic ranking, posture/fence subsets, and overflow accounting.
   `SCPerceptionScan` owns the cached horizontal/vertical frontier, persistent

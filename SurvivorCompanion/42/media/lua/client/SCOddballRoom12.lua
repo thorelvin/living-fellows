@@ -403,4 +403,16 @@ function Room12.action(group, action, player)
     return false, "unsupported_room12_action"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballRoom12.saveRules = {
+    validate = function(story, path, kit)
+        local okay, reason = kit.opening(story.site.partyDoor, path .. ".site.partyDoor",
+            "door", "wrong party opening kind")
+        if not okay then return false, reason end
+        return kit.opening(story.site.partyWindow, path .. ".site.partyWindow",
+            "window", "wrong party opening kind")
+    end,
+}
+
 return Room12

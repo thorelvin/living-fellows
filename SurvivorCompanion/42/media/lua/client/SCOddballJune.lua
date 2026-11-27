@@ -549,4 +549,13 @@ function June.action(group, action, player, payload)
     return false, "unsupported_june_action"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballJune.saveRules = {
+    claims = { animalSpawns = true },
+    validate = function(story, path, kit)
+        return kit.animalPosts(story, path, 10)
+    end,
+}
+
 return June

@@ -405,4 +405,13 @@ function Chris.action(group, action, player)
     return false, "chris_choice_unavailable"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballBigChris.saveRules = {
+    claims = { animalSpawns = true },
+    validate = function(story, path, kit)
+        return kit.animalPosts(story, path, 1)
+    end,
+}
+
 return Chris

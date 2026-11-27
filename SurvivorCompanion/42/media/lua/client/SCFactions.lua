@@ -3939,6 +3939,87 @@ local function validRecordArray(value, path, maximum)
     return true, countOrReason
 end
 
+-- Helpers handed to an encounter module's own save checks
+-- (SC.Oddballs.saveRules), so they report with this restore's wording.
+local saveKit = {
+    fail = restoreFailure,
+    finite = finiteNumber,
+    denseArray = denseArray,
+    position = validPosition,
+    positionKey = function(position) return spawnPositionKey(position) end,
+}
+
+-- A dense list of minimum..maximum positions. options.object requires saved
+-- object indexes; options.accept(position, positionPath) adds the encounter's
+-- own test; options.duplicate names a repeated position, and options.seen
+-- holds keys that are already taken.
+function saveKit.positions(list, listPath, minimum, maximum, options)
+    options = options or {}
+    local okay, count = denseArray(list, listPath, minimum, maximum)
+    if not okay then return false, count end
+    local seen = options.seen or {}
+    for index = 1, count do
+        local position = list[index]
+        local positionPath = listPath .. "[" .. tostring(index) .. "]"
+        local valid, reason = validPosition(position, positionPath, options.object == true)
+        if not valid then return false, reason end
+        if options.accept then
+            valid, reason = options.accept(position, positionPath)
+            if not valid then return false, reason end
+        end
+        if options.duplicate then
+            local key = spawnPositionKey(position)
+            if seen[key] then return restoreFailure(positionPath, options.duplicate) end
+            seen[key] = true
+        end
+    end
+    return true, count
+end
+
+-- A door or window saved with its object index and the expected kind.
+function saveKit.opening(value, openingPath, kind, detail)
+    local valid, reason = validPosition(value, openingPath, true)
+    if not valid then return false, reason end
+    if value.kind ~= kind then return restoreFailure(openingPath .. ".kind", detail) end
+    return true
+end
+
+-- An animal encounter's exact number of distinct posts on one floor.
+function saveKit.animalPosts(story, storyPath, count, floor)
+    floor = floor or 0
+    return saveKit.positions(story.site.animalSpawns, storyPath .. ".site.animalSpawns",
+        count, count, {
+            duplicate = "duplicate animal position",
+            accept = function(position, positionPath)
+                if position.z ~= floor then
+                    return restoreFailure(positionPath .. ".z", "animal post on wrong floor")
+                end
+                return true
+            end,
+        })
+end
+
+-- The encounter's own checks. A module that throws is a failed check, never
+-- an error out of the restore.
+local function encounterSaveValid(rules, story, path)
+    local storyPath = path .. ".oddball"
+    for field in pairs(SC.Oddballs.claimedSiteFields()) do
+        if story.site[field] ~= nil
+            and not (type(rules.claims) == "table" and rules.claims[field] == true) then
+            return restoreFailure(storyPath .. ".site." .. field, "kept by another encounter")
+        end
+    end
+    if type(rules.validate) ~= "function" then return true end
+    local called, valid, reason = pcall(rules.validate, story, storyPath, saveKit)
+    if not called then
+        return restoreFailure(storyPath, "encounter check failed: " .. tostring(valid))
+    end
+    if valid ~= true then
+        return false, reason or select(2, restoreFailure(storyPath, "encounter check failed"))
+    end
+    return true
+end
+
 local function validGroup(source, id, path)
     path = path or ("$.factions.groups[" .. tostring(id) .. "]")
     if type(source) ~= "table" or source.id ~= id
@@ -3969,18 +4050,14 @@ local function validGroup(source, id, path)
                 and type(story.roomGuardDone) ~= "boolean") then
             return restoreFailure(path .. ".oddball", "invalid odd encounter state")
         end
+        -- What only one encounter saves is checked by that encounter's module.
+        -- A story whose module is not loaded gets only the checks every
+        -- encounter shares, including a resident or roamer site.
+        local rules = SC.Oddballs and type(SC.Oddballs.saveRules) == "function"
+            and SC.Oddballs.saveRules(story.id) or nil
         local kind = story.site.kind
-        if kind == "family_pyre" and story.id == "family_pyre_caleb_hensley" then
-            local posts = story.site.familySpawns
-            local postsPath = path .. ".oddball.site.familySpawns"
-            local okay, reason = denseArray(posts, postsPath, 3, 3)
-            if not okay then return false, reason end
-            for index, post in ipairs(posts) do
-                okay, reason = validPosition(post, postsPath .. "[" .. index .. "]", false)
-                if not okay then return false, reason end
-            end
-        elseif kind ~= "resident" and kind ~= "roamer"
-            and not (kind == "forest_camp" and story.id == "survivalist05_mid_storyteller") then
+        if kind ~= "resident" and kind ~= "roamer"
+            and not (rules and rules.siteKind ~= nil and rules.siteKind == kind) then
             return restoreFailure(path .. ".oddball.site.kind", "invalid site kind for " .. story.id)
         end
         if story.roomGuardElapsedMs ~= nil
@@ -4004,184 +4081,15 @@ local function validGroup(source, id, path)
                 if not siteOkay then return false, siteReason end
             end
         end
-        if story.id == "party_room12_delbert" then
-            for _, field in ipairs({ "partyDoor", "partyWindow" }) do
-                local opening = story.site[field]
-                siteOkay, siteReason = validPosition(opening,
-                    path .. ".oddball.site." .. field, true)
-                if not siteOkay then return false, siteReason end
-                if opening.kind ~= (field == "partyDoor" and "door" or "window") then
-                    return restoreFailure(path .. ".oddball.site." .. field .. ".kind",
-                        "wrong party opening kind")
-                end
-            end
-        end
-        if story.id == "survivalist_locked_horde" then
-            siteOkay, siteReason = validPosition(story.site.sealedRoom,
-                path .. ".oddball.site.sealedRoom", false)
-            if not siteOkay then return false, siteReason end
-            siteOkay, siteReason = validPosition(story.site.roomDoor,
-                path .. ".oddball.site.roomDoor", true)
-            if not siteOkay then return false, siteReason end
-            if story.site.roomDoor.kind ~= "door" then
-                return restoreFailure(path .. ".oddball.site.roomDoor.kind",
-                    "expected door")
-            end
-            -- Early 0.26.38 saves may lack the list because its copy budget
-            -- was too small. Caleb rebuilds it from the loaded sealed room.
-            if story.site.hordeSpawns ~= nil then
-                local positions, count = denseArray(story.site.hordeSpawns,
-                    path .. ".oddball.site.hordeSpawns", 4, 28)
-                if not positions then return false, count end
-                local seenPosts = {}
-                for index = 1, count do
-                    local post = story.site.hordeSpawns[index]
-                    local postPath = path .. ".oddball.site.hordeSpawns["
-                        .. tostring(index) .. "]"
-                    siteOkay, siteReason = validPosition(post, postPath, false)
-                    if not siteOkay then return false, siteReason end
-                    local key = spawnPositionKey(post)
-                    if seenPosts[key] then
-                        return restoreFailure(postPath, "duplicate horde post")
-                    end
-                    seenPosts[key] = true
-                end
-            end
-            if story.hordeCount ~= nil and (not finiteNumber(story.hordeCount)
-                or story.hordeCount < 0 or story.hordeCount > 20) then
-                return restoreFailure(path .. ".oddball.hordeCount",
-                    "expected 0..20 zombies")
-            end
-        elseif story.id == "voice_actor_vera_quill" then
-            siteOkay, siteReason = validPosition(story.site.bedroomDoor,
-                path .. ".oddball.site.bedroomDoor", true)
-            if not siteOkay then return false, siteReason end
-        elseif story.id == "garage_rescue_eli_rourke"
-            or story.id == "radio_rescue_nate_duvall" then
-            siteOkay, siteReason = validPosition(story.site.rescueDoor,
-                path .. ".oddball.site.rescueDoor", true)
-            if not siteOkay then return false, siteReason end
-            if story.site.rescueDoor.kind ~= "door" then
-                return restoreFailure(path .. ".oddball.site.rescueDoor.kind",
-                    "expected rescue door")
-            end
-        elseif story.id == "pyromaniac_earl_kessler" then
-            local posts, count = denseArray(story.site.fuelPosts,
-                path .. ".oddball.site.fuelPosts", 2, 6)
-            if not posts then return false, count end
-            local seen = { [spawnPositionKey(story.site.spawn)] = true }
-            for index = 1, count do
-                local post = story.site.fuelPosts[index]
-                local postPath = path .. ".oddball.site.fuelPosts["
-                    .. tostring(index) .. "]"
-                siteOkay, siteReason = validPosition(post, postPath, false)
-                if not siteOkay then return false, siteReason end
-                local key = spawnPositionKey(post)
-                if seen[key] then
-                    return restoreFailure(postPath, "duplicate fuel post")
-                end
-                seen[key] = true
-            end
+        if rules then
+            local encounterOkay, encounterReason = encounterSaveValid(rules, story, path)
+            if not encounterOkay then return false, encounterReason end
         end
         if story.site.coop ~= nil
             and story.site.coop.enclosed ~= nil
             and type(story.site.coop.enclosed) ~= "boolean" then
             return restoreFailure(path .. ".oddball.site.coop.enclosed",
                 "expected boolean")
-        end
-        local animalCounts = {
-            ranger_june_whitlock = 10,
-            crabtree_sheep_farm = 6,
-            jedediah_cattle_drive = 4,
-            gideon_mister_buttons = 1,
-            renfro_rat_king = 8,
-            tommy_two_lengths = 1,
-            big_chris_rascal = 1,
-        }
-        local animalCount = animalCounts[story.id]
-        if story.site.animalSpawns ~= nil then
-            if animalCount == nil then
-                return restoreFailure(path .. ".oddball.site.animalSpawns",
-                    "animal posts outside animal encounter")
-            end
-            local positions, count = denseArray(story.site.animalSpawns,
-                path .. ".oddball.site.animalSpawns", animalCount, animalCount)
-            if not positions then return false, count end
-            local seenAnimals = {}
-            for index = 1, count do
-                local position = story.site.animalSpawns[index]
-                local positionPath = path .. ".oddball.site.animalSpawns["
-                    .. tostring(index) .. "]"
-                siteOkay, siteReason = validPosition(position, positionPath, false)
-                if not siteOkay then return false, siteReason end
-                local expectedFloor = story.id == "renfro_rat_king"
-                    and story.site.spawn.z or 0
-                if position.z ~= expectedFloor then
-                    return restoreFailure(positionPath .. ".z",
-                        "animal post on wrong floor")
-                end
-                local key = spawnPositionKey(position)
-                if seenAnimals[key] then
-                    return restoreFailure(positionPath, "duplicate animal position")
-                end
-                seenAnimals[key] = true
-            end
-        end
-        if story.id == "milli_tea_and_trouble" then
-            local positions, count = denseArray(story.site.petSpawns,
-                path .. ".oddball.site.petSpawns", 2, 2)
-            if not positions then return false, count end
-            local bounds = story.site.house and story.site.house.bounds
-            local function inHouse(position)
-                return type(bounds) == "table"
-                    and finiteNumber(bounds.x1) and finiteNumber(bounds.x2)
-                    and finiteNumber(bounds.y1) and finiteNumber(bounds.y2)
-                    and position.x >= bounds.x1 and position.x <= bounds.x2
-                    and position.y >= bounds.y1 and position.y <= bounds.y2
-            end
-            local seenPets = { [spawnPositionKey(story.site.spawn)] = true }
-            for index = 1, count do
-                local position = story.site.petSpawns[index]
-                local positionPath = path .. ".oddball.site.petSpawns["
-                    .. tostring(index) .. "]"
-                siteOkay, siteReason = validPosition(position, positionPath, false)
-                if not siteOkay then return false, siteReason end
-                local key = spawnPositionKey(position)
-                if seenPets[key] or not inHouse(position)
-                    or (position.z or 0) ~= (story.site.spawn.z or 0) then
-                    return restoreFailure(positionPath,
-                        "pet post outside bedroom floor or duplicated")
-                end
-                seenPets[key] = true
-            end
-            local toys, toyCount = denseArray(story.site.toySpawns,
-                path .. ".oddball.site.toySpawns", 3, 32)
-            if not toys then return false, toyCount end
-            local seenToys = {}
-            for index = 1, toyCount do
-                local position = story.site.toySpawns[index]
-                local positionPath = path .. ".oddball.site.toySpawns["
-                    .. tostring(index) .. "]"
-                siteOkay, siteReason = validPosition(position, positionPath, false)
-                if not siteOkay then return false, siteReason end
-                local key = spawnPositionKey(position)
-                if seenToys[key] or not inHouse(position)
-                    or (position.z or 0) ~= (story.site.spawn.z or 0) then
-                    return restoreFailure(positionPath,
-                        "toy post outside bedroom floor or duplicated")
-                end
-                seenToys[key] = true
-            end
-        elseif story.site.petSpawns ~= nil then
-            return restoreFailure(path .. ".oddball.site.petSpawns",
-                "pet posts outside Milli encounter")
-        elseif story.site.toySpawns ~= nil then
-            return restoreFailure(path .. ".oddball.site.toySpawns",
-                "toy posts outside Milli encounter")
-        end
-        if animalCount ~= nil and story.site.animalSpawns == nil then
-            return restoreFailure(path .. ".oddball.site.animalSpawns",
-                "animal encounter needs its spawn posts")
         end
         if story.animals ~= nil then
             if type(story.animals) ~= "table"
@@ -4262,11 +4170,6 @@ local function validGroup(source, id, path)
                     path .. ".oddball.site." .. field, false)
                 if not siteOkay then return false, siteReason end
             end
-        end
-        if story.id == "sniper_purdy_clan" and (not story.site.tradePost
-            or tonumber(story.site.tradePost.z) ~= 0) then
-            return restoreFailure(path .. ".oddball.site.tradePost",
-                "Purdy trade post must be on the ground floor")
         end
         if story.site.mailTargets ~= nil then
             local targets, targetCount = denseArray(story.site.mailTargets,

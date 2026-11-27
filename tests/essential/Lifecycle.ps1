@@ -114,6 +114,8 @@ $lifecycleArrivalFiles += @('SCNamespace.lua', 'SCSpeechColors.lua', 'SCCall.lua
     (Join-Path $Client 'SCPersistence.lua'),
     (Join-Path $Core 'persistence_medical_xp_harness.lua')) }
 @{ Name = 'resident-wake-restoration'; Files = @(Get-ScGameplayFiles) + @(
+    (Join-Path $Client 'SCOddballs.lua'),
+    (Join-Path $Client 'SCOddballCaleb.lua'),
     (Join-Path $Gameplay 'faction_restore_harness.lua')) }
 @{ Name = 'taxi-driver-restore'; Files = @(
     (Join-Path $Shared 'SCNamespace.lua'), (Join-Path $Client 'SCTaxiService.lua'),

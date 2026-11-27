@@ -615,4 +615,16 @@ function Purdy.action(group, action, player, payload)
     return false, "unsupported_purdy_action"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballPurdy.saveRules = {
+    validate = function(story, path, kit)
+        if not story.site.tradePost or tonumber(story.site.tradePost.z) ~= 0 then
+            return kit.fail(path .. ".site.tradePost",
+                "Purdy trade post must be on the ground floor")
+        end
+        return true
+    end,
+}
+
 return Purdy

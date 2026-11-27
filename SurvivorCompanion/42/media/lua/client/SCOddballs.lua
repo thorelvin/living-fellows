@@ -3355,6 +3355,33 @@ end
 function Oddballs.definition(id)
     return byId[id]
 end
+
+-- The saved-story rules an encounter's module publishes as `saveRules`, or
+-- nil when the module is not loaded. The faction restore keeps the checks
+-- every encounter shares; a module adds only what its own story saves:
+--   siteKind  a site kind other than resident or roamer
+--   claims    site fields no other encounter's story may carry
+--   validate  function(story, storyPath, kit) -> true | false, reason
+function Oddballs.saveRules(id)
+    local definition = byId[id]
+    local module = definition and SC[definition.module] or nil
+    local rules = type(module) == "table" and module.saveRules or nil
+    return type(rules) == "table" and rules or nil
+end
+
+-- Every site field that a loaded encounter claims for its own story.
+function Oddballs.claimedSiteFields()
+    local result = {}
+    for _, definition in ipairs(definitions) do
+        local rules = Oddballs.saveRules(definition.id)
+        if rules and type(rules.claims) == "table" then
+            for field, claimed in pairs(rules.claims) do
+                if claimed == true then result[field] = true end
+            end
+        end
+    end
+    return result
+end
 -- Read-only availability for the terminal's finite Recovery Log target. A
 -- not-yet-created encounter still exists in the county's remaining cast.
 function Oddballs.hasUnseededRecruitable()
@@ -3978,7 +4005,8 @@ local function ambientCooldown(currentDay)
 end
 
 local function ambientSiteFor(square, player, definition, name, building, visitedBuildings)
-    if definition.kind == "family_pyre" and SC.OddballCaleb then
+    if definition.kind == "family_pyre" and SC.OddballCaleb
+        and type(SC.OddballCaleb.siteFor) == "function" then
         return SC.OddballCaleb.siteFor(square, player, false)
     elseif definition.kind == "patrol" then
         return siteForDefenseLeague(square, player)
@@ -4334,7 +4362,8 @@ function Oddballs.debugSpawnRandom(player)
                         and state.seeded[definition.id] == nil
                         and state.retired[definition.id] == nil then
                         local site
-                        if definition.kind == "family_pyre" and SC.OddballCaleb then
+                        if definition.kind == "family_pyre" and SC.OddballCaleb
+                            and type(SC.OddballCaleb.siteFor) == "function" then
                             site = SC.OddballCaleb.siteFor(square, player, true)
                         elseif definition.kind == "patrol" then
                             site = siteForDefenseLeague(square, player, true)

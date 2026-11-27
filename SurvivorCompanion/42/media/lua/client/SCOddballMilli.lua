@@ -1125,4 +1125,39 @@ function Milli.pulseRecruited(group, actor, player, current)
     return true, "milli_babies_follow"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballMilli.saveRules = {
+    claims = { petSpawns = true, toySpawns = true },
+    validate = function(story, path, kit)
+        local site = story.site
+        local bounds = site.house and site.house.bounds
+        local floor = site.spawn.z or 0
+        -- Pets and toys stay on the bedroom floor inside the house.
+        local function onBedroomFloor(detail)
+            return function(position, positionPath)
+                if type(bounds) == "table"
+                    and kit.finite(bounds.x1) and kit.finite(bounds.x2)
+                    and kit.finite(bounds.y1) and kit.finite(bounds.y2)
+                    and position.x >= bounds.x1 and position.x <= bounds.x2
+                    and position.y >= bounds.y1 and position.y <= bounds.y2
+                    and (position.z or 0) == floor then
+                    return true
+                end
+                return kit.fail(positionPath, detail)
+            end
+        end
+        local pets = "pet post outside bedroom floor or duplicated"
+        local okay, reason = kit.positions(site.petSpawns, path .. ".site.petSpawns", 2, 2, {
+            accept = onBedroomFloor(pets), duplicate = pets,
+            seen = { [kit.positionKey(site.spawn)] = true },
+        })
+        if not okay then return false, reason end
+        local toys = "toy post outside bedroom floor or duplicated"
+        return kit.positions(site.toySpawns, path .. ".site.toySpawns", 3, 32, {
+            accept = onBedroomFloor(toys), duplicate = toys,
+        })
+    end,
+}
+
 return Milli

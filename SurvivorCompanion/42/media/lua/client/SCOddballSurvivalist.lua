@@ -328,4 +328,28 @@ function Survivalist.canRecruit()
     return false, "survivalist_guards_his_secret"
 end
 
+-- Saved-story checks the faction restore runs for this encounter only
+-- (SC.Oddballs.saveRules); paths and wording match the restore's own.
+SC.OddballSurvivalist.saveRules = {
+    validate = function(story, path, kit)
+        local site = story.site
+        local okay, reason = kit.position(site.sealedRoom, path .. ".site.sealedRoom", false)
+        if not okay then return false, reason end
+        okay, reason = kit.opening(site.roomDoor, path .. ".site.roomDoor", "door", "expected door")
+        if not okay then return false, reason end
+        -- Early 0.26.38 saves may lack the list because its copy budget was
+        -- too small. The encounter rebuilds it from the loaded sealed room.
+        if site.hordeSpawns ~= nil then
+            okay, reason = kit.positions(site.hordeSpawns, path .. ".site.hordeSpawns", 4, 28,
+                { duplicate = "duplicate horde post" })
+            if not okay then return false, reason end
+        end
+        if story.hordeCount ~= nil and (not kit.finite(story.hordeCount)
+            or story.hordeCount < 0 or story.hordeCount > 20) then
+            return kit.fail(path .. ".hordeCount", "expected 0..20 zombies")
+        end
+        return true
+    end,
+}
+
 return Survivalist

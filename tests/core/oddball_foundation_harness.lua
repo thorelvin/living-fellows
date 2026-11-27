@@ -1126,6 +1126,77 @@ for _, case in ipairs({
 end
 check(SC.Factions.restore(pyroSave) == true,
     "the original scene remains restorable after animal schema checks")
+-- Each encounter's own save checks come from its module's saveRules.
+;(function()
+    local claimed = SC.StableValue.copyStrict(pyroSave,
+        { maxDepth = 16, maxEntries = 131072 })
+    claimed.groups[pyroGroup.id].oddball.site.petSpawns = {
+        { x = 1, y = 1, z = 0 }, { x = 2, y = 1, z = 0 } }
+    local accepted, reason = SC.Factions.restore(claimed)
+    check(accepted == false and string.find(tostring(reason),
+        "site.petSpawns: kept by another encounter", 1, true) ~= nil,
+        "Milli's pet posts are refused on another encounter's story: " .. tostring(reason))
+    local rules = SC.OddballPyromaniac.saveRules
+    SC.OddballPyromaniac.saveRules = nil
+    check(SC.Factions.restore(duplicateFuelSave) == true,
+        "without the pyromaniac's own checks only the shared checks run")
+    SC.OddballPyromaniac.saveRules = {
+        validate = function() error("broken encounter check") end }
+    local called, restored, why = pcall(SC.Factions.restore, pyroSave)
+    check(called and restored == false
+        and string.find(tostring(why), "encounter check failed", 1, true) ~= nil,
+        "an encounter check that throws refuses the restore: " .. tostring(why))
+    SC.OddballPyromaniac.saveRules = rules
+    check(SC.Factions.restore(pyroSave) == true,
+        "the scene restores again once its own checks are back")
+    -- Encounters with no other restore case here, each with its own field.
+    local function sceneAs(id, edit)
+        local saved = SC.StableValue.copyStrict(pyroSave,
+            { maxDepth = 16, maxEntries = 131072 })
+        local scene = saved.groups[pyroGroup.id].oddball
+        scene.id = id
+        scene.site.fuelPosts = nil
+        edit(scene, scene.site.spawn)
+        return saved
+    end
+    local function door(kind) return { x = 5, y = 5, z = 0, objectIndex = 0, kind = kind } end
+    for _, id in ipairs({ "garage_rescue_eli_rourke", "radio_rescue_nate_duvall" }) do
+        check(SC.Factions.restore(sceneAs(id, function(scene)
+            scene.site.rescueDoor = door("door") end)) == true,
+            id .. " restores with its rescue door")
+        check(SC.Factions.restore(sceneAs(id, function(scene)
+            scene.site.rescueDoor = door("window") end)) == false,
+            id .. " refuses a rescue door that is a window")
+        check(SC.Factions.restore(sceneAs(id, function() end)) == false,
+            id .. " refuses a save without its rescue door")
+    end
+    check(SC.Factions.restore(sceneAs("sniper_purdy_clan", function(scene)
+        scene.site.tradePost = { x = 5, y = 6, z = 0 } end)) == true,
+        "the Purdys restore with their ground-floor trade post")
+    check(SC.Factions.restore(sceneAs("sniper_purdy_clan", function(scene)
+        scene.site.tradePost = { x = 5, y = 6, z = 1 } end)) == false,
+        "an upstairs Purdy trade post is refused")
+    local function milli(petFloorOffset)
+        return sceneAs("milli_tea_and_trouble", function(scene, spawn)
+            local floor = spawn.z or 0
+            scene.site.house = { bounds = { x1 = spawn.x - 5, x2 = spawn.x + 5,
+                y1 = spawn.y - 5, y2 = spawn.y + 5 } }
+            scene.site.petSpawns = {
+                { x = spawn.x + 1, y = spawn.y, z = floor + (petFloorOffset or 0) },
+                { x = spawn.x + 2, y = spawn.y, z = floor } }
+            scene.site.toySpawns = {
+                { x = spawn.x - 1, y = spawn.y, z = floor },
+                { x = spawn.x - 2, y = spawn.y, z = floor },
+                { x = spawn.x - 3, y = spawn.y, z = floor } }
+        end)
+    end
+    check(SC.Factions.restore(milli()) == true,
+        "Milli's pets and toys restore inside her bedroom floor")
+    check(SC.Factions.restore(milli(1)) == false,
+        "a pet post off Milli's bedroom floor is refused")
+    check(SC.Factions.restore(pyroSave) == true,
+        "the original scene restores after the per-encounter cases")
+end)()
 ;(function()
 local probeSite = {
     kind = "resident", room = "policelocker", anchor = pyroSite.anchor,
